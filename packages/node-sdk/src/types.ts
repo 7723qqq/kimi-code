@@ -1,4 +1,4 @@
-import type { HostUiCapability } from '@moonshot-ai/agent-core-v2';
+import type { HostUiCapability, ScopeSeed } from '@moonshot-ai/agent-core-v2';
 import type {
   ExportSessionManifest,
   ShellEnvironment,
@@ -157,9 +157,7 @@ export interface WorkspaceTrustInfo {
 }
 
 /**
- * File-suggestion query against a workspace root, no session required. Only
- * meaningful on the agent-core-v2 engine; the v1 engine has no equivalent
- * and reports `undefined`.
+ * File-suggestion query against a workspace root, no session required.
  */
 export interface SuggestFilesInput {
   readonly query: string;
@@ -212,6 +210,7 @@ export interface KimiHarnessOptions {
   readonly autoLoadConfig?: boolean | undefined;
   readonly uiMode?: string;
   readonly skillDirs?: readonly string[];
+  readonly serviceSeeds?: ScopeSeed;
   /**
    * UI surfaces this host can render, declared once per process and passed
    * into the engine through `BootstrapInput.args.uiCapabilities`. Engine

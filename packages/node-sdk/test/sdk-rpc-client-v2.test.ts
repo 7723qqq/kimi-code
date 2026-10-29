@@ -10,8 +10,9 @@
  */
 import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, win32 } from 'node:path';
 import { promisify } from 'node:util';
 
 import {
@@ -59,6 +60,7 @@ import {
   IAtomicDocumentStore,
   ISessionContext,
   IAgentTowerService,
+  IHostEnvironment,
   IHostRequestHeaders,
   IMcpManagementService,
   IMcpOAuthService,
@@ -77,22 +79,25 @@ import {
 } from '@moonshot-ai/agent-core-v2/app/kosongConfig/modelsDevUpstream';
 import { recordingTelemetry, type TelemetryRecord } from './telemetry';
 
-const hostEnvProbe = { failWithMissingShell: false };
-
-void mock.module('@moonshot-ai/agent-core-v2/_base/execEnv/environmentProbe', async () => {
-  const actual = await import('@moonshot-ai/agent-core-v2/_base/execEnv/environmentProbe');
+function rejectingHostEnvironment(): IHostEnvironment {
+  const ready = Promise.reject(
+    new HostProcessError(OsProcessErrors.codes.SHELL_GIT_BASH_NOT_FOUND, 'Git Bash missing (stubbed)', {
+      details: { candidates: ['C:\\Program Files\\Git\\bin\\bash.exe'] },
+    }),
+  );
+  ready.catch(() => undefined);
   return {
-    ...actual,
-    probeHostEnvironmentFromNode: () =>
-      hostEnvProbe.failWithMissingShell
-        ? Promise.reject(
-            new actual.ProbeShellNotFoundError('Git Bash missing (stubbed)', [
-              'C:\\Program Files\\Git\\bin\\bash.exe',
-            ]),
-          )
-        : actual.probeHostEnvironmentFromNode(),
+    _serviceBrand: undefined,
+    osKind: 'Windows',
+    osArch: 'x64',
+    osVersion: 'test',
+    shellName: 'bash',
+    shellPath: 'C:\\Program Files\\Git\\bin\\bash.exe',
+    pathClass: 'win32',
+    homeDir: tmpdir(),
+    ready,
   };
-});
+}
 
 const tempDirs: string[] = [];
 
@@ -116,6 +121,24 @@ function stubProcessPlatform(platform: NodeJS.Platform): () => void {
     }
   };
 }
+
+function hostForm(path: string, base: string): string {
+  return process.platform === 'win32' ? win32.resolve(base, path).replaceAll('\\', '/') : path;
+}
+
+const canSymlink = (() => {
+  try {
+    const dir = mkdtempSync(join(tmpdir(), 'kimi-symlink-probe-'));
+    try {
+      symlinkSync(join(dir, 'target'), join(dir, 'link'));
+      return true;
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  } catch {
+    return false;
+  }
+})();
 
 async function makeHarness(): Promise<{ harness: KimiHarness; homeDir: string }> {
   const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-'));
@@ -526,12 +549,15 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
   });
 
   it('surfaces a missing Git Bash probe failure during ensureConfigFile on Windows', async () => {
-    hostEnvProbe.failWithMissingShell = true;
     const restorePlatform = stubProcessPlatform('win32');
     try {
       const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-'));
       tempDirs.push(homeDir);
-      const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+      const harness = createKimiHarness({
+        homeDir,
+        identity: TEST_IDENTITY,
+        serviceSeeds: [[IHostEnvironment, rejectingHostEnvironment()]],
+      });
       try {
         await expect(harness.ensureConfigFile()).rejects.toBeInstanceOf(HostProcessError);
         await expect(harness.ensureConfigFile()).rejects.toMatchObject({
@@ -541,25 +567,26 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
         await harness.close();
       }
     } finally {
-      hostEnvProbe.failWithMissingShell = false;
       restorePlatform();
     }
   });
 
   it('does not block ensureConfigFile on the host environment probe on POSIX', async () => {
-    hostEnvProbe.failWithMissingShell = true;
     const restorePlatform = stubProcessPlatform('darwin');
     try {
       const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-'));
       tempDirs.push(homeDir);
-      const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+      const harness = createKimiHarness({
+        homeDir,
+        identity: TEST_IDENTITY,
+        serviceSeeds: [[IHostEnvironment, rejectingHostEnvironment()]],
+      });
       try {
         await expect(harness.ensureConfigFile()).resolves.toBeUndefined();
       } finally {
         await harness.close();
       }
     } finally {
-      hostEnvProbe.failWithMissingShell = false;
       restorePlatform();
     }
   });
@@ -1841,7 +1868,7 @@ describe('SDKRpcClientV2 workspace trust', () => {
           transport: 'stdio',
           command: 'root-cmd',
           args: ['--safe'],
-          cwd: '/tmp/root',
+          cwd: hostForm('/tmp/root', workDir),
           origin: await realpath(join(workDir, '.mcp.json')),
         },
       ]);
@@ -1888,8 +1915,7 @@ describe('SDKRpcClientV2 workspace trust', () => {
           name: 'github',
           transport: 'stdio',
           command: 'project-github',
-          args: undefined,
-          cwd: workDir,
+          cwd: hostForm(workDir, workDir),
           origin: await realpath(join(workDir, '.mcp.json')),
         },
         {
@@ -1904,7 +1930,9 @@ describe('SDKRpcClientV2 workspace trust', () => {
     }
   });
 
-  it('reports failed configuration and instruction sources while retaining readable instructions', async () => {
+  it.skipIf(!canSymlink)(
+    'reports failed configuration and instruction sources while retaining readable instructions',
+    async () => {
     const { harness } = await makeHarness();
     const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-work-'));
     tempDirs.push(workDir);
@@ -1933,7 +1961,9 @@ describe('SDKRpcClientV2 workspace trust', () => {
     }
   });
 
-  it('discloses additional directories and instruction sources of an untrusted workspace', async () => {
+  it.skipIf(!canSymlink)(
+    'discloses additional directories and instruction sources of an untrusted workspace',
+    async () => {
     const { harness } = await makeHarness();
     const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-work-'));
     const outsideDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-outside-'));
@@ -2006,7 +2036,9 @@ describe('SDKRpcClientV2 workspace trust', () => {
     }
   });
 
-  it('points to the scanned agent directory for an effective workspace profile', async () => {
+  it.skipIf(!canSymlink)(
+    'points to the scanned agent directory for an effective workspace profile',
+    async () => {
     const { harness } = await makeHarness();
     const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-work-'));
     const outsideDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-agent-source-'));
@@ -2107,7 +2139,7 @@ describe('foldAgentWireReplay', () => {
       '{"type":"metadata","protocol_version":"1.5","created_at":1}\n{not json\n{"type":"permission.set_mode","mode":"auto"}\n',
       'utf-8',
     );
-    await expect(foldAgentWireReplay(corrupt)).resolves.toEqual(empty);
+    await expect(foldAgentWireReplay(corrupt)).resolves.toEqual({ ...empty, userTurnCount: 0 });
     // A truncated TAIL line is tolerated: everything before it still folds.
     const truncatedTail = join(dir, 'truncated.jsonl');
     await writeFile(
