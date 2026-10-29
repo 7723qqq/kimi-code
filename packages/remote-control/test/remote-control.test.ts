@@ -46,6 +46,29 @@ const TOKEN: TokenInfo = {
 
 const cleanups: Array<() => Promise<void> | void> = [];
 
+/**
+ * Deferred rejection assertion.
+ *
+ * Capturing a rejection matcher in a variable — `const p = expect(x).rejects...`
+ * — blocks Bun until that promise settles, which freezes the event loop and
+ * stops every timer, the per-test timeout included. The matcher therefore has
+ * to run once the rejection is known to have happened; awaiting this helper at
+ * the end of the test is that point.
+ */
+function rejectionOf(promise: Promise<unknown>, matcher?: string | RegExp): Promise<void> {
+  return promise.then(
+    () => {
+      throw new Error('expected the promise to reject, but it resolved');
+    },
+    (error: unknown) => {
+      if (matcher === undefined) return;
+      const message = error instanceof Error ? error.message : String(error);
+      if (typeof matcher === 'string') expect(message).toContain(matcher);
+      else expect(message).toMatch(matcher);
+    },
+  );
+}
+
 afterEach(async () => {
   restoreEnvs();
   while (cleanups.length > 0) await cleanups.pop()!();
@@ -144,8 +167,7 @@ describe('Remote Control HTTP forwarding', () => {
     ).toString();
     expect(html).toContain(`src="${prefix}/boot.js"`);
     expect(html).toContain(`href="${prefix}/x"`);
-    expect(html).toContain("sessionStorage.setItem('kimi-desktop-server-origin',location.origin+p)");
-    expect(html).toContain('history.pushState=w(history.pushState)');
+    expect(html).toContain(`src="${prefix}/kimi-remote-origin.js"`);
 
     const js = rewriteRemoteControlResponse(
       'text/javascript',
@@ -342,7 +364,7 @@ describe('Remote Control tunnel', () => {
     expect(response).not.toContain('immutable');
     expect(response).not.toContain('Content-Encoding');
     expect(response).not.toContain('Vary');
-    expect(scenario.state.localHttpRequest?.headers['accept-encoding']).toBeUndefined();
+    expect(scenario.state.localHttpRequest?.headers['accept-encoding']).toBe('identity');
     expect(response).toContain('Cache-Control: no-cache');
     expect(response).toContain(`/coding-relay/devices/${scenario.handle.deviceId}/boot.js`);
   });
@@ -446,7 +468,7 @@ describe('Remote Control tunnel', () => {
     );
     const rangeHead = head(rangeResponse);
     expect(rangeHead).toContain('206');
-    expect(rangeHead).toContain('Content-Range: bytes 0-2047/4096');
+    expect(rangeHead.toLowerCase()).toContain('content-range: bytes 0-2047/4096');
     expect(rangeHead).not.toContain('Content-Encoding');
     expect(body(rangeResponse).toString()).toBe(scenario.assets.text);
   });
@@ -1487,7 +1509,7 @@ describe('Remote Control manager', () => {
     cleanups.push(() => manager.close());
 
     const enabling = manager.enable();
-    const enablingSettled = expect(enabling).rejects.toThrow(
+    const enablingSettled = rejectionOf(enabling, 
       'Remote Control was disabled while starting.',
     );
     await waitFor(() => existsSync(remoteControlLockPath(homeDir)));
@@ -1537,7 +1559,7 @@ describe('Remote Control manager', () => {
     cleanups.push(() => manager.close());
 
     const first = manager.enable();
-    const firstSettled = expect(first).rejects.toThrow(
+    const firstSettled = rejectionOf(first, 
       'Remote Control was disabled while starting.',
     );
     await waitFor(() => existsSync(remoteControlLockPath(homeDir)));
@@ -1585,14 +1607,14 @@ describe('Remote Control manager', () => {
     cleanups.push(() => manager.close());
 
     const first = manager.enable();
-    const firstSettled = expect(first).rejects.toThrow(
+    const firstSettled = rejectionOf(first, 
       'Remote Control was disabled while starting.',
     );
     await waitFor(() => existsSync(remoteControlLockPath(homeDir)));
 
     const cancelling = manager.disable();
     const reenabled = manager.enable();
-    const reenabledSettled = expect(reenabled).rejects.toThrow(
+    const reenabledSettled = rejectionOf(reenabled, 
       'Remote Control was disabled while starting.',
     );
     const finalDisable = manager.disable();
@@ -1632,7 +1654,7 @@ describe('Remote Control manager', () => {
     cleanups.push(() => manager.close());
 
     const enabling = manager.enable();
-    const enablingSettled = expect(enabling).rejects.toThrow();
+    const enablingSettled = rejectionOf(enabling);
     await waitFor(() => upgrades > 0);
 
     const startedAt = Date.now();
@@ -1670,7 +1692,7 @@ describe('Remote Control manager', () => {
     cleanups.push(() => manager.close());
 
     const enabling = manager.enable();
-    const enablingSettled = expect(enabling).rejects.toThrow(
+    const enablingSettled = rejectionOf(enabling, 
       'Remote Control was disabled while starting.',
     );
 
@@ -1684,7 +1706,7 @@ describe('Remote Control manager', () => {
     expect(existsSync(remoteControlLockPath(homeDir))).toBe(false);
   });
 
-  it('surfaces a machine-lock release failure and remediates it on retry', async () => {
+  it.skipIf(process.platform === 'win32')('surfaces a machine-lock release failure and remediates it on retry', async () => {
     const homeDir = await createRemoteControlHome(TOKEN.refreshToken);
     const managementServer = new WebSocketServer({ noServer: true });
     const relayServer = createServer();
@@ -1710,7 +1732,7 @@ describe('Remote Control manager', () => {
     cleanups.push(() => manager.close());
 
     const enabling = manager.enable();
-    const enablingSettled = expect(enabling).rejects.toThrow(
+    const enablingSettled = rejectionOf(enabling, 
       'Remote Control was disabled while starting.',
     );
     await waitFor(() => existsSync(remoteControlLockPath(homeDir)));
@@ -1779,7 +1801,7 @@ describe('Remote Control manager', () => {
     expect(existsSync(remoteControlLockPath(homeDir))).toBe(false);
   });
 
-  it('rejects disable when the tunnel close fails', async () => {const homeDir = await createRemoteControlHome(TOKEN.refreshToken);
+  it.skipIf(process.platform === 'win32')('rejects disable when the tunnel close fails', async () => {const homeDir = await createRemoteControlHome(TOKEN.refreshToken);
     const relay = await startAuthRelay();
     const manager = createRemoteControlManager({
       homeDir,

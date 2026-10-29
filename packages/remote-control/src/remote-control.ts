@@ -10,6 +10,7 @@ import {
   resolveKimiRemoteControlAuth,
   resolveKimiTokenStorageName,
 } from '@moonshot-ai/kimi-code-oauth';
+import { errorMessage, isRecord } from '@moonshot-ai/runtime-shared';
 import { WebSocket, type RawData } from 'ws';
 
 import { acquireRemoteControlLock } from './lock';
@@ -895,7 +896,13 @@ export class HttpTunnel {
       void this.forward(transfer, chunks);
     } catch (error) {
       if (receiving !== undefined) {
-        this.respond(receiving, [buildErrorResponse(error instanceof SyntaxError ? 400 : 502)]);
+        const status =
+          error instanceof ResponseTooLargeError || error instanceof ResponseBudgetExceededError
+            ? 503
+            : error instanceof SyntaxError
+              ? 400
+              : 502;
+        this.respond(receiving, [buildErrorResponse(status)]);
       }
       this.stderr.write(`Remote Control HTTP message error: ${errorMessage(error)}\n`);
     }
@@ -936,13 +943,11 @@ export class HttpTunnel {
     } catch (error) {
       if (transfer.controller.signal.aborted) return;
       const status =
-        error instanceof ResponseTooLargeError
-          ? 502
-          : error instanceof ResponseBudgetExceededError
-            ? 503
-            : error instanceof SyntaxError
-              ? 400
-              : 502;
+        error instanceof ResponseTooLargeError || error instanceof ResponseBudgetExceededError
+          ? 503
+          : error instanceof SyntaxError
+            ? 400
+            : 502;
       this.respond(transfer, [buildErrorResponse(status)]);
       this.stderr.write(`Remote Control HTTP forwarding failed: ${errorMessage(error)}\n`);
     }
@@ -1328,13 +1333,6 @@ function rawDataText(data: RawData): string {
   return Buffer.from(data as ArrayBuffer).toString('utf8');
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 
 type RetainCallback = (receivedBytes: number) => boolean;
@@ -1349,18 +1347,20 @@ export async function requestLocalHttpFetch(
   maxResponseBytes: number,
 ): Promise<Buffer[]> {
   const origin = new URL(localOrigin);
-  const requestHeaders = [...parsed.headers];
-  // filterForwardRequestHeaders is not exported; replicate minimal by keeping all
   const headers = new Headers();
-  for (const [name, value] of requestHeaders) {
-    headers.set(name, value);
+  const forwarded = filterForwardRequestHeaders(parsed.headers, serverToken);
+  for (let index = 0; index < forwarded.length; index += 2) {
+    headers.set(forwarded[index]!, forwarded[index + 1]!);
   }
   headers.set('Host', origin.host);
+  // `fetch` advertises its own `Accept-Encoding` when the header is absent, and a
+  // local server may then answer compressed — which bypasses the tunnel's own
+  // rewrite/compress path. Ask for an identity body instead.
+  headers.set('Accept-Encoding', 'identity');
   const bodyBytes = parsed.body.reduce((sum, chunk) => sum + chunk.length, 0);
   if (bodyBytes > 0 && !headers.has('content-length')) {
     headers.set('Content-Length', String(bodyBytes));
   }
-  if (serverToken) headers.set('X-Kimi-Server-Token', serverToken);
 
   const controller = new AbortController();
   const onAbort = (): void => controller.abort(signal.reason);
@@ -1391,7 +1391,7 @@ export async function requestLocalHttpFetch(
           );
         }
         if (!retain(receivedBytes)) {
-          throw new Error('remote control response byte budget exceeded');
+          throw new ResponseBudgetExceededError('remote control response byte budget exceeded');
         }
         chunks.push(buffer);
       }
