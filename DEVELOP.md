@@ -11,7 +11,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 - **Author**: Moonshot AI
 - **License**: MIT
 - **Homepage**: https://github.com/MoonshotAI/kimi-code
-- **Version**: `@moonshot-ai/kimi-code` 2.3.3 (the main CLI app — upstream 2.3.3 plus this fork's own patch stream)
+- **Version**: `@moonshot-ai/kimi-code` 2.4.0 (the main CLI app — upstream 2.4.0 plus this fork's own patch stream)
 
 > **Note**: This repository is a personal experimental fork of MoonshotAI/kimi-code. Not affiliated with Moonshot AI. Use at your own risk — do not submit PRs from this fork to upstream.
 
@@ -587,10 +587,9 @@ A prompt rule has exactly one owner; templates and project files reference it in
 | --- | --- |
 | The six core behavior rules (`authority_and_untrusted_content`, `act_and_verify`, `tools_and_repository_context`, `safety_and_scope`, `failure_and_partial_progress`, `communication`) | `packages/agent-core-v2/src/app/agentProfileCatalog/behaviorContract.ts` |
 | Full-profile expression (all six clauses plus runtime sections) | `packages/agent-core-v2/src/app/agentProfileCatalog/system.md` |
-| Minimal-profile expression (persona, cwd, the two core clauses, a stable handoff marker) | `packages/agent-core-v2/src/app/agentProfileCatalog/system.minimal.md` |
-| Profile selection, delivery metadata (`system` / `reminder` / `intentionally_omitted`), unresolved-variable warnings | `packages/agent-core-v2/src/app/agentProfileCatalog/profile-shared.ts` |
-| DeepSeek reminder content (delegated clauses, curated body, provenance) | `packages/agent-core-v2/src/app/agentProfileCatalog/model-adaptations/curated/deepseek.md` through `modelAdaptations.ts` |
-| Delivery lifecycle (family gate, cache, one reminder per live context, post-compaction reinjection) | `packages/agent-core-v2/src/features/deepseekAdaptation/deepseekAdaptationService.ts` |
+| Profile selection, delivery metadata (`system` / `intentionally_omitted`), unresolved-variable warnings | `packages/agent-core-v2/src/app/agentProfileCatalog/profile-shared.ts` |
+| DeepSeek family guidance (curated body, provenance, token budget) | `packages/agent-core-v2/src/app/agentProfileCatalog/model-adaptations/curated/deepseek.md` through `modelAdaptations.ts` |
+| Family adaptation loading and cache into `${model_adaptation_section}` | `packages/agent-core-v2/src/agent/profile/profileService.ts` |
 | Project instruction entry (injected) versus on-demand project docs | `AGENTS.md` versus `DEVELOP.md` / `CONVENTIONS.md` |
 
 `bun run check:prompt-ownership` fails when `AGENTS.md` stops linking `DEVELOP.md`, claims the latter is injected, or a core contract id disappears from the module.
