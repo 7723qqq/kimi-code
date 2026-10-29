@@ -40,6 +40,7 @@ Everything else — how to run the CLI, how tests are wired, what the gates chec
 - Before making code changes, read the relevant code, the nearest `DEVELOP.md`/`AGENTS.md` in the directory tree, and [`CONVENTIONS.md`](CONVENTIONS.md).
 - Keep changes focused. No unrelated refactors slipped in along the way.
 - Prefer `rg` / `rg --files` when reading code.
+- Never run two test suites at once. The runners enforce a single-instance lock; the fan-out is capped at 8 test files at a time with one test at a time inside each file, and no CPU pin (see [`DEVELOP.md`](DEVELOP.md#suite-concurrency-and-cpu)).
 - When committing, do not add co-author attribution, and do not reveal the identity of the agent in commit messages, PR descriptions, or any explanatory text.
 - Push every commit to `origin` immediately after `git commit`. Never let local and remote diverge.
 

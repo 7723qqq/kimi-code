@@ -3,8 +3,19 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 import { killProcessTree } from './lib/kill-process-tree.mjs';
+import { limitSelfToCpus, resolveTestCpuLimit } from './lib/cpu-limit.mjs';
+import { acquireTestSuiteLock } from './lib/test-suite-lock.mjs';
 
 const ROOT = resolve(import.meta.dirname, '..');
+
+const cpuLimit = resolveTestCpuLimit();
+if (process.env['KIMI_TEST_CPU_LIMIT_APPLIED'] !== '1' && cpuLimit > 0) {
+  if (limitSelfToCpus(cpuLimit, (line) => process.stderr.write(`${line}\n`))) {
+    process.env['KIMI_TEST_CPU_LIMIT_APPLIED'] = '1';
+  }
+}
+acquireTestSuiteLock(ROOT, ['run-tests', ...process.argv.slice(2)].join(' '));
+process.env['KIMI_TEST_SUITE_LOCK'] = 'off';
 
 const DEFAULT_PACKAGE_TIMEOUT_MS = 15 * 60 * 1000;
 

@@ -1,30 +1,35 @@
 #!/usr/bin/env bun
 /**
- * Per-file test runner for one workspace package.
+ * Test runner for one workspace package.
  *
- * Why this exists instead of `bun test` directly:
+ * By default it delegates to Bun's own worker pool (`bun test --parallel=N`,
+ * which spawns min(N, files) workers once and feeds them file paths). The
+ * per-file path below runs only when a flag needs it, or when the pooled run
+ * fails and the failures must be separated from contention:
  *
- *  - **Per-file timeout.** `bun test --timeout` bounds a single test body
- *    (and a hanging hook), but nothing bounds a whole file. A file whose
- *    top-level await never settles, or whose process refuses to exit, hangs
- *    the entire package — and with it every CI shard that owns the file.
- *    This runner kills a file that exceeds `--file-timeout` and reports it
- *    as a hang, so the failure is attributable instead of stalling the job.
- *  - **Position-modulo sharding.** Bun's own `--shard=N/M` shards by file
- *    too, but this runner keeps the assignment in one place so a package
- *    with fewer files than shards produces empty shards rather than
- *    duplicated work, and so the same assignment is used for the retry
- *    pass below.
+ *  - **Per-file timeout.** `bun test --timeout` bounds a single test body (and
+ *    a hanging hook), but nothing bounds a whole file. A file whose top-level
+ *    await never settles, or whose process refuses to exit, hangs the entire
+ *    package — and with it every CI shard that owns the file.
+ *  - **Position-modulo sharding.** Bun's own `--shard=N/M` shards by file too,
+ *    but this runner keeps the assignment in one place so a package with fewer
+ *    files than shards produces empty shards rather than duplicated work.
  *  - **Contention retry.** Files that spawn real processes (git, servers,
  *    compressors) starve each other when several run at once, and a failure
  *    under contention is not a failure. Every failing file is re-run alone;
- *    only the ones that still fail are reported.
+ *    only the ones that still fail are reported. The pooled default cannot do
+ *    this, so a pooled failure falls back to this path for the authoritative
+ *    result.
  *
  * Usage:
  *   bun scripts/run-package-tests.mjs [--package=<dir>] [--root=<dir>]...
  *                               [--shard=N/M] [--parallel=N]
  *                               [--test-timeout=MS] [--file-timeout=MS]
  *                               [--include-heavy] [--timings=<path>]
+ *                               [--per-file]
+ *
+ * `--per-file` forces the per-file path; `--shard`, `--timings`,
+ * `--file-timeout`, `--retry` and `--report-slowest` imply it.
  *
  * `--timeout` is accepted as an alias for `--test-timeout` so that the root
  * runner can forward one spelling to both this script and plain `bun test`.
@@ -41,10 +46,20 @@ import os from 'node:os';
 import { basename, join, relative, sep } from 'node:path';
 
 import { killProcessTree } from './lib/kill-process-tree.mjs';
+import { limitSelfToCpus, resolveTestCpuLimit } from './lib/cpu-limit.mjs';
+import { acquireTestSuiteLock } from './lib/test-suite-lock.mjs';
 
 const args = process.argv.slice(2);
 const ROOT = join(import.meta.dirname, '..');
 const TIMINGS_MAX_RECORDS = 200;
+
+const cpuLimit = resolveTestCpuLimit();
+if (process.env['KIMI_TEST_CPU_LIMIT_APPLIED'] !== '1' && cpuLimit > 0) {
+  if (limitSelfToCpus(cpuLimit, (line) => process.stderr.write(`${line}\n`))) {
+    process.env['KIMI_TEST_CPU_LIMIT_APPLIED'] = '1';
+  }
+}
+acquireTestSuiteLock(ROOT, ['run-package-tests', ...args].join(' '));
 
 function flag(name) {
   const prefix = `--${name}=`;
@@ -71,13 +86,18 @@ const defaultParallel = Math.max(
 );
 const rawParallel = flag('parallel');
 const requestedParallel = rawParallel === undefined ? defaultParallel : Number(rawParallel);
-const parallel =
+const parsedParallel =
   Number.isInteger(requestedParallel) && requestedParallel >= 1
     ? requestedParallel
     : defaultParallel;
-if (rawParallel !== undefined && parallel !== requestedParallel) {
+const parallel = Math.min(MAX_PARALLEL, parsedParallel);
+if (rawParallel !== undefined && parsedParallel !== requestedParallel) {
   process.stderr.write(
     `--parallel=${String(rawParallel)} is not a positive integer; falling back to ${String(defaultParallel)}\n`,
+  );
+} else if (parsedParallel !== parallel) {
+  process.stderr.write(
+    `--parallel=${String(rawParallel)} exceeds the ${String(MAX_PARALLEL)}-way cap; using ${String(parallel)}\n`,
   );
 }
 const includeHeavy = process.env['KIMI_TEST_HEAVY'] === '1' || args.includes('--include-heavy');
@@ -88,6 +108,24 @@ const TEST_TIMEOUT_MS = Number(flag('test-timeout') ?? flag('timeout') ?? 30_000
 const FILE_TIMEOUT_MS = Number(flag('file-timeout') ?? 300_000);
 const reportSlowest = Number(flag('report-slowest') ?? 0);
 const timingsPath = flag('timings');
+
+// Bun's own runner already spreads files over a worker pool: `--parallel=N`
+// spawns min(N, files) workers once and feeds them file paths, each worker
+// reusing its process for its whole slice. The per-file spawner below is only
+// needed for what Bun does not provide — shard-aware selection, per-file
+// timeouts, contention retry and timings — so everything else runs through the
+// native pool instead of paying one process start per test file.
+const needsPerFile =
+  shardArg !== undefined ||
+  timingsPath !== undefined ||
+  flag('file-timeout') !== undefined ||
+  flag('retry') !== undefined ||
+  reportSlowest > 0 ||
+  args.includes('--per-file');
+
+const NATIVE_BOOLEAN_FLAGS = new Set(['--bail', '--randomize', '--watch', '--coverage']);
+const LEGACY_BOOLEAN_FLAGS = new Set(['--bail', '--randomize', '--coverage']);
+const NATIVE_VALUED_FLAGS = ['--test-name-pattern=', '--coverage-reporter=', '--coverage-dir='];
 
 const TEST_FILE_PATTERN = /\.(test|spec)\.tsx?$/;
 
@@ -145,9 +183,21 @@ const ignoreOverride = includeHeavy
 const retry = flag('retry');
 
 function spawnArgs(rel) {
-  const list = ['test', '--isolate', '--timeout', String(TEST_TIMEOUT_MS)];
+  const list = [
+    'test',
+    '--isolate',
+    '--timeout',
+    String(TEST_TIMEOUT_MS),
+    '--pass-with-no-tests',
+    '--max-concurrency=1',
+  ];
   if (retry !== undefined) list.push('--retry', retry);
   if (ignoreOverride !== undefined) list.push('--path-ignore-patterns', ignoreOverride);
+  for (const arg of args) {
+    if (LEGACY_BOOLEAN_FLAGS.has(arg) || NATIVE_VALUED_FLAGS.some((prefix) => arg.startsWith(prefix))) {
+      list.push(arg);
+    }
+  }
   list.push(`./${rel}`);
   return list;
 }
@@ -182,6 +232,101 @@ function runFile(file) {
     child.on('close', (code) => finish(code ?? 1, false));
     child.on('error', () => finish(1, false));
   });
+}
+
+function filesFromFailureOutput(output) {
+  const found = new Set();
+  for (const match of output.matchAll(/([^\s()[\]"'`]+\.(?:test|spec)\.tsx?):\d+:\d+/g)) {
+    const raw = match[1];
+    const absolute = /^[A-Za-z]:[\\/]/.test(raw) || raw.startsWith('/') ? raw : join(PKG_DIR, raw);
+    const rel = relative(PKG_DIR, absolute).split(sep).join('/');
+    if (rel.startsWith('..') || !existsSync(join(PKG_DIR, rel))) continue;
+    found.add(rel);
+  }
+  return found;
+}
+
+if (!needsPerFile) {
+  const nativeRoots = (roots.length > 0 ? roots : ['test', 'src/human/test']).filter((root) =>
+    existsSync(join(PKG_DIR, root)),
+  );
+  const nativeArgs = [
+    'test',
+    `--parallel=${String(parallel)}`,
+    `--timeout=${String(TEST_TIMEOUT_MS)}`,
+    '--pass-with-no-tests',
+    '--max-concurrency=1',
+  ];
+  if (includeHeavy) nativeArgs.push('--path-ignore-patterns=**/node_modules/**');
+  for (const arg of args) {
+    if (
+      NATIVE_BOOLEAN_FLAGS.has(arg) ||
+      NATIVE_VALUED_FLAGS.some((prefix) => arg.startsWith(prefix))
+    ) {
+      nativeArgs.push(arg);
+    }
+  }
+  nativeArgs.push(...nativeRoots.map((root) => `./${root}`));
+
+  process.stderr.write(
+    `test fan-out: ${String(parallel)} file(s) at a time, 1 test at a time, no CPU pin\n`,
+  );
+  let captured = '';
+  const code = await new Promise((resolve) => {
+    const child = spawn('bun', nativeArgs, {
+      cwd: PKG_DIR,
+      env: process.env,
+      detached: process.platform !== 'win32',
+      stdio: ['inherit', 'pipe', 'pipe'],
+    });
+    const relay = (stream, target) => {
+      stream.on('data', (chunk) => {
+        captured += chunk.toString();
+        target.write(chunk);
+      });
+    };
+    relay(child.stdout, process.stdout);
+    relay(child.stderr, process.stderr);
+    child.on('close', (status) => resolve(status ?? 1));
+    child.on('error', () => resolve(1));
+  });
+  if (code === 0) process.exit(0);
+
+  const failing = filesFromFailureOutput(captured);
+  if (failing.size === 0) {
+    process.stderr.write(
+      'the pooled run failed but no file could be attributed; re-run with --per-file for the isolated verdict\n',
+    );
+    process.exit(code);
+  }
+  const candidates = selected.filter((file) => failing.has(relPath(file)));
+  process.stderr.write(
+    `native pool exited ${String(code)}; re-running ${String(candidates.length)} failing file(s) alone to separate contention from real failures\n`,
+  );
+
+  const failed = [];
+  for (const file of candidates) {
+    const isolated = await runFile(file);
+    if (isolated.code === 0) {
+      process.stdout.write(`FLAKY(contention) ${isolated.rel} — passes in isolation\n`);
+      continue;
+    }
+    failed.push(isolated);
+  }
+  if (failed.length === 0) {
+    process.stdout.write('\nall failures were contention; the package passes in isolation\n');
+    process.exit(0);
+  }
+  for (const failure of failed) {
+    process.stdout.write(
+      failure.timedOut
+        ? `HANG ${failure.rel} — no completion within ${FILE_TIMEOUT_MS}ms\n`
+        : `FAIL ${failure.rel} (exit ${failure.code})\n`,
+    );
+    if (!failure.timedOut) process.stdout.write(failure.output);
+  }
+  process.stdout.write(`\nfailing files: ${failed.map((failure) => failure.rel).join(', ')}\n`);
+  process.exit(1);
 }
 
 const totals = { pass: 0, fail: 0, errors: 0, skip: 0 };
