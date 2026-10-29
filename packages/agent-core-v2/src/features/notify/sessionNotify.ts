@@ -36,11 +36,16 @@ export class SessionNotify implements ISessionNotify {
   private async load(initial: boolean): Promise<void> {
     const scope = this.context.scope('notify');
     const stored = await this.store.get<{ enabled: boolean }>(scope, 'state.json');
-    if (stored !== undefined && typeof stored.enabled === 'boolean') {
-      this.enabled = stored.enabled;
+    if (stored?.enabled === true) {
+      this.enabled = true;
       return;
     }
-    let enabled = initial;
+    if (initial) {
+      this.enabled = true;
+      await this.store.set(scope, 'state.json', { enabled: true });
+      return;
+    }
+    let enabled = false;
     for await (const record of this.journal.read<WireRecord>(
       this.context.scope('agents/main'),
       AGENT_WIRE_RECORD_KEY,

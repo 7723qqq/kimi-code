@@ -20,14 +20,15 @@ import { NotifyPanelComponent } from './components/chrome/notify-panel';
 import { STATUS_SURFACE_MAX_ROWS } from './components/chrome/status-surface/budget';
 import { StatusSurfaceComponent } from './components/chrome/status-surface/index';
 import { ApprovalRegion } from './components/chrome/status-surface/regions/approval-region';
+import { StatsRegion } from './components/chrome/status-surface/regions/stats-region';
 import { UpdatesRegion } from './components/chrome/status-surface/regions/updates-region';
 import type { SessionRow } from './components/dialogs/session-picker';
 import { CustomEditor } from './components/editor/custom-editor';
 import { DEFAULT_MARKDOWN_CONFIG, DEFAULT_TUI_CONFIG } from './config';
 import { CHROME_GUTTER } from './constant/rendering';
 import { CLICK_GUARD_MS } from './constant/terminal';
-import type { TasksBrowserState } from './controllers/tasks-browser';
 import type { BackgroundTasksMiniState } from './controllers/background-tasks-mini';
+import type { TasksBrowserState } from './controllers/tasks-browser';
 import { currentTheme, type Theme } from './theme';
 import {
   INITIAL_LIVE_PANE,
@@ -68,6 +69,7 @@ export interface TUIState {
   notifyPanelContainer: GutterContainer;
   notifyPanel: NotifyPanelComponent;
   updatesRegion: UpdatesRegion;
+  statsRegion: StatsRegion;
   /** Inline approval prompt; empty except while a request is pending. */
   approvalRegion: ApprovalRegion;
   queueContainer: Container;
@@ -201,9 +203,18 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
     onRequestRender: () => ui.requestRender(),
   });
   const updatesRegion = new UpdatesRegion(notifyPanel);
+  // The stats column reuses the footer's own segment builder, so the strip and
+  // the footer never disagree about what the session cost. It stays empty
+  // until the first turn reports numbers.
+  const statsRegion = new StatsRegion();
+  // Two regions that can each be alone share the band only when both are
+  // present; otherwise whichever is left takes the whole width.
+  statsRegion.setSiblingProbe(() => !updatesRegion.isEmpty());
+  updatesRegion.setSiblingProbe(() => !statsRegion.isEmpty());
   // The approval region renders the panel the dialog host builds for each
   // request, so it holds no panel of its own until one arrives.
   const approvalRegion = new ApprovalRegion();
+  statusSurface.setRegion(statsRegion);
   statusSurface.setRegion(updatesRegion);
   statusSurface.setRegion(approvalRegion);
   const statusSurfaceContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
@@ -280,6 +291,7 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
     notifyPanelContainer,
     notifyPanel,
     updatesRegion,
+    statsRegion,
     approvalRegion,
     queueContainer,
     btwPanelContainer,

@@ -590,6 +590,7 @@ export default {
           expandHint: 'ctrl+t details',
           collapseHint: 'ctrl+t collapse',
         },
+        statsMore: '+{{count}} more',
       },
       footer: {
         context: 'context: {{pct}}%',

@@ -213,8 +213,13 @@ import { sessionRowsForPicker } from './utils/session-picker-rows';
 import {
   accumulateStepCompleted,
   accumulateToolDuration,
+  buildSessionStatSegments,
   bumpTurnCount,
   createEmptySessionStats,
+  formatCacheHitRate,
+  formatContextStatus,
+  formatTokenSpeed,
+  type SessionStatsGroup,
 } from './utils/session-stats';
 import { formatBashOutputForDisplay } from './utils/shell-output';
 import { combineStartupNotice, isOAuthLoginRequiredError } from './utils/startup';
@@ -517,6 +522,7 @@ export class KimiTUI {
     this.telemetryDisabled = startupInput.telemetryDisabled ?? false;
     this.startupNotice = startupInput.startupNotice;
     this.state = createTUIState(tuiOptions);
+    this.state.statsRegion.setSegmentsProvider(() => this.sessionStatSegments());
     this.programStatus = new ProgramStatusController(this.state, this.state.terminal);
     this.state.footer.setExpandHintProvider(() => this.toolOutputExpandHint());
     this.state.transcriptContainer.setUnhandledClick((index) => this.toggleClickedFoldBlock(index));
@@ -2732,6 +2738,42 @@ export class KimiTUI {
 
   handleBackgroundTaskStatus(info: BackgroundTaskInfo): void {
     this.programStatus.updateBackgroundTask(info);
+  }
+
+  /**
+   * The stats column's segments. Built from the same `AppState` fields and the
+   * same builder the footer uses, so the strip and the footer cannot disagree.
+   */
+  private sessionStatSegments(): SessionStatsGroup[] {
+    const state = this.state.appState;
+    const hitRateText = formatCacheHitRate(
+      state.cacheReadTokens,
+      state.cacheMissTokens,
+      state.cacheOtherTokens,
+    );
+    const stepSpeed = state.tokenSpeed ?? 0;
+    const averageSpeed = state.tokenSpeedAverage ?? 0;
+    const speedStepText =
+      stepSpeed > 0
+        ? t('tui.chrome.footer.tokenSpeedStep', { speed: formatTokenSpeed(stepSpeed) })
+        : null;
+    const speedAverageText =
+      averageSpeed > 0
+        ? t('tui.chrome.footer.tokenSpeedAverage', { speed: formatTokenSpeed(averageSpeed) })
+        : null;
+    const contextText = formatContextStatus(
+      state.contextUsage,
+      state.contextTokens,
+      state.maxContextTokens,
+    );
+    const groups = buildSessionStatSegments(
+      state.sessionStats,
+      hitRateText,
+      speedStepText,
+      speedAverageText,
+      contextText,
+    );
+    return groups.length > 1 ? groups : [];
   }
 
   setAppState(patch: Partial<AppState>): void {

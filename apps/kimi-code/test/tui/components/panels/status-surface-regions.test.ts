@@ -26,10 +26,16 @@ import { UpdatesRegion } from '#/tui/components/chrome/status-surface/regions/up
  * same way the surface requires of any region.
  */
 class StandInRegion implements StatusRegion {
-  readonly id: RegionId = 'todo';
+  readonly id: RegionId;
   readonly priority = 10;
   readonly blocking = false;
   private lines: string[] = [];
+  private readonly place: RegionPlacement;
+
+  constructor(id: RegionId = 'todo', place: RegionPlacement = 'left') {
+    this.id = id;
+    this.place = place;
+  }
 
   setLines(lines: readonly string[]): void {
     this.lines = [...lines];
@@ -40,7 +46,7 @@ class StandInRegion implements StatusRegion {
   }
 
   placement(): RegionPlacement {
-    return 'left';
+    return this.place;
   }
 
   isEmpty(): boolean {
@@ -116,34 +122,48 @@ describe('status regions share one surface', () => {
     }
   });
 
-  it('gives a lone update region its whole column', () => {
+  it('gives a lone full-width region the whole band', () => {
     const { surface, notifyPanel } = buildSurface();
     notifyPanel.upsert({ id: '1', agentId: 'main', time: 0, text: 'Split applied' });
 
     const lines = surface.render(80);
     expect(lines.length).toBeGreaterThan(0);
     const box = surface.regionRects().find((entry) => entry.id === 'updates')!;
-    expect(box.col).toBeGreaterThan(0);
-    expect(box.width).toBeGreaterThan(30);
+    expect(box.col).toBe(2);
+    expect(box.width).toBeGreaterThan(70);
     for (const line of lines) {
       expect(visibleWidths([line])[0]).toBeLessThanOrEqual(80);
     }
   });
 
-  it('places the two regions side by side instead of stacking them', () => {
-    const { surface, sidebar, notifyPanel } = buildSurface();
-    sidebar.setLines(sidebarLines());
-    notifyPanel.upsert({ id: '1', agentId: 'main', time: 0, text: 'Split applied' });
+  it('places the two column regions side by side instead of stacking them', () => {
+    const surface = new StatusSurfaceComponent({
+      terminalRows: () => 40,
+      onRequestRender: () => {},
+    });
+    const left = new StandInRegion('todo', 'left');
+    const right = new StandInRegion('updates', 'right');
+    left.setLines(sidebarLines());
+    right.setLines(sidebarLines());
+    surface.setRegion(left);
+    surface.setRegion(right);
 
     const both = surface.render(100);
 
-    const leftAlone = buildSurface();
-    leftAlone.sidebar.setLines(sidebarLines());
-    const notifyAlone = buildSurface();
-    notifyAlone.notifyPanel.upsert({ id: '1', agentId: 'main', time: 0, text: 'Split applied' });
+    const leftAlone = new StatusSurfaceComponent({
+      terminalRows: () => 40,
+      onRequestRender: () => {},
+    });
+    leftAlone.setRegion(left);
 
-    const leftHeight = leftAlone.surface.render(100).length;
-    const notifyHeight = notifyAlone.surface.render(100).length;
+    const notifyAlone = new StatusSurfaceComponent({
+      terminalRows: () => 40,
+      onRequestRender: () => {},
+    });
+    notifyAlone.setRegion(right);
+
+    const leftHeight = leftAlone.render(100).length;
+    const notifyHeight = notifyAlone.render(100).length;
     expect(both.length).toBe(Math.max(leftHeight, notifyHeight));
   });
 

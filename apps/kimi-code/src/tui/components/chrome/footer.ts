@@ -34,12 +34,11 @@ import {
   type RenderTimerHandle,
 } from '#/tui/utils/render-clock';
 import {
-  firstTokenAverageMs,
+  buildSessionStatSegments,
   fitSessionStatsText,
-  formatStatDuration,
+  formatCacheHitRate,
+  formatContextStatus,
   formatTokenSpeed,
-  type SessionStatsGroup,
-  type SessionStatsSegment,
 } from '#/tui/utils/session-stats';
 import { StatusLineCommandRunner, type StatusLinePayload } from '#/tui/utils/status-line-command';
 import { createLocaleKeyedTipRotation, TIP_ROTATE_INTERVAL_MS } from '#/tui/utils/tip-rotation';
@@ -50,7 +49,7 @@ import {
   type GitStatus,
   type GitStatusCache,
 } from '#/utils/git/git-status';
-import { formatTokenCount, usagePercent, usagePercentFromRatio } from '#/utils/usage/usage-format';
+
 
 /** What the footer's fixed ctrl+o hint offers: expand collapsed tool output, or collapse it again. */
 export type ToolOutputExpandHint = 'expand' | 'collapse';
@@ -221,152 +220,6 @@ function renderSwarmPlanBadge(text: string): string {
  * back to the precomputed ratio. Counts use the shared 1024-based
  * formatter.
  */
-function formatContextStatus(usage: number, tokens?: number, maxTokens?: number): string {
-  if (maxTokens !== undefined && maxTokens > 0 && tokens !== undefined) {
-    const pct = String(usagePercent(tokens, maxTokens));
-    return t('tui.chrome.footer.contextWithTokens', {
-      pct,
-      tokens: formatTokenCount(tokens),
-      maxTokens: formatTokenCount(maxTokens),
-    });
-  }
-  return t('tui.chrome.footer.context', { pct: String(usagePercentFromRatio(usage)) });
-}
-
-/**
- * Live cache hit rate readout, e.g. `cache hit 87%`. Hidden until at least one
- * step reported usage (no session traffic yet).
- *
- * Hit rate: reads / (reads + writes) when the provider reports cache writes.
- * OpenAI-compatible endpoints (Kimi/DeepSeek/OpenAI) never surface cache
- * writes — their miss lands in `input_other` — so the share-of-total-input
- * fallback is the norm for them, otherwise the readout would always read 100%.
- */
-function formatCacheHitRate(
-  cacheReadTokens: number,
-  cacheMissTokens: number,
-  cacheOtherTokens: number,
-): string | null {
-  const read = cacheReadTokens ?? 0;
-  const miss = cacheMissTokens ?? 0;
-  const other = cacheOtherTokens ?? 0;
-  let pct: number;
-  if (miss > 0) {
-    pct = Math.round((read / (read + miss)) * 100);
-  } else if (read > 0) {
-    const inputTotal = read + other;
-    pct = inputTotal > 0 ? Math.round((read / inputTotal) * 100) : 0;
-  } else {
-    return null;
-  }
-  return t('tui.chrome.footer.cacheHit', { pct: String(pct) });
-}
-
-/**
- * Compose the footer's right-hand readout as ordered groups (items in a group
- * join with ` · `, groups with ` | `). Display order: turns/steps, LLM time ·
- * tool time, first-token avg · tok/s, cache hit, input/output, context. The
- * cache-hit and context readouts carry `Infinity` priority and only disappear
- * when their data is absent entirely.
- *
- * Item drop priority (lower = dropped first when the terminal narrows):
- * turn/step counters (1) → tools time (2) → LLM time (2) → input/output (2) →
- * first-token avg (4) → tok/s (5), with cache hit and context never dropped.
- *
- * The rule behind that order: information a later render cannot reconstruct
- * outranks information that is merely decorative, and live information outranks
- * both. The counters and the cumulative timings are session totals that keep
- * growing on screen whether or not they are shown right now, so they go first.
- * First-token latency describes the reply that already started, which the
- * phase indicator has already carried the user through. `tok/s` is the one item
- * that keeps moving as the session continues — it is what the user watches
- * while a reply streams — so it is the last optional item to go. A narrow pane
- * that keeps `context` and a stale token total while dropping the rates has kept
- * the decorations and lost the measurement. The step rate and the session
- * average share one slot and one priority: they only mean anything side by side,
- * and either alone reads like the whole answer. Neither is instantaneous — the
- * step rate is the step that just closed; see `utils/token-speed.ts`.
- */
-function buildSessionStatSegments(
-  stats: AppState['sessionStats'],
-  hitRateText: string | null,
-  speedStepText: string | null,
-  speedAverageText: string | null,
-  contextText: string,
-): SessionStatsGroup[] {
-  const groups: SessionStatsGroup[] = [];
-  if (stats.turnCount > 0 || stats.stepCount > 0) {
-    const turnText = t(
-      stats.turnCount === 1 ? 'tui.chrome.footer.turn_one' : 'tui.chrome.footer.turn_other',
-      { count: String(stats.turnCount) },
-    );
-    const stepText = t(
-      stats.stepCount === 1 ? 'tui.chrome.footer.step_one' : 'tui.chrome.footer.step_other',
-      { count: String(stats.stepCount) },
-    );
-    groups.push({
-      items: [
-        {
-          text: t('tui.chrome.footer.turnsSteps', { turns: turnText, steps: stepText }),
-          priority: 1,
-        },
-      ],
-    });
-  }
-  const llmTool: SessionStatsSegment[] = [];
-  if (stats.llmTotalMs > 0) {
-    llmTool.push({
-      text: t('tui.chrome.footer.llmTime', { time: formatStatDuration(stats.llmTotalMs) }),
-      priority: 2,
-    });
-  }
-  if (stats.toolTotalMs > 0) {
-    llmTool.push({
-      text: t('tui.chrome.footer.toolTime', { time: formatStatDuration(stats.toolTotalMs) }),
-      priority: 2,
-    });
-  }
-  if (llmTool.length > 0) groups.push({ items: llmTool });
-
-  const latencySpeed: SessionStatsSegment[] = [];
-  const firstToken = firstTokenAverageMs(stats);
-  if (firstToken !== null) {
-    latencySpeed.push({
-      text: t('tui.chrome.footer.firstTokenAvg', { time: formatStatDuration(firstToken) }),
-      priority: 4,
-    });
-  }
-  // The two rates share one drop slot: they are only meaningful read together,
-  // and dropping one would leave the survivor looking like the only answer. So
-  // they are emitted as a single segment — `fitSessionStatsText` drops items,
-  // not halves of one, and two items at the same priority would be dropped one
-  // at a time and split the pair.
-  const speedText = [speedStepText, speedAverageText].filter((s) => s !== null);
-  if (speedText.length > 0) {
-    latencySpeed.push({ text: speedText.join(' · '), priority: 5 });
-  }
-  if (latencySpeed.length > 0) groups.push({ items: latencySpeed });
-
-  if (hitRateText !== null) {
-    groups.push({ items: [{ text: hitRateText, priority: Number.POSITIVE_INFINITY }] });
-  }
-  if (stats.inputTokens > 0 || stats.outputTokens > 0) {
-    groups.push({
-      items: [
-        {
-          text: t('tui.chrome.footer.inputOutput', {
-            input: formatTokenCount(stats.inputTokens),
-            output: formatTokenCount(stats.outputTokens),
-          }),
-          priority: 2,
-        },
-      ],
-    });
-  }
-  groups.push({ items: [{ text: contextText, priority: Number.POSITIVE_INFINITY }] });
-  return groups;
-}
-
 export function formatFooterGitBadge(status: GitStatus, colors: ColorPalette): string {
   const base = chalk.hex(colors.textDim)(formatGitBadgeBase(status));
   if (status.pullRequest === null) return base;

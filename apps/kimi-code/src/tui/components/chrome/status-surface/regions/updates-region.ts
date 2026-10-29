@@ -28,6 +28,7 @@ export class UpdatesRegion implements StatusRegion {
   private readonly panel: NotifyPanelComponent;
   /** Installed by the surface when the region is registered. */
   onChange: (() => void) | undefined;
+  private hasSibling: (() => boolean) | undefined;
 
   readonly priority = 20;
   readonly blocking = false;
@@ -55,9 +56,19 @@ export class UpdatesRegion implements StatusRegion {
     this.panel = panel;
   }
 
-  /** Owns the right column. */
+  /**
+   * Shares the band with the stats column when there is one, and spans the
+   * whole band otherwise. The todo region used to be the left-hand neighbour;
+   * with it gone, a fixed `right` left half the band blank, and a fixed `full`
+   * would push the stats column onto a second line instead of beside it.
+   */
   placement(): RegionPlacement {
-    return 'right';
+    return this.hasSibling?.() === true ? 'right' : 'full';
+  }
+
+  /** Told by the host what else is in the band, so the column stays shared. */
+  setSiblingProbe(probe: () => boolean): void {
+    this.hasSibling = probe;
   }
 
   /** The wrapped panel, for the controller that owns the update projection. */

@@ -567,6 +567,7 @@ export default {
           expandHint: 'ctrl+t 详情',
           collapseHint: 'ctrl+t 收起',
         },
+        statsMore: '还有 {{count}} 行',
       },
       footer: {
         context: '上下文：{{pct}}%',
