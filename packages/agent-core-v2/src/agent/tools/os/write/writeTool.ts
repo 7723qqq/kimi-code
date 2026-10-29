@@ -8,7 +8,13 @@ import type { HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSyste
 import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import { resolvePathAccessPath, type WorkspaceConfig } from '#/tool/path-access';
+import {
+  PathSecurityError,
+  resolvePathAccessPath,
+  type PathClass,
+  type WorkspaceConfig,
+} from '#/tool/path-access';
+import { assertRealPathWriteTarget } from '#/tool/realpath-access';
 import { literalRulePattern, matchesPathRuleSubject } from '#/tool/rule-match';
 import { ToolAccesses, type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
 
@@ -67,7 +73,7 @@ export class WriteTool implements IWriteTool {
               output: 'Runtime changed before execution. Retry the tool call.',
             };
           }
-          return await this.execution(lease.runtime.fs!, args, path);
+          return await this.execution(lease.runtime.fs!, args, path, workspace, env.pathClass);
         } finally {
           lease.dispose();
         }
@@ -79,7 +85,15 @@ export class WriteTool implements IWriteTool {
     fs: IHostFileSystem,
     args: WriteInput,
     safePath: string,
+    workspace: WorkspaceConfig,
+    pathClass: PathClass,
   ): Promise<ExecutableToolResult> {
+    try {
+      await assertRealPathWriteTarget(fs, safePath, workspace, pathClass);
+    } catch (error) {
+      if (error instanceof PathSecurityError) return { isError: true, output: error.message };
+      throw error;
+    }
     const parentError = await this.ensureParentDirectory(fs, safePath);
     if (parentError !== undefined) {
       return { isError: true, output: parentError };

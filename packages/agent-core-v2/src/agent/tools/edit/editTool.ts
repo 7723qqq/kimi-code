@@ -7,7 +7,13 @@ import type { Runtime } from '#/runtime/runtime';
 import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import { resolvePathAccessPath, type WorkspaceConfig } from '#/tool/path-access';
+import {
+  PathSecurityError,
+  resolvePathAccessPath,
+  type PathClass,
+  type WorkspaceConfig,
+} from '#/tool/path-access';
+import { assertRealPathWriteTarget } from '#/tool/realpath-access';
 import { literalRulePattern, matchesPathRuleSubject } from '#/tool/rule-match';
 import { ToolAccesses, type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
 
@@ -73,7 +79,7 @@ export class EditTool implements IEditTool {
               output: 'Runtime changed before execution. Retry the tool call.',
             };
           }
-          return await this.execution(args, path, lease.runtime.fs!);
+          return await this.execution(args, path, lease.runtime.fs!, workspace, env.pathClass);
         } finally {
           lease.dispose();
         }
@@ -85,7 +91,15 @@ export class EditTool implements IEditTool {
     args: EditInput,
     safePath: string,
     fs: IHostFileSystem,
+    workspace: WorkspaceConfig,
+    pathClass: PathClass,
   ): Promise<ExecutableToolResult> {
+    try {
+      await assertRealPathWriteTarget(fs, safePath, workspace, pathClass);
+    } catch (error) {
+      if (error instanceof PathSecurityError) return { isError: true, output: error.message };
+      throw error;
+    }
     if (args.old_string === args.new_string) {
       return {
         isError: true,

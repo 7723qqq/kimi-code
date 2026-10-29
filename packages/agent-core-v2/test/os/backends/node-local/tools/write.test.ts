@@ -40,6 +40,7 @@ interface WriteFsOptions {
   writeText?: (path: string, data: string) => Promise<void>;
   appendText?: (path: string, data: string) => Promise<void>;
   stat?: (path: string) => Promise<HostFileStat>;
+  realpath?: (path: string) => Promise<string>;
   mkdir?: (path: string) => Promise<void>;
 }
 
@@ -56,8 +57,17 @@ function createWriteFs(options: WriteFsOptions = {}) {
     options.stat ?? (async () => ({ isFile: false, isDirectory: true, size: 0 })),
   );
   const mkdir = mock(options.mkdir ?? (async () => {}));
-  const fs = { cwd: '/', readText, writeText, appendText, stat, mkdir } as unknown as IHostFileSystem;
-  return { fs, readText, writeText, appendText, stat, mkdir };
+  const realpath = mock(options.realpath ?? (async (path: string) => path));
+  const fs = {
+    cwd: '/',
+    readText,
+    writeText,
+    appendText,
+    stat,
+    mkdir,
+    realpath,
+  } as unknown as IHostFileSystem;
+  return { fs, readText, writeText, appendText, stat, mkdir, realpath };
 }
 
 function makeTool(options: WriteFsOptions = {}, workspace = PERMISSIVE_WORKSPACE) {
@@ -342,6 +352,22 @@ describe('WriteTool', () => {
 
     expect(result).toMatchObject({ isError: true });
     expect(result.output).toContain('sensitive-file pattern');
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it('blocks a write that escapes the workspace through a symlinked parent', async () => {
+    const { tool, writeText } = makeTool(
+      {
+        realpath: async (path) =>
+          path === '/workspace/link/secret.txt' ? '/outside/secret.txt' : path,
+      },
+      stubWorkspaceContext('/workspace'),
+    );
+
+    const result = await execute(tool, { path: 'link/secret.txt', content: 'payload' });
+
+    expect(result).toMatchObject({ isError: true });
+    expect(result.output).toContain('symbolic link');
     expect(writeText).not.toHaveBeenCalled();
   });
 

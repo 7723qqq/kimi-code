@@ -50,8 +50,9 @@ function createSpiedEditFs(
   const readText = options.readText ?? mock(async () => '');
   const writeText = options.writeText ?? mock(async () => undefined);
   const stat = mock(async () => ({ isFile: true, isDirectory: false, size: 0 }));
-  const fs = { readText, writeText, stat } as unknown as IHostFileSystem;
-  return { fs, readText, writeText };
+  const realpath = mock(async (path: string) => path);
+  const fs = { readText, writeText, stat, realpath } as unknown as IHostFileSystem;
+  return { fs, readText, writeText, realpath };
 }
 
 function buildTool(
@@ -586,6 +587,27 @@ describe('EditTool', () => {
 
     expect(result.isError).toBeFalsy();
     expect(writeText).toHaveBeenCalledWith('/workspace-sneaky/test.txt', 'new');
+  });
+
+  it('blocks an edit that escapes the workspace through a symlinked parent', async () => {
+    const writeText = mock().mockResolvedValue(undefined);
+    const { fs } = createSpiedEditFs({
+      readText: mock().mockResolvedValue('body'),
+      writeText,
+    });
+    fs.realpath = async (path: string) =>
+      path === '/workspace/link/a.txt' ? '/outside/a.txt' : path;
+    const tool = buildTool(fs, createTestEnv(), stubWorkspaceContext('/workspace'));
+
+    const result = await execute(tool, {
+      path: 'link/a.txt',
+      old_string: 'body',
+      new_string: 'changed',
+    });
+
+    expect(result).toMatchObject({ isError: true });
+    expect(result.output).toContain('symbolic link');
+    expect(writeText).not.toHaveBeenCalled();
   });
 
   it('rejects editing a non-UTF-8 file and leaves its bytes untouched', async () => {
