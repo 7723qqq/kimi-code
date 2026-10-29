@@ -431,10 +431,6 @@ function buildRgArgs(
   const cmd: string[] = [rgPath];
   if (singleThreaded) cmd.push('-j', '1');
   cmd.push('--hidden');
-  // Without a git repository ripgrep ignores .gitignore files, so a workspace
-  // that is not a repo scans node_modules and every build output. Forcing the
-  // gitignore rules keeps a search proportional to the sources it is meant to
-  // read. `include_ignored` asks for the opposite and stays in charge.
   if (args.include_ignored !== true) cmd.push('--no-require-git');
   const mode = args.output_mode ?? 'files_with_matches';
   if (mode !== 'content') {
