@@ -178,6 +178,7 @@
         ./packages/pi-tui
         ./packages/product
         ./packages/remote-control
+        ./packages/runtime-shared
         ./packages/session-import
         ./packages/telemetry
         ./packages/transcript
