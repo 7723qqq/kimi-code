@@ -1,85 +1,125 @@
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { mkdtempSync, readFileSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import { Readable, Writable } from 'node:stream';
-import { type IHostProcess } from '#/os/interface/hostProcess';
-import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
-import { rmSync } from 'node:fs';
-
-
 
 import { createControlledPromise } from '@antfu/utils';
-import { LifecycleScope } from '#/app/scopes';
+
 import { type IAgentScopeHandle } from '#/_base/di/scope';
 import { Event, type Event as KimiEvent } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
-import { toInputJsonSchema } from '#/tool/input-schema';
 import { userCancellationReason } from '#/_base/utils/abort';
-import { createHooks } from '#/hooks';
-import { type ToolCall } from '#human/llm/message';
-
-import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
-import { homeDirServices } from '../harness/agent';
+import { type AgentContext } from '#/agent/agentContext/agentContext';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { IAgentProfileService, type ProfileData } from '#/agent/profile/profile';
+import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import { agentContextOf, IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentStateService } from '#/agent/state/agentState';
+import { AgentStateService } from '#/agent/state/agentStateService';
+import { IAgentTaskService } from '#/agent/task/task';
+import { type AgentTaskSettlement } from '#/agent/task/types';
+import { IAgentToolActivationService } from '#/agent/toolActivation/toolActivation';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { SubagentToolInputSchema, type SubagentToolInput } from '#/agent/tools/agent/agent';
+import { SubagentTask } from '#/agent/tools/agent/subagent-task';
+import { IAgentUserToolService, type UserToolRegistration } from '#/agent/userTool/userTool';
+import {
+  normalizeAgentProfile,
+  type AgentProfile,
+} from '#/app/agentProfileCatalog/agentProfileCatalog';
+import { IWebSearchProviderService } from '#/app/auth/webSearch/webSearch';
+import { IConfigService } from '#/app/config/config';
+import { Event2 } from '#/app/event/event2';
+import { IEventBus } from '#/app/event/eventBus';
+import { IFlagService } from '#/app/flag/flag';
+import { LifecycleScope } from '#/app/scopes';
 import { noopTelemetryService } from '#/app/telemetry/telemetry';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { Error2, ErrorCodes } from '#/errors';
+import { ISessionNotify } from '#/features/notify/sessionNotify';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
+import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
+import {
+  ISessionSwarmService,
+  type SessionSwarmRunArgs,
+  type SessionSwarmRunResult,
+} from '#/features/swarm/session/sessionSwarm';
+import {
+  AgentSwarmToolInputSchema,
+  type AgentSwarmToolInput,
+} from '#/features/swarm/tools/agent-swarm/agent-swarm';
+import { TOWER_WORKER_PROFILE } from '#/features/tower/tower';
+import { createHooks } from '#/hooks';
+import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
+import { type IHostProcess } from '#/os/interface/hostProcess';
+import { IHostProcessService } from '#/os/interface/hostProcess';
+import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
+import {
+  IAgentLifecycleService,
+  type AgentScopeCreatedEvent,
+} from '#/session/agentLifecycle/agentLifecycle';
+import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
+import { ISessionMetadata, type AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
+import {
+  DEFAULT_SUBAGENT_TIMEOUT_MS,
+  SECONDARY_MODEL_SECTION,
+} from '#/session/subagent/configSection';
+import { SUBAGENT_FORK_FLAG_ID } from '#/session/subagent/flag';
+import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
+import { runAgentTurn } from '#/session/subagent/runAgentTurn';
+import {
+  FORK_EXPERIMENTAL_UNAVAILABLE,
+  FORK_WITH_MODEL_UNAVAILABLE,
+  FORK_WITH_RESUME_UNAVAILABLE,
+  FORK_WITH_TYPE_UNAVAILABLE,
+} from '#/session/subagent/spawn';
+import {
+  type AgentRunCompletion,
+  type AgentRunHandle,
+  type AgentRunRequest,
+  type AgentTaskStopHookContext,
+  ISessionSubagentService,
+  type RunAgentOptions,
+} from '#/session/subagent/subagent';
+import { SUBAGENT_SCOPE_EVICT_TIMEOUT_ENV } from '#/session/subagent/subagentScopeCache';
+import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
+import { IEventDispatcher } from '#/state/eventDispatcher';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import { ToolAccesses, type ExecutableTool } from '#/tool/toolContract';
+import { IWireService } from '#/wire/wire';
+import { createAgentMachine } from '#human/agent/machine';
+import { type ToolCall } from '#human/llm/message';
+import { createActor } from '#human/xstate2';
 import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 import { waitForAssertion } from '#test/helpers/waitFor';
 
-import { IAgentTaskService } from '#/agent/task/task';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
-import { makeHookRunner } from '../features/externalHooks/runner-stub';
-import { IAgentProfileService, type ProfileData } from '#/agent/profile/profile';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
-import { ToolAccesses, type ExecutableTool } from '#/tool/toolContract';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { IAgentToolActivationService } from '#/agent/toolActivation/toolActivation';
-import { IWebSearchProviderService } from '#/app/auth/webSearch/webSearch';
-import { ISessionNotify } from '#/features/notify/sessionNotify';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import { agentContextOf, IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { createActor } from '#human/xstate2';
-import { createAgentMachine } from '#human/agent/machine';
-import { IAgentUserToolService, type UserToolRegistration } from '#/agent/userTool/userTool';
-import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
-import { AgentSwarmToolInputSchema, type AgentSwarmToolInput } from '#/features/swarm/tools/agent-swarm/agent-swarm';
-import { SubagentToolInputSchema, type SubagentToolInput } from '#/agent/tools/agent/agent';
-import { FORK_EXPERIMENTAL_UNAVAILABLE, FORK_WITH_MODEL_UNAVAILABLE, FORK_WITH_RESUME_UNAVAILABLE, FORK_WITH_TYPE_UNAVAILABLE } from '#/session/subagent/spawn';
-import { IAgentReminderService } from '#/features/reminder/reminderService';
-import { DEFAULT_SUBAGENT_TIMEOUT_MS, SECONDARY_MODEL_SECTION } from '#/session/subagent/configSection';
-import { SUBAGENT_FORK_FLAG_ID } from '#/session/subagent/flag';
-import { Error2, ErrorCodes } from '#/errors';
-import { SUBAGENT_SCOPE_EVICT_TIMEOUT_ENV } from '#/session/subagent/subagentScopeCache';
-import { type AgentTaskSettlement } from '#/agent/task/types';
-import { SubagentTask } from '#/agent/tools/agent/subagent-task';
-import { runAgentTurn } from '#/session/subagent/runAgentTurn';
-import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
-import { type AgentContext } from '#/agent/agentContext/agentContext';
-import { IAgentLifecycleService, type AgentScopeCreatedEvent } from '#/session/agentLifecycle/agentLifecycle';
-import { type AgentRunCompletion, type AgentRunHandle, type AgentRunRequest, type AgentTaskStopHookContext, ISessionSubagentService, type RunAgentOptions } from '#/session/subagent/subagent';
-import { IEventBus } from '#/app/event/eventBus';
-import { Event2 } from '#/app/event/event2';
-import { IConfigService } from '#/app/config/config';
-import { IFlagService } from '#/app/flag/flag';
-import { normalizeAgentProfile, type AgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { ISessionMetadata, type AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
-import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
-import { ISessionSwarmService, type SessionSwarmRunArgs, type SessionSwarmRunResult } from '#/features/swarm/session/sessionSwarm';
-import { IHostProcessService } from '#/os/interface/hostProcess';
-import { IWireService } from '#/wire/wire';
-import { IAgentStateService } from '#/agent/state/agentState';
-import { AgentStateService } from '#/agent/state/agentStateService';
-import { IEventDispatcher } from '#/state/eventDispatcher';
-import { createFakeProcessRunner } from '../tools/fixtures/fake-exec';
-import { StubConfigService } from '../stubs';
-import { stubFlag } from '../app/flag/stubs';
-import { agentService, appService, configServices, createCommandRunner, createTestAgent, execEnvServices, externalHookServices, modelProviderServices, sessionService, swarmServices, type TestAgentContext, type TestAgentOptions, type TestAgentServiceOverride } from '../harness';
-import { executeTool } from '../tools/fixtures/execute-tool';
 import { stubAgentContext } from '../agent/agentContext/stubs';
-import { TOWER_WORKER_PROFILE } from '#/features/tower/tower';
+import { stubFlag } from '../app/flag/stubs';
+import { makeHookRunner } from '../features/externalHooks/runner-stub';
+import {
+  agentService,
+  appService,
+  configServices,
+  createCommandRunner,
+  createTestAgent,
+  execEnvServices,
+  externalHookServices,
+  modelProviderServices,
+  sessionService,
+  swarmServices,
+  type TestAgentContext,
+  type TestAgentOptions,
+  type TestAgentServiceOverride,
+} from '../harness';
+import { homeDirServices } from '../harness/agent';
 import { renderSnapshot } from '../harness/snapshots';
+import { StubConfigService } from '../stubs';
+import { executeTool } from '../tools/fixtures/execute-tool';
+import { createFakeProcessRunner } from '../tools/fixtures/fake-exec';
 
 const signal = new AbortController().signal;
 
@@ -163,15 +203,13 @@ function forkFlags(enabled = true): TestAgentServiceOverride {
 }
 
 function agentSchemaProperties<T = unknown>(): Record<string, T> {
-  return (
-    toInputJsonSchema(SubagentToolInputSchema) as { properties: Record<string, T> }
-  ).properties;
+  return (toInputJsonSchema(SubagentToolInputSchema) as { properties: Record<string, T> })
+    .properties;
 }
 
 function agentSwarmSchemaProperties<T = unknown>(): Record<string, T> {
-  return (
-    toInputJsonSchema(AgentSwarmToolInputSchema) as { properties: Record<string, T> }
-  ).properties;
+  return (toInputJsonSchema(AgentSwarmToolInputSchema) as { properties: Record<string, T> })
+    .properties;
 }
 
 const BACKGROUND_AGENT_NEXT_STEP =
@@ -207,10 +245,9 @@ function captureLogs(): {
   readonly logger: ILogService;
 } {
   const entries: CapturedLogEntry[] = [];
-  const capture =
-    (level: CapturedLogEntry['level']) => (message: string, payload?: unknown) => {
-      entries.push({ level, message, payload });
-    };
+  const capture = (level: CapturedLogEntry['level']) => (message: string, payload?: unknown) => {
+    entries.push({ level, message, payload });
+  };
   let logger: ILogService;
   logger = {
     _serviceBrand: undefined,
@@ -432,9 +469,7 @@ function createAgentLifecycleStub(options: AgentLifecycleStubOptions = {}): Agen
     create: mock(async (input = {}) => {
       if (options.createError !== undefined) throw options.createError;
       const agentId =
-        input.agentId ??
-        options.createAgentIds?.[created] ??
-        `agent-child-${String(created + 1)}`;
+        input.agentId ?? options.createAgentIds?.[created] ?? `agent-child-${String(created + 1)}`;
       created += 1;
       const profileName = input.binding?.profile ?? 'coder';
       profileByAgentId.set(agentId, profileName);
@@ -451,9 +486,7 @@ function createAgentLifecycleStub(options: AgentLifecycleStubOptions = {}): Agen
     fork: mock(async (source, input = {}) => {
       if (options.createError !== undefined) throw options.createError;
       const agentId =
-        input.agentId ??
-        options.createAgentIds?.[created] ??
-        `agent-child-${String(created + 1)}`;
+        input.agentId ?? options.createAgentIds?.[created] ?? `agent-child-${String(created + 1)}`;
       created += 1;
       profileByAgentId.set(agentId, profileByAgentId.get(source.agentId) ?? 'coder');
       const createdHandle = handle(agentId);
@@ -468,6 +501,7 @@ function createAgentLifecycleStub(options: AgentLifecycleStubOptions = {}): Agen
         agentId: agent.agentId,
         turn: {} as AgentRunHandle['turn'],
         completion,
+        partialOutput: () => '',
       };
     }),
     get: mock((agentId: string) => contextsByAgentId.get(agentId)),
@@ -671,7 +705,11 @@ describe('SubagentToolInputSchema', () => {
   });
 
   it('exposes the model parameter as a free-form string in the JSON schema', () => {
-    const properties = agentSchemaProperties<{ description?: string; type?: string; enum?: string[] }>();
+    const properties = agentSchemaProperties<{
+      description?: string;
+      type?: string;
+      enum?: string[];
+    }>();
 
     expect(properties['model']?.type).toBe('string');
     expect(properties['model']?.enum).toBeUndefined();
@@ -1028,18 +1066,21 @@ describe('Agent tool description', () => {
     expect(agentDescription()).toMatch(/Tools:.*\bEdit\b/);
   });
 
-  it.each([false, true])('uses the NotifyUser contribution condition when enabled=%s', (enabled) => {
-    ctx = createTestAgent(
-      sessionService(ISessionNotify, {
-        _serviceBrand: undefined,
-        ready: Promise.resolve(),
-        enabled,
-      }),
-    );
+  it.each([false, true])(
+    'uses the NotifyUser contribution condition when enabled=%s',
+    (enabled) => {
+      ctx = createTestAgent(
+        sessionService(ISessionNotify, {
+          _serviceBrand: undefined,
+          ready: Promise.resolve(),
+          enabled,
+        }),
+      );
 
-    expect(agentDescription().includes('NotifyUser')).toBe(enabled);
-    expect(ctx.get(IAgentToolRegistryService).resolve('NotifyUser') !== undefined).toBe(enabled);
-  });
+      expect(agentDescription().includes('NotifyUser')).toBe(enabled);
+      expect(ctx.get(IAgentToolRegistryService).resolve('NotifyUser') !== undefined).toBe(enabled);
+    },
+  );
 
   it('lists only subagent types allowed by the caller profile', () => {
     const caller: AgentProfile = normalizeAgentProfile({
@@ -1263,7 +1304,9 @@ describe('Agent tool description', () => {
     expect(description).toContain('- provider/fast [default]: fast and cheap');
     expect(description).toContain('- mock-model: the main model, great at hard things');
     expect(description).toContain('- provider/smart\n');
-    expect(description).toContain('- primary (= mock-model): your current model and thinking level\n');
+    expect(description).toContain(
+      '- primary (= mock-model): your current model and thinking level\n',
+    );
   });
 
   it('marks the default alias with [default]', () => {
@@ -1288,7 +1331,9 @@ describe('Agent tool description', () => {
     const fastIndex = description.indexOf('- provider/fast: fast and cheap');
     expect(defaultIndex).toBeGreaterThanOrEqual(0);
     expect(fastIndex).toBeGreaterThan(defaultIndex);
-    expect(description).toContain('- primary (= mock-model): your current model and thinking level\n');
+    expect(description).toContain(
+      '- primary (= mock-model): your current model and thinking level\n',
+    );
   });
 
   function agentParameters(): Record<string, unknown> {
@@ -1351,7 +1396,9 @@ describe('Agent tool description', () => {
 
     const description = agentDescription();
     expect(description).toContain('- provider/fast [default]\n');
-    expect(description).toContain('- primary (= mock-model): your current model and thinking level\n');
+    expect(description).toContain(
+      '- primary (= mock-model): your current model and thinking level\n',
+    );
   });
 
   it('hides the model parameter and the pool description when force is set', () => {
@@ -1382,9 +1429,7 @@ describe('Agent tool execution contract', () => {
   ): TestAgentContext {
     ctx = createTestAgent(
       sessionService(IAgentLifecycleService, lifecycle),
-      modelProviderServices(
-        modelCatalogResolving('mock-model', 'provider/fast', 'provider/smart'),
-      ),
+      modelProviderServices(modelCatalogResolving('mock-model', 'provider/fast', 'provider/smart')),
       ...extra,
     );
     wireRealSubagentService(ctx, lifecycle);
@@ -1721,7 +1766,9 @@ describe('Agent tool execution contract', () => {
     expect(result.output).toContain(
       'subagent error: The subagent was stopped before it finished. Reason: Subagent turn ended without a final message (stop reason: repeat_breaker).',
     );
-    expect(result.output).toContain('resume_hint: Continue with Agent(resume="agent-child", prompt="continue")');
+    expect(result.output).toContain(
+      'resume_hint: Continue with Agent(resume="agent-child", prompt="continue")',
+    );
     expect(result.output).toContain('next_step: Resume to continue where it stopped');
   });
 
@@ -1747,7 +1794,9 @@ describe('Agent tool execution contract', () => {
     expect(result.output).toContain('status: failed');
     expect(result.output).toContain('stop_reason: repeat_breaker');
     expect(result.output).toContain('Reason: Subagent turn ended without a final message');
-    expect(result.output).toContain('resume_hint: Continue with Agent(resume="agent-child", prompt="continue")');
+    expect(result.output).toContain(
+      'resume_hint: Continue with Agent(resume="agent-child", prompt="continue")',
+    );
     expect(result.output).toContain('next_step: The subagent was stuck on one tool call.');
     expect(result.output).not.toContain('[summary]');
   });
@@ -1780,7 +1829,10 @@ describe('Agent tool execution contract', () => {
     const lifecycle = createAgentLifecycleStub({
       createAgentIds: ['agent-child'],
       runCompletion: async () => {
-        throw new Error2(ErrorCodes.PROVIDER_FILTERED, 'Provider safety policy blocked the response.');
+        throw new Error2(
+          ErrorCodes.PROVIDER_FILTERED,
+          'Provider safety policy blocked the response.',
+        );
       },
     });
     const context = createAgentToolContext(lifecycle);
@@ -2136,9 +2188,7 @@ describe('Agent tool execution contract', () => {
       subagent_type: 'explore',
     });
 
-    const spawned = lifecycle.publishedEvents.filter(
-      (event) => event.type === 'subagent.spawned',
-    );
+    const spawned = lifecycle.publishedEvents.filter((event) => event.type === 'subagent.spawned');
     expect(spawned).toHaveLength(1);
     expect(spawned[0]).toMatchObject({
       subagentId: 'agent-child',
@@ -2401,7 +2451,10 @@ describe('Agent tool execution contract', () => {
     });
     const context = createAgentToolContext(lifecycle, {
       initialConfig: {
-        secondaryModel: { defaultModel: 'provider/fast', models: { 'provider/fast': 'fast and cheap' } },
+        secondaryModel: {
+          defaultModel: 'provider/fast',
+          models: { 'provider/fast': 'fast and cheap' },
+        },
       },
     });
 
@@ -2488,6 +2541,7 @@ describe('Agent tool execution contract', () => {
         agentId: 'agent-child',
         turn: {} as AgentRunHandle['turn'],
         completion: Promise.resolve({ summary: 'child result' }),
+        partialOutput: () => '',
       },
       {
         profileName: 'explore',
@@ -2582,10 +2636,7 @@ describe('Agent tool execution contract', () => {
     });
     const context = createAgentToolContext(
       lifecycle,
-      sessionService(
-        ISessionMetadata,
-        sessionMetadataStub({ 'agent-existing': subagentMeta() }),
-      ),
+      sessionService(ISessionMetadata, sessionMetadataStub({ 'agent-existing': subagentMeta() })),
     );
     lifecycle.addHandle('agent-existing', 'explore');
 
@@ -2661,10 +2712,7 @@ describe('Agent tool execution contract', () => {
       gatedReadStarted = true;
       return readGate;
     });
-    const context = createAgentToolContext(
-      lifecycle,
-      sessionService(ISessionMetadata, metadata),
-    );
+    const context = createAgentToolContext(lifecycle, sessionService(ISessionMetadata, metadata));
     lifecycle.addHandle('agent-existing', 'explore');
 
     armGate = true;
@@ -2762,7 +2810,8 @@ describe('Agent tool execution contract', () => {
 
     expect(result).toMatchObject({
       isError: true,
-      output: 'subagent error: Agent instance "agent-existing" does not belong to this parent agent',
+      output:
+        'subagent error: Agent instance "agent-existing" does not belong to this parent agent',
     });
     expect(lifecycle.create).not.toHaveBeenCalled();
     expect(lifecycle.run).not.toHaveBeenCalled();
@@ -2837,7 +2886,9 @@ describe('Agent tool execution contract', () => {
       sessionService(
         ISessionMetadata,
         sessionMetadataStub({
-          'agent-existing': { labels: { parentAgentId: 'main', profileName: TOWER_WORKER_PROFILE } },
+          'agent-existing': {
+            labels: { parentAgentId: 'main', profileName: TOWER_WORKER_PROFILE },
+          },
         }),
       ),
     );
@@ -2849,7 +2900,9 @@ describe('Agent tool execution contract', () => {
       resume: 'agent-existing',
     });
 
-    expect(result).toEqual({ output: expect.stringContaining(`actual_subagent_type: ${TOWER_WORKER_PROFILE}`) });
+    expect(result).toEqual({
+      output: expect.stringContaining(`actual_subagent_type: ${TOWER_WORKER_PROFILE}`),
+    });
     expect(setMode).not.toHaveBeenCalled();
     expect(lifecycle.run).toHaveBeenCalledTimes(1);
   });
@@ -2899,7 +2952,8 @@ describe('Agent tool execution contract', () => {
 
     expect(result).toMatchObject({
       isError: true,
-      output: 'subagent error: Agent instance "agent-existing" does not belong to this parent agent',
+      output:
+        'subagent error: Agent instance "agent-existing" does not belong to this parent agent',
     });
     expect(lifecycle.run).not.toHaveBeenCalled();
   });
@@ -2908,10 +2962,7 @@ describe('Agent tool execution contract', () => {
     const lifecycle = createAgentLifecycleStub();
     const context = createAgentToolContext(
       lifecycle,
-      sessionService(
-        ISessionMetadata,
-        sessionMetadataStub({ 'agent-existing': subagentMeta() }),
-      ),
+      sessionService(ISessionMetadata, sessionMetadataStub({ 'agent-existing': subagentMeta() })),
     );
     lifecycle.addHandle(
       'agent-existing',
@@ -2955,10 +3006,7 @@ describe('Agent tool execution contract', () => {
     });
     const context = createAgentToolContext(
       lifecycle,
-      sessionService(
-        ISessionMetadata,
-        sessionMetadataStub({ 'agent-existing': subagentMeta() }),
-      ),
+      sessionService(ISessionMetadata, sessionMetadataStub({ 'agent-existing': subagentMeta() })),
     );
     lifecycle.addHandle(
       'agent-existing',
@@ -3495,11 +3543,9 @@ describe('Agent tool execution contract', () => {
           );
         }),
     });
-    const context = createAgentToolContext(
-      lifecycle,
-      appService(IHostTimers, timers),
-      { initialConfig: { subagent: { timeoutMs: 1000 } } },
-    );
+    const context = createAgentToolContext(lifecycle, appService(IHostTimers, timers), {
+      initialConfig: { subagent: { timeoutMs: 1000 } },
+    });
 
     const resultPromise = executeAgentTool(context, {
       prompt: 'Investigate',
@@ -3706,7 +3752,13 @@ describe('AgentSwarm tool execution contract', () => {
           runInBackground: false,
           signal,
           timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
-          plan: { profileName: 'explore', model: 'mock-model', modelSource: 'inherited', thinking: 'off', fork: false },
+          plan: {
+            profileName: 'explore',
+            model: 'mock-model',
+            modelSource: 'inherited',
+            thinking: 'off',
+            fork: false,
+          },
         },
         {
           kind: 'spawn',
@@ -3720,25 +3772,31 @@ describe('AgentSwarm tool execution contract', () => {
           runInBackground: false,
           signal,
           timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
-          plan: { profileName: 'explore', model: 'mock-model', modelSource: 'inherited', thinking: 'off', fork: false },
+          plan: {
+            profileName: 'explore',
+            model: 'mock-model',
+            modelSource: 'inherited',
+            thinking: 'off',
+            fork: false,
+          },
         },
       ],
     });
-    expect(result.output).toBe([
-      '<agent_swarm_result>',
-      '<summary>completed: 2</summary>',
-      '<subagent agent_id="agent-explore-1" item="src/a.ts" outcome="completed">explore result a</subagent>',
-      '<subagent agent_id="agent-explore-2" item="src/b.ts" outcome="completed">explore result b</subagent>',
-      '</agent_swarm_result>',
-    ].join('\n'));
+    expect(result.output).toBe(
+      [
+        '<agent_swarm_result>',
+        '<summary>completed: 2</summary>',
+        '<subagent agent_id="agent-explore-1" item="src/a.ts" outcome="completed">explore result a</subagent>',
+        '<subagent agent_id="agent-explore-2" item="src/b.ts" outcome="completed">explore result b</subagent>',
+        '</agent_swarm_result>',
+      ].join('\n'),
+    );
     expect(result.isError).toBeUndefined();
   });
 
   it('threads the pool default model into spawn task plans', async () => {
     const runSwarm = mock(
-      async (
-        args: SessionSwarmRunArgs,
-      ): Promise<readonly SessionSwarmRunResult[]> => {
+      async (args: SessionSwarmRunArgs): Promise<readonly SessionSwarmRunResult[]> => {
         return args.tasks.map((task, index) => ({
           task,
           agentId: `agent-explore-${String(index + 1)}`,
@@ -3753,18 +3811,15 @@ describe('AgentSwarm tool execution contract', () => {
       run: runSwarm as ISessionSwarmService['run'],
       cancel: () => {},
     };
-    ctx = createTestAgent(
-      swarmServices(swarmService),
-      {
-        initialConfig: {
-          secondaryModel: {
-            defaultModel: 'provider/fast',
-            models: { 'provider/fast': 'fast and cheap', 'provider/smart': 'hard tasks' },
-          },
-          models: POOL_MODEL_ENTRIES,
+    ctx = createTestAgent(swarmServices(swarmService), {
+      initialConfig: {
+        secondaryModel: {
+          defaultModel: 'provider/fast',
+          models: { 'provider/fast': 'fast and cheap', 'provider/smart': 'hard tasks' },
         },
+        models: POOL_MODEL_ENTRIES,
       },
-    );
+    });
 
     await executeTool(agentSwarmToolInSwarmMode(ctx), {
       turnId: 0,
@@ -3783,11 +3838,23 @@ describe('AgentSwarm tool execution contract', () => {
         tasks: [
           expect.objectContaining({
             kind: 'spawn',
-            plan: { profileName: 'explore', model: 'provider/fast', modelSource: 'secondary_pool', thinking: undefined, fork: false },
+            plan: {
+              profileName: 'explore',
+              model: 'provider/fast',
+              modelSource: 'secondary_pool',
+              thinking: undefined,
+              fork: false,
+            },
           }),
           expect.objectContaining({
             kind: 'spawn',
-            plan: { profileName: 'explore', model: 'provider/fast', modelSource: 'secondary_pool', thinking: undefined, fork: false },
+            plan: {
+              profileName: 'explore',
+              model: 'provider/fast',
+              modelSource: 'secondary_pool',
+              thinking: undefined,
+              fork: false,
+            },
           }),
         ],
       }),
@@ -3796,9 +3863,7 @@ describe('AgentSwarm tool execution contract', () => {
 
   it('threads the caller model into spawn task plans when the tool call opts into "primary"', async () => {
     const runSwarm = mock(
-      async (
-        args: SessionSwarmRunArgs,
-      ): Promise<readonly SessionSwarmRunResult[]> => {
+      async (args: SessionSwarmRunArgs): Promise<readonly SessionSwarmRunResult[]> => {
         return args.tasks.map((task, index) => ({
           task,
           agentId: `agent-explore-${String(index + 1)}`,
@@ -3813,18 +3878,15 @@ describe('AgentSwarm tool execution contract', () => {
       run: runSwarm as ISessionSwarmService['run'],
       cancel: () => {},
     };
-    ctx = createTestAgent(
-      swarmServices(swarmService),
-      {
-        initialConfig: {
-          secondaryModel: {
-            defaultModel: 'provider/fast',
-            models: { 'provider/fast': 'fast and cheap' },
-          },
-          models: POOL_MODEL_ENTRIES,
+    ctx = createTestAgent(swarmServices(swarmService), {
+      initialConfig: {
+        secondaryModel: {
+          defaultModel: 'provider/fast',
+          models: { 'provider/fast': 'fast and cheap' },
         },
+        models: POOL_MODEL_ENTRIES,
       },
-    );
+    });
 
     await executeTool(agentSwarmToolInSwarmMode(ctx), {
       turnId: 0,
@@ -3844,11 +3906,23 @@ describe('AgentSwarm tool execution contract', () => {
         tasks: [
           expect.objectContaining({
             kind: 'spawn',
-            plan: { profileName: 'explore', model: 'mock-model', modelSource: 'primary_override', thinking: 'off', fork: false },
+            plan: {
+              profileName: 'explore',
+              model: 'mock-model',
+              modelSource: 'primary_override',
+              thinking: 'off',
+              fork: false,
+            },
           }),
           expect.objectContaining({
             kind: 'spawn',
-            plan: { profileName: 'explore', model: 'mock-model', modelSource: 'primary_override', thinking: 'off', fork: false },
+            plan: {
+              profileName: 'explore',
+              model: 'mock-model',
+              modelSource: 'primary_override',
+              thinking: 'off',
+              fork: false,
+            },
           }),
         ],
       }),
@@ -3967,18 +4041,26 @@ describe('AgentSwarm tool execution contract', () => {
           runInBackground: false,
           signal,
           timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
-          plan: { profileName: 'explore', model: 'mock-model', modelSource: 'inherited', thinking: 'off', fork: false },
+          plan: {
+            profileName: 'explore',
+            model: 'mock-model',
+            modelSource: 'inherited',
+            thinking: 'off',
+            fork: false,
+          },
         },
       ],
     });
-    expect(result.output).toBe([
-      '<agent_swarm_result>',
-      '<summary>completed: 3</summary>',
-      '<subagent mode="resume" agent_id="agent-old-1" item="src/old-a.ts" outcome="completed">result 1</subagent>',
-      '<subagent mode="resume" agent_id="agent-old-2" item="src/old-b.ts" outcome="completed">result 2</subagent>',
-      '<subagent agent_id="agent-new-3" item="src/new.ts" outcome="completed">result 3</subagent>',
-      '</agent_swarm_result>',
-    ].join('\n'));
+    expect(result.output).toBe(
+      [
+        '<agent_swarm_result>',
+        '<summary>completed: 3</summary>',
+        '<subagent mode="resume" agent_id="agent-old-1" item="src/old-a.ts" outcome="completed">result 1</subagent>',
+        '<subagent mode="resume" agent_id="agent-old-2" item="src/old-b.ts" outcome="completed">result 2</subagent>',
+        '<subagent agent_id="agent-new-3" item="src/new.ts" outcome="completed">result 3</subagent>',
+        '</agent_swarm_result>',
+      ].join('\n'),
+    );
     expect(result.isError).toBeUndefined();
   });
 
@@ -4020,14 +4102,16 @@ describe('AgentSwarm tool execution contract', () => {
       signal,
     });
 
-    expect(result.output).toBe([
-      '<agent_swarm_result>',
-      '<summary>completed: 1, failed: 1</summary>',
-      '<resume_hint>Call AgentSwarm with resume_agent_ids using the agent_id values in this result to continue unfinished work.</resume_hint>',
-      '<subagent agent_id="agent-coder-1" item="src/a.ts" outcome="completed">imports are stable</subagent>',
-      '<subagent agent_id="agent-coder-2" item="src/b.ts" outcome="failed">Agent timed out after 30s.</subagent>',
-      '</agent_swarm_result>',
-    ].join('\n'));
+    expect(result.output).toBe(
+      [
+        '<agent_swarm_result>',
+        '<summary>completed: 1, failed: 1</summary>',
+        '<resume_hint>Call AgentSwarm with resume_agent_ids using the agent_id values in this result to continue unfinished work.</resume_hint>',
+        '<subagent agent_id="agent-coder-1" item="src/a.ts" outcome="completed">imports are stable</subagent>',
+        '<subagent agent_id="agent-coder-2" item="src/b.ts" outcome="failed">Agent timed out after 30s.</subagent>',
+        '</agent_swarm_result>',
+      ].join('\n'),
+    );
     expect(result.isError).toBeUndefined();
   });
 
@@ -4067,13 +4151,15 @@ describe('AgentSwarm tool execution contract', () => {
       signal,
     });
 
-    expect(result.output).toBe([
-      '<agent_swarm_result>',
-      '<summary>failed: 2</summary>',
-      '<subagent item="src/a.ts" outcome="failed">Agent did not start.</subagent>',
-      '<subagent item="src/b.ts" outcome="failed">Agent also did not start.</subagent>',
-      '</agent_swarm_result>',
-    ].join('\n'));
+    expect(result.output).toBe(
+      [
+        '<agent_swarm_result>',
+        '<summary>failed: 2</summary>',
+        '<subagent item="src/a.ts" outcome="failed">Agent did not start.</subagent>',
+        '<subagent item="src/b.ts" outcome="failed">Agent also did not start.</subagent>',
+        '</agent_swarm_result>',
+      ].join('\n'),
+    );
     expect(result.output).not.toContain('<resume_hint>');
     expect(result.isError).toBeUndefined();
   });
@@ -4117,14 +4203,16 @@ describe('AgentSwarm tool execution contract', () => {
       signal,
     });
 
-    expect(result.output).toBe([
-      '<agent_swarm_result>',
-      '<summary>completed: 2</summary>',
-      '<resume_hint>Call AgentSwarm with resume_agent_ids using the agent_id values in this result to continue unfinished work.</resume_hint>',
-      '<subagent agent_id="agent-coder-1" item="src/a.ts" outcome="completed">imports are stable</subagent>',
-      '<subagent agent_id="agent-coder-2" item="src/b.ts" outcome="completed" stop_reason="repeat_breaker">Stuck: the same grep keeps returning nothing.</subagent>',
-      '</agent_swarm_result>',
-    ].join('\n'));
+    expect(result.output).toBe(
+      [
+        '<agent_swarm_result>',
+        '<summary>completed: 2</summary>',
+        '<resume_hint>Call AgentSwarm with resume_agent_ids using the agent_id values in this result to continue unfinished work.</resume_hint>',
+        '<subagent agent_id="agent-coder-1" item="src/a.ts" outcome="completed">imports are stable</subagent>',
+        '<subagent agent_id="agent-coder-2" item="src/b.ts" outcome="completed" stop_reason="repeat_breaker">Stuck: the same grep keeps returning nothing.</subagent>',
+        '</agent_swarm_result>',
+      ].join('\n'),
+    );
     expect(result.isError).toBeUndefined();
   });
 
@@ -4150,7 +4238,8 @@ describe('AgentSwarm tool execution contract', () => {
           task: args.tasks[2]!,
           status: 'aborted' as const,
           state: 'not_started' as const,
-          error: 'The user manually interrupted this subagent batch before this subagent was started.',
+          error:
+            'The user manually interrupted this subagent batch before this subagent was started.',
         },
       ],
     );
@@ -4173,15 +4262,17 @@ describe('AgentSwarm tool execution contract', () => {
       signal,
     });
 
-    expect(result.output).toBe([
-      '<agent_swarm_result>',
-      '<summary>completed: 1, aborted: 2</summary>',
-      '<resume_hint>Call AgentSwarm with resume_agent_ids using the agent_id values in this result to continue unfinished work.</resume_hint>',
-      '<subagent agent_id="agent-coder-1" item="src/a.ts" outcome="completed">imports are stable</subagent>',
-      '<subagent agent_id="agent-coder-2" item="src/b.ts" state="started" outcome="aborted">The user manually interrupted this subagent batch before this subagent finished.</subagent>',
-      '<subagent item="src/c.ts" state="not_started" outcome="aborted">The user manually interrupted this subagent batch before this subagent was started.</subagent>',
-      '</agent_swarm_result>',
-    ].join('\n'));
+    expect(result.output).toBe(
+      [
+        '<agent_swarm_result>',
+        '<summary>completed: 1, aborted: 2</summary>',
+        '<resume_hint>Call AgentSwarm with resume_agent_ids using the agent_id values in this result to continue unfinished work.</resume_hint>',
+        '<subagent agent_id="agent-coder-1" item="src/a.ts" outcome="completed">imports are stable</subagent>',
+        '<subagent agent_id="agent-coder-2" item="src/b.ts" state="started" outcome="aborted">The user manually interrupted this subagent batch before this subagent finished.</subagent>',
+        '<subagent item="src/c.ts" state="not_started" outcome="aborted">The user manually interrupted this subagent batch before this subagent was started.</subagent>',
+        '</agent_swarm_result>',
+      ].join('\n'),
+    );
     expect(result.isError).toBeUndefined();
   });
 
@@ -4194,7 +4285,8 @@ describe('AgentSwarm tool execution contract', () => {
       items: ['src/a.ts', 'src/b.ts'],
     });
 
-    if (execution.isError === true) throw new Error('AgentSwarm resolveExecution returned an error');
+    if (execution.isError === true)
+      throw new Error('AgentSwarm resolveExecution returned an error');
     expect(execution.accesses).toEqual(ToolAccesses.all());
     expect(execution.approvalRule).toBe('AgentSwarm');
     expect(execution.matchesRule).toBeUndefined();
@@ -4219,7 +4311,8 @@ describe('AgentSwarm tool execution contract', () => {
       },
     });
 
-    if (execution.isError === true) throw new Error('AgentSwarm resolveExecution returned an error');
+    if (execution.isError === true)
+      throw new Error('AgentSwarm resolveExecution returned an error');
     expect(execution.display).toMatchObject({
       agent_name: 'swarm (3 subagents)',
       prompt: 'Finish review',
@@ -4254,7 +4347,9 @@ describe('Agent tools', () => {
     let triggered: Array<[string, string, number]>;
 
     beforeEach(() => {
-      exec = mock<IHostProcessService['spawn']>().mockRejectedValue(new Error('Bash should not execute'));
+      exec = mock<IHostProcessService['spawn']>().mockRejectedValue(
+        new Error('Bash should not execute'),
+      );
       triggered = [];
       const hookEngine = makeHookRunner(
         [
@@ -4279,7 +4374,11 @@ describe('Agent tools', () => {
         },
       );
       ctx = createTestAgent(
-        execEnvServices({ processRunner: createFakeProcessRunner({ spawn: exec as unknown as IHostProcessService['spawn'] }) }),
+        execEnvServices({
+          processRunner: createFakeProcessRunner({
+            spawn: exec as unknown as IHostProcessService['spawn'],
+          }),
+        }),
         externalHookServices(hookEngine),
       );
       context = ctx.get(IAgentContextMemoryService);
@@ -4438,12 +4537,12 @@ describe('Agent tools', () => {
       const lifecycle = createAgentLifecycleStub({
         createAgentIds: ['agent-child'],
         runCompletion: async () => {
-          throw new Error('Subagent turn failed before completing its final summary: reason=max_tokens');
+          throw new Error(
+            'Subagent turn failed before completing its final summary: reason=max_tokens',
+          );
         },
       });
-      ctx = createTestAgent(
-        sessionService(IAgentLifecycleService, lifecycle),
-        );
+      ctx = createTestAgent(sessionService(IAgentLifecycleService, lifecycle));
       wireRealSubagentService(ctx, lifecycle);
     });
 
@@ -4652,12 +4751,14 @@ describe('Agent tools', () => {
       await ctx.restorePersisted();
       ctx.mockNextResponse({ type: 'text', text: 'I will look it up.' }, lookupCall);
       await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Look up moon' }] });
-      expect(renderSnapshot(
-        await ctx.untilToolCall({
-          content: 'moon-result',
-          output: 'moon-result',
-        }),
-      )).toMatchInlineSnapshot(`
+      expect(
+        renderSnapshot(
+          await ctx.untilToolCall({
+            content: 'moon-result',
+            output: 'moon-result',
+          }),
+        ),
+      ).toMatchInlineSnapshot(`
         "[wire] permission.set_mode         { "agentId": "main", "mode": "auto", "time": "<time>" }
         [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "permission": "auto" }
         [wire] tools.register_user_tool    { "name": "Lookup", "description": "Look up a short test value.", "parameters": { "type": "object", "properties": { "query": { "type": "string" } }, "required": [ "query" ], "additionalProperties": false }, "agentId": "main", "time": "<time>" }
@@ -4811,7 +4912,10 @@ describe('Agent tools', () => {
 
       const outputPath = renderedOutputPath(toolMessage);
       expect(outputPath).toContain(
-        join(homeDir, 'sessions/test-workspace/test-session/agents/main/tool-results/Lookup-call_lookup-')
+        join(
+          homeDir,
+          'sessions/test-workspace/test-session/agents/main/tool-results/Lookup-call_lookup-',
+        )
           .split(sep)
           .join('/'),
       );
@@ -4914,6 +5018,8 @@ function hookPayloadAssertCommand(expected: {
     '  process.exit(0);',
     '});',
     "process.on('uncaughtException', (error) => { console.error(error.message); process.exit(2); });",
-  ].filter((line) => line.length > 0).join('');
+  ]
+    .filter((line) => line.length > 0)
+    .join('');
   return `node -e ${JSON.stringify(script)}`;
 }
