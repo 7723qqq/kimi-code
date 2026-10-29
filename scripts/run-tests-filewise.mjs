@@ -3,6 +3,8 @@ import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 
+import { killProcessTree } from './lib/kill-process-tree.mjs';
+
 const ROOT = join(import.meta.dirname, '..');
 const LOG_DIR = join(ROOT, '.tmp', 'filewise');
 const args = process.argv.slice(2);
@@ -74,6 +76,7 @@ function runFile(file) {
     };
     const child = spawn('bun', ['test', '--isolate', '--timeout', String(testTimeoutMs), rel], {
       cwd: pkgDir,
+      detached: process.platform !== 'win32',
     });
     child.stdout.on('data', (chunk) => {
       output += chunk;
@@ -83,7 +86,7 @@ function runFile(file) {
     });
     const killer = setTimeout(() => {
       killed = true;
-      child.kill('SIGKILL');
+      killProcessTree(child.pid);
       finish(null);
     }, perFileTimeoutMs);
     child.on('close', (code) => finish(code));

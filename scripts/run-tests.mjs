@@ -1,12 +1,17 @@
 #!/usr/bin/env bun
-import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
+import { killProcessTree } from './lib/kill-process-tree.mjs';
+
 const ROOT = resolve(import.meta.dirname, '..');
+
+const DEFAULT_PACKAGE_TIMEOUT_MS = 15 * 60 * 1000;
 
 const PASS_THROUGH = new Set([
   '--shard',
+  '--parallel',
+  '--retry',
   '--timeout',
   '--coverage',
   '--coverage-reporter',
@@ -38,6 +43,15 @@ for (const arg of args) {
   }
   if (PASS_THROUGH.has(name)) forwarded.push(arg);
 }
+const packageTimeoutArg = args.find((arg) => arg.startsWith('--package-timeout='));
+const parsedPackageTimeout =
+  packageTimeoutArg === undefined
+    ? DEFAULT_PACKAGE_TIMEOUT_MS
+    : Number(packageTimeoutArg.slice('--package-timeout='.length));
+const packageTimeoutMs = Number.isFinite(parsedPackageTimeout)
+  ? parsedPackageTimeout
+  : DEFAULT_PACKAGE_TIMEOUT_MS;
+
 if (watch) forwarded.push('--watch');
 if (args.includes('--include-heavy')) forwarded.push('--path-ignore-patterns=**/node_modules/**');
 if (args.some((arg) => arg.startsWith('--shard'))) forwarded.push('--pass-with-no-tests');
@@ -84,17 +98,40 @@ const failures = [];
 for (const pkg of selected) {
   const label = pkg.dir.slice(ROOT.length + 1).replace(/\\/g, '/');
   process.stdout.write(`\n=== ${pkg.name} (${label}) ===\n`);
-  const result = spawnSync('bun', ['run', script, ...(forwarded.length > 0 ? ['--', ...forwarded] : [])], {
+  const child = Bun.spawn(['bun', 'run', script, ...(forwarded.length > 0 ? ['--', ...forwarded] : [])], {
     cwd: pkg.dir,
-    stdio: 'inherit',
+    stdio: ['inherit', 'inherit', 'inherit'],
     env: process.env,
+    detached: process.platform !== 'win32',
   });
-  if (result.status !== 0) failures.push({ name: pkg.name, status: result.status ?? 1 });
+  let timedOut = false;
+  const timer =
+    packageTimeoutMs > 0
+      ? setTimeout(() => {
+          timedOut = true;
+          killProcessTree(child.pid);
+        }, packageTimeoutMs)
+      : undefined;
+  timer?.unref?.();
+  const status = await child.exited;
+  if (timer !== undefined) clearTimeout(timer);
+  if (timedOut) {
+    process.stdout.write(
+      `TIMEOUT ${pkg.name} — still running after ${String(packageTimeoutMs)}ms; process tree killed. ` +
+        `Override with --package-timeout=<ms>, or 0 to disable.\n`,
+    );
+    failures.push({ name: pkg.name, status: 124, timedOut: true });
+    continue;
+  }
+  if (status !== 0) failures.push({ name: pkg.name, status: status ?? 1 });
 }
 
 process.stdout.write('\n');
 if (failures.length > 0) {
-  for (const failure of failures) process.stdout.write(`FAILED ${failure.name} (exit ${failure.status})\n`);
+  for (const failure of failures) {
+    const kind = failure.timedOut === true ? 'TIMEOUT' : 'FAILED';
+    process.stdout.write(`${kind} ${failure.name} (exit ${failure.status})\n`);
+  }
   process.exit(1);
 }
 process.stdout.write(`all ${selected.length} package suites passed\n`);

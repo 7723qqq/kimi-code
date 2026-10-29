@@ -4,6 +4,11 @@ dist-single/
 dist-native/
 .tmp-api-extractor/
 .contract-types-tmp/
+# tsdown's declaration build emits beside the sources it type-checks, so a
+# workspace build writes generated .d.ts next to the engine's own modules. No
+# .d.ts under the engine's src is tracked; `src/env.d.ts` is re-included below.
+packages/agent-core-v2/src/**/*.d.ts
+!packages/agent-core-v2/src/env.d.ts
 .local/
 coverage/
 *.tsbuildinfo

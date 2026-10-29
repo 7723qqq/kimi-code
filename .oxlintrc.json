@@ -239,6 +239,7 @@
   "ignorePatterns": [
     "dist/",
     "dist-web/",
+    "packages/agent-core-v2/src/**/*.d.ts",
     "coverage/",
     "node_modules/",
     "apps/*/scripts/",

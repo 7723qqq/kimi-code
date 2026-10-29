@@ -162,8 +162,10 @@ jobs:
       - run: bun --bun run check:no-comments
       # Test-runner residue: the vitest→`bun test` migration is only durable if
       # a stray `from 'vitest'`, `vi.fn()` or `{ skip: true }` fails the build
-      # instead of silently passing. The scanner reads the source tree only.
-      - run: bun scripts/scan-test-residue.mjs
+      # instead of silently passing. The scanner reads the source tree only; the
+      # baseline it reads holds the reviewed exceptions (comment-only notes and
+      # fixtures that run outside bun test), each with its reason.
+      - run: bun run scan:residue
       # Locale consistency: en/zh key parity, placeholder validity, call-site
       # coverage. The `.ts` sources under `*/locales/` are the single source of
       # truth — the engine receives locale data as an in-memory JSON string.

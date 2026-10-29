@@ -216,6 +216,13 @@ const RULES = [
       /\.(toHaveBeenCalledOnce|toHaveBeenCalledExactlyOnceWith|toHaveBeenLastCalledOnce|toSatisfy|toBeOneOf|toBeTypeOf|toBeEmpty|toHaveResolved|toHaveLastResolvedWith|toHaveBeenCalledBefore|toHaveBeenCalledAfter)\s*\(/,
   },
   {
+    id: 'captured-promise-matcher',
+    severity: 'error',
+    scope: 'test',
+    why: 'Bun settles `.rejects`/`.resolves` eagerly: capturing `expect(p).rejects.toThrow()` in a variable blocks the event loop until p settles, so timers — the per-test timeout included — stop firing and the file never finishes. Await the matcher once the rejection is known to have happened.',
+    pattern: /(?<!\bawait\s)expect\s*\([^()]*\)\s*\.\s*(?:rejects|resolves)\b/,
+  },
+  {
     id: 'handwritten-vitest-shim',
     severity: 'error',
     scope: 'all',

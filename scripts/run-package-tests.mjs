@@ -40,6 +40,8 @@ import { appendFileSync, existsSync, readFileSync, readdirSync } from 'node:fs';
 import os from 'node:os';
 import { basename, join, relative, sep } from 'node:path';
 
+import { killProcessTree } from './lib/kill-process-tree.mjs';
+
 const args = process.argv.slice(2);
 const ROOT = join(import.meta.dirname, '..');
 
@@ -66,7 +68,15 @@ const defaultParallel = Math.max(
   1,
   Math.min(MAX_PARALLEL, os.availableParallelism?.() ?? os.cpus().length),
 );
-const parallel = Number(flag('parallel') ?? defaultParallel);
+const rawParallel = flag('parallel');
+const requestedParallel = rawParallel === undefined ? defaultParallel : Number(rawParallel);
+const parallel =
+  Number.isInteger(requestedParallel) && requestedParallel >= 1 ? requestedParallel : defaultParallel;
+if (rawParallel !== undefined && parallel !== requestedParallel) {
+  process.stderr.write(
+    `--parallel=${String(rawParallel)} is not a positive integer; falling back to ${String(defaultParallel)}\n`,
+  );
+}
 const includeHeavy = process.env['KIMI_TEST_HEAVY'] === '1' || args.includes('--include-heavy');
 const roots = args
   .filter((arg) => arg.startsWith('--root='))
@@ -124,8 +134,11 @@ const ignoreOverride = includeHeavy
     ? ignores.join(',')
     : undefined;
 
+const retry = flag('retry');
+
 function spawnArgs(rel) {
   const list = ['test', '--isolate', '--timeout', String(TEST_TIMEOUT_MS)];
+  if (retry !== undefined) list.push('--retry', retry);
   if (ignoreOverride !== undefined) list.push('--path-ignore-patterns', ignoreOverride);
   list.push(`./${rel}`);
   return list;
@@ -139,7 +152,10 @@ function parseCount(output, name) {
 function runFile(file) {
   const rel = relPath(file);
   return new Promise((resolve) => {
-    const child = spawn('bun', spawnArgs(rel), { cwd: PKG_DIR });
+    const child = spawn('bun', spawnArgs(rel), {
+      cwd: PKG_DIR,
+      detached: process.platform !== 'win32',
+    });
     let output = '';
     let settled = false;
     const startedAt = performance.now();
@@ -150,7 +166,7 @@ function runFile(file) {
       resolve({ rel, code, timedOut, output, ms: performance.now() - startedAt });
     };
     const killer = setTimeout(() => {
-      child.kill('SIGKILL');
+      killProcessTree(child.pid);
       finish(124, true);
     }, FILE_TIMEOUT_MS);
     child.stdout.on('data', (chunk) => (output += chunk));
