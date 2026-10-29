@@ -225,19 +225,21 @@ describe('OAuthService', () => {
   }
 
   function stubManagedModelsFetch(): ReturnType<typeof jest.fn> {
-    const fetchMock = jest.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        data: [
-          {
-            id: 'kimi-k2',
-            limit: { context: 131072 },
-            reasoning: { type: 'both' },
-            display_name: 'Kimi K2',
-          },
-        ],
-      }),
-    });
+    const fetchMock = jest.fn().mockImplementation(async () =>
+      new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: 'kimi-k2',
+              limit: { context: 131072 },
+              reasoning: { type: 'both' },
+              display_name: 'Kimi K2',
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
     setGlobal('fetch', fetchMock);
     return fetchMock;
   }
@@ -268,9 +270,8 @@ describe('OAuthService', () => {
     });
     const fetchMock = jest.fn().mockImplementation(async () => {
       await gate;
-      return {
-        ok: true,
-        json: async () => ({
+      return new Response(
+        JSON.stringify({
           data: [
             {
               id: 'kimi-k2',
@@ -292,7 +293,8 @@ describe('OAuthService', () => {
             },
           ],
         }),
-      };
+        { status: 200 },
+      );
     });
     setGlobal('fetch', fetchMock);
     return { fetchMock, releaseFetch };
@@ -973,19 +975,21 @@ describe('OAuthService', () => {
   });
 
   it('refreshOAuthProviderModels fetches models and writes back the changed sections', async () => {
-    const fetchMock = jest.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        data: [
-          {
-            id: 'kimi-k2',
-            limit: { context: 131072 },
-            reasoning: { type: 'both' },
-            display_name: 'Kimi K2',
-          },
-        ],
-      }),
-    });
+    const fetchMock = jest.fn().mockImplementation(async () =>
+      new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: 'kimi-k2',
+              limit: { context: 131072 },
+              reasoning: { type: 'both' },
+              display_name: 'Kimi K2',
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
     setGlobal('fetch', fetchMock);
     const svc = createService();
 
@@ -1028,9 +1032,8 @@ describe('OAuthService', () => {
       maxInFlight = Math.max(maxInFlight, inFlight);
       await new Promise((resolve) => setTimeout(resolve, 20));
       inFlight--;
-      return {
-        ok: true,
-        json: async () => ({
+      return new Response(
+        JSON.stringify({
           data: [
             {
               id: 'kimi-k2',
@@ -1040,7 +1043,8 @@ describe('OAuthService', () => {
             },
           ],
         }),
-      };
+        { status: 200 },
+      );
     });
     setGlobal('fetch', fetchMock);
     const svc = createService();
@@ -1063,19 +1067,21 @@ describe('OAuthService', () => {
       ...providers,
       [OAUTH_PROVIDER]: { ...providers[OAUTH_PROVIDER]!, baseUrl: 'https://api.changed.example.com' },
     };
-    resolveFetch({
-      ok: true,
-      json: async () => ({
-        data: [
-          {
-            id: 'kimi-k2',
-            limit: { context: 131072 },
-            reasoning: { type: 'both' },
-            display_name: 'Kimi K2',
-          },
-        ],
-      }),
-    });
+    resolveFetch(
+      new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: 'kimi-k2',
+              limit: { context: 131072 },
+              reasoning: { type: 'both' },
+              display_name: 'Kimi K2',
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
 
     await expect(pending).resolves.toEqual({ changed: [], unchanged: [], failed: [] });
     expect(configReplace).not.toHaveBeenCalled();
@@ -1268,19 +1274,19 @@ describe('WebSearchProviderService', () => {
     return ix.get(IWebSearchProviderService);
   }
 
-  it('returns undefined when the managed provider is not configured', () => {
+  it('falls back to the local keyless provider when the managed provider is not configured', () => {
     providers = { [NON_OAUTH_PROVIDER]: { type: 'openai', apiKey: 'sk-test' } };
-    expect(createService().getWebSearchProvider()).toBeUndefined();
+    expect(createService().getWebSearchProvider()).not.toBeUndefined();
     expect(resolveTokenProvider).not.toHaveBeenCalled();
   });
 
-  it('returns undefined when the managed provider is not an OAuth kimi provider', () => {
+  it('falls back to the local keyless provider when the managed provider is not an OAuth kimi provider', () => {
     providers = { [OAUTH_PROVIDER]: { type: 'kimi', apiKey: 'sk-test' } };
-    expect(createService().getWebSearchProvider()).toBeUndefined();
+    expect(createService().getWebSearchProvider()).not.toBeUndefined();
     expect(resolveTokenProvider).not.toHaveBeenCalled();
   });
 
-  it('returns undefined when the oauth service yields no token provider', () => {
+  it('falls back to the local keyless provider when the oauth service yields no token provider', () => {
     providers = {
       [OAUTH_PROVIDER]: {
         type: 'kimi',
@@ -1289,7 +1295,7 @@ describe('WebSearchProviderService', () => {
       },
     };
     resolveTokenProvider.mockReturnValue(undefined);
-    expect(createService().getWebSearchProvider()).toBeUndefined();
+    expect(createService().getWebSearchProvider()).not.toBeUndefined();
   });
 
   it('builds a search provider from the managed provider oauth ref', () => {
@@ -1387,8 +1393,10 @@ describe('WebSearchProviderService', () => {
       },
     };
     const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
       status: 200,
       json: async () => ({ search_results: [] }),
+      text: async () => '<html><body>no results</body></html>',
     });
     setGlobal('fetch', fetchMock);
 
@@ -1411,8 +1419,10 @@ describe('WebSearchProviderService', () => {
       },
     };
     const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
       status: 200,
       json: async () => ({ search_results: [] }),
+      text: async () => '<html><body>no results</body></html>',
     });
     setGlobal('fetch', fetchMock);
 
@@ -1428,9 +1438,9 @@ describe('WebSearchProviderService', () => {
     expect((init.headers as Record<string, string>)['Authorization']).toBe('Bearer access-token');
   });
 
-  it('returns undefined when services.moonshot_search has no baseUrl and no managed oauth', () => {
+  it('falls back to the local keyless provider when services.moonshot_search has no baseUrl and no managed oauth', () => {
     servicesConfig = { moonshotSearch: { apiKey: 'search-key' } };
-    expect(createService().getWebSearchProvider()).toBeUndefined();
+    expect(createService().getWebSearchProvider()).not.toBeUndefined();
     expect(resolveTokenProvider).not.toHaveBeenCalled();
   });
 
@@ -1464,7 +1474,7 @@ describe('WebSearchProviderService', () => {
 
     servicesConfig = undefined;
     providers = {};
-    expect(svc.hasWebSearchProvider()).toBe(false);
+    expect(svc.hasWebSearchProvider()).toBe(true);
 
     providers = {
       [OAUTH_PROVIDER]: {

@@ -15,6 +15,7 @@ import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
 import { IEventBus } from '#/app/event/eventBus';
 import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
+import { IOAuthService } from '#/app/auth/auth';
 import { type PathClass } from '#/_base/execEnv/environmentProbe';
 import { PathSecurityError, type WorkspaceConfig } from '#/tool/path-access';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
@@ -408,6 +409,10 @@ describe('GrepTool', () => {
           });
           reg.defineInstance(ISessionWorkspaceContext, stubWorkspaceContext('/workspace'));
           reg.defineInstance(ITelemetryService, noopTelemetryService);
+          reg.definePartialInstance(IOAuthService, {
+            getRegion: () => 'mainland-cn',
+            getRegionAsync: async () => 'mainland-cn',
+          });
           reg.defineInstance(ISessionSkillCatalog, {
             _serviceBrand: undefined,
             catalog: { getSkillRoots: () => [] },

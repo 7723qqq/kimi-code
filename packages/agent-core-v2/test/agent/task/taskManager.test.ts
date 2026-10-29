@@ -6,7 +6,7 @@ import { join } from 'pathe';
 
 import type { IHostProcess } from '#/os/interface/hostProcess';
 import { afterEach, describe, expect, it, jest } from 'bun:test';
-import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
+import { advanceTimersByTimeAsync, waitForAssertion, waitUntil } from '#test/helpers/waitFor';
 
 import {
   IAgentTaskService,
@@ -1038,11 +1038,11 @@ describe('AgentTaskService', () => {
     });
 
     const terminal = manager.wait(taskId);
-    await jest.advanceTimersByTime(1);
+    await advanceTimersByTimeAsync((ms) => { jest.advanceTimersByTime(ms); }, 1);
     expect(killSpy).toHaveBeenCalledWith('SIGTERM');
     expect(killSpy).not.toHaveBeenCalledWith('SIGKILL');
 
-    await jest.advanceTimersByTime(5_000);
+    await advanceTimersByTimeAsync((ms) => { jest.advanceTimersByTime(ms); }, 5_000);
     const info = await terminal;
 
     expect(info?.status).toBe('timed_out');
@@ -1058,7 +1058,7 @@ describe('AgentTaskService', () => {
     });
 
     const terminal = manager.wait(taskId);
-    await jest.advanceTimersByTime(1);
+    await advanceTimersByTimeAsync((ms) => { jest.advanceTimersByTime(ms); }, 1);
     const info = await terminal;
 
     expect(info?.status).toBe('timed_out');
@@ -1077,8 +1077,8 @@ describe('AgentTaskService', () => {
     manager.detach(taskId);
 
     const terminal = manager.wait(taskId);
-    await jest.advanceTimersByTime(1);
-    await jest.advanceTimersByTime(5_000);
+    await advanceTimersByTimeAsync((ms) => { jest.advanceTimersByTime(ms); }, 1);
+    await advanceTimersByTimeAsync((ms) => { jest.advanceTimersByTime(ms); }, 5_000);
     const info = await terminal;
 
     expect(info?.status).toBe('timed_out');
@@ -1098,15 +1098,18 @@ describe('AgentTaskService', () => {
     });
     const waiting = manager.waitForForegroundRelease(taskId);
 
-    await jest.advanceTimersByTime(1_000);
+    await advanceTimersByTimeAsync((ms) => { jest.advanceTimersByTime(ms); }, 1_000);
     await expect(waiting).resolves.toBe('timeout_detached');
     expect(killSpy).not.toHaveBeenCalled();
     expect(manager.getTask(taskId)).toMatchObject({ status: 'running', detached: true });
 
-    await jest.advanceTimersByTime(1_000);
+    await advanceTimersByTimeAsync((ms) => { jest.advanceTimersByTime(ms); }, 1_000);
     expect(manager.getTask(taskId)?.status).toBe('running');
-    await jest.advanceTimersByTime(4_000);
-    expect(manager.getTask(taskId)?.status).toBe('timed_out');
+    const terminal = manager.wait(taskId);
+    await advanceTimersByTimeAsync((ms) => { jest.advanceTimersByTime(ms); }, 4_000);
+    const info = await terminal;
+
+    expect(info?.status).toBe('timed_out');
     expect(killSpy).toHaveBeenCalled();
   });
 
@@ -1121,7 +1124,7 @@ describe('AgentTaskService', () => {
     });
     const waiting = manager.waitForForegroundRelease(taskId);
 
-    await jest.advanceTimersByTime(1_000);
+    await advanceTimersByTimeAsync((ms) => { jest.advanceTimersByTime(ms); }, 1_000);
     await expect(waiting).resolves.toBe('terminal');
     expect(killSpy).toHaveBeenCalled();
     expect(manager.getTask(taskId)?.status).toBe('timed_out');
@@ -1234,7 +1237,7 @@ describe('AgentTaskService', () => {
 
     const stopPromise = manager.stop(taskId, 'user requested');
     await Promise.resolve();
-    await jest.advanceTimersByTime(5_000);
+    await advanceTimersByTimeAsync((ms) => { jest.advanceTimersByTime(ms); }, 5_000);
     const stopped = await stopPromise;
 
     expect(stopped).toMatchObject({
@@ -1319,7 +1322,7 @@ describe('AgentTaskService', () => {
     const loop = ctx.get(IAgentLoopService);
     for (let i = 0; i < 10 && loop.snapshot().state === 'running'; i += 1) {
       loop.cancel();
-      await jest.advanceTimersByTime(0);
+      await advanceTimersByTimeAsync((ms) => { jest.advanceTimersByTime(ms); }, 0);
     }
     expect(jest.getTimerCount()).toBeLessThanOrEqual(baselineTimerCount);
   });

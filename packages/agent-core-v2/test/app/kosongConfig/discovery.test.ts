@@ -388,9 +388,14 @@ describe('refreshProviderModels modelSource short-circuit', () => {
   it('throws provider.not_found for an unknown scoped provider', async () => {
     const { host, discovery } = await createHost(staticSections);
     try {
-      await expect(discovery.refreshProviderModels({ providerId: 'missing' })).rejects.toSatisfy(
-        (error) => isError2(error) && error.code === 'provider.not_found',
-      );
+      const caught = await discovery
+        .refreshProviderModels({ providerId: 'missing' })
+        .then(
+          () => undefined,
+          (error: unknown) => error,
+        );
+      expect(isError2(caught)).toBe(true);
+      expect(isError2(caught) ? caught.code : undefined).toBe('provider.not_found');
     } finally {
       host.dispose();
     }

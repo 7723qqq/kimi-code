@@ -29,6 +29,7 @@ import {
   InMemoryWireRecordPersistence,
   execEnvServices,
   homeDirServices,
+  renderSnapshot,
   testAgent,
 } from '../harness';
 
@@ -200,16 +201,16 @@ describe('Agent resume', () => {
       await ctx.untilTurnEnd();
 
       expect(findRpcEvent(ctx.allEvents, 'error')).toBeUndefined();
-      expect(ctx.llmInputs()).toMatchInlineSnapshot(`
-        call 1:
+      expect(renderSnapshot(ctx.llmInputs())).toMatchInlineSnapshot(`
+        "call 1:
           system: <system-prompt>
-          tools: Agent, AgentSwarm, AskUserQuestion, Bash, CreateGoal, CronCreate, CronDelete, CronList, Edit, ExitPlanMode, EnterSpecMode, ExitSpecMode, FetchURL, GetGoal, Glob, Grep, Read, SetGoalBudget, Skill, TaskList, TaskOutput, TaskStop, TodoList, UpdateGoal, WaitFor, WebSearch, Write
+          tools: Agent, AgentSwarm, AskUserQuestion, Bash, CreateGoal, CronCreate, CronDelete, CronList, Edit, EnterSpecMode, ExitPlanMode, ExitSpecMode, FetchURL, GetGoal, Glob, Grep, Read, SetGoalBudget, Skill, TaskList, TaskOutput, TaskStop, TodoList, UpdateGoal, WaitFor, WebSearch, Write
           messages:
             user: text "Run lookup"
             assistant: []  calls call_open:Lookup { "query": "moon" }
             tool[call_open]: text "<system>ERROR: Tool execution failed.</system>\\nTool execution was interrupted before its result was recorded. Do not assume the tool completed successfully."
             user: text "Fresh prompt after resume"
-            user: text <date-reminder>
+            user: text <date-reminder>"
       `);
       await ctx.expectResumeMatches();
     } finally {
@@ -305,15 +306,15 @@ describe('Agent resume', () => {
     });
     expect(findRpcEvent(ctx.allEvents, 'error')).toBeUndefined();
     expect(execWithEnv).not.toHaveBeenCalled();
-    expect(ctx.llmInputs()).toMatchInlineSnapshot(`
-      call 1:
+    expect(renderSnapshot(ctx.llmInputs())).toMatchInlineSnapshot(`
+      "call 1:
         system: <system-prompt>
         tools: Bash
         messages:
           user: text "Historical compacted summary."
           user: text "Fresh prompt after resume"
           user: text <date-reminder>
-          user: text <plan-mode-reminder>
+          user: text <plan-mode-reminder>"
     `);
   });
 
@@ -399,7 +400,7 @@ describe('Agent resume', () => {
     await live.rpc.prompt({ input: [{ type: 'text', text: 'Prompt before resume' }] });
     await live.untilTurnEnd();
     const liveTools = live.llmCalls.at(-1)!.tools.map((tool) => tool.name);
-    expect(liveTools).toContain('ReadMediaFile');
+    expect(liveTools).toContain('Read');
 
     const resumed = testAgent({
       persistence: new RecordingAgentPersistence(persistence.records as unknown as WireRecord[]),
@@ -550,10 +551,10 @@ describe('Agent resume', () => {
     });
     await ctx.untilTurnEnd();
 
-    expect(ctx.llmInputs()).toMatchInlineSnapshot(`
-      call 1:
+    expect(renderSnapshot(ctx.llmInputs())).toMatchInlineSnapshot(`
+      "call 1:
         system: <system-prompt>
-        tools: Agent, AgentSwarm, AskUserQuestion, Bash, CreateGoal, CronCreate, CronDelete, CronList, Edit, ExitPlanMode, EnterSpecMode, ExitSpecMode, FetchURL, GetGoal, Glob, Grep, Read, SetGoalBudget, Skill, TaskList, TaskOutput, TaskStop, TodoList, UpdateGoal, WaitFor, WebSearch, Write
+        tools: Agent, AgentSwarm, AskUserQuestion, Bash, CreateGoal, CronCreate, CronDelete, CronList, Edit, EnterSpecMode, ExitPlanMode, ExitSpecMode, FetchURL, GetGoal, Glob, Grep, Read, SetGoalBudget, Skill, TaskList, TaskOutput, TaskStop, TodoList, UpdateGoal, WaitFor, WebSearch, Write
         messages:
           user: text "Historical prompt before skill"
           assistant: []  calls call_resume_write:Write { "path": "result.txt" }, call_resume_skill:Skill { "skill": "review" }
@@ -561,7 +562,7 @@ describe('Agent resume', () => {
           tool[call_resume_skill]: text "skill loaded"
           user: text "<system-reminder>\\nresume skill body\\n</system-reminder>"
           user: text "Fresh prompt after deferred resume"
-          user: text <date-reminder>
+          user: text <date-reminder>"
     `);
     await ctx.expectResumeMatches();
   });

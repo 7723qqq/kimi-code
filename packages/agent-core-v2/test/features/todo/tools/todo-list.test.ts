@@ -71,7 +71,7 @@ describe('TodoListTool', () => {
 
     expect(result).toMatchObject({ isError: false });
     expect(result.output).toContain('Current todo list');
-    expect(result.output).toContain('[in_progress] existing');
+    expect(result.output).toContain('[in_progress] x: existing');
     expect(todos()).toEqual([{ id: 'x', parentId: null, kind: 'task', title: 'existing', status: 'in_progress' }]);
   });
 
@@ -92,8 +92,8 @@ describe('TodoListTool', () => {
 
     expect(result).toMatchObject({ isError: false });
     expect(result.output).toContain('Todo list updated');
-    expect(result.output).toContain('[pending] first');
-    expect(result.output).toContain('[in_progress] second');
+    expect(result.output).toContain('[pending] x: first');
+    expect(result.output).toContain('[in_progress] x: second');
     expect(todos()).toEqual([
       { id: 'x', parentId: null, kind: 'task', title: 'first', status: 'pending' },
       { id: 'x', parentId: null, kind: 'task', title: 'second', status: 'in_progress' },
@@ -171,7 +171,7 @@ describe('TodoListTool', () => {
     });
 
     expect(result).toMatchObject({ isError: false });
-    expect(result.output).toContain('[done] shipped');
+    expect(result.output).toContain('[done] x: shipped');
     expect(result.output).not.toContain('[completed]');
   });
 

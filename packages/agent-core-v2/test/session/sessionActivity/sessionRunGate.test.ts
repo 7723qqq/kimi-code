@@ -214,6 +214,8 @@ describe('SessionRunGateService', () => {
       await jest.advanceTimersByTime(2_999);
       expect(serviceA.held(SID)).toBe(true);
       await jest.advanceTimersByTime(1);
+      await Promise.resolve();
+      await Promise.resolve();
       expect(serviceA.held(SID)).toBe(false);
     } finally {
       jest.useRealTimers();

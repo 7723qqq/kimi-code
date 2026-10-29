@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
-import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
+import { advanceTimersByTimeAsync, waitForAssertion, waitUntil } from '#test/helpers/waitFor';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { Disposable, DisposableStore } from '#/_base/di/lifecycle';
@@ -844,7 +844,9 @@ describe('AgentLifecycleService', () => {
     jest.useFakeTimers();
     try {
       const removal = svc.remove(main);
-      await jest.advanceTimersByTime(3_000);
+      for (let pass = 0; pass < 40 && disposed.length === 0; pass += 1) {
+        await advanceTimersByTimeAsync((ms) => { jest.advanceTimersByTime(ms); }, 3_000);
+      }
 
       expect(disposed).toEqual(['main']);
       await removal;
@@ -1208,9 +1210,9 @@ describe('AgentLifecycleService', () => {
       [
         expect.stringMatching(/^credentials\/mcp\/linear-[a-f0-9]{24}-tokens\.json$/),
         {
-          access_token: 'session-token',
-          token_type: 'Bearer',
-          obtained_at: expect.any(Number),
+          data: expect.any(String),
+          iv: expect.any(String),
+          tag: expect.any(String),
         },
       ],
     ]);

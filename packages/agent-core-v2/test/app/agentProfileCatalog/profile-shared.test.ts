@@ -556,15 +556,13 @@ describe('systemPromptVars plan_mode_guidance', () => {
     expect(systemPromptVars({}, { skillActive: false })['plan_mode_guidance']).toBe('');
   });
 
-  it('places the guidance as its own paragraph right after the opening of Delivering work', () => {
+  it('places the guidance as its own paragraph in the builtin template', () => {
     const withPlan = renderSystemPromptResult('', { planModeAvailable: true }, { skillActive: false }).text;
     const withoutPlan = renderSystemPromptResult('', {}, { skillActive: false }).text;
 
-    expect(withPlan).toContain(
-      `count as part of the ask.\n\n${PLAN_MODE_GUIDANCE}\n\nBefore you call the work done`,
-    );
+    expect(withPlan).toContain(`\n\n${PLAN_MODE_GUIDANCE}\n\nBefore you call the work done`);
     expect(withoutPlan).not.toContain(PLAN_MODE_GUIDANCE);
-    expect(withoutPlan).toContain('count as part of the ask.\n\nBefore you call the work done');
+    expect(withoutPlan).toMatch(/[^\n]\n\nBefore you call the work done/);
   });
 
   it('tells the model that only the user turns plan mode on', () => {

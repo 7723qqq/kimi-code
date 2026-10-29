@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
+import { ILogService } from '#/_base/log/log';
+import { stubLog } from '#test/_base/log/stubs';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { AppendLogCorruptedError, IAppendLogStore, type AppendLogTruncation } from '#/persistence/interface/appendLogStore';
@@ -55,6 +57,7 @@ describe('AppendLogStore', () => {
     ix = disposables.add(new TestInstantiationService());
     storage = new InMemoryStorageService();
     ix.stub(IFileSystemStorageService, storage);
+    ix.stub(ILogService, stubLog());
     ix.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
     record = ix.get(IAppendLogStore);
   });
@@ -392,12 +395,11 @@ describe('AppendLogStore', () => {
     };
     record.append<Rec>(SCOPE, KEY, { n: 2 });
     await appendStarted;
+    await new Promise((r) => setTimeout(r, 0));
 
-    const rewriteRejected = expect(
-      record.rewrite<Rec>(SCOPE, KEY, [{ n: 9 }]),
-    ).rejects.toBe(failure);
+    const rewriteP = record.rewrite<Rec>(SCOPE, KEY, [{ n: 9 }]);
     releaseAppend();
-    await rewriteRejected;
+    await expect(rewriteP).rejects.toBe(failure);
 
     await expect(record.flush()).rejects.toBe(failure);
     expect(appendAttempts).toBe(1);
@@ -424,11 +426,9 @@ describe('AppendLogStore', () => {
     record.append<Rec>(SCOPE, KEY, { n: 2 });
     await appendStarted;
 
-    const invalid = expect(
-      record.rewrite<unknown>(SCOPE, KEY, [{ n: 9n }]),
-    ).rejects.toBeInstanceOf(TypeError);
+    const invalidP = record.rewrite<unknown>(SCOPE, KEY, [{ n: 9n }]);
     releaseAppend();
-    await invalid;
+    await expect(invalidP).rejects.toBeInstanceOf(TypeError);
     await record.flush();
 
     expect(appendAttempts).toBe(1);
@@ -465,11 +465,9 @@ describe('AppendLogStore', () => {
     record.append<Rec>(SCOPE, KEY, { n: 2 });
     await appendStarted;
 
-    const failedRewrite = expect(
-      record.rewrite<Rec>(SCOPE, KEY, [{ n: 9 }]),
-    ).rejects.toBe(failure);
+    const failedRewriteP = record.rewrite<Rec>(SCOPE, KEY, [{ n: 9 }]);
     releaseAppend();
-    await failedRewrite;
+    await expect(failedRewriteP).rejects.toBe(failure);
     await expect(record.flush()).rejects.toBe(failure);
     await expect(collect<Rec>(SCOPE, KEY)).rejects.toBe(failure);
     await expect(record.close()).rejects.toBe(failure);
@@ -632,14 +630,15 @@ describe('AppendLogStore', () => {
     const raw = `${JSON.stringify({ n: 1 })}\nGARBAGE\n${JSON.stringify({ n: 3 })}\n`;
     await storage.append(SCOPE, KEY, enc.encode(raw));
 
-    await expect(collect<Rec>(SCOPE, KEY)).rejects.toSatisfy((error: unknown) => {
-      expect(error).toBeInstanceOf(AppendLogCorruptedError);
+    await expect(collect<Rec>(SCOPE, KEY)).rejects.toBeInstanceOf(AppendLogCorruptedError);
+    try {
+      await collect<Rec>(SCOPE, KEY);
+    } catch (error) {
       const corrupted = error as AppendLogCorruptedError;
       expect(corrupted.code).toBe('storage.corrupted');
       expect(corrupted.details).toEqual({ scope: SCOPE, key: KEY, lineNumber: 2 });
       expect(corrupted.cause).toBeInstanceOf(SyntaxError);
-      return true;
-    });
+    }
   });
 
   it('stops at a corrupted middle line and reports it when onTruncate is given', async () => {

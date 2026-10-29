@@ -16,7 +16,7 @@ import { fromLlmMessage } from '#/llm-adapter/contract/message';
 import type { TokenUsage } from '#human/llm/usage';
 import { afterEach, describe, expect, it, jest } from 'bun:test';
 import { setEnv, restoreEnvs } from '#test/helpers/stubs';
-import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
+import { advanceTimersByTimeAsync, advanceUntilNoTimersRemain, waitForAssertion, waitUntil } from '#test/helpers/waitFor';
 
 import {
   DefaultCompactionStrategy,
@@ -31,7 +31,7 @@ import { MASTER_ENV } from '#/app/flag/flagService';
 import { estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import type { TestAgentContext, TestAgentOptions, TestAgentServiceOverride } from '../../harness';
-import { agentService, appService, appServices, createCommandRunner, execEnvServices, hostEnvironmentServices, requesterFromGenerateFn, sessionServices, testAgent as createTestAgent, type LegacyGenerateResult } from '../../harness';
+import { agentService, appService, appServices, createCommandRunner, execEnvServices, hostEnvironmentServices, renderSnapshot, requesterFromGenerateFn, sessionServices, testAgent as createTestAgent, type LegacyGenerateResult } from '../../harness';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
@@ -84,7 +84,6 @@ const SNAPSHOT_VISIBLE_TOOLS = [
   'CronCreate',
   'CronDelete',
   'CronList',
-  'EnterPlanMode',
   'ExitPlanMode',
 ] as const;
 const LARGE_MCP_TOOL = 'mcp__srv__large';
@@ -274,8 +273,8 @@ describe('FullCompaction', () => {
       return candidate.type === '[wire]' && candidate.event === 'full_compaction.complete';
     });
     expect(completeEvent?.args).toEqual({ agentId: 'main', time: '<time>' });
-    expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
-      system: <system-prompt>
+    expect(renderSnapshot(ctx.lastLlmInput())).toMatchInlineSnapshot(`
+      "system: <system-prompt>
       tools: Agent, AgentSwarm, CronCreate, CronDelete, CronList, ExitPlanMode
       messages:
         user: text "old user one"
@@ -284,7 +283,7 @@ describe('FullCompaction', () => {
         assistant: text "old assistant two"
         user: text "recent user three"
         assistant: text "recent assistant three"
-        user: text <compaction-instruction>
+        user: text <compaction-instruction>"
     `);
     expect(ctx.compactHistory()).toEqual([
       { role: 'user', text: 'old user one' },
@@ -309,7 +308,7 @@ describe('FullCompaction', () => {
       properties: expect.objectContaining({
         agent_id: 'main',
         source: 'manual',
-        tokens_before: 5_788,
+        tokens_before: 6_126,
         tokens_after: expect.any(Number),
         duration_ms: expect.any(Number),
         compacted_count: 6,
@@ -585,7 +584,7 @@ describe('FullCompaction', () => {
       session_id: 'test-session',
       cwd: dir,
       trigger: 'auto',
-      token_count: 5_788,
+      token_count: 6_126,
     });
     expect(post).toMatchObject({
       hook_event_name: 'PostCompact',
@@ -835,7 +834,7 @@ describe('FullCompaction', () => {
 
     await ctx.rpc.beginCompaction({});
     await firstEmptySummary.promise;
-    await jest.advanceTimersByTime(10_000);
+    await advanceUntilNoTimersRemain((ms) => { jest.advanceTimersByTime(ms); }, 10_000, () => jest.getTimerCount());
     await compacted;
     await completed;
 
@@ -887,7 +886,7 @@ describe('FullCompaction', () => {
 
     await ctx.rpc.beginCompaction({});
     await firstThinkOnly.promise;
-    await jest.advanceTimersByTime(10_000);
+    await advanceUntilNoTimersRemain((ms) => { jest.advanceTimersByTime(ms); }, 10_000, () => jest.getTimerCount());
     await compacted;
     await completed;
 
@@ -932,7 +931,7 @@ describe('FullCompaction', () => {
 
     await ctx.rpc.beginCompaction({});
     await firstAttemptFailed.promise;
-    await jest.advanceTimersByTime(10_000);
+    await advanceUntilNoTimersRemain((ms) => { jest.advanceTimersByTime(ms); }, 10_000, () => jest.getTimerCount());
     await compacted;
     await completed;
 
@@ -970,7 +969,7 @@ describe('FullCompaction', () => {
 
     await ctx.rpc.beginCompaction({});
     await firstResponse.promise;
-    await jest.advanceTimersByTime(60_000);
+    await advanceUntilNoTimersRemain((ms) => { jest.advanceTimersByTime(ms); }, 60_000, () => jest.getTimerCount());
     await failed;
 
     expect(inputs).toHaveLength(5);
@@ -1074,11 +1073,11 @@ describe('FullCompaction', () => {
 
     await ctx.rpc.beginCompaction({});
     await firstAttemptFailed.promise;
-    await jest.advanceTimersByTime(299);
+    await advanceTimersByTimeAsync((ms) => { jest.advanceTimersByTime(ms); }, 299);
 
     expect(attempts).toBe(1);
 
-    await jest.advanceTimersByTime(10_000);
+    await advanceUntilNoTimersRemain((ms) => { jest.advanceTimersByTime(ms); }, 10_000, () => jest.getTimerCount());
     await compacted;
 
     expect(attempts).toBe(2);
@@ -1117,7 +1116,7 @@ describe('FullCompaction', () => {
 
     void ctx.rpc.cancelCompaction({});
     await cancelled;
-    await jest.advanceTimersByTime(10_000);
+    await advanceUntilNoTimersRemain((ms) => { jest.advanceTimersByTime(ms); }, 10_000, () => jest.getTimerCount());
 
     expect(attempts).toBe(1);
     expect(records).toContainEqual({
@@ -1389,7 +1388,7 @@ describe('FullCompaction', () => {
 
     await ctx.rpc.beginCompaction({});
     await firstAttemptFinished.promise;
-    await jest.advanceTimersByTime(60_000);
+    await advanceUntilNoTimersRemain((ms) => { jest.advanceTimersByTime(ms); }, 60_000, () => jest.getTimerCount());
     await failed;
 
     expect(attempts).toBe(4);
@@ -1431,7 +1430,7 @@ describe('FullCompaction', () => {
 
     await ctx.rpc.beginCompaction({});
     await firstAttemptFailed.promise;
-    await jest.advanceTimersByTime(60_000);
+    await advanceUntilNoTimersRemain((ms) => { jest.advanceTimersByTime(ms); }, 60_000, () => jest.getTimerCount());
     await failed;
 
     expect(attempts).toBe(5);
@@ -1479,7 +1478,7 @@ describe('FullCompaction', () => {
 
     await ctx.rpc.beginCompaction({});
     await firstAttemptFailed.promise;
-    await jest.advanceTimersByTime(60_000);
+    await advanceUntilNoTimersRemain((ms) => { jest.advanceTimersByTime(ms); }, 60_000, () => jest.getTimerCount());
     await failed;
 
     expect(attempts).toBe(2);
@@ -1569,7 +1568,7 @@ describe('FullCompaction', () => {
 
     await ctx.rpc.beginCompaction({});
     await firstAttemptFailed.promise;
-    await jest.advanceTimersByTime(60_000);
+    await advanceUntilNoTimersRemain((ms) => { jest.advanceTimersByTime(ms); }, 60_000, () => jest.getTimerCount());
     await failed;
 
     expect(attempts).toBe(2);
@@ -1617,8 +1616,8 @@ describe('FullCompaction', () => {
     await compacted;
     await completed;
 
-    expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
-      system: <system-prompt>
+    expect(renderSnapshot(ctx.lastLlmInput())).toMatchInlineSnapshot(`
+      "system: <system-prompt>
       tools: Agent, AgentSwarm, CronCreate, CronDelete, CronList, ExitPlanMode
       messages:
         user: text "old user one"
@@ -1627,7 +1626,7 @@ describe('FullCompaction', () => {
         assistant: []  calls call_open_one:LookupOne { "query": "one" }, call_open_two:LookupTwo { "query": "two" }
         tool[call_open_one]: text "one result"
         tool[call_open_two]: text "Tool result is not available in the current context. Do not assume the tool completed successfully."
-        user: text <compaction-instruction>
+        user: text <compaction-instruction>"
     `);
     expect(ctx.context.get().map((message) => message.role)).toEqual([
       'user',
@@ -1681,15 +1680,15 @@ describe('FullCompaction', () => {
         expect.objectContaining({ type: '[rpc]', event: 'compaction.completed' }),
       ]),
     );
-    expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
-      system: <system-prompt>
+    expect(renderSnapshot(ctx.lastLlmInput())).toMatchInlineSnapshot(`
+      "system: <system-prompt>
       tools: Agent, AgentSwarm, CronCreate, CronDelete, CronList, ExitPlanMode
       messages:
         user: text "old user one"
         assistant: text "old assistant one"
         user: text "recent user two"
         assistant: text "recent assistant two"
-        user: text <compaction-instruction>
+        user: text <compaction-instruction>"
     `);
     expect(ctx.compactHistory()).toMatchInlineSnapshot(`
       [
@@ -1707,14 +1706,18 @@ describe('FullCompaction', () => {
         },
         {
           "role": "user",
-          "text": "The conversation so far has been compacted to free up context. What follows is your own working summary of this task — use it to continue your train of thought rather than starting over. Treat it as notes, not proof: where it says a step was done, tests passed, or a fix worked, verify that yourself before relying on it. Any user messages earlier in this context are preserved verbatim from the compacted conversation; where a system-reminder note among them marks an omitted middle section, the user messages it replaced are covered by this summary. The summary records which earlier requests were already addressed.
-      Compacted prefix.",
+          "text": 
+      "The conversation so far has been compacted to free up context. What follows is your own working summary of this task — use it to continue your train of thought rather than starting over. Treat it as notes, not proof: where it says a step was done, tests passed, or a fix worked, verify that yourself before relying on it. Any user messages earlier in this context are preserved verbatim from the compacted conversation; where a system-reminder note among them marks an omitted middle section, the user messages it replaced are covered by this summary. The summary records which earlier requests were already addressed.
+      Compacted prefix."
+      ,
         },
         {
           "role": "user",
-          "text": "<system-reminder>
+          "text": 
+      "<system-reminder>
       Context compaction is complete — continue the work that was in progress when it began.
-      </system-reminder>",
+      </system-reminder>"
+      ,
         },
       ]
     `);
@@ -1846,15 +1849,15 @@ describe('FullCompaction', () => {
     );
     expect(countEvents(events, 'context.apply_compaction')).toBe(0);
     expect(countEvents(events, 'full_compaction.complete')).toBe(0);
-    expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
-      system: <system-prompt>
+    expect(renderSnapshot(ctx.lastLlmInput())).toMatchInlineSnapshot(`
+      "system: <system-prompt>
       tools: Agent, AgentSwarm, CronCreate, CronDelete, CronList, ExitPlanMode
       messages:
         user: text "old user one"
         assistant: text "old assistant one"
         user: text "recent user two"
         assistant: text "recent assistant two"
-        user: text <compaction-instruction>
+        user: text <compaction-instruction>"
     `);
     expect(ctx.compactHistory()).toMatchInlineSnapshot(`[]`);
     await ctx.expectResumeMatches();
@@ -1929,8 +1932,8 @@ describe('FullCompaction', () => {
     expect(eventIndex(events, 'full_compaction.complete')).toBeLessThan(
       eventIndex(events, 'turn.step.started'),
     );
-    expect(ctx.llmInputs()).toMatchInlineSnapshot(`
-      call 1:
+    expect(renderSnapshot(ctx.llmInputs())).toMatchInlineSnapshot(`
+      "call 1:
         system: <system-prompt>
         tools: Agent, AgentSwarm, CronCreate, CronDelete, CronList, ExitPlanMode
         messages:
@@ -1947,14 +1950,14 @@ describe('FullCompaction', () => {
         messages:
           user: text "old user one\\n\\nold user two\\n\\nrecent user three\\n\\nAnswer after compacting"
           user: text "The conversation so far has been compacted to free up context. What follows is your own working summary of this task — use it to continue your train of thought rather than starting over. Treat it as notes, not proof: where it says a step was done, tests passed, or a fix worked, verify that yourself before relying on it. Any user messages earlier in this context are preserved verbatim from the compacted conversation; where a system-reminder note among them marks an omitted middle section, the user messages it replaced are covered by this summary. The summary records which earlier requests were already addressed.\\nAuto compacted summary."
-          user: text "<system-reminder>\\nContext compaction is complete — continue the work that was in progress when it began.\\n</system-reminder>"
+          user: text "<system-reminder>\\nContext compaction is complete — continue the work that was in progress when it began.\\n</system-reminder>""
     `);
     expect(records).toContainEqual({
       event: 'compaction_finished',
       properties: expect.objectContaining({
         source: 'auto',
-        tokens_before: 5_795,
-        tokens_after: 5_812,
+        tokens_before: 6_133,
+        tokens_after: 6_150,
         compacted_count: 7,
         retry_count: 0,
       }),
@@ -2483,7 +2486,8 @@ describe('FullCompaction', () => {
           "user: old user one",
           "assistant: old assistant one",
           "user: Retry after provider overflow",
-          "user: You are about to run out of context. Create a handoff summary for the
+          
+      "user: You are about to run out of context. Create a handoff summary for the
       model that will resume this task after the earlier conversation is cleared.
 
       --- This message is a direct task, not part of the above conversation ---
@@ -2553,17 +2557,24 @@ describe('FullCompaction', () => {
       move.
 
       Respond with text only. Do not call any tools — you already have everything you
-      need in the conversation history.",
+      need in the conversation history."
+      ,
         ],
         [
-          "user: old user one
+          
+      "user: old user one
 
-      Retry after provider overflow",
-          "user: The conversation so far has been compacted to free up context. What follows is your own working summary of this task — use it to continue your train of thought rather than starting over. Treat it as notes, not proof: where it says a step was done, tests passed, or a fix worked, verify that yourself before relying on it. Any user messages earlier in this context are preserved verbatim from the compacted conversation; where a system-reminder note among them marks an omitted middle section, the user messages it replaced are covered by this summary. The summary records which earlier requests were already addressed.
-      Overflow compacted summary.",
-          "user: <system-reminder>
+      Retry after provider overflow"
+      ,
+          
+      "user: The conversation so far has been compacted to free up context. What follows is your own working summary of this task — use it to continue your train of thought rather than starting over. Treat it as notes, not proof: where it says a step was done, tests passed, or a fix worked, verify that yourself before relying on it. Any user messages earlier in this context are preserved verbatim from the compacted conversation; where a system-reminder note among them marks an omitted middle section, the user messages it replaced are covered by this summary. The summary records which earlier requests were already addressed.
+      Overflow compacted summary."
+      ,
+          
+      "user: <system-reminder>
       Context compaction is complete — continue the work that was in progress when it began.
-      </system-reminder>",
+      </system-reminder>"
+      ,
         ],
       ]
     `);
@@ -3277,7 +3288,8 @@ describe('FullCompaction', () => {
           "user: old user one",
           "assistant: old assistant one",
           "user: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-          "user: You are about to run out of context. Create a handoff summary for the
+          
+      "user: You are about to run out of context. Create a handoff summary for the
       model that will resume this task after the earlier conversation is cleared.
 
       --- This message is a direct task, not part of the above conversation ---
@@ -3347,11 +3359,13 @@ describe('FullCompaction', () => {
       move.
 
       Respond with text only. Do not call any tools — you already have everything you
-      need in the conversation history.",
+      need in the conversation history."
+      ,
         ],
         [
           "user: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-          "user: You are about to run out of context. Create a handoff summary for the
+          
+      "user: You are about to run out of context. Create a handoff summary for the
       model that will resume this task after the earlier conversation is cleared.
 
       --- This message is a direct task, not part of the above conversation ---
@@ -3421,17 +3435,24 @@ describe('FullCompaction', () => {
       move.
 
       Respond with text only. Do not call any tools — you already have everything you
-      need in the conversation history.",
+      need in the conversation history."
+      ,
         ],
         [
-          "user: old user one
+          
+      "user: old user one
 
-      xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-          "user: The conversation so far has been compacted to free up context. What follows is your own working summary of this task — use it to continue your train of thought rather than starting over. Treat it as notes, not proof: where it says a step was done, tests passed, or a fix worked, verify that yourself before relying on it. Any user messages earlier in this context are preserved verbatim from the compacted conversation; where a system-reminder note among them marks an omitted middle section, the user messages it replaced are covered by this summary. The summary records which earlier requests were already addressed.
-      Placeholder compacted summary.",
-          "user: <system-reminder>
+      xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      ,
+          
+      "user: The conversation so far has been compacted to free up context. What follows is your own working summary of this task — use it to continue your train of thought rather than starting over. Treat it as notes, not proof: where it says a step was done, tests passed, or a fix worked, verify that yourself before relying on it. Any user messages earlier in this context are preserved verbatim from the compacted conversation; where a system-reminder note among them marks an omitted middle section, the user messages it replaced are covered by this summary. The summary records which earlier requests were already addressed.
+      Placeholder compacted summary."
+      ,
+          
+      "user: <system-reminder>
       Context compaction is complete — continue the work that was in progress when it began.
-      </system-reminder>",
+      </system-reminder>"
+      ,
         ],
       ]
     `);
@@ -3476,7 +3497,7 @@ describe('FullCompaction', () => {
     expect(history[2]).toMatchObject({
       role: 'user',
       text: expect.stringContaining(
-        'Compacted summary.\n\n## TODO List\n  [in_progress] Fix the auth bug\n  [pending] Add tests',
+        'Compacted summary.\n\n## TODO List (overall 0/2 · 0%)\n  [in_progress] t1: Fix the auth bug\n  [pending] t2: Add tests',
       ),
     });
     expect(history[3]).toMatchObject({

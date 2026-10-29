@@ -41,6 +41,7 @@ export {
   generateInputSnapshot,
   generateInputsSnapshot,
   normalizeGenerateInput,
+  renderSnapshot,
   type EventSnapshot,
   type EventSnapshotEntry,
   type GenerateCall,
