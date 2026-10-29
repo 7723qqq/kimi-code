@@ -14,8 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import {getLiveSessionById, IAgentLifecycleService} from '@moonshot-ai/agent-core-v2';
-import { IEventBus } from '@moonshot-ai/agent-core-v2/app/event/eventBus';
+import {IEventBus, getLiveSessionById, IAgentLifecycleService} from '@moonshot-ai/agent-core-v2';
 import { ToolProgress } from '@moonshot-ai/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
 import { afterEach, describe, expect, it } from 'bun:test';
 

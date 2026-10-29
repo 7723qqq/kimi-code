@@ -1,5 +1,4 @@
-import {IConfigService, isError2, type Scope} from '@moonshot-ai/agent-core-v2';
-import { ErrorCodes } from '@moonshot-ai/agent-core-v2/errors';
+import { ErrorCodes, IConfigService, isError2, type Scope } from '@moonshot-ai/agent-core-v2';
 
 import { errEnvelope, okEnvelope } from '../envelope';
 import { requestLog } from '../lib/requestLog';

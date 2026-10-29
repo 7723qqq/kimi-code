@@ -56,8 +56,7 @@ import {
   type SetSessionModeRequest,
   type SetSessionModeResponse,
 } from '@agentclientprotocol/sdk';
-import {isError2} from '@moonshot-ai/agent-core-v2';
-import { ErrorCodes } from '@moonshot-ai/agent-core-v2/errors';
+import { ErrorCodes, isError2 } from '@moonshot-ai/agent-core-v2';
 import type {
   AgentHandle,
   Klient,

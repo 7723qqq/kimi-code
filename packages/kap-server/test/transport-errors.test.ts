@@ -1,5 +1,4 @@
-import {Error2} from '@moonshot-ai/agent-core-v2';
-import { ErrorCodes } from '@moonshot-ai/agent-core-v2/errors';
+import {Error2, ErrorCodes} from '@moonshot-ai/agent-core-v2';
 import { describe, expect, it } from 'bun:test';
 
 import { installErrorHandler } from '../src/error-handler';

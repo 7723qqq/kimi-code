@@ -98,8 +98,7 @@ import type {
   CompactionCompletedEvent,
   CompactionStartedEvent,
 } from '@moonshot-ai/agent-core-v2';
-import type { PromptAbortedEvent, PromptCompletedEvent } from '@moonshot-ai/agent-core-v2';
-import { type WarningEvent } from '@moonshot-ai/agent-core-v2/errors';
+import type { PromptAbortedEvent, PromptCompletedEvent, WarningEvent } from '@moonshot-ai/agent-core-v2';
 import type {
   ToolCallDeltaEvent,
   ToolCallStartedEvent,

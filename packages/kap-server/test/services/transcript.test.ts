@@ -4,8 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
-import {IAgentLifecycleService, IAgentContextMemoryService, IAgentConversationUndoParticipantRegistry, IAgentLoopService, IAgentScopeContext, IAgentTaskService, IFlagService, ISessionIndex, ISessionMetadata, ISessionLifecycleService, ISessionManager, IWireService, IWorkspaceInstanceManager, interactions, makeAgentScopeContext, type AgentContext, type ContextMessage, type AgentConversationUndoParticipant, type Event2, TOWER_FLAG_ID, _setTowerFeatureAssembledForTests, type ISessionScopeHandle, type Scope} from '@moonshot-ai/agent-core-v2';
-import { IEventBus } from '@moonshot-ai/agent-core-v2/app/event/eventBus';
+import {IAgentLifecycleService, IEventBus, IAgentContextMemoryService, IAgentConversationUndoParticipantRegistry, IAgentLoopService, IAgentScopeContext, IAgentTaskService, IFlagService, ISessionIndex, ISessionMetadata, ISessionLifecycleService, ISessionManager, IWireService, IWorkspaceInstanceManager, interactions, makeAgentScopeContext, type AgentContext, type ContextMessage, type AgentConversationUndoParticipant, type Event2, TOWER_FLAG_ID, _setTowerFeatureAssembledForTests, type ISessionScopeHandle, type Scope} from '@moonshot-ai/agent-core-v2';
 import { type AgentActivitySnapshot } from '@moonshot-ai/agent-core-v2';
 import { TowerStore } from '@moonshot-ai/agent-core-v2/features/tower/protocol/index';
 import { AgentTranscript, TranscriptStore, type AgentTranscriptSnapshot, type AppendOp, type FrameUpsertOp, type InteractionUpsertOp, type TranscriptFrame, type TranscriptOperation, type TranscriptTask, type TranscriptTurn } from '@moonshot-ai/transcript';

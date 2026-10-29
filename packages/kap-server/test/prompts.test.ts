@@ -28,7 +28,7 @@ import {
   getLiveSessionById,
 } from '@moonshot-ai/agent-core-v2';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
-import { knowledgeClose } from '@moonshot-ai/agent-core-v2/agent/knowledge/sqliteKnowledge';
+import { knowledgeClose } from '@moonshot-ai/agent-core-v2';
 import { waitForAssertion, waitUntil } from './helpers/waitFor';
 import { removeTempHome } from './helpers/tempHome';
 

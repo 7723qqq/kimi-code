@@ -1,7 +1,6 @@
-import { TurnPrompt } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
+import { TurnPrompt } from '@moonshot-ai/agent-core-v2';
 import type { WireRecord } from '@moonshot-ai/agent-core-v2';
-import { flattenChain } from '@moonshot-ai/agent-core-v2';
-import { sliceMainRecordsAtTurn } from '@moonshot-ai/agent-core-v2/workspace/sessionLifecycle/internal/forkTurnSlice';
+import { flattenChain, sliceMainRecordsAtTurn } from '@moonshot-ai/agent-core-v2';
 import { describe, expect, it, vi } from 'bun:test';
 import { waitForAssertion, waitUntil } from './helpers/waitFor';
 

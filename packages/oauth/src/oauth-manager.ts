@@ -82,8 +82,8 @@ export interface OAuthManagerOptions {
    * Root directory for per-provider lock files; resolves to
    * `{configDir}/oauth/{providerName}.lock`.
    *
-   * **Production callers MUST pass this explicitly** (KimiCoreClient /
-   * session-manager wire it through from the resolved config root). A
+   * **Production callers MUST pass this explicitly** (`KimiOAuthToolkit.managerFor`
+   * wires it through as the resolved `homeDir`). A
    * missing `configDir` disables the cross-process lock entirely, so
    * silently falling back to an env var in production would mask a
    * genuine mis-wiring.

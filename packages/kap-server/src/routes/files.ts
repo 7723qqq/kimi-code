@@ -1,6 +1,5 @@
 import multipart from '@fastify/multipart';
-import {IFileService, Error2, type Scope} from '@moonshot-ai/agent-core-v2';
-import { ErrorCodes } from '@moonshot-ai/agent-core-v2/errors';
+import { ErrorCodes, Error2, IFileService, type Scope } from '@moonshot-ai/agent-core-v2';
 import { z } from 'zod';
 
 import { buildContentDisposition } from '../lib/contentDisposition';
