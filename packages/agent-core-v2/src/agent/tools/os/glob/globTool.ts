@@ -44,6 +44,7 @@ import {
 } from './glob';
 
 const VCS_DIRECTORIES_TO_EXCLUDE = ['.git', '.svn', '.hg', '.bzr', '.jj', '.sl'] as const;
+const RG_MAX_THREADS = 4;
 
 const SENSITIVE_KEY_BASENAMES = ['id_rsa', 'id_ed25519', 'id_ecdsa'] as const;
 const SENSITIVE_GLOBS_TO_EXCLUDE: readonly string[] = [
@@ -360,6 +361,7 @@ function createRgProbe(processService: IHostProcessService): RgProbe {
 function buildRgArgs(rgPath: string, args: GlobInput, singleThreaded = false): string[] {
   const cmd: string[] = [rgPath];
   if (singleThreaded) cmd.push('-j', '1');
+  else cmd.push('-j', String(RG_MAX_THREADS));
   cmd.push('--files', '--hidden', '--sortr=modified');
   if (args.include_ignored !== true) cmd.push('--no-require-git');
   for (const dir of VCS_DIRECTORIES_TO_EXCLUDE) {

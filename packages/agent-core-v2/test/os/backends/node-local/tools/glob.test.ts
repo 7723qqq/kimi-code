@@ -384,6 +384,17 @@ describe('GlobTool', () => {
     expect(args).not.toContain('--no-ignore');
   });
 
+  it('caps the number of ripgrep threads', async () => {
+    const exec = execReturning('/workspace/src/new.ts\n');
+    const { tool } = makeTool(workspace, { exec });
+
+    await execute(tool, { pattern: 'src/**/*.ts', path: '/workspace' });
+    const args = execArgs(exec);
+
+    expect(args).toContain('-j');
+    expect(args[args.indexOf('-j') + 1]).toBe('4');
+  });
+
   it('leaves the ignore rules to the caller when ignored files are requested', async () => {
     const exec = execReturning('/workspace/src/new.ts\n');
     const { tool } = makeTool(workspace, { exec });

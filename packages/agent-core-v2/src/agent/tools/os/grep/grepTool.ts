@@ -42,6 +42,7 @@ import GREP_DESCRIPTION from './grep.md?raw';
 import { type GrepInput, GrepInputSchema, IGrepTool } from './grep';
 
 const RG_MAX_COLUMNS = 500;
+const RG_MAX_THREADS = 4;
 const DEFAULT_HEAD_LIMIT = 250;
 const MTIME_STAT_CONCURRENCY = 32;
 
@@ -430,6 +431,7 @@ function buildRgArgs(
 ): string[] {
   const cmd: string[] = [rgPath];
   if (singleThreaded) cmd.push('-j', '1');
+  else cmd.push('-j', String(RG_MAX_THREADS));
   cmd.push('--hidden');
   if (args.include_ignored !== true) cmd.push('--no-require-git');
   const mode = args.output_mode ?? 'files_with_matches';

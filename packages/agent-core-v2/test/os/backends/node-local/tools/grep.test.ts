@@ -71,14 +71,34 @@ const COMMON_RG_ARGS = [
   '--glob',
   '!.sl',
 ] as const;
+const RG_THREAD_ARGS = ['-j', '4'] as const;
 const DEFAULT_RG_ARGS = [
+  ...RG_THREAD_ARGS,
   '--hidden',
   '--no-require-git',
   ...MAX_COLUMNS_RG_ARGS,
   ...COMMON_RG_ARGS,
 ] as const;
-const IGNORED_RG_ARGS = ['--hidden', ...MAX_COLUMNS_RG_ARGS, ...COMMON_RG_ARGS] as const;
-const CONTENT_RG_ARGS = ['--hidden', '--no-require-git', ...COMMON_RG_ARGS] as const;
+const IGNORED_RG_ARGS = [
+  ...RG_THREAD_ARGS,
+  '--hidden',
+  ...MAX_COLUMNS_RG_ARGS,
+  ...COMMON_RG_ARGS,
+] as const;
+const CONTENT_RG_ARGS = [
+  ...RG_THREAD_ARGS,
+  '--hidden',
+  '--no-require-git',
+  ...COMMON_RG_ARGS,
+] as const;
+const SINGLE_THREADED_RG_ARGS = [
+  '-j',
+  '1',
+  '--hidden',
+  '--no-require-git',
+  ...MAX_COLUMNS_RG_ARGS,
+  ...COMMON_RG_ARGS,
+] as const;
 const SENSITIVE_KEY_BASENAMES = ['id_rsa', 'id_ed25519', 'id_ecdsa'] as const;
 const SENSITIVE_KEY_RG_ARGS = SENSITIVE_KEY_BASENAMES.flatMap((basename) => [
   '--glob',
@@ -765,13 +785,12 @@ describe('GrepTool', () => {
 
     expect(toolContentString(result)).toBe('src/a.ts');
     expect(exec).toHaveBeenCalledTimes(2);
-    expect(exec.mock.calls[0]).not.toContain('-j');
+    expect(exec.mock.calls[0]).toContain('-j');
+    expect(exec.mock.calls[0]).toContain('4');
     expect(exec).toHaveBeenNthCalledWith(
       2,
       '/mock/rg',
-      '-j',
-      '1',
-      ...DEFAULT_RG_ARGS,
+      ...SINGLE_THREADED_RG_ARGS,
       '-l',
       ...SENSITIVE_RG_ARGS,
       '--',
