@@ -38,6 +38,7 @@
     "@moonshot-ai/kimi-i18n": "workspace:^",
     "@moonshot-ai/minidb": "workspace:*",
     "@moonshot-ai/remote-control": "workspace:^",
+    "@moonshot-ai/runtime-shared": "workspace:^",
     "@moonshot-ai/transcript": "workspace:^",
     "fastify": "^5.1.0",
     "pino": "^9.5.0",

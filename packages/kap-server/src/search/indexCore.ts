@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import { join, relative } from 'node:path';
 
-import { errorMessage } from '@moonshot-ai/agent-core-v2';
+import { errorMessage } from '@moonshot-ai/runtime-shared';
 import {
   classifyStorageError,
   MiniDb,
