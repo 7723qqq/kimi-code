@@ -46,6 +46,8 @@ import type {
   InterruptionReminderRecorded,
   LlmRequest,
   LlmToolsSnapshot,
+  McpServerFailed,
+  McpServerFailureResolved,
   McpToolsDiscovered,
   PlanModeCancel,
   PlanModeEnter,
@@ -74,6 +76,7 @@ import type {
   ToolsRegisterUserTool,
   ToolsUnregisterUserTool,
 } from '@moonshot-ai/agent-core-v2';
+import type { ChangeNotifierSnapshotEvent } from '@moonshot-ai/agent-core-v2/agent/changeNotifier/changeNotifierOps';
 import type {
   ContextAppendLoopEvent,
   ContextAppendMessage,
@@ -81,20 +84,24 @@ import type {
   ContextClear,
   ContextUndo,
 } from '@moonshot-ai/agent-core-v2/agent/contextMemory/contextEvents';
-import type { TurnCancel, TurnEnded, TurnPrompt, TurnSteer } from '@moonshot-ai/agent-core-v2/contract';
-import type { TurnStepInterrupted } from '@moonshot-ai/agent-core-v2/contract';
-import type { TurnStepRetrying } from '@moonshot-ai/agent-core-v2/contract';
-import type { UsageRecord } from '@moonshot-ai/agent-core-v2/contract';
+import type { PermissionSetMode } from '@moonshot-ai/agent-core-v2/agent/permissionMode/permissionModeOps';
+import type { PermissionRecordApprovalResult } from '@moonshot-ai/agent-core-v2/agent/permissionRules/permissionRulesOps';
 import type {
   ConfigUpdate,
   ProfileBind,
   ToolsResetActiveTools,
   ToolsSetActiveTools,
 } from '@moonshot-ai/agent-core-v2/agent/profile/profileOps';
-import type { ChangeNotifierSnapshotEvent } from '@moonshot-ai/agent-core-v2/agent/changeNotifier/changeNotifierOps';
-import type { PermissionSetMode } from '@moonshot-ai/agent-core-v2/agent/permissionMode/permissionModeOps';
-import type { PermissionRecordApprovalResult } from '@moonshot-ai/agent-core-v2/agent/permissionRules/permissionRulesOps';
 import type { RuntimeSetBinding } from '@moonshot-ai/agent-core-v2/agent/runtimeBinding/runtimeBindingOps';
+import type {
+  TurnCancel,
+  TurnEnded,
+  TurnPrompt,
+  TurnSteer,
+} from '@moonshot-ai/agent-core-v2/contract';
+import type { TurnStepInterrupted } from '@moonshot-ai/agent-core-v2/contract';
+import type { TurnStepRetrying } from '@moonshot-ai/agent-core-v2/contract';
+import type { UsageRecord } from '@moonshot-ai/agent-core-v2/contract';
 import type {
   HelloWorldModeEnter,
   HelloWorldModeExit,
@@ -225,6 +232,8 @@ export type AgentRecord =
   | WireRecordOf<'interruptionReminder.recorded', InterruptionReminderRecorded>
   | WireRecordOf<'llm.request', LlmRequest>
   | WireRecordOf<'llm.tools_snapshot', LlmToolsSnapshot>
+  | WireRecordOf<'mcp.server_failed', McpServerFailed>
+  | WireRecordOf<'mcp.server_failure_resolved', McpServerFailureResolved>
   | WireRecordOf<'mcp.tools_discovered', McpToolsDiscovered>
   | WireRecordOf<'permission.record_approval_result', PermissionRecordApprovalResult>
   | WireRecordOf<'permission.set_mode', PermissionSetMode>
@@ -317,11 +326,7 @@ export interface ApiError {
     | 'DELETE_ERROR';
 }
 
-export type SessionHealth =
-  | 'ok'
-  | 'broken_state'
-  | 'broken_main_wire'
-  | 'missing_main_wire';
+export type SessionHealth = 'ok' | 'broken_state' | 'broken_main_wire' | 'missing_main_wire';
 
 export interface SessionSummary {
   sessionId: string;

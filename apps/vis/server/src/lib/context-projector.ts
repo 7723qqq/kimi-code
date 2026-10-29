@@ -1,6 +1,4 @@
-import {
-  buildContextCompactionShape,
-} from '@moonshot-ai/agent-core-v2/agent/contextMemory/compactionHandoff';
+import { buildContextCompactionShape } from '@moonshot-ai/agent-core-v2/agent/contextMemory/compactionHandoff';
 import {
   computeUndoCut,
   isFullyUndoable,
@@ -8,6 +6,7 @@ import {
 } from '@moonshot-ai/agent-core-v2/agent/contextMemory/contextOps';
 import { createLoopEventFold } from '@moonshot-ai/agent-core-v2/agent/contextMemory/loopEventFold';
 import { renderToolResultForModel } from '@moonshot-ai/agent-core-v2/agent/contextMemory/toolResultRender';
+
 import type {
   ContentPart,
   ContextMessage,
@@ -456,8 +455,7 @@ export function projectContext(
         // v2 dropped top-level `cwd` (it lives in `environmentDisclosure`)
         // and persists `thinkingLevel` on some records instead of
         // `thinkingEffort`; accept both spellings.
-        if (rec.environmentDisclosure !== undefined)
-          config.cwd = rec.environmentDisclosure.cwd;
+        if (rec.environmentDisclosure !== undefined) config.cwd = rec.environmentDisclosure.cwd;
         if (rec.modelAlias !== undefined) config.modelAlias = rec.modelAlias;
         if (rec.profileName !== undefined) config.profileName = rec.profileName;
         const effort = rec.thinkingEffort ?? rec.thinkingLevel;
@@ -468,8 +466,7 @@ export function projectContext(
       case 'profile.bind': {
         // v2 writes most initial config state on `profile.bind` rather than
         // `config.update` (which now carries only later updates).
-        if (rec.environmentDisclosure !== undefined)
-          config.cwd = rec.environmentDisclosure.cwd;
+        if (rec.environmentDisclosure !== undefined) config.cwd = rec.environmentDisclosure.cwd;
         if (rec.modelAlias !== undefined) config.modelAlias = rec.modelAlias;
         if (rec.profileName !== undefined) config.profileName = rec.profileName;
         config.thinkingEffort = rec.thinkingEffort;
@@ -480,10 +477,14 @@ export function projectContext(
         permissionMode = rec.mode;
         break;
       case 'plan_mode.enter':
-        planActive = true; planId = rec.id; break;
+        planActive = true;
+        planId = rec.id;
+        break;
       case 'plan_mode.cancel':
       case 'plan_mode.exit':
-        planActive = false; planId = undefined; break;
+        planActive = false;
+        planId = undefined;
+        break;
       case 'context.undo': {
         // Mirror the engine's `undo`: locate the requested user anchor while
         // skipping injections, stop at a compaction summary, include an
@@ -652,6 +653,8 @@ export function projectContext(
       case 'llm.tools_snapshot':
       case 'llm.request':
       case 'mcp.tools_discovered':
+      case 'mcp.server_failed':
+      case 'mcp.server_failure_resolved':
       case 'file_history.checkpoint':
       case 'file_history.tracked':
         break;
