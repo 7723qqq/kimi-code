@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 
 import { ErrorCodes, Error2 } from '#/errors';
-import { buildMcpHttpHeaders, HttpMcpClient, isTerminalTransportError } from '#/mcpCore/client-http';
+import {
+  buildMcpHttpHeaders,
+  HttpMcpClient,
+  isSseReconnectionExhaustedError,
+  isUnauthorizedTransportError,
+} from '#/mcpCore/client-http';
 
 import { startInProcessHttpMcpServer } from './stubs';
 
@@ -101,16 +106,18 @@ describe('buildMcpHttpHeaders', () => {
   it('flags errors the SDK uses to signal a dead HTTP transport as terminal', () => {
     const unauthorized = new Error('Unauthorized');
     unauthorized.name = 'UnauthorizedError';
-    expect(isTerminalTransportError(unauthorized)).toBe(true);
-    expect(isTerminalTransportError(new Error('Maximum reconnection attempts (3) exceeded.'))).toBe(
-      true,
-    );
+    expect(isUnauthorizedTransportError(unauthorized)).toBe(true);
+    expect(
+      isSseReconnectionExhaustedError(new Error('Maximum reconnection attempts (3) exceeded.')),
+    ).toBe(true);
   });
 
   it('does not flag transient SDK errors as terminal', () => {
-    expect(isTerminalTransportError(new Error('SSE stream disconnected: ECONNRESET'))).toBe(false);
-    expect(isTerminalTransportError(new Error('fetch failed'))).toBe(false);
-    expect(isTerminalTransportError(new Error('Connection closed'))).toBe(false);
+    expect(isUnauthorizedTransportError(new Error('SSE stream disconnected: ECONNRESET'))).toBe(
+      false,
+    );
+    expect(isUnauthorizedTransportError(new Error('fetch failed'))).toBe(false);
+    expect(isUnauthorizedTransportError(new Error('Connection closed'))).toBe(false);
   });
 });
 
@@ -139,14 +146,16 @@ describe('HttpMcpClient', () => {
 
     const client = new HttpMcpClient({ transport: 'http', url: server.url });
     const closes: Array<{ error?: string }> = [];
-    client.onUnexpectedClose((reason) => {
-      closes.push({ error: reason.error?.message });
+    client.onSessionEvidence((evidence) => {
+      closes.push({ error: evidence.reason.error?.message });
     });
     try {
       await client.connect();
-      const internal = (client as unknown as {
-        client: { onerror?: (error: Error) => void };
-      }).client;
+      const internal = (
+        client as unknown as {
+          client: { onerror?: (error: Error) => void };
+        }
+      ).client;
       internal.onerror?.(new Error('Maximum reconnection attempts (3) exceeded.'));
       await new Promise((r) => setTimeout(r, 25));
       expect(closes).toHaveLength(1);
@@ -162,12 +171,14 @@ describe('HttpMcpClient', () => {
 
     const client = new HttpMcpClient({ transport: 'http', url: server.url });
     const closes: number[] = [];
-    client.onUnexpectedClose(() => closes.push(Date.now()));
+    client.onSessionEvidence(() => closes.push(Date.now()));
     try {
       await client.connect();
-      const internal = (client as unknown as {
-        client: { onerror?: (error: Error) => void };
-      }).client;
+      const internal = (
+        client as unknown as {
+          client: { onerror?: (error: Error) => void };
+        }
+      ).client;
       internal.onerror?.(new Error('SSE stream disconnected: ECONNRESET'));
       internal.onerror?.(new Error('fetch failed'));
       await new Promise((r) => setTimeout(r, 25));

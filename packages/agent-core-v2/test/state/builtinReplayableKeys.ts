@@ -1,11 +1,14 @@
-import type { ReplayableStateKey } from '#/state/state';
-
+import { changeNotifierSnapshotKey } from '#/agent/changeNotifier/changeNotifierOps';
 import { contextMemoryKey } from '#/agent/contextMemory/contextOps';
-import { fullCompactionKey, fullCompactionWireRangesKey } from '#/agent/fullCompaction/compactionOps';
+import {
+  fullCompactionKey,
+  fullCompactionWireRangesKey,
+} from '#/agent/fullCompaction/compactionOps';
 import { interruptionReminderKey } from '#/agent/interruptionReminder/interruptionReminderOps';
 import { llmRequestTraceKey } from '#/agent/llmRequester/llmRequestOps';
 import { turnKey } from '#/agent/loop/turnOps';
 import { mcpDiscoveryKey } from '#/agent/mcp/mcpDiscoveryOps';
+import { mcpFailureKey } from '#/agent/mcp/mcpFailureOps';
 import { microCompactionKey } from '#/agent/microCompaction/microCompactionOps';
 import {
   permissionModeConfiguredKey,
@@ -13,7 +16,6 @@ import {
 } from '#/agent/permissionMode/permissionModeOps';
 import { permissionRulesKey } from '#/agent/permissionRules/permissionRulesOps';
 import { pluginSessionStartSnapshotKey } from '#/agent/plugin/agentPluginOps';
-import { changeNotifierSnapshotKey } from '#/agent/changeNotifier/changeNotifierOps';
 import { profileActiveToolsKey, profileKey } from '#/agent/profile/profileOps';
 import { runtimeBindingKey } from '#/agent/runtimeBinding/runtimeBindingOps';
 import { taskKey } from '#/agent/task/taskOps';
@@ -25,6 +27,7 @@ import { planKey } from '#/features/plan/planOps';
 import { specKey } from '#/features/spec/specOps';
 import { swarmKey } from '#/features/swarm/swarmOps';
 import { towerKey, towerOwnerKey } from '#/features/tower/towerOps';
+import type { ReplayableStateKey } from '#/state/state';
 
 export const BUILTIN_REPLAYABLE_STATE_KEYS: readonly ReplayableStateKey<any>[] = [
   contextMemoryKey,
@@ -34,6 +37,7 @@ export const BUILTIN_REPLAYABLE_STATE_KEYS: readonly ReplayableStateKey<any>[] =
   llmRequestTraceKey,
   turnKey,
   mcpDiscoveryKey,
+  mcpFailureKey,
   microCompactionKey,
   permissionModeKey,
   permissionModeConfiguredKey,

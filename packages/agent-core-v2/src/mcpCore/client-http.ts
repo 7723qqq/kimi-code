@@ -1,15 +1,11 @@
-import {
-  UnauthorizedError,
-  type OAuthClientProvider,
-} from '@modelcontextprotocol/sdk/client/auth.js';
+import { type OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-
 import type { FetchLike } from '@moonshot-ai/kimi-code-oauth';
 
 import { ErrorCodes, Error2 } from '#/errors';
 
-import { buildMcpRemoteHeaders } from './client-remote';
+import { buildMcpRemoteHeaders, classifyRemoteStartupError } from './client-remote';
 import {
   buildRequestOptions,
   KIMI_MCP_CLIENT_NAME,
@@ -17,8 +13,8 @@ import {
   MCP_LIVENESS_PROBE_TIMEOUT_MS,
   toMcpToolDefinition,
   toMcpToolResult,
-  type UnexpectedCloseListener,
-  type UnexpectedCloseReason,
+  type SessionEvidence,
+  type SessionEvidenceListener,
 } from './client-shared';
 import type { McpServerHttpConfig } from './config-schema';
 import type { MCPClient, MCPToolDefinition, MCPToolResult } from './types';
@@ -42,12 +38,15 @@ export class HttpMcpClient implements MCPClient {
   private closed = false;
   private ready = false;
   private hooksInstalled = false;
-  private unexpectedCloseListener: UnexpectedCloseListener | undefined;
+  private sessionEvidenceListener: SessionEvidenceListener | undefined;
   private lastTransportError: Error | undefined;
-  private pendingUnexpectedClose: UnexpectedCloseReason | undefined;
-  private unexpectedCloseFired = false;
+  private pendingSessionEvidence: SessionEvidence | undefined;
+  private hardEvidenceFired = false;
 
-  constructor(config: McpServerHttpConfig, options: HttpMcpClientOptions = {}) {
+  constructor(
+    private readonly config: McpServerHttpConfig,
+    options: HttpMcpClientOptions = {},
+  ) {
     const envLookup = options.envLookup ?? ((name) => process.env[name]);
     const headers = buildMcpHttpHeaders(config, envLookup);
 
@@ -75,7 +74,7 @@ export class HttpMcpClient implements MCPClient {
       await this.client.connect(this.transport, buildRequestOptions(this.startupTimeoutMs));
     } catch (error) {
       await this.closeStartedClient();
-      throw error;
+      throw classifyRemoteStartupError(this.config, error);
     }
     if (this.closed) {
       await this.closeStartedClient();
@@ -90,11 +89,11 @@ export class HttpMcpClient implements MCPClient {
     await this.closeStartedClient();
   }
 
-  onUnexpectedClose(listener: UnexpectedCloseListener): void {
-    this.unexpectedCloseListener = listener;
-    const pending = this.pendingUnexpectedClose;
+  onSessionEvidence(listener: SessionEvidenceListener): void {
+    this.sessionEvidenceListener = listener;
+    const pending = this.pendingSessionEvidence;
     if (pending !== undefined) {
-      this.pendingUnexpectedClose = undefined;
+      this.pendingSessionEvidence = undefined;
       listener(pending);
     }
   }
@@ -133,35 +132,40 @@ export class HttpMcpClient implements MCPClient {
     this.client.onclose = () => {
       if (this.closed) return;
       if (!this.ready) return;
-      this.fireUnexpectedClose({ error: this.lastTransportError });
+      this.fireSessionEvidence({ kind: 'hard', reason: { error: this.lastTransportError } });
     };
     this.client.onerror = (error) => {
       this.lastTransportError = error;
       if (this.closed) return;
       if (!this.ready) return;
-      if (isTerminalTransportError(error)) {
-        this.fireUnexpectedClose({ error });
+      if (isUnauthorizedTransportError(error)) {
+        this.fireSessionEvidence({ kind: 'hard', reason: { error } });
+        return;
+      }
+      if (isSseReconnectionExhaustedError(error)) {
+        this.fireSessionEvidence({ kind: 'hard', reason: { error } });
       }
     };
   }
 
-  private fireUnexpectedClose(reason: UnexpectedCloseReason): void {
-    if (this.unexpectedCloseFired) return;
-    this.unexpectedCloseFired = true;
-    const listener = this.unexpectedCloseListener;
+  private fireSessionEvidence(evidence: SessionEvidence): void {
+    if (this.hardEvidenceFired) return;
+    if (evidence.kind === 'hard') this.hardEvidenceFired = true;
+    const listener = this.sessionEvidenceListener;
     if (listener !== undefined) {
-      listener(reason);
+      listener(evidence);
     } else {
-      this.pendingUnexpectedClose = reason;
+      this.pendingSessionEvidence = evidence;
     }
   }
 }
 
-export function isTerminalTransportError(error: Error): boolean {
-  if (error instanceof UnauthorizedError) return true;
-  if (error.name === 'UnauthorizedError') return true;
-  if (/Maximum reconnection attempts/i.test(error.message)) return true;
-  return false;
+export function isUnauthorizedTransportError(error: Error): boolean {
+  return error.name === 'UnauthorizedError';
+}
+
+export function isSseReconnectionExhaustedError(error: Error): boolean {
+  return /Maximum reconnection attempts/i.test(error.message);
 }
 
 export function buildMcpHttpHeaders(

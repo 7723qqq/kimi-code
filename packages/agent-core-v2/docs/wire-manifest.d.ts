@@ -24,7 +24,7 @@
 // cross-reducers), blobs (the folding states whose blob codec offloads inline
 // media to blob storage), owner (the source file declaring the class).
 
-// Index (74 record types)
+// Index (76 record types)
 //   changeNotifier.snapshot            changeNotifier.snapshot                                                                               src/agent/changeNotifier/changeNotifierOps.ts
 //   config.update                      profile                                                                                               src/agent/profile/profileOps.ts
 //   context.append_loop_event          contextMemory, turn                                                                                   src/agent/contextMemory/contextEvents.ts
@@ -52,6 +52,8 @@
 //   interruptionReminder.recorded      interruptionReminder                                                                                  src/agent/interruptionReminder/interruptionReminderOps.ts
 //   llm.request                        llm.requestTrace                                                                                      src/agent/llmRequester/llmRequestOps.ts
 //   llm.tools_snapshot                 llm.requestTrace                                                                                      src/agent/llmRequester/llmRequestOps.ts
+//   mcp.server_failed                  mcp.failures                                                                                          src/agent/mcp/mcpFailureOps.ts
+//   mcp.server_failure_resolved        mcp.failures                                                                                          src/agent/mcp/mcpFailureOps.ts
 //   mcp.tools_discovered               mcp.discovery                                                                                         src/agent/mcp/mcpDiscoveryOps.ts
 //   micro_compaction.apply             microCompaction                                                                                       src/agent/microCompaction/microCompactionOps.ts
 //   micro_compaction.clamp             microCompaction                                                                                       src/agent/microCompaction/microCompactionOps.ts
@@ -480,6 +482,31 @@ interface LlmToolsSnapshotPayload {
     description: string;
     parameters: Record<string, any>;
   }[];
+}
+
+/**
+ * states: mcp.failures
+ * owner: src/agent/mcp/mcpFailureOps.ts
+ */
+interface McpServerFailedPayload {
+  _name: 'mcp.server_failed';
+  agentId: string;
+  serverName: string;
+  transport: 'stdio' | 'http' | 'sse';
+  error?: string;
+  nextRetryAt?: number;
+}
+
+/**
+ * states: mcp.failures
+ * owner: src/agent/mcp/mcpFailureOps.ts
+ */
+interface McpServerFailureResolvedPayload {
+  _name: 'mcp.server_failure_resolved';
+  agentId: string;
+  serverName: string;
+  transport: 'stdio' | 'http' | 'sse';
+  resolution: 'recovered' | 'needs-auth' | 'disabled' | 'removed';
 }
 
 /**
@@ -1118,6 +1145,8 @@ interface WirePayloadMap {
   "interruptionReminder.recorded": InterruptionReminderRecordedPayload;
   "llm.request": LlmRequestPayload;
   "llm.tools_snapshot": LlmToolsSnapshotPayload;
+  "mcp.server_failed": McpServerFailedPayload;
+  "mcp.server_failure_resolved": McpServerFailureResolvedPayload;
   "mcp.tools_discovered": McpToolsDiscoveredPayload;
   "micro_compaction.apply": MicroCompactionApplyPayload;
   "micro_compaction.clamp": MicroCompactionClampPayload;

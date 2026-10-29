@@ -1,17 +1,28 @@
+import { describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'pathe';
-import { describe, expect, it } from 'bun:test';
 
 import { deserializeMessage } from '@modelcontextprotocol/sdk/shared/stdio.js';
+import { join } from 'pathe';
 
-import { BoundedTail, mergeStdioEnv, StdioFrameBuffer, StdioMcpClient, type StdioMcpClientOptions } from '#/mcpCore/client-stdio';
+import {
+  BoundedTail,
+  mergeStdioEnv,
+  StdioFrameBuffer,
+  StdioMcpClient,
+  type StdioMcpClientOptions,
+} from '#/mcpCore/client-stdio';
 import { type McpServerStdioConfig } from '#/mcpCore/config-schema';
 import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
 
-import { crashAfterConnectFixture, cwdStdioFixture, stderrThenExitFixture, stdioFixture } from './stubs';
+import {
+  crashAfterConnectFixture,
+  cwdStdioFixture,
+  stderrThenExitFixture,
+  stdioFixture,
+} from './stubs';
 
 function createClient(
   config: McpServerStdioConfig,
@@ -157,12 +168,7 @@ describe('StdioMcpClient', () => {
     try {
       await client.connect();
       const tools = await client.listTools();
-      expect(tools.map((t) => t.name).toSorted()).toEqual([
-        'boom',
-        'echo',
-        'read_env',
-        'whoami',
-      ]);
+      expect(tools.map((t) => t.name).toSorted()).toEqual(['boom', 'echo', 'read_env', 'whoami']);
       const echo = tools.find((t) => t.name === 'echo');
       expect(echo?.description).toBe('Echoes input text');
       expect(echo?.inputSchema).toMatchObject({ type: 'object' });
@@ -271,8 +277,8 @@ describe('StdioMcpClient', () => {
       env: { KIMI_TEST_MCP_EXIT_AFTER_MS: '50', KIMI_TEST_MCP_STDERR: banner },
     });
     const closes: Array<{ stderr?: string; error?: string }> = [];
-    client.onUnexpectedClose((reason) => {
-      closes.push({ stderr: reason.stderr, error: reason.error?.message });
+    client.onSessionEvidence((evidence) => {
+      closes.push({ stderr: evidence.reason.stderr, error: evidence.reason.error?.message });
     });
     try {
       await client.connect();
@@ -322,9 +328,9 @@ describe('StdioMcpClient', () => {
 
       let received: { stderr?: string } | undefined;
       let syncedOnRegister = false;
-      client.onUnexpectedClose((reason) => {
+      client.onSessionEvidence((evidence) => {
         syncedOnRegister = true;
-        received = { stderr: reason.stderr };
+        received = { stderr: evidence.reason.stderr };
       });
       expect(syncedOnRegister).toBe(true);
       expect(received).toBeDefined();
@@ -340,7 +346,7 @@ describe('StdioMcpClient', () => {
       args: [stdioFixture],
     });
     const closes: number[] = [];
-    client.onUnexpectedClose(() => closes.push(Date.now()));
+    client.onSessionEvidence(() => closes.push(Date.now()));
     await client.connect();
     await client.close();
     await new Promise((r) => setTimeout(r, 100));
@@ -414,7 +420,9 @@ describe('StdioFrameBuffer', () => {
 
   it('keeps a frame that arrived in the same chunk as its predecessor', () => {
     const buffer = new StdioFrameBuffer();
-    buffer.append(Buffer.from('{"jsonrpc":"2.0","method":"notifications/initialized"}\n{"jsonrpc":'));
+    buffer.append(
+      Buffer.from('{"jsonrpc":"2.0","method":"notifications/initialized"}\n{"jsonrpc":'),
+    );
     expect(buffer.readLine()).toBe('{"jsonrpc":"2.0","method":"notifications/initialized"}');
     expect(buffer.readLine()).toBeNull();
     buffer.append(Buffer.from('"2.0","id":7,"result":{"ok":true}}\n'));

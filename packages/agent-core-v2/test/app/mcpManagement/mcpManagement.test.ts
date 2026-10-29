@@ -1,23 +1,25 @@
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn, type Mock } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
 import { type AddressInfo as HttpAddress } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'pathe';
 
 import { type OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js';
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn, type Mock } from 'bun:test';
-import { setEnv, restoreEnvs } from '#test/helpers/stubs';
+import { join } from 'pathe';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
 import { ILogService } from '#/_base/log/log';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IAgentIdentity, type AgentIdentitySnapshot } from '#/app/agentIdentity/agentIdentity';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { IMcpConfigStore, McpConfigStore } from '#/app/mcpConfig/configStore';
 import { IMcpOAuthService } from '#/app/mcpConfig/oauthService';
-import { IMcpManagementService, type GlobalMcpServerConfig } from '#/app/mcpManagement/mcpManagement';
+import {
+  IMcpManagementService,
+  type GlobalMcpServerConfig,
+} from '#/app/mcpManagement/mcpManagement';
 import { McpManagementService } from '#/app/mcpManagement/mcpManagementService';
 import { IMcpRegistryService } from '#/app/mcpRegistry/mcpRegistry';
 import { McpRegistryService } from '#/app/mcpRegistry/mcpRegistryService';
@@ -36,10 +38,18 @@ import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStor
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
 import { WorkspaceInstance } from '#/workspace/workspaceInstance/workspaceInstance';
-import { IRuntimeResolver, IWorkspaceInstanceManager } from '#/workspace/workspaceInstance/workspaceInstanceManager';
+import {
+  IRuntimeResolver,
+  IWorkspaceInstanceManager,
+} from '#/workspace/workspaceInstance/workspaceInstanceManager';
+import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 
 import { stubLog } from '../../_base/log/stubs';
-import { createMemoryMcpOAuthStore, startInProcessHttpMcpServer, stdioFixture } from '../../mcpCore/stubs';
+import {
+  createMemoryMcpOAuthStore,
+  startInProcessHttpMcpServer,
+  stdioFixture,
+} from '../../mcpCore/stubs';
 import { stubAgentIdentity } from '../agentIdentity/stubs';
 
 function stdioServer(name: string, command = 'npx'): GlobalMcpServerConfig {
@@ -143,7 +153,7 @@ describe('McpManagementService', () => {
   let identityReady: Promise<AgentIdentitySnapshot>;
   let identitySnapshot: AgentIdentitySnapshot;
   let trusted: boolean;
-  let getOrCreate: Mock<IWorkspaceInstanceManager['getOrCreate']>;
+  let acquire: Mock<IWorkspaceInstanceManager['acquire']>;
   let findContaining: Mock<IWorkspaceInstanceManager['findContaining']>;
   let management: IMcpManagementService;
   let timers: AdvancedHostTimers;
@@ -163,9 +173,10 @@ describe('McpManagementService', () => {
     identitySnapshot = stubAgentIdentity({ slug: 'test-agent' }).current();
     identityReady = Promise.resolve(identitySnapshot);
     trusted = true;
-    getOrCreate = mock<IWorkspaceInstanceManager['getOrCreate']>(async () =>
-      ({ id: 'test-workspace' }) as unknown as WorkspaceInstance,
-    );
+    acquire = mock<IWorkspaceInstanceManager['acquire']>(async () => ({
+      instance: { id: 'test-workspace' } as unknown as WorkspaceInstance,
+      dispose: () => {},
+    }));
     findContaining = mock<IWorkspaceInstanceManager['findContaining']>(() => undefined);
     const hostProcess = new HostProcessService();
     const runtime = Object.assign(
@@ -215,7 +226,7 @@ describe('McpManagementService', () => {
           get ready() {
             return configReady;
           },
-          get: (<T = unknown,>(_domain: string): T => undefined as T) as IConfigService['get'],
+          get: (<T = unknown>(_domain: string): T => undefined as T) as IConfigService['get'],
         });
         reg.defineInstance(IAgentIdentity, {
           _serviceBrand: undefined,
@@ -227,7 +238,7 @@ describe('McpManagementService', () => {
           inspect: () => runtime,
           acquire: () => ({ runtime, track: (resource) => resource, dispose: () => {} }),
         });
-        reg.definePartialInstance(IWorkspaceInstanceManager, { findContaining, getOrCreate });
+        reg.definePartialInstance(IWorkspaceInstanceManager, { findContaining, acquire });
         reg.defineInstance(ILogService, stubLog());
         reg.defineInstance(IHostTimers, timers);
         reg.define(IMcpManagementService, McpManagementService);
@@ -745,7 +756,7 @@ describe('McpManagementService', () => {
       await expect(management.getServer('local', { cwd: project })).rejects.toMatchObject({
         code: ErrorCodes.MCP_SERVER_NOT_FOUND,
       });
-      expect(getOrCreate).not.toHaveBeenCalled();
+      expect(acquire).not.toHaveBeenCalled();
     });
   });
 
@@ -761,7 +772,7 @@ describe('McpManagementService', () => {
       expect(result.output).toContain('Connected to MCP server "unsaved-probe".');
       expect(result.output).toContain('Available tools: 1');
       expect(result.output).toContain('- echo: Echoes text');
-      expect(getOrCreate).not.toHaveBeenCalled();
+      expect(acquire).not.toHaveBeenCalled();
       await expect(store.list()).resolves.toEqual([]);
     }, 20000);
 
@@ -798,7 +809,7 @@ describe('McpManagementService', () => {
       expect(result.output).toContain('Available tools: 4');
       expect(result.output).toContain('- echo: Echoes input text');
       expect(findContaining).toHaveBeenCalledWith(cwd);
-      expect(getOrCreate).not.toHaveBeenCalled();
+      expect(acquire).not.toHaveBeenCalled();
     }, 20000);
 
     it('probes a nested cwd against the containing workspace runtimes', async () => {
@@ -819,7 +830,7 @@ describe('McpManagementService', () => {
       expect(result.success).toBe(true);
       expect(result.output).toContain('Available tools: 4');
       expect(findContaining).toHaveBeenCalledWith(cwd);
-      expect(getOrCreate).not.toHaveBeenCalled();
+      expect(acquire).not.toHaveBeenCalled();
     }, 20000);
 
     it('rejects a non-local runtime_id probe when no workspace contains the cwd', async () => {
@@ -842,7 +853,7 @@ describe('McpManagementService', () => {
         message: expect.stringContaining('runtime_id "remote"'),
       });
       expect(findContaining).toHaveBeenCalledWith(cwd);
-      expect(getOrCreate).not.toHaveBeenCalled();
+      expect(acquire).not.toHaveBeenCalled();
     });
 
     it('probes a non-local runtime_id through the containing workspace', async () => {
@@ -863,7 +874,7 @@ describe('McpManagementService', () => {
 
       expect(result.success).toBe(true);
       expect(findContaining).toHaveBeenCalledWith(cwd);
-      expect(getOrCreate).not.toHaveBeenCalled();
+      expect(acquire).not.toHaveBeenCalled();
     }, 20000);
 
     it('keeps the transient local probe for an explicit local runtime_id', async () => {
@@ -883,7 +894,7 @@ describe('McpManagementService', () => {
 
       expect(result.success).toBe(true);
       expect(findContaining).toHaveBeenCalledWith(cwd);
-      expect(getOrCreate).not.toHaveBeenCalled();
+      expect(acquire).not.toHaveBeenCalled();
     }, 20000);
 
     it('rejects an inline probe whose name disagrees with the server config', async () => {
@@ -957,7 +968,7 @@ describe('McpManagementService', () => {
       releaseIdentity();
       await expect(probe).resolves.toMatchObject({ success: true });
       expect(findContaining).toHaveBeenCalledWith(cwd);
-      expect(getOrCreate).not.toHaveBeenCalled();
+      expect(acquire).not.toHaveBeenCalled();
     }, 20000);
 
     it('rejects a name-only probe under an enabled runtime-name collision', async () => {
@@ -1440,15 +1451,9 @@ describe('McpManagementService', () => {
       );
       const invalidate = spyOn(oauth, 'invalidate').mockResolvedValue(undefined);
 
-      await management.resetServerAuth(
-        { source: 'global', name: 'oauthable' },
-        { cwd: project },
-      );
+      await management.resetServerAuth({ source: 'global', name: 'oauthable' }, { cwd: project });
 
-      expect(invalidate).toHaveBeenCalledWith(
-        'oauthable',
-        'https://project.example.test/mcp',
-      );
+      expect(invalidate).toHaveBeenCalledWith('oauthable', 'https://project.example.test/mcp');
     });
 
     it('rejects begin for entries that cannot run an OAuth flow', async () => {
@@ -1611,10 +1616,7 @@ describe('McpManagementService', () => {
 
       const first = await management.beginServerAuth({ source: 'global', name: 'oauthable' });
       const second = await management.beginServerAuth({ source: 'global', name: 'oauthable' });
-      if (
-        first.status !== 'authorization-required' ||
-        second.status !== 'authorization-required'
-      ) {
+      if (first.status !== 'authorization-required' || second.status !== 'authorization-required') {
         throw new Error('expected both flows to require authorization');
       }
       expect(second.authorizationUrl).toBe(first.authorizationUrl);
@@ -1692,7 +1694,9 @@ describe('McpManagementService', () => {
           message: 'Unknown MCP OAuth flow: unknown-flow',
         },
       );
-      await expect(management.cancelServerAuth({ flowId: 'unknown-flow' })).resolves.toBeUndefined();
+      await expect(
+        management.cancelServerAuth({ flowId: 'unknown-flow' }),
+      ).resolves.toBeUndefined();
     });
 
     it('complete rejects a timeoutMs outside the setTimeout range', async () => {
@@ -1726,9 +1730,9 @@ describe('McpManagementService', () => {
 
       await management.resetServerAuth({ source: 'global', name: 'oauthable' });
 
-      expect((await oauth.tokenState('oauthable', 'https://oauth.example.test/mcp')).hasTokens).toBe(
-        false,
-      );
+      expect(
+        (await oauth.tokenState('oauthable', 'https://oauth.example.test/mcp')).hasTokens,
+      ).toBe(false);
       expect(events).toContainEqual({
         type: 'tokens-invalidated',
         serverName: 'oauthable',

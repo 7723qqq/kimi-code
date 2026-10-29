@@ -1,7 +1,7 @@
 import { dirname } from 'pathe';
 
 import { Disposable } from '#/_base/di/lifecycle';
-import { AsyncEmitter } from '#/_base/event';
+import { AsyncEmitter, Emitter } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
 import { subtreeWatchFilter } from '#/_base/utils/paths';
 import { TimeoutTimer } from '#/_base/utils/timer';
@@ -36,7 +36,9 @@ export class WorkspaceMcpConfigService extends Disposable implements IWorkspaceM
   private initializationComplete = false;
   private readonly watchDebounce = this._register(new TimeoutTimer());
   private readonly changeEmitter = this._register(new AsyncEmitter<McpServersChangeEvent>());
+  private readonly tunablesEmitter = this._register(new Emitter<McpTunables>());
   readonly onDidChange = this.changeEmitter.event;
+  readonly onDidChangeTunables = this.tunablesEmitter.event;
 
   constructor(
     @IWorkspaceContext private readonly workspace: IWorkspaceContext,
@@ -85,12 +87,7 @@ export class WorkspaceMcpConfigService extends Disposable implements IWorkspaceM
   }
 
   tunables(): McpTunables {
-    const section = this.config.get<McpSection | undefined>(MCP_SECTION);
-    return {
-      startupTimeoutMs: section?.startupTimeoutMs,
-      toolTimeoutMs: section?.toolTimeoutMs,
-      defaultDeferred: section?.defaultDeferred,
-    };
+    return toMcpTunables(this.config.get<McpSection | undefined>(MCP_SECTION));
   }
 
   private mutate(work: () => Promise<void>): Promise<void> {
@@ -240,4 +237,14 @@ function sortKeysDeep(value: unknown): unknown {
     );
   }
   return value;
+}
+
+function toMcpTunables(section: McpSection | undefined): McpTunables {
+  return {
+    startupTimeoutMs: section?.startupTimeoutMs,
+    toolTimeoutMs: section?.toolTimeoutMs,
+    defaultDeferred: section?.defaultDeferred,
+    reconnectInitialDelayMs: section?.reconnectInitialDelayMs,
+    reconnectMaxDelayMs: section?.reconnectMaxDelayMs,
+  };
 }

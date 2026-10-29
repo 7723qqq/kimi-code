@@ -61,11 +61,12 @@ export async function startCallbackServer(): Promise<CallbackServer> {
     void closeServer();
   };
 
+  const sockets = new Set<Socket>();
   const server: Server = createServer((req, res) => {
+    sockets.delete(req.socket);
     handle(req, res);
   });
 
-  const sockets = new Set<Socket>();
   server.on('connection', (socket) => {
     sockets.add(socket);
     socket.on('close', () => sockets.delete(socket));
@@ -94,6 +95,7 @@ export async function startCallbackServer(): Promise<CallbackServer> {
       return;
     }
     const errorParam = url.searchParams.get('error');
+    res.setHeader('connection', 'close');
     if (errorParam !== null) {
       const description = url.searchParams.get('error_description') ?? '';
       res.writeHead(400, { 'content-type': 'text/html; charset=utf-8' }).end(ERROR_HTML);

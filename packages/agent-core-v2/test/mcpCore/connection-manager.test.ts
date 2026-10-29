@@ -1,18 +1,19 @@
+import { describe, expect, it, spyOn } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, realpathSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
 import { type AddressInfo as HttpAddress } from 'node:net';
 import { tmpdir } from 'node:os';
+import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { type OAuthClientInformationFull, type OAuthTokens } from '@modelcontextprotocol/client';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
-import { McpServer } from '@modelcontextprotocol/server';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
+import { McpServer } from '@modelcontextprotocol/server';
 import { join } from 'pathe';
-import { describe, expect, it, spyOn } from 'bun:test';
 import { z } from 'zod';
 
 import { Error2 } from '#/errors';
@@ -23,8 +24,18 @@ import { McpOAuthService } from '#/mcpCore/oauth/service';
 import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
 
-import { closeServer, crashAfterConnectFixture, createMemoryMcpOAuthStore, cwdStdioFixture, hangingListStdioFixture, slowStdioFixture, slowToolStdioFixture, startAnonymousDiscoveryHttpMcpServer, stderrThenExitFixture, stdioFixture } from './stubs';
-import { setTimeout as delay } from 'node:timers/promises';
+import {
+  closeServer,
+  crashAfterConnectFixture,
+  createMemoryMcpOAuthStore,
+  cwdStdioFixture,
+  hangingListStdioFixture,
+  slowStdioFixture,
+  slowToolStdioFixture,
+  startAnonymousDiscoveryHttpMcpServer,
+  stderrThenExitFixture,
+  stdioFixture,
+} from './stubs';
 
 function stdioConfig(args: string[] = [stdioFixture]) {
   return {
@@ -355,7 +366,6 @@ describe('McpConnectionManager', () => {
         toolCount: 4,
       });
       expect(seen.filter((event) => event.name === 'slow').map((event) => event.status)).toEqual([
-        'pending',
         'pending',
         'connected',
       ]);

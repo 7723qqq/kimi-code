@@ -1,10 +1,10 @@
-import type { FetchLike } from '@moonshot-ai/kimi-code-oauth';
 import {
   UnauthorizedError,
   type OAuthClientProvider,
 } from '@modelcontextprotocol/sdk/client/auth.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport, SseError } from '@modelcontextprotocol/sdk/client/sse.js';
+import type { FetchLike } from '@moonshot-ai/kimi-code-oauth';
 
 import { ErrorCodes, Error2 } from '#/errors';
 
@@ -16,8 +16,8 @@ import {
   MCP_LIVENESS_PROBE_TIMEOUT_MS,
   toMcpToolDefinition,
   toMcpToolResult,
-  type UnexpectedCloseListener,
-  type UnexpectedCloseReason,
+  type SessionEvidence,
+  type SessionEvidenceListener,
 } from './client-shared';
 import type { McpServerSseConfig } from './config-schema';
 import type { MCPClient, MCPToolDefinition, MCPToolResult } from './types';
@@ -41,10 +41,10 @@ export class SseMcpClient implements MCPClient {
   private closed = false;
   private ready = false;
   private hooksInstalled = false;
-  private unexpectedCloseListener: UnexpectedCloseListener | undefined;
+  private sessionEvidenceListener: SessionEvidenceListener | undefined;
   private lastTransportError: Error | undefined;
-  private pendingUnexpectedClose: UnexpectedCloseReason | undefined;
-  private unexpectedCloseFired = false;
+  private pendingSessionEvidence: SessionEvidence | undefined;
+  private hardEvidenceFired = false;
 
   constructor(config: McpServerSseConfig, options: SseMcpClientOptions = {}) {
     const envLookup = options.envLookup ?? ((name) => process.env[name]);
@@ -89,11 +89,11 @@ export class SseMcpClient implements MCPClient {
     await this.closeStartedClient();
   }
 
-  onUnexpectedClose(listener: UnexpectedCloseListener): void {
-    this.unexpectedCloseListener = listener;
-    const pending = this.pendingUnexpectedClose;
+  onSessionEvidence(listener: SessionEvidenceListener): void {
+    this.sessionEvidenceListener = listener;
+    const pending = this.pendingSessionEvidence;
     if (pending !== undefined) {
-      this.pendingUnexpectedClose = undefined;
+      this.pendingSessionEvidence = undefined;
       listener(pending);
     }
   }
@@ -132,26 +132,26 @@ export class SseMcpClient implements MCPClient {
     this.client.onclose = () => {
       if (this.closed) return;
       if (!this.ready) return;
-      this.fireUnexpectedClose({ error: this.lastTransportError });
+      this.fireSessionEvidence({ kind: 'hard', reason: { error: this.lastTransportError } });
     };
     this.client.onerror = (error) => {
       this.lastTransportError = error;
       if (this.closed) return;
       if (!this.ready) return;
       if (isTerminalSseTransportError(error)) {
-        this.fireUnexpectedClose({ error });
+        this.fireSessionEvidence({ kind: 'hard', reason: { error } });
       }
     };
   }
 
-  private fireUnexpectedClose(reason: UnexpectedCloseReason): void {
-    if (this.unexpectedCloseFired) return;
-    this.unexpectedCloseFired = true;
-    const listener = this.unexpectedCloseListener;
+  private fireSessionEvidence(evidence: SessionEvidence): void {
+    if (this.hardEvidenceFired) return;
+    if (evidence.kind === 'hard') this.hardEvidenceFired = true;
+    const listener = this.sessionEvidenceListener;
     if (listener !== undefined) {
-      listener(reason);
+      listener(evidence);
     } else {
-      this.pendingUnexpectedClose = reason;
+      this.pendingSessionEvidence = evidence;
     }
   }
 }
