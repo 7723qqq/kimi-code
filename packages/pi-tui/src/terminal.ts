@@ -666,6 +666,10 @@ export class ProcessTerminal implements Terminal {
         this.progressInterval = setInterval(() => {
           process.stdout.write(TERMINAL_PROGRESS_ACTIVE_SEQUENCE);
         }, TERMINAL_PROGRESS_KEEPALIVE_MS);
+        // The keep-alive must not hold the process open. It only has to fire
+        // while something else keeps the program alive; without the unref a
+        // program that exits without calling stop() never terminates.
+        this.progressInterval.unref?.();
       }
     } else {
       this.clearProgressInterval();

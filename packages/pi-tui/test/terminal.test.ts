@@ -1,3 +1,6 @@
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
 import { expect, describe, it } from 'bun:test';
 
 import { setKittyProtocolActive } from '../src/keys.ts';
@@ -386,6 +389,23 @@ describe('ProcessTerminal progress', () => {
     } finally {
       process.stdout.write = previousWrite;
     }
+  });
+
+  it('does not keep the process alive while the keep-alive runs', async () => {
+    const terminalPath = fileURLToPath(new URL('../src/terminal.ts', import.meta.url));
+    const script = `import { ProcessTerminal } from ${JSON.stringify(terminalPath)}; new ProcessTerminal().setProgress(true);`;
+    const child = spawn('bun', ['-e', script], { stdio: 'ignore' });
+
+    const outcome = await new Promise<'exited' | 'hung'>((resolve) => {
+      const timer = setTimeout(() => resolve('hung'), 5_000);
+      child.on('close', () => {
+        clearTimeout(timer);
+        resolve('exited');
+      });
+    });
+    if (outcome === 'hung') child.kill();
+
+    expect(outcome).toBe('exited');
   });
 });
 
