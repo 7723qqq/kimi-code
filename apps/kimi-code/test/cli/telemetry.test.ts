@@ -4,8 +4,11 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, jest, vi } from 'bun:test';
+import { createRequire } from 'node:module';
 import { setEnv, restoreEnvs } from '../helpers/stubs';
 import { resetKimiRegionCache } from '#/utils/region';
+
+const requireReal = createRequire(import.meta.url);
 
 const mocks = (() => ({
   initializeTelemetry: jest.fn(),
@@ -31,29 +34,26 @@ jest.mock('@moonshot-ai/kimi-telemetry', () => ({
   withTelemetryContext: jest.fn(),
 }));
 
-jest.mock('@moonshot-ai/kimi-code-oauth', async (importOriginal) => {
+const realOAuth = requireReal('@moonshot-ai/kimi-code-oauth');
+const realSdk = requireReal('@moonshot-ai/kimi-code-sdk');
+
+jest.mock('@moonshot-ai/kimi-code-oauth', () => ({
   // Spread the real module: the SDK's v2 client pulls agent-core-v2 into the
   // import graph, which subclasses KimiOAuthToolkit from this package.
-  const actual = await importOriginal<typeof import('@moonshot-ai/kimi-code-oauth')>();
-  return {
-    ...actual,
-    createKimiDeviceId: mocks.createKimiDeviceId,
-    KIMI_CODE_PROVIDER_NAME: 'managed:kimi-code',
-  };
-});
+  ...realOAuth,
+  createKimiDeviceId: mocks.createKimiDeviceId,
+  KIMI_CODE_PROVIDER_NAME: 'managed:kimi-code',
+}));
 
-jest.mock('@moonshot-ai/kimi-code-sdk', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@moonshot-ai/kimi-code-sdk')>();
-  return {
-    ...actual,
-    resolveKimiHome: mocks.resolveKimiHome,
-    resolveConfigPath: mocks.resolveConfigPath,
-    loadRuntimeConfigSafe: mocks.loadRuntimeConfigSafe,
-    KimiAuthFacade: jest.fn(function () {
-      return { getCachedAccessToken: mocks.getCachedAccessToken };
-    }),
-  };
-});
+jest.mock('@moonshot-ai/kimi-code-sdk', () => ({
+  ...realSdk,
+  resolveKimiHome: mocks.resolveKimiHome,
+  resolveConfigPath: mocks.resolveConfigPath,
+  loadRuntimeConfigSafe: mocks.loadRuntimeConfigSafe,
+  KimiAuthFacade: jest.fn(function () {
+    return { getCachedAccessToken: mocks.getCachedAccessToken };
+  }),
+}));
 
 describe('initializeServerTelemetry', () => {
   beforeEach(() => {

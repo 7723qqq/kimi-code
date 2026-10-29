@@ -30,7 +30,11 @@ function makeSwarmHandler() {
       removeToolComponentIfInactive: jest.fn(),
       finalizeLiveTextBuffers: jest.fn(),
     },
-    appendTranscriptEntry: jest.fn(),
+    appendTranscriptEntry: jest.fn((_entry: unknown, component: unknown) => {
+      // Mirror the real host wiring so `swarmComponentOf` can reach the
+      // component the handler appended.
+      transcriptContainer.addChild(component as never);
+    }),
     btwPanelController: { routeEvent: jest.fn(() => false) },
     updateActivityPane: jest.fn(),
   };

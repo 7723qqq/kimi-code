@@ -6,6 +6,7 @@
  */
 
 import { mkdtempSync, rmSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -25,6 +26,8 @@ import type {
 } from '@moonshot-ai/kimi-code-sdk';
 
 let tmp: string;
+
+const requireReal = createRequire(import.meta.url);
 
 type CreateKimiDeviceId = typeof createKimiDeviceIdFn;
 
@@ -50,8 +53,7 @@ const mocks = (() => ({
   harnessCreatesDeviceIdOnConstruction: false,
 }))();
 
-jest.mock('@moonshot-ai/kimi-code-sdk', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@moonshot-ai/kimi-code-sdk')>();
+jest.mock('@moonshot-ai/kimi-code-sdk', () => {
   const createFakeHarness = (options: { readonly homeDir?: string } | undefined) => {
     const homeDir = options?.homeDir ?? '/tmp/kimi-export-home';
     if (mocks.harnessCreatesDeviceIdOnConstruction) {
@@ -70,7 +72,7 @@ jest.mock('@moonshot-ai/kimi-code-sdk', async (importOriginal) => {
     };
   };
   return {
-    ...actual,
+    ...requireReal('@moonshot-ai/kimi-code-sdk'),
     resolveKimiHome: mocks.resolveKimiHome,
     createKimiHarness: (...args: unknown[]) => {
       mocks.kimiHarnessConstructor(...args);
@@ -79,16 +81,11 @@ jest.mock('@moonshot-ai/kimi-code-sdk', async (importOriginal) => {
   };
 });
 
-jest.mock('@moonshot-ai/kimi-code-oauth', async () => {
-  const actual = await jest.importActual<typeof import('@moonshot-ai/kimi-code-oauth')>(
-    '@moonshot-ai/kimi-code-oauth',
-  );
-  return {
-    ...actual,
-    createKimiDeviceId: mocks.createKimiDeviceId,
-    KIMI_CODE_PROVIDER_NAME: 'kimi-code',
-  };
-});
+jest.mock('@moonshot-ai/kimi-code-oauth', () => ({
+  ...requireReal('@moonshot-ai/kimi-code-oauth'),
+  createKimiDeviceId: mocks.createKimiDeviceId,
+  KIMI_CODE_PROVIDER_NAME: 'kimi-code',
+}));
 
 jest.mock('@moonshot-ai/kimi-telemetry', () => ({
   initializeTelemetry: mocks.initializeTelemetry,

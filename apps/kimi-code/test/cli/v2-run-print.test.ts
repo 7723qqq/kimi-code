@@ -1,9 +1,12 @@
 import { mkdtemp, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, jest, vi } from 'bun:test';
 import { setEnv, restoreEnvs } from '../helpers/stubs';
+
+const requireReal = createRequire(import.meta.url);
 
 import {
   IAgentCronService,
@@ -69,55 +72,41 @@ const mocks = (() => ({
   shutdownTelemetry: jest.fn(async () => {}),
 }))();
 
-jest.mock('@moonshot-ai/agent-core-v2', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@moonshot-ai/agent-core-v2')>();
-  return {
-    ...actual,
-    bootstrap: mocks.bootstrap,
-    ensureMainAgent: mocks.ensureMainAgent,
-  };
-});
+jest.mock('@moonshot-ai/agent-core-v2', () => ({
+  ...requireReal('@moonshot-ai/agent-core-v2'),
+  bootstrap: mocks.bootstrap,
+  ensureMainAgent: mocks.ensureMainAgent,
+}));
 
 jest.mock('@moonshot-ai/agent-core-v2/app/mcpConfig/configLoader', () => ({
   loadMcpServersDetailed: mocks.loadMcpServersDetailed,
   resolveMcpJsonPaths: mocks.resolveMcpJsonPaths,
 }));
 
-jest.mock('@moonshot-ai/kimi-code-oauth', async () => {
-  const actual = await jest.importActual<typeof import('@moonshot-ai/kimi-code-oauth')>(
-    '@moonshot-ai/kimi-code-oauth',
-  );
-  return {
-    ...actual,
-    createKimiDefaultHeaders: mocks.createKimiDefaultHeaders,
-    createKimiDeviceId: mocks.createKimiDeviceId,
-  };
-});
+jest.mock('@moonshot-ai/kimi-code-oauth', () => ({
+  ...requireReal('@moonshot-ai/kimi-code-oauth'),
+  createKimiDefaultHeaders: mocks.createKimiDefaultHeaders,
+  createKimiDeviceId: mocks.createKimiDeviceId,
+}));
 
-jest.mock('@moonshot-ai/kimi-code-sdk', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@moonshot-ai/kimi-code-sdk')>();
-  return {
-    ...actual,
-    resolveKimiHome: mocks.resolveKimiHome,
-  };
-});
+jest.mock('@moonshot-ai/kimi-code-sdk', () => ({
+  ...requireReal('@moonshot-ai/kimi-code-sdk'),
+  resolveKimiHome: mocks.resolveKimiHome,
+}));
 
-jest.mock('@moonshot-ai/kimi-telemetry', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@moonshot-ai/kimi-telemetry')>();
-  return {
-    // Keep the real `shouldEnableTelemetry` so the tests exercise the actual
-    // KIMI_DISABLE_TELEMETRY semantics; only the side-effecting entry points
-    // are stubbed.
-    ...actual,
-    initializeTelemetry: mocks.initializeTelemetry,
-    setCrashPhase: mocks.setCrashPhase,
-    setTelemetryContext: mocks.setTelemetryContext,
-    setTelemetryModel: mocks.setTelemetryModel,
-    shutdownTelemetry: mocks.shutdownTelemetry,
-    track: jest.fn(),
-    withTelemetryContext: jest.fn(() => ({ track: jest.fn() })),
-  };
-});
+jest.mock('@moonshot-ai/kimi-telemetry', () => ({
+  // Keep the real `shouldEnableTelemetry` so the tests exercise the actual
+  // KIMI_DISABLE_TELEMETRY semantics; only the side-effecting entry points
+  // are stubbed.
+  ...requireReal('@moonshot-ai/kimi-telemetry'),
+  initializeTelemetry: mocks.initializeTelemetry,
+  setCrashPhase: mocks.setCrashPhase,
+  setTelemetryContext: mocks.setTelemetryContext,
+  setTelemetryModel: mocks.setTelemetryModel,
+  shutdownTelemetry: mocks.shutdownTelemetry,
+  track: jest.fn(),
+  withTelemetryContext: jest.fn(() => ({ track: jest.fn() })),
+}));
 
 interface FakeScope {
   readonly id: string;
@@ -398,6 +387,10 @@ describe('runV2Print', () => {
   });
 
   afterEach(() => {
+    // Bun keeps an assigned `process.exitCode` even when it is set back to
+    // `undefined`, so a case that pins a failure code would otherwise leak into
+    // the next one (and into the runner's exit status). Reset it explicitly.
+    process.exitCode = 0;
     jest.clearAllMocks();
     restoreEnvs();
     resetKimiRegionCache();
@@ -767,7 +760,10 @@ describe('runV2Print', () => {
     mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
     const previousExitCode = process.exitCode;
-    process.exitCode = undefined;
+    // Bun keeps a previously assigned exitCode even when it is set back to
+    // `undefined`, so this case pins 0 explicitly and restores the old value
+    // afterwards.
+    process.exitCode = 0;
     try {
       await runV2Print(opts({ session: 'ses_1', outputFormat: 'stream-json' }) as never, '1.2.3-test', {
         stdout,
@@ -779,7 +775,7 @@ describe('runV2Print', () => {
       for (const line of lines) expect(() => JSON.parse(line)).not.toThrow();
       expect(stdout.text()).not.toContain('Plan mode');
       expect(stderr.text()).toContain('Session "ses_1" is in Plan mode');
-      expect(process.exitCode).toBeUndefined();
+      expect(process.exitCode).toBe(0);
     } finally {
       process.exitCode = previousExitCode;
     }

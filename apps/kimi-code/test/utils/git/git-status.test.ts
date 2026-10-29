@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, jest, vi } from 'bun:test';
 
 const mocks = (() => ({
-  execFile: jest.fn(),
+  exec: jest.fn(),
   resolveCommandPath: jest.fn(),
   watchers: [] as Array<{
     options: unknown;
@@ -13,10 +13,6 @@ const mocks = (() => ({
     emit: (event: string) => void;
   }>,
 }))();
-
-jest.mock('node:child_process', () => ({
-  execFile: mocks.execFile,
-}));
 
 jest.mock('#/utils/process/resolve-command', () => ({
   resolveCommandPath: mocks.resolveCommandPath,
@@ -62,11 +58,16 @@ afterEach(() => {
 });
 
 async function drain(): Promise<void> {
-  for (let i = 0; i < 30; i++) await Promise.resolve();
+  // The cache chain awaits a promise-returning `exec`, so it needs more than
+  // microtask turns. `setImmediate` keeps working under `jest.useFakeTimers()`
+  // (unlike a zero-delay `setTimeout`, which the fake clock swallows).
+  for (let i = 0; i < 30; i++) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
 }
 
 function gitCalls(subcommand: string): unknown[][] {
-  return mocks.execFile.mock.calls.filter((call) => {
+  return mocks.exec.mock.calls.filter((call) => {
     const args = call[1] as string[];
     return call[0] === '/usr/bin/git' && args.includes(subcommand);
   });
@@ -81,55 +82,59 @@ function installGit(scripts: {
   holdStatus?: boolean;
 }): { releaseStatus: (stdout: string | null) => void } {
   let releaseStatus: (stdout: string | null) => void = () => {};
-  mocks.execFile.mockImplementation(
-    (
+  mocks.exec.mockImplementation(
+    async (
       cmd: string,
-      args: string[],
-      _options: unknown,
-      callback: (error: Error | null, stdout: string, stderr: string) => void,
-    ) => {
+      args: readonly string[],
+    ): Promise<{ readonly code: number; readonly stdout: string } | null> => {
       if (cmd === '/usr/bin/gh') {
         if (scripts.ghError !== undefined && scripts.ghError !== null) {
-          callback(scripts.ghError, '', '');
-          return;
+          throw scripts.ghError;
         }
-        callback(null, scripts.ghStdout ?? '', '');
-        return;
+        return { code: 0, stdout: scripts.ghStdout ?? '' };
       }
       if (args.includes('rev-parse')) {
         if (scripts.gitDir === null) {
-          callback(Object.assign(new Error('not a repo'), { code: 128 }), '', '');
-          return;
+          throw Object.assign(new Error('not a repo'), { code: 128 });
         }
-        callback(null, `${scripts.gitDir ?? 'C:/repo/.git'}\n`, '');
-        return;
+        return { code: 0, stdout: `${scripts.gitDir ?? 'C:/repo/.git'}\n` };
       }
       if (args.includes('status')) {
         if (scripts.holdStatus === true) {
-          releaseStatus = (stdout) => {
-            if (stdout === null) {
-              callback(Object.assign(new Error('status failed'), { code: 1 }), '', '');
-              return;
-            }
-            callback(null, stdout, '');
-          };
-          return;
+          return new Promise((resolve, reject) => {
+            releaseStatus = (stdout) => {
+              if (stdout === null) {
+                reject(Object.assign(new Error('status failed'), { code: 1 }));
+                return;
+              }
+              resolve({ code: 0, stdout });
+            };
+          });
         }
         if (scripts.status === null) {
-          callback(Object.assign(new Error('status failed'), { code: 1 }), '', '');
-          return;
+          throw Object.assign(new Error('status failed'), { code: 1 });
         }
-        callback(null, scripts.status ?? '## main\n', '');
-        return;
+        return { code: 0, stdout: scripts.status ?? '## main\n' };
       }
       if (args.includes('diff')) {
-        callback(null, scripts.diff ?? '', '');
-        return;
+        return { code: 0, stdout: scripts.diff ?? '' };
       }
-      callback(new Error('unexpected git command'), '', '');
+      throw new Error('unexpected git command');
     },
   );
   return { releaseStatus: (stdout) => releaseStatus(stdout) };
+}
+
+/** Build a cache whose process layer is the stubbed `exec` above. */
+function cacheFor(workDir: string, options: Record<string, unknown> = {}) {
+  return createGitStatusCache(workDir, {
+    ...options,
+    deps: {
+      exec: mocks.exec,
+      resolveCommand: mocks.resolveCommandPath,
+      ...(options['deps'] as object | undefined),
+    },
+  } as never);
 }
 
 describe('git status cache', () => {
@@ -142,10 +147,10 @@ describe('git status cache', () => {
       ghError: new Error('no pull request'),
     });
 
-    const cache = createGitStatusCache('/tmp/repo');
-    expect(mocks.execFile).not.toHaveBeenCalled();
+    const cache = cacheFor('/tmp/repo');
+    expect(mocks.exec).not.toHaveBeenCalled();
     expect(cache.getStatus()).toBeNull();
-    expect(mocks.execFile).not.toHaveBeenCalled();
+    expect(mocks.exec).not.toHaveBeenCalled();
 
     await drain();
 
@@ -162,7 +167,7 @@ describe('git status cache', () => {
     expect(gitCalls('status')).toHaveLength(1);
     expect(gitCalls('diff')).toHaveLength(1);
     expect(gitCalls('branch')).toHaveLength(0);
-    expect(mocks.execFile).toHaveBeenCalledTimes(4);
+    expect(mocks.exec).toHaveBeenCalledTimes(4);
 
     cache.getStatus();
     await drain();
@@ -184,7 +189,7 @@ describe('git status cache', () => {
       ghStdout: '{"number":12,"url":"https://github.com/acme/repo/pull/12"}\n',
     });
 
-    const cache = createGitStatusCache('/tmp/repo', { onChange });
+    const cache = cacheFor('/tmp/repo', { onChange });
     cache.getStatus();
     await drain();
 
@@ -206,24 +211,23 @@ describe('git status cache', () => {
 
   it('keeps the last status when gh lookup throws synchronously', async () => {
     const onChange = jest.fn();
-    mocks.execFile.mockImplementation((cmd: string, args: string[], _options: unknown, callback: Function) => {
+    mocks.exec.mockImplementation(async (cmd: string, args: readonly string[]) => {
       if (cmd === '/usr/bin/gh') {
         throw Object.assign(new Error('spawn ENOTDIR'), { code: 'ENOTDIR' });
       }
       if (args.includes('rev-parse')) {
-        callback(null, 'C:/repo/.git\n', '');
-        return;
+        return { code: 0, stdout: 'C:/repo/.git\n' };
       }
       if (args.includes('status')) {
-        callback(null, '## main...origin/main\n M src/app.ts\n', '');
-        return;
+        return { code: 0, stdout: '## main...origin/main\n M src/app.ts\n' };
       }
       if (args.includes('diff')) {
-        callback(null, '2\t1\tsrc/app.ts\n', '');
+        return { code: 0, stdout: '2\t1\tsrc/app.ts\n' };
       }
+      return { code: 0, stdout: '' };
     });
 
-    const cache = createGitStatusCache('/tmp/repo', { onChange });
+    const cache = cacheFor('/tmp/repo', { onChange });
     cache.getStatus();
     await drain();
 
@@ -242,9 +246,9 @@ describe('git status cache', () => {
 
   it('returns null without spawning when git cannot be resolved to a safe path', () => {
     mocks.resolveCommandPath.mockReturnValue(undefined);
-    const cache = createGitStatusCache('/tmp/repo');
+    const cache = cacheFor('/tmp/repo');
     expect(cache.getStatus()).toBeNull();
-    expect(mocks.execFile).not.toHaveBeenCalled();
+    expect(mocks.exec).not.toHaveBeenCalled();
     expect(mocks.watchers).toHaveLength(0);
     cache.dispose();
   });
@@ -256,24 +260,22 @@ describe('git status cache', () => {
       ghError: new Error('no pull request'),
     });
 
-    const cache = createGitStatusCache('/tmp/repo');
-    expect(mocks.execFile).not.toHaveBeenCalled();
+    const cache = cacheFor('/tmp/repo');
+    expect(mocks.exec).not.toHaveBeenCalled();
     cache.getStatus();
-    expect(mocks.execFile).not.toHaveBeenCalled();
+    expect(mocks.exec).not.toHaveBeenCalled();
     await drain();
 
     expect(mocks.resolveCommandPath).toHaveBeenCalledWith('git', '/tmp/repo');
-    expect(mocks.execFile).toHaveBeenCalledWith(
+    expect(mocks.exec).toHaveBeenCalledWith(
       '/usr/bin/git',
       ['-C', '/tmp/repo', 'rev-parse', '--absolute-git-dir'],
-      expect.anything(),
-      expect.any(Function),
+      expect.objectContaining({ timeout: expect.any(Number) }),
     );
-    expect(mocks.execFile).toHaveBeenCalledWith(
+    expect(mocks.exec).toHaveBeenCalledWith(
       '/usr/bin/gh',
       expect.any(Array),
-      expect.anything(),
-      expect.any(Function),
+      expect.objectContaining({ timeout: expect.any(Number) }),
     );
     expect(mocks.watchers).toHaveLength(1);
     expect(mocks.watchers[0]?.options).toEqual(
@@ -286,7 +288,7 @@ describe('git status cache', () => {
 
   it('returns null when the working directory is not a git repo and does not probe again', async () => {
     installGit({ gitDir: null });
-    const cache = createGitStatusCache('/tmp/not-a-repo');
+    const cache = cacheFor('/tmp/not-a-repo');
     expect(cache.getStatus()).toBeNull();
     await drain();
 
@@ -327,7 +329,7 @@ describe('git status cache', () => {
 
   it('parses an unborn branch and hides detached HEAD', async () => {
     installGit({ status: '## No commits yet on main\n' });
-    const unborn = createGitStatusCache('/tmp/repo');
+    const unborn = cacheFor('/tmp/repo');
     unborn.getStatus();
     await drain();
     expect(unborn.getStatus()?.branch).toBe('main');
@@ -335,7 +337,7 @@ describe('git status cache', () => {
 
     mocks.watchers.length = 0;
     installGit({ status: '## HEAD (no branch)\n' });
-    const detached = createGitStatusCache('/tmp/repo');
+    const detached = cacheFor('/tmp/repo');
     detached.getStatus();
     await drain();
     expect(detached.getStatus()).toBeNull();
@@ -347,7 +349,7 @@ describe('git status cache', () => {
     jest.useFakeTimers();
     jest.setSystemTime(new Date('2026-04-24T00:00:00Z'));
     installGit({ status: '## main\n', ghError: new Error('no pull request') });
-    const cache = createGitStatusCache('/tmp/repo');
+    const cache = cacheFor('/tmp/repo');
     cache.getStatus();
     await drain();
     expect(gitCalls('status')).toHaveLength(1);
@@ -369,7 +371,7 @@ describe('git status cache', () => {
       diff: '2\t1\tsrc/app.ts\n',
       ghError: new Error('no pull request'),
     });
-    const cache = createGitStatusCache('/tmp/repo');
+    const cache = cacheFor('/tmp/repo');
     cache.getStatus();
     await drain();
 
@@ -391,7 +393,7 @@ describe('git status cache', () => {
 
   it('coalesces a forced refresh that arrives while one is in flight', async () => {
     const held = installGit({ holdStatus: true, ghError: new Error('no pull request') });
-    const cache = createGitStatusCache('/tmp/repo');
+    const cache = cacheFor('/tmp/repo');
     cache.getStatus();
     await drain();
     expect(gitCalls('status')).toHaveLength(1);

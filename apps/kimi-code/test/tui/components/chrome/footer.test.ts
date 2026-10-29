@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import { afterEach, beforeEach, describe, expect, it, jest, vi } from 'bun:test';
 
+import * as actualGitStatus from '#/utils/git/git-status';
 import { FooterComponent } from '#/tui/components/chrome/footer';
 import { setRainbowDance, type RainbowDanceController } from '#/tui/easter-eggs/dance';
 import { currentTheme, darkColors, lightColors } from '#/tui/theme';
@@ -12,10 +13,10 @@ const gitStatusMocks = (() => ({
   createGitStatusCache: jest.fn(),
 }))();
 
-jest.mock('#/utils/git/git-status', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('#/utils/git/git-status')>();
-  return { ...actual, createGitStatusCache: gitStatusMocks.createGitStatusCache };
-});
+jest.mock('#/utils/git/git-status', () => ({
+  ...actualGitStatus,
+  createGitStatusCache: gitStatusMocks.createGitStatusCache,
+}));
 
 beforeEach(() => {
   gitStatusMocks.createGitStatusCache.mockClear();

@@ -1,7 +1,12 @@
 declare module 'bun:test' {
   namespace jest {
-    type ImportOriginalFn = <T = Record<string, unknown>>() => Promise<T>;
-    function mock(id: string, factory: (importOriginal: ImportOriginalFn) => unknown): void;
-    function importActual<T = Record<string, unknown>>(id: string): Promise<T>;
+    /**
+     * Bun implements `jest.mock(id, factory)` at runtime but omits it from
+     * `bun-types`. The factory takes **no** `importOriginal` argument — that
+     * helper is vitest-only. To spread a real module, import its namespace at
+     * the top of the test (or `createRequire(...)` it for a CJS package) and
+     * spread that inside the factory.
+     */
+    function mock(id: string, factory: () => unknown): void;
   }
 }

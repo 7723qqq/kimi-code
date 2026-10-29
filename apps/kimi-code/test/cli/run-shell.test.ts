@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 
 import type { createKimiDeviceId as createKimiDeviceIdFn } from '@moonshot-ai/kimi-code-oauth';
 import { afterEach, beforeEach, describe, expect, it, jest, vi } from 'bun:test';
@@ -8,6 +9,8 @@ import { runShell } from '#/cli/run-shell';
 import { resetKimiRegionCache } from '#/utils/region';
 
 import { captureProcessWrite, ExitCalled, mockProcessExit } from '../helpers/process';
+
+const requireReal = createRequire(import.meta.url);
 
 type CreateKimiDeviceId = typeof createKimiDeviceIdFn;
 
@@ -44,6 +47,7 @@ const mocks = (() => {
     harnessClose: jest.fn(),
     detectPendingMigration: jest.fn<() => Promise<unknown>>(async () => null),
     harnessTrack: jest.fn(),
+    harnessSetEngineLocale: jest.fn(),
     kimiTuiConstructor: jest.fn(),
     tuiStart: jest.fn(),
     tuiGetStartupMcpMs: jest.fn(async () => 0),
@@ -69,8 +73,7 @@ const mocks = (() => {
   };
 })();
 
-jest.mock('@moonshot-ai/kimi-code-sdk', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@moonshot-ai/kimi-code-sdk')>();
+jest.mock('@moonshot-ai/kimi-code-sdk', () => {
   const makeHarnessStub = (args: unknown[]) => {
     const options = args[0] as { readonly homeDir?: string } | undefined;
     const homeDir = options?.homeDir ?? '/tmp/kimi-code-test-home';
@@ -84,10 +87,11 @@ jest.mock('@moonshot-ai/kimi-code-sdk', async (importOriginal) => {
       getConfigDiagnostics: mocks.harnessGetConfigDiagnostics,
       close: mocks.harnessClose,
       track: mocks.harnessTrack,
+      setEngineLocale: mocks.harnessSetEngineLocale,
     };
   };
   return {
-    ...actual,
+    ...requireReal('@moonshot-ai/kimi-code-sdk'),
     resolveKimiHome: mocks.resolveKimiHome,
     flushDiagnosticLogsSync: mocks.flushDiagnosticLogsSync,
     createKimiHarness: (...args: unknown[]) => {
@@ -102,16 +106,11 @@ jest.mock('@moonshot-ai/kimi-code-sdk', async (importOriginal) => {
   };
 });
 
-jest.mock('@moonshot-ai/kimi-code-oauth', async () => {
-  const actual = await jest.importActual<typeof import('@moonshot-ai/kimi-code-oauth')>(
-    '@moonshot-ai/kimi-code-oauth',
-  );
-  return {
-    ...actual,
-    createKimiDeviceId: mocks.createKimiDeviceId,
-    KIMI_CODE_PROVIDER_NAME: 'kimi-code',
-  };
-});
+jest.mock('@moonshot-ai/kimi-code-oauth', () => ({
+  ...requireReal('@moonshot-ai/kimi-code-oauth'),
+  createKimiDeviceId: mocks.createKimiDeviceId,
+  KIMI_CODE_PROVIDER_NAME: 'kimi-code',
+}));
 
 jest.mock('@moonshot-ai/kimi-telemetry', () => ({
   initializeTelemetry: mocks.initializeTelemetry,
@@ -148,8 +147,8 @@ jest.mock('../../src/tui/theme/detect', () => ({
   detectTerminalTheme: mocks.detectTerminalTheme,
 }));
 
-jest.mock('../../src/migration/index', async (importOriginal) => ({
-  ...(await importOriginal()),
+jest.mock('../../src/migration/index', () => ({
+  ...requireReal('../../src/migration/index'),
   detectPendingMigration: mocks.detectPendingMigration,
 }));
 

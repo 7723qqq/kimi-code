@@ -3,6 +3,11 @@ import { beforeEach, describe, expect, it, jest, vi } from 'bun:test';
 import { setCapabilities } from '@moonshot-ai/pi-tui';
 
 import { findBuiltInSlashCommand, resolveSlashCommandAvailability } from '#/tui/commands/index';
+import * as actualRemoteControl from '#/cli/sub/web/remote-control';
+import * as actualWebRun from '#/cli/sub/web/run';
+import * as actualWebShared from '#/cli/sub/web/shared';
+import * as actualOpenUrl from '#/utils/open-url';
+import * as actualPaths from '#/utils/paths';
 import { readAs } from '../../helpers/readAs';
 import type { SlashCommandHost } from '#/tui/commands/dispatch';
 import {
@@ -20,33 +25,30 @@ const mocks = (() => ({
   openUrl: jest.fn(),
 }))();
 
-jest.mock('#/cli/sub/web/remote-control', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('#/cli/sub/web/remote-control')>();
-  return { ...actual, startRemoteControl: mocks.startRemoteControl };
-});
+jest.mock('#/cli/sub/web/remote-control', () => ({
+  ...actualRemoteControl,
+  startRemoteControl: mocks.startRemoteControl,
+}));
 
-jest.mock('#/cli/sub/web/run', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('#/cli/sub/web/run')>();
-  return { ...actual, startServerForeground: mocks.startServerForeground };
-});
+jest.mock('#/cli/sub/web/run', () => ({
+  ...actualWebRun,
+  startServerForeground: mocks.startServerForeground,
+}));
 
-jest.mock('#/cli/sub/web/shared', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('#/cli/sub/web/shared')>();
-  return {
-    ...actual,
-    tryResolveServerToken: mocks.tryResolveServerToken,
-  };
-});
+jest.mock('#/cli/sub/web/shared', () => ({
+  ...actualWebShared,
+  tryResolveServerToken: mocks.tryResolveServerToken,
+}));
 
-jest.mock('#/utils/open-url', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('#/utils/open-url')>();
-  return { ...actual, openUrl: mocks.openUrl };
-});
+jest.mock('#/utils/open-url', () => ({
+  ...actualOpenUrl,
+  openUrl: mocks.openUrl,
+}));
 
-jest.mock('#/utils/paths', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('#/utils/paths')>();
-  return { ...actual, getDataDir: mocks.getDataDir };
-});
+jest.mock('#/utils/paths', () => ({
+  ...actualPaths,
+  getDataDir: mocks.getDataDir,
+}));
 
 const indentedQr = (url: string): string =>
   renderTerminalQr(url).trimEnd().replaceAll(/^/gm, '    ');

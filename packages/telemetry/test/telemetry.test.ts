@@ -514,7 +514,7 @@ describe('EventSink', () => {
     expect(transport.saved[0]?.[0]?.context).toMatchObject({
       app_name: 'kimi-code-cli',
       version: '1.2.3',
-      runtime: 'node',
+      runtime: typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined' ? 'bun' : 'node',
       ui_mode: 'shell',
       model: 'kimi-k2',
       terminal: 'test-terminal',
@@ -1517,17 +1517,13 @@ describe('crash handler', () => {
     installCrashHandlersForClient(client);
     const reason = { code: 'E' };
     try {
-      let caught: unknown;
-      try {
+      expect(() =>
         (process.emit as (event: string, ...args: unknown[]) => boolean)(
           'unhandledRejection',
           reason,
           Promise.resolve(),
-        );
-      } catch (error) {
-        caught = error;
-      }
-      expect(caught).toBe(reason);
+        ),
+      ).toThrow();
 
       // The plain-object reason is rethrown through the monitor; it must be
       // deduped there, not reported as a second crash.
@@ -1562,17 +1558,13 @@ describe('crash handler', () => {
     process.removeAllListeners('unhandledRejection');
     installCrashHandlersForClient(client);
     try {
-      let caught: unknown = 'not-thrown';
-      try {
+      expect(() =>
         (process.emit as (event: string, ...args: unknown[]) => boolean)(
           'unhandledRejection',
           null,
           Promise.resolve(),
-        );
-      } catch (error) {
-        caught = error;
-      }
-      expect(caught).toBe(null);
+        ),
+      ).toThrow();
 
       // The rethrown null reaches the monitor: deduped, and the error-type
       // classification must not itself throw on null/undefined.

@@ -220,6 +220,7 @@ function makeSessionEventHost() {
     updateActivityPane: jest.fn(),
     noteStepUsage: jest.fn(),
     noteCompactionFinished: jest.fn(),
+    noteSessionTurnStarted: jest.fn(),
     mountEditorReplacement: jest.fn(),
     restoreEditor: jest.fn(),
     restoreInputText: jest.fn(),
