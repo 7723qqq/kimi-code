@@ -14,6 +14,7 @@ const PASS_THROUGH = new Set([
   '--bail',
   '--test-name-pattern',
   '--randomize',
+  '--timings',
 ]);
 
 const args = process.argv.slice(2);

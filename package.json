@@ -46,6 +46,7 @@
     "test:coverage": "bun scripts/run-tests.mjs --coverage --coverage-reporter=lcov",
     "test:minidb": "cd packages/minidb && bun run test",
     "test:heavy": "bun scripts/run-test-heavy.mjs",
+    "test:timings": "bun scripts/run-tests.mjs --timings=test-timings.jsonl",
     "build:docs": "cd docs && bun run build",
     "clean": "bun run --workspaces clean",
     "check:locale-keys": "bun scripts/check-locale-keys.mjs",

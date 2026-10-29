@@ -24,16 +24,21 @@
  *   bun scripts/run-package-tests.mjs [--package=<dir>] [--root=<dir>]...
  *                               [--shard=N/M] [--parallel=N]
  *                               [--test-timeout=MS] [--file-timeout=MS]
- *                               [--include-heavy]
+ *                               [--include-heavy] [--timings=<path>]
  *
  * `--timeout` is accepted as an alias for `--test-timeout` so that the root
  * runner can forward one spelling to both this script and plain `bun test`.
+ *
+ * `--timings=<path>` appends one JSON-lines record per run to `<path>`: the
+ * package, the totals, and every test file's wall-clock duration. The record is
+ * meant to be checked in, so a later large change can be compared against the
+ * run that preceded it instead of being measured from scratch.
  */
 
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, readdirSync } from 'node:fs';
 import os from 'node:os';
-import { join, relative, sep } from 'node:path';
+import { basename, join, relative, sep } from 'node:path';
 
 const args = process.argv.slice(2);
 const ROOT = join(import.meta.dirname, '..');
@@ -69,6 +74,7 @@ const roots = args
 const TEST_TIMEOUT_MS = Number(flag('test-timeout') ?? flag('timeout') ?? 30_000);
 const FILE_TIMEOUT_MS = Number(flag('file-timeout') ?? 300_000);
 const reportSlowest = Number(flag('report-slowest') ?? 0);
+const timingsPath = flag('timings');
 
 const TEST_FILE_PATTERN = /\.(test|spec)\.tsx?$/;
 
@@ -225,6 +231,26 @@ if (reportSlowest > 0) {
   for (const entry of slowest) {
     process.stdout.write(`  ${(entry.ms / 1000).toFixed(1)}s  ${entry.rel}\n`);
   }
+}
+if (timingsPath !== undefined) {
+  // One JSON line per run: cheap to append, diffable, and readable without a
+  // parser that knows the schema version first.
+  const record = {
+    schema: 1,
+    recordedAt: new Date().toISOString(),
+    package: basename(PKG_DIR),
+    parallel,
+    files: selected.length,
+    wallSeconds: Number(seconds),
+    totals: { ...totals, hangs: hangs.length, failingFiles: failures.length },
+    durations: durations.toSorted((a, b) => b.ms - a.ms).map((entry) => ({
+      file: entry.rel,
+      ms: Math.round(entry.ms),
+    })),
+  };
+  const target = join(ROOT, timingsPath);
+  appendFileSync(target, `${JSON.stringify(record)}\n`);
+  process.stdout.write(`timings appended to ${timingsPath}\n`);
 }
 if (hangs.length > 0 || failures.length > 0) {
   process.exit(1);
