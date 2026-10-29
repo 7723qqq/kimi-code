@@ -19,6 +19,7 @@ import type { MoonLoader, SpinnerStyle } from './components/chrome/moon-loader';
 import { NotifyPanelComponent } from './components/chrome/notify-panel';
 import { STATUS_SURFACE_MAX_ROWS } from './components/chrome/status-surface/budget';
 import { StatusSurfaceComponent } from './components/chrome/status-surface/index';
+import { ApprovalRegion } from './components/chrome/status-surface/regions/approval-region';
 import { UpdatesRegion } from './components/chrome/status-surface/regions/updates-region';
 import type { SessionRow } from './components/dialogs/session-picker';
 import { CustomEditor } from './components/editor/custom-editor';
@@ -68,6 +69,7 @@ export interface TUIState {
   notifyPanel: NotifyPanelComponent;
   updatesRegion: UpdatesRegion;
   /** Inline approval prompt; empty except while a request is pending. */
+  approvalRegion: ApprovalRegion;
   queueContainer: Container;
   btwPanelContainer: Container;
   surveyContainer: Container;
@@ -191,9 +193,9 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
   );
   // One status strip above the editor, holding the mid-turn updates and (when
   // it arrives) an approval. The surface owns the budget, the focus and the
-  // mouse routing for both. Regions stack instead of sharing a row because a
-  // blocking approval needs the full width for its diff, and columns would
-  // force every neighbour to re-flow.
+  // mouse routing for both. Folded, the approval takes the left column and the
+  // updates box the right; unfolding claims the full band because the body is
+  // the diff.
   const statusSurface = new StatusSurfaceComponent({
     terminalRows: () => terminal.rows,
     onRequestRender: () => ui.requestRender(),
@@ -201,7 +203,9 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
   const updatesRegion = new UpdatesRegion(notifyPanel);
   // The approval region renders the panel the dialog host builds for each
   // request, so it holds no panel of its own until one arrives.
+  const approvalRegion = new ApprovalRegion();
   statusSurface.setRegion(updatesRegion);
+  statusSurface.setRegion(approvalRegion);
   const statusSurfaceContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   statusSurfaceContainer.addChild(statusSurface);
   const queueContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
@@ -276,6 +280,7 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
     notifyPanelContainer,
     notifyPanel,
     updatesRegion,
+    approvalRegion,
     queueContainer,
     btwPanelContainer,
     surveyContainer,

@@ -310,11 +310,12 @@ export class DialogHostController {
   }
 
   /**
-   * Show a pending approval by replacing the editor with the panel.
+   * Show a pending approval as an inline region of the status surface.
    *
-   * Docked in fullscreen, a long request scrolls while the choices stay on
-   * screen. `livePane.pendingApproval` is patched because the activity pane
-   * and the survey gate read it as "the user owes an answer".
+   * The panel does not replace the editor: the draft stays visible and typed
+   * text survives the prompt, which is the point of moving approvals into the
+   * strip. `livePane.pendingApproval` is still patched because the activity
+   * pane and the survey gate read it as "the user owes an answer".
    */
   showApprovalPanel(payload: ApprovalPanelData): void {
     this.host.patchLivePane({ pendingApproval: { data: payload } });
@@ -341,7 +342,9 @@ export class DialogHostController {
       },
     );
     this.activeApprovalPanel = panel;
-    this.mountEditorReplacement(panel);
+    this.host.state.approvalRegion.show(payload, panel);
+    this.host.state.statusSurface.focusRegion('approval');
+    this.host.state.ui.requestRender();
   }
 
   /**
@@ -371,7 +374,10 @@ export class DialogHostController {
     // screen state is restored before the region goes away.
     if (this.approvalPreview !== undefined) this.closeApprovalPreview();
     this.activeApprovalPanel = undefined;
-    this.restoreEditor();
+    this.host.state.approvalRegion.clear();
+    // Hand the keyboard back: the approval had it, and leaving focus on an
+    // empty region would strand the next keystroke.
+    this.host.state.statusSurface.focusRegion(null);
     this.host.patchLivePane({ pendingApproval: null });
     this.host.state.ui.requestRender();
   }

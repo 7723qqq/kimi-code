@@ -3690,15 +3690,14 @@ command = "vim"
     });
 
     const approvalPanel = () =>
-      driver.state.editorContainer.children.find(
-        (child) => child instanceof ApprovalPanelComponent,
-      ) as ApprovalPanelComponent | undefined;
+      driver.state.approvalRegion.panelComponent();
     await waitForAssertion(() => {
       expect(approvalPanel()).toBeInstanceOf(ApprovalPanelComponent);
     });
-    // The approval replaces the editor: it is the one dialog that must own the
-    // input area, so a half-typed draft cannot sit under a key it no longer has.
-    expect(driver.state.editorReplacementMounted).toBe(true);
+    // The approval is a blocking region: the editor stays mounted with its
+    // draft, and refuses a submission until the prompt resolves.
+    expect(driver.state.statusSurface.hasBlockingRegion()).toBe(true);
+    expect(driver.state.editorReplacementMounted).toBe(false);
     approvalPanel()!.handleInput('1');
     await expect(response).resolves.toMatchObject({ decision: 'approved' });
 
@@ -10095,9 +10094,9 @@ capabilities = ["image_in", "video_in"]
     });
 
     await waitForAssertion(() => {
-      // The approval replaces the editor, so the rendered prompt lives there
-      // rather than in the status strip.
-      const approval = stripSgr(driver.state.editorContainer.render(120).join('\n'));
+      // The approval is a region of the status strip, so the rendered prompt
+      // lives there rather than in the editor it leaves mounted.
+      const approval = stripSgr(driver.state.statusSurface.render(120).join('\n'));
       expect(approval).toContain('Ready to build with this plan?');
       expect(approval).not.toContain('non-duplicated plan work');
       expect(approval).not.toContain('/tmp/no-duplicate-plan.md');
@@ -10773,9 +10772,7 @@ capabilities = ["image_in", "video_in"]
     });
 
     const mountedApproval = () =>
-      driver.state.editorContainer.children.find(
-        (child) => child instanceof ApprovalPanelComponent,
-      ) as ApprovalPanelComponent | undefined;
+      driver.state.approvalRegion.panelComponent();
     await waitForAssertion(() => {
       expect(mountedApproval()).toBeInstanceOf(ApprovalPanelComponent);
     });
