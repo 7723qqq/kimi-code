@@ -460,6 +460,123 @@ describe('SessionManager', () => {
     manager.dispose();
   });
 
+  it('bounds the failed-resume records and keeps the newest error', async () => {
+    const fake = controller();
+    (fake.service as unknown as { resume: () => Promise<unknown> }).resume = async () => {
+      throw new Error('boom');
+    };
+    const workspace = {
+      id: 'workspace-1',
+      program: {
+        sessionControllerGeneration: 'generation-1',
+        createSessionController: () => fake.service,
+      },
+    } as unknown as WorkspaceInstance;
+    const workspaces = {
+      acquire: async () => ({ instance: workspace, dispose: () => {} }),
+      get: () => workspace,
+    } as unknown as IWorkspaceInstanceManager;
+    const index = {
+      get: async (sessionId: string) => ({
+        id: sessionId,
+        workspaceId: 'workspace-1',
+        cwd: '/workspace',
+      }),
+    } as unknown as ISessionIndex;
+    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
+    const failures = (manager as unknown as { resumeFailures: Map<string, Error> }).resumeFailures;
+
+    for (let i = 0; i < 70; i += 1) {
+      await expect(manager.resume(`session-${String(i)}`)).rejects.toThrow('boom');
+    }
+
+    expect(failures.size).toBeLessThanOrEqual(64);
+    await expect(manager.whenResumeSettled('session-69')).rejects.toThrow('boom');
+    manager.dispose();
+    expect(failures.size).toBe(0);
+  });
+
+  it('shares one failing attempt between concurrent resumes of the same session', async () => {
+    let calls = 0;
+    const fake = controller();
+    (fake.service as unknown as { resume: () => Promise<unknown> }).resume = async () => {
+      calls += 1;
+      throw new Error('boom');
+    };
+    const workspace = {
+      id: 'workspace-1',
+      program: {
+        sessionControllerGeneration: 'generation-1',
+        createSessionController: () => fake.service,
+      },
+    } as unknown as WorkspaceInstance;
+    const workspaces = {
+      acquire: async () => ({ instance: workspace, dispose: () => {} }),
+      get: () => workspace,
+    } as unknown as IWorkspaceInstanceManager;
+    const index = {
+      get: async (sessionId: string) => ({
+        id: sessionId,
+        workspaceId: 'workspace-1',
+        cwd: '/workspace',
+      }),
+    } as unknown as ISessionIndex;
+    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
+    const failures = (manager as unknown as { resumeFailures: Map<string, Error> }).resumeFailures;
+
+    const [first, second] = await Promise.allSettled([
+      manager.resume('session-1'),
+      manager.resume('session-1'),
+    ]);
+
+    expect(first.status).toBe('rejected');
+    expect(second.status).toBe('rejected');
+    expect(calls).toBe(1);
+    expect(failures.size).toBe(1);
+    await expect(manager.whenResumeSettled('session-1')).rejects.toThrow('boom');
+    manager.dispose();
+    expect(failures.size).toBe(0);
+  });
+
+  it('does not record a failure that settles after dispose', async () => {
+    let rejectResume: ((error: Error) => void) | undefined;
+    const fake = controller();
+    (fake.service as unknown as { resume: () => Promise<unknown> }).resume = () =>
+      new Promise((_resolve, reject) => {
+        rejectResume = reject;
+      });
+    const workspace = {
+      id: 'workspace-1',
+      program: {
+        sessionControllerGeneration: 'generation-1',
+        createSessionController: () => fake.service,
+      },
+    } as unknown as WorkspaceInstance;
+    const workspaces = {
+      acquire: async () => ({ instance: workspace, dispose: () => {} }),
+      get: () => workspace,
+    } as unknown as IWorkspaceInstanceManager;
+    const index = {
+      get: async (sessionId: string) => ({
+        id: sessionId,
+        workspaceId: 'workspace-1',
+        cwd: '/workspace',
+      }),
+    } as unknown as ISessionIndex;
+    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
+    const failures = (manager as unknown as { resumeFailures: Map<string, Error> }).resumeFailures;
+
+    const pending = manager.resume('session-1').catch(() => undefined);
+    await drainMicrotasks();
+    expect(rejectResume).toBeDefined();
+
+    manager.dispose();
+    rejectResume?.(new Error('boom'));
+    await pending;
+
+    expect(failures.size).toBe(0);
+  });
+
   it('owns one global live-session registry across workspace controllers', async () => {
     const fake = controller();
     const workspace = {

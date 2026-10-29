@@ -43,6 +43,8 @@ interface SessionControllerEntry {
   operationCount: number;
 }
 
+const MAX_RESUME_FAILURES = 64;
+
 export class SessionManager implements ISessionManager {
   declare readonly _serviceBrand: undefined;
   private readonly sessions = new Map<string, ISessionScopeHandle>();
@@ -108,10 +110,16 @@ export class SessionManager implements ISessionManager {
     }).finally(() => this.pendingResumes.delete(sessionId));
     this.pendingResumes.set(sessionId, promise);
     void promise.catch((error: unknown) => {
+      if (this.disposed) return;
       this.resumeFailures.set(
         sessionId,
         error instanceof Error ? error : new Error('session resume failed'),
       );
+      while (this.resumeFailures.size > MAX_RESUME_FAILURES) {
+        const oldest = this.resumeFailures.keys().next().value;
+        if (oldest === undefined) break;
+        this.resumeFailures.delete(oldest);
+      }
     });
     return promise;
   }
@@ -125,8 +133,9 @@ export class SessionManager implements ISessionManager {
   }
 
   async whenResumeSettled(sessionId: string): Promise<void> {
+    const observed = this.resumeFailures.get(sessionId);
     await this.pendingResumes.get(sessionId);
-    const failure = this.resumeFailures.get(sessionId);
+    const failure = this.resumeFailures.get(sessionId) ?? observed;
     if (failure !== undefined) throw failure;
     await this.owners.get(sessionId)?.controller.whenResumeSettled(sessionId);
   }
@@ -322,6 +331,7 @@ export class SessionManager implements ISessionManager {
     this.sessions.clear();
     this.owners.clear();
     this.reclaimed.clear();
+    this.resumeFailures.clear();
     this.willCreateEmitter.dispose();
     this.didCreateEmitter.dispose();
     this.willCloseEmitter.dispose();
