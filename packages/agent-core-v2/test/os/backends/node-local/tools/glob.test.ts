@@ -373,6 +373,28 @@ describe('GlobTool', () => {
     withCwd.toHaveBeenCalledWith('/workspace');
   });
 
+  it('keeps gitignore rules outside a git repository', async () => {
+    const exec = execReturning('/workspace/src/new.ts\n');
+    const { tool } = makeTool(workspace, { exec });
+
+    await execute(tool, { pattern: 'src/**/*.ts', path: '/workspace' });
+    const args = execArgs(exec);
+
+    expect(args).toContain('--no-require-git');
+    expect(args).not.toContain('--no-ignore');
+  });
+
+  it('leaves the ignore rules to the caller when ignored files are requested', async () => {
+    const exec = execReturning('/workspace/src/new.ts\n');
+    const { tool } = makeTool(workspace, { exec });
+
+    await execute(tool, { pattern: 'src/**/*.ts', path: '/workspace', include_ignored: true });
+    const args = execArgs(exec);
+
+    expect(args).toContain('--no-ignore');
+    expect(args).not.toContain('--no-require-git');
+  });
+
   it('uses the backend path class when displaying paths relative to a windows root', async () => {
     const exec = execReturning('C:\\workspace\\src\\old.ts\n');
     const { tool, withCwd } = makeTool(

@@ -71,8 +71,14 @@ const COMMON_RG_ARGS = [
   '--glob',
   '!.sl',
 ] as const;
-const DEFAULT_RG_ARGS = ['--hidden', ...MAX_COLUMNS_RG_ARGS, ...COMMON_RG_ARGS] as const;
-const CONTENT_RG_ARGS = ['--hidden', ...COMMON_RG_ARGS] as const;
+const DEFAULT_RG_ARGS = [
+  '--hidden',
+  '--no-require-git',
+  ...MAX_COLUMNS_RG_ARGS,
+  ...COMMON_RG_ARGS,
+] as const;
+const IGNORED_RG_ARGS = ['--hidden', ...MAX_COLUMNS_RG_ARGS, ...COMMON_RG_ARGS] as const;
+const CONTENT_RG_ARGS = ['--hidden', '--no-require-git', ...COMMON_RG_ARGS] as const;
 const SENSITIVE_KEY_BASENAMES = ['id_rsa', 'id_ed25519', 'id_ecdsa'] as const;
 const SENSITIVE_KEY_RG_ARGS = SENSITIVE_KEY_BASENAMES.flatMap((basename) => [
   '--glob',
@@ -790,7 +796,7 @@ describe('GrepTool', () => {
 
     expect(exec).toHaveBeenCalledWith(
       '/mock/rg',
-      ...DEFAULT_RG_ARGS,
+      ...IGNORED_RG_ARGS,
       '-l',
       '-i',
       '--type',
@@ -803,6 +809,28 @@ describe('GrepTool', () => {
       'hit',
       '/workspace',
     );
+  });
+
+  it('keeps gitignore rules outside a git repository', async () => {
+    const exec = mock().mockResolvedValue(processWithOutput('/workspace/src/a.ts\n'));
+    const tool = new GrepTool(createFakeKaos({ exec }), workspace);
+
+    await executeTool(tool, context({ pattern: 'hit' }));
+
+    const [, ...args] = exec.mock.calls[0] ?? [];
+    expect(args).toContain('--no-require-git');
+    expect(args).not.toContain('--no-ignore');
+  });
+
+  it('leaves the ignore rules to the caller when ignored files are requested', async () => {
+    const exec = mock().mockResolvedValue(processWithOutput('/workspace/src/a.ts\n'));
+    const tool = new GrepTool(createFakeKaos({ exec }), workspace);
+
+    await executeTool(tool, context({ pattern: 'hit', include_ignored: true }));
+
+    const [, ...args] = exec.mock.calls[0] ?? [];
+    expect(args).toContain('--no-ignore');
+    expect(args).not.toContain('--no-require-git');
   });
 
   it('gives -C precedence over before and after context in content mode', async () => {

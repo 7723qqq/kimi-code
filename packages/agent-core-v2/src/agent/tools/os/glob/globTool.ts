@@ -361,6 +361,9 @@ function buildRgArgs(rgPath: string, args: GlobInput, singleThreaded = false): s
   const cmd: string[] = [rgPath];
   if (singleThreaded) cmd.push('-j', '1');
   cmd.push('--files', '--hidden', '--sortr=modified');
+  // Same reason as the grep tool: outside a git repository ripgrep would skip
+  // .gitignore and walk node_modules and every build output.
+  if (args.include_ignored !== true) cmd.push('--no-require-git');
   for (const dir of VCS_DIRECTORIES_TO_EXCLUDE) {
     cmd.push('--glob', `!${dir}`);
   }
