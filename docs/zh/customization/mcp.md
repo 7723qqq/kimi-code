@@ -73,6 +73,8 @@ MCP server 配置写在 `mcp.json` 中，分三层：
 
 连接超时和单次工具调用超时的默认值都不必逐个 server 设置：`config.toml` 的 `[mcp] startup_timeout_ms` / `[mcp] tool_timeout_ms` 或环境变量 `KIMI_MCP_STARTUP_TIMEOUT_MS` / `KIMI_MCP_TOOL_TIMEOUT_MS` 可以调整全局默认值，优先级为 server 字段 > 环境变量 > `config.toml` > 内置默认。详见 [配置文件](../configuration/config-files.md#mcp)。
 
+当一个工作区级 MCP server 在启动时连不上或中途意外断开，它会用指数退避自行重连（每次失败后等待时间加倍）：第一次重试在 `[mcp] reconnect_initial_delay_ms`（默认 `5000`）之后，等待时间不超过 `[mcp] reconnect_max_delay_ms`（默认 `300000`），可通过 `config.toml` 或 `KIMI_MCP_RECONNECT_INITIAL_DELAY_MS` / `KIMI_MCP_RECONNECT_MAX_DELAY_MS` 环境变量调整。server 重新可达后，它的工具会自动恢复。无法自行恢复的 server 不会被重试，而是保持 `failed`：命令不存在、配置无效，或 server 拒绝了静态凭证；会话级临时 server 同样不重试。
+
 HTTP 与 SSE server 支持通过 `headers` 或 `bearerTokenEnvVar` 提供静态凭证。需要 OAuth 时，运行 `/mcp-config login <server-name>` 完成浏览器授权。
 
 Plugins 也可以在 manifest 中声明 MCP servers。Plugin 声明的 servers 默认启用，可以在 `/plugins` 中禁用或重新启用：禁用或移除后，已打开会话中的工具调用会失败并返回移除提示；新增或启用 server 只对之后创建的会话生效。详见 [Plugins](./plugins.md#plugin-中的-mcp-servers)。
