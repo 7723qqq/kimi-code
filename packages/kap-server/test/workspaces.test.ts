@@ -1,17 +1,16 @@
+import { afterAll, beforeAll, describe, expect, it, jest } from 'bun:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
-
-import { afterAll, beforeAll, describe, expect, it, jest } from 'bun:test';
-import { setEnv, restoreEnvs } from './helpers/stubs';
-import { waitForAssertion, waitUntil } from './helpers/waitFor';
 
 import { IAtomicDocumentStore, IWorkspaceInstanceManager } from '@moonshot-ai/agent-core-v2';
 import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
 
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { setEnv, restoreEnvs } from './helpers/stubs';
+import { waitForAssertion, waitUntil } from './helpers/waitFor';
 
 interface Envelope<T> {
   code: number;
@@ -347,9 +346,9 @@ describe('server-v2 /api/v1/workspaces', () => {
       expect(created.body.code).toBe(0);
       const id = created.body.data.id;
       const manager = (server as RunningServer).core.accessor.get(IWorkspaceInstanceManager);
-      const getOrCreate = jest.spyOn(manager, 'getOrCreate').mockRejectedValue(
-        new Error('runtime environment unavailable'),
-      );
+      const acquire = jest
+        .spyOn(manager, 'acquire')
+        .mockRejectedValue(new Error('runtime environment unavailable'));
       try {
         const initial = await getJson<{ trusted: boolean }>(`/api/v1/workspaces/${id}/trust`);
         expect(initial.body.code).toBe(0);
@@ -362,9 +361,9 @@ describe('server-v2 /api/v1/workspaces', () => {
         const revoked = await postJson<{ trusted: boolean }>(`/api/v1/workspaces/${id}/untrust`);
         expect(revoked.body.code).toBe(0);
         expect(revoked.body.data.trusted).toBe(false);
-        expect(getOrCreate).not.toHaveBeenCalled();
+        expect(acquire).not.toHaveBeenCalled();
       } finally {
-        getOrCreate.mockRestore();
+        acquire.mockRestore();
       }
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -451,18 +450,20 @@ describe('server-v2 /api/v1/workspaces', () => {
       const read = docs.get.bind(docs);
       let shouldFail = true;
       let failed = false;
-      const get = jest.spyOn(docs, 'get').mockImplementation(async <T>(scope: string, key: string) => {
-        if (shouldFail && scope === 'workspace-trust') {
-          shouldFail = false;
-          failed = true;
-          throw new Error('temporary trust read failure');
-        }
-        return read<T>(scope, key);
-      });
-      let materialized = false;
+      const get = jest
+        .spyOn(docs, 'get')
+        .mockImplementation(async <T>(scope: string, key: string) => {
+          if (shouldFail && scope === 'workspace-trust') {
+            shouldFail = false;
+            failed = true;
+            throw new Error('temporary trust read failure');
+          }
+          return read<T>(scope, key);
+        });
+      let lease: Awaited<ReturnType<typeof manager.acquire>> | undefined;
       try {
-        const workspace = await manager.getOrCreate({ workspaceId: id, root });
-        materialized = true;
+        lease = await manager.acquire({ workspaceId: id, root });
+        const workspace = lease.instance;
         await workspace.program.mcpConfig.ready;
         expect(failed).toBe(true);
         expect(workspace.program.mcpConfig.servers()).toEqual({});
@@ -480,7 +481,7 @@ describe('server-v2 /api/v1/workspaces', () => {
         expect(recovered).toEqual([true]);
       } finally {
         get.mockRestore();
-        if (materialized) await manager.close(id);
+        lease?.dispose();
       }
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -504,18 +505,20 @@ describe('server-v2 /api/v1/workspaces', () => {
       const read = docs.get.bind(docs);
       let shouldFail = true;
       let failed = false;
-      const get = jest.spyOn(docs, 'get').mockImplementation(async <T>(scope: string, key: string) => {
-        if (shouldFail && scope === 'workspace-trust') {
-          shouldFail = false;
-          failed = true;
-          throw new Error('temporary trust read failure');
-        }
-        return read<T>(scope, key);
-      });
-      let materialized = false;
+      const get = jest
+        .spyOn(docs, 'get')
+        .mockImplementation(async <T>(scope: string, key: string) => {
+          if (shouldFail && scope === 'workspace-trust') {
+            shouldFail = false;
+            failed = true;
+            throw new Error('temporary trust read failure');
+          }
+          return read<T>(scope, key);
+        });
+      let lease: Awaited<ReturnType<typeof manager.acquire>> | undefined;
       try {
-        const workspace = await manager.getOrCreate({ workspaceId: id, root });
-        materialized = true;
+        lease = await manager.acquire({ workspaceId: id, root });
+        const workspace = lease.instance;
         await workspace.program.mcpConfig.ready;
         expect(failed).toBe(true);
         expect(workspace.program.mcpConfig.servers()).toEqual({});
@@ -529,7 +532,7 @@ describe('server-v2 /api/v1/workspaces', () => {
         });
       } finally {
         get.mockRestore();
-        if (materialized) await manager.close(id);
+        lease?.dispose();
       }
     } finally {
       restoreEnvs();
@@ -543,8 +546,10 @@ describe('server-v2 /api/v1/workspaces', () => {
     expect(created.body.code).toBe(0);
     const id = created.body.data.id;
     const manager = (server as RunningServer).core.accessor.get(IWorkspaceInstanceManager);
+    let lease: Awaited<ReturnType<typeof manager.acquire>> | undefined;
     try {
-      const workspace = await manager.getOrCreate({ workspaceId: id, root });
+      lease = await manager.acquire({ workspaceId: id, root });
+      const workspace = lease.instance;
       await workspace.program.trust.ready;
       const events: boolean[] = [];
       workspace.program.trust.onDidChange((change) => events.push(change.trusted));
@@ -558,7 +563,7 @@ describe('server-v2 /api/v1/workspaces', () => {
       expect(workspace.program.trust.isTrusted()).toBe(false);
       expect(events).toEqual([true, false]);
     } finally {
-      await manager.close(id);
+      lease?.dispose();
       await rm(root, { recursive: true, force: true });
     }
   });

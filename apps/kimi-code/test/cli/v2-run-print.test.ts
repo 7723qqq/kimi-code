@@ -1,9 +1,9 @@
+import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 import { setEnv, restoreEnvs } from '../helpers/stubs';
 
 const requireReal = createRequire(import.meta.url);
@@ -207,7 +207,11 @@ function makeFakeHarness() {
         submit: jest.fn(() => {
           // Emit a native assistant delta on the main agent bus, then complete.
           for (const listener of [...eventListeners]) {
-            listener({ type: 'assistant.delta', turnId: 1, delta: 'hello world' } as unknown as Event2<any>);
+            listener({
+              type: 'assistant.delta',
+              turnId: 1,
+              delta: 'hello world',
+            } as unknown as Event2<any>);
           }
           return { id: 'p1' };
         }),
@@ -233,10 +237,7 @@ function makeFakeHarness() {
         tryAcquireQuiescence: jest.fn(() => ({ dispose: jest.fn() })),
       },
     ],
-    [
-      IAgentScopeContext,
-      makeAgentScopeContext({ agentId: 'main', agentScope: 'agents/main' }),
-    ],
+    [IAgentScopeContext, makeAgentScopeContext({ agentId: 'main', agentScope: 'agents/main' })],
   ]);
   const agent = fakeScope('main', agentServices);
 
@@ -305,7 +306,10 @@ function makeFakeHarness() {
         })),
       },
     ],
-    [ISessionIndex, { get: jest.fn(async () => undefined), listRecent: jest.fn(async () => ({ items: [] })) }],
+    [
+      ISessionIndex,
+      { get: jest.fn(async () => undefined), listRecent: jest.fn(async () => ({ items: [] })) },
+    ],
     [ISessionLockService, new InMemorySessionLockService()],
     [IAppendLogStore, { externallyModified: jest.fn(() => false) }],
     [
@@ -336,8 +340,11 @@ function makeFakeHarness() {
     [
       IWorkspaceInstanceManager,
       {
-        getOrCreate: jest.fn(async () => ({
-          program: { trust: { get: jest.fn(async () => trustState.trusted) } },
+        acquire: jest.fn(async () => ({
+          instance: {
+            program: { trust: { get: jest.fn(async () => trustState.trusted) } },
+          },
+          dispose: () => {},
         })),
       },
     ],
@@ -406,7 +413,9 @@ describe('runV2Print', () => {
 
     await runV2Print(opts() as never, '1.2.3-test', { stdout, stderr });
 
-    const promptService = agentServices.get(IAgentLoopService) as { submit: ReturnType<typeof jest.fn> };
+    const promptService = agentServices.get(IAgentLoopService) as {
+      submit: ReturnType<typeof jest.fn>;
+    };
     expect(promptService.submit).toHaveBeenCalledWith({
       message: { role: 'user', content: [{ type: 'text', text: 'say hello' }] },
       meta: { origin: { kind: 'user' }, tracked: true },
@@ -765,12 +774,19 @@ describe('runV2Print', () => {
     // afterwards.
     process.exitCode = 0;
     try {
-      await runV2Print(opts({ session: 'ses_1', outputFormat: 'stream-json' }) as never, '1.2.3-test', {
-        stdout,
-        stderr,
-      });
+      await runV2Print(
+        opts({ session: 'ses_1', outputFormat: 'stream-json' }) as never,
+        '1.2.3-test',
+        {
+          stdout,
+          stderr,
+        },
+      );
 
-      const lines = stdout.text().split('\n').filter((line) => line.length > 0);
+      const lines = stdout
+        .text()
+        .split('\n')
+        .filter((line) => line.length > 0);
       expect(lines.length).toBeGreaterThan(0);
       for (const line of lines) expect(() => JSON.parse(line)).not.toThrow();
       expect(stdout.text()).not.toContain('Plan mode');
@@ -795,7 +811,9 @@ describe('runV2Print', () => {
 
     await runV2Print(opts({ continue: true }) as never, '1.2.3-test', { stdout, stderr });
 
-    expect(stderr.text()).toContain('Session "ses_9" is in Plan mode, and its plan cannot be approved in print mode');
+    expect(stderr.text()).toContain(
+      'Session "ses_9" is in Plan mode, and its plan cannot be approved in print mode',
+    );
     expect(planState.active).toBe(true);
     const loop = agentServices.get(IAgentLoopService) as { submit: ReturnType<typeof jest.fn> };
     expect(loop.submit).toHaveBeenCalledTimes(1);
@@ -1238,9 +1256,9 @@ describe('runV2Print', () => {
     const { app, appServices, trustState } = makeFakeHarness();
     trustState.trusted = false;
     const workspaces = appServices.get(IWorkspaceInstanceManager) as {
-      getOrCreate: ReturnType<typeof jest.fn>;
+      acquire: ReturnType<typeof jest.fn>;
     };
-    workspaces.getOrCreate.mockRejectedValueOnce(new Error('trust store unavailable'));
+    workspaces.acquire.mockRejectedValueOnce(new Error('trust store unavailable'));
 
     mocks.bootstrap.mockReturnValue({ app });
     mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });

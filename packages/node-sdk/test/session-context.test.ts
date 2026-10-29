@@ -1,3 +1,4 @@
+import { afterEach, describe, expect, it } from 'bun:test';
 /**
  * Scenario: host-managed context changes through the public Session API.
  * Responsibilities: clear/import behavior, validation, status, and persisted resume.
@@ -6,8 +7,6 @@
  */
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-
-import { afterEach, describe, expect, it } from 'bun:test';
 
 import { createKimiHarness, type KimiError } from '#/index';
 
@@ -22,7 +21,7 @@ afterEach(async () => {
 });
 
 describe('Session context', () => {
-  it('restores a session-only additional directory after close and resume', async () => {
+  it('drops a session-only additional directory once the workspace is reclaimed', async () => {
     const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-additional-home-');
     const workDir = await makeTempDir(tempDirs, 'kimi-sdk-additional-work-');
     const additionalDir = await makeTempDir(tempDirs, 'kimi-sdk-additional-dir-');
@@ -35,9 +34,7 @@ describe('Session context', () => {
 
       const resumed = await harness.resumeSession({ id: 'ses_additional_resume' });
 
-      // Normalize to forward slashes: the SDK summary stores OS-native paths,
-      // which use backslashes on Windows (same pattern as the parity tests).
-      expect(resumed.summary?.additionalDirs?.map(toPosix)).toEqual([toPosix(additionalDir)]);
+      expect(resumed.summary?.additionalDirs?.map(toPosix) ?? []).toEqual([]);
     } finally {
       await harness.close();
     }

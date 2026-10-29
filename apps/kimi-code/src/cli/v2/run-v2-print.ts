@@ -66,6 +66,14 @@ import {
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
 import type {
+  AssistantDelta,
+  ThinkingDelta,
+  ToolCallDelta,
+} from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
+import type { TurnStepRetrying } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
+import type { TurnEnded } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
+import type { PermissionMode } from '@moonshot-ai/agent-core-v2/agent/permissionPolicy/types';
+import type {
   ToolCallStarted,
   ToolProgress,
   ToolResultEvent,
@@ -74,6 +82,8 @@ import {
   loadMcpServersDetailed,
   resolveMcpJsonPaths,
 } from '@moonshot-ai/agent-core-v2/app/mcpConfig/configLoader';
+import type { HookResult } from '@moonshot-ai/agent-core-v2/features/externalHooks/agent/agentExternalHooksService';
+import type { GoalUpdated } from '@moonshot-ai/agent-core-v2/features/goal/goalOps';
 import {
   createKimiDefaultHeaders,
   createKimiDeviceId,
@@ -87,16 +97,6 @@ import {
   shouldEnableTelemetry,
   shutdownTelemetry,
 } from '@moonshot-ai/kimi-telemetry';
-import type { GoalUpdated } from '@moonshot-ai/agent-core-v2/features/goal/goalOps';
-import type { TurnEnded } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
-import type { PermissionMode } from '@moonshot-ai/agent-core-v2/agent/permissionPolicy/types';
-import type {
-  AssistantDelta,
-  ThinkingDelta,
-  ToolCallDelta,
-} from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
-import type { TurnStepRetrying } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
-import type { HookResult } from '@moonshot-ai/agent-core-v2/features/externalHooks/agent/agentExternalHooksService';
 import { resolve } from 'pathe';
 
 import {
@@ -343,7 +343,15 @@ export async function runV2Print(
           stderr,
         );
       } else {
-        await runNativeTurn(app, resolved.session, resolved.agent, opts.prompt!, outputFormat, stdout, stderr);
+        await runNativeTurn(
+          app,
+          resolved.session,
+          resolved.agent,
+          opts.prompt!,
+          outputFormat,
+          stdout,
+          stderr,
+        );
       }
     };
     try {
@@ -357,11 +365,16 @@ export async function runV2Print(
         {
           onReloaded: async (session) => {
             stderr.write(
-              t('tui.statusMessages.sessionReloadedAfterExternalUpdate', { sessionId: session.id }) + '\n',
+              t('tui.statusMessages.sessionReloadedAfterExternalUpdate', {
+                sessionId: session.id,
+              }) + '\n',
             );
             const agentContext = await ensureMainAgent(session);
-            const agent = session.accessor.get(IAgentLifecycleService).handleOf(agentContext.agentId)!;
-            if (opts.model !== undefined) await agent.accessor.get(IAgentProfileService).setModel(opts.model);
+            const agent = session.accessor
+              .get(IAgentLifecycleService)
+              .handleOf(agentContext.agentId)!;
+            if (opts.model !== undefined)
+              await agent.accessor.get(IAgentProfileService).setModel(opts.model);
             agent.accessor.get(IAgentPermissionModeService).setMode('auto');
             resolved = { ...resolved, session, agent };
           },
@@ -568,20 +581,22 @@ export async function listTrustGatedMcpServers(
   workDir: string,
   homeDir: string,
 ): Promise<readonly TrustGatedMcpServer[]> {
-  const workspace = await app.accessor
-    .get(IWorkspaceInstanceManager)
-    .getOrCreate({ root: workDir });
-  if (await workspace.program.trust.get()) return [];
-  const fs = app.accessor.get(IHostFileSystem);
-  const [paths, loaded] = await Promise.all([
-    resolveMcpJsonPaths({ fs, cwd: workDir, homeDir }),
-    loadMcpServersDetailed({ fs, cwd: workDir, homeDir, includeProject: true }),
-  ]);
-  const projectPaths = new Set([paths.projectRoot, paths.project]);
-  return Object.entries(loaded.servers)
-    .filter(([name]) => projectPaths.has(loaded.origins[name] ?? ''))
-    .map(([name, config]) => ({ name, target: describeMcpTarget(config) }))
-    .toSorted((a, b) => a.name.localeCompare(b.name));
+  const lease = await app.accessor.get(IWorkspaceInstanceManager).acquire({ root: workDir });
+  try {
+    if (await lease.instance.program.trust.get()) return [];
+    const fs = app.accessor.get(IHostFileSystem);
+    const [paths, loaded] = await Promise.all([
+      resolveMcpJsonPaths({ fs, cwd: workDir, homeDir }),
+      loadMcpServersDetailed({ fs, cwd: workDir, homeDir, includeProject: true }),
+    ]);
+    const projectPaths = new Set([paths.projectRoot, paths.project]);
+    return Object.entries(loaded.servers)
+      .filter(([name]) => projectPaths.has(loaded.origins[name] ?? ''))
+      .map(([name, config]) => ({ name, target: describeMcpTarget(config) }))
+      .toSorted((a, b) => a.name.localeCompare(b.name));
+  } finally {
+    lease.dispose();
+  }
 }
 
 export function formatTrustGatedMcpWarning(servers: readonly TrustGatedMcpServer[]): string {

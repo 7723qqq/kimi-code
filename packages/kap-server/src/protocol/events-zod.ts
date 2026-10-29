@@ -1157,6 +1157,7 @@ export const mcpServerStatusPayloadSchema = z.object({
   status: z.enum(['pending', 'connected', 'failed', 'disabled', 'needs-auth', 'removed']),
   toolCount: z.number(),
   error: z.string().optional(),
+  nextRetryAt: z.number().optional(),
 }) satisfies z.ZodType<McpServerStatusPayload>;
 
 export const mcpServerStatusEventSchema = z.object({

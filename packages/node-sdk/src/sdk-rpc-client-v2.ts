@@ -132,11 +132,7 @@
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
 import type { ScopeSeed } from '@moonshot-ai/agent-core-v2';
-import { McpConnectionManager } from '@moonshot-ai/agent-core-v2/mcpCore/connection-manager';
-import { readTowerStatusSummary } from '@moonshot-ai/agent-core-v2/features/tower/tools/status/statusReader';
-import { loadMcpServers } from '@moonshot-ai/agent-core-v2/app/mcpConfig/configLoader';
 import { fsSuggestRequestSchema } from '@moonshot-ai/agent-core-v2';
 import { IAppendLogStore } from '@moonshot-ai/agent-core-v2';
 import { ISessionLockService } from '@moonshot-ai/agent-core-v2';
@@ -240,6 +236,10 @@ import {
   type SessionSummary as V2SessionSummary,
   type SubagentModelPoolSnapshot,
 } from '@moonshot-ai/agent-core-v2';
+import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
+import { loadMcpServers } from '@moonshot-ai/agent-core-v2/app/mcpConfig/configLoader';
+import { readTowerStatusSummary } from '@moonshot-ai/agent-core-v2/features/tower/tools/status/statusReader';
+import { McpConnectionManager } from '@moonshot-ai/agent-core-v2/mcpCore/connection-manager';
 import { assertKimiHostIdentity, createKimiDefaultHeaders } from '@moonshot-ai/kimi-code-oauth';
 import {
   getLocale as getEngineLocale,
@@ -697,12 +697,16 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * anyway.
    */
   override async listWorkspaceSkills(workDir: string): Promise<readonly SkillSummary[]> {
-    const handler = await this.engineAccessor
+    const lease = await this.engineAccessor
       .get(IWorkspaceInstanceManager)
-      .getOrCreate({ root: normalizeRequiredWorkDir('listWorkspaceSkills', workDir) });
-    const catalog = handler.program.skills;
-    await catalog.ready;
-    return catalog.catalog.listSkills().map(summarizeSkill);
+      .acquire({ root: normalizeRequiredWorkDir('listWorkspaceSkills', workDir) });
+    try {
+      const catalog = lease.instance.program.skills;
+      await catalog.ready;
+      return catalog.catalog.listSkills().map(summarizeSkill);
+    } finally {
+      lease.dispose();
+    }
   }
 
   /**
@@ -730,19 +734,23 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
         `suggestFiles ${where}${issue?.message ?? 'invalid input'}`,
       );
     }
-    const handler = await this.engineAccessor
+    const lease = await this.engineAccessor
       .get(IWorkspaceInstanceManager)
-      .getOrCreate({ root: normalizeRequiredWorkDir('suggestFiles', workDir) });
-    const result = await handler.program.fs.suggest(parsed.data);
-    return {
-      items: result.items.map((item) => ({
-        path: item.path,
-        name: item.name,
-        kind: item.kind,
-        matchPositions: item.match_positions,
-      })),
-      truncated: result.truncated,
-    };
+      .acquire({ root: normalizeRequiredWorkDir('suggestFiles', workDir) });
+    try {
+      const result = await lease.instance.program.fs.suggest(parsed.data);
+      return {
+        items: result.items.map((item) => ({
+          path: item.path,
+          name: item.name,
+          kind: item.kind,
+          matchPositions: item.match_positions,
+        })),
+        truncated: result.truncated,
+      };
+    } finally {
+      lease.dispose();
+    }
   }
 
   /**
@@ -752,29 +760,33 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * computed inside the engine by `WorkspaceTrustDisclosureService`.
    */
   override async getWorkspaceTrustInfo(workDir: string): Promise<WorkspaceTrustInfo> {
-    const handler = await this.engineAccessor
+    const lease = await this.engineAccessor
       .get(IWorkspaceInstanceManager)
-      .getOrCreate({ root: workDir });
-    const trusted = await handler.program.trust.get();
-    if (trusted) {
+      .acquire({ root: workDir });
+    try {
+      const trusted = await lease.instance.program.trust.get();
+      if (trusted) {
+        return {
+          trusted: true,
+          gatedMcpServers: [],
+          gatedAdditionalDirs: [],
+          additionalDirSources: [],
+          warnings: [],
+          instructionSources: EMPTY_INSTRUCTION_SOURCES,
+        };
+      }
+      const activation = await lease.instance.program.trustDisclosure.describeGatedActivation();
       return {
-        trusted: true,
-        gatedMcpServers: [],
-        gatedAdditionalDirs: [],
-        additionalDirSources: [],
-        warnings: [],
-        instructionSources: EMPTY_INSTRUCTION_SOURCES,
+        trusted: false,
+        gatedMcpServers: activation.mcpServers,
+        gatedAdditionalDirs: activation.additionalDirs,
+        additionalDirSources: activation.additionalDirSources,
+        warnings: activation.warnings,
+        instructionSources: activation.instructionSources,
       };
+    } finally {
+      lease.dispose();
     }
-    const activation = await handler.program.trustDisclosure.describeGatedActivation();
-    return {
-      trusted: false,
-      gatedMcpServers: activation.mcpServers,
-      gatedAdditionalDirs: activation.additionalDirs,
-      additionalDirSources: activation.additionalDirSources,
-      warnings: activation.warnings,
-      instructionSources: activation.instructionSources,
-    };
   }
 
   /**
@@ -784,10 +796,14 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * servers connect live, no restart needed.
    */
   override async trustWorkspace(workDir: string): Promise<void> {
-    const handler = await this.engineAccessor
+    const lease = await this.engineAccessor
       .get(IWorkspaceInstanceManager)
-      .getOrCreate({ root: workDir });
-    await handler.program.trust.trust();
+      .acquire({ root: workDir });
+    try {
+      await lease.instance.program.trust.trust();
+    } finally {
+      lease.dispose();
+    }
   }
 
   /**
@@ -810,9 +826,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     return diagnosticsToConfigDiagnostics(await this.klient.global.config.diagnostics());
   }
 
-  override onConfigSectionChanged(
-    listener: (change: ConfigSectionChange) => void,
-  ): Unsubscribe {
+  override onConfigSectionChanged(listener: (change: ConfigSectionChange) => void): Unsubscribe {
     const subscription = this.klient.events.on('config.sectionChanged', listener);
     return () => {
       subscription.dispose();
@@ -1678,7 +1692,9 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     return this.runSessionAccess(sessionId, async () => {
       const live = this.liveSession(sessionId);
       const indexEntry =
-        live === undefined ? await this.engineAccessor.get(ISessionIndex).get(sessionId) : undefined;
+        live === undefined
+          ? await this.engineAccessor.get(ISessionIndex).get(sessionId)
+          : undefined;
       if (live !== undefined) {
         const agentLifecycle = live.accessor.get(IAgentLifecycleService);
         for (const agent of agentLifecycle.list()) {
@@ -1813,10 +1829,12 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   override async addAdditionalDir(input: AddAdditionalDirInput): Promise<AddAdditionalDirResult> {
     const handle = this.requireLiveSession(input.id);
     const workspaceId = handle.accessor.get(ISessionContext).workspaceId;
-    const workspace = await this.engineAccessor
-      .get(IWorkspaceInstanceManager)
-      .getOrCreate({ workspaceId });
-    return workspace.program.dirs.addDir({ path: input.path, persist: input.persist });
+    const lease = await this.engineAccessor.get(IWorkspaceInstanceManager).acquire({ workspaceId });
+    try {
+      return await lease.instance.program.dirs.addDir({ path: input.path, persist: input.persist });
+    } finally {
+      lease.dispose();
+    }
   }
 
   /**
@@ -2986,12 +3004,16 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * Same `McpServerEntry`-as-`McpServerInfo` cast as listMcpServers.
    */
   override async listWorkspaceMcpServers(workDir: string): Promise<readonly McpServerInfo[]> {
-    const handler = await this.engineAccessor
+    const lease = await this.engineAccessor
       .get(IWorkspaceInstanceManager)
-      .getOrCreate({ root: normalizeRequiredWorkDir('listWorkspaceMcpServers', workDir) });
-    const mcp = handler.program.mcp;
-    await mcp.ready;
-    return mcp.connectionManager().list() as readonly McpServerInfo[];
+      .acquire({ root: normalizeRequiredWorkDir('listWorkspaceMcpServers', workDir) });
+    try {
+      const mcp = lease.instance.program.mcp;
+      await mcp.ready;
+      return mcp.connectionManager().list() as readonly McpServerInfo[];
+    } finally {
+      lease.dispose();
+    }
   }
 
   override async getMcpStartupMetrics(input: SessionIdRpcInput): Promise<McpStartupMetrics> {

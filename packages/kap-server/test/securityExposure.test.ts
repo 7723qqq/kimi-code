@@ -1,12 +1,11 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { removeTempHome } from './helpers/tempHome';
-
 import { type RunningServer, startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { removeTempHome } from './helpers/tempHome';
 
 describe('server-v2 exposure hardening hooks', () => {
   let server: RunningServer | undefined;
@@ -87,7 +86,7 @@ describe('server-v2 exposure hardening hooks', () => {
       expect(res.headers['x-content-type-options']).toBe('nosniff');
       expect(res.headers['referrer-policy']).toBe('no-referrer');
       expect(res.headers['content-security-policy']).toBe(
-        "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'self'",
+        "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' data: blob:; font-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'self'",
       );
       expect(res.headers['strict-transport-security']).toBeUndefined();
     } finally {

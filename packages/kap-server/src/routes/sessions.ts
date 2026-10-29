@@ -85,8 +85,8 @@ import { readLegacyStatus } from '../services/legacyStatus/legacyStatus';
 import { toProtocolMessage } from '../services/messages/messageProjection';
 import { ensureMainAgent, MAIN_AGENT_ID } from '../transport/mainAgent';
 import { type ActionTable, dispatchAction } from './action-dispatch';
-import { sendMappedError, sessionConflictErrors } from './sessionErrors';
 import { applySessionAgentConfig } from './sessionAgentConfig';
+import { sendMappedError, sessionConflictErrors } from './sessionErrors';
 import { updateSessionProfile } from './sessionProfile';
 
 interface SessionRouteHost {
@@ -138,8 +138,8 @@ const sessionsListQueryCoercion = z
         params: { code: ErrorCode.VALIDATION_FAILED },
       });
     }
-  }).strict();
-
+  })
+  .strict();
 
 const sessionChildrenListQueryCoercion = z
   .object({
@@ -157,7 +157,8 @@ const sessionChildrenListQueryCoercion = z
         params: { code: ErrorCode.VALIDATION_FAILED },
       });
     }
-  }).strict();
+  })
+  .strict();
 
 const sessionActionTailParamSchema = z.object({
   tail: z.string().min(1),
@@ -165,17 +166,18 @@ const sessionActionTailParamSchema = z.object({
 
 const sessionActionRequestSchema = z.preprocess(
   (value) => (value === undefined ? {} : value),
-  z.object({
-    title: z.string().min(1).optional(),
-    metadata: z.record(z.string(), z.unknown()).optional(),
-    instruction: z.string().optional(),
-    count: z.number().int().positive().optional(),
-    page_size: z.number().int().min(1).max(100).optional(),
-    text: z.string().optional(),
-    recent_turns: z.array(z.string()).optional(),
-  }).strict(),
+  z
+    .object({
+      title: z.string().min(1).optional(),
+      metadata: z.record(z.string(), z.unknown()).optional(),
+      instruction: z.string().optional(),
+      count: z.number().int().positive().optional(),
+      page_size: z.number().int().min(1).max(100).optional(),
+      text: z.string().optional(),
+      recent_turns: z.array(z.string()).optional(),
+    })
+    .strict(),
 );
-
 
 export interface SessionsRoutesDeps {
   readonly sessionEventCursor: (sessionId: string) => Promise<{ seq: number; epoch: string }>;
@@ -762,26 +764,30 @@ export function registerSessionsRoutes(
     async (req, reply) => {
       try {
         const { session_id } = req.params;
-        const childHandler = await programForSession(core.accessor, session_id);
-        if (childHandler === undefined) {
+        const lease = await programForSession(core.accessor, session_id);
+        if (lease === undefined) {
           throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${session_id} does not exist`);
         }
-        const meta = await core.accessor.get(ISessionManager).createChild({
-          sourceSessionId: session_id,
-          title: req.body.title,
-          metadata: req.body.metadata,
-        });
-        const session = toWireSession(
-          { ...meta, workspaceId: childHandler.workspaceId },
-          meta.cwd ?? '',
-          resolveSessionFacts(core, meta.id),
-        );
-        core.accessor
-          .get(IEventService)
-          .publish(
-            new SessionCreated({ payload: { agentId: 'main', sessionId: session.id, session } }),
+        try {
+          const meta = await core.accessor.get(ISessionManager).createChild({
+            sourceSessionId: session_id,
+            title: req.body.title,
+            metadata: req.body.metadata,
+          });
+          const session = toWireSession(
+            { ...meta, workspaceId: lease.instance.program.workspaceId },
+            meta.cwd ?? '',
+            resolveSessionFacts(core, meta.id),
           );
-        reply.send(okEnvelope(session, req.id));
+          core.accessor
+            .get(IEventService)
+            .publish(
+              new SessionCreated({ payload: { agentId: 'main', sessionId: session.id, session } }),
+            );
+          reply.send(okEnvelope(session, req.id));
+        } finally {
+          lease.dispose();
+        }
       } catch (error) {
         sendMappedError(reply, req, error);
       }
@@ -949,28 +955,34 @@ async function forkSessionAction(
   ctx: SessionActionCtx<z.infer<typeof forkSessionRequestSchema>>,
 ): Promise<void> {
   const { core, req, reply, id, body } = ctx;
-  const forkHandler = await programForSession(core.accessor, id);
-  if (forkHandler === undefined) {
+  const lease = await programForSession(core.accessor, id);
+  if (lease === undefined) {
     throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${id} does not exist`);
   }
-  const meta = await core.accessor.get(ISessionManager).fork({
-    sourceSessionId: id,
-    title: body.title,
-    metadata: body.metadata,
-  });
-  const session = toWireSession(
-    { ...meta, workspaceId: forkHandler.workspaceId },
-    meta.cwd ?? '',
-    resolveSessionFacts(core, meta.id),
-  );
-  core.accessor
-    .get(IEventService)
-    .publish(new SessionCreated({ payload: { agentId: 'main', sessionId: session.id, session } }));
-  requestLog(req)?.info(
-    { session_id: id, action: 'fork', new_session_id: session.id },
-    'session action completed',
-  );
-  reply.send(okEnvelope(session, req.id));
+  try {
+    const meta = await core.accessor.get(ISessionManager).fork({
+      sourceSessionId: id,
+      title: body.title,
+      metadata: body.metadata,
+    });
+    const session = toWireSession(
+      { ...meta, workspaceId: lease.instance.program.workspaceId },
+      meta.cwd ?? '',
+      resolveSessionFacts(core, meta.id),
+    );
+    core.accessor
+      .get(IEventService)
+      .publish(
+        new SessionCreated({ payload: { agentId: 'main', sessionId: session.id, session } }),
+      );
+    requestLog(req)?.info(
+      { session_id: id, action: 'fork', new_session_id: session.id },
+      'session action completed',
+    );
+    reply.send(okEnvelope(session, req.id));
+  } finally {
+    lease.dispose();
+  }
 }
 
 async function compactSessionAction(
@@ -1144,8 +1156,7 @@ async function reloadSessionAction(ctx: SessionActionCtx): Promise<void> {
   } else if (indexEntry === undefined) {
     throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${id} does not exist`);
   }
-  const workspaceId =
-    live?.accessor.get(ISessionContext).workspaceId ?? indexEntry?.workspaceId;
+  const workspaceId = live?.accessor.get(ISessionContext).workspaceId ?? indexEntry?.workspaceId;
   let previousSubagentNames: readonly string[] | undefined;
   let previousModelPool: SubagentModelPoolSnapshot | null | undefined;
   let staleNotifier: IAgentChangeNotifierService | undefined;
@@ -1158,9 +1169,7 @@ async function reloadSessionAction(ctx: SessionActionCtx): Promise<void> {
         .map((profile) => profile.name);
       const pool = resolveSubagentModelPool(main.accessor.get(IConfigService));
       previousModelPool =
-        pool === undefined
-          ? null
-          : { defaultModel: pool.defaultModel, models: { ...pool.models } };
+        pool === undefined ? null : { defaultModel: pool.defaultModel, models: { ...pool.models } };
       staleNotifier = main.accessor.get(IAgentChangeNotifierService);
       staleNotifier.mute();
     }
