@@ -1,8 +1,10 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, jest, vi } from 'bun:test';
+import './setup';
+import { beforeEach, describe, expect, it, jest } from 'bun:test';
 import { QuestionDialog } from '@/components/QuestionDialog';
 import { useChatStore } from '@/stores';
 import type { QuestionItem } from 'shared/legacy-sdk';
+
+const { act, fireEvent, render, screen, waitFor, within } = await import('@testing-library/react');
 
 const respondQuestion = jest.fn().mockResolvedValue(undefined);
 

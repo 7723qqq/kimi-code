@@ -23,6 +23,8 @@ function createHost() {
     accessToken: "token-1" as string | null,
     staticallyEnabled: true,
   };
+  const currentRegion = mock(() => ({ region: "global" as const, source: "login" as const }));
+  const refreshRegion = mock(() => ({ region: "global" as const, source: "login" as const }));
   return {
     state,
     createKimiDeviceId: mock((_homeDir: string, options?: { onFirstLaunch?: () => void }) => {
@@ -35,7 +37,12 @@ function createHost() {
     track: mock(),
     shutdownTelemetry: mock(async () => undefined),
     installCrashHandlers: mock(),
-    resolveKimiRegion: mock(() => "global" as const),
+    currentRegion,
+    refreshRegion,
+    createKimiRegionResolver: mock(() => ({
+      current: currentRegion,
+      refresh: refreshRegion,
+    })),
     loadRuntimeConfigSafe: mock(() => ({
       config: {
         telemetry: state.configTelemetry,
@@ -77,10 +84,24 @@ void mock.module("@moonshot-ai/kimi-code-oauth", () => {
     createKimiDeviceId: current.createKimiDeviceId,
     KIMI_CODE_PROVIDER_NAME: "managed:kimi-code",
     KIMI_REGION_PROFILES: {
-      "mainland-cn": { telemetryEndpoint: "https://telemetry-logs.example.com/v1/event" },
-      global: { telemetryEndpoint: "https://telemetry-logs.example.net/v1/event" },
+      "mainland-cn": {
+        oauthHost: "https://auth.kimi.com",
+        baseUrl: "https://api.kimi.com/coding/v1",
+        cdnBase: "https://cdn.kimi.com/kimi-code",
+        siteBase: "https://www.kimi.com",
+        relayOrigin: "https://code-rc.kimi.com",
+        telemetryEndpoint: "https://telemetry-logs.example.com/v1/event",
+      },
+      global: {
+        oauthHost: "https://auth.kimi.ai",
+        baseUrl: "https://api.kimi.ai/coding/v1",
+        cdnBase: "https://cdn.kimi.ai/kimi-code",
+        siteBase: "https://www.kimi.ai",
+        relayOrigin: "https://code-rc.kimi.ai",
+        telemetryEndpoint: "https://telemetry-logs.example.net/v1/event",
+      },
     },
-    resolveKimiRegion: current.resolveKimiRegion,
+    createKimiRegionResolver: current.createKimiRegionResolver,
   };
 });
 
@@ -112,6 +133,7 @@ import {
   activateExtensionTelemetry,
   deactivateExtensionTelemetry,
 } from "../src/telemetry";
+import { resetExtensionRegionCache } from "../src/utils/region";
 
 const hostApi = host();
 
@@ -135,6 +157,7 @@ describe("extension telemetry composition root", () => {
     hostApi.state.accessToken = "token-1";
     hostApi.state.staticallyEnabled = true;
     mock.clearAllMocks();
+    resetExtensionRegionCache();
   });
 
   it("initializes the shared stack with extension identity and the config gate", async () => {
@@ -169,15 +192,19 @@ describe("extension telemetry composition root", () => {
   it("resolves the endpoint through the region resolver per flush", () => {
     activate();
 
-    const endpoint = initializeOptions()["endpoint"] as () => string;
+    const options = initializeOptions();
+    (options["resolveRegion"] as () => unknown)();
+    expect(hostApi.currentRegion).toHaveBeenCalled();
+    const endpoint = options["endpoint"] as () => string;
     expect(endpoint()).toBe("https://telemetry-logs.example.net/v1/event");
-    expect(hostApi.resolveKimiRegion).toHaveBeenCalledWith(
+    expect(hostApi.createKimiRegionResolver).toHaveBeenCalledWith(
       expect.objectContaining({
-        configuredOAuthHost: "https://auth.kimi.ai",
-        configuredOAuthKey: "oauth/kimi-code-global",
         homeDir: "/kimi-home",
+        allowLocalInference: true,
+        readAuth: expect.any(Function),
       }),
     );
+    expect(hostApi.refreshRegion).not.toHaveBeenCalled();
   });
 
   it("passes the VS Code global switch as the initial intake state", () => {
