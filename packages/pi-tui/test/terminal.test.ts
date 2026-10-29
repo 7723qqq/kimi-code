@@ -389,6 +389,127 @@ describe('ProcessTerminal progress', () => {
   });
 });
 
+describe('ProcessTerminal program status records', () => {
+  function setup() {
+    const terminal = new ProcessTerminal();
+    const writes: string[] = [];
+    const previousWrite = process.stdout.write;
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      writes.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+    const internals = terminal as unknown as {
+      programStatuses: Map<string | undefined, unknown>;
+      programStatusSupported: boolean;
+      confirmProgramStatusSupport(): void;
+    };
+    let cleaned = false;
+    return {
+      terminal,
+      writes,
+      internals,
+      cleanup(): void {
+        if (cleaned) return;
+        cleaned = true;
+        try {
+          terminal.stop();
+        } finally {
+          process.stdout.write = previousWrite;
+        }
+      },
+    };
+  }
+
+  it('drops a child record when it is cleared and keeps the root record', () => {
+    const { terminal, internals, cleanup } = setup();
+    try {
+      internals.programStatusSupported = true;
+      for (let index = 0; index < 100; index += 1) {
+        terminal.setProgramStatus({ state: 'working', id: `agent-${String(index)}` });
+      }
+      terminal.setProgramStatus({ state: 'idle', app: 'kimi-code' });
+      expect(internals.programStatuses.size).toBe(101);
+
+      for (let index = 0; index < 100; index += 1) {
+        terminal.setProgramStatus({ state: 'clear', id: `agent-${String(index)}` });
+      }
+
+      expect(internals.programStatuses.size).toBe(1);
+      expect(internals.programStatuses.has(undefined)).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('does not replay a cleared child when support is confirmed late', () => {
+    const { terminal, writes, internals, cleanup } = setup();
+    try {
+      internals.programStatusSupported = false;
+      terminal.setProgramStatus({ state: 'working', id: 'agent-1' });
+      terminal.setProgramStatus({ state: 'clear', id: 'agent-1' });
+      writes.length = 0;
+
+      internals.confirmProgramStatusSupport();
+
+      expect(writes).toStrictEqual([]);
+      expect(internals.programStatuses.size).toBe(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('clears every record on stop', () => {
+    const { terminal, internals, cleanup } = setup();
+    try {
+      internals.programStatusSupported = true;
+      terminal.setProgramStatus({ state: 'working', id: 'agent-1' });
+      terminal.setProgramStatus({ state: 'idle', app: 'kimi-code' });
+      expect(internals.programStatuses.size).toBe(2);
+
+      cleanup();
+
+      expect(internals.programStatuses.size).toBe(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('writes nothing while support is unknown and replays once confirmed', () => {
+    const { terminal, writes, internals, cleanup } = setup();
+    try {
+      internals.programStatusSupported = false;
+      terminal.setProgramStatus({ state: 'working', app: 'kimi-code' });
+      expect(writes).toStrictEqual([]);
+      expect(internals.programStatuses.size).toBe(1);
+
+      internals.confirmProgramStatusSupport();
+
+      expect(writes).toHaveLength(1);
+      expect(writes[0]).toContain('\x1b]7501;state=working:app=kimi-code\x1b\\');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('wraps the record in a tmux passthrough when TMUX is set', () => {
+    const previousTmux = process.env['TMUX'];
+    const { terminal, writes, internals, cleanup } = setup();
+    try {
+      process.env['TMUX'] = '1';
+      internals.programStatusSupported = true;
+      terminal.setProgramStatus({ state: 'idle', app: 'kimi-code' });
+
+      expect(writes).toHaveLength(1);
+      expect(writes[0]).toStartWith('\x1bPtmux;');
+      expect(writes[0]).toContain('\x1b\x1b]7501;state=idle:app=kimi-code\x1b\x1b\\');
+    } finally {
+      cleanup();
+      if (previousTmux === undefined) delete process.env['TMUX'];
+      else process.env['TMUX'] = previousTmux;
+    }
+  });
+});
+
 describe('ProcessTerminal dimensions', () => {
   it('falls back to COLUMNS and LINES before default dimensions', () => {
     const previousColumnsDescriptor = Object.getOwnPropertyDescriptor(process.stdout, 'columns');

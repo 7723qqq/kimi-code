@@ -371,7 +371,11 @@ export class ProcessTerminal implements Terminal {
   }
 
   setProgramStatus(status: ProgramStatus): void {
-    this.programStatuses.set(status.id, status);
+    if (status.state === 'clear' && status.id !== undefined) {
+      this.programStatuses.delete(status.id);
+    } else {
+      this.programStatuses.set(status.id, status);
+    }
     if (!this.programStatusSupported) return;
     this.writeProgramStatus(status);
   }
@@ -545,6 +549,7 @@ export class ProcessTerminal implements Terminal {
     if (this.programStatusSupported && this.programStatuses.size > 0) {
       process.stdout.write(formatProgramStatusOutput({ state: 'clear' }));
     }
+    this.programStatuses.clear();
     this.programStatusSupported = false;
     this.programStatusQueryPending = false;
 
