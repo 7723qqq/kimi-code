@@ -1,20 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
-import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
-
 import { mkdtempSync, rmSync, appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
-import { ILogService } from '#/_base/log/log';
-import { stubLog } from '#test/_base/log/stubs';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { AppendLogCorruptedError, IAppendLogStore, type AppendLogTruncation } from '#/persistence/interface/appendLogStore';
-import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { ILogService } from '#/_base/log/log';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
-import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import {
+  AppendLogCorruptedError,
+  IAppendLogStore,
+  type AppendLogTruncation,
+} from '#/persistence/interface/appendLogStore';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { stubLog } from '#test/_base/log/stubs';
+import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
 
 const enc = new TextEncoder();
 
@@ -83,6 +86,28 @@ describe('AppendLogStore', () => {
     expect(await collect<Rec>(SCOPE, KEY)).toEqual([{ n: 1 }, { n: 2 }, { n: 3 }]);
   });
 
+  it('resumes a partially written batch instead of duplicating it', async () => {
+    const failure = new Error('No space left on device');
+    const originalAppend = storage.append.bind(storage);
+    let appended = false;
+    storage.append = async (scope, key, data) => {
+      if (appended) return originalAppend(scope, key, data);
+      appended = true;
+      const half = data.subarray(0, Math.floor(data.length / 2));
+      await originalAppend(scope, key, half);
+      throw failure;
+    };
+
+    record.append<Rec>(SCOPE, KEY, { n: 1 });
+    record.append<Rec>(SCOPE, KEY, { n: 2 });
+    await expect(record.flush()).rejects.toBe(failure);
+    expect(new TextDecoder().decode(await storage.read(SCOPE, KEY))).toBe('{"n":1}\n');
+
+    await record.flush();
+    expect(await collect<Rec>(SCOPE, KEY)).toEqual([{ n: 1 }, { n: 2 }]);
+    expect(new TextDecoder().decode(await storage.read(SCOPE, KEY))).toBe('{"n":1}\n{"n":2}\n');
+  });
+
   it('batches many appends into a single durable append', async () => {
     const spy = { count: 0 };
     const original = storage.append.bind(storage);
@@ -130,9 +155,7 @@ describe('AppendLogStore', () => {
 
     await expect(record.flush()).rejects.toBe(failure);
     expect(appendAttempts).toBe(1);
-    expect(new TextDecoder().decode(await storage.read(SCOPE, KEY))).toBe(
-      '{"n":1}\n{"n":2}\n',
-    );
+    expect(new TextDecoder().decode(await storage.read(SCOPE, KEY))).toBe('{"n":1}\n{"n":2}\n');
   });
 
   it('reacquire after final release waits for retiring storage before fresh I/O', async () => {
@@ -238,7 +261,7 @@ describe('AppendLogStore', () => {
     expect(await collect<Rec>(SCOPE, KEY)).toEqual([{ n: 1 }]);
   });
 
-  it('keeps a sticky failure until every acquired owner releases it', async () => {
+  it('retries a failed append once storage recovers and writes the batch exactly once', async () => {
     const failure = new Error('shared append failed');
     let reportFailure!: (error: unknown) => void;
     const reportedFailure = new Promise<unknown>((resolve) => {
@@ -258,13 +281,15 @@ describe('AppendLogStore', () => {
     expect(await reportedFailure).toBe(failure);
 
     firstOwner.dispose();
-    await expect(record.flush()).rejects.toBe(failure);
+    await record.flush();
+    expect(appendAttempts).toBe(2);
+    expect(await collect<Rec>(SCOPE, KEY)).toEqual([{ n: 1 }]);
 
     finalOwner.dispose();
     const replacementOwner = record.acquire(SCOPE, KEY);
     record.append(SCOPE, KEY, { n: 2 });
     await record.flush();
-    expect(await collect<Rec>(SCOPE, KEY)).toEqual([{ n: 2 }]);
+    expect(await collect<Rec>(SCOPE, KEY)).toEqual([{ n: 1 }, { n: 2 }]);
     replacementOwner.dispose();
   });
 
@@ -512,9 +537,11 @@ describe('AppendLogStore', () => {
 
     const closed = record.close();
     let closeSettled = false;
-    void closed.finally(() => {
-      closeSettled = true;
-    }).catch(() => {});
+    void closed
+      .finally(() => {
+        closeSettled = true;
+      })
+      .catch(() => {});
     await Promise.resolve();
     await Promise.resolve();
     expect(closeSettled).toBe(false);
