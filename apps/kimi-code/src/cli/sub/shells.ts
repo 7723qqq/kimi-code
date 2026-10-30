@@ -1,9 +1,12 @@
+import { mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 import {
   type ShellPayloadKind,
   type ShellPayloadStatus,
   type ShellPayloadVerifyResult,
+  downloadShellPayloadArchive,
   findShellPayloadPin,
   probeHostEnvironmentFromNode,
   readShellPayloadStatus,
@@ -30,6 +33,7 @@ export interface ShellsDeps {
   readonly kimiHome: () => string;
   readonly env: () => Record<string, string | undefined>;
   readonly osHomeDir: () => string;
+  readonly cwd: () => string;
 }
 
 export interface ShellsStatusOptions {
@@ -43,6 +47,10 @@ export interface ShellsProvisionOptions {
   readonly mirror?: string;
 }
 
+export interface ShellsDownloadOptions extends ShellsProvisionOptions {
+  readonly dir?: string;
+}
+
 const PAYLOAD_KINDS: readonly ShellPayloadKind[] = ['bash', 'pwsh'];
 
 function defaultDeps(): ShellsDeps {
@@ -53,6 +61,7 @@ function defaultDeps(): ShellsDeps {
     kimiHome: () => resolveKimiHome(),
     env: () => process.env as Record<string, string | undefined>,
     osHomeDir: () => homedir(),
+    cwd: () => process.cwd(),
   };
 }
 
@@ -76,6 +85,18 @@ export function registerShellsCommand(parent: Command, deps?: Partial<ShellsDeps
     .option('--mirror <base>', t('cli.optionDescriptions.shellsMirror'))
     .action(async (options: ShellsProvisionOptions) => {
       await runShellsProvision({ ...defaultDeps(), ...deps }, options);
+    });
+
+  shells
+    .command('download')
+    .description(t('cli.commandDescriptions.shellsDownload'))
+    .option('--bash', t('cli.optionDescriptions.shellsBash'))
+    .option('--pwsh', t('cli.optionDescriptions.shellsPwsh'))
+    .option('--all', t('cli.optionDescriptions.shellsAll'))
+    .option('--mirror <base>', t('cli.optionDescriptions.shellsMirror'))
+    .option('--dir <dir>', t('cli.optionDescriptions.shellsDownloadDir'))
+    .action(async (options: ShellsDownloadOptions) => {
+      await runShellsDownload({ ...defaultDeps(), ...deps }, options);
     });
 }
 
@@ -105,14 +126,14 @@ async function runShellsProvision(
   const kinds = selectedKinds(options);
   const kimiHome = deps.kimiHome();
   const mirror = options.mirror ?? deps.env()['KIMI_DOWNLOAD_MIRROR'];
-  const provisionDeps = createWindowsShellProvisionDeps({ mirror });
+  const provisionDeps = createWindowsShellProvisionDeps();
   let failed = false;
   for (const kind of kinds) {
     const pin = findShellPayloadPin(kind);
     if (pin === undefined) continue;
     deps.stdout.write(`${t('cli.shells.provisionStart', { kind, version: pin.version })}\n`);
     try {
-      const result = await provisionShellPayload(kimiHome, kind, provisionDeps);
+      const result = await provisionShellPayload(kimiHome, kind, provisionDeps, mirror);
       deps.stdout.write(
         `${t(result.installed ? 'cli.shells.provisionInstalled' : 'cli.shells.provisionSkipped', {
           kind,
@@ -137,6 +158,41 @@ function selectedKinds(options: ShellsProvisionOptions): readonly ShellPayloadKi
   if (options.bash === true && options.pwsh !== true) return ['bash'];
   if (options.pwsh === true && options.bash !== true) return ['pwsh'];
   return PAYLOAD_KINDS;
+}
+
+async function runShellsDownload(deps: ShellsDeps, options: ShellsDownloadOptions): Promise<void> {
+  const kinds = selectedKinds(options);
+  const mirror = options.mirror ?? deps.env()['KIMI_DOWNLOAD_MIRROR'];
+  const destDir = options.dir ?? join(deps.cwd(), 'kimi-shell-payloads');
+  const provisionDeps = createWindowsShellProvisionDeps();
+  await mkdir(destDir, { recursive: true });
+  let failed = false;
+  for (const kind of kinds) {
+    const pin = findShellPayloadPin(kind);
+    if (pin === undefined) continue;
+    const fileName = pin.url.slice(pin.url.lastIndexOf('/') + 1);
+    const destPath = join(destDir, fileName);
+    deps.stdout.write(`${t('cli.shells.downloadStart', { kind, version: pin.version })}\n`);
+    try {
+      const result = await downloadShellPayloadArchive(pin, destPath, provisionDeps, mirror);
+      deps.stdout.write(
+        `${t('cli.shells.downloadDone', {
+          file: result.path,
+          size: String(result.sizeBytes),
+          sha256: result.sha256,
+        })}\n`,
+      );
+    } catch (error) {
+      failed = true;
+      deps.stderr.write(
+        `${t('cli.shells.downloadFailed', {
+          kind,
+          error: error instanceof Error ? error.message : String(error),
+        })}\n`,
+      );
+    }
+  }
+  if (failed) deps.exit(1);
 }
 
 async function activeShellPath(

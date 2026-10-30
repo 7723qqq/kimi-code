@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdir, rename, rm } from 'node:fs/promises';
+import { mkdir, rename, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import {
@@ -64,14 +64,16 @@ export async function provisionShellPayload(
   kimiHome: string,
   kind: ShellPayloadKind,
   deps: ShellProvisionDeps,
+  mirror?: string,
 ): Promise<ShellProvisionResult> {
-  return provisionShellPayloadWithPin(shellPayloadPinOf(kind), kimiHome, deps);
+  return provisionShellPayloadWithPin(shellPayloadPinOf(kind), kimiHome, deps, mirror);
 }
 
 export async function provisionShellPayloadWithPin(
   pin: ShellPayloadPin,
   kimiHome: string,
   deps: ShellProvisionDeps,
+  mirror?: string,
 ): Promise<ShellProvisionResult> {
   const kind = pin.kind;
   const now = deps.now ?? (() => new Date());
@@ -85,11 +87,7 @@ export async function provisionShellPayloadWithPin(
   await mkdir(tmpDir, { recursive: true });
   try {
     const archivePath = join(tmpDir, `payload.${archiveFileExtension(pin.archive)}`);
-    await deps.download(pin.url, archivePath);
-    const actualSha256 = await hashFileSha256(archivePath);
-    if (actualSha256 !== pin.sha256) {
-      throw new ShellPayloadIntegrityError(pin, actualSha256);
-    }
+    await downloadShellPayloadArchive(pin, archivePath, deps, mirror);
     const stageDir = join(tmpDir, 'stage');
     await mkdir(stageDir, { recursive: true });
     await deps.extract(archivePath, pin.archive, stageDir);
@@ -118,9 +116,54 @@ export async function provisionShellPayloadWithPin(
 }
 
 export interface WindowsShellProvisionDepsOptions {
-  readonly mirror?: string;
   readonly curlPath?: string;
   readonly tarPath?: string;
+}
+
+export interface ShellPayloadArchiveDownload {
+  readonly path: string;
+  readonly sha256: string;
+  readonly sizeBytes: number;
+  readonly source: string;
+}
+
+export function resolveDownloadCandidates(
+  url: string,
+  mirror: string | undefined,
+): readonly string[] {
+  const mirrored = applyDownloadMirror(url, mirror);
+  return mirrored === url ? [url] : [mirrored, url];
+}
+
+export async function downloadShellPayloadArchive(
+  pin: ShellPayloadPin,
+  destPath: string,
+  deps: ShellProvisionDeps,
+  mirror?: string,
+): Promise<ShellPayloadArchiveDownload> {
+  const candidates = resolveDownloadCandidates(pin.url, mirror);
+  const failures: string[] = [];
+  let transportFailed = false;
+  let integrityError: ShellPayloadIntegrityError | undefined;
+  for (const candidate of candidates) {
+    try {
+      await deps.download(candidate, destPath);
+    } catch (error) {
+      transportFailed = true;
+      failures.push(`${candidate}: ${error instanceof Error ? error.message : String(error)}`);
+      continue;
+    }
+    const sha256 = await hashFileSha256(destPath);
+    if (sha256 === pin.sha256) {
+      const { size } = await stat(destPath);
+      return { path: destPath, sha256, sizeBytes: size, source: candidate };
+    }
+    integrityError = new ShellPayloadIntegrityError(pin, sha256);
+    failures.push(`${candidate}: sha256 mismatch (got ${sha256})`);
+    await rm(destPath, { force: true });
+  }
+  if (integrityError !== undefined && !transportFailed) throw integrityError;
+  throw new Error(`download failed from every source:\n${failures.join('\n')}`);
 }
 
 export function createWindowsShellProvisionDeps(
@@ -130,7 +173,6 @@ export function createWindowsShellProvisionDeps(
   const tar = options.tarPath ?? systemToolPath('tar.exe');
   return {
     download: async (url, destPath) => {
-      const target = applyDownloadMirror(url, options.mirror);
       await runCommand(curl, [
         '-sL',
         '--ssl-no-revoke',
@@ -143,7 +185,7 @@ export function createWindowsShellProvisionDeps(
         '1800',
         '-o',
         destPath,
-        target,
+        url,
       ]);
     },
     extract: async (archivePath, archive, destDir) => {

@@ -420,6 +420,7 @@ export default {
       shells: 'Manage bundled Windows shell payloads (bash, pwsh).',
       shellsStatus: 'Show shell payload status and which shell the agent uses.',
       shellsProvision: 'Download, verify and install the pinned shell payloads.',
+      shellsDownload: 'Download the pinned payload archives, verified, for mirrors or offline installs.',
       vis: 'Open the visualization server.',
       migrate: 'Run data migration, then exit.',
       serverRotateToken:
@@ -475,6 +476,7 @@ export default {
       shellsPwsh: 'Only the pwsh payload.',
       shellsAll: 'Both payloads (default when no kind flag is given).',
       shellsMirror: 'Mirror base URL prefix for GitHub release downloads.',
+      shellsDownloadDir: 'Directory to save archives into. Default: ./kimi-shell-payloads',
       visPort: 'Port to bind. Default: auto-pick a free port.',
       visPortInvalid: 'Invalid --port value "{{value}}": expected an integer from 0 to 65535.',
       visHost: 'Host to bind. Default: 127.0.0.1.',
@@ -560,6 +562,9 @@ export default {
       provisionInstalled: 'Installed {{kind}} {{version}} → {{path}}',
       provisionSkipped: '{{kind}} {{version}} already installed → {{path}}',
       provisionFailed: 'Provisioning {{kind}} failed: {{error}}',
+      downloadStart: 'Downloading {{kind}} {{version}} (mirror first, official fallback)…',
+      downloadDone: '{{file}} — {{size}} bytes, sha256 {{sha256}}',
+      downloadFailed: 'Downloading {{kind}} failed: {{error}}',
     },
     errors: {
       unknownCommand: "unknown command '{{command}}'. See '{{cliName}} --help'.",

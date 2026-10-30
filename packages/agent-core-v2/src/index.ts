@@ -108,11 +108,14 @@ export {
 export {
   ShellPayloadExtractError,
   ShellPayloadIntegrityError,
+  type ShellPayloadArchiveDownload,
   type ShellProvisionDeps,
   type ShellProvisionResult,
   applyDownloadMirror,
   createWindowsShellProvisionDeps,
+  downloadShellPayloadArchive,
   provisionShellPayload,
+  resolveDownloadCandidates,
 } from '#/_base/execEnv/shellProvision';
 export * from '#/agent/tools/os/bash/bash';
 import '#/agent/tools/os/bash/bashTool';

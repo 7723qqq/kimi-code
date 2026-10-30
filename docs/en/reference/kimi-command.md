@@ -279,11 +279,14 @@ kimi shells status --verify
 # Install both payloads (add --bash or --pwsh for just one)
 kimi shells provision --all
 
+# Save the verified archives for re-hosting or offline installs
+kimi shells download --all --dir ./kimi-shell-payloads
+
 # Download through a GitHub release mirror prefix
 kimi shells provision --all --mirror https://mirror.example.com
 ```
 
-The `Bash` tool picks up the bash payload automatically when no Git Bash or MSYS2 is installed; the pwsh payload extends which PowerShell the `PowerShell` tool prefers. The `KIMI_DOWNLOAD_MIRROR` environment variable provides the same mirror prefix as `--mirror`.
+The `Bash` tool picks up the bash payload automatically when no Git Bash or MSYS2 is installed; the pwsh payload extends which PowerShell the `PowerShell` tool prefers. Downloads try the mirror prefix first and fall back to the official GitHub release URL; the `KIMI_DOWNLOAD_MIRROR` environment variable provides the same mirror prefix as `--mirror`.
 
 ### `kimi export`
 

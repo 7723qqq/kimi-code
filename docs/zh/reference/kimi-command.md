@@ -279,11 +279,14 @@ kimi shells status --verify
 # 安装两个载荷（加 --bash 或 --pwsh 只装一个）
 kimi shells provision --all
 
+# 下载并校验归档，用于镜像分发或离线安装
+kimi shells download --all --dir ./kimi-shell-payloads
+
 # 通过 GitHub Release 镜像前缀下载
 kimi shells provision --all --mirror https://mirror.example.com
 ```
 
-未安装 Git Bash / MSYS2 时，`Bash` 工具会自动使用 bash 载荷；pwsh 载荷用于扩展 `PowerShell` 工具的解析优先级。环境变量 `KIMI_DOWNLOAD_MIRROR` 与 `--mirror` 等效。
+未安装 Git Bash / MSYS2 时，`Bash` 工具会自动使用 bash 载荷；pwsh 载荷用于扩展 `PowerShell` 工具的解析优先级。下载优先走镜像前缀，失败自动回退官方 GitHub Release 地址；环境变量 `KIMI_DOWNLOAD_MIRROR` 与 `--mirror` 等效。
 
 ### `kimi export`
 

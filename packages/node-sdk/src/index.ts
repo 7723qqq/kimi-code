@@ -75,6 +75,7 @@ export {
   type PowerShellExecutableKind,
   ShellPayloadExtractError,
   ShellPayloadIntegrityError,
+  type ShellPayloadArchiveDownload,
   findShellPayloadPin,
   probeHostEnvironmentFromNode,
   readShellPayloadStatus,
@@ -87,7 +88,9 @@ export {
   verifyShellPayload,
   applyDownloadMirror,
   createWindowsShellProvisionDeps,
+  downloadShellPayloadArchive,
   provisionShellPayload,
+  resolveDownloadCandidates,
 } from '@moonshot-ai/agent-core-v2';
 export type { LogContext, LogLevel, LogPayload, Logger } from '#/logging/index';
 

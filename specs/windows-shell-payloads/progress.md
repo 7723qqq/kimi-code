@@ -70,3 +70,12 @@ pwsh 7 与 Windows PowerShell 5.1，`Write-Output '中文测试ABC'` 输出
 - `[shell] preference` 死配置未接线（超出本 spec 排除项之外的另一条需求）。
 - `apps/kimi-code/scripts/dev.mjs` 以 `--import file://…` 启动子进程，在 Bun 1.4.4 下报
   `preload not found`（既有问题，与本 spec 无关；验证用等价的 `bun --import <path>` 调用完成）。
+
+## 后续增强（发布分发支持）
+
+- 新增 `kimi shells download`：把钉版载荷归档下载到本地目录（默认 `./kimi-shell-payloads`）
+  并做哈希校验，供镜像自建 / 离线包分发使用。
+- 下载源按 `镜像前缀（--mirror / KIMI_DOWNLOAD_MIRROR）→ 官方 GitHub Release` 自动回退，
+  且**逐源校验**：某源返回错误页/脏字节（哈希不符）同样视为该源失败并回退，绝不落盘脏数据。
+  该行为由一次实机冒烟暴露：坏镜像经代理返回 HTTP 200 错误页时 curl 视为成功，旧实现只在
+  传输层失败时回退——现已改为逐源"下载→校验→失败换源"。
