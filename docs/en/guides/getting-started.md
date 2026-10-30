@@ -34,7 +34,7 @@ irm https://code.kimi.com/kimi-code/install.ps1 | iex
 
 :::
 
-> On Windows, the CLI has built-in shell detection: it prefers PowerShell 7, then Windows PowerShell, then Git Bash or MSYS2 bash (if installed). To pin a specific shell (for example `bash.exe`, `pwsh.exe`, or `cmd.exe`), set `KIMI_SHELL_PATH` to its absolute path. If no bash shell is found on first launch, the CLI offers to install MSYS2 (a full Linux command-line environment) and switch to it automatically.
+> On Windows, the `Bash` tool runs through a real bash: the CLI auto-detects Git Bash or MSYS2 bash, and `KIMI_SHELL_PATH` pins a specific `bash.exe`. If no bash is installed, run `kimi shells provision --bash` to install the bundled, version-pinned bash payload (verified by hash on install), or let the CLI offer to install MSYS2 (a full Linux command-line environment) on first launch. For PowerShell work, use the built-in `PowerShell` tool instead of calling `powershell.exe` / `pwsh` from `Bash` — it runs scripts natively with clean UTF-8 output; it prefers PowerShell 7, then the bundled pwsh payload (`kimi shells provision --pwsh`), then Windows PowerShell 5.1, and `KIMI_PWSH_PATH` pins a specific `pwsh.exe`. If GitHub downloads are slow or blocked, point `kimi shells provision --mirror <base>` (or the `KIMI_DOWNLOAD_MIRROR` environment variable) at a GitHub release mirror prefix.
 
 The script automatically downloads the latest release, verifies the checksum, and places the `kimi` executable on your `PATH`.
 

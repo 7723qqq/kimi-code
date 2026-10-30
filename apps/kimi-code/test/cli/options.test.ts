@@ -596,6 +596,7 @@ describe('CLI options parsing', () => {
         'fork',
         'provider',
         'session',
+        'shells',
         'acp',
         'web',
         'server',

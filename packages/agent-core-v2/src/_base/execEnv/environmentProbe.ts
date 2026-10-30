@@ -1,8 +1,9 @@
-
 import { constants as fsConstants } from 'node:fs';
 import { access } from 'node:fs/promises';
 import * as nodeOs from 'node:os';
 import * as nodePath from 'node:path';
+
+import { findShellPayloadPin, resolveShellPayloadHome, shellPayloadExePath } from './shellPayload';
 
 export type OsKind = string;
 export type ShellName = 'bash' | 'sh';
@@ -193,10 +194,24 @@ async function locateWindowsGitBash(deps: HostEnvironmentProbeDeps): Promise<str
     }
   }
 
+  for (const candidate of provisionedBashCandidates(deps)) {
+    checked.push(candidate);
+    if (await deps.isFile(candidate)) {
+      return candidate;
+    }
+  }
+
   throw new ProbeShellNotFoundError(
-    'Git Bash was not found on this Windows host. Install Git for Windows from https://gitforwindows.org/ or set KIMI_SHELL_PATH to a bash.exe.',
+    'Git Bash was not found on this Windows host. Run `kimi shells provision --bash` to install the bundled bash payload, install Git for Windows from https://gitforwindows.org/, or set KIMI_SHELL_PATH to a bash.exe.',
     checked,
   );
+}
+
+function provisionedBashCandidates(deps: HostEnvironmentProbeDeps): readonly string[] {
+  const pin = findShellPayloadPin('bash');
+  if (pin === undefined) return [];
+  const kimiHome = resolveShellPayloadHome(deps.env, deps.homeDir);
+  return [shellPayloadExePath(kimiHome, pin)];
 }
 
 async function readGitExecPath(

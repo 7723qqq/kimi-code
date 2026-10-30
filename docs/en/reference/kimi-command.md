@@ -265,6 +265,26 @@ kimi doctor config
 kimi doctor tui ./tui.toml
 ```
 
+### `kimi shells`
+
+Manage the bundled Windows shell payloads: a version-pinned bash (Git for Windows) and PowerShell 7, downloaded over HTTPS and verified against pinned SHA-256 hashes before install. Payloads live under `KIMI_CODE_HOME`/`shells` and never touch the system `PATH` or the host shell.
+
+```sh
+# Show each payload's state and which shell the agent actually uses
+kimi shells status
+
+# Re-hash installed payload executables
+kimi shells status --verify
+
+# Install both payloads (add --bash or --pwsh for just one)
+kimi shells provision --all
+
+# Download through a GitHub release mirror prefix
+kimi shells provision --all --mirror https://mirror.example.com
+```
+
+The `Bash` tool picks up the bash payload automatically when no Git Bash or MSYS2 is installed; the pwsh payload extends which PowerShell the `PowerShell` tool prefers. The `KIMI_DOWNLOAD_MIRROR` environment variable provides the same mirror prefix as `--mirror`.
+
 ### `kimi export`
 
 Package a session into a ZIP file for sharing, archiving, or submitting bug reports.

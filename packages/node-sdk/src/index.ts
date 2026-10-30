@@ -63,6 +63,32 @@ export {
   resolveGlobalLogPath,
 } from '#/logging/index';
 export { resolveKimiHome } from '@moonshot-ai/agent-core-v2';
+export {
+  ProbeShellNotFoundError,
+  SHELL_PAYLOAD_MANIFEST,
+  ShellPayloadStatusCorruptError,
+  type ShellPayloadKind,
+  type ShellPayloadPin,
+  type ShellPayloadStatus,
+  type ShellPayloadVerifyResult,
+  type PowerShellExecutable,
+  type PowerShellExecutableKind,
+  ShellPayloadExtractError,
+  ShellPayloadIntegrityError,
+  findShellPayloadPin,
+  probeHostEnvironmentFromNode,
+  readShellPayloadStatus,
+  resolvePowerShellExecutable,
+  resolveShellPayloadHome,
+  shellPayloadExePath,
+  shellPayloadInstallDir,
+  shellPayloadPinOf,
+  shellPayloadsDir,
+  verifyShellPayload,
+  applyDownloadMirror,
+  createWindowsShellProvisionDeps,
+  provisionShellPayload,
+} from '@moonshot-ai/agent-core-v2';
 export type { LogContext, LogLevel, LogPayload, Logger } from '#/logging/index';
 
 export { effectiveModelAlias, loadRuntimeConfigSafe } from '#/config/index';

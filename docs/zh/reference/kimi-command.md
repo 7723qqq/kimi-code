@@ -265,6 +265,26 @@ kimi doctor config
 kimi doctor tui ./tui.toml
 ```
 
+### `kimi shells`
+
+管理内置的 Windows shell 载荷：钉版的 bash（Git for Windows）与 PowerShell 7。下载走 HTTPS，安装前按钉版 SHA-256 校验。载荷存放在 `KIMI_CODE_HOME`/`shells` 下，不改动系统 `PATH`，也不替换宿主 shell。
+
+```sh
+# 查看每个载荷的状态与 Agent 实际使用的 shell
+kimi shells status
+
+# 重新计算已安装载荷可执行文件的哈希
+kimi shells status --verify
+
+# 安装两个载荷（加 --bash 或 --pwsh 只装一个）
+kimi shells provision --all
+
+# 通过 GitHub Release 镜像前缀下载
+kimi shells provision --all --mirror https://mirror.example.com
+```
+
+未安装 Git Bash / MSYS2 时，`Bash` 工具会自动使用 bash 载荷；pwsh 载荷用于扩展 `PowerShell` 工具的解析优先级。环境变量 `KIMI_DOWNLOAD_MIRROR` 与 `--mirror` 等效。
+
 ### `kimi export`
 
 把一个会话打包成 ZIP 文件，便于分享、归档或提交问题反馈。

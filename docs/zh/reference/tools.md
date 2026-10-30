@@ -39,6 +39,7 @@
 | 工具 | 默认审批 | 说明 |
 | --- | --- | --- |
 | `Bash` | 需审批 | 执行 Shell 命令 |
+| `PowerShell` | 需审批 | 原生执行 PowerShell 脚本（仅 Windows） |
 
 **`Bash`** 是权限要求最严格的工具，也是功能最通用的工具。参数：
 
@@ -49,7 +50,9 @@
 - `description`：后台任务描述，`run_in_background=true` 时必填
 - `disable_timeout`：后台任务是否取消超时限制
 
-前台模式会阻塞当前轮次，直到命令结束或超时；命令运行期间，TUI 会把 stdout 和 stderr 流式显示在正在运行的 `Bash` 工具卡片中。前台命令超时后默认不会被终止，而是转为后台任务继续运行（受 600 秒默认后台超时约束）；如需恢复超时即终止的行为，将 `[background]` 的 [`bash_auto_background_on_timeout`](../configuration/config-files.md#task) 设为 `false`。600 秒的默认后台超时可通过 [`bash_task_timeout_s`](../configuration/config-files.md#task) 配置（`0` = 无超时），且在 print 模式（`kimi -p`）下默认无超时。后台模式立即返回任务 ID，任务结束时自动通知 Agent。stdin 始终被关闭，交互式命令会立即收到 EOF。任务被停止或后台超时时采用两阶段终止策略（SIGTERM → 5 秒宽限期 → SIGKILL），确保进程可靠结束。Windows 平台自动探测 Shell（PowerShell 7 → Windows PowerShell → Git Bash 或 MSYS2 bash），可用 `KIMI_SHELL_PATH` 或 `[shell] preference` 配置固定；Windows 上的 bash 调用会在 `PATH` 前注入 `/usr/local/bin:/usr/bin:/bin`，确保 MSYS2/Git Bash 工具始终可用。
+前台模式会阻塞当前轮次，直到命令结束或超时；命令运行期间，TUI 会把 stdout 和 stderr 流式显示在正在运行的 `Bash` 工具卡片中。前台命令超时后默认不会被终止，而是转为后台任务继续运行（受 600 秒默认后台超时约束）；如需恢复超时即终止的行为，将 `[background]` 的 [`bash_auto_background_on_timeout`](../configuration/config-files.md#task) 设为 `false`。600 秒的默认后台超时可通过 [`bash_task_timeout_s`](../configuration/config-files.md#task) 配置（`0` = 无超时），且在 print 模式（`kimi -p`）下默认无超时。后台模式立即返回任务 ID，任务结束时自动通知 Agent。stdin 始终被关闭，交互式命令会立即收到 EOF。任务被停止或后台超时时采用两阶段终止策略（SIGTERM → 5 秒宽限期 → SIGKILL），确保进程可靠结束。Windows 平台自动探测 Git Bash 或 MSYS2 bash，可用 `KIMI_SHELL_PATH` 固定，找不到时回退到 `kimi shells provision --bash` 安装的内置 bash 载荷；Windows 上的 bash 调用会在 `PATH` 前注入 `/usr/local/bin:/usr/bin:/bin`，确保 MSYS2/Git Bash 工具始终可用。
+
+**`PowerShell`**（仅 Windows）以独立的 PowerShell 进程执行脚本——不经 bash 中转——因此非 ASCII 文本（含中文）的输出也始终是干净的 UTF-8。需要执行 PowerShell 脚本、或处理注册表、服务、winget 等 Windows 原生任务时，用它代替在 `Bash` 里调用 `powershell.exe` / `pwsh`。参数与 `Bash` 一致（`command`（必填）、`cwd`、`timeout`、`run_in_background`、`description`、`disable_timeout`），前台/后台超时默认值也相同。脚本以单个编码载荷传入，引号转义无需操心；每次调用都是全新的非交互进程（`-NoProfile -NonInteractive`）。可执行文件按以下顺序解析：`KIMI_PWSH_PATH`、`PATH` 或标准安装位置的 PowerShell 7、内置 pwsh 载荷（`kimi shells provision --pwsh`）、Windows PowerShell 5.1。
 
 ## 网络类
 

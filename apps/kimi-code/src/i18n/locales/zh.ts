@@ -405,6 +405,9 @@ export default {
       doctor: '验证 Kimi Code 配置文件。',
       doctorConfig: '验证 config.toml。',
       doctorTui: '验证 tui.toml。',
+      shells: '管理内置 Windows shell 载荷（bash、pwsh）。',
+      shellsStatus: '查看 shell 载荷状态与当前实际使用的 shell。',
+      shellsProvision: '下载、校验并安装钉版 shell 载荷。',
       vis: '打开可视化服务。',
       migrate: '运行数据迁移，然后退出。',
       serverRotateToken: '生成新的持久化服务器令牌；旧令牌立即失效。',
@@ -451,6 +454,11 @@ export default {
       exportNoIncludeGlobalLog:
         '跳过打包活动全局诊断日志（~/.kimi-code/logs/kimi-code.log，不包含轮转的 .1 文件）。默认包含全局日志。',
       acpLogin: '运行设备码登录流程后退出（ACP 终端认证的入口点）。',
+      shellsVerify: '重新计算已安装载荷可执行文件的哈希并报告结果。',
+      shellsBash: '仅 bash 载荷。',
+      shellsPwsh: '仅 pwsh 载荷。',
+      shellsAll: '两个载荷（未指定类别时的默认行为）。',
+      shellsMirror: 'GitHub Release 下载的镜像前缀地址。',
       visPort: '绑定的端口。默认自动选择一个空闲端口。',
       visPortInvalid: '--port 取值无效「{{value}}」：需要 0 到 65535 之间的整数。',
       visHost: '绑定的主机。默认：127.0.0.1。',
@@ -523,6 +531,14 @@ export default {
         '以非交互方式运行迁移并打印逐步日志。除非同时指定 --config-only，否则迁移全部内容。',
       migrateConfigOnly:
         '与 --run 搭配：迁移配置、MCP 服务器、REPL 历史和 skills，但跳过聊天会话。',
+    },
+    shells: {
+      statusHeader: 'Shell 载荷状态（{{home}}）：',
+      statusLine: '{{kind}}：来源={{source}}，载荷={{payload}}，exe={{exe}}',
+      provisionStart: '正在供给 {{kind}} {{version}}（可能需要几分钟）…',
+      provisionInstalled: '已安装 {{kind}} {{version}} → {{path}}',
+      provisionSkipped: '{{kind}} {{version}} 已安装 → {{path}}',
+      provisionFailed: '供给 {{kind}} 失败：{{error}}',
     },
     errors: {
       unknownCommand: "未知命令 '{{command}}'。参见 '{{cliName}} --help'。",

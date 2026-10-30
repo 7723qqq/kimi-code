@@ -416,6 +416,9 @@ export default {
       doctor: 'Validate Kimi Code configuration files.',
       doctorConfig: 'Validate config.toml.',
       doctorTui: 'Validate tui.toml.',
+      shells: 'Manage bundled Windows shell payloads (bash, pwsh).',
+      shellsStatus: 'Show shell payload status and which shell the agent uses.',
+      shellsProvision: 'Download, verify and install the pinned shell payloads.',
       vis: 'Open the visualization server.',
       migrate: 'Run data migration, then exit.',
       serverRotateToken:
@@ -468,6 +471,11 @@ export default {
       exportNoIncludeGlobalLog:
         'Skip bundling the active global diagnostic log (~/.kimi-code/logs/kimi-code.log, not rotated .1 files). By default the global log is included.',
       acpLogin: 'Run the device-code login flow then exit (entry point for ACP terminal-auth).',
+      shellsVerify: 'Re-hash installed payload executables and report the result.',
+      shellsBash: 'Only the bash payload.',
+      shellsPwsh: 'Only the pwsh payload.',
+      shellsAll: 'Both payloads (default when no kind flag is given).',
+      shellsMirror: 'Mirror base URL prefix for GitHub release downloads.',
       visPort: 'Port to bind. Default: auto-pick a free port.',
       visPortInvalid: 'Invalid --port value "{{value}}": expected an integer from 0 to 65535.',
       visHost: 'Host to bind. Default: 127.0.0.1.',
@@ -546,6 +554,14 @@ export default {
         'Run the migration non-interactively and print step-by-step logs. Migrates everything unless --config-only is also given.',
       migrateConfigOnly:
         'With --run: migrate config, MCP servers, REPL history and skills, but skip chat sessions.',
+    },
+    shells: {
+      statusHeader: 'Shell payload status ({{home}}):',
+      statusLine: '{{kind}}: source={{source}}, payload={{payload}}, exe={{exe}}',
+      provisionStart: 'Provisioning {{kind}} {{version}} (this may take a few minutes)…',
+      provisionInstalled: 'Installed {{kind}} {{version}} → {{path}}',
+      provisionSkipped: '{{kind}} {{version}} already installed → {{path}}',
+      provisionFailed: 'Provisioning {{kind}} failed: {{error}}',
     },
     errors: {
       unknownCommand: "unknown command '{{command}}'. See '{{cliName}} --help'.",

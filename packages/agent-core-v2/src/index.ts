@@ -83,12 +83,45 @@ export * from '#/os/backends/host/hostEnvironmentService';
 export * from '#/os/backends/host/hostFsService';
 export * from '#/os/backends/host/hostProcessService';
 export * from '#/os/backends/host/hostTimersService';
+export {
+  ProbeShellNotFoundError,
+  probeHostEnvironmentFromNode,
+} from '#/_base/execEnv/environmentProbe';
+export {
+  SHELL_PAYLOAD_MANIFEST,
+  ShellPayloadStatusCorruptError,
+  type ShellPayloadArchive,
+  type ShellPayloadKind,
+  type ShellPayloadPin,
+  type ShellPayloadStatus,
+  type ShellPayloadVerifyResult,
+  findShellPayloadPin,
+  readShellPayloadStatus,
+  resolveShellPayloadHome,
+  shellPayloadExePath,
+  shellPayloadInstallDir,
+  shellPayloadPinOf,
+  shellPayloadStatusPath,
+  shellPayloadsDir,
+  verifyShellPayload,
+} from '#/_base/execEnv/shellPayload';
+export {
+  ShellPayloadExtractError,
+  ShellPayloadIntegrityError,
+  type ShellProvisionDeps,
+  type ShellProvisionResult,
+  applyDownloadMirror,
+  createWindowsShellProvisionDeps,
+  provisionShellPayload,
+} from '#/_base/execEnv/shellProvision';
 export * from '#/agent/tools/os/bash/bash';
 import '#/agent/tools/os/bash/bashTool';
 export * from '#/agent/tools/os/glob/glob';
 import '#/agent/tools/os/glob/globTool';
 export * from '#/agent/tools/os/grep/grep';
 import '#/agent/tools/os/grep/grepTool';
+export * from '#/agent/tools/os/powershell/powershell';
+import '#/agent/tools/os/powershell/powershellTool';
 export * from '#/agent/tools/os/read/read';
 import '#/agent/tools/os/read/readTool';
 export * from '#/agent/tools/os/write/write';

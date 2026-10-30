@@ -5,6 +5,7 @@ import {
   ProbeShellNotFoundError,
   type HostEnvironmentProbeDeps,
 } from '#/_base/execEnv/environmentProbe';
+import { shellPayloadExePath, shellPayloadPinOf } from '#/_base/execEnv/shellPayload';
 
 interface StubOpts {
   readonly platform: string;
@@ -92,8 +93,38 @@ describe('probeHostEnvironment', () => {
     expect(rejected).toBeInstanceOf(ProbeShellNotFoundError);
     const probeError = rejected as ProbeShellNotFoundError;
     expect(probeError.message).toContain('https://gitforwindows.org/');
+    expect(probeError.message).toContain('kimi shells provision --bash');
     expect(probeError.message).not.toContain('Checked:');
     expect(probeError.checked.length).toBeGreaterThan(0);
+    expect(probeError.checked.some((path) => path.includes('shells'))).toBe(true);
+  });
+
+  it('falls back to the provisioned bash payload when no system Git Bash exists', async () => {
+    const kimiHome = 'D:\\kimi-home';
+    const payloadExe = shellPayloadExePath(kimiHome, shellPayloadPinOf('bash'));
+    const env = await probeHostEnvironment(
+      stubDeps({
+        platform: 'win32',
+        env: { PATH: 'C:\\Windows\\System32', KIMI_CODE_HOME: kimiHome },
+        existingPaths: [payloadExe],
+      }),
+    );
+    expect(env.shellName).toBe('bash');
+    expect(env.shellPath).toBe(payloadExe);
+  });
+
+  it('prefers system Git Bash over the provisioned payload', async () => {
+    const kimiHome = 'D:\\kimi-home';
+    const payloadExe = shellPayloadExePath(kimiHome, shellPayloadPinOf('bash'));
+    const systemBash = 'C:\\Program Files\\Git\\bin\\bash.exe';
+    const env = await probeHostEnvironment(
+      stubDeps({
+        platform: 'win32',
+        env: { PATH: 'C:\\Windows\\System32', KIMI_CODE_HOME: kimiHome },
+        existingPaths: [systemBash, payloadExe],
+      }),
+    );
+    expect(env.shellPath).toBe(systemBash);
   });
 });
 

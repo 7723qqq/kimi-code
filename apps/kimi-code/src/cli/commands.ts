@@ -7,14 +7,15 @@ import { registerImportSessionsCommand } from '#/session-import/index';
 
 import type { CLIOptions } from './options';
 import { registerAcpCommand } from './sub/acp';
+import { registerAppCommand } from './sub/app';
 import { registerDoctorCommand } from './sub/doctor';
 import { registerExportCommand } from './sub/export';
 import { registerForkCommand } from './sub/fork';
-import { registerAppCommand } from './sub/app';
 import { registerInstallDesktopCommand } from './sub/install-desktop';
 import { registerLoginCommand } from './sub/login';
 import { registerProviderCommand } from './sub/provider';
 import { registerSessionCommand } from './sub/session';
+import { registerShellsCommand } from './sub/shells';
 import { registerVisCommand } from './sub/vis';
 import { registerWebCommand } from './sub/web';
 
@@ -107,6 +108,7 @@ export function createProgram(
   registerForkCommand(program);
   registerProviderCommand(program);
   registerSessionCommand(program);
+  registerShellsCommand(program);
   registerAcpCommand(program);
   registerWebCommand(program);
   registerLoginCommand(program);
