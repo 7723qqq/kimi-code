@@ -8,9 +8,13 @@ export interface MediaStripSnapshot {
   readonly [mediaStripSnapshotBrand]: undefined;
 }
 
+export type MediaProjection =
+  | { readonly degradeCount: number }
+  | { readonly strip: MediaStripSnapshot };
+
 export interface ProjectionPolicy {
   readonly structure?: 'strict';
-  readonly media?: 'degraded' | { readonly strip: MediaStripSnapshot };
+  readonly media?: MediaProjection;
   readonly withoutCacheKey?: boolean;
 }
 
@@ -23,6 +27,7 @@ export interface IAgentContextProjectorService {
     mediaPaths?: ReadonlyMap<string, string>,
   ): readonly Message[];
   captureMediaStripSnapshot(messages: readonly ContextMessage[]): MediaStripSnapshot;
+  captureMediaDegradeCount(messages: readonly ContextMessage[]): number;
 }
 
 export const IAgentContextProjectorService = createDecorator<IAgentContextProjectorService>(

@@ -673,7 +673,7 @@ describe('projector tool-exchange normalization', () => {
           imageMessage('data:image/png;base64,KEEP1'),
           imageMessage('data:image/png;base64,KEEP2'),
         ],
-        { media: 'degraded' },
+        { media: { degradeCount: 2 } },
       );
 
       const urls = projected
@@ -693,7 +693,7 @@ describe('projector tool-exchange normalization', () => {
     it('returns the projected messages untouched when media fits within keep-recent', () => {
       const projected = projector.project(
         [user('text'), imageMessage('data:image/png;base64,AAAA')],
-        { media: 'degraded' },
+        { media: { degradeCount: 0 } },
       );
       const allParts = projected.flatMap((message) => message.content);
       expect(allParts.some((part) => part.type === 'image_url')).toBe(true);
@@ -707,7 +707,7 @@ describe('projector tool-exchange normalization', () => {
           imageMessage('kimi-file://f_keep1'),
           imageMessage('kimi-file://f_keep2'),
         ],
-        { media: 'degraded' },
+        { media: { degradeCount: 2 } },
         new Map([
           ['kimi-file://f_old1', '/session/media/f_old1.png'],
           ['kimi-file://f_old2', '/session/media/f_old2.png'],
@@ -735,7 +735,7 @@ describe('projector tool-exchange normalization', () => {
           imageMessage('kimi-file://f_keep1'),
           imageMessage('kimi-file://f_keep2'),
         ],
-        { media: 'degraded' },
+        { media: { degradeCount: 2 } },
         new Map([['kimi-file://f_old1', '/session/media/f_old1.png']]),
       );
 

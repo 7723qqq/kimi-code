@@ -132,8 +132,7 @@ const history: Message[] = [
 type ProjectionKind = 'normal' | 'strict' | 'degraded' | 'stripped';
 
 function classifyProjectionPolicy(policy: ProjectionPolicy | undefined): ProjectionKind {
-  if (typeof policy?.media === 'object') return 'stripped';
-  if (policy?.media === 'degraded') return 'degraded';
+  if (policy?.media !== undefined) return 'degradeCount' in policy.media ? 'degraded' : 'stripped';
   if (policy?.structure === 'strict') return 'strict';
   return 'normal';
 }
@@ -144,12 +143,13 @@ function recordProjectionCalls(
     policy: ProjectionPolicy | undefined,
   ) => readonly Message[] = (messages) => messages,
 ): {
-  projector: Pick<IAgentContextProjectorService, 'project'>;
+  projector: Pick<IAgentContextProjectorService, 'project' | 'captureMediaDegradeCount'>;
   calls: ProjectionKind[];
 } {
   const calls: ProjectionKind[] = [];
   return {
     projector: {
+      captureMediaDegradeCount: () => 1,
       project: (messages: readonly ContextMessage[], policy) => {
         calls.push(classifyProjectionPolicy(policy));
         return project(messages, policy);
@@ -300,7 +300,9 @@ function createService(
   requester: ModelRequester,
   projector:
     | (Pick<IAgentContextProjectorService, 'project'> &
-        Partial<Pick<IAgentContextProjectorService, 'captureMediaStripSnapshot'>>)
+        Partial<
+          Pick<IAgentContextProjectorService, 'captureMediaStripSnapshot' | 'captureMediaDegradeCount'>
+        >)
     | undefined,
   options: {
     readonly thinkingLevel?: ThinkingEffort;
@@ -397,6 +399,7 @@ function createService(
   } else {
     ix.stub(IAgentContextProjectorService, {
       captureMediaStripSnapshot: () => testSnapshot,
+      captureMediaDegradeCount: () => 0,
       ...projector,
     });
   }
@@ -907,11 +910,11 @@ describe('AgentLLMRequesterService media-degraded resend', () => {
   it('warns for each escalation when the degraded resend is also rejected as too large', async () => {
     const calls = { value: 0 };
     const projection = recordProjectionCalls((messages, policy) => {
-      if (policy?.media === 'degraded') {
+      if (policy?.media !== undefined && 'degradeCount' in policy.media) {
         const message = messages[0]!;
         return [{ ...message, content: message.content.slice(-2) }];
       }
-      return typeof policy?.media === 'object' ? history : messages;
+      return policy?.media !== undefined ? history : messages;
     });
     const contextMessages: Message[] = [
       {
@@ -972,7 +975,7 @@ describe('AgentLLMRequesterService combined recovery projections', () => {
     expect(policies).toEqual([
       undefined,
       { structure: 'strict' },
-      { structure: 'strict', media: 'degraded' },
+      { structure: 'strict', media: { degradeCount: expect.any(Number) } },
       { structure: 'strict', media: { strip: expect.anything() } },
     ]);
     await dispatcher.flush();
@@ -1012,7 +1015,7 @@ describe('AgentLLMRequesterService combined recovery projections', () => {
     const projector = {
       project: (messages: readonly ContextMessage[], policy: ProjectionPolicy | undefined) => {
         policies.push(policy);
-        if (policy?.media !== 'degraded') return messages;
+        if (policy?.media === undefined || !('degradeCount' in policy.media)) return messages;
         const message = messages[0]!;
         return [{ ...message, content: message.content.slice(policy.structure === 'strict' ? -1 : -2) }];
       },
@@ -1029,8 +1032,8 @@ describe('AgentLLMRequesterService combined recovery projections', () => {
     expect(calls.value).toBe(3);
     expect(policies).toEqual([
       undefined,
-      { media: 'degraded' },
-      { structure: 'strict', media: 'degraded' },
+      { media: { degradeCount: expect.any(Number) } },
+      { structure: 'strict', media: { degradeCount: expect.any(Number) } },
     ]);
     expect(events.filter((event) => event.type === 'warning')).toEqual([
       expect.objectContaining({ type: 'warning', code: 'media-degraded' }),
@@ -1136,6 +1139,30 @@ describe('AgentLLMRequesterService trace id', () => {
       }),
     });
     expect(request.trace.traceId).toBe('trace-fail-1');
+  });
+
+  it('probes the compaction request prefix against the last completed turn', async () => {
+    const { service, telemetryRecords } = createService(
+      createRequester({ value: 0 }),
+      passthroughProjector,
+    );
+
+    await service.request({ source: { type: 'turn', turnId: 1, step: 1 } });
+    await service.request({
+      source: { type: 'operation', turnId: 1, requestKind: 'full_compaction' },
+      promptCacheProbe: 'compaction',
+    });
+
+    const probes = telemetryRecords.filter((record) => record.event === 'prompt_cache_probe');
+    expect(probes).toHaveLength(1);
+    expect(probes[0]?.properties).toMatchObject({
+      source: 'compaction',
+      model_match: true,
+      tools_match: true,
+      system_prompt_match: true,
+      history_prefix_match: true,
+      parent_message_count: expect.any(Number),
+    });
   });
 
   it('keeps the header-captured trace when the request fails after headers arrived', async () => {

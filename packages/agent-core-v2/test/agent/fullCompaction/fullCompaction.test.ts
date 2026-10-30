@@ -314,7 +314,7 @@ describe('FullCompaction', () => {
         compacted_count: 6,
         retry_count: 0,
         thinking_effort: 'off',
-        input_tokens: 1192,
+        input_tokens: 1215,
         output_tokens: 8,
         input_cache_read: 0,
         input_cache_creation: 0,
@@ -1707,7 +1707,7 @@ describe('FullCompaction', () => {
         {
           "role": "user",
           "text": 
-      "The conversation so far has been compacted to free up context. What follows is your own working summary of this task — use it to continue your train of thought rather than starting over. Treat it as notes, not proof: where it says a step was done, tests passed, or a fix worked, verify that yourself before relying on it. Any user messages earlier in this context are preserved verbatim from the compacted conversation; where a system-reminder note among them marks an omitted middle section, the user messages it replaced are covered by this summary. The summary records which earlier requests were already addressed.
+      "The conversation so far has been compacted to free up context. What follows is your own working summary of this task — use it to continue your train of thought rather than starting over. Do not redo work it reports as done or re-run checks it reports as passed; check anything it marks as unverified before relying on it. Any user messages earlier in this context are preserved verbatim from the compacted conversation; where a system-reminder note among them marks an omitted middle section, the user messages it replaced are covered by this summary. The summary records which earlier requests were already addressed.
       Compacted prefix."
       ,
         },
@@ -1949,7 +1949,7 @@ describe('FullCompaction', () => {
       call 2:
         messages:
           user: text "old user one\\n\\nold user two\\n\\nrecent user three\\n\\nAnswer after compacting"
-          user: text "The conversation so far has been compacted to free up context. What follows is your own working summary of this task — use it to continue your train of thought rather than starting over. Treat it as notes, not proof: where it says a step was done, tests passed, or a fix worked, verify that yourself before relying on it. Any user messages earlier in this context are preserved verbatim from the compacted conversation; where a system-reminder note among them marks an omitted middle section, the user messages it replaced are covered by this summary. The summary records which earlier requests were already addressed.\\nAuto compacted summary."
+          user: text "The conversation so far has been compacted to free up context. What follows is your own working summary of this task — use it to continue your train of thought rather than starting over. Do not redo work it reports as done or re-run checks it reports as passed; check anything it marks as unverified before relying on it. Any user messages earlier in this context are preserved verbatim from the compacted conversation; where a system-reminder note among them marks an omitted middle section, the user messages it replaced are covered by this summary. The summary records which earlier requests were already addressed.\\nAuto compacted summary."
           user: text "<system-reminder>\\nContext compaction is complete — continue the work that was in progress when it began.\\n</system-reminder>""
     `);
     expect(records).toContainEqual({
@@ -2548,7 +2548,8 @@ describe('FullCompaction', () => {
       Be honest about uncertainty. If an earlier step claimed something was done but
       was never verified (tests "passing", a fix "working", a file "created"), say so
       plainly and treat it as unverified rather than fact — re-check before relying
-      on it.
+      on it. Likewise, if the code a check covers changed after it passed, mark that
+      result as unverified.
 
       Be concise, and keep the summary proportional to the task: a long multi-step
       task warrants detail, but a trivial or nearly finished exchange needs only a
@@ -2567,7 +2568,7 @@ describe('FullCompaction', () => {
       Retry after provider overflow"
       ,
           
-      "user: The conversation so far has been compacted to free up context. What follows is your own working summary of this task — use it to continue your train of thought rather than starting over. Treat it as notes, not proof: where it says a step was done, tests passed, or a fix worked, verify that yourself before relying on it. Any user messages earlier in this context are preserved verbatim from the compacted conversation; where a system-reminder note among them marks an omitted middle section, the user messages it replaced are covered by this summary. The summary records which earlier requests were already addressed.
+      "user: The conversation so far has been compacted to free up context. What follows is your own working summary of this task — use it to continue your train of thought rather than starting over. Do not redo work it reports as done or re-run checks it reports as passed; check anything it marks as unverified before relying on it. Any user messages earlier in this context are preserved verbatim from the compacted conversation; where a system-reminder note among them marks an omitted middle section, the user messages it replaced are covered by this summary. The summary records which earlier requests were already addressed.
       Overflow compacted summary."
       ,
           
@@ -3350,7 +3351,8 @@ describe('FullCompaction', () => {
       Be honest about uncertainty. If an earlier step claimed something was done but
       was never verified (tests "passing", a fix "working", a file "created"), say so
       plainly and treat it as unverified rather than fact — re-check before relying
-      on it.
+      on it. Likewise, if the code a check covers changed after it passed, mark that
+      result as unverified.
 
       Be concise, and keep the summary proportional to the task: a long multi-step
       task warrants detail, but a trivial or nearly finished exchange needs only a
@@ -3426,7 +3428,8 @@ describe('FullCompaction', () => {
       Be honest about uncertainty. If an earlier step claimed something was done but
       was never verified (tests "passing", a fix "working", a file "created"), say so
       plainly and treat it as unverified rather than fact — re-check before relying
-      on it.
+      on it. Likewise, if the code a check covers changed after it passed, mark that
+      result as unverified.
 
       Be concise, and keep the summary proportional to the task: a long multi-step
       task warrants detail, but a trivial or nearly finished exchange needs only a
@@ -3445,7 +3448,7 @@ describe('FullCompaction', () => {
       xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
       ,
           
-      "user: The conversation so far has been compacted to free up context. What follows is your own working summary of this task — use it to continue your train of thought rather than starting over. Treat it as notes, not proof: where it says a step was done, tests passed, or a fix worked, verify that yourself before relying on it. Any user messages earlier in this context are preserved verbatim from the compacted conversation; where a system-reminder note among them marks an omitted middle section, the user messages it replaced are covered by this summary. The summary records which earlier requests were already addressed.
+      "user: The conversation so far has been compacted to free up context. What follows is your own working summary of this task — use it to continue your train of thought rather than starting over. Do not redo work it reports as done or re-run checks it reports as passed; check anything it marks as unverified before relying on it. Any user messages earlier in this context are preserved verbatim from the compacted conversation; where a system-reminder note among them marks an omitted middle section, the user messages it replaced are covered by this summary. The summary records which earlier requests were already addressed.
       Placeholder compacted summary."
       ,
           
@@ -4202,7 +4205,7 @@ describe('FullCompaction pre-shrink', () => {
 
   function appendPreShrinkHistory(ctx: TestAgentContext, tokenTotals?: readonly [number, number, number]): void {
     const [oldTotal = 20, midTotal = 40, recentTotal = 80] = tokenTotals ?? [];
-    ctx.appendExchange(1, 'old user one', `old assistant one ${'a'.repeat(32_000)}`, oldTotal);
+    ctx.appendExchange(1, 'old user one', `old assistant one ${'a'.repeat(56_000)}`, oldTotal);
     ctx.appendExchange(2, 'mid user two', `mid assistant two ${'b'.repeat(16_000)}`, midTotal);
     ctx.appendExchange(3, 'recent user three', `recent assistant three ${'c'.repeat(1_000)}`, recentTotal);
   }
@@ -4270,17 +4273,21 @@ describe('FullCompaction pre-shrink', () => {
   });
 
   it('counts system prompt and tool overhead into the pre-shrink budget', async () => {
+    const overheadCapabilities = {
+      ...CATALOGUED_MODEL_CAPABILITIES,
+      max_context_tokens: 42_000,
+    } as const;
     const bare = testAgent();
     bare.configure({
       provider: CATALOGUED_PROVIDER,
-      modelCapabilities: PRE_SHRINK_CAPABILITIES,
+      modelCapabilities: overheadCapabilities,
     });
     const loaded = testAgent(
       agentService(IAgentToolSelectAnnouncementsService, { _serviceBrand: undefined }),
     );
     loaded.configure({
       provider: CATALOGUED_PROVIDER,
-      modelCapabilities: PRE_SHRINK_CAPABILITIES,
+      modelCapabilities: overheadCapabilities,
     });
     loaded.get(IAgentProfileService).update({ systemPrompt: 'y'.repeat(16_000) });
     const registration = loaded.get(IAgentToolRegistryService).register(

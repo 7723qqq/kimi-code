@@ -1,7 +1,7 @@
-import type { AgentTelemetryContext } from './context';
 import type { TowerExitReason } from '#/features/tower/tower';
 import type { SessionCloseReason } from '#/workspace/sessionLifecycle/sessionLifecycle';
 
+import type { AgentTelemetryContext } from './context';
 import type { TelemetryPrimitive } from './telemetry';
 
 export interface TelemetryEventMeta {
@@ -90,16 +90,22 @@ export interface TurnEndedEvent {
 }
 
 export interface PromptCacheProbeEvent {
-  source: 'fork';
-  turn_id: number;
+  source: 'fork' | 'compaction';
+  turn_id?: number;
   provider_type?: string;
   protocol?: string;
   input_tokens: number;
   input_cache_read: number;
   input_cache_creation: number;
   output_tokens: number;
+  message_count?: number;
+  projection?: string;
+  thinking_effort?: string;
+  model_match?: boolean;
   tools_match?: boolean;
   system_prompt_match?: boolean;
+  history_prefix_match?: boolean;
+  parent_message_count?: number;
   parent_input_tokens?: number;
   parent_request_gap_ms?: number;
 }
@@ -195,12 +201,7 @@ export interface PlanSubmittedEvent {
 }
 
 export interface PlanResolvedEvent {
-  outcome:
-    | 'approved'
-    | 'dismissed'
-    | 'rejected_and_exited'
-    | 'revise'
-    | 'rejected';
+  outcome: 'approved' | 'dismissed' | 'rejected_and_exited' | 'revise' | 'rejected';
   chosen_option?: string;
   has_feedback?: boolean;
 }
@@ -754,7 +755,7 @@ export const telemetryEventDefinitions = {
   prompt_cache_probe: defineAgentTelemetryEvent<PromptCacheProbeEvent>({
     owner: 'kimi-code',
     comment:
-      'An agent whose first request is expected to hit the prompt cache reports that request\'s cache usage and how its prefix compares with the last turn request the parent agent completed before the fork.',
+      "An agent whose first request is expected to hit the prompt cache reports that request's cache usage and how its prefix compares with the last turn request the parent agent completed before the fork.",
     properties: {
       source: 'Why a cache hit was expected for this request',
       turn_id: 'Per-agent turn index of the probed request',
@@ -765,12 +766,21 @@ export const telemetryEventDefinitions = {
       input_cache_read: 'Cache-read input tokens of the probed request',
       input_cache_creation: 'Cache-creation input tokens of the probed request',
       output_tokens: 'Output tokens of the probed request',
+      message_count: 'Message count of the request history sent to the provider',
+      projection: 'Media projection applied to the probed request, absent when none was',
+      thinking_effort: 'Thinking effort of the probed request',
+      model_match:
+        'Whether the probed request uses the same model as the baseline turn request; absent without a baseline',
       tools_match:
-        "Whether the provider-visible tool table hash equals the parent's; absent when the parent completed no turn request before the fork, or its context was rewritten (undo, compaction) after the last one",
+        "Whether the provider-visible tool table hash equals the baseline's; absent when there is no usable baseline (no earlier turn request, a different model, or a rewritten context)",
       system_prompt_match:
-        "Whether the system prompt hash equals the parent's; absent when the parent completed no turn request before the fork, or its context was rewritten (undo, compaction) after the last one",
+        "Whether the system prompt hash equals the baseline's; absent under the same conditions as tools_match",
+      history_prefix_match:
+        'For a compaction probe, whether the request history starts with the exact baseline history; absent for a fork probe or without a usable baseline',
       parent_input_tokens:
         "Total input tokens of the parent's last completed turn request before the fork, i.e. the prefix this request could read from the cache; absent when there is none, or the parent's context was rewritten (undo, compaction) after it",
+      parent_message_count:
+        "Message count of the parent's last completed turn request before the fork; absent under the same conditions as parent_input_tokens",
       parent_request_gap_ms:
         "Milliseconds from the parent's last completed turn request finishing to the probed request starting; absent when the parent completed no turn request before the fork, or its context was rewritten (undo, compaction) after the last one",
     },
@@ -1273,41 +1283,56 @@ export const telemetryEventDefinitions = {
   }),
   notify_user_nudge_shown: defineAgentTelemetryEvent<NotifyUserNudgeShownEvent>({
     owner: 'kimi-code',
-    comment: 'A reminder asking the agent to post a NotifyUser update is queued for context injection.',
+    comment:
+      'A reminder asking the agent to post a NotifyUser update is queued for context injection.',
     properties: {
-      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session; omitted when no turn is active',
-      rounds_since_notify: 'Tool-call rounds (assistant steps with tool calls) since the turn started or the last NotifyUser call',
-      nudge_index: 'Position of this reminder within the current silent stretch; 1 for the first, higher when earlier reminders went unanswered',
+      turn_id:
+        'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session; omitted when no turn is active',
+      rounds_since_notify:
+        'Tool-call rounds (assistant steps with tool calls) since the turn started or the last NotifyUser call',
+      nudge_index:
+        'Position of this reminder within the current silent stretch; 1 for the first, higher when earlier reminders went unanswered',
     },
   }),
   notify_user_sent: defineAgentTelemetryEvent<NotifyUserSentEvent>({
     owner: 'kimi-code',
     comment: 'The agent posted a NotifyUser progress update.',
     properties: {
-      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
-      rounds_since_notify: 'Tool-call rounds (assistant steps with tool calls) before this update since the turn started or the previous NotifyUser call',
-      after_nudge: 'Whether a NotifyUser reminder was injected since the turn started or the previous NotifyUser call',
-      title_chars: 'Length of the update title in UTF-16 code units; the title text itself is not recorded',
-      message_chars: 'Length of the update message in UTF-16 code units; the message text itself is not recorded',
-      displayed: 'Whether the update was shown to the user; false when the feature was turned off mid-session or the host cannot display updates',
+      turn_id:
+        'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
+      rounds_since_notify:
+        'Tool-call rounds (assistant steps with tool calls) before this update since the turn started or the previous NotifyUser call',
+      after_nudge:
+        'Whether a NotifyUser reminder was injected since the turn started or the previous NotifyUser call',
+      title_chars:
+        'Length of the update title in UTF-16 code units; the title text itself is not recorded',
+      message_chars:
+        'Length of the update message in UTF-16 code units; the message text itself is not recorded',
+      displayed:
+        'Whether the update was shown to the user; false when the feature was turned off mid-session or the host cannot display updates',
     },
   }),
   todo_list_written: defineAgentTelemetryEvent<TodoListWrittenEvent>({
     owner: 'kimi-code',
     comment: 'The agent replaced or cleared its todo list through the TodoList tool.',
     properties: {
-      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
+      turn_id:
+        'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
       item_count: 'Number of items in the list after the write; 0 when the list was cleared',
       open_count: 'Number of items still pending or in_progress after the write',
-      steps_since_write: 'Assistant steps between the previous TodoList write in context and this one; omitted when no earlier write is in context',
-      after_reminder: 'Whether a stale todo list reminder was injected since the previous TodoList write',
+      steps_since_write:
+        'Assistant steps between the previous TodoList write in context and this one; omitted when no earlier write is in context',
+      after_reminder:
+        'Whether a stale todo list reminder was injected since the previous TodoList write',
     },
   }),
   todo_reminder_shown: defineAgentTelemetryEvent<TodoReminderShownEvent>({
     owner: 'kimi-code',
-    comment: 'A reminder that the todo list still has open items and has not been updated recently is queued for context injection.',
+    comment:
+      'A reminder that the todo list still has open items and has not been updated recently is queued for context injection.',
     properties: {
-      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session; omitted when no turn is active',
+      turn_id:
+        'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session; omitted when no turn is active',
       steps_since_write: 'Assistant steps since the last TodoList write in context',
       item_count: 'Number of items in the list',
       open_count: 'Number of items still pending or in_progress',
@@ -1315,11 +1340,14 @@ export const telemetryEventDefinitions = {
   }),
   todo_turn_ended: defineAgentTelemetryEvent<TodoTurnEndedEvent>({
     owner: 'kimi-code',
-    comment: 'A main-agent turn ended while the todo list was non-empty or had changed during the turn.',
+    comment:
+      'A main-agent turn ended while the todo list was non-empty or had changed during the turn.',
     properties: {
-      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
+      turn_id:
+        'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
       reason: 'How the turn ended',
-      item_count: 'Number of items in the list when the turn ended; 0 when the list was cleared during the turn',
+      item_count:
+        'Number of items in the list when the turn ended; 0 when the list was cleared during the turn',
       open_count: 'Number of items still pending or in_progress when the turn ended',
       updated_in_turn: 'Whether the list changed during this turn',
     },

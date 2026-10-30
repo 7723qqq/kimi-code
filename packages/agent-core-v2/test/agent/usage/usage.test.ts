@@ -13,22 +13,18 @@ import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
 import { AgentCacheProbeService } from '#/agent/usage/cacheProbeService';
-import {
-  type UsageRecordedContext,
-  type UsageStatus,
-} from '#/agent/usage/usage';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { ISessionUsageService } from '#/session/usage/sessionUsage';
-import { SessionUsageService } from '#/session/usage/sessionUsageService';
+import { type UsageRecordedContext, type UsageStatus } from '#/agent/usage/usage';
 import type { Event2 } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
-import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { ISessionUsageService } from '#/session/usage/sessionUsage';
+import { SessionUsageService } from '#/session/usage/sessionUsageService';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
 
@@ -72,7 +68,10 @@ afterEach(() => disposables.dispose());
 async function readRecords(): Promise<WireRecord[]> {
   await dispatcher.flush();
   const out: WireRecord[] = [];
-  for await (const record of log.read<WireRecord>(testWireScope(SCOPE, KEY), AGENT_WIRE_RECORD_KEY)) {
+  for await (const record of log.read<WireRecord>(
+    testWireScope(SCOPE, KEY),
+    AGENT_WIRE_RECORD_KEY,
+  )) {
     out.push(record);
   }
   return out;
@@ -131,10 +130,15 @@ describe('SessionUsageService (wire-backed)', () => {
       currentTurn: { inputOther: 110, output: 220, inputCacheRead: 330, inputCacheCreation: 440 },
     });
 
-    await svc.record(agent, 'model-a', { inputOther: 5, output: 6, inputCacheRead: 7, inputCacheCreation: 8 }, {
-      type: 'turn',
-      turnId: 2,
-    });
+    await svc.record(
+      agent,
+      'model-a',
+      { inputOther: 5, output: 6, inputCacheRead: 7, inputCacheCreation: 8 },
+      {
+        type: 'turn',
+        turnId: 2,
+      },
+    );
 
     expect(svc.status(agent).currentTurn).toEqual({
       inputOther: 5,
@@ -288,7 +292,10 @@ describe('SessionUsageService (wire-backed)', () => {
     });
 
     const written: WireRecord[] = [];
-    for await (const record of fresh.freshLog.read<WireRecord>(testWireScope(SCOPE, 'usage-replay'), AGENT_WIRE_RECORD_KEY)) {
+    for await (const record of fresh.freshLog.read<WireRecord>(
+      testWireScope(SCOPE, 'usage-replay'),
+      AGENT_WIRE_RECORD_KEY,
+    )) {
       written.push(record);
     }
     expect(written[0]).toMatchObject({ type: 'metadata' });
@@ -302,14 +309,16 @@ describe('SessionUsageService (wire-backed)', () => {
       fresh.dispatcher,
       fresh.freshLog,
       testWireScope(SCOPE, 'usage-legacy-context-replay'),
-      [{
-        type: 'usage.record',
-        model: 'model-a',
-        usage: a1,
-        usageScope: 'turn',
-        turnId: 1,
-        context: { type: 'turn', turnId: 9, step: 3 },
-      }],
+      [
+        {
+          type: 'usage.record',
+          model: 'model-a',
+          usage: a1,
+          usageScope: 'turn',
+          turnId: 1,
+          context: { type: 'turn', turnId: 9, step: 3 },
+        },
+      ],
     );
 
     expect(fresh.usage.status(fresh.agent)).toEqual({
@@ -321,10 +330,43 @@ describe('SessionUsageService (wire-backed)', () => {
 });
 
 describe('AgentCacheProbeService', () => {
+  interface ProbeSnapshot {
+    modelAlias?: string;
+    contextRevision: number;
+    toolsHash?: string;
+    systemPromptHash?: string;
+    inputTokens?: number;
+    messageCount?: number;
+    startedAt: number;
+    finishedAt: number;
+  }
+
   interface ProbeRequests {
-    parent?: AgentLLMTurnRequestSnapshot;
+    parent?: ProbeSnapshot;
     parentRevision?: number;
-    own?: AgentLLMTurnRequestSnapshot;
+    own?: ProbeSnapshot;
+  }
+
+  function toSnapshot(input: ProbeSnapshot | undefined): AgentLLMTurnRequestSnapshot | undefined {
+    if (input === undefined) return undefined;
+    return {
+      contextRevision: input.contextRevision,
+      toolsHash: input.toolsHash ?? 'tools-a',
+      systemPromptHash: input.systemPromptHash ?? 'system-a',
+      startedAt: input.startedAt,
+      finishedAt: input.finishedAt,
+      observation: {
+        modelAlias: input.modelAlias ?? 'model-a',
+        protocol: 'anthropic',
+        providerType: 'kimi',
+        messageCount: input.messageCount ?? 0,
+        historyHash: 'history-a',
+        inputTokens: input.inputTokens,
+        cacheRead: 0,
+        cacheCreation: 0,
+        outputTokens: 0,
+      },
+    };
   }
 
   function requesterReturning(
@@ -342,19 +384,15 @@ describe('AgentCacheProbeService', () => {
       _serviceBrand: undefined,
       track2,
     } as unknown as ITelemetryService);
-    ix.stub(IModelCatalog, {
-      _serviceBrand: undefined,
-      get: (alias: string) => {
-        if (alias !== 'model-a') throw new Error(`unknown model "${alias}"`);
-        return { id: alias, protocol: 'anthropic', providerType: 'kimi' } as unknown as Model;
-      },
-    } as unknown as IModelCatalog);
     ix.stub(
       IAgentScopeContext,
       makeAgentScopeContext({ agentId: 'test-agent', agentScope: '', forkedFrom }),
     );
-    ix.stub(IAgentLLMRequesterService, requesterReturning(() => requests.own));
-    const parentRequester = requesterReturning(() => requests.parent);
+    ix.stub(
+      IAgentLLMRequesterService,
+      requesterReturning(() => toSnapshot(requests.own)),
+    );
+    const parentRequester = requesterReturning(() => toSnapshot(requests.parent));
     const parentRevisionAtFork = requests.parent?.contextRevision ?? 0;
     const parentContextMemory = {
       _serviceBrand: undefined,
@@ -376,7 +414,9 @@ describe('AgentCacheProbeService', () => {
   }
 
   it('probes the first turn request of a forked agent', async () => {
-    const track2 = stubProbeDeps('main');
+    const track2 = stubProbeDeps('main', {
+      own: { contextRevision: 1, startedAt: 6_500, finishedAt: 7_000 },
+    });
     disposables.add(ix.createInstance(AgentCacheProbeService));
 
     await svc.record(agent, 'model-a', a1, { type: 'turn', turnId: 1 });
@@ -391,6 +431,7 @@ describe('AgentCacheProbeService', () => {
       input_cache_read: 3,
       input_cache_creation: 4,
       output_tokens: 2,
+      message_count: 0,
     });
   });
 
@@ -438,8 +479,10 @@ describe('AgentCacheProbeService', () => {
       input_cache_read: 3,
       input_cache_creation: 4,
       output_tokens: 2,
+      message_count: 0,
       tools_match: true,
       system_prompt_match: false,
+      parent_message_count: 0,
       parent_input_tokens: 1_200,
       parent_request_gap_ms: 2_500,
     });
@@ -470,6 +513,7 @@ describe('AgentCacheProbeService', () => {
       input_cache_read: 3,
       input_cache_creation: 4,
       output_tokens: 2,
+      message_count: 0,
     });
   });
 
@@ -507,6 +551,7 @@ describe('AgentCacheProbeService', () => {
       input_cache_read: 3,
       input_cache_creation: 4,
       output_tokens: 2,
+      message_count: 0,
     });
   });
 
@@ -546,6 +591,7 @@ describe('AgentCacheProbeService', () => {
       input_cache_read: 3,
       input_cache_creation: 4,
       output_tokens: 2,
+      message_count: 0,
     });
   });
 
@@ -578,7 +624,7 @@ describe('AgentCacheProbeService', () => {
     expect(track2).not.toHaveBeenCalled();
   });
 
-  it('probes without provider fields when the model alias is unknown', async () => {
+  it('probes without provider fields when no turn request snapshot was recorded', async () => {
     const track2 = stubProbeDeps('main');
     disposables.add(ix.createInstance(AgentCacheProbeService));
 

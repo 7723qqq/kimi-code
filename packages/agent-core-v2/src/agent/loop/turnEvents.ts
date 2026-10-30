@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import type { PromptOrigin } from '#/agent/contextMemory/types';
 import { parseDaemonFileUrl } from '#/agent/media/mediaRef';
+import type { CacheObservation } from '#/agent/usage/cacheObservation';
 import { AgentEvent2, registerEvent2Class } from '#/app/event/event2';
 import { annotateBundledSkillParts, isSkillActivationPart } from '#human/agent/origin';
 import type { FinishReason } from '#human/llm/finish-reason';
@@ -118,6 +119,7 @@ export interface TurnStepCompletedPayload {
   readonly step: number;
   readonly stepId?: string;
   readonly usage?: TokenUsage;
+  readonly cache?: CacheObservation;
   readonly finishReason?: string;
   readonly llmFirstTokenLatencyMs?: number;
   readonly llmStreamDurationMs?: number;

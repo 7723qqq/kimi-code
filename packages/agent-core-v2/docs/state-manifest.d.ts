@@ -1020,18 +1020,31 @@ export interface AgentStateSnapshot {
   'llmRequester.emittedThinkingEffortWarnings': Set<string>;
   'llmRequester.lastConfigLogSignature': string | undefined;
   'llmRequester.lastTurnRequest': /* AgentLLMTurnRequestSnapshot — packages/agent-core-v2/src/agent/llmRequester/llmRequester.ts */ {
-    readonly modelAlias: string;
     readonly contextRevision: number;
     readonly toolsHash: string;
     readonly systemPromptHash: string;
-    readonly inputTokens?: number;
     readonly startedAt: number;
     readonly finishedAt: number;
+    readonly observation: /* CacheObservation — packages/agent-core-v2/src/agent/usage/cacheObservation.ts */ {
+      readonly modelAlias: string;
+      readonly protocol?: string;
+      readonly providerType?: string;
+      readonly messageCount: number;
+      readonly historyHash: string;
+      readonly projection?: 'strict' | 'media-degraded' | 'media-stripped' | 'strict-media-degraded' | 'strict-media-stripped';
+      readonly thinkingEffort?: 'off' | 'on' | (string & {});
+      readonly inputTokens?: number;
+      readonly cacheRead: number;
+      readonly cacheCreation: number;
+      readonly outputTokens: number;
+    };
   } | undefined;
   'llmRequester.mediaRecovery': /* MediaRecovery — packages/agent-core-v2/src/agent/llmRequester/llmRequesterService.ts */ {
     readonly modelAlias: string;
     readonly contextRevision: number;
-    readonly media: 'degraded' | {
+    readonly media: /* MediaProjection — packages/agent-core-v2/src/agent/contextProjector/contextProjector.ts */ {
+      readonly degradeCount: number;
+    } | {
       readonly strip: /* MediaStripSnapshot — packages/agent-core-v2/src/agent/contextProjector/contextProjector.ts */ {
         readonly "__@mediaStripSnapshotBrand": undefined;
       };

@@ -1,5 +1,6 @@
 import { createDecorator } from '#/_base/di/instantiation';
 import type { LogContext } from '#/_base/log/log';
+import type { CacheObservation } from '#/agent/usage/cacheObservation';
 import type { Message } from '#/llm-adapter/contract/message';
 import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
 import type { ModelRequestTiming } from '#/llm-adapter/model/model-requester';
@@ -44,6 +45,8 @@ export interface AgentLLMRequestOverrides {
   systemPrompt?: string;
   source?: AgentLLMRequestSource;
   maxOutputSize?: number;
+  usedContextTokens?: number;
+  promptCacheProbe?: 'compaction';
   onAttemptRetry?: () => void;
 }
 
@@ -57,13 +60,12 @@ export interface PreparedTurnRequestConfig {
 }
 
 export interface AgentLLMTurnRequestSnapshot {
-  readonly modelAlias: string;
   readonly contextRevision: number;
   readonly toolsHash: string;
   readonly systemPromptHash: string;
-  readonly inputTokens?: number;
   readonly startedAt: number;
   readonly finishedAt: number;
+  readonly observation: CacheObservation;
 }
 
 export interface IAgentLLMRequesterService {
