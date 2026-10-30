@@ -6,7 +6,13 @@
  * activity baseline; the pure trigger rule lives in `../utils/cache-hint`.
  */
 
-import { log, type KimiHarness, type Session, type TokenUsage } from '@moonshot-ai/kimi-code-sdk';
+import {
+  log,
+  type Event,
+  type KimiHarness,
+  type Session,
+  type TokenUsage,
+} from '@moonshot-ai/kimi-code-sdk';
 import type { Component, Focusable } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
@@ -23,13 +29,16 @@ import { saveTuiConfig } from '../config';
 import { MAIN_AGENT_ID } from '../constant/kimi-tui';
 import type { TUIState } from '../tui-state';
 import type { AppState, InlineSkillActivation } from '../types';
-import { evaluateCacheHint } from '../utils/cache-hint';
+import { evaluateCacheHint, type CacheHintDecision } from '../utils/cache-hint';
 import { formatErrorMessage } from '../utils/event-payload';
 import {
   makeExtractionResendable,
   originalsDirForSession,
   type ExtractionResult,
 } from '../utils/image-placeholder';
+
+type TurnStepCompletedEvent = Extract<Event, { type: 'turn.step.completed' }>;
+export type StepCacheObservation = NonNullable<TurnStepCompletedEvent['cache']>;
 
 /** A swallowed submit: the raw text plus its media extraction (done before
  *  the dialog so pasted attachments survive a later store clear). */
@@ -79,9 +88,18 @@ const CACHE_BREAK_DROP_RATIO = 0.95;
  *  busted cache key otherwise re-warns on every step until it rebuilds. */
 const CACHE_BREAK_NOTICE_MIN_STEPS = 10;
 
+type CacheBreakCause =
+  | 'model_switch'
+  | 'effort_switch'
+  | 'projection_change'
+  | 'prefix_reset'
+  | 'unexplained';
+
 interface CacheBreakBaseline {
   readonly model: string;
   readonly effort: string;
+  readonly projection: string | undefined;
+  readonly messageCount: number | undefined;
   readonly usage: TokenUsage;
   readonly time: number;
 }
@@ -133,20 +151,19 @@ export class CacheHintController {
 
   /**
    * Cache-break detection (client-side, main loop): feed each completed
-   * step's usage. A step whose cache read drops sharply below the previous
-   * one is reported as `cache_break_detected` with both usages, both
-   * model/effort values, the drop ratio, and the interval — a mid-session
-   * model/effort switch busts the cache key, and that cause is exactly what
-   * the report should carry. Unmeasured (missing/all-zero) usage is skipped
-   * without touching the baseline; compaction resets it (the drop there is
-   * expected).
+   * step's usage and the engine's cache observation. A step whose cache read
+   * drops sharply below the previous one is reported as
+   * `cache_break_detected` with both usages, the model/effort/projection the
+   * engine actually sent, the classified cause, the drop ratio, and the
+   * interval. Unmeasured (missing/all-zero) usage is skipped without touching
+   * the baseline; compaction resets it (the drop there is expected).
    *
    * Also doubles as the cache-activity signal: a completed step is a real
    * provider round trip, so the server-side cache was just refreshed —
    * unlike a bare turn begin, whose prompt may still fail before any model
    * request.
    */
-  noteStepUsage(usage: TokenUsage | undefined): void {
+  noteStepUsage(usage: TokenUsage | undefined, cache?: StepCacheObservation): void {
     this.recordActivity();
     if (usage === undefined) return;
     if (
@@ -157,31 +174,39 @@ export class CacheHintController {
     ) {
       return;
     }
-    const model = this.host.state.appState.model;
-    const effort = this.host.state.appState.thinkingEffort;
+    const model = cache?.modelAlias ?? this.host.state.appState.model;
+    const effort = cache?.thinkingEffort ?? this.host.state.appState.thinkingEffort;
+    const projection = cache?.projection;
+    const messageCount = cache?.messageCount;
     const now = this.clock.now();
     const prev = this.breakBaseline;
-    this.breakBaseline = { model, effort, usage, time: now };
+    this.breakBaseline = { model, effort, projection, messageCount, usage, time: now };
     this.stepsSinceBreakNotice += 1;
     if (prev === undefined) return;
     const prevRead = prev.usage.inputCacheRead;
     const currRead = usage.inputCacheRead;
     if (currRead >= prevRead * CACHE_BREAK_DROP_RATIO) return;
     if (prevRead - currRead <= CACHE_BREAK_MIN_DROP_TOKENS) return;
+    const cause = classifyCacheBreak(prev, { model, effort, projection, messageCount });
     // Surface the break in the logs as well as telemetry: the server-side
     // prompt cache was likely invalidated (prefix change, cache expiry, or a
     // mid-session model/effort switch). Telemetry props are flattened snake_case.
     log.warn(
-      `[cache] prompt-cache break detected: cache read dropped ${prevRead - currRead} ` +
+      `[cache] prompt-cache break detected (${cause}): cache read dropped ${prevRead - currRead} ` +
         `tokens (${Math.round(((prevRead - currRead) / prevRead) * 100)}%) between steps, ` +
         `${((now - prev.time) / 1000).toFixed(1)}s after the previous request ` +
         `(model ${prev.model} -> ${model}, effort ${prev.effort} -> ${effort})`,
     );
     this.host.track('cache_break_detected', {
+      cause,
       prev_model: prev.model,
       curr_model: model,
       prev_effort: prev.effort,
       curr_effort: effort,
+      prev_projection: prev.projection,
+      curr_projection: projection,
+      prev_message_count: prev.messageCount,
+      curr_message_count: messageCount,
       prev_input_cache_read: prevRead,
       curr_input_cache_read: currRead,
       prev_input_other: prev.usage.inputOther,
@@ -256,6 +281,19 @@ export class CacheHintController {
     this.stepsSinceBreakNotice = Number.POSITIVE_INFINITY;
   }
 
+  /** Coverage gap rather than a decision: a model with no remote rule (or a
+   *  config that never arrived) can never hint, and only the reason tells the
+   *  two apart. Everything else skips for a normal reason and stays quiet. */
+  private noteSkip(decision: CacheHintDecision, scene: 'resume' | 'idle'): void {
+    if (decision.kind !== 'skip') return;
+    if (decision.reason !== 'rule_missing' && decision.reason !== 'missing_config') return;
+    this.host.track('cache_hint_skipped', {
+      scene,
+      reason: decision.reason,
+      model: this.host.state.appState.model,
+    });
+  }
+
   /** Background warm-up on session creation; never blocks, never throws. */
   refreshConfigInBackground(): void {
     void this.resolveConfig();
@@ -304,7 +342,10 @@ export class CacheHintController {
       config,
       dismissed: host.state.appState.cacheExpiryHint === false,
     });
-    if (decision.kind === 'skip') return;
+    if (decision.kind === 'skip') {
+      this.noteSkip(decision, 'resume');
+      return;
+    }
     // Another dialog (e.g. the model migration prompt) already owns the editor
     // area: never replace it under the user's keystrokes. The seeded baseline
     // leaves this cycle to the idle-submit path, which hints on the first prompt.
@@ -361,7 +402,10 @@ export class CacheHintController {
         config: cached,
         dismissed: false,
       });
-      if (decision.kind === 'skip') return false;
+      if (decision.kind === 'skip') {
+        this.noteSkip(decision, 'idle');
+        return false;
+      }
       this.idlePrompted = true;
       // Mounts synchronously inside; the action resolution runs async.
       void this.showDialog('idle', decision, stash);
@@ -427,6 +471,7 @@ export class CacheHintController {
         await this.showDialog('idle', decision, stash);
         return;
       }
+      this.noteSkip(decision, 'idle');
     }
     // No hint (fetch failed or rules don't match): release the message. The
     // re-entry skips the fetch (fresh cache or triggerFetchAttempted) and
@@ -633,4 +678,21 @@ export class CacheHintController {
     }
     return false;
   }
+}
+
+function classifyCacheBreak(
+  prev: Pick<CacheBreakBaseline, 'model' | 'effort' | 'projection' | 'messageCount'>,
+  next: Pick<CacheBreakBaseline, 'model' | 'effort' | 'projection' | 'messageCount'>,
+): CacheBreakCause {
+  if (prev.model !== next.model) return 'model_switch';
+  if (prev.effort !== next.effort) return 'effort_switch';
+  if (prev.projection !== next.projection) return 'projection_change';
+  if (
+    prev.messageCount !== undefined &&
+    next.messageCount !== undefined &&
+    next.messageCount < prev.messageCount
+  ) {
+    return 'prefix_reset';
+  }
+  return 'unexplained';
 }

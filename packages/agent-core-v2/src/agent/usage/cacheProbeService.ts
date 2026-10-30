@@ -1,15 +1,14 @@
 import { IInstantiationService } from '#/_base/di/instantiation';
-import { Service } from '#/_base/di/service';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { LifecycleScope } from '#/app/scopes';
+import { Service } from '#/_base/di/service';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import {
   IAgentLLMRequesterService,
   type AgentLLMTurnRequestSnapshot,
 } from '#/agent/llmRequester/llmRequester';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { LifecycleScope } from '#/app/scopes';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IModelCatalog } from '#/llm-adapter/model/catalog';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionUsageService } from '#/session/usage/sessionUsage';
 import { inputTotal } from '#human/llm/usage';
@@ -28,7 +27,6 @@ export class AgentCacheProbeService extends Service implements IAgentCacheProbeS
     @ISessionUsageService usage: ISessionUsageService,
     @IAgentScopeContext scopeContext: IAgentScopeContext,
     @ITelemetryService private readonly telemetry: ITelemetryService,
-    @IModelCatalog private readonly models: IModelCatalog,
     @IInstantiationService private readonly instantiation: IInstantiationService,
     @IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService,
   ) {
@@ -48,43 +46,52 @@ export class AgentCacheProbeService extends Service implements IAgentCacheProbeS
 
   private probe(e: UsageRecordedContext): void {
     if (!e.firstRecord || e.source?.type !== 'turn') return;
-    const parentRevision =
-      this.parentId === undefined
-        ? undefined
-        : this.agentLifecycle
-            .handleOf(this.parentId)
-            ?.accessor.get(IAgentContextMemoryService)
-            .prefixRevision();
-    const parent =
-      this.parentRequest !== undefined && this.parentRequest.contextRevision === parentRevision
-        ? this.parentRequest
+    const own = this.ownSnapshot();
+    const parent = this.parentSnapshot();
+    const compared =
+      own !== undefined &&
+      parent !== undefined &&
+      own.observation.modelAlias === parent.observation.modelAlias
+        ? { own, parent }
         : undefined;
-    let providerType: string | undefined;
-    let protocol: string | undefined;
-    try {
-      const model = this.models.get(e.model);
-      providerType = model.providerType ?? model.protocol;
-      protocol = model.protocol;
-    } catch { }
-    const own = this.instantiation
-      .invokeFunction((accessor) => accessor.get(IAgentLLMRequesterService))
-      .lastTurnRequest();
-    const sameModel = parent !== undefined && parent.modelAlias === e.model;
-    const compared = sameModel && own !== undefined;
+    const observation = own?.observation;
     this.telemetry.track2('prompt_cache_probe', {
       source: 'fork',
       turn_id: e.source.turnId,
-      provider_type: providerType,
-      protocol,
+      provider_type: observation?.providerType ?? observation?.protocol,
+      protocol: observation?.protocol,
       input_tokens: inputTotal(e.usage),
       input_cache_read: e.usage.inputCacheRead,
       input_cache_creation: e.usage.inputCacheCreation,
       output_tokens: e.usage.output,
-      tools_match: compared ? own.toolsHash === parent.toolsHash : undefined,
-      system_prompt_match: compared ? own.systemPromptHash === parent.systemPromptHash : undefined,
-      parent_input_tokens: sameModel ? parent?.inputTokens : undefined,
-      parent_request_gap_ms: compared ? own.startedAt - parent.finishedAt : undefined,
+      message_count: observation?.messageCount,
+      projection: observation?.projection,
+      thinking_effort: observation?.thinkingEffort,
+      tools_match:
+        compared === undefined ? undefined : compared.own.toolsHash === compared.parent.toolsHash,
+      system_prompt_match:
+        compared === undefined
+          ? undefined
+          : compared.own.systemPromptHash === compared.parent.systemPromptHash,
+      parent_message_count: compared?.parent.observation.messageCount,
+      parent_input_tokens: compared?.parent.observation.inputTokens,
+      parent_request_gap_ms:
+        compared === undefined ? undefined : compared.own.startedAt - compared.parent.finishedAt,
     });
+  }
+
+  private ownSnapshot(): AgentLLMTurnRequestSnapshot | undefined {
+    return this.instantiation
+      .invokeFunction((accessor) => accessor.get(IAgentLLMRequesterService))
+      .lastTurnRequest();
+  }
+
+  private parentSnapshot(): AgentLLMTurnRequestSnapshot | undefined {
+    if (this.parentId === undefined || this.parentRequest === undefined) return undefined;
+    const parentHandle = this.agentLifecycle.handleOf(this.parentId);
+    const parentRevision = parentHandle?.accessor.get(IAgentContextMemoryService).prefixRevision();
+    if (parentRevision !== this.parentRequest.contextRevision) return undefined;
+    return this.parentRequest;
   }
 }
 

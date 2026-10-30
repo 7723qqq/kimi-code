@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
-import type { CacheHintConfig } from '#/utils/cache-hint-config';
 import { evaluateCacheHint, formatIdleDuration } from '#/tui/utils/cache-hint';
+import type { CacheHintConfig } from '#/utils/cache-hint-config';
 
 const CONFIG: CacheHintConfig = {
   version: 1,
@@ -35,34 +35,47 @@ describe('evaluateCacheHint', () => {
   });
 
   it('skips when dismissed', () => {
-    expect(evaluateCacheHint(input({ dismissed: true })).kind).toBe('skip');
+    expect(evaluateCacheHint(input({ dismissed: true }))).toEqual({
+      kind: 'skip',
+      reason: 'dismissed',
+    });
   });
 
   it.each([
-    ['config', { config: undefined }],
-    ['modelId', { modelId: undefined }],
-    ['lastActiveAt', { lastActiveAt: undefined }],
-    ['totalTokens', { totalTokens: undefined }],
-  ] as const)('skips when %s is missing', (_name, overrides) => {
-    expect(evaluateCacheHint(input(overrides)).kind).toBe('skip');
+    ['config', { config: undefined }, 'missing_config'],
+    ['modelId', { modelId: undefined }, 'missing_model'],
+    ['lastActiveAt', { lastActiveAt: undefined }, 'missing_activity'],
+    ['totalTokens', { totalTokens: undefined }, 'missing_tokens'],
+  ] as const)('skips when %s is missing', (_name, overrides, reason) => {
+    expect(evaluateCacheHint(input(overrides))).toEqual({ kind: 'skip', reason });
   });
 
   it('skips when the model is not in the config', () => {
-    expect(evaluateCacheHint(input({ modelId: 'unknown-model' })).kind).toBe('skip');
+    expect(evaluateCacheHint(input({ modelId: 'unknown-model' }))).toEqual({
+      kind: 'skip',
+      reason: 'rule_missing',
+    });
   });
 
   it('skips at exactly cache_duration (strictly-greater rule)', () => {
-    expect(
-      evaluateCacheHint(input({ lastActiveAt: NOW - 600_000 })).kind,
-    ).toBe('skip');
+    expect(evaluateCacheHint(input({ lastActiveAt: NOW - 600_000 }))).toEqual({
+      kind: 'skip',
+      reason: 'within_duration',
+    });
   });
 
   it('skips below the token threshold', () => {
-    expect(evaluateCacheHint(input({ totalTokens: 99999 })).kind).toBe('skip');
+    expect(evaluateCacheHint(input({ totalTokens: 99999 }))).toEqual({
+      kind: 'skip',
+      reason: 'below_threshold',
+    });
   });
 
   it('skips on clock skew (negative idle)', () => {
-    expect(evaluateCacheHint(input({ lastActiveAt: NOW + 60_000 })).kind).toBe('skip');
+    expect(evaluateCacheHint(input({ lastActiveAt: NOW + 60_000 }))).toEqual({
+      kind: 'skip',
+      reason: 'clock_skew',
+    });
   });
 });
 

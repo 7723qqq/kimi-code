@@ -2,8 +2,8 @@
 import { z } from 'zod';
 
 import { AgentEvent2 } from '#/app/event/event2';
-import type { ThinkingEffort } from '#human/llm/thinking';
 import { defineState } from '#/state/state';
+import type { ThinkingEffort } from '#human/llm/thinking';
 
 export interface LlmRequestToolSchema {
   readonly name: string;
@@ -57,11 +57,21 @@ const llmRequestSchema = z.object({
   messageCount: z.number(),
   turnStep: z.string().optional(),
   attempt: z.string().optional(),
-  projection: z.enum(['strict', 'media-degraded', 'media-stripped', 'strict-media-degraded', 'strict-media-stripped']).optional(),
+  projection: z
+    .enum([
+      'strict',
+      'media-degraded',
+      'media-stripped',
+      'strict-media-degraded',
+      'strict-media-stripped',
+    ])
+    .optional(),
   droppedCount: z.number().optional(),
 });
 
 export type LlmRequestPayload = z.infer<typeof llmRequestSchema>;
+
+export type LlmRequestProjection = NonNullable<LlmRequestPayload['projection']>;
 
 export class LlmRequest extends AgentEvent2<LlmRequestPayload> {
   static override readonly type = 'llm.request';
@@ -96,10 +106,10 @@ export interface LlmRequest {
   readonly droppedCount?: number;
 }
 
-export const llmRequestTraceKey = defineState(
-  'llm.requestTrace',
-  (): LlmRequestTraceState => ({ seenToolsHashes: [] }),
-).replayable({ schema: z.custom<LlmRequestTraceState>() })
+export const llmRequestTraceKey = defineState('llm.requestTrace', (): LlmRequestTraceState => ({
+  seenToolsHashes: [],
+}))
+  .replayable({ schema: z.custom<LlmRequestTraceState>() })
   .on(LlmToolsSnapshot, (s, e) => {
     if (s.seenToolsHashes.includes(e.hash)) return;
     s.seenToolsHashes = [...s.seenToolsHashes, e.hash];

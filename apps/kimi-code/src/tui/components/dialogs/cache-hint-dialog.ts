@@ -14,12 +14,20 @@ import {
   truncateToWidth,
   visibleWidth,
   type Focusable,
+  type TuiMouseDispatchResult,
+  type TuiMouseEvent,
 } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import { formatIdleDuration } from '#/tui/utils/cache-hint';
+import {
+  listMouseDispatch,
+  ListMouseRouter,
+  type ListRowRegion,
+  searchableListCursor,
+} from '#/tui/utils/list-mouse';
 import { SearchableList } from '#/tui/utils/searchable-list';
 import { formatTokenCount } from '#/utils/usage/usage-format';
 
@@ -63,6 +71,7 @@ export class CacheHintDialogComponent extends Container implements Focusable {
   focused = false;
   private readonly opts: CacheHintDialogOptions;
   private readonly list: SearchableList<CacheHintOption>;
+  private readonly mouse: ListMouseRouter<CacheHintOption>;
 
   constructor(opts: CacheHintDialogOptions) {
     super();
@@ -73,6 +82,11 @@ export class CacheHintDialogComponent extends Container implements Focusable {
       initialIndex: 0,
       searchable: false,
     });
+    this.mouse = new ListMouseRouter(
+      searchableListCursor(() => this.list),
+      (option) => this.opts.onSelect(option.value),
+      { isFocused: () => this.focused },
+    );
   }
 
   handleInput(data: string): void {
@@ -86,6 +100,10 @@ export class CacheHintDialogComponent extends Container implements Focusable {
       return;
     }
     this.list.handleKey(data);
+  }
+
+  override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
+    return listMouseDispatch(this, event, this.mouse.handleMouse(event));
   }
 
   override render(width: number): string[] {
@@ -103,6 +121,7 @@ export class CacheHintDialogComponent extends Container implements Focusable {
     ];
 
     const maxLabelWidth = Math.max(...getOptions().map((o) => visibleWidth(o.label)));
+    const regions: ListRowRegion[] = [];
     for (let i = view.page.start; i < view.page.end; i++) {
       const opt = view.items[i]!;
       const isSelected = i === view.selectedIndex;
@@ -115,8 +134,11 @@ export class CacheHintDialogComponent extends Container implements Focusable {
         const gap = maxLabelWidth - visibleWidth(opt.label) + 4;
         line += ' '.repeat(gap) + currentTheme.fg('textMuted', opt.description);
       }
+      const start = lines.length;
       lines.push(line);
+      regions.push({ start, end: lines.length, index: i });
     }
+    this.mouse.setRegions(regions);
 
     lines.push('');
     lines.push(currentTheme.fg('primary', '─'.repeat(width)));

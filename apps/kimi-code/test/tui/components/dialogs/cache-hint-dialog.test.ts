@@ -1,6 +1,7 @@
 import { describe, expect, it, mock } from 'bun:test';
 
 import { CacheHintDialogComponent } from '#/tui/components/dialogs/cache-hint-dialog';
+import { mouse, pastSettlingWindow } from '#test/helpers/mouse';
 
 const ANSI_SGR = /\[[0-9;]*m/g;
 
@@ -83,5 +84,25 @@ describe('CacheHintDialogComponent', () => {
     dialog.handleInput('\u001B');
     expect(onCancel).toHaveBeenCalled();
     expect(onSelect).not.toHaveBeenCalled();
+  });
+});
+
+describe('CacheHintDialogComponent — mouse', () => {
+  it('picks the option the pointer is over', () => {
+    const onSelect = mock();
+    const dialog = new CacheHintDialogComponent({
+      idleSeconds: 60,
+      totalTokens: 1000,
+      onSelect,
+      onCancel: mock(),
+    });
+    pastSettlingWindow();
+    dialog.focused = true;
+    const rows = dialog.render(120).map(strip);
+    const row = rows.findIndex((line) => line.includes('Compact'));
+    expect(row).toBeGreaterThan(0);
+
+    for (const type of ['press', 'release', 'click'] as const) dialog.handleMouse(mouse(type, row));
+    expect(onSelect).toHaveBeenCalled();
   });
 });
