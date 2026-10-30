@@ -429,6 +429,14 @@ export class KimiHarness {
     return this.rpc.getWorkspaceTrustInfo(workDir);
   }
 
+  /**
+   * Source folders registered for `workDir`'s workspace besides its root.
+   * Reading them may register the workDir as a workspace.
+   */
+  async getWorkspaceAdditionalDirs(workDir: string): Promise<readonly string[]> {
+    return this.rpc.getWorkspaceAdditionalDirs(workDir);
+  }
+
   /** Mark `workDir` as trusted; project-level MCP servers connect live afterwards. */
   async trustWorkspace(workDir: string): Promise<void> {
     return this.rpc.trustWorkspace(workDir);

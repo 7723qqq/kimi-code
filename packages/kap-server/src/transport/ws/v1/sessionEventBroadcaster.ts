@@ -1610,6 +1610,10 @@ function workspaceLifecyclePayload(payload: unknown): Workspace | undefined {
     id: ws.id,
     root: ws.root,
     name: ws.name,
+    kind: ws.kind === 'managed' ? 'managed' : 'implicit',
+    additionalDirs: Array.isArray(ws.additionalDirs)
+      ? ws.additionalDirs.filter((dir): dir is string => typeof dir === 'string')
+      : [],
     createdAt: ws.createdAt,
     lastOpenedAt: ws.lastOpenedAt,
   };

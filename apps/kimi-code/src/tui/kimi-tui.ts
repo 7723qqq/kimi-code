@@ -134,7 +134,10 @@ import { ActivityPaneController } from './controllers/activity-pane';
 import { AuthFlowController } from './controllers/auth-flow';
 import { BackgroundTasksMiniController } from './controllers/background-tasks-mini';
 import { BtwPanelController } from './controllers/btw-panel';
-import { CacheHintController } from './controllers/cache-hint-controller';
+import {
+  CacheHintController,
+  type StepCacheObservation,
+} from './controllers/cache-hint-controller';
 import { ClipboardImageHintController } from './controllers/clipboard-image-hint';
 import { DialogHostController } from './controllers/dialog-host';
 import { type ActiveExclusiveMode, type ReviewCycleMode } from './controllers/editor-keyboard';
@@ -835,6 +838,25 @@ export class KimiTUI {
 
   private async initMainTui(): Promise<boolean> {
     const shouldReplayHistory = await this.init();
+
+    if (this.session === undefined) {
+      const workDir = this.state.appState.workDir;
+      const workspaceAdditionalDirs = await Promise.resolve()
+        .then(() => this.harness.getWorkspaceAdditionalDirs(workDir))
+        .catch((error: unknown) => {
+          this.appendStartupNotice(
+            `Additional workspace directories could not be loaded: ${formatErrorMessage(error)}`,
+          );
+          return [];
+        });
+      if (workspaceAdditionalDirs.length > 0) {
+        this.setAppState({
+          additionalDirs: [
+            ...new Set([...workspaceAdditionalDirs, ...this.state.appState.additionalDirs]),
+          ],
+        });
+      }
+    }
 
     // Mount only after init() succeeds; see mountFooter().
     this.mountFooter();
@@ -4150,7 +4172,7 @@ export class KimiTUI {
     this.state.ui.requestRender();
   }
 
-  toggleTodoPanelExpansion(): boolean {
+  toggleStatusSurfaceFold(): boolean {
     if (!this.state.statusSurface.handleKey('toggle')) return false;
     this.state.ui.requestRender();
     return true;
@@ -4444,9 +4466,9 @@ export class KimiTUI {
     this.cacheHint.recordActivity();
   }
 
-  /** Per-step usage for the client-side cache-break detector. */
-  noteStepUsage(usage: TokenUsage | undefined): void {
-    this.cacheHint.noteStepUsage(usage);
+  /** Per-step usage plus the engine's cache observation for the detector. */
+  noteStepUsage(usage: TokenUsage | undefined, cache?: StepCacheObservation): void {
+    this.cacheHint.noteStepUsage(usage, cache);
   }
 
   /** Compaction shrinks the cached prefix — reset the cache-break baseline. */

@@ -560,9 +560,9 @@ describe('systemPromptVars plan_mode_guidance', () => {
     const withPlan = renderSystemPromptResult('', { planModeAvailable: true }, { skillActive: false }).text;
     const withoutPlan = renderSystemPromptResult('', {}, { skillActive: false }).text;
 
-    expect(withPlan).toContain(`\n\n${PLAN_MODE_GUIDANCE}\n\nBefore you call the work done`);
+    expect(withPlan).toContain(`\n\n${PLAN_MODE_GUIDANCE}\n\nBefore you call a change done`);
     expect(withoutPlan).not.toContain(PLAN_MODE_GUIDANCE);
-    expect(withoutPlan).toMatch(/[^\n]\n\nBefore you call the work done/);
+    expect(withoutPlan).toMatch(/[^\n]\n\nBefore you call a change done/);
   });
 
   it('tells the model that only the user turns plan mode on', () => {

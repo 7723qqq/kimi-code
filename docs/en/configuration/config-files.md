@@ -496,16 +496,17 @@ Both values must be positive integers. A call's `max_chars` overrides the defaul
 
 ## `database`
 
-`database` controls the embedded storage engines behind session indexing and global search. Both keys default to `true` and act as kill switches that fall back to the legacy behavior when set to `false`.
+`database` controls the embedded storage engines behind session indexing and global search. Session indexing is on by default; the global full-text search index is off by default and, once enabled, scans past sessions in the background and serves `POST /api/v1/search`.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `base` | `boolean` | `true` | Use the minidb-backed read model for session indexing; `false` falls back to reading session metadata directly |
-| `search` | `boolean` | `true` | Run the global search index in a dedicated worker thread; `false` runs it in the server process |
+| `global_search` | `boolean` | `false` | Build the global full-text search index and serve `POST /api/v1/search`; when off, no sessions are scanned, no search worker starts, and the search endpoint reports the index as unavailable |
+| `search` | `boolean` | `true` | With global search enabled, run the index in a dedicated worker thread; `false` runs it in the server process |
 | `search_sync_session_cap` | `integer` | `500` | Maximum number of sessions synced into the search index in one pass; the rest are picked up by a later pass |
 | `search_sync_debounce_ms` | `integer` | `2000` | Debounce (milliseconds) before a pending search-index sync runs |
 
-`base` can be overridden by the `KIMI_CODE_PERSISTENCE_MINIDB_READMODEL` environment variable, `search` by `KIMI_CODE_SEARCH_WORKER`, `search_sync_session_cap` by `KIMI_CODE_SEARCH_SYNC_SESSION_CAP`, and `search_sync_debounce_ms` by `KIMI_CODE_SEARCH_SYNC_DEBOUNCE_MS`; all take higher priority than `config.toml`.
+`base` can be overridden by the `KIMI_CODE_PERSISTENCE_MINIDB_READMODEL` environment variable, `global_search` by `KIMI_CODE_GLOBAL_SEARCH`, `search` by `KIMI_CODE_SEARCH_WORKER`, `search_sync_session_cap` by `KIMI_CODE_SEARCH_SYNC_SESSION_CAP`, and `search_sync_debounce_ms` by `KIMI_CODE_SEARCH_SYNC_DEBOUNCE_MS`; all take higher priority than `config.toml`.
 
 ## `watch`
 
@@ -516,6 +517,25 @@ Both values must be positive integers. A call's `max_chars` overrides the defaul
 | `enabled` | `boolean` | `true` | Attach filesystem watchers; `false` disables every `watch()` for the process |
 
 `enabled` can be overridden by the `KIMI_CODE_WATCH` environment variable, which takes higher priority than `config.toml`.
+
+## `workspace trust`
+
+`workspace` groups workspace-related settings in the user-level `config.toml`. Its `require_trust` field controls whether Kimi Code asks for trust confirmation when an untrusted workspace is opened for the first time; confirmation is required by default.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `require_trust` | `boolean` | `true` | Require trust confirmation when first opening an untrusted workspace; `false` treats every workspace as trusted and skips the startup trust prompt |
+
+```toml
+[workspace]
+require_trust = false
+```
+
+::: warning Note
+Disabling the trust requirement loads project-level MCP servers and other trust-gated project configuration without confirmation. Use this setting only when every workspace is already trusted. It does not change permission modes, tool approvals, or dangerous-command guards.
+:::
+
+Changes take effect on `/reload`; a running TUI does not show a startup trust prompt retroactively. `KIMI_CODE_TRUST_WORKSPACE=1` remains an independent per-process trust override, and a falsy value does not restore the first-open requirement when `require_trust` is `false`. Existing trust records are preserved and used again if the requirement is re-enabled.
 
 <!--
 ## `llm_requester`
@@ -638,7 +658,7 @@ Alongside `config.toml`, the CLI keeps terminal-UI and client preferences in a c
 | --- | --- | --- | --- |
 | `theme` | `string` | `auto` | Color theme: `auto` (follow the terminal), `dark`, `light`, or the name of a [custom theme](../customization/themes.md) |
 | `locale` | `string` | auto-detected | UI language for the terminal: `en` or `zh`. The `/settings` dialog writes it for you. Unset, the CLI picks `zh` when `KIMI_LANG` or the system `LANG` / `LC_ALL` / `LC_MESSAGES` says Chinese, and `en` otherwise; set it explicitly to pin one language |
-| `tui_mode` | `string` | `regular` | UI layout: `regular` renders into the terminal scrollback; `fullscreen` (experimental) makes parts of the UI mouse-interactive for a smoother experience |
+| `tui_mode` | `string` | `regular` | UI layout: `regular` renders into the terminal scrollback; `fullscreen` (experimental) takes over the mouse — wheel scrolling, drag-to-copy, click-to-pick rows and tabs, and clickable question-dialog options; a switch takes effect after a restart |
 | `render_latex` | `boolean` | `true` | Render LaTeX math expressions (`$…$`, `$$…$$`) in Markdown messages as Unicode text; `false` keeps the raw source |
 | `disable_paste_burst` | `boolean` | `false` | Disable the non-bracketed paste-burst fallback that keeps rapid multi-line pastes from submitting line by line |
 | `cache_expiry_hint` | `boolean` | `true` | On resume or when submitting after a long idle stretch, warn that the context cache may have expired and offer to compact or start a new session (v2 engine only) |

@@ -1,13 +1,15 @@
 import { beforeEach, describe, expect, it, jest } from 'bun:test';
-import { waitForAssertion, waitUntil } from '../../helpers/waitFor';
-import { mocked } from '../../helpers/mocked';
 
 import {
   CacheHintController,
   type CacheHintHost,
+  type StepCacheObservation,
 } from '#/tui/controllers/cache-hint-controller';
-import type { CacheHintConfig } from '#/utils/cache-hint-config';
 import type { ExtractionResult } from '#/tui/utils/image-placeholder';
+import type { CacheHintConfig } from '#/utils/cache-hint-config';
+
+import { mocked } from '../../helpers/mocked';
+import { waitForAssertion, waitUntil } from '../../helpers/waitFor';
 
 const peekMock = jest.fn<() => CacheHintConfig | undefined>(() => undefined);
 const getMock = jest.fn(async (): Promise<CacheHintConfig | undefined> => undefined);
@@ -238,7 +240,8 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     });
     jest.restoreAllMocks();
 
-    const dialog = (host.mountEditorReplacement as ReturnType<typeof jest.fn>).mock.calls[0]![0] as {
+    const dialog = (host.mountEditorReplacement as ReturnType<typeof jest.fn>).mock
+      .calls[0]![0] as {
       handleInput: (data: string) => void;
     };
     dialog.handleInput('\u001B'); // dismiss the first dialog
@@ -263,7 +266,8 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     });
     jest.restoreAllMocks();
 
-    const dialog = (host.mountEditorReplacement as ReturnType<typeof jest.fn>).mock.calls[0]![0] as {
+    const dialog = (host.mountEditorReplacement as ReturnType<typeof jest.fn>).mock
+      .calls[0]![0] as {
       handleInput: (data: string) => void;
     };
     dialog.handleInput('\u001B'); // dismiss
@@ -356,7 +360,8 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     controller.maybeInterceptOnSubmit('hello');
     jest.restoreAllMocks();
 
-    const dialog = (host.mountEditorReplacement as ReturnType<typeof jest.fn>).mock.calls[0]![0] as {
+    const dialog = (host.mountEditorReplacement as ReturnType<typeof jest.fn>).mock
+      .calls[0]![0] as {
       handleInput: (data: string) => void;
     };
     dialog.handleInput('\u001B[B'); // down → new
@@ -379,7 +384,8 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     controller.maybeInterceptOnSubmit('hello');
     jest.restoreAllMocks();
 
-    const dialog = (host.mountEditorReplacement as ReturnType<typeof jest.fn>).mock.calls[0]![0] as {
+    const dialog = (host.mountEditorReplacement as ReturnType<typeof jest.fn>).mock
+      .calls[0]![0] as {
       handleInput: (data: string) => void;
     };
     dialog.handleInput('\u001B');
@@ -398,7 +404,8 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     controller.maybeInterceptOnSubmit('hello');
     jest.restoreAllMocks();
 
-    const dialog = (host.mountEditorReplacement as ReturnType<typeof jest.fn>).mock.calls[0]![0] as {
+    const dialog = (host.mountEditorReplacement as ReturnType<typeof jest.fn>).mock
+      .calls[0]![0] as {
       handleInput: (data: string) => void;
     };
     dialog.handleInput('\r'); // compact (default)
@@ -421,7 +428,8 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     controller.maybeInterceptOnSubmit('hello');
     jest.restoreAllMocks();
 
-    const dialog = (host.mountEditorReplacement as ReturnType<typeof jest.fn>).mock.calls[0]![0] as {
+    const dialog = (host.mountEditorReplacement as ReturnType<typeof jest.fn>).mock
+      .calls[0]![0] as {
       handleInput: (data: string) => void;
     };
     dialog.handleInput('\u001B[B'); // down → new
@@ -442,7 +450,8 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     controller.maybeInterceptOnSubmit('describe [image #1 (1×1)]', extraction);
     jest.restoreAllMocks();
 
-    const dialog = (host.mountEditorReplacement as ReturnType<typeof jest.fn>).mock.calls[0]![0] as {
+    const dialog = (host.mountEditorReplacement as ReturnType<typeof jest.fn>).mock
+      .calls[0]![0] as {
       handleInput: (data: string) => void;
     };
     dialog.handleInput('\u001B[B');
@@ -471,7 +480,8 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     });
     jest.restoreAllMocks();
 
-    const dialog = (host.mountEditorReplacement as ReturnType<typeof jest.fn>).mock.calls[0]![0] as {
+    const dialog = (host.mountEditorReplacement as ReturnType<typeof jest.fn>).mock
+      .calls[0]![0] as {
       handleInput: (data: string) => void;
     };
     dialog.handleInput('\u001B[B');
@@ -487,10 +497,7 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
       const imagePart = extraction?.parts.find((part) => part.type === 'image_url');
       return imagePart?.type === 'image_url' ? imagePart.imageUrl.url : undefined;
     });
-    expect(imageUrls).toEqual([
-      'data:image/png;base64,AQ==',
-      'data:image/png;base64,Ag==',
-    ]);
+    expect(imageUrls).toEqual(['data:image/png;base64,AQ==', 'data:image/png;base64,Ag==']);
   });
 
   it('keeps the input when new-session creation fails', async () => {
@@ -502,7 +509,8 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     controller.maybeInterceptOnSubmit('hello');
     jest.restoreAllMocks();
 
-    const dialog = (host.mountEditorReplacement as ReturnType<typeof jest.fn>).mock.calls[0]![0] as {
+    const dialog = (host.mountEditorReplacement as ReturnType<typeof jest.fn>).mock
+      .calls[0]![0] as {
       handleInput: (data: string) => void;
     };
     dialog.handleInput('\u001B[B');
@@ -580,7 +588,12 @@ describe('CacheHintController cache-break detection', () => {
     const controller = new CacheHintController(host);
     controller.noteStepUsage(u(10000));
     controller.noteStepUsage(undefined);
-    controller.noteStepUsage({ inputOther: 0, output: 0, inputCacheRead: 0, inputCacheCreation: 0 });
+    controller.noteStepUsage({
+      inputOther: 0,
+      output: 0,
+      inputCacheRead: 0,
+      inputCacheCreation: 0,
+    });
     controller.noteStepUsage(u(5000));
     expect(host.track).toHaveBeenCalledWith(
       'cache_break_detected',
@@ -612,6 +625,64 @@ describe('CacheHintController cache-break detection', () => {
   });
 });
 
+describe('CacheHintController cache-break cause', () => {
+  const usage = (inputCacheRead: number) => ({
+    inputOther: 100,
+    output: 50,
+    inputCacheRead,
+    inputCacheCreation: 0,
+  });
+  const observation = (overrides: Partial<StepCacheObservation> = {}): StepCacheObservation => ({
+    modelAlias: 'k2',
+    protocol: 'anthropic',
+    providerType: 'kimi',
+    messageCount: 10,
+    historyHash: 'history-k2',
+    cacheRead: 0,
+    cacheCreation: 0,
+    outputTokens: 0,
+    ...overrides,
+  });
+
+  function breakCause(before: StepCacheObservation, after: StepCacheObservation): unknown {
+    const { host } = makeHost();
+    const controller = new CacheHintController(host);
+    controller.noteStepUsage(usage(10_000), before);
+    controller.noteStepUsage(usage(100), after);
+    const call = mocked(host.track).mock.calls.find(([event]) => event === 'cache_break_detected');
+    return call?.[1]?.['cause'];
+  }
+
+  it('names a model switch reported by the engine, not by app state', () => {
+    expect(breakCause(observation(), observation({ modelAlias: 'k3' }))).toBe('model_switch');
+  });
+
+  it('names an effort switch', () => {
+    expect(
+      breakCause(observation({ thinkingEffort: 'low' }), observation({ thinkingEffort: 'high' })),
+    ).toBe('effort_switch');
+  });
+
+  it('names a projection change', () => {
+    expect(
+      breakCause(
+        observation({ projection: 'media-degraded' }),
+        observation({ projection: 'media-stripped' }),
+      ),
+    ).toBe('projection_change');
+  });
+
+  it('names a prefix reset when the context shrank', () => {
+    expect(breakCause(observation({ messageCount: 20 }), observation({ messageCount: 8 }))).toBe(
+      'prefix_reset',
+    );
+  });
+
+  it('stays unexplained when nothing the observation carries changed', () => {
+    expect(breakCause(observation(), observation())).toBe('unexplained');
+  });
+});
+
 describe('CacheHintController scenario 1 (resume)', () => {
   /** maybeShowOnResume awaits the user's choice; dismiss the dialog once mounted. */
   async function showOnResumeAndDismiss(
@@ -622,7 +693,8 @@ describe('CacheHintController scenario 1 (resume)', () => {
     await waitForAssertion(() => {
       expect(host.mountEditorReplacement).toHaveBeenCalled();
     });
-    const dialog = (host.mountEditorReplacement as ReturnType<typeof jest.fn>).mock.calls[0]![0] as {
+    const dialog = (host.mountEditorReplacement as ReturnType<typeof jest.fn>).mock
+      .calls[0]![0] as {
       handleInput: (data: string) => void;
     };
     dialog.handleInput('\u001B');

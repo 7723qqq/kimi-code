@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import {
   createDecorator,
   errorMessage,
+  databaseGlobalSearchEnabled,
   databaseSearchEnabled,
   databaseSearchSyncTuning,
   IBootstrapService,
@@ -62,6 +63,8 @@ export type { GlobalSearchErrorReason } from './contract';
 
 const INDEX_DIR_NAME = 'search-index';
 const SESSION_PAGE_SIZE = 500;
+const GLOBAL_SEARCH_DISABLED_DETAIL =
+  'global search is disabled; set [database] global_search = true or KIMI_CODE_GLOBAL_SEARCH=1 to enable it';
 
 const MAX_QUERY_TERMS = 32;
 const MAX_LITERAL_QUERY_CHARS = 1_024;
@@ -255,6 +258,7 @@ export class GlobalSearchService implements IGlobalSearchService {
   private syncTimer: ReturnType<typeof setTimeout> | null = null;
   private lastRefreshError: { at: number; message: string } | null = null;
   private drainSettled = false;
+  private disabledLogged = false;
 
   constructor(
     @ISessionIndex private readonly sessionIndex: ISessionIndex,
@@ -276,6 +280,9 @@ export class GlobalSearchService implements IGlobalSearchService {
   private ensureBackend(): Promise<SearchBackend> {
     if (this.backend !== null) return Promise.resolve(this.backend);
     this.backendPromise ??= this.config.ready.then(() => {
+      if (!databaseGlobalSearchEnabled(this.config)) {
+        throw new GlobalSearchError('index_unavailable', GLOBAL_SEARCH_DISABLED_DETAIL);
+      }
       if (this.backend === null) {
         const tuning = databaseSearchSyncTuning(this.config);
         if (tuning.debounceMs !== undefined) this.syncDebounceMs = tuning.debounceMs;
@@ -326,7 +333,7 @@ export class GlobalSearchService implements IGlobalSearchService {
         ],
         SHUTDOWN_DRAIN_BUDGET_MS,
       );
-      const backend = await this.backendPromise;
+      const backend = await this.backendPromise?.catch(() => undefined);
       await backend?.dispose();
       this.drainSettled = true;
     })();
@@ -383,6 +390,7 @@ export class GlobalSearchService implements IGlobalSearchService {
 
   private async runSync(): Promise<void> {
     if (this.disposed || this.reindexing) return;
+    if (!(await this.enabled())) return;
     const backend = await this.ensureBackend();
     const sessions = await this.listAllSessions();
     if (this.disposed) return;
@@ -395,6 +403,16 @@ export class GlobalSearchService implements IGlobalSearchService {
     this.lastSyncStartedAt = Date.now();
     const outcome = await backend.sync(sessions.map((s) => this.toSyncInput(s)));
     if (outcome.truncated || outcome.failures > 0) this.requestSync();
+  }
+
+  private async enabled(): Promise<boolean> {
+    await this.config.ready;
+    if (databaseGlobalSearchEnabled(this.config)) return true;
+    if (!this.disabledLogged) {
+      this.disabledLogged = true;
+      this.log.info(`global search: ${GLOBAL_SEARCH_DISABLED_DETAIL}`);
+    }
+    return false;
   }
 
   private async listAllSessions(): Promise<SessionSummary[]> {
@@ -430,6 +448,9 @@ export class GlobalSearchService implements IGlobalSearchService {
 
   async search(input: GlobalSearchQuery): Promise<GlobalSearchPage> {
     const q = normalizeQuery(input, this.maxQueryTerms);
+    if (!(await this.enabled())) {
+      throw new GlobalSearchError('index_unavailable', GLOBAL_SEARCH_DISABLED_DETAIL);
+    }
     const sessionId = q.container?.sessionId;
     const liveStore =
       sessionId !== undefined ? this.liveSource?.forSessionLive(sessionId) : undefined;

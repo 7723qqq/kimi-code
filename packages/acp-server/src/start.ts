@@ -130,12 +130,14 @@ export async function runAcpServerWithStream(
 
   // Route every inbound ACP method to the `AcpServer`. The app must be
   // connected before the outbound client surface (`conn.client`) — and thus
-  // the server — exists, so handlers dereference `server` lazily. No inbound
-  // message can be dispatched before this synchronous block yields (the
-  // connection's reader only runs on later microtasks), so `server` is always
-  // assigned by the time a handler fires.
-  let server: AcpServer;
-  const app = createAcpAgentApp(() => server);
+  // the server — exists, and the environment provider attaches asynchronously
+  // before the server can be built, so handlers await `serverReady` instead of
+  // dereferencing a half-initialized binding.
+  let resolveServer: ((server: AcpServer) => void) | undefined;
+  const serverReady = new Promise<AcpServer>((resolve) => {
+    resolveServer = resolve;
+  });
+  const app = createAcpAgentApp(() => serverReady);
   const conn = app.connect(stream);
   const client = acpClientFromContext(conn.client);
   // Bind the process-wide ACP client connection before any session performs
@@ -150,7 +152,7 @@ export async function runAcpServerWithStream(
   );
   const acpProviderRegistration = await workspaceManager.addProvider(acpRuntimeProvider);
   const sessionWorkspaces = new Map<string, string>();
-  server = new AcpServer(client, klient, acpConnection, {
+  const server = new AcpServer(client, klient, acpConnection, {
     agentInfo: opts.agentInfo,
     disableAuth: opts.disableAuth,
     terminalAuthEnv: opts.terminalAuthEnv,
@@ -186,6 +188,7 @@ export async function runAcpServerWithStream(
         : sessionMediaOriginalsDir(handle.accessor.get(ISessionContext).sessionDir);
     },
   });
+  resolveServer?.(server);
 
   let closePromise: Promise<void> | undefined;
   const close = async (): Promise<void> => {

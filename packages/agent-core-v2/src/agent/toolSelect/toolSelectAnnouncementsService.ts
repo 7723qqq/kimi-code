@@ -22,8 +22,8 @@ export class AgentToolSelectAnnouncementsService
     super();
     this._register(
       reminder.register(LOADABLE_TOOLS_VARIANT, async ({ isNewTurn, signal }) => {
-        if (!isNewTurn || !toolSelect.enabled()) return undefined;
-        await mcp.waitForInitialLoad(signal);
+        if (!toolSelect.enabled()) return undefined;
+        if (isNewTurn) await mcp.waitForInitialLoad(signal);
         return toolSelect.loadableToolsAnnouncement();
       }),
     );

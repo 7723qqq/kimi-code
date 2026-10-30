@@ -297,7 +297,7 @@ describe('AgentTodoService', () => {
     expect(reminderCount(ctx.context)).toBe(0);
 
     await todo.replace([todoItem('T1', 'track me', 'pending')]);
-    appendAssistantTurns(ctx.context, 5);
+    appendAssistantTurns(ctx.context, 10);
     await reminder.reconcileWhenIdle(TODO_LIST_REMINDER_VARIANT);
     expect(reminderCount(ctx.context)).toBe(1);
 
@@ -330,7 +330,7 @@ describe('AgentTodoService', () => {
         todoItem('T1', 'parse config', 'done'),
         todoItem('T2', 'update callers', 'in_progress'),
       ]);
-      appendAssistantTurns(tracked.context, 5);
+      appendAssistantTurns(tracked.context, 10);
       await tracked.get(IAgentReminderService).reconcileWhenIdle(TODO_LIST_REMINDER_VARIANT);
       bus.publish(new TurnEnded({ agentId: 'main', turnId: 1, reason: 'completed' }));
       bus.publish(new TurnStarted({ agentId: 'main', turnId: 2, origin: { kind: 'user' } }));
@@ -344,7 +344,7 @@ describe('AgentTodoService', () => {
       const propertiesOf = (event: string) =>
         records.filter((record) => record.event === event).map((record) => record.properties);
       expect(propertiesOf('todo_reminder_shown')).toEqual([
-        expect.objectContaining({ steps_since_write: 5, item_count: 2, open_count: 1 }),
+        expect.objectContaining({ steps_since_write: 10, item_count: 2, open_count: 1 }),
       ]);
       expect(propertiesOf('todo_turn_ended')).toEqual([
         expect.objectContaining({

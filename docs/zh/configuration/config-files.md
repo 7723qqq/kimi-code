@@ -496,16 +496,17 @@ max_chars = 500000
 
 ## `database`
 
-`database` 控制会话索引和全局搜索背后的嵌入式存储引擎。两个字段默认值都是 `true`，设为 `false` 时回退到旧有行为。
+`database` 控制会话索引和全局搜索背后的嵌入式存储引擎。会话索引默认开启；全局全文搜索索引默认关闭，开启后才会在后台扫描历史会话并提供 `POST /api/v1/search`。
 
 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `base` | `boolean` | `true` | 会话索引使用基于 minidb 的读模型；`false` 回退为直接读取会话元数据 |
-| `search` | `boolean` | `true` | 在独立 worker 线程中运行全局搜索索引；`false` 在服务器进程内运行 |
+| `global_search` | `boolean` | `false` | 是否构建全局全文搜索索引并提供 `POST /api/v1/search`；关闭时不扫描会话、不启动搜索 worker，搜索接口返回索引不可用 |
+| `search` | `boolean` | `true` | 全局搜索开启时，在独立 worker 线程中运行索引；`false` 在服务器进程内运行 |
 | `search_sync_session_cap` | `integer` | `500` | 单次同步写入搜索索引的会话数上限，其余留给后续同步 |
 | `search_sync_debounce_ms` | `integer` | `2000` | 待处理的搜索索引同步开始前的防抖时间（毫秒） |
 
-`base` 可被环境变量 `KIMI_CODE_PERSISTENCE_MINIDB_READMODEL` 覆盖，`search` 可被 `KIMI_CODE_SEARCH_WORKER` 覆盖，`search_sync_session_cap` 可被 `KIMI_CODE_SEARCH_SYNC_SESSION_CAP` 覆盖，`search_sync_debounce_ms` 可被 `KIMI_CODE_SEARCH_SYNC_DEBOUNCE_MS` 覆盖，优先级均高于配置文件。
+`base` 可被环境变量 `KIMI_CODE_PERSISTENCE_MINIDB_READMODEL` 覆盖，`global_search` 可被 `KIMI_CODE_GLOBAL_SEARCH` 覆盖，`search` 可被 `KIMI_CODE_SEARCH_WORKER` 覆盖，`search_sync_session_cap` 可被 `KIMI_CODE_SEARCH_SYNC_SESSION_CAP` 覆盖，`search_sync_debounce_ms` 可被 `KIMI_CODE_SEARCH_SYNC_DEBOUNCE_MS` 覆盖，优先级均高于配置文件。
 
 ## `watch`
 
@@ -516,6 +517,25 @@ max_chars = 500000
 | `enabled` | `boolean` | `true` | 是否挂文件系统 watch；`false` 关闭进程内全部 `watch()` |
 
 `enabled` 可被环境变量 `KIMI_CODE_WATCH` 覆盖，优先级高于配置文件。
+
+## `workspace trust`
+
+`workspace` 用于集中存放用户级 `config.toml` 中的工作区设置。其 `require_trust` 字段控制首次打开尚未受信任的工作区时是否要求信任确认；默认要求确认。
+
+| 字段 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `require_trust` | `boolean` | `true` | 首次打开未受信任的工作区时要求信任确认；`false` 将所有工作区视为受信任并跳过启动信任提示 |
+
+```toml
+[workspace]
+require_trust = false
+```
+
+::: warning 注意
+关闭首次打开的信任确认后，项目级 MCP server 和其他受信任机制控制的项目配置都会不经确认直接加载。仅应在所有工作区均已可信时使用该配置。它不会改变权限模式、工具审批或危险命令保护。
+:::
+
+配置变更在 `/reload` 后生效；已经运行的 TUI 不会补弹启动信任提示。`KIMI_CODE_TRUST_WORKSPACE=1` 仍是独立的进程级信任覆盖，假值不会在 `require_trust` 为 `false` 时恢复首次打开的信任确认。已有信任记录会保留，恢复该要求后继续使用。
 
 <!--
 ## `llm_requester`
@@ -638,7 +658,7 @@ MCP server 的声明配置写在 `~/.kimi-code/mcp.json` 或项目内 `.kimi-cod
 | --- | --- | --- | --- |
 | `theme` | `string` | `auto` | 配色主题：`auto`（跟随终端）、`dark`、`light`，或[自定义主题](../customization/themes.md)的名字 |
 | `locale` | `string` | 自动探测 | 终端界面语言：`en` 或 `zh`，用 `/settings` 对话框即可切换并写入。未设置时，若 `KIMI_LANG` 或系统的 `LANG` / `LC_ALL` / `LC_MESSAGES` 表明是中文则取 `zh`，否则取 `en`；显式设置可固定为某一种语言 |
-| `tui_mode` | `string` | `regular` | 界面布局：`regular` 渲染进终端滚动缓冲区；`fullscreen`（实验性）部分组件支持鼠标交互，交互更顺手 |
+| `tui_mode` | `string` | `regular` | 界面布局：`regular` 渲染进终端滚动缓冲区；`fullscreen`（实验性）接管鼠标，支持滚轮翻会话记录与面板、拖选复制、点击选中列表行与标签，以及在问题对话框中点选选项；切换后需重启生效 |
 | `render_latex` | `boolean` | `true` | 将 Markdown 消息中的 LaTeX 公式（`$…$`、`$$…$$`）渲染为 Unicode 文本；`false` 则保留原始源码 |
 | `disable_paste_burst` | `boolean` | `false` | 禁用非 bracketed paste 的粘贴突发兜底；默认开启，避免快速多行粘贴被逐行提交 |
 | `cache_expiry_hint` | `boolean` | `true` | resume 或长时间空闲后发消息时，若上下文缓存可能过期则提醒，可先压缩或新建会话（仅 v2 引擎） |

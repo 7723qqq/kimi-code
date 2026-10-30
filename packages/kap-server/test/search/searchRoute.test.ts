@@ -117,6 +117,7 @@ describe('server-v2 /api/v1/search', () => {
       port: 0,
       homeDir: home,
       logLevel: 'silent',
+      env: { ...process.env, KIMI_CODE_GLOBAL_SEARCH: '1' },
       seeds: [[ISessionIndex, stubSessionIndex(summaries)]],
     });
     base = `http://127.0.0.1:${server.port}`;
@@ -248,6 +249,7 @@ describe('server-v2 session routes with the global search DB unavailable', () =>
       port: 0,
       homeDir: home as string,
       logLevel: 'silent',
+      env: { ...process.env, KIMI_CODE_GLOBAL_SEARCH: '1' },
     });
     base = `http://127.0.0.1:${server.port}`;
   }
@@ -327,6 +329,53 @@ describe('server-v2 session routes with the global search DB unavailable', () =>
 
       const list = await getJson<{ items: unknown[] }>('/api/v1/sessions');
       expect(list.code).toBe(0);
+    },
+  );
+});
+
+describe('server-v2 /api/v1/search with global search off by default', () => {
+  let server: RunningServer | undefined;
+  let home: string | undefined;
+  let base: string;
+
+  beforeAll(async () => {
+    home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-search-off-'));
+    server = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home,
+      logLevel: 'silent',
+    });
+    base = `http://127.0.0.1:${server.port}`;
+  });
+
+  afterAll(async () => {
+    if (server !== undefined) {
+      await server.close();
+      server = undefined;
+    }
+    if (home !== undefined) {
+      await rm(home, { recursive: true, force: true });
+      home = undefined;
+    }
+  });
+
+  it(
+    'reports the switch instead of indexing, and leaves the session routes alone',
+    { timeout: 20_000 },
+    async () => {
+      const res = await authedFetch(server as RunningServer, base, '/api/v1/search', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ query: 'anything' }),
+      });
+      const search = (await res.json()) as Envelope<SearchPageWire>;
+      expect(search.code).toBe(50001);
+      expect(search.msg).toContain('global_search');
+
+      const list = await authedFetch(server as RunningServer, base, '/api/v1/sessions');
+      expect(list.status).toBe(200);
     },
   );
 });

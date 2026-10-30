@@ -246,6 +246,7 @@ function makeHarness(session = makeSession(), overrides: Record<string, unknown>
     setTelemetryContext: mock(),
     getExperimentalFeatures: mock(async () => []),
     getWorkspaceTrustInfo: mock(async () => ({ trusted: true, gatedMcpServers: [], gatedAdditionalDirs: [], additionalDirSources: [], warnings: [], instructionSources: { agentsMdPaths: [], skills: [], agentProfiles: [], paths: [] } })),
+    getWorkspaceAdditionalDirs: mock(async () => []),
     supportsAtomicSectionReplace: mock(() => false),
     auth: {
       status: mock(async () => ({ providers: [] })),
@@ -2406,6 +2407,21 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     await expect(driver.start()).rejects.toThrow('resume boom');
 
     expect(driver.terminalFocusTrackingDispose).toBeUndefined();
+  });
+
+  it('loads the workspace source folders into app state before any session exists', async () => {
+    const getWorkspaceAdditionalDirs = mock(async () => ['/tmp/proj-a/extra']);
+    const harness = makeHarness(makeSession(), { getWorkspaceAdditionalDirs });
+    const driver = makeDriver(harness, makeStartupInput()) as unknown as {
+      start(): Promise<void>;
+      state: { appState: { additionalDirs: readonly string[] }; ui: { start(): void } };
+    };
+    spyOn(driver.state.ui, 'start').mockImplementation(() => {});
+
+    await driver.start();
+
+    expect(getWorkspaceAdditionalDirs).toHaveBeenCalledWith('/tmp/proj-a');
+    expect(driver.state.appState.additionalDirs).toContain('/tmp/proj-a/extra');
   });
 
   it('checks workspace trust before entering the migration screen', async () => {

@@ -1621,17 +1621,15 @@ describe('AgentToolSelectService loadable-tools announcements', () => {
     expect(await announce(h, 2)).toBeUndefined();
   });
 
-  it('waits until the next boundary before announcing registry diffs', async () => {
+  it('announces registry diffs before the next step in the same turn', async () => {
     const h = createHarness();
     registerMcp(h, new StubMcpTool(MCP_ALPHA));
     await announce(h);
 
     registerMcp(h, new StubMcpTool(MCP_GAMMA));
-    expect(await announce(h, 2)).toBeUndefined();
-
-    h.eventBus.publish(new TurnStarted({ agentId: 'main', turnId: 99, origin: { kind: 'user' } }));
-    const diff = await announce(h);
+    const diff = await announce(h, 2);
     expect(diff).toContain(`<tools_added>\n${MCP_GAMMA}\n</tools_added>`);
+    expect(await announce(h, 3)).toBeUndefined();
   });
 
   it('diffs registry additions and removals against the folded announcements', async () => {

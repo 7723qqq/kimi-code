@@ -873,6 +873,70 @@ describe('refreshProviderModels', () => {
     expect(host.current().thinking?.enabled).toBe(false);
   });
 
+  it('ignores field order when custom-registry metadata is unchanged', async () => {
+    const registryUrl = 'https://registry.example.test/v1/models/api.json';
+    const providerId = 'example_chat-completions';
+    const modelId = 'reasoner-pro';
+    const modelAlias = `${providerId}/${modelId}`;
+    const host = makeRefreshHost({
+      providers: {
+        [providerId]: {
+          type: 'openai',
+          baseUrl: 'https://api.example.test/v1',
+          apiKey: 'sk-test-token',
+          source: { kind: 'apiJson', url: registryUrl, apiKey: 'sk-test-token' },
+        },
+      },
+      models: {
+        [modelAlias]: {
+          provider: providerId,
+          model: modelId,
+          maxContextSize: 262144,
+          capabilities: ['tool_use'],
+          displayName: 'Reasoner Pro',
+          maxOutputSize: 32768,
+        },
+      },
+      defaultModel: modelAlias,
+    } as unknown as ManagedKimiConfigShape);
+
+    const fetchMock = jest.fn<FetchMock>(async () =>
+      new Response(
+        JSON.stringify({
+          [providerId]: {
+            id: providerId,
+            name: 'Example Chat Completions',
+            api: 'https://api.example.test/v1',
+            type: 'openai',
+            models: {
+              [modelId]: {
+                id: modelId,
+                name: 'Reasoner Pro',
+                limit: { context: 262144 },
+                tool_call: true,
+              },
+            },
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    setGlobal('fetch', fetchMock);
+
+    const result = await refreshProviderModels({
+      getConfig: async () => host.current(),
+      removeProvider: host.removeProvider,
+      setConfig: host.setConfig,
+      resolveOAuthToken: jest.fn(),
+    });
+
+    expect(result.failed).toEqual([]);
+    expect(result.changed).toEqual([]);
+    expect(result.unchanged).toEqual([providerId]);
+    expect(host.removeProvider).not.toHaveBeenCalled();
+    expect(host.setConfig).not.toHaveBeenCalled();
+  });
+
   it('forces default thinking on when the refreshed default model cannot disable thinking', async () => {
     const host = makeRefreshHost({
       providers: {
