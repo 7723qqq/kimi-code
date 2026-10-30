@@ -187,7 +187,7 @@ export const zh: DeepPartial<typeof import('./en').default> = {
     internal: '内部错误',
     notImplemented: '未实现',
     shellNotFoundAction:
-      '未找到可用的 shell。请安装 MSYS2（winget install MSYS2.MSYS2）或 Git for Windows，或设置 KIMI_SHELL_PATH 指向 shell 可执行文件。',
+      '未找到可用的 shell。可运行 `kimi shells provision --bash` 安装内置 bash 载荷，或安装 MSYS2（winget install MSYS2.MSYS2）/ Git for Windows，或设置 KIMI_SHELL_PATH 指向 shell 可执行文件。',
     loopMaxStepsExceeded: '循环超出最大步数',
     loopMaxStepsAction:
       '请在 config.toml 中提高 loop_control.max_steps_per_turn，或运行 "/update-config" 然后 "/reload"。',
