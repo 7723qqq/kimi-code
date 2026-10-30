@@ -271,6 +271,23 @@ describe('resolvePowerShellExecutable', () => {
     expect(exe.path).toBe(payloadExe);
   });
 
+  it('prefers the provisioned pwsh payload over system pwsh', async () => {
+    const payloadExe = shellPayloadExePath('D:\\kimi-home', shellPayloadPinOf('pwsh'));
+    const exe = await resolvePowerShellExecutable(
+      stub({ PATH: 'C:\\tools', KIMI_CODE_HOME: 'D:\\kimi-home' }, [
+        'C:\\tools\\pwsh.exe',
+        payloadExe,
+      ]),
+    );
+    expect(exe).toEqual({ path: payloadExe, kind: 'pwsh' });
+  });
+
+  it('falls back to system pwsh when the payload is absent', async () => {
+    const onPath = 'C:\\tools\\pwsh.exe';
+    const exe = await resolvePowerShellExecutable(stub({ PATH: 'C:\\tools' }, [onPath]));
+    expect(exe).toEqual({ path: onPath, kind: 'pwsh' });
+  });
+
   it('falls back to Windows PowerShell 5.1', async () => {
     const exe = await resolvePowerShellExecutable(
       stub({ PATH: 'C:\\nope', SystemRoot: 'D:\\Windows' }, [

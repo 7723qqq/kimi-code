@@ -113,7 +113,7 @@ describe('probeHostEnvironment', () => {
     expect(env.shellPath).toBe(payloadExe);
   });
 
-  it('prefers system Git Bash over the provisioned payload', async () => {
+  it('prefers the provisioned bash payload over system Git Bash', async () => {
     const kimiHome = 'D:\\kimi-home';
     const payloadExe = shellPayloadExePath(kimiHome, shellPayloadPinOf('bash'));
     const systemBash = 'C:\\Program Files\\Git\\bin\\bash.exe';
@@ -124,7 +124,7 @@ describe('probeHostEnvironment', () => {
         existingPaths: [systemBash, payloadExe],
       }),
     );
-    expect(env.shellPath).toBe(systemBash);
+    expect(env.shellPath).toBe(payloadExe);
   });
 });
 

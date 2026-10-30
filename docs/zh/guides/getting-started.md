@@ -34,7 +34,7 @@ irm https://code.kimi.com/kimi-code/install.ps1 | iex
 
 :::
 
-> Windows 上 `Bash` 工具运行在真正的 bash 里：CLI 自动探测 Git Bash 或 MSYS2 bash，`KIMI_SHELL_PATH` 可固定某个 `bash.exe`。若没有安装 bash，运行 `kimi shells provision --bash` 安装内置的钉版 bash 载荷（安装时做哈希校验），或在首次启动时接受 CLI 提示安装 MSYS2（完整的 Linux 命令行环境）。PowerShell 任务请使用内置的 `PowerShell` 工具，而不要在 `Bash` 里调用 `powershell.exe` / `pwsh`——该工具以原生方式执行脚本、输出固定为干净的 UTF-8；它优先使用 PowerShell 7，其次内置 pwsh 载荷（`kimi shells provision --pwsh`），再次 Windows PowerShell 5.1，`KIMI_PWSH_PATH` 可固定某个 `pwsh.exe`。GitHub 下载缓慢或不通时，用 `kimi shells provision --mirror <前缀>`（或环境变量 `KIMI_DOWNLOAD_MIRROR`）指定 GitHub Release 镜像前缀。
+> Windows 上 `Bash` 工具运行在真正的 bash 里：已安装内置钉版 bash 载荷（`kimi shells provision --bash`，安装时做哈希校验）时优先使用载荷，否则自动探测 Git Bash 或 MSYS2 bash；`KIMI_SHELL_PATH` 可固定某个 `bash.exe`，优先级高于两者。完全没有 bash 时，运行 `kimi shells provision --bash`，或在首次启动时接受 CLI 提示安装 MSYS2（完整的 Linux 命令行环境）。PowerShell 任务请使用内置的 `PowerShell` 工具，而不要在 `Bash` 里调用 `powershell.exe` / `pwsh`——该工具以原生方式执行脚本、输出固定为干净的 UTF-8；它优先使用内置 pwsh 载荷（`kimi shells provision --pwsh`），其次 PowerShell 7，再次 Windows PowerShell 5.1，`KIMI_PWSH_PATH` 可固定某个 `pwsh.exe`，优先级高于两者。GitHub 下载缓慢或不通时，用 `kimi shells provision --mirror <前缀>`（或环境变量 `KIMI_DOWNLOAD_MIRROR`）指定 GitHub Release 镜像前缀。
 
 脚本会自动下载最新版本、校验 checksum，并把 `kimi` 可执行文件放到你的 `PATH` 中。
 

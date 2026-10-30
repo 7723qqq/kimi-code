@@ -146,6 +146,13 @@ async function locateWindowsGitBash(deps: HostEnvironmentProbeDeps): Promise<str
     }
   }
 
+  for (const candidate of provisionedBashCandidates(deps)) {
+    checked.push(candidate);
+    if (await deps.isFile(candidate)) {
+      return candidate;
+    }
+  }
+
   const gitExecutables = await findExecutablesOnPath(
     'git.exe',
     deps.env['PATH'],
@@ -188,13 +195,6 @@ async function locateWindowsGitBash(deps: HostEnvironmentProbeDeps): Promise<str
     candidates.push(`${localAppData}\\Programs\\Git\\usr\\bin\\bash.exe`);
   }
   for (const candidate of candidates) {
-    checked.push(candidate);
-    if (await deps.isFile(candidate)) {
-      return candidate;
-    }
-  }
-
-  for (const candidate of provisionedBashCandidates(deps)) {
     checked.push(candidate);
     if (await deps.isFile(candidate)) {
       return candidate;

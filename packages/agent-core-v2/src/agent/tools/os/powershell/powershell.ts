@@ -108,16 +108,16 @@ export async function resolvePowerShellExecutable(
     if (await deps.isFile(override)) return { path: override, kind: 'pwsh' };
   }
 
-  for (const candidate of pwshPathCandidates(deps.env)) {
-    checked.push(candidate);
-    if (await deps.isFile(candidate)) return { path: candidate, kind: 'pwsh' };
-  }
-
   const pin = findShellPayloadPin('pwsh');
   if (pin !== undefined) {
     const payloadExe = shellPayloadExePath(resolveShellPayloadHome(deps.env, deps.osHomeDir), pin);
     checked.push(payloadExe);
     if (await deps.isFile(payloadExe)) return { path: payloadExe, kind: 'pwsh' };
+  }
+
+  for (const candidate of pwshPathCandidates(deps.env)) {
+    checked.push(candidate);
+    if (await deps.isFile(candidate)) return { path: candidate, kind: 'pwsh' };
   }
 
   for (const candidate of windowsPowerShellCandidates(deps.env)) {
