@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
+import { visibleWidth } from '@moonshot-ai/pi-tui';
+
 import type { RegionRenderContext } from '#/tui/components/chrome/status-surface/region';
 import { StatsRegion } from '#/tui/components/chrome/status-surface/regions/stats-region';
 import type { SessionStatsGroup } from '#/tui/utils/session-stats';
@@ -58,6 +60,77 @@ describe('StatsRegion', () => {
       expect(wide.join(' ')).toContain(text);
     }
     expect(narrow.length).toBeGreaterThan(wide.length);
+  });
+
+  it('measures localised text in cells, so a wide row is wrapped rather than clipped', () => {
+    // A Chinese character is one code unit but two cells. Measuring code units
+    // let a row that "fit" at 38 overflow as 76 cells, and the frame then cut
+    // its tail off — the readout ended in `输出 4...` with the numbers gone.
+    const region = new StatsRegion(() =>
+      groups(
+        '2 轮 · 14 步',
+        'LLM 4m · 工具调用 1m53s',
+        '首 token 平均 1.8s',
+        '缓存命中 74%',
+        '输入 1.2M tok · 输出 4.8k tok',
+        '上下文：13%（120k/977k）',
+      ),
+    );
+    const lines = region.render(context(38, 20));
+
+    for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(38);
+    const joined = lines.join('\n');
+    for (const text of ['4.8k tok', '缓存命中 74%', '上下文：13%（120k/977k）']) {
+      expect(joined).toContain(text);
+    }
+  });
+
+  it('lays the readings out in as many columns as the width has room for', () => {
+    const readings = [
+      '2 轮 · 14 步',
+      'LLM 4m · 工具调用 1m53s',
+      '首 token 平均 1.8s',
+      '缓存命中 74%',
+      '输入 1.2M tok · 输出 4.8k tok',
+      '上下文：13%（120k/977k）',
+    ];
+    const region = new StatsRegion(() => groups(...readings));
+
+    const wide = region.render(context(96, 20));
+    const narrow = region.render(context(38, 20));
+
+    // Wide: several cells per row, so the readings share the band instead of
+    // trailing off into one long line with the rest of the width unused.
+    expect(wide.length).toBeLessThan(narrow.length);
+    for (const line of wide) expect(visibleWidth(line)).toBeLessThanOrEqual(96);
+    for (const line of narrow) expect(visibleWidth(line)).toBeLessThanOrEqual(38);
+    for (const text of readings) {
+      expect(wide.join('\n')).toContain(text);
+      expect(narrow.join('\n')).toContain(text);
+    }
+  });
+
+  it('drops the lowest-priority reading, never the context readout, when rows run out', () => {
+    const region = new StatsRegion(
+      () =>
+        [
+          { items: [{ text: '2 轮 · 14 步', priority: 1 }] },
+          { items: [{ text: 'LLM 4m', priority: 2 }] },
+          { items: [{ text: '首 token 平均 1.8s', priority: 4 }] },
+          { items: [{ text: '上下文：13%（120k/977k）', priority: Number.POSITIVE_INFINITY }] },
+        ] satisfies SessionStatsGroup[],
+    );
+
+    // Six rows of room is enough for one cell per row; three is not.
+    const full = region.render(context(38, 6));
+    expect(full).toHaveLength(4);
+
+    const tight = region.render(context(38, 2));
+    expect(tight.length).toBeLessThanOrEqual(2);
+    // The counters rank first to go; the context readout is never dropped,
+    // because a later render cannot reconstruct it.
+    expect(tight.join('\n')).not.toContain('2 轮 · 14 步');
+    expect(tight.join('\n')).toContain('上下文：13%（120k/977k）');
   });
 
   it('honours the row budget the surface grants', () => {

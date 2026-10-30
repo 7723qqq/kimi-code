@@ -33,13 +33,7 @@ import {
   type RenderClock,
   type RenderTimerHandle,
 } from '#/tui/utils/render-clock';
-import {
-  buildSessionStatSegments,
-  fitSessionStatsText,
-  formatCacheHitRate,
-  formatContextStatus,
-  formatTokenSpeed,
-} from '#/tui/utils/session-stats';
+import { formatContextStatus } from '#/tui/utils/session-stats';
 import { StatusLineCommandRunner, type StatusLinePayload } from '#/tui/utils/status-line-command';
 import { createLocaleKeyedTipRotation, TIP_ROTATE_INTERVAL_MS } from '#/tui/utils/tip-rotation';
 import {
@@ -49,7 +43,6 @@ import {
   type GitStatus,
   type GitStatusCache,
 } from '#/utils/git/git-status';
-
 
 /** What the footer's fixed ctrl+o hint offers: expand collapsed tool output, or collapse it again. */
 export type ToolOutputExpandHint = 'expand' | 'collapse';
@@ -239,6 +232,13 @@ export class FooterComponent implements Component {
   private transientHint: string | null = null;
   private warningHint: string | null = null;
   private expandHintProvider: (() => ToolOutputExpandHint | null) | null = null;
+  /**
+   * Whether the status strip above the editor is currently rendering the
+   * session readout. When it is, line 2 keeps its right side empty: the same
+   * context figure in both places put one reading on screen twice, and the
+   * strip is the copy that does not scroll away.
+   */
+  private statsShownProbe: (() => boolean) | null = null;
   private goalSnapshotKey: string | null = null;
   private goalObservedAtMs: number | null = null;
   private goalTimer: RenderTimerHandle | null = null;
@@ -352,6 +352,17 @@ export class FooterComponent implements Component {
   }
 
   /**
+   * Source of "the strip above the editor owns the session readout right now".
+   *
+   * Read on every render, so the footer's context readout appears exactly while
+   * the strip has no numbers to show — the first steps of a session, before any
+   * turn has reported usage — and disappears the moment the strip takes over.
+   */
+  setStatsShownProbe(probe: () => boolean): void {
+    this.statsShownProbe = probe;
+  }
+
+  /**
    * Sync both background-task badges with live counts. Each non-zero
    * count produces its own bracketed badge on line 1; zeros hide them
    * independently.
@@ -462,44 +473,22 @@ export class FooterComponent implements Component {
       }
     }
 
-    // ── Line 2: transient hint (bottom-left) + session stats / context (right) ──
-    const hitRateText = formatCacheHitRate(
-      state.cacheReadTokens,
-      state.cacheMissTokens,
-      state.cacheOtherTokens,
-    );
-    // Both figures come from the same sampler and the same token source; each
-    // is simply absent until it has a reading, so a short first step shows one
-    // label rather than a placeholder for the other.
-    const stepSpeed = state.tokenSpeed ?? 0;
-    const averageSpeed = state.tokenSpeedAverage ?? 0;
-    const speedStepText =
-      stepSpeed > 0
-        ? t('tui.chrome.footer.tokenSpeedStep', { speed: formatTokenSpeed(stepSpeed) })
-        : null;
-    const speedAverageText =
-      averageSpeed > 0
-        ? t('tui.chrome.footer.tokenSpeedAverage', { speed: formatTokenSpeed(averageSpeed) })
-        : null;
-    const contextText = formatContextStatus(
-      state.contextUsage,
-      state.contextTokens,
-      state.maxContextTokens,
-    );
-    const segments = buildSessionStatSegments(
-      state.sessionStats,
-      hitRateText,
-      speedStepText,
-      speedAverageText,
-      contextText,
-    );
-    // The context group is always present; when nothing else exists there is
-    // no session traffic yet — keep the old plain context readout instead of
-    // a stats bar with a single group.
-    const hasLiveStats = segments.length > 1;
-    const rightText = hasLiveStats ? fitSessionStatsText(segments, width) : contextText;
+    // ── Line 2: transient hint (bottom-left) + context readout (right) ──
+    // The session totals (turns/steps, timings, rates, cache hit, in/out) and
+    // the context readout live in the status strip above the editor, where they
+    // survive a long session instead of scrolling away with the footer. Line 2
+    // keeps only the hint that belongs to the input box, plus the context
+    // readout as a fallback for the window before the strip has any numbers —
+    // reading the same figure in both places put it on screen twice.
+    const stripOwnsReadout = this.statsShownProbe?.() === true;
+    const contextText = stripOwnsReadout
+      ? ''
+      : formatContextStatus(state.contextUsage, state.contextTokens, state.maxContextTokens);
+    const rightText = contextText;
     const contextWidth = visibleWidth(rightText);
     let line2: string;
+    /** Whether line 2 carries anything at all, padding aside. */
+    let secondRowHasContent: boolean;
     const hint = this.transientHint ?? this.warningHint;
     if (hint) {
       const maxHintWidth = Math.max(0, width - contextWidth - 1);
@@ -511,6 +500,7 @@ export class FooterComponent implements Component {
         chalk.hex(colors.warning).bold(shownHint) +
         ' '.repeat(pad) +
         chalk.hex(colors.text)(rightText);
+      secondRowHasContent = true;
     } else {
       // A status_line.command owns line 1 outright, so the ctrl+o hint moves
       // down here; the transient and warning hints above take precedence.
@@ -521,8 +511,14 @@ export class FooterComponent implements Component {
           : '';
       const leftPad = Math.max(0, width - visibleWidth(left) - contextWidth);
       line2 = left + ' '.repeat(leftPad) + chalk.hex(colors.text)(rightText);
+      secondRowHasContent = left.length > 0 || rightText.length > 0;
     }
 
+    // A second row with nothing on it spends a row of screen on a blank line.
+    // The strip above owns the readout once a turn has reported numbers, which
+    // leaves line 2 empty in the common steady state; the footer then reports
+    // one row and the dock hands the space back to the transcript.
+    if (!secondRowHasContent) return [truncateToWidth(line1, width)];
     return [truncateToWidth(line1, width), truncateToWidth(line2, width)];
   }
 

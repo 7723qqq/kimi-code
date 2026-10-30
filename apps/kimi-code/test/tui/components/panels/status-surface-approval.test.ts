@@ -7,10 +7,61 @@ import {
   SURFACE_SIDE_PADDING,
 } from '#/tui/components/chrome/status-surface/index';
 import { ApprovalRegion } from '#/tui/components/chrome/status-surface/regions/approval-region';
+import type {
+  RegionId,
+  RegionPlacement,
+  StatusRegion,
+} from '#/tui/components/chrome/status-surface/region';
 import { ApprovalPanelComponent } from '#/tui/components/dialogs/approval-panel';
 import type { ApprovalPanelData } from '#/tui/reverse-rpc/types';
 
 const strip = (value: string): string => value.replace(/\u001b\[[0-9;]*m/g, '');
+
+/**
+ * A minimal right-hand region: enough to make the surface plan a real second
+ * column, so the approval's placement can be measured against a neighbour that
+ * actually exists rather than against a `true` returned by a stub probe.
+ */
+class StandInRightRegion implements StatusRegion {
+  readonly id: RegionId = 'updates';
+  readonly priority = 20;
+  readonly blocking = false;
+  private lines: string[] = [];
+
+  setLines(lines: readonly string[]): void {
+    this.lines = [...lines];
+  }
+
+  placement(): RegionPlacement {
+    return 'right';
+  }
+
+  isEmpty(): boolean {
+    return this.lines.length === 0;
+  }
+
+  measure(): number {
+    return this.lines.length;
+  }
+
+  render(): string[] {
+    return [...this.lines];
+  }
+
+  isExpanded(): boolean {
+    return true;
+  }
+
+  setExpanded(): void {}
+
+  hasHiddenContent(): boolean {
+    return false;
+  }
+
+  handleKey(): boolean {
+    return false;
+  }
+}
 
 function payload(overrides: Partial<ApprovalPanelData> = {}): ApprovalPanelData {
   return {
@@ -355,24 +406,38 @@ describe('ApprovalRegion', () => {
       expect(region.isExpanded()).toBe(false);
     });
 
-    it('takes the left half while folded and the full band when expanded', () => {
-      // Folded, the right half is the updates panel's permanent slot, so the
-      // approval sits in the left one. Unfolded, the body is the diff, which a
-      // half-width column would wrap into noise — the placement is a method
-      // rather than a field for exactly this reason.
+    it('takes the left half beside an updates box and the full band when alone', () => {
+      // Folded, the right half belongs to the updates box — but only while that
+      // box is actually there. A fixed `left` left the right half blank next to
+      // an empty slot and still drew the divider, which read as a prompt beside
+      // an empty box. Unfolded, the body is the diff, which a half-width column
+      // would wrap into noise either way.
       const { region, surface } = makeRegion();
       showPayload(region, payload());
+
+      // Alone: the whole band, no divider, nothing on the right.
+      expect(region.placement()).toBe('full');
+      surface.render(80);
+      const alone = surface.regionRects().find((entry) => entry.id === 'approval')!;
+      expect(alone.col).toBe(SURFACE_SIDE_PADDING + 1);
+      expect(alone.width).toBe(80 - SURFACE_INSET);
+
+      // An updates box arrives: two columns, the prompt on the left.
+      const updates = new StandInRightRegion();
+      updates.setLines(['  main · Updates 1/1']);
+      surface.setRegion(updates);
+      region.setSiblingProbe(() => !updates.isEmpty());
       expect(region.placement()).toBe('left');
       surface.render(80);
-      const folded = surface.regionRects().find((entry) => entry.id === 'approval')!;
-      expect(folded.col).toBe(SURFACE_SIDE_PADDING + 1);
-      expect(folded.width).toBe(Math.ceil((80 - SURFACE_INSET) / 2));
+      const shared = surface.regionRects().find((entry) => entry.id === 'approval')!;
+      expect(shared.col).toBe(alone.col);
+      expect(shared.width).toBe(Math.ceil((80 - SURFACE_INSET) / 2));
 
       region.setExpanded(true);
       expect(region.placement()).toBe('full');
       surface.render(80);
       const expanded = surface.regionRects().find((entry) => entry.id === 'approval')!;
-      expect(expanded.col).toBe(folded.col);
+      expect(expanded.col).toBe(shared.col);
       expect(expanded.width).toBe(80 - SURFACE_INSET);
     });
   });

@@ -65,6 +65,7 @@ import { type QueuedMessage, type TranscriptEntry } from '#/tui/types';
 import { ImageAttachmentStore } from '#/tui/utils/image-attachment-store';
 import { extractMediaAttachments, type ExtractionResult } from '#/tui/utils/image-placeholder';
 import type { RenderTimerHandle } from '#/tui/utils/render-clock';
+import { firstTokenAverageMs, formatStatDuration } from '#/tui/utils/session-stats';
 import {
   groupTurns,
   TRANSCRIPT_KEEP_RECENT_ASSISTANT,
@@ -6575,6 +6576,46 @@ command = "vim"
     expect(driver.state.appState.tokenSpeedAverage).toBeCloseTo(123.75, 6);
   });
 
+  it('resets the cache counters and session totals on a session switch', async () => {
+    const { driver } = await makeDriver();
+    const tui = driver as unknown as {
+      noteStepCacheStats(
+        usage: unknown,
+        window: { llmFirstTokenOffsetMs?: number; llmLastTokenOffsetMs?: number },
+      ): void;
+      noteSessionStepCompleted(
+        usage: unknown,
+        llmStreamDurationMs?: number,
+        llmFirstTokenLatencyMs?: number,
+      ): void;
+    };
+    const usage = { inputCacheRead: 700, inputCacheCreation: 100, inputOther: 200, output: 50 };
+
+    tui.noteStepCacheStats(usage, {});
+    tui.noteSessionStepCompleted(usage, 1000, 10);
+    expect(driver.state.appState.cacheReadTokens).toBe(700);
+    expect(driver.state.appState.cacheMissTokens).toBe(100);
+    expect(driver.state.appState.cacheOtherTokens).toBe(200);
+    expect(driver.state.appState.sessionStats.inputTokens).toBe(1000);
+    expect(driver.state.appState.sessionStats.outputTokens).toBe(50);
+
+    (driver as unknown as { resetSessionRuntime(): void }).resetSessionRuntime();
+
+    expect(driver.state.appState.cacheReadTokens).toBe(0);
+    expect(driver.state.appState.cacheMissTokens).toBe(0);
+    expect(driver.state.appState.cacheOtherTokens).toBe(0);
+    expect(driver.state.appState.sessionStats.inputTokens).toBe(0);
+    expect(driver.state.appState.sessionStats.outputTokens).toBe(0);
+
+    tui.noteStepCacheStats(
+      { inputCacheRead: 10, inputCacheCreation: 0, inputOther: 5, output: 1 },
+      {},
+    );
+    expect(driver.state.appState.cacheReadTokens).toBe(10);
+    expect(driver.state.appState.cacheMissTokens).toBe(0);
+    expect(driver.state.appState.cacheOtherTokens).toBe(5);
+  });
+
   it('resets the token-speed readout on a /undo context cut', async () => {
     const { driver } = await makeDriver();
     const tui = driver as unknown as {
@@ -6594,6 +6635,38 @@ command = "vim"
     tui.noteContextCut();
     expect(driver.state.appState.tokenSpeed).toBe(0);
     expect(driver.state.appState.tokenSpeedAverage).toBe(0);
+  });
+
+  it('renders the first-token average from a replayed step stream exactly as the sample average', async () => {
+    const { driver } = await makeDriver();
+    const latencies = Array.from({ length: 500 }, (_, index) => 100 + (index % 37));
+
+    for (const [index, latency] of latencies.entries()) {
+      driver.sessionEventHandler.handleEvent(
+        {
+          type: 'turn.step.completed',
+          agentId: 'main',
+          sessionId: 'ses-1',
+          turnId: 1,
+          step: index + 1,
+          llmFirstTokenLatencyMs: latency,
+          llmStreamDurationMs: 800,
+        } as Event,
+        () => {},
+      );
+    }
+
+    const stats = driver.state.appState.sessionStats;
+    const reference = latencies.reduce((sum, value) => sum + value, 0) / latencies.length;
+
+    expect(stats.stepCount).toBe(latencies.length);
+    expect(firstTokenAverageMs(stats)).toBe(reference);
+
+    const rendered = stripSgr(driver.state.statusSurface.render(120).join('\n')).replace(
+      /\s+/g,
+      ' ',
+    );
+    expect(rendered).toContain(`first token avg ${formatStatDuration(reference)}`);
   });
 
   it('leaves the readout untouched when a step reports no tokens', async () => {

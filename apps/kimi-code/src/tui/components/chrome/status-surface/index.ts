@@ -137,7 +137,11 @@ interface UnitSpec {
     readonly column: 'left' | 'right' | 'full';
   }[];
   readonly priority: number;
-  /** True for the unit whose halves are the strip's fixed layout. */
+  /**
+   * True when this unit is the strip's two-column layout. Only set when both
+   * halves have content: the divider is drawn from this flag, so a unit with
+   * nothing on one side must not carry it.
+   */
   readonly columns?: boolean;
 }
 
@@ -198,7 +202,9 @@ export const SURFACE_INSET = 2 + SURFACE_SIDE_PADDING * 2;
  *
  * Returns a single full-width column when there is no room for two.
  */
-export function splitColumns(width: number): readonly [
+export function splitColumns(
+  width: number,
+): readonly [
   { readonly col: number; readonly width: number },
   { readonly col: number; readonly width: number },
   { readonly col: number; readonly width: number },
@@ -209,11 +215,7 @@ export function splitColumns(width: number): readonly [
   }
   const right = Math.floor((width - COLUMN_GAP) / 2);
   const left = width - COLUMN_GAP - right;
-  return [
-    { col: 0, width: left },
-    { col: left + COLUMN_GAP, width: right },
-    full,
-  ];
+  return [{ col: 0, width: left }, { col: left + COLUMN_GAP, width: right }, full];
 }
 
 export class StatusSurfaceComponent implements Component {
@@ -252,7 +254,10 @@ export class StatusSurfaceComponent implements Component {
       this.focusRegion(region.id);
       return;
     }
-    if (this.focusedRegionId !== null && this.regions.get(this.focusedRegionId)?.isEmpty() === true) {
+    if (
+      this.focusedRegionId !== null &&
+      this.regions.get(this.focusedRegionId)?.isEmpty() === true
+    ) {
       this.focusRegion(null);
     }
   }
@@ -320,7 +325,8 @@ export class StatusSurfaceComponent implements Component {
       if (region === undefined || region.isEmpty()) return false;
     }
     if (this.focusedRegionId === id) return false;
-    const previous = this.focusedRegionId === null ? undefined : this.regions.get(this.focusedRegionId);
+    const previous =
+      this.focusedRegionId === null ? undefined : this.regions.get(this.focusedRegionId);
     this.focusedRegionId = id;
     previous?.onBlur?.();
     if (id !== null) this.regions.get(id)?.onFocus?.();
@@ -339,7 +345,8 @@ export class StatusSurfaceComponent implements Component {
       this.onRequestRender();
       return true;
     }
-    const focused = this.focusedRegionId === null ? undefined : this.regions.get(this.focusedRegionId);
+    const focused =
+      this.focusedRegionId === null ? undefined : this.regions.get(this.focusedRegionId);
     if (focused !== undefined && focused.handleKey?.(key) === true) {
       this.onRequestRender();
       return true;
@@ -388,7 +395,8 @@ export class StatusSurfaceComponent implements Component {
    * text and its own Ctrl shortcuts.
    */
   handleRawInput(data: string): boolean {
-    const focused = this.focusedRegionId === null ? undefined : this.regions.get(this.focusedRegionId);
+    const focused =
+      this.focusedRegionId === null ? undefined : this.regions.get(this.focusedRegionId);
     if (focused === undefined) return false;
     if (focused.handleRawInput?.(data) !== true) return false;
     this.onRequestRender();
@@ -477,7 +485,8 @@ export class StatusSurfaceComponent implements Component {
   /** Scroll the focused region, falling back to the declared default. */
   private scrollFocused(delta: number): boolean {
     const key: RegionKey = delta < 0 ? 'up' : 'down';
-    const focused = this.focusedRegionId === null ? undefined : this.regions.get(this.focusedRegionId);
+    const focused =
+      this.focusedRegionId === null ? undefined : this.regions.get(this.focusedRegionId);
     if (focused?.handleKey?.(key) === true) {
       this.onRequestRender();
       return true;
@@ -617,11 +626,10 @@ export class StatusSurfaceComponent implements Component {
     const cols = splitColumns(innerWidth);
     const split = innerWidth >= MIN_SPLIT_WIDTH;
 
-    // Which half a region stacks in is its own declaration; a collapsed split
-    // sends everything down the full-width path.
-    const columnOf = (region: StatusRegion): { col: number; width: number } => {
-      if (!split || region.placement() === 'full') return cols[2];
-      return cols[region.placement() === 'right' ? 1 : 0];
+    /** Geometry for a declared column, which is not always the region's own. */
+    const columnBox = (column: 'left' | 'right' | 'full'): { col: number; width: number } => {
+      if (!split || column === 'full') return cols[2];
+      return cols[column === 'right' ? 1 : 0];
     };
 
     const specs: UnitSpec[] = [];
@@ -636,13 +644,24 @@ export class StatusSurfaceComponent implements Component {
       }
       const halves = ordered.filter((region) => region.placement() !== 'full');
       if (halves.length > 0) {
+        // Split into columns only when both halves have something in them. A
+        // lone left column would otherwise pair with an empty right half and
+        // still draw the divider, which reads as a prompt sitting beside an
+        // empty box rather than as one full-width row.
+        const needsSplit =
+          halves.some((region) => region.placement() !== 'right') &&
+          halves.some((region) => region.placement() === 'right');
         specs.push({
           members: halves.map((region) => ({
             region,
-            column: region.placement() === 'right' ? ('right' as const) : ('left' as const),
+            column: !needsSplit
+              ? ('full' as const)
+              : region.placement() === 'right'
+                ? ('right' as const)
+                : ('left' as const),
           })),
           priority: Math.min(...halves.map((region) => region.priority)),
-          columns: true,
+          columns: needsSplit,
         });
       }
     } else {
@@ -660,16 +679,22 @@ export class StatusSurfaceComponent implements Component {
     // region measured at the full width but painted into a column reports the
     // wrong height: the updates panel wraps more at 39 columns than at 80, and
     // the budget that came from the wider measurement then leaves too few rows
-    // for the box to close.
+    // for the box to close. The width is read back from the unit the region
+    // landed in, because a column the surface declined to split is drawn at
+    // full width even though the region still declares `left`.
+    const columnMembers = new Map<RegionId, 'left' | 'right' | 'full'>();
+    for (const spec of specs) {
+      for (const member of spec.members) columnMembers.set(member.region.id, member.column);
+    }
     const budget = computeBudget(
       this.terminalRows(),
-      ordered.map((region) => measureAt(region, columnOf(region).width)),
+      ordered.map((region) =>
+        measureAt(region, columnBox(columnMembers.get(region.id) ?? 'full').width),
+      ),
       width,
       SURFACE_FRAME_ROWS + Math.max(0, specs.length - 1),
     );
-    const grants = new Map(
-      [...budget.perRegion].map(([id, rows]) => [id, rows] as const),
-    );
+    const grants = new Map([...budget.perRegion].map(([id, rows]) => [id, rows] as const));
 
     const boxes: RegionBox[] = [];
     const planned: PlannedUnit[] = [];
@@ -696,7 +721,7 @@ export class StatusSurfaceComponent implements Component {
       const unitBoxes: RegionBox[] = [];
       for (const member of members) {
         const offset = offsets.get(member.column) ?? 0;
-        const box = columnOf(member.region);
+        const box = columnBox(member.column);
         unitBoxes.push({
           id: member.region.id,
           col: SURFACE_SIDE_PADDING + 1 + box.col,
@@ -829,5 +854,4 @@ export class StatusSurfaceComponent implements Component {
   regionRects(): readonly RegionBox[] {
     return this.rects;
   }
-
 }

@@ -251,7 +251,8 @@ export default {
     promptOptimizerBusy: 'A prompt rewrite is already in progress',
     promptOptimizerBusyAction: 'Wait for the current rewrite to finish before starting another.',
     promptOptimizerOutputTooLong: 'Prompt rewrite exceeded the length limit',
-    promptOptimizerOutputTooLongAction: 'Retry, or shorten the draft so the rewrite fits the limit.',
+    promptOptimizerOutputTooLongAction:
+      'Retry, or shorten the draft so the rewrite fits the limit.',
     promptOptimizerTimeout: 'Prompt rewrite timed out',
     promptOptimizerTimeoutAction: 'Try again; if it keeps timing out, shorten the draft.',
     // spec.*
@@ -444,10 +445,8 @@ export default {
     optionDescriptions: {
       session: 'Resume a session. With ID: resume that session. Without ID: interactively pick.',
       continue: 'Continue the previous session for the working directory.',
-      yolo:
-        'Start in Ask When Needed mode: routine edits and commands run automatically; risky actions, questions, and plans still ask.',
-      auto:
-        'Start in Never Ask mode: everything runs and is decided automatically; only plans in Plan mode wait for your review.',
+      yolo: 'Start in Ask When Needed mode: routine edits and commands run automatically; risky actions, questions, and plans still ask.',
+      auto: 'Start in Never Ask mode: everything runs and is decided automatically; only plans in Plan mode wait for your review.',
       plan: 'Start in plan mode.',
       spec: 'Write a spec for the change before implementing it.',
       model:
@@ -503,8 +502,7 @@ export default {
       providerApiKey:
         'Registry API key. Falls back to KIMI_REGISTRY_API_KEY; omit both for public registries.',
       providerListJson: 'Emit the raw providers/models config as JSON.',
-      providerRemoveForce:
-        'Remove the /login account as well, which is refused without this flag.',
+      providerRemoveForce: 'Remove the /login account as well, which is refused without this flag.',
       providerCatalogFilter: 'Case-insensitive id/name substring filter.',
       providerCatalogJson: 'Emit the matching catalog slice as JSON.',
       providerCatalogApiKey: 'API key for the provider. Falls back to KIMI_REGISTRY_API_KEY.',
@@ -1831,7 +1829,7 @@ export default {
       autoModeOnSub: 'Run all actions automatically, including risky ones.',
       autoModeAlreadyOff: 'Auto mode is already off',
       autoModeOff: 'Auto mode: OFF',
-            sessionReloadedAfterExternalUpdate:
+      sessionReloadedAfterExternalUpdate:
         'Session "{{sessionId}}" was updated by another client; reloaded it.',
       planModeNotReviewableInPrint:
         'Session "{{sessionId}}" is in Plan mode, and its plan cannot be approved in print mode; review it with `kimi -r {{sessionId}}`.',
@@ -1879,8 +1877,7 @@ export default {
       movedTasksToBackground_one: 'Moved {{count}} task to background.',
       movedTasksToBackground_other: 'Moved {{count}} tasks to background.',
       movedTasksToBackgroundPartial_one: 'Moved {{detached}} of {{count}} task to background.',
-      movedTasksToBackgroundPartial_other:
-        'Moved {{detached}} of {{count}} tasks to background.',
+      movedTasksToBackgroundPartial_other: 'Moved {{detached}} of {{count}} tasks to background.',
       tasksToViewHint: '/tasks to view.',
       noShellCommandRunning: 'No shell command running.',
       commandStillStarting: 'Command is still starting — try again.',
@@ -3200,6 +3197,18 @@ export default {
       searchPrefix: 'search',
       searchScope: 'scope: {{scope}}',
       backgroundTask: '{{status}} {{kind}} task {{taskId}}: {{description}}',
+    },
+    programStatus: {
+      authRequired: 'Sign in to Kimi Code',
+      turnFailed: 'Turn failed',
+      turnBlocked: 'Turn blocked by a prompt hook',
+      requestFailed: 'Request failed',
+      subagentFailed: 'Subagent failed',
+      backgroundAgentFailed: 'Background agent failed',
+      backgroundAgentTimedOut: 'Background agent timed out',
+      backgroundAgentLost: 'Background agent was lost',
+      approvalRequired: 'Approval required',
+      answerRequired: 'Answer required',
     },
     migration: {
       failed: ' Migration failed',

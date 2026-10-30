@@ -165,7 +165,7 @@ describe('FooterComponent — context NaN resilience', () => {
   });
 });
 
-describe('FooterComponent · live cache hit rate and token speed', () => {
+describe('FooterComponent · cache hit rate and token speed', () => {
   it('hides the cache readout until usage is reported', () => {
     const fc = new FooterComponent(baseState({}));
     const out = strip(fc.render(200).join(''));
@@ -173,30 +173,23 @@ describe('FooterComponent · live cache hit rate and token speed', () => {
     expect(out).toMatch(/context: 0%/);
   });
 
-  it('renders the live cache hit rate next to the context readout', () => {
-    // hit rate = 1792 / (1792 + 99) = 95%; cacheMissTokens counts cache writes.
+  it('leaves the cache hit rate to the status strip', () => {
+    // The hit rate is one of the session totals: it renders in the strip above
+    // the editor, beside the turns/steps and the timings. The footer used to
+    // repeat it on its second line, which put the same reading on screen twice.
     const fc = new FooterComponent(baseState({ cacheReadTokens: 1_792, cacheMissTokens: 99 }));
     const out = strip(fc.render(200).join(''));
-    expect(out).toMatch(/cache hit 95%/);
+    expect(out).not.toMatch(/cache hit/);
     expect(out).toMatch(/context: 0%/);
   });
 
-  it('renders the output speed after the hit rate when measured', () => {
+  it('leaves the token speed to the status strip', () => {
     const fc = new FooterComponent(
       baseState({ cacheReadTokens: 1_792, cacheMissTokens: 99, tokenSpeed: 12.345 }),
     );
     const out = strip(fc.render(200).join(''));
-    expect(out).toMatch(/12\.3 tok\/s now \| cache hit 95%/);
-  });
-
-  it('falls back to the total-input share when cache writes are never reported', () => {
-    // DeepSeek's Anthropic-compatible endpoint reports reads but no writes:
-    // 200 read / (200 read + 800 plain) = 20%, not a fake 100%.
-    const fc = new FooterComponent(
-      baseState({ cacheReadTokens: 200, cacheMissTokens: 0, cacheOtherTokens: 800 }),
-    );
-    const out = strip(fc.render(200).join(''));
-    expect(out).toMatch(/cache hit 20%/);
+    expect(out).not.toMatch(/tok\/s/);
+    expect(out).toMatch(/context: 0%/);
   });
 
   it('never renders NaN for partial/undefined cache state', () => {

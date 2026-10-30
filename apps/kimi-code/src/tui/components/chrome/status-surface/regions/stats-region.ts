@@ -1,17 +1,18 @@
 /**
- * StatsRegion — the session's running totals in the status surface's left
- * column: turns and steps, LLM and tool time, first-token latency, token
- * usage, and the context readout.
+ * StatsRegion — the session's running totals in the status surface: turns and
+ * steps, LLM and tool time, first-token latency, token usage, and the context
+ * readout.
  *
- * The todo list used to own this column and renders as a transcript card now,
- * which left the left half of any band blank next to the updates box. The
- * numbers it holds are the same ones the footer's second line carries, built by
- * the same segment builder and dropped by the same priority rule, so the two
- * cannot disagree about what a session cost.
+ * This is the only place those totals are rendered. The footer carried them on
+ * its second line as well, which put the same five readings on screen twice,
+ * one directly above the other; the strip is the copy that survives a long
+ * session, so the footer's went away.
  *
  * It is read-only and never claims focus: there is nothing to page through, and
  * a click on it should keep typing where it was.
  */
+
+import { visibleWidth } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
 import type { SessionStatsGroup } from '#/tui/utils/session-stats';
@@ -23,6 +24,9 @@ import type {
   RegionRenderContext,
   StatusRegion,
 } from '../region';
+
+/** Cells between two laid-out columns of the readout. */
+const STATS_COLUMN_GAP = 3;
 
 export class StatsRegion implements StatusRegion {
   readonly id: RegionId = 'stats';
@@ -72,22 +76,87 @@ export class StatsRegion implements StatusRegion {
   }
 
   /**
-   * Rows this region would like. Unlike the footer, which has one line and must
-   * drop items to fit it, the strip can grow downward: the groups wrap instead
-   * of being discarded, so a narrow left column loses no information — it takes
-   * a second row. `minRows` therefore only bounds the folded form.
+   * The readings, each with the priority that says how badly it wants a row.
+   * One entry per group; the group's own items stay joined because they are
+   * read together.
    */
-  private rowsAt(width: number): string[] {
-    return wrapSegments(this.segments(), width);
+  private readings(): { text: string; priority: number }[] {
+    return this.segments()
+      .map((group) => ({
+        text: group.items.map((item) => item.text).join(' · '),
+        priority: Math.min(...group.items.map((item) => item.priority), Number.POSITIVE_INFINITY),
+      }))
+      .filter((reading) => reading.text.length > 0);
+  }
+
+  /**
+   * Rows this region would like, laid out as a table that fits `width`.
+   *
+   * The column count comes from the room available, not from a mode: the widest
+   * reading decides the cell, and as many cells as fit side by side share a row.
+   * A wide band therefore reads in two or three rows instead of one long line
+   * that leaves the width half used, and a narrow column — where only one cell
+   * fits — reads one reading per row, which fills the height the neighbouring
+   * updates box sets. Nothing is dropped; a reading too wide for its cell wraps.
+   *
+   * `minRows` bounds only the folded form.
+   */
+  private rowsAt(width: number, readings = this.readings()): string[] {
+    const limit = Math.max(1, width);
+    if (readings.length === 0) return [];
+    const cell = Math.max(...readings.map((reading) => visibleWidth(reading.text)));
+    const columns = Math.max(
+      1,
+      Math.min(readings.length, Math.floor((limit + STATS_COLUMN_GAP) / (cell + STATS_COLUMN_GAP))),
+    );
+    if (columns === 1) return readings.flatMap((reading) => breakRow(reading.text, limit));
+
+    const rows: string[] = [];
+    for (let start = 0; start < readings.length; start += columns) {
+      const row = readings
+        .slice(start, start + columns)
+        .map((reading) => {
+          const pad = Math.max(0, cell - visibleWidth(reading.text));
+          return reading.text + ' '.repeat(pad);
+        })
+        .join(' '.repeat(STATS_COLUMN_GAP));
+      rows.push(row.trimEnd());
+    }
+    return rows;
   }
 
   measure(width: number): number {
     return this.rowsAt(width).length;
   }
 
+  /**
+   * The rows to paint, cut to the granted budget.
+   *
+   * The budget can be smaller than the table needs, and which reading goes has
+   * to follow `priority`, not the display order: the context readout is the last
+   * cell on screen and the one reading a later render cannot reconstruct, so
+   * slicing the tail would drop exactly the wrong line. Readings are dropped
+   * lowest-priority-first until the rest fits, and the survivors keep their
+   * order — and with them the column count, so the table stays aligned.
+   */
+  private rowsWithin(width: number, budget: number): string[] {
+    let readings = this.readings();
+    while (readings.length > 0) {
+      const rows = this.rowsAt(width, readings);
+      if (rows.length <= budget) return rows;
+      const droppable = readings
+        .map((reading, index) => ({ reading, index }))
+        .filter((entry) => Number.isFinite(entry.reading.priority))
+        .toSorted((a, b) => a.reading.priority - b.reading.priority)[0];
+      if (droppable === undefined) return rows.slice(0, budget);
+      readings = readings.filter((_, index) => index !== droppable.index);
+    }
+    return [];
+  }
+
   render(ctx: RegionRenderContext): string[] {
     this.lastWidth = ctx.width;
-    const rows = this.rowsAt(ctx.width);
+    const rows = this.rowsWithin(ctx.width, ctx.budget);
     if (rows.length === 0) return [];
     if (!this.expanded && rows.length > this.minRows) {
       const visible = rows.slice(0, this.minRows - 1);
@@ -116,55 +185,42 @@ export class StatsRegion implements StatusRegion {
 }
 
 /**
- * Lay the stat groups out across as many rows as they need.
+ * Break one row into pieces no wider than `limit`, preferring the spaces
+ * between words and falling back to cutting a single over-long word.
  *
- * Within a row, items are joined with ` · ` and groups with ` | ` — the same
- * separators the footer uses, so the two readouts look like one family. When a
- * group does not fit the remaining space it starts the next row instead of
- * being truncated or dropped.
+ * The fallback matters for localised text: `首 token 平均 1.8s | 缓存命中 74%`
+ * has spaces to break at, but a run like `上下文：13%（120k/977k）` does not, and
+ * a row with no break point must still lose nothing rather than be clipped by
+ * the frame.
  */
-function wrapSegments(groups: readonly SessionStatsGroup[], width: number): string[] {
-  const limit = Math.max(1, width);
-  const rows: string[] = [];
-  let current = '';
-  for (const group of groups) {
-    const text = group.items.map((item) => item.text).join(' · ');
-    if (text.length === 0) continue;
-    if (current.length === 0) {
-      current = text;
-      continue;
-    }
-    const joined = `${current} | ${text}`;
-    if (joined.length <= limit) {
-      current = joined;
-      continue;
-    }
-    rows.push(current);
-    current = text;
-  }
-  if (current.length > 0) rows.push(current);
-  return hardWrap(rows, limit);
-}
-
-/** Split any row still wider than the column at word boundaries. */
-function hardWrap(rows: readonly string[], limit: number): string[] {
+function breakRow(row: string, limit: number): string[] {
+  if (visibleWidth(row) <= limit) return [row];
   const out: string[] = [];
-  for (const row of rows) {
-    if (row.length <= limit) {
-      out.push(row);
+  let current = '';
+  const flush = (): void => {
+    if (current.length > 0) out.push(current);
+    current = '';
+  };
+  for (const word of row.split(' ')) {
+    const candidate = current.length === 0 ? word : `${current} ${word}`;
+    if (visibleWidth(candidate) <= limit) {
+      current = candidate;
       continue;
     }
-    let current = '';
-    for (const word of row.split(' ')) {
-      const candidate = current.length === 0 ? word : `${current} ${word}`;
-      if (candidate.length > limit && current.length > 0) {
-        out.push(current);
-        current = word;
-        continue;
+    flush();
+    let rest = word;
+    while (visibleWidth(rest) > limit) {
+      let take = '';
+      for (const character of rest) {
+        if (visibleWidth(take + character) > limit) break;
+        take += character;
       }
-      current = candidate;
+      if (take.length === 0) take = rest.slice(0, 1);
+      out.push(take);
+      rest = rest.slice(take.length);
     }
-    if (current.length > 0) out.push(current);
+    current = rest;
   }
+  flush();
   return out;
 }

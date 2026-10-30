@@ -203,17 +203,23 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
     onRequestRender: () => ui.requestRender(),
   });
   const updatesRegion = new UpdatesRegion(notifyPanel);
-  // The stats column reuses the footer's own segment builder, so the strip and
-  // the footer never disagree about what the session cost. It stays empty
-  // until the first turn reports numbers.
+  // The stats column is the only renderer of the session totals; it is built
+  // by the same segment builder the footer used before its second line stopped
+  // carrying them.
   const statsRegion = new StatsRegion();
-  // Two regions that can each be alone share the band only when both are
-  // present; otherwise whichever is left takes the whole width.
-  statsRegion.setSiblingProbe(() => !updatesRegion.isEmpty());
-  updatesRegion.setSiblingProbe(() => !statsRegion.isEmpty());
   // The approval region renders the panel the dialog host builds for each
   // request, so it holds no panel of its own until one arrives.
   const approvalRegion = new ApprovalRegion();
+  // Two regions that can each be alone share the band only when something else
+  // is in it; otherwise whichever is left takes the whole width. The right half
+  // belongs to the updates box, so a column on the left is only worth splitting
+  // off when that box is actually there: the stats column and an approval are
+  // both always present, and probing them would keep the split — and the empty
+  // right half — on screen for the whole session.
+  const updatesPresent = (): boolean => !updatesRegion.isEmpty();
+  statsRegion.setSiblingProbe(updatesPresent);
+  approvalRegion.setSiblingProbe(updatesPresent);
+  updatesRegion.setSiblingProbe(() => !statsRegion.isEmpty() || !approvalRegion.isEmpty());
   statusSurface.setRegion(statsRegion);
   statusSurface.setRegion(updatesRegion);
   statusSurface.setRegion(approvalRegion);
@@ -229,6 +235,10 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
   const footer = new FooterComponent({ ...initialAppState }, () => {
     ui.requestRender();
   });
+  // The strip owns the session readout as soon as it has numbers; the footer
+  // keeps its context readout only for the window before that, so the same
+  // figure is never on screen twice.
+  footer.setStatsShownProbe(() => !statsRegion.isEmpty());
 
   let dockContainer: VStack | undefined;
   if (ui instanceof TuiAltScreen) {

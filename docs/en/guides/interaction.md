@@ -53,7 +53,7 @@ Type `@` to trigger file-path completion; the selected path is inserted in relat
 
 ## Approval flow
 
-When the agent calls a tool that has side effects — modifying files, running commands — the TUI asks for confirmation in the strip above the input box. The todo list, the mid-turn updates and the pending approval all live in that strip's single frame — split into halves, the updates on the right and everything else on the left — so an approval never pushes the input box away. The input box stays usable for typing, but a submission is held until the request is resolved, so nothing you had drafted is lost.
+When the agent calls a tool that has side effects — modifying files, running commands — the TUI asks for confirmation in the strip above the input box. The mid-turn updates, the session totals and the pending approval all live in that strip's single frame: the frame splits into halves only while the updates box has something in it (updates on the right, the approval and the totals on the left); otherwise each region takes the whole strip and no blank half is left behind. The session totals lay themselves out in as many columns as the width has room for — one reading per row in a narrow column, several side by side across the full strip — so neither shape leaves a large empty area. An approval never pushes the input box away. The input box stays usable for typing, but a submission is held until the request is resolved, so nothing you had drafted is lost.
 
 The prompt starts folded to a compact summary that still shows the numbered options, one per row, so you can answer without expanding it. `Ctrl-T` expands the details (the diff or command being approved).
 
@@ -119,6 +119,8 @@ Common management commands:
 | `/goal next <objective>` | Queue a follow-up goal that starts when the current one completes |
 
 A goal stops in three ways: **complete** — achieved, cleared, and summarized; **paused** — you paused it, interrupted a turn, or an error occurred; **blocked** — the agent can't continue as stated and writes a short message explaining why. The time budget only ticks while the goal is active and the session is open — closing the session or pausing the goal stops the clock, and `/goal resume` continues with the remaining budget after you reopen the session.
+
+While a goal is active, Kimi Code re-states the objective and its completion criterion at the tail of the conversation at the start of a turn, once the context has grown about 20k tokens since the last time it did so. In a long session the goal drifts out of the model's attention behind tool output; this puts it back in view when it matters, and it stays quiet while nothing has changed.
 
 In the web UI, the goal bar below the conversation lets you pause, resume, or cancel the goal directly; click it to expand details, including budget progress when a token budget is configured.
 

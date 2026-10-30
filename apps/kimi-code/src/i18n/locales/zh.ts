@@ -505,7 +505,8 @@ export default {
       providerCreateProviderDefaultModel: '该供应商自身的默认模型，填模型 ID。',
       providerCreateCustomHeader: '请求头，k=v 形式，会合并到已存的请求头。可重复传入。',
       providerCreateEnv: '供应商环境变量，k=v 形式，会合并到已存的环境变量。可重复传入。',
-      providerClearCustomHeaders: '清空已存的请求头；与 --custom-header 同时给出时，改为只写入给出的条目。',
+      providerClearCustomHeaders:
+        '清空已存的请求头；与 --custom-header 同时给出时，改为只写入给出的条目。',
       providerClearEnv: '清空已存的供应商环境变量；与 --env 同时给出时，改为只写入给出的条目。',
       providerCreateProtocol: '单个模型的协议覆盖：none、anthropic 或 openai_responses。',
       providerCreateModelBaseUrl: '单个模型的端点覆盖。',
@@ -966,7 +967,8 @@ export default {
         capabilitiesNone: '未设置',
         capabilitiesHint: '←/→ 选择 · 空格切换 · Enter 下一项',
         supportEffortsLabel: '思考档位',
-        supportEffortsHint: '逗号分隔，由弱到强（顺序即模型自身的顺序）· 留空删除该键 · [] 声明空档位表',
+        supportEffortsHint:
+          '逗号分隔，由弱到强（顺序即模型自身的顺序）· 留空删除该键 · [] 声明空档位表',
         defaultEffortLabel: '默认思考档位',
         offEffortLabel: '表示“关闭”的档位',
         adaptiveThinkingLabel: '自适应思考',
@@ -1018,7 +1020,8 @@ export default {
           envInvalid: '供应商环境变量必须是逗号分隔的 k=v 形式。',
           idTaken: '该供应商 ID 已被占用',
           aliasConflict: '这些模型别名已属于其它供应商',
-          idLocked: '供应商"{{id}}"的 ID 由 config.toml 之外管理，无法在此重命名，请直接手动编辑 config.toml。',
+          idLocked:
+            '供应商"{{id}}"的 ID 由 config.toml 之外管理，无法在此重命名，请直接手动编辑 config.toml。',
         },
       },
       editorSelector: {
@@ -1620,8 +1623,10 @@ export default {
         busy: '已有一次重写正在进行，请等它结束后再试。',
         displaced: '因其他面板打开，本次重写已丢弃。',
         unchanged: '草稿已经说清楚了，无需重写。',
-        disabled: '提示词优化器未启用。请在 /settings 中开启 prompt_optimizer 实验项后再使用 Ctrl+P。',
-        attachmentDropped: '重写结果丢失了已附加的图片或视频，草稿保持不变。请重试，或移除附件后再重写。',
+        disabled:
+          '提示词优化器未启用。请在 /settings 中开启 prompt_optimizer 实验项后再使用 Ctrl+P。',
+        attachmentDropped:
+          '重写结果丢失了已附加的图片或视频，草稿保持不变。请重试，或移除附件后再重写。',
         wrappedRowsTruncatedExpandable: '预览已截断——按 {{expand}} 可查看更多折行内容',
       },
       updatePreferenceSelector: {
@@ -1647,8 +1652,7 @@ export default {
       },
     },
     statusMessages: {
-      sessionReloadedAfterExternalUpdate:
-        '会话「{{sessionId}}」已被另一个客户端更新，已重新加载。',
+      sessionReloadedAfterExternalUpdate: '会话「{{sessionId}}」已被另一个客户端更新，已重新加载。',
       planModeNotReviewableInPrint:
         '会话「{{sessionId}}」处于计划模式，打印模式无法审核计划；请用 `kimi -r {{sessionId}}` 审核。',
       defaultPlanModeNotAppliedInPrint:
@@ -2303,8 +2307,7 @@ export default {
       // main.ts / native worker install
       nativeWorkerInstallFailed:
         '原生 worker "{{worker}}" 安装失败（{{code}}）；其索引已降级为回退实现。',
-      nativeWorkerAssetMissing:
-        '此构建中缺少原生 worker "{{worker}}"；其索引已降级为回退实现。',
+      nativeWorkerAssetMissing: '此构建中缺少原生 worker "{{worker}}"；其索引已降级为回退实现。',
       // utils/clipboard/clipboard-text.ts
       noClipboardCommandAvailable: '没有可用的剪贴板命令。',
       // utils/process/fd-detect.ts
@@ -2748,7 +2751,8 @@ export default {
       configModelMigrationAvailable: '可迁移模型',
       configModelMigrationSwitchTo: '切换到 {{name}}',
       configModelMigrationKeepCurrent: '保持当前模型',
-      configModelMigrationRetiredDefault: '{{from}} 已不再由对应服务商提供，默认模型已切换为 {{to}}。',
+      configModelMigrationRetiredDefault:
+        '{{from}} 已不再由对应服务商提供，默认模型已切换为 {{to}}。',
       configThemeUnchanged: '主题未更改："{{theme}}"。',
       configThemeLoadFailed: '无法加载主题"{{theme}}"。',
       configThemeSaveFailed: '保存主题失败：{{error}}',
@@ -3091,6 +3095,18 @@ export default {
       searchPrefix: '搜索',
       searchScope: '范围：{{scope}}',
       backgroundTask: '{{status}} {{kind}} 任务 {{taskId}}：{{description}}',
+    },
+    programStatus: {
+      authRequired: '登录 Kimi Code',
+      turnFailed: '本轮失败',
+      turnBlocked: '本轮被提示钩子拦截',
+      requestFailed: '请求失败',
+      subagentFailed: '子代理失败',
+      backgroundAgentFailed: '后台智能体失败',
+      backgroundAgentTimedOut: '后台智能体超时',
+      backgroundAgentLost: '后台智能体已丢失',
+      approvalRequired: '需要批准',
+      answerRequired: '需要回答',
     },
     migration: {
       failed: ' 迁移失败',

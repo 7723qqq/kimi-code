@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-
 import type {
   AgentBackgroundTaskInfo,
   BackgroundTaskInfo,
@@ -8,14 +6,22 @@ import type {
 } from '@moonshot-ai/kimi-code-sdk';
 import type { ProgramStatus } from '@moonshot-ai/pi-tui';
 
+import { t } from '#/i18n';
+
 import { PRODUCT_NAME } from '../constant/kimi-tui';
 import type { AppState } from '../types';
 
 const MAX_CHILD_RECORDS = 63;
-const AUTH_BLOCKED: ProgramStatusBlocked = {
-  kind: 'auth',
-  message: 'Sign in to Kimi Code',
-};
+
+/**
+ * The status a locked-out session reports. Built on each use rather than kept
+ * as a constant: it carries a user-visible sentence, and the locale can change
+ * while the process runs (`/settings`), so a value frozen at import time would
+ * keep the language the process started in.
+ */
+function authBlocked(): ProgramStatusBlocked {
+  return { kind: 'auth', message: t('tui.programStatus.authRequired') };
+}
 
 export interface ProgramStatusTerminal {
   setProgramStatus(status: ProgramStatus): void;
@@ -148,13 +154,13 @@ export class ProgramStatusController implements ProgramStatusInteractionTracker 
       case 'failed':
         this.outcome = {
           state: 'error',
-          message: firstLine(event.error?.message) ?? 'Turn failed',
+          message: firstLine(event.error?.message) ?? t('tui.programStatus.turnFailed'),
         };
         break;
       case 'blocked':
         this.outcome = {
           state: 'error',
-          message: firstLine(event.error?.message) ?? 'Turn blocked by a prompt hook',
+          message: firstLine(event.error?.message) ?? t('tui.programStatus.turnBlocked'),
         };
         break;
     }
@@ -182,7 +188,10 @@ export class ProgramStatusController implements ProgramStatusInteractionTracker 
   }
 
   failRequest(message: string): void {
-    this.outcome = { state: 'error', message: firstLine(message) ?? 'Request failed' };
+    this.outcome = {
+      state: 'error',
+      message: firstLine(message) ?? t('tui.programStatus.requestFailed'),
+    };
     this.refresh();
   }
 
@@ -204,7 +213,12 @@ export class ProgramStatusController implements ProgramStatusInteractionTracker 
   }
 
   failSubagent(agentId: string, message: string): void {
-    this.settleSubagent(agentId, 'error', undefined, firstLine(message) ?? 'Subagent failed');
+    this.settleSubagent(
+      agentId,
+      'error',
+      undefined,
+      firstLine(message) ?? t('tui.programStatus.subagentFailed'),
+    );
   }
 
   cancelSubagent(agentId: string): void {
@@ -250,10 +264,10 @@ export class ProgramStatusController implements ProgramStatusInteractionTracker 
         const message =
           firstLine(info.stopReason) ??
           (info.status === 'failed'
-            ? 'Background agent failed'
+            ? t('tui.programStatus.backgroundAgentFailed')
             : info.status === 'timed_out'
-              ? 'Background agent timed out'
-              : 'Background agent was lost');
+              ? t('tui.programStatus.backgroundAgentTimedOut')
+              : t('tui.programStatus.backgroundAgentLost'));
         this.settleSubagent(agentId, 'error', base, message);
         return;
       }
@@ -313,7 +327,7 @@ export class ProgramStatusController implements ProgramStatusInteractionTracker 
 
   private rootStatus(): ProgramStatus {
     if (this.authRequired || this.authBlocks.size > 0) {
-      return { state: 'blocked', app: 'kimi-code', ...AUTH_BLOCKED };
+      return { state: 'blocked', app: 'kimi-code', ...authBlocked() };
     }
     const blocked = this.interactionOfKind('permission') ?? this.interactionOfKind('question');
     if (blocked !== undefined) {
@@ -415,7 +429,7 @@ export class ProgramStatusController implements ProgramStatusInteractionTracker 
       this.children.set(agentId, {
         ...current,
         status,
-        message: message ?? 'Subagent failed',
+        message: message ?? t('tui.programStatus.subagentFailed'),
         lastActive,
       });
     }
@@ -477,11 +491,14 @@ function childRank(child: ChildWork, blocked: boolean): number {
 }
 
 function defaultInteractionMessage(kind: 'permission' | 'question'): string {
-  return kind === 'permission' ? 'Approval required' : 'Answer required';
+  return kind === 'permission'
+    ? t('tui.programStatus.approvalRequired')
+    : t('tui.programStatus.answerRequired');
 }
 
 function recordId(agentId: string): string {
-  return `agent-${createHash('sha256').update(agentId).digest('hex').slice(0, 24)}`;
+  const digest = new Bun.CryptoHasher('sha256').update(agentId).digest('hex');
+  return `agent-${digest.slice(0, 24)}`;
 }
 
 function nonEmpty(text: string | undefined): string | undefined {

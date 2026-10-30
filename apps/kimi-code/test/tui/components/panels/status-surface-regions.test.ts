@@ -184,4 +184,46 @@ describe('status regions share one surface', () => {
     notifyPanel.clear();
     expect(surface.render(80)).toEqual([]);
   });
+
+  it('gives a lone left column the full band instead of an empty right half', () => {
+    // A left region with no right neighbour used to keep the split, so the
+    // band drew a prompt on the left, an empty box on the right, and the
+    // divider between them. The split is worth drawing only when both halves
+    // have content.
+    const surface = new StatusSurfaceComponent({ terminalRows: () => 40 });
+    const left = new StandInRegion('approval', 'left');
+    left.setLines(['  ▶ Run this command?', '  1. Allow']);
+    surface.setRegion(left);
+
+    const lines = surface.render(80);
+    const box = surface.regionRects().find((entry) => entry.id === 'approval')!;
+    expect(box.col).toBe(2);
+    expect(box.width).toBeGreaterThan(70);
+    for (const line of lines) {
+      expect(plainText(line)).not.toContain('││');
+    }
+  });
+
+  it('keeps the split when a right-hand region joins the band', () => {
+    const surface = new StatusSurfaceComponent({ terminalRows: () => 40 });
+    const left = new StandInRegion('approval', 'left');
+    const right = new StandInRegion('updates', 'right');
+    left.setLines(['  ▶ Run this command?', '  1. Allow']);
+    right.setLines(['  main · Updates 1/1', '  hello']);
+    surface.setRegion(left);
+    surface.setRegion(right);
+
+    // `regionRects` is populated by the paint, so the layout has to render
+    // before its boxes can be read.
+    surface.render(100);
+    const leftBox = surface.regionRects().find((entry) => entry.id === 'approval')!;
+    const rightBox = surface.regionRects().find((entry) => entry.id === 'updates')!;
+    expect(leftBox.width).toBeLessThan(50);
+    expect(rightBox.col).toBeGreaterThan(leftBox.col + leftBox.width);
+  });
 });
+
+function plainText(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text.replaceAll(/\u001B\[[0-9;?]*[a-zA-Z]|\u001B\][^\u0007]*\u0007/g, '');
+}
