@@ -12,13 +12,16 @@ import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDo
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IConfigService } from '#/app/config/config';
 import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
 import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
+import { WORKSPACE_TRUST_SECTION } from '#/workspace/workspaceTrust/configSection';
 import {
   IWorkspaceTrust,
   type WorkspaceTrustChange,
 } from '#/workspace/workspaceTrust/workspaceTrust';
+import { stubConfigService } from '../../app/config/stubs';
 import {
   TRUST_WORKSPACE_ENV,
   WorkspaceTrustService,
@@ -73,6 +76,7 @@ describe('WorkspaceTrustService', () => {
           new JsonAtomicDocumentStore(new FileStorageService(homeDir)),
         );
         reg.defineInstance(ITelemetryService, noopTelemetryService);
+        reg.defineInstance(IConfigService, stubConfigService());
         if (sharedStore === undefined) {
           reg.define(IWorkspaceTrustStore, WorkspaceTrustStore);
         } else {
@@ -236,6 +240,7 @@ describe('WorkspaceTrustService', () => {
       docs,
       noopTelemetryService,
       stubBootstrap(homeDir),
+      stubConfigService(),
     ));
     const entry = trustStore.forRoot(cwd);
 
@@ -265,6 +270,7 @@ describe('WorkspaceTrustService', () => {
       docs,
       noopTelemetryService,
       stubBootstrap(homeDir),
+      stubConfigService(),
     ));
     const entry = store.forRoot(cwd);
     const events: WorkspaceTrustChange[] = [];
@@ -376,6 +382,7 @@ describe('WorkspaceTrustService', () => {
       docs,
       noopTelemetryService,
       stubBootstrap(homeDir),
+      stubConfigService(),
     ));
     const entry = store.forRoot(firstRoot);
 
@@ -403,6 +410,7 @@ describe('WorkspaceTrustService', () => {
       docs,
       noopTelemetryService,
       stubBootstrap(homeDir),
+      stubConfigService(),
     ));
     const entry = store.forRoot(cwd);
     const events: WorkspaceTrustChange[] = [];
@@ -429,6 +437,7 @@ describe('WorkspaceTrustService', () => {
       new JsonAtomicDocumentStore(new FileStorageService(homeDir)),
       telemetry,
       stubBootstrap(homeDir),
+      stubConfigService(),
     ));
     const entry = store.forRoot(cwd);
 
@@ -438,5 +447,21 @@ describe('WorkspaceTrustService', () => {
     await entry.untrust();
 
     expect(changes).toEqual([{ trusted: true }, { trusted: false }]);
+  });
+
+  it('treats every workspace as trusted when the trust gate is turned off in config', async () => {
+    const store = disposables.add(
+      new WorkspaceTrustStore(
+        new JsonAtomicDocumentStore(new FileStorageService(homeDir)),
+        noopTelemetryService,
+        stubBootstrap(homeDir),
+        stubConfigService({ [WORKSPACE_TRUST_SECTION]: { requireTrust: false } }),
+      ),
+    );
+    const entry = store.forRoot(cwd);
+
+    expect(entry.isTrusted()).toBe(true);
+    expect(await entry.get()).toBe(true);
+    expect(entry.isPersistedTrusted()).toBe(false);
   });
 });

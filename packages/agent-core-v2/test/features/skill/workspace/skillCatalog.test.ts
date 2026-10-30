@@ -21,6 +21,7 @@ import { IAppStateService } from '#/app/state/appState';
 import { AppStateService } from '#/app/state/appStateService';
 import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
 import { WorkspaceStateService } from '#/workspace/state/workspaceStateService';
+import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import { IConfigService } from '#/app/config/config';
 import { IFlagService } from '#/app/flag/flag';
@@ -167,6 +168,25 @@ function workspaceContextStub(workDir: string): IWorkspaceContext {
   };
 }
 
+function workspaceDirsStub(additionalDirs: readonly string[] = []): IWorkspaceDirs {
+  return {
+    _serviceBrand: undefined,
+    ready: Promise.resolve(),
+    additionalDirs,
+    onDidChange: () => ({ dispose: () => {} }),
+    addDir: async () => ({ projectRoot: '', configPath: '', additionalDirs, persisted: false }),
+    mergeAdditionalDirs: async () => {},
+    reload: async () => {},
+    sessionInfo: () => ({
+      _serviceBrand: undefined,
+      ready: Promise.resolve(),
+      additionalDirs,
+      primaryByWorkspace: {},
+      onDidChange: () => ({ dispose: () => {} }),
+    }),
+  } as unknown as IWorkspaceDirs;
+}
+
 function makeHost(
   store: ISkillDiscovery,
   ws: IWorkspaceContext,
@@ -183,7 +203,7 @@ function makeHost(
     stubPair(IPluginService, pluginStub(pluginRoots, pluginReloadEmitter)),
   ]);
   const workspaceHandle = createScopedChildHandle(host.app.instantiation, 'program', 'w1', {
-    seeds: [stubPair(IWorkspaceContext, ws)],
+    seeds: [stubPair(IWorkspaceContext, ws), stubPair(IWorkspaceDirs, workspaceDirsStub())],
   });
   const disposeHost = host.dispose.bind(host);
   host.dispose = () => {
@@ -398,7 +418,7 @@ describe('WorkspaceSkillCatalogService', () => {
       stubPair(IConfigService, config),
       stubPair(IPluginService, pluginStub()),
     ]);
-    const workspace = host.child('program', 'w1', [stubPair(IWorkspaceContext, ws)]);
+    const workspace = host.child('program', 'w1', [stubPair(IWorkspaceContext, ws), stubPair(IWorkspaceDirs, workspaceDirsStub())]);
 
     const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
     let settled = false;
@@ -434,7 +454,7 @@ describe('WorkspaceSkillCatalogService', () => {
       stubPair(IConfigService, config),
       stubPair(IPluginService, pluginStub()),
     ]);
-    const workspace = host.child('program', 'w1', [stubPair(IWorkspaceContext, ws)]);
+    const workspace = host.child('program', 'w1', [stubPair(IWorkspaceContext, ws), stubPair(IWorkspaceDirs, workspaceDirsStub())]);
 
     const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
     await catalog.load();
@@ -655,6 +675,7 @@ describe('WorkspaceSkillCatalogService', () => {
     ]);
     const workspace = host.child('program', 'w1', [
       stubPair(IWorkspaceContext, ws),
+      stubPair(IWorkspaceDirs, workspaceDirsStub()),
       stubPair(IPluginSkillSource, pluginSource),
     ]);
 
@@ -712,6 +733,7 @@ describe('WorkspaceSkillCatalogService', () => {
     ]);
     const workspace = host.child('program', 'w1', [
       stubPair(IWorkspaceContext, ws),
+      stubPair(IWorkspaceDirs, workspaceDirsStub()),
     ]);
 
     try {
@@ -774,6 +796,7 @@ describe('WorkspaceSkillCatalogService', () => {
     const ws = workspaceContextStub('/work');
     const workspace = host.child('program', 'w1', [
       stubPair(IWorkspaceContext, ws),
+      stubPair(IWorkspaceDirs, workspaceDirsStub()),
     ]);
 
     try {
@@ -883,6 +906,7 @@ describe('WorkspaceSkillCatalogService', () => {
     ]);
     const workspace = host.child('program', 'w1', [
       stubPair(IWorkspaceContext, workspaceContextStub(workDir)),
+      stubPair(IWorkspaceDirs, workspaceDirsStub()),
     ]);
 
     try {
@@ -932,6 +956,7 @@ describe('WorkspaceSkillCatalogService', () => {
     ]);
     const workspace = host.child('program', 'w1', [
       stubPair(IWorkspaceContext, workspaceContextStub(workDir)),
+      stubPair(IWorkspaceDirs, workspaceDirsStub()),
     ]);
 
     try {
@@ -1022,6 +1047,7 @@ describe('WorkspaceSkillCatalogService', () => {
     ]);
     const workspace = host.child('program', 'w1', [
       stubPair(IWorkspaceContext, workspaceContextStub('/work')),
+      stubPair(IWorkspaceDirs, workspaceDirsStub()),
     ]);
 
     try {
@@ -1052,6 +1078,7 @@ describe('WorkspaceSkillCatalogService', () => {
     ]);
     const workspace = host.child('program', 'w1', [
       stubPair(IWorkspaceContext, workspaceContextStub('/work')),
+      stubPair(IWorkspaceDirs, workspaceDirsStub()),
     ]);
 
     try {
@@ -1080,6 +1107,7 @@ describe('WorkspaceSkillCatalogService', () => {
     ]);
     const workspace = host.child('program', 'w1', [
       stubPair(IWorkspaceContext, workspaceContextStub('/work')),
+      stubPair(IWorkspaceDirs, workspaceDirsStub()),
     ]);
 
     try {
@@ -1118,6 +1146,7 @@ describe('WorkspaceSkillCatalogService', () => {
     ]);
     const workspace = host.child('program', 'w1', [
       stubPair(IWorkspaceContext, workspaceContextStub('/work')),
+      stubPair(IWorkspaceDirs, workspaceDirsStub()),
     ]);
 
     const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);

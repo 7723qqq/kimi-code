@@ -7,9 +7,7 @@ import { IPluginService } from '#/app/plugin/plugin';
 import { LifecycleScope } from '#/app/scopes';
 import { ErrorCodes, Error2 } from '#/errors';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
-import { readWorkspaceTrust } from '#/workspace/workspaceTrust/trustRecord';
-import { trustWorkspaceEnvTrusted } from '#/workspace/workspaceTrust/workspaceTrustService';
+import { IWorkspaceTrustStore } from '#/workspace/workspaceTrust/workspaceTrustStore';
 
 import { IMcpRegistryService, type McpRegistryEntry, type McpRegistryQuery } from './mcpRegistry';
 
@@ -21,7 +19,7 @@ export class McpRegistryService implements IMcpRegistryService {
     @IPluginService private readonly plugins: IPluginService,
     @IHostFileSystem private readonly fs: IHostFileSystem,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
-    @IAtomicDocumentStore private readonly docs: IAtomicDocumentStore,
+    @IWorkspaceTrustStore private readonly trust: IWorkspaceTrustStore,
   ) {}
 
   async list(query: McpRegistryQuery = {}): Promise<readonly McpRegistryEntry[]> {
@@ -41,9 +39,7 @@ export class McpRegistryService implements IMcpRegistryService {
       }
     } else {
       const cwd = canonicalWorkspaceRoot(query.cwd);
-      const trusted =
-        (await readWorkspaceTrust(this.docs, cwd)) ||
-        trustWorkspaceEnvTrusted((name) => this.bootstrap.getEnv(name));
+      const trusted = await this.trust.forRoot(cwd).refresh();
       if (!trusted) {
         const userEntries = await this.store.list();
         for (const server of userEntries) {

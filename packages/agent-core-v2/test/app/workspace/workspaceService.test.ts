@@ -211,6 +211,31 @@ describe('WorkspaceService (file-backed)', () => {
     expect(await build().list()).toEqual([]);
   });
 
+  it('defaults the multi-root fields for old catalogs and persists additional dirs', async () => {
+    const root = join(homeDir, 'proj-multi');
+    const id = encodeWorkDirKey(root);
+    await writeWorkspacesJson({
+      [id]: {
+        root,
+        name: 'proj-multi',
+        created_at: new Date(0).toISOString(),
+        last_opened_at: new Date(0).toISOString(),
+      },
+    });
+
+    const service = build(allDirsHostFs());
+    const loaded = (await service.list()).find((ws) => ws.id === id);
+    expect(loaded?.kind).toBe('implicit');
+    expect(loaded?.additionalDirs).toEqual([]);
+
+    const updated = await service.update(id, { additionalDirs: ['/extra-dir'] });
+    expect(updated?.additionalDirs).toEqual(['/extra-dir']);
+
+    const restarted = (await restart(allDirsHostFs()).list()).find((ws) => ws.id === id);
+    expect(restarted?.additionalDirs).toEqual(['/extra-dir']);
+    expect(restarted?.kind).toBe('implicit');
+  });
+
   it('merges session-index workDirs into an existing catalog on load', async () => {
     const work = join(homeDir, 'existing');
     const fromIndex = join(homeDir, 'from-index');

@@ -26,7 +26,11 @@ import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { TRUST_WORKSPACE_ENV } from '#/workspace/workspaceTrust/workspaceTrustService';
+import {
+  TRUST_WORKSPACE_ENV,
+  trustWorkspaceEnvTrusted,
+} from '#/workspace/workspaceTrust/workspaceTrustService';
+import { IWorkspaceTrustStore } from '#/workspace/workspaceTrust/workspaceTrustStore';
 
 function stdioServer(name: string, command = 'npx'): GlobalMcpServerConfig {
   return { name, transport: 'stdio', command };
@@ -82,6 +86,16 @@ describe('McpRegistryService', () => {
           },
         });
         reg.defineInstance(IHostFileSystem, new HostFileSystem());
+        reg.definePartialInstance(IWorkspaceTrustStore, {
+          forRoot: (root: string) =>
+            ({
+              refresh: async () =>
+                (trusted &&
+                  (trustedKey === undefined ||
+                    canonicalWorkspaceRoot(trustedKey) === canonicalWorkspaceRoot(root))) ||
+                trustWorkspaceEnvTrusted((name: string) => env[name]),
+            }) as unknown as ReturnType<IWorkspaceTrustStore['forRoot']>,
+        });
         reg.definePartialInstance(IAtomicDocumentStore, {
           get: async <T>(_scope: string, key: string) => {
             if (

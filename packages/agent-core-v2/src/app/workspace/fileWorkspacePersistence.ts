@@ -72,6 +72,8 @@ export class FileWorkspacePersistence extends Disposable implements IWorkspacePe
         id,
         root: entry.root,
         name: entry.name,
+        kind: entry.kind === 'managed' ? 'managed' : 'implicit',
+        additionalDirs: entry.additional_dirs ?? [],
         createdAt: parseTime(entry.created_at, now),
         lastOpenedAt: parseTime(entry.last_opened_at, now),
       });
@@ -89,6 +91,8 @@ export class FileWorkspacePersistence extends Disposable implements IWorkspacePe
       record[ws.id] = {
         root: ws.root,
         name: ws.name,
+        kind: ws.kind,
+        additional_dirs: [...ws.additionalDirs],
         created_at: new Date(ws.createdAt).toISOString(),
         last_opened_at: new Date(ws.lastOpenedAt).toISOString(),
       };
@@ -123,9 +127,14 @@ function sanitizeEntry(value: unknown): PersistedWorkspaceEntry | null {
   ) {
     return null;
   }
+  const additionalDirs = Array.isArray(v.additional_dirs)
+    ? v.additional_dirs.filter((dir): dir is string => typeof dir === 'string')
+    : undefined;
   return {
     root: v.root,
     name: v.name,
+    kind: typeof v.kind === 'string' ? v.kind : undefined,
+    additional_dirs: additionalDirs,
     created_at: v.created_at,
     last_opened_at: v.last_opened_at,
   };

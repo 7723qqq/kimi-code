@@ -265,8 +265,8 @@ describe('WorkspaceAliasesService (file-backed)', () => {
     const persistence = currentHost!.app.accessor.get(IWorkspacePersistence);
     await persistence.save({
       workspaces: [
-        { id: typedId, root: typedRoot, name: 'proj', createdAt: 0, lastOpenedAt: 0 },
-        { id: legacyId, root: 'c:\\users\\foo\\proj', name: 'proj', createdAt: 0, lastOpenedAt: 0 },
+        { id: typedId, root: typedRoot, name: 'proj', kind: 'implicit' as const, additionalDirs: [], createdAt: 0, lastOpenedAt: 0 },
+        { id: legacyId, root: 'c:\\users\\foo\\proj', name: 'proj', kind: 'implicit' as const, additionalDirs: [], createdAt: 0, lastOpenedAt: 0 },
       ],
       deletedIds: [],
     });
@@ -320,7 +320,7 @@ describe('WorkspaceAliasesService (file-backed)', () => {
       id,
       root,
       name: 'proj',
-      createdAt: 0,
+      kind: 'implicit' as const, additionalDirs: [], createdAt: 0,
       lastOpenedAt: 0,
     });
 
@@ -378,7 +378,7 @@ describe('WorkspaceAliasesService (file-backed)', () => {
       id,
       root,
       name: 'proj',
-      createdAt: 0,
+      kind: 'implicit' as const, additionalDirs: [], createdAt: 0,
       lastOpenedAt: 0,
     });
 

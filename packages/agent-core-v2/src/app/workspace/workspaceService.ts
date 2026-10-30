@@ -96,6 +96,8 @@ export class WorkspaceService implements IWorkspaceService {
               id,
               root,
               name: name ?? basename(root),
+              kind: 'implicit',
+              additionalDirs: [],
               createdAt: now,
               lastOpenedAt: now,
             };
@@ -120,6 +122,9 @@ export class WorkspaceService implements IWorkspaceService {
       const updated: Workspace = {
         ...existing,
         ...(patch.name !== undefined ? { name: patch.name } : {}),
+        ...(patch.additionalDirs !== undefined
+          ? { additionalDirs: [...patch.additionalDirs] }
+          : {}),
       };
       await this.store.save({
         workspaces: catalog.workspaces.map((ws) => (ws.id === id ? updated : ws)),
@@ -219,6 +224,8 @@ export class WorkspaceService implements IWorkspaceService {
         id,
         root: workDir,
         name: basename(workDir),
+        kind: 'implicit',
+        additionalDirs: [],
         createdAt: now,
         lastOpenedAt: now,
       });
@@ -241,6 +248,8 @@ export class WorkspaceService implements IWorkspaceService {
         id,
         root: entry.workDir,
         name: basename(entry.workDir),
+        kind: 'implicit',
+        additionalDirs: [],
         createdAt: now,
         lastOpenedAt: now,
       });

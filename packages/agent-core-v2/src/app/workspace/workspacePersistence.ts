@@ -6,6 +6,8 @@ import type { Workspace } from './workspace';
 export interface PersistedWorkspaceEntry {
   readonly root: string;
   readonly name: string;
+  readonly kind?: string;
+  readonly additional_dirs?: readonly string[];
   readonly created_at: string;
   readonly last_opened_at: string;
 }

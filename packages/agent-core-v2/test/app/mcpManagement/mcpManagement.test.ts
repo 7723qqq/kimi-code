@@ -37,6 +37,7 @@ import { InMemoryStorageService } from '#/persistence/backends/memory/inMemorySt
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
+import { IWorkspaceTrustStore } from '#/workspace/workspaceTrust/workspaceTrustStore';
 import { WorkspaceInstance } from '#/workspace/workspaceInstance/workspaceInstance';
 import {
   IRuntimeResolver,
@@ -219,6 +220,12 @@ describe('McpManagementService', () => {
         reg.definePartialInstance(IAtomicDocumentStore, {
           get: async <T>() => (trusted ? ({} as T) : undefined),
           list: async () => [],
+        });
+        reg.definePartialInstance(IWorkspaceTrustStore, {
+          forRoot: () =>
+            ({ refresh: async () => trusted }) as unknown as ReturnType<
+              IWorkspaceTrustStore['forRoot']
+            >,
         });
         reg.define(IMcpRegistryService, McpRegistryService);
         reg.defineInstance(IMcpOAuthService, oauth);

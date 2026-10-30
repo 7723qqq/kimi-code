@@ -10,12 +10,13 @@ import {
   type MergeAllAvailableSkillsConfig,
 } from '#/features/skill/catalog/configSection';
 import { ISkillDiscovery } from '#/features/skill/catalog/skillDiscovery';
-import { projectRoots, projectSkillRootCandidates } from '#/features/skill/catalog/skillRoots';
+import { projectRootsForDirs, projectSkillRootCandidates } from '#/features/skill/catalog/skillRoots';
 import {
   SKILL_SOURCE_PRIORITY,
   type ISkillSource,
   type SkillContribution,
 } from '#/features/skill/catalog/skillSource';
+import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import { watchCandidates } from '#human/utils/watch';
 
@@ -48,6 +49,7 @@ export class WorkspaceRootSkillSource extends Disposable implements IWorkspaceRo
     @IWorkspaceContext private readonly workspace: IWorkspaceContext,
     @IConfigService private readonly config: IConfigService,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
+    @IWorkspaceDirs private readonly dirs: IWorkspaceDirs,
   ) {
     super();
     this._register(
@@ -55,6 +57,7 @@ export class WorkspaceRootSkillSource extends Disposable implements IWorkspaceRo
         if (event.domain === MERGE_ALL_AVAILABLE_SKILLS_SECTION) this.onDidChangeEmitter.fire();
       }),
     );
+    this._register(this.dirs.onDidChange(() => this.onDidChangeEmitter.fire()));
     this.watchReady = this.updateProjectSkillRootWatch([]).then(() => undefined);
   }
 
@@ -66,8 +69,10 @@ export class WorkspaceRootSkillSource extends Disposable implements IWorkspaceRo
     await this.config.ready;
     const mergeAllAvailableSkills =
       this.config.get<MergeAllAvailableSkillsConfig>(MERGE_ALL_AVAILABLE_SKILLS_SECTION) ?? true;
+    await this.dirs.ready;
+    const workDirs = [this.workspace.cwd, ...this.dirs.additionalDirs];
     const discover = async () =>
-      this.discovery.discover(await projectRoots(this.workspace.cwd, { mergeAllAvailableSkills }));
+      this.discovery.discover(await projectRootsForDirs(workDirs, { mergeAllAvailableSkills }));
     let contribution = await discover();
     while (await this.updateProjectSkillRootWatch(contribution.scannedDirectories)) {
       contribution = await discover();

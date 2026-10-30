@@ -28,7 +28,7 @@ function deferred(): { readonly promise: Promise<void>; resolve(): void } {
 }
 
 function workspace(id: string): Workspace {
-  return { id, root: `/${id}`, name: id, createdAt: 0, lastOpenedAt: 0 };
+  return { id, root: `/${id}`, name: id, kind: 'implicit' as const, additionalDirs: [], createdAt: 0, lastOpenedAt: 0 };
 }
 
 function runtime(
@@ -297,7 +297,7 @@ describe('WorkspaceInstanceManager', () => {
 
   describe('findContaining', () => {
     function rootedWorkspace(id: string, root: string): Workspace {
-      return { id, root, name: id, createdAt: 0, lastOpenedAt: 0 };
+      return { id, root, name: id, kind: 'implicit' as const, additionalDirs: [], createdAt: 0, lastOpenedAt: 0 };
     }
 
     it('matches exact and nested cwds, preferring the longest containing root', async () => {

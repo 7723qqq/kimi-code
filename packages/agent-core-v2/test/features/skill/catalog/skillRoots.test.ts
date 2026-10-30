@@ -4,7 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
-import { configuredRoots, projectRoots, userRoots } from '#/features/skill/catalog/skillRoots';
+import {
+  configuredRoots,
+  projectRoots,
+  projectRootsForDirs,
+  userRoots,
+} from '#/features/skill/catalog/skillRoots';
 
 async function normalizedRealpath(p: string): Promise<string> {
   return (await realpath(p)).replaceAll('\\', '/');
@@ -24,6 +29,34 @@ describe('skillRoots', () => {
   async function markGitRoot(dir: string = root): Promise<void> {
     await mkdir(join(dir, '.git'), { recursive: true });
   }
+
+  describe('projectRootsForDirs', () => {
+    it('collects roots from every work dir without duplicating a shared project root', async () => {
+      await markGitRoot();
+      await mkdir(join(root, '.kimi-code/skills/commit'), { recursive: true });
+      const nested = join(root, 'packages/app');
+      await mkdir(nested, { recursive: true });
+
+      const single = await projectRoots(root);
+      const merged = await projectRootsForDirs([root, nested]);
+
+      expect(merged.length).toBeGreaterThan(0);
+      expect(merged.map((entry) => entry.path)).toEqual(single.map((entry) => entry.path));
+    });
+
+    it('keeps roots from work dirs that belong to different projects', async () => {
+      await markGitRoot();
+      await mkdir(join(root, '.kimi-code/skills/commit'), { recursive: true });
+      const other = join(root, 'other-project');
+      await markGitRoot(other);
+      await mkdir(join(other, '.agents/skills/review'), { recursive: true });
+
+      const merged = await projectRootsForDirs([root, other]);
+
+      expect(merged.some((entry) => entry.path.endsWith('.kimi-code/skills'))).toBe(true);
+      expect(merged.some((entry) => entry.path.endsWith('.agents/skills'))).toBe(true);
+    });
+  });
 
   describe('projectRoots', () => {
     it('resolves the brand .kimi-code/skills directory at the .git root', async () => {
