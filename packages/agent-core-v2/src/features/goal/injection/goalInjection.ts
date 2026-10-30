@@ -1,5 +1,6 @@
 import { Service } from '#/_base/di/service';
 import { renderPrompt } from '#/_base/utils/render-prompt';
+import { planTailContract } from '#/agent/tokenCounting/tailAnchor';
 import type { GoalSnapshot } from '#/features/goal/types';
 import type { IAgentReminderService } from '#/features/reminder/reminderService';
 
@@ -15,7 +16,12 @@ export interface GoalInjectionOptions {
 export const GOAL_WAIT_FOR_GUIDANCE =
   'If you are waiting for background sub-agents or bash tasks to finish, call WaitFor to wait for them inside this turn instead of ending the turn; ending the turn just gets you re-invoked again and again. You can also use the waiting time to do useful parallel work. Either way, make sure every goal turn is productive.';
 
+export const GOAL_TAIL_ANCHOR_THRESHOLD_TOKENS = 20_000;
+
 export class GoalInjection extends Service {
+  private anchorGoalId: string | undefined;
+  private anchorTokens: number | undefined;
+
   constructor(
     private readonly options: GoalInjectionOptions,
     injector: IAgentReminderService,
@@ -23,6 +29,11 @@ export class GoalInjection extends Service {
     super();
     this._register(
       injector.register('goal', ({ isNewTurn }) => (isNewTurn ? this.reminder() : undefined)),
+    );
+    this._register(
+      injector.register('goal_tail', ({ isNewTurn, estimatedTokens }) =>
+        isNewTurn ? this.tailContract(estimatedTokens) : undefined,
+      ),
     );
   }
 
@@ -35,6 +46,26 @@ export class GoalInjection extends Service {
     if (goal.status === 'blocked') return buildBlockedNote(goal);
     if (goal.status === 'paused') return buildPausedNote(goal);
     return undefined;
+  }
+
+  private tailContract(estimatedTokens: number | undefined): string | undefined {
+    if (estimatedTokens === undefined) return undefined;
+    const goal = this.options.getGoal();
+    if (goal === null || goal.status !== 'active') return undefined;
+    if (goal.goalId !== this.anchorGoalId) {
+      this.anchorGoalId = goal.goalId;
+      this.anchorTokens = undefined;
+    }
+    const text = planTailContract({
+      estimatedTokens,
+      threshold: GOAL_TAIL_ANCHOR_THRESHOLD_TOKENS,
+      lastAnchorTokens: this.anchorTokens,
+      goal: goal.objective,
+      constraints: goal.completionCriterion === undefined ? [] : [goal.completionCriterion],
+    });
+    if (text === undefined) return undefined;
+    this.anchorTokens = estimatedTokens;
+    return text;
   }
 }
 

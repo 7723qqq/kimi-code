@@ -193,7 +193,7 @@ describe('LspStdioProvider', () => {
     let spawnCount = 0;
     const provider = new LspStdioProvider(
       'typescript',
-      { ...SERVER_CONFIG, initializeTimeoutMs: 100 },
+      { ...SERVER_CONFIG, initializeTimeoutMs: 500 },
       {
         _serviceBrand: undefined,
         exec: async (_args, options) => {

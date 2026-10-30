@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
 import type { IAgentScopeHandle } from '#/_base/di/scope';
-import { LifecycleScope } from '#/app/scopes';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import {
@@ -10,8 +9,32 @@ import {
   type Turn,
   type TurnResult,
 } from '#/agent/loop/loop';
+import { AssistantDelta, TurnStepStarted } from '#/agent/loop/turnEvents';
+import { IEventBus } from '#/app/event/eventBus';
+import { LifecycleScope } from '#/app/scopes';
 import { ErrorCodes, isError2 } from '#/errors';
 import { runAgentTurn } from '#/session/subagent/runAgentTurn';
+
+type BusHandler = (event: unknown) => void;
+
+class FakeEventBus {
+  private readonly handlers = new Map<unknown, Set<BusHandler>>();
+
+  subscribe(type: unknown, handler: BusHandler): { dispose: () => void } {
+    const set = this.handlers.get(type) ?? new Set<BusHandler>();
+    set.add(handler);
+    this.handlers.set(type, set);
+    return {
+      dispose: () => {
+        set.delete(handler);
+      },
+    };
+  }
+
+  emit(type: unknown, event: unknown): void {
+    for (const handler of [...(this.handlers.get(type) ?? [])]) handler(event);
+  }
+}
 
 function makeTurn(result: TurnResult): Turn {
   const controller = new AbortController();
@@ -36,6 +59,9 @@ function handleWith(
   messages: readonly ContextMessage[],
 ): { readonly handle: IAgentScopeHandle; readonly prompts: unknown[] } {
   const prompts: unknown[] = [];
+  const bus = new FakeEventBus();
+  const textOf = (message: ContextMessage): string =>
+    message.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
   const services = new Map<unknown, unknown>([
     [
       IAgentLoopService,
@@ -44,11 +70,19 @@ function handleWith(
           prompts.push(input);
           return { id: 'p' };
         },
-        promptHandle: () => ({ launched: Promise.resolve(turn) }),
+        promptHandle: () => {
+          bus.emit(TurnStepStarted, { turnId: turn.id });
+          for (const message of messages) {
+            if (message.role !== 'assistant') continue;
+            bus.emit(AssistantDelta, { turnId: turn.id, delta: textOf(message) });
+          }
+          return { launched: Promise.resolve(turn) };
+        },
         cancel: () => true,
       },
     ],
     [IAgentContextMemoryService, { get: () => messages }],
+    [IEventBus, bus],
   ]);
   const handle: IAgentScopeHandle = {
     id: 'agent-child',

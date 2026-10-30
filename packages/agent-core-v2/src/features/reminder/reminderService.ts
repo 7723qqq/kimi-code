@@ -14,6 +14,7 @@ import { ContextSpliced } from '#/agent/contextMemory/contextEvents';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService, type BeforeStepContext } from '#/agent/loop/loop';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { estimateTokensForMessages } from '#/human/llm/tokens';
 import { IEventBus } from '#/app/event/eventBus';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 
@@ -77,6 +78,7 @@ function providerContext(
   runtime: AgentActorContext<null>,
   entry: ReminderEntry,
   isNewTurn: boolean,
+  estimatedTokens: number,
   signal?: AbortSignal,
 ): ContextInjectionContext<unknown> {
   const history = runtime.get(IAgentContextMemoryService).get();
@@ -92,6 +94,7 @@ function providerContext(
         ? lastInjection.origin.disclosure
         : undefined,
     isNewTurn,
+    estimatedTokens,
     signal,
   };
 }
@@ -100,11 +103,14 @@ async function injectEntry(
   runtime: AgentActorContext<null>,
   entry: ReminderEntry,
   isNewTurn: boolean,
+  estimatedTokens: number,
   signal?: AbortSignal,
 ): Promise<void> {
   let content: Awaited<ReturnType<ContextInjectionProvider>>;
   try {
-    content = await entry.provider(providerContext(runtime, entry, isNewTurn, signal));
+    content = await entry.provider(
+      providerContext(runtime, entry, isNewTurn, estimatedTokens, signal),
+    );
   } catch (error) {
     signal?.throwIfAborted();
     runtime.get(ILogService).error('context provider failed; skipping it', {
@@ -171,7 +177,9 @@ async function inject(runtime: AgentActorContext<null>, isNewTurn: boolean, sign
       (REMINDER_VARIANT_PRIORITY.get(left.variant) ?? 0) -
       (REMINDER_VARIANT_PRIORITY.get(right.variant) ?? 0),
   );
-  for (const entry of entries) await injectEntry(runtime, entry, isNewTurn, signal);
+  if (entries.length === 0) return;
+  const estimatedTokens = estimateTokensForMessages(runtime.get(IAgentContextMemoryService).get());
+  for (const entry of entries) await injectEntry(runtime, entry, isNewTurn, estimatedTokens, signal);
 }
 
 const reminderEffects = fromCallback(({ input }: { input: { readonly runtime: AgentActorContext<null> } }) => {
@@ -288,8 +296,13 @@ export class AgentReminderService extends AgentActorService<null> implements IAg
     const quiescence = loop.tryAcquireQuiescence();
     if (quiescence === undefined) return;
     try {
+      const estimatedTokens = estimateTokensForMessages(
+        this.actor.get(IAgentContextMemoryService).get(),
+      );
       for (const entry of actorContext(this.actor).entries) {
-        if (entry.variant === variant) await injectEntry(this.actor, entry, false);
+        if (entry.variant === variant) {
+          await injectEntry(this.actor, entry, false, estimatedTokens);
+        }
       }
     } finally {
       quiescence.dispose();

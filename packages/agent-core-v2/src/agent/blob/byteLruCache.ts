@@ -14,23 +14,13 @@ export class ByteLruCache {
 
   set(key: string, value: Buffer): void {
     const size = value.byteLength;
-    const existing = this.map.get(key);
 
-    if (size > this.maxBytes) {
-      if (existing !== undefined) {
-        this.currentBytes -= existing.byteLength;
-        this.map.delete(key);
-      }
-      return;
-    }
+    this.remove(key);
 
-    if (existing !== undefined) {
-      this.currentBytes -= existing.byteLength;
-      this.map.delete(key);
-    } else {
-      while (this.map.size > 0 && this.currentBytes + size > this.maxBytes) {
-        this.evictOldest();
-      }
+    if (size > this.maxBytes) return;
+
+    while (this.map.size > 0 && this.currentBytes + size > this.maxBytes) {
+      this.evictOldest();
     }
 
     this.currentBytes += size;
@@ -40,8 +30,13 @@ export class ByteLruCache {
   private evictOldest(): void {
     const oldest = this.map.keys().next().value;
     if (oldest === undefined) return;
-    const value = this.map.get(oldest)!;
+    this.remove(oldest);
+  }
+
+  private remove(key: string): void {
+    const value = this.map.get(key);
+    if (value === undefined) return;
     this.currentBytes -= value.byteLength;
-    this.map.delete(oldest);
+    this.map.delete(key);
   }
 }

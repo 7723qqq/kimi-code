@@ -168,7 +168,7 @@ packages/oauth/src/storage.ts  2
 packages/pi-tui/src/autocomplete.ts  1
 packages/pi-tui/src/native-module-path.ts  1
 packages/pi-tui/src/native-platform.ts  1
-packages/pi-tui/src/terminal.ts  4
+packages/pi-tui/src/terminal.ts  5
 packages/pi-tui/src/tui-alt-screen.ts  2
 packages/product/src/client-configs/node/client-configs.ts  1
 packages/product/src/session-rating/node/engine.ts  1

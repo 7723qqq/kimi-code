@@ -124,6 +124,11 @@ describe('McpOAuthService cancellation', () => {
     await provider.ready;
     await provider.saveDiscoveryState({
       authorizationServerUrl: registrationServer.url,
+      resourceMetadataUrl: 'https://mcp.example.test/.well-known/oauth-protected-resource',
+      resourceMetadata: {
+        resource: 'https://mcp.example.test/rpc',
+        authorization_servers: [registrationServer.url],
+      },
       authorizationServerMetadata: {
         issuer: registrationServer.url,
         authorization_endpoint: `${registrationServer.url}/authorize`,

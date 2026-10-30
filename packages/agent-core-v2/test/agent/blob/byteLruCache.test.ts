@@ -64,6 +64,31 @@ describe('ByteLruCache', () => {
     expect(cache.get('b')).toBeDefined();
   });
 
+  it('evicts down to the byte cap when an existing key is replaced with a larger payload', () => {
+    const cache = new ByteLruCache(10);
+    cache.set('a', buf(4));
+    cache.set('b', buf(6));
+
+    cache.set('a', buf(9));
+
+    expect(cache.get('a')?.length).toBe(9);
+    expect(cache.get('b')).toBeUndefined();
+  });
+
+  it('clears the previous entry when the replacement itself exceeds maxBytes', () => {
+    const cache = new ByteLruCache(10);
+    cache.set('a', buf(4));
+
+    cache.set('a', buf(11));
+
+    expect(cache.get('a')).toBeUndefined();
+    cache.set('b', buf(7));
+    expect(cache.get('b')?.length).toBe(7);
+    cache.set('c', buf(3));
+    expect(cache.get('b')?.length).toBe(7);
+    expect(cache.get('c')?.length).toBe(3);
+  });
+
   it('evicts multiple entries to make room for a larger payload', () => {
     const cache = new ByteLruCache(10);
     cache.set('a', buf(3));

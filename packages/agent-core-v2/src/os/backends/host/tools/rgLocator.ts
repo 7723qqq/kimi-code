@@ -1,6 +1,5 @@
-import { createHash } from 'node:crypto';
 import { createWriteStream, existsSync } from 'node:fs';
-import { chmod, copyFile, mkdir, mkdtemp, readFile, rename, rm, stat } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, mkdtemp, rename, rm, stat } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -275,9 +274,8 @@ export async function verifyArchiveChecksum(
   archiveName: string,
   expectedSha256: string,
 ): Promise<void> {
-  const actualSha256 = createHash('sha256')
-    .update(await readFile(archivePath))
-    .digest('hex');
+  const archive = await Bun.file(archivePath).arrayBuffer();
+  const actualSha256 = new Bun.CryptoHasher('sha256').update(archive).digest('hex');
   if (actualSha256 !== expectedSha256) {
     throw new Error2(
       ErrorCodes.OS_FS_UNAVAILABLE,
@@ -289,7 +287,7 @@ export async function verifyArchiveChecksum(
 }
 
 export async function extractRgFromZip(archivePath: string, destination: string): Promise<void> {
-  const buf = await readFile(archivePath);
+  const buf = Buffer.from(await Bun.file(archivePath).arrayBuffer());
   const binName = rgBinaryName();
   await new Promise<void>((resolve, reject) => {
     yauzlFromBuffer(buf, { lazyEntries: true }, (openErr, zipfile) => {

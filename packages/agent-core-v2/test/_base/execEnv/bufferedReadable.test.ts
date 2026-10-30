@@ -1,10 +1,9 @@
+import { describe, expect, it } from 'bun:test';
 import { once } from 'node:events';
 import { PassThrough } from 'node:stream';
-
-import { describe, expect, it } from 'bun:test';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import { BufferedReadable } from '#/_base/execEnv/bufferedReadable';
-import { setTimeout as delay } from 'node:timers/promises';
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return Promise.race([

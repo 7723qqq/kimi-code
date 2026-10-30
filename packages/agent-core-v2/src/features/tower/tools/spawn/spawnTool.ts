@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { AgentContext } from '#/agent/agentContext/agentContext';
@@ -68,7 +67,7 @@ function truncateSection(text: string, maxChars: number): string {
 }
 
 async function reviewExcerpt(store: TowerStore, file: string): Promise<string> {
-  const { body } = parseFrontmatter(await readFile(store.abs(file), 'utf8'));
+  const { body } = parseFrontmatter(await Bun.file(store.abs(file)).text());
   return truncateSection(body.trim(), REVIEW_EXCERPT_MAX_CHARS);
 }
 
@@ -468,10 +467,9 @@ export class TowerSpawnTool implements ITowerSpawnTool {
         ? `\n\n# Additional instructions from the tower\n${args.instructions.trim()}`
         : '';
     if (mission !== undefined) {
-      const missionText = await readFile(
+      const missionText = await Bun.file(
         store.abs(join(MISSIONS_DIR, missionFileName(mission.id, mission.slug))),
-        'utf8',
-      );
+      ).text();
       const worktreeAbs = store.abs(join(WORKTREES_DIR, mission.worktree));
       const workplace =
         `# Your workplace\n` +
@@ -526,10 +524,9 @@ export class TowerSpawnTool implements ITowerSpawnTool {
     const missionSection =
       targetMission !== undefined
         ? `# Mission under review — verify the diff against this intent, not only against code health\n\n${(
-            await readFile(
+            await Bun.file(
               store.abs(join(MISSIONS_DIR, missionFileName(targetMission.id, targetMission.slug))),
-              'utf8',
-            )
+            ).text()
           ).trim()}\n\n`
         : '';
     const reviewRequest = author !== undefined ? await findReviewRequest(store, author) : undefined;

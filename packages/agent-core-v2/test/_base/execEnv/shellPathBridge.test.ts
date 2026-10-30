@@ -115,13 +115,7 @@ describe('fromShellPath cygpath resolution', () => {
     expect(bridge.fromShellPath('/tmp/other')).toBe('C:/Users/me/AppData/Local/Temp/other');
     expect(bridge.fromShellPath('/tmp')).toBe('C:/Users/me/AppData/Local/Temp');
     expect(execFileSync).toHaveBeenCalledTimes(1);
-    expect(execFileSync).toHaveBeenCalledWith(USR_BIN_CYGPATH, [
-      '-w',
-      '-C',
-      'UTF8',
-      '--',
-      '/tmp',
-    ]);
+    expect(execFileSync).toHaveBeenCalledWith(USR_BIN_CYGPATH, ['-w', '-C', 'UTF8', '--', '/tmp']);
   });
 
   it('folds dot segments before resolving the mount segment', () => {
@@ -134,9 +128,7 @@ describe('fromShellPath cygpath resolution', () => {
     });
     const bridge = createShellPathBridge(WINDOWS_ENV, deps);
 
-    expect(bridge.fromShellPath('/./tmp/note.txt')).toBe(
-      'C:/Users/me/AppData/Local/Temp/note.txt',
-    );
+    expect(bridge.fromShellPath('/./tmp/note.txt')).toBe('C:/Users/me/AppData/Local/Temp/note.txt');
     expect(bridge.fromShellPath('/../tmp/note.txt')).toBe(
       'C:/Users/me/AppData/Local/Temp/note.txt',
     );

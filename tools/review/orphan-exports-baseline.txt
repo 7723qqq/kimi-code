@@ -79,6 +79,7 @@ replayToWebviewEvents  apps/vscode/src/runtime/replay-adapter.ts
 reservedPromptIdCount  packages/kap-server/src/routes/prompts.ts
 resetCacheHintConfigCache  apps/kimi-code/src/utils/cache-hint-config.ts
 resetDefaultTelemetryClientForTests  packages/telemetry/src/client.ts
+resetExtensionRegionCache  apps/vscode/src/utils/region.ts
 resetH3States  packages/agent-core-v2/src/app/auth/webSearch/engines/http3.ts
 resetModelsDevUpstreamForTest  packages/agent-core-v2/src/app/kosongConfig/modelsDevUpstream.ts
 resetRecommendedEffortConfigCache  apps/kimi-code/src/utils/recommended-effort-config.ts

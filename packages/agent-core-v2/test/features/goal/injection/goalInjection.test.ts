@@ -359,3 +359,86 @@ describe('GoalInjection integration', () => {
   });
 
 });
+
+describe('GoalInjection tail anchor', () => {
+  let ctx: TestAgentContext;
+  let goals: GoalServiceTestManager;
+  let context: IAgentContextMemoryService;
+
+  beforeEach(async () => {
+    ctx = createTestAgent(agentService(IAgentSwarmService, stubAgentSwarm()));
+    goals = ctx.get(IAgentGoalService);
+    context = ctx.get(IAgentContextMemoryService);
+    await ctx.restorePersisted();
+  });
+
+  afterEach(async () => {
+    try {
+      await ctx.expectResumeMatches();
+    } finally {
+      await ctx.dispose();
+    }
+  });
+
+  function tailAnchorMessages(): string[] {
+    return context
+      .get()
+      .filter((item) => item.origin?.kind === 'injection' && item.origin.variant === 'goal_tail')
+      .map((item) => item.content.map((part) => (part.type === 'text' ? part.text : '')).join(''));
+  }
+
+  function padContext(chars: number): void {
+    context.append({
+      role: 'user',
+      content: [{ type: 'text', text: 'x'.repeat(chars) }],
+      toolCalls: [],
+    });
+  }
+
+  it('stays quiet while the context is short', async () => {
+    await goals.createGoal({ objective: 'ship the fix', completionCriterion: 'tests pass' });
+    await injectDynamic(ctx, true);
+
+    expect(tailAnchorMessages()).toHaveLength(0);
+  });
+
+  it('re-anchors the objective and the criterion once the tail drifts past the threshold', async () => {
+    await goals.createGoal({ objective: 'ship the fix', completionCriterion: 'tests pass' });
+    await injectDynamic(ctx, true);
+
+    padContext(90_000);
+    await injectDynamic(ctx, true);
+
+    const [anchor, ...rest] = tailAnchorMessages();
+    expect(rest).toHaveLength(0);
+    expect(anchor).toContain('Objective: ship the fix');
+    expect(anchor).toContain('Hard constraints:');
+    expect(anchor).toContain('- tests pass');
+  });
+
+  it('does not re-anchor on the next turn while the tail has not drifted further', async () => {
+    await goals.createGoal({ objective: 'ship the fix' });
+    padContext(90_000);
+    await injectDynamic(ctx, true);
+    expect(tailAnchorMessages()).toHaveLength(1);
+
+    await injectDynamic(ctx, true);
+    expect(tailAnchorMessages()).toHaveLength(1);
+  });
+
+  it('drops the anchor when the goal is paused and takes a new goal as a new anchor', async () => {
+    await goals.createGoal({ objective: 'first goal' });
+    padContext(90_000);
+    await injectDynamic(ctx, true);
+    expect(tailAnchorMessages()).toHaveLength(1);
+
+    await goals.pauseGoal();
+    await injectDynamic(ctx, true);
+    expect(tailAnchorMessages()).toHaveLength(1);
+
+    await goals.createGoal({ objective: 'second goal', replace: true });
+    await injectDynamic(ctx, true);
+    expect(tailAnchorMessages()).toHaveLength(2);
+    expect(tailAnchorMessages()[1]).toContain('Objective: second goal');
+  });
+});
