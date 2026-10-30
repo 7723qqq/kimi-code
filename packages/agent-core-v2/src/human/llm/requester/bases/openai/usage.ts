@@ -10,15 +10,31 @@ export interface OpenAICacheFields {
   readonly reportedMiss?: number;
 }
 
-export function readOpenAICacheFields(usage: OpenAIRawUsage): OpenAICacheFields {
-  const cachedTokens = usage.cached_tokens ?? usage.prompt_tokens_details?.cached_tokens ?? 0;
-  const hit = usage.prompt_cache_hit_tokens;
-  if (hit === undefined) return { cached: cachedTokens, miss: undefined, rejected: false };
-  const miss = usage.prompt_cache_miss_tokens;
-  if (miss !== undefined && hit + miss > (usage.prompt_tokens ?? 0)) {
-    return { cached: cachedTokens, miss: undefined, rejected: true, reportedMiss: miss };
+export function classifyDeepSeekCacheSplit(
+  hit: unknown,
+  miss: unknown,
+  promptTokens: number,
+  fallbackCached: number,
+): OpenAICacheFields {
+  if (typeof hit !== 'number') return { cached: fallbackCached, miss: undefined, rejected: false };
+  if (typeof miss === 'number' && hit + miss > promptTokens) {
+    return { cached: fallbackCached, miss: undefined, rejected: true, reportedMiss: miss };
   }
-  return { cached: hit, miss, rejected: false };
+  return { cached: hit, miss: typeof miss === 'number' ? miss : undefined, rejected: false };
+}
+
+export function readOpenAICacheFields(usage: OpenAIRawUsage): OpenAICacheFields {
+  const cachedTokens =
+    usage.cached_tokens ??
+    usage.prompt_tokens_details?.cached_tokens ??
+    usage.input_tokens_details?.cached_tokens ??
+    0;
+  return classifyDeepSeekCacheSplit(
+    usage.prompt_cache_hit_tokens,
+    usage.prompt_cache_miss_tokens,
+    usage.prompt_tokens ?? 0,
+    cachedTokens,
+  );
 }
 
 export function parseOpenAIUsage(

@@ -13,11 +13,11 @@ import type {
  * The v2 engine does NOT import this module: its requester lives under
  * `packages/agent-core-v2/src/human/llm/requester/bases/anthropic/format.ts`
  * and re-declares `CACHE_CONTROL` / `CACHEABLE_TYPES` /
- * `injectCacheControlOnLastBlock` there. The two copies are kept honest by
- * `test/anthropic-cache-breakpoints-parity.test.ts`, which asserts the
- * deliberate difference (this module injects a tail AND a stable-history
- * breakpoint; the v2 copy injects the tail only) so neither side drifts
- * silently. Change one, change the other, and update that test.
+ * `injectCacheControlOnLastBlock` there. Both copies inject a tail breakpoint
+ * AND a stable-history breakpoint, and share the same cacheable block-type
+ * set; `test/anthropic-cache-breakpoints-parity.test.ts` asserts they agree at
+ * every conversation length so neither side drifts silently. Change one,
+ * change the other, and update that test.
  */
 
 export const CACHE_CONTROL = { type: 'ephemeral' as const };

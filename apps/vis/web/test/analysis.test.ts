@@ -192,8 +192,29 @@ describe('analyzeWire', () => {
         2,
       ),
     ]);
-    // hitRate = 75 / (75 + 0) = 1.0 (plain input excluded from the cache ratio)
-    expect(a.cache.hitRate).toBeCloseTo(1, 5);
+    // No cache writes reported, so the ratio is the share of total input that
+    // was served from cache: 75 / (75 + 25) = 0.75.
+    expect(a.cache.hitRate).toBeCloseTo(0.75, 5);
+  });
+
+  it('uses reads over reads plus creations when writes are reported', () => {
+    line = 0;
+    const a = analyzeWire([
+      e({ type: 'turn.prompt', input: [{ type: 'text', text: 'q' }], origin: { kind: 'user' } }, 0),
+      loop({ type: 'step.begin', uuid: 'w', turnId: 'W', step: 0 }, 1),
+      loop(
+        {
+          type: 'step.end',
+          uuid: 'w',
+          turnId: 'W',
+          step: 0,
+          finishReason: 'end_turn',
+          usage: { inputOther: 100, output: 5, inputCacheRead: 80, inputCacheCreation: 20 },
+        },
+        2,
+      ),
+    ]);
+    expect(a.cache.hitRate).toBeCloseTo(0.8, 5);
   });
 
   it('collects config.update changes', () => {

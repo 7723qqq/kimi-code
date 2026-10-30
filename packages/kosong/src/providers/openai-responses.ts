@@ -101,15 +101,15 @@ export function extractResponsesUsage(usage: RawObject): TokenUsage {
   }
   const details = readObjectField(usage, 'input_tokens_details');
   const cached = details ? (readNumberField(details, 'cached_tokens') ?? 0) : 0;
-  // Cache writes are not reported by OpenAI-compatible APIs; the non-cached
-  // remainder of the input is the closest proxy — without it the hit rate
-  // reads/(reads+writes) would always be 100% whenever any token was read.
-  const cacheCreation = cached > 0 ? Math.max(inputTokens - cached, 0) : 0;
+  // Cache writes are not reported by OpenAI-compatible APIs, so the creation
+  // counter stays 0. The non-cached remainder is plain input: filing it under
+  // creations would label it as a cache write and let any reads/(reads+writes)
+  // ratio treat it as one, though no write is reported on the wire.
   return {
-    inputOther: cached > 0 ? 0 : Math.max(inputTokens - cached, 0),
+    inputOther: Math.max(inputTokens - cached, 0),
     output: outputTokens,
     inputCacheRead: cached,
-    inputCacheCreation: cacheCreation,
+    inputCacheCreation: 0,
   };
 }
 const OPENAI_RESPONSES_TOOL_CALL_ID_POLICY: ToolCallIdPolicy = {

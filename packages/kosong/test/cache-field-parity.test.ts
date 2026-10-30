@@ -111,6 +111,16 @@ const CASES: readonly Case[] = [
     cacheRead: 0,
     inputOther: 500,
   },
+  {
+    name: 'responses-shaped input_tokens_details on the chat reader',
+    usage: {
+      prompt_tokens: 500,
+      completion_tokens: 1,
+      input_tokens_details: { cached_tokens: 140 },
+    },
+    cacheRead: 140,
+    inputOther: 360,
+  },
 ];
 
 describe('deepseek cache-field classification agrees across engines', () => {
@@ -154,8 +164,6 @@ interface ResponsesCase {
   readonly usage: Record<string, unknown>;
   readonly inputOther: number;
   readonly cacheRead: number;
-  /** True when the engine's Responses reader must reach the same numbers. */
-  readonly parity: boolean;
 }
 
 /**
@@ -176,7 +184,6 @@ const RESPONSES_CASES: readonly ResponsesCase[] = [
     },
     inputOther: 60,
     cacheRead: 40,
-    parity: true,
   },
   {
     name: 'contradictory split with no fallback keeps the whole prompt as fresh input',
@@ -188,7 +195,6 @@ const RESPONSES_CASES: readonly ResponsesCase[] = [
     },
     inputOther: 100,
     cacheRead: 0,
-    parity: true,
   },
   {
     name: 'consistent split is kept verbatim',
@@ -200,15 +206,21 @@ const RESPONSES_CASES: readonly ResponsesCase[] = [
     },
     inputOther: 380,
     cacheRead: 120,
-    parity: false,
+  },
+  {
+    name: 'details-only cached count stays plain input, never a cache write',
+    usage: {
+      input_tokens: 500,
+      output_tokens: 1,
+      input_tokens_details: { cached_tokens: 130 },
+    },
+    inputOther: 370,
+    cacheRead: 130,
   },
 ];
 
 describe('responses cache-field classification agrees across engines', () => {
-  // The engine's Responses reader does not read the DeepSeek split at all, so
-  // the two implementations must agree on the payloads where the split is
-  // REJECTED — that is the dimension this fix aligned.
-  for (const testCase of RESPONSES_CASES.filter((c) => c.parity)) {
+  for (const testCase of RESPONSES_CASES) {
     it(testCase.name, () => {
       const kosong = extractResponsesUsage(testCase.usage);
       const engine = parseOpenAIResponsesUsage(testCase.usage);
@@ -216,8 +228,10 @@ describe('responses cache-field classification agrees across engines', () => {
       expect(engine).toBeDefined();
       expect(kosong.inputCacheRead).toBe(testCase.cacheRead);
       expect(kosong.inputOther).toBe(testCase.inputOther);
+      expect(kosong.inputCacheCreation).toBe(0);
       expect(engine!.inputCacheRead).toBe(kosong.inputCacheRead);
       expect(engine!.inputOther).toBe(kosong.inputOther);
+      expect(engine!.inputCacheCreation).toBe(0);
       // Never let the two buckets claim more than the prompt reports.
       expect(kosong.inputCacheRead + kosong.inputOther).toBeLessThanOrEqual(
         (testCase.usage['input_tokens'] as number) ?? Infinity,
@@ -225,15 +239,36 @@ describe('responses cache-field classification agrees across engines', () => {
     });
   }
 
-  it('keeps a consistent DeepSeek split verbatim instead of treating it as a total', () => {
-    // The engine's Responses reader reports no cache read here; kosong keeps
-    // the split as its own buckets (the payload is self-consistent, so there
-    // is nothing to reject). Documented so the divergence is not a surprise.
-    const testCase = RESPONSES_CASES.find((c) => !c.parity)!;
-    const kosong = extractResponsesUsage(testCase.usage);
+  it('never reports negative plain input when the cached count exceeds the prompt', () => {
+    const usage = {
+      input_tokens: 100,
+      output_tokens: 1,
+      input_tokens_details: { cached_tokens: 150 },
+    };
+    const kosong = extractResponsesUsage(usage);
+    const engine = parseOpenAIResponsesUsage(usage);
 
-    expect(kosong.inputCacheRead).toBe(testCase.cacheRead);
-    expect(kosong.inputOther).toBe(testCase.inputOther);
+    expect(engine!.inputOther).toBeGreaterThanOrEqual(0);
+    expect(engine!.inputOther).toBe(0);
+    expect(engine!.inputCacheRead).toBe(150);
+    expect(kosong.inputOther).toBe(engine!.inputOther);
+    expect(kosong.inputCacheRead).toBe(engine!.inputCacheRead);
+  });
+
+  it('keeps a consistent DeepSeek split verbatim on both reads', () => {
+    const usage = {
+      input_tokens: 500,
+      output_tokens: 1,
+      prompt_cache_hit_tokens: 120,
+      prompt_cache_miss_tokens: 380,
+    };
+    const kosong = extractResponsesUsage(usage);
+    const engine = parseOpenAIResponsesUsage(usage);
+
+    expect(kosong.inputCacheRead).toBe(120);
+    expect(kosong.inputOther).toBe(380);
+    expect(engine!.inputCacheRead).toBe(120);
+    expect(engine!.inputOther).toBe(380);
   });
 });
 

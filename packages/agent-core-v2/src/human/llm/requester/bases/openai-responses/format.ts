@@ -12,6 +12,7 @@ import type { ResponseFormat } from '#/llm/response-format';
 import type { TokenUsage } from '#/llm/usage';
 
 import { isContextOverflowErrorCode, isOpenAIInsufficientQuotaCode } from '../openai/format';
+import { classifyDeepSeekCacheSplit } from '../openai/usage';
 import type { ResponsesInputItem } from './contract';
 import { lowerMessage } from './lower';
 
@@ -368,10 +369,16 @@ export function parseOpenAIResponsesUsage(
   const outputTokens = readNumberField(usage, 'output_tokens') ?? 0;
   const details = readObjectField(usage, 'input_tokens_details');
   const cached = details === undefined ? 0 : (readNumberField(details, 'cached_tokens') ?? 0);
+  const split = classifyDeepSeekCacheSplit(
+    usage['prompt_cache_hit_tokens'],
+    usage['prompt_cache_miss_tokens'],
+    inputTokens,
+    cached,
+  );
   return {
-    inputOther: inputTokens - cached,
+    inputOther: split.miss ?? Math.max(inputTokens - split.cached, 0),
     output: outputTokens,
-    inputCacheRead: cached,
+    inputCacheRead: split.cached,
     inputCacheCreation: 0,
     raw: usage,
   };

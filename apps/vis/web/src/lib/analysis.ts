@@ -134,7 +134,8 @@ export interface CacheStats {
   inputCacheRead: number;
   inputCacheCreation: number;
   output: number;
-  /** cacheRead / (cacheRead + cacheCreation + inputOther). null when no input. */
+  /** Reads / (reads + creations) when cache writes are reported, otherwise the
+   *  share of total input served from cache. null when neither reads nor writes exist. */
   hitRate: number | null;
 }
 
@@ -630,14 +631,24 @@ function summarize(
 }
 
 function cacheStats(c: TokenUsage): CacheStats {
-  // Exact cache hit rate: cache reads / (reads + creations). Plain input is
-  // not part of the cache system and must not dilute the ratio.
-  const cacheMissTokens = c.inputCacheRead + c.inputCacheCreation;
+  // Same two-branch rule as the CLI's cache-hit readout: reads over reads plus
+  // creations when the provider reports cache writes, otherwise the share of
+  // total input served from cache. OpenAI-compatible endpoints never report a
+  // creation counter, so reads/(reads+creations) would read 100% on any read.
+  let hitRate: number | null;
+  if (c.inputCacheCreation > 0) {
+    hitRate = c.inputCacheRead / (c.inputCacheRead + c.inputCacheCreation);
+  } else if (c.inputCacheRead > 0) {
+    const inputTotal = c.inputCacheRead + c.inputOther;
+    hitRate = inputTotal > 0 ? c.inputCacheRead / inputTotal : null;
+  } else {
+    hitRate = null;
+  }
   return {
     inputOther: c.inputOther,
     inputCacheRead: c.inputCacheRead,
     inputCacheCreation: c.inputCacheCreation,
     output: c.output,
-    hitRate: cacheMissTokens > 0 ? c.inputCacheRead / cacheMissTokens : null,
+    hitRate,
   };
 }

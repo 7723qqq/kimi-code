@@ -270,14 +270,11 @@ export function extractUsage(usage: unknown): TokenUsage | null {
   } else if (typeof u['cached_tokens'] === 'number') {
     // Moonshot proprietary: top-level cached_tokens
     cached = u['cached_tokens'];
-  } else if (
-    typeof u['prompt_tokens_details'] === 'object' &&
-    u['prompt_tokens_details'] !== null
-  ) {
-    const details = u['prompt_tokens_details'] as Record<string, unknown>;
-    if (typeof details['cached_tokens'] === 'number') {
-      cached = details['cached_tokens'];
-    }
+  } else {
+    // The two nested spellings, in the same precedence the engine's reader
+    // uses: prompt_tokens_details, then the Responses-shaped
+    // input_tokens_details some gateways resend on this endpoint.
+    cached = readStandardCachedCount(u);
   }
 
   return {
