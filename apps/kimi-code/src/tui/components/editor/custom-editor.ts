@@ -174,11 +174,11 @@ export class CustomEditor extends Editor {
    *
    * One callback covers what used to be four (`onToggleTodoExpand`,
    * `onScrollTodo`, `onPageNotify`, `onNotifyPanelKey`): the strip decides
-   * internally whether the key folds the todo list, pages the updates or
-   * scrolls the focused region, so the editor does not need to know which
-   * panels exist. A `false` return means nothing claimed the key and the
-   * editor's own binding should run — that fall-through is what keeps an idle
-   * `Ctrl+T` from being swallowed on a strip with nothing to fold.
+   * internally which region the key applies to — fold, page or scroll — so the
+   * editor does not need to know which panels exist. A `false` return means
+   * nothing claimed the key and the editor's own binding should run — that
+   * fall-through is what keeps an idle `Ctrl+T` from being swallowed on a
+   * strip with nothing to fold.
    *
    * `[`/`]` are accepted as aliases of `PgUp`/`PgDn`: in fullscreen those are
    * already bound to the transcript's paging (`tui.altScreen.pageUp`), so a
@@ -598,7 +598,7 @@ export class CustomEditor extends Editor {
     if (matchesKey(normalized, Key.ctrl('t'))) {
       // Only consume the key when the status strip actually folds or unfolds
       // something; otherwise fall through to the editor default. The strip
-      // decides — it is the one that knows whether the todo region currently
+      // decides — it is the one that knows whether its fold target currently
       // conceals rows.
       if (this.onStatusSurfaceKey?.('toggle') === true) return;
     }

@@ -73,8 +73,8 @@ export interface EditorKeyboardHost {
   updateGoalLengthWarning(text: string | undefined): void;
   updateQueueDisplay(): void;
   toggleToolOutputExpansion(): void;
-  /** Fold/unfold the todo region; false when folding would change nothing. */
-  toggleTodoPanelExpansion(): boolean;
+  /** Fold/unfold the strip's default fold target; false when nothing would change. */
+  toggleStatusSurfaceFold(): boolean;
   /** Move keyboard focus into the status strip's updates region, or release it. */
   toggleStatusSurfaceFocus(): boolean;
   /** Whether a status-strip region currently owns the keyboard. */
@@ -378,7 +378,7 @@ export class EditorKeyboardController {
         return true;
       }
       if (key === 'toggle') {
-        if (!host.toggleTodoPanelExpansion()) return false;
+        if (!host.toggleStatusSurfaceFold()) return false;
         this.clearPendingExit();
         host.track('shortcut_todo_expand');
         return true;
