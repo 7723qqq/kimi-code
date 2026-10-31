@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'bun:test';
 
-import { computeInvariants, computePartners } from '#/features/gitMemory/gitFacts';
 import {
+  computeConventions,
+  computeFileChanges,
+  computeInvariants,
+  computePartners,
+  computeStrengths,
+} from '#/features/gitMemory/gitFacts';
+import {
+  GIT_MEMORY_CHANGE_GROUPS,
   GIT_MEMORY_INVARIANT_LIMIT,
+  GIT_MEMORY_MAX_FILES_PER_GROUP,
   GIT_MEMORY_PARTNER_MIN_SCORE,
 } from '#/features/gitMemory/types';
 import type { CommitInput } from '#/features/gitMemory/types';
@@ -80,5 +88,94 @@ describe('invariants', () => {
     const invariants = computeInvariants(commits);
     expect(invariants[0]?.a).toBe('x.ts');
     expect(invariants[0]?.count).toBe(20);
+  });
+});
+
+describe('change groups', () => {
+  it('keeps only the most recent groups per file, newest first', () => {
+    const commits = ['2026-01-04', '2026-01-03', '2026-01-02', '2026-01-01'].map(
+      (date, i) => ({
+        sha: `s${i}`,
+        subject: 'x',
+        date,
+        files: ['p.ts'],
+      }),
+    );
+    const groups = computeFileChanges(commits)['p.ts'] ?? [];
+    expect(groups).toHaveLength(GIT_MEMORY_CHANGE_GROUPS);
+    expect(groups[0]?.date).toBe('2026-01-04');
+    expect(groups[2]?.date).toBe('2026-01-02');
+  });
+
+  it('truncates a group touching more than the file limit', () => {
+    const many = Array.from(
+      { length: GIT_MEMORY_MAX_FILES_PER_GROUP + 5 },
+      (_, i) => `f${i}.ts`,
+    );
+    const groups =
+      computeFileChanges([
+        { sha: 's', subject: 'x', date: '2026-01-01', files: many },
+      ])['f0.ts'] ?? [];
+    expect(groups[0]?.files).toHaveLength(GIT_MEMORY_MAX_FILES_PER_GROUP);
+    expect(groups[0]?.truncated).toBe(true);
+  });
+
+  it('keeps every file of a normal group', () => {
+    const groups =
+      computeFileChanges([
+        { sha: 's', subject: 'x', date: '2026-01-01', files: ['a.ts', 'b.ts'] },
+      ])['a.ts'] ?? [];
+    expect(groups[0]?.files).toHaveLength(2);
+    expect(groups[0]?.truncated).toBe(false);
+  });
+});
+
+describe('conventions', () => {
+  it('counts commit prefixes in descending order', () => {
+    const conventions = computeConventions([
+      'fix(a): x',
+      'fix(a): y',
+      'feat(b): z',
+      'docs: w',
+    ]);
+    expect(conventions[0]).toEqual({ prefix: 'fix(a)', count: 2 });
+    expect(conventions.map((c) => c.prefix)).toContain('feat(b)');
+    expect(conventions.map((c) => c.prefix)).toContain('docs');
+  });
+
+  it('buckets a subject without a prefix', () => {
+    const conventions = computeConventions(['plain subject']);
+    expect(conventions[0]).toEqual({ prefix: '(none)', count: 1 });
+  });
+});
+
+describe('strengths', () => {
+  it('ranks a frequently changed file above a rarely changed one', () => {
+    const commits = [
+      ...Array.from({ length: 9 }, (_, i) => ({
+        sha: `s${i}`,
+        subject: 'x',
+        date: '2026-01-01',
+        files: ['hot.ts'],
+      })),
+      { sha: 'cold', subject: 'x', date: '2026-01-01', files: ['cold.ts'] },
+    ];
+    const strengths = computeStrengths(commits);
+    expect(strengths['hot.ts']).toBeGreaterThan(strengths['cold.ts'] ?? 0);
+  });
+
+  it('keeps strengths inside a 0..100 integer range', () => {
+    const commits = Array.from({ length: 5 }, (_, i) => ({
+      sha: `s${i}`,
+      subject: 'x',
+      date: '2026-01-01',
+      files: ['a.ts', 'b.ts'],
+    }));
+    const strengths = computeStrengths(commits);
+    for (const value of Object.values(strengths)) {
+      expect(Number.isInteger(value)).toBe(true);
+      expect(value).toBeGreaterThanOrEqual(0);
+      expect(value).toBeLessThanOrEqual(100);
+    }
   });
 });

@@ -1,4 +1,5 @@
 import {
+  GIT_MEMORY_CHANGE_GROUPS,
   GIT_MEMORY_INVARIANT_LIMIT,
   GIT_MEMORY_INVARIANT_MIN_COUNT,
   GIT_MEMORY_INVARIANT_MIN_SCORE,
@@ -6,7 +7,13 @@ import {
   GIT_MEMORY_PARTNER_MIN_COUNT,
   GIT_MEMORY_PARTNER_MIN_SCORE,
 } from './types';
-import type { CommitInput, Invariant, Partner } from './types';
+import type {
+  ChangeGroup,
+  CommitInput,
+  ConventionEntry,
+  Invariant,
+  Partner,
+} from './types';
 
 interface CoChangePair {
   readonly a: string;
@@ -103,4 +110,74 @@ export function computeInvariants(commits: readonly CommitInput[]): Invariant[] 
     )
     .slice(0, GIT_MEMORY_INVARIANT_LIMIT)
     .map((pair) => ({ a: pair.a, b: pair.b, count: pair.count }));
+}
+
+const CONVENTION_PREFIX = /^([a-z]+)(\([^)]*\))?:/;
+
+export function computeFileChanges(commits: readonly CommitInput[]): Record<string, ChangeGroup[]> {
+  const byFile = new Map<string, ChangeGroup[]>();
+  for (const commit of commits) {
+    const files = [...new Set(commit.files)];
+    const truncated = files.length > GIT_MEMORY_MAX_FILES_PER_GROUP;
+    const group: ChangeGroup = {
+      sha: commit.sha,
+      subject: commit.subject,
+      date: commit.date,
+      files: truncated ? files.slice(0, GIT_MEMORY_MAX_FILES_PER_GROUP) : files,
+      truncated,
+    };
+    for (const file of files) {
+      const list = byFile.get(file);
+      if (list === undefined) {
+        byFile.set(file, [group]);
+        continue;
+      }
+      if (list.length >= GIT_MEMORY_CHANGE_GROUPS) continue;
+      if (list.some((existing) => existing.sha === group.sha)) continue;
+      list.push(group);
+    }
+  }
+  const out: Record<string, ChangeGroup[]> = {};
+  for (const [file, list] of byFile) out[file] = list;
+  return out;
+}
+
+export function computeConventions(subjects: readonly string[]): ConventionEntry[] {
+  const counts = new Map<string, number>();
+  for (const subject of subjects) {
+    const match = CONVENTION_PREFIX.exec(subject);
+    const prefix = match === null ? '(none)' : match[0].slice(0, -1);
+    counts.set(prefix, (counts.get(prefix) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([prefix, count]) => ({ prefix, count }))
+    .sort(
+      (x, y) =>
+        y.count - x.count || (x.prefix < y.prefix ? -1 : x.prefix > y.prefix ? 1 : 0),
+    )
+    .slice(0, 8);
+}
+
+export function computeStrengths(commits: readonly CommitInput[]): Record<string, number> {
+  const counts = new Map<string, number>();
+  const latest = new Map<string, number>();
+  commits.forEach((commit, index) => {
+    for (const file of new Set(commit.files)) {
+      counts.set(file, (counts.get(file) ?? 0) + 1);
+      if (!latest.has(file)) latest.set(file, index);
+    }
+  });
+  let maxCount = 0;
+  for (const count of counts.values()) {
+    if (count > maxCount) maxCount = count;
+  }
+  const span = Math.max(commits.length - 1, 1);
+  const out: Record<string, number> = {};
+  for (const [file, count] of counts) {
+    const countNorm = maxCount === 0 ? 0 : count / maxCount;
+    const recency = 1 - (latest.get(file) ?? 0) / span;
+    const value = 70 * countNorm + 30 * recency;
+    out[file] = Math.min(100, Math.max(0, Math.round(value)));
+  }
+  return out;
 }
