@@ -6,22 +6,25 @@ import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory'
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IFlagService } from '#/app/flag/flag';
 import { LifecycleScope } from '#/app/scopes';
-import { IHostProcessService } from '#/os/interface/hostProcess';
-
 import { IAgentReminderService } from '#/features/reminder/reminderService';
+import { IHostProcessService } from '#/os/interface/hostProcess';
 
 import { buildIndex, cachePath, readAnyIndex, readIndex, writeIndex } from './cache';
 import { GIT_MEMORY_FLAG_ID } from './flag';
-import { computeFacts } from './gitFacts';
 import { readGitHistory, readRepoHead } from './gitReader';
 import type { RepoHead } from './gitReader';
-import { renderFileBlock, renderRepoBlock, renderSignalBlock } from './render';
-import { GIT_MEMORY_WINDOW } from './types';
-import type { GitMemoryIndex } from './types';
+import { projectFileBlock, projectRepoBlock, projectSignalBlock } from './projection';
+import {
+  GIT_MEMORY_FILE_COMMITS,
+  GIT_MEMORY_REPO_COMMITS,
+  GIT_MEMORY_SIGNAL_COMMITS,
+  GIT_MEMORY_SIGNAL_PATHS,
+  GIT_MEMORY_WINDOW,
+} from './types';
+import type { CommitRecord, GitMemoryIndex } from './types';
 
 const PATH_PATTERN =
   /[\w./\\-]+\.(?:ts|tsx|js|jsx|mjs|cjs|rs|go|py|java|kt|rb|vue|json|jsonc|md|yaml|yml|toml)/g;
-const SIGNAL_PATH_LIMIT = 2;
 
 export interface IGitMemoryService {
   readonly _serviceBrand: undefined;
@@ -45,7 +48,7 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
   private repoRoot = '';
   private pathPrefix = '';
   private readonly renderedPaths = new Set<string>();
-  private readonly renderedGroups = new Set<string>();
+  private readonly renderedCommits = new Set<string>();
 
   constructor(
     @IHostProcessService private readonly process: IHostProcessService,
@@ -106,7 +109,7 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
       head.repoRoot,
       history.headSha,
       GIT_MEMORY_WINDOW,
-      computeFacts(history.commits),
+      history.commits,
       new Date().toISOString(),
     );
     const written = await writeIndex(path, index);
@@ -121,7 +124,7 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
     try {
       const index = await this.ensureIndex();
       if (index === undefined) return '';
-      return renderRepoBlock(index.facts);
+      return projectRepoBlock(index.commits.slice(0, GIT_MEMORY_REPO_COMMITS));
     } catch (error) {
       this.log.warn('git memory repo block failed', { error });
       return '';
@@ -135,12 +138,11 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
       if (index === undefined) return '';
       const key = this.toRepoPath(path);
       if (this.renderedPaths.has(key)) return '';
-      const groups = index.facts.fileChanges[key] ?? [];
-      const partners = index.facts.filePartners[key] ?? [];
-      if (groups.length === 0 && partners.length === 0) return '';
+      const commits = this.commitsForPath(index, key);
+      if (commits.length === 0) return '';
       this.renderedPaths.add(key);
-      const block = renderFileBlock(key, groups, partners, this.renderedGroups);
-      for (const group of groups) this.renderedGroups.add(group.sha);
+      const block = projectFileBlock(key, commits, this.renderedCommits);
+      for (const commit of commits) this.renderedCommits.add(commit.sha);
       return block;
     } catch (error) {
       this.log.warn('git memory file block failed', { error });
@@ -155,19 +157,31 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
       if (paths.length === 0) return '';
       const index = await this.ensureIndex();
       if (index === undefined) return '';
-      const entries = paths
-        .map((path) => ({ path, groups: index.facts.fileChanges[path] ?? [] }))
-        .filter((entry) => entry.groups.length > 0);
-      if (entries.length === 0) return '';
-      const block = renderSignalBlock(entries, this.renderedGroups);
-      for (const entry of entries) {
-        for (const group of entry.groups) this.renderedGroups.add(group.sha);
+      const blocks: string[] = [];
+      for (const path of paths) {
+        const commits = this.commitsForPath(index, path).slice(0, GIT_MEMORY_SIGNAL_COMMITS);
+        if (commits.length === 0) continue;
+        const block = projectSignalBlock(path, commits, this.renderedCommits);
+        if (block.length === 0) continue;
+        blocks.push(block);
+        for (const commit of commits) this.renderedCommits.add(commit.sha);
       }
-      return block;
+      if (blocks.length === 0) return '';
+      return blocks.join('\n');
     } catch (error) {
       this.log.warn('git memory signal block failed', { error });
       return '';
     }
+  }
+
+  private commitsForPath(index: GitMemoryIndex, path: string): CommitRecord[] {
+    const positions = index.byPath[path] ?? [];
+    const commits: CommitRecord[] = [];
+    for (const position of positions) {
+      const commit = index.commits[position];
+      if (commit !== undefined) commits.push(commit);
+    }
+    return commits.slice(0, GIT_MEMORY_FILE_COMMITS);
   }
 
   private enabled(): boolean {
@@ -217,7 +231,7 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
     for (const item of found) {
       const key = this.toRepoPath(item);
       if (!unique.includes(key)) unique.push(key);
-      if (unique.length >= SIGNAL_PATH_LIMIT) break;
+      if (unique.length >= GIT_MEMORY_SIGNAL_PATHS) break;
     }
     return unique;
   }

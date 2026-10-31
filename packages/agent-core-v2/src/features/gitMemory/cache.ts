@@ -1,8 +1,8 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
-import { GIT_MEMORY_INDEX_VERSION } from './types';
-import type { GitFacts, GitMemoryIndex } from './types';
+import { GIT_MEMORY_FILE_COMMITS, GIT_MEMORY_INDEX_VERSION } from './types';
+import type { CommitRecord, GitMemoryIndex } from './types';
 
 export type IndexReadResult =
   | { readonly kind: 'hit'; readonly index: GitMemoryIndex }
@@ -11,6 +11,36 @@ export type IndexReadResult =
 
 export function cachePath(repoRoot: string): string {
   return join(repoRoot, '.kimi-code', 'git-memory.json');
+}
+
+export function buildIndex(
+  repoRoot: string,
+  headSha: string,
+  window: number,
+  commits: readonly CommitRecord[],
+  computedAt: string,
+): GitMemoryIndex {
+  const byPath: Record<string, number[]> = {};
+  commits.forEach((commit, index) => {
+    for (const file of commit.files) {
+      const list = byPath[file];
+      if (list === undefined) {
+        byPath[file] = [index];
+        continue;
+      }
+      if (list.length >= GIT_MEMORY_FILE_COMMITS) continue;
+      list.push(index);
+    }
+  });
+  return {
+    version: GIT_MEMORY_INDEX_VERSION,
+    repoRoot,
+    headSha,
+    window,
+    computedAt,
+    commits,
+    byPath,
+  };
 }
 
 function stableStringify(value: unknown): string {
@@ -78,21 +108,4 @@ export async function writeIndex(path: string, index: GitMemoryIndex): Promise<b
   } catch {
     return false;
   }
-}
-
-export function buildIndex(
-  repoRoot: string,
-  headSha: string,
-  window: number,
-  facts: GitFacts,
-  computedAt: string,
-): GitMemoryIndex {
-  return {
-    version: GIT_MEMORY_INDEX_VERSION,
-    repoRoot,
-    headSha,
-    window,
-    computedAt,
-    facts,
-  };
 }

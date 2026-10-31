@@ -4,17 +4,26 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { buildIndex, cachePath, readIndex, writeIndex } from '#/features/gitMemory/cache';
-import type { GitFacts } from '#/features/gitMemory/types';
+import type { CommitRecord } from '#/features/gitMemory/types';
 
-const facts: GitFacts = {
-  conventions: [{ prefix: 'fix', count: 12 }],
-  invariants: [{ a: 'x.ts', b: 'y.ts', count: 60 }],
-  fileChanges: {},
-  filePartners: {},
-  strengths: { 'x.ts': 42 },
-};
+function commit(sha: string, files: string[]): CommitRecord {
+  return {
+    sha,
+    date: '2026-10-30',
+    author: 'luozihao',
+    subject: 'fix: something',
+    files,
+  };
+}
 
-const index = buildIndex('/repo', 'abc', 1500, facts, '2026-01-01T00:00:00.000Z');
+const commits: CommitRecord[] = [
+  commit('a'.repeat(40), ['x.ts', 'y.ts']),
+  commit('b'.repeat(40), ['x.ts']),
+  commit('c'.repeat(40), ['x.ts']),
+  commit('d'.repeat(40), ['x.ts']),
+];
+
+const index = buildIndex('/repo', 'abc', 1500, commits, '2026-10-31T00:00:00.000Z');
 
 describe('git memory cache', () => {
   it('round-trips an index', async () => {
@@ -24,6 +33,11 @@ describe('git memory cache', () => {
     const read = await readIndex(path, 'abc', 1500);
     expect(read.kind).toBe('hit');
     if (read.kind === 'hit') expect(read.index).toEqual(index);
+  });
+
+  it('points each path at its most recent commits, newest first', () => {
+    expect(index.byPath['x.ts']).toEqual([0, 1, 2]);
+    expect(index.byPath['y.ts']).toEqual([0]);
   });
 
   it('misses when the head or the window differs', async () => {
@@ -52,9 +66,9 @@ describe('git memory cache', () => {
     const path = cachePath(dir);
     await writeIndex(path, index);
     const text = await readFile(path, 'utf8');
-    expect(text.indexOf('"computedAt"')).toBeLessThan(text.indexOf('"facts"'));
-    expect(text.indexOf('"facts"')).toBeLessThan(text.indexOf('"headSha"'));
-    expect(text.indexOf('"headSha"')).toBeLessThan(text.indexOf('"repoRoot"'));
+    expect(text.indexOf('"byPath"')).toBeLessThan(text.indexOf('"commits"'));
+    expect(text.indexOf('"commits"')).toBeLessThan(text.indexOf('"computedAt"'));
+    expect(text.indexOf('"computedAt"')).toBeLessThan(text.indexOf('"headSha"'));
   });
 
   it('produces the same bytes for the same index', async () => {

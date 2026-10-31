@@ -3,7 +3,7 @@ import type { Readable } from 'node:stream';
 import type { IHostProcessService } from '#/os/interface/hostProcess';
 import type { IHostTimerHandle, IHostTimers } from '#/os/interface/hostTimers';
 
-import type { CommitInput } from './types';
+import type { CommitRecord } from './types';
 
 const GIT_TIMEOUT_MS = 5_000;
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
@@ -17,11 +17,17 @@ const SYSTEM_HOST_TIMERS: IHostTimers = {
   },
 };
 
+export interface RepoHead {
+  readonly repoRoot: string;
+  readonly prefix: string;
+  readonly headSha: string;
+}
+
 export type GitReadResult =
   | {
       readonly kind: 'ok';
       readonly headSha: string;
-      readonly commits: readonly CommitInput[];
+      readonly commits: readonly CommitRecord[];
     }
   | { readonly kind: 'unavailable' }
   | { readonly kind: 'failed'; readonly reason: string };
@@ -49,7 +55,7 @@ async function runGit(
   const hostTimers = timers ?? SYSTEM_HOST_TIMERS;
   let child;
   try {
-    child = await process.spawn('git', ['-C', cwd, ...args], { cwd });
+    child = await process.spawn('git', args, { cwd });
   } catch {
     return { ok: false, stdout: '', stderr: 'spawn failed' };
   }
@@ -85,8 +91,14 @@ async function runGit(
   }
 }
 
-function parseMeta(stdout: string): Map<string, { date: string; subject: string }> {
-  const meta = new Map<string, { date: string; subject: string }>();
+interface CommitMeta {
+  readonly date: string;
+  readonly author: string;
+  readonly subject: string;
+}
+
+function parseMeta(stdout: string): Map<string, CommitMeta> {
+  const meta = new Map<string, CommitMeta>();
   for (const line of stdout.split('\n')) {
     if (line.trim().length === 0) continue;
     const parts = line.split('\t');
@@ -94,7 +106,8 @@ function parseMeta(stdout: string): Map<string, { date: string; subject: string 
     if (sha.length === 0) continue;
     meta.set(sha, {
       date: parts[1]?.trim() ?? '',
-      subject: parts.slice(2).join('\t').trim(),
+      author: parts[2]?.trim() ?? '',
+      subject: parts.slice(3).join('\t').trim(),
     });
   }
   return meta;
@@ -102,9 +115,9 @@ function parseMeta(stdout: string): Map<string, { date: string; subject: string 
 
 function parseCommits(
   stdout: string,
-  meta: Map<string, { date: string; subject: string }>,
-): CommitInput[] {
-  const commits: CommitInput[] = [];
+  meta: Map<string, CommitMeta>,
+): CommitRecord[] {
+  const commits: CommitRecord[] = [];
   let sha: string | undefined;
   let files: string[] = [];
 
@@ -115,6 +128,7 @@ function parseCommits(
       commits.push({
         sha,
         date: info?.date ?? '',
+        author: info?.author ?? '',
         subject: info?.subject ?? '',
         files,
       });
@@ -137,12 +151,6 @@ function parseCommits(
   return commits;
 }
 
-export interface RepoHead {
-  readonly repoRoot: string;
-  readonly prefix: string;
-  readonly headSha: string;
-}
-
 export async function readRepoHead(
   process: IHostProcessService,
   cwd: string,
@@ -151,7 +159,7 @@ export async function readRepoHead(
   const head = await runGit(
     process,
     cwd,
-    ['rev-parse', '--show-toplevel', '--show-prefix', 'HEAD'],
+    ['-C', cwd, 'rev-parse', '--show-toplevel', '--show-prefix', 'HEAD'],
     timers,
   );
   if (!head.ok) return undefined;
@@ -169,7 +177,12 @@ export async function readGitHistory(
   window: number,
   timers?: IHostTimers,
 ): Promise<GitReadResult> {
-  const head = await runGit(process, cwd, ['rev-parse', 'HEAD'], timers);
+  const head = await runGit(
+    process,
+    cwd,
+    ['-C', cwd, 'rev-parse', 'HEAD'],
+    timers,
+  );
   if (!head.ok) {
     if (head.stderr.includes('not a git repository')) return { kind: 'unavailable' };
     return { kind: 'failed', reason: head.stderr };
@@ -178,7 +191,16 @@ export async function readGitHistory(
   const meta = await runGit(
     process,
     cwd,
-    ['log', `-${window}`, '--date=short', '--format=%H%x09%ad%x09%s'],
+    [
+      '-c',
+      'core.quotePath=false',
+      '-C',
+      cwd,
+      'log',
+      `-${window}`,
+      '--date=short',
+      '--format=%H%x09%ad%x09%an%x09%s',
+    ],
     timers,
   );
   if (!meta.ok) {
@@ -189,7 +211,17 @@ export async function readGitHistory(
   const files = await runGit(
     process,
     cwd,
-    ['log', `-${window}`, '--name-only', '--no-renames', '--format=%H'],
+    [
+      '-c',
+      'core.quotePath=false',
+      '-C',
+      cwd,
+      'log',
+      `-${window}`,
+      '--name-only',
+      '--no-renames',
+      '--format=%H',
+    ],
     timers,
   );
   if (!files.ok) {

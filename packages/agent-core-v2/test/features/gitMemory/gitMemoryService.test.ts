@@ -1,44 +1,30 @@
 import { describe, expect, it } from 'bun:test';
 
-import { GitMemoryService } from '#/features/gitMemory/gitMemoryService';
 import { buildIndex } from '#/features/gitMemory/cache';
-import type { ChangeGroup, GitFacts, GitMemoryIndex } from '#/features/gitMemory/types';
+import { GitMemoryService } from '#/features/gitMemory/gitMemoryService';
+import type { CommitRecord, GitMemoryIndex } from '#/features/gitMemory/types';
 
 const SHA_A = 'a'.repeat(40);
 const SHA_B = 'b'.repeat(40);
+const SHA_C = 'c'.repeat(40);
 
-const groupShared: ChangeGroup = {
-  sha: SHA_A,
-  subject: 'refactor(tui): move panel',
-  date: '2026-10-30',
-  files: ['a.ts', 'b.ts'],
-  fileCount: 2,
-  dirs: ['src/tui'],
-  truncated: false,
-};
+function commit(sha: string, files: string[], subject: string): CommitRecord {
+  return {
+    sha,
+    date: '2026-10-30',
+    author: 'luozihao',
+    subject,
+    files,
+  };
+}
 
-const groupOwn: ChangeGroup = {
-  sha: SHA_B,
-  subject: 'fix(tui): align footer',
-  date: '2026-10-29',
-  files: ['a.ts'],
-  fileCount: 1,
-  dirs: ['src/tui'],
-  truncated: false,
-};
+const commits: CommitRecord[] = [
+  commit(SHA_C, ['shared.ts', 'c.ts'], 'feat: newest'),
+  commit(SHA_B, ['a.ts', 'shared.ts'], 'fix: middle'),
+  commit(SHA_A, ['a.ts'], 'refactor: oldest'),
+];
 
-const facts: GitFacts = {
-  conventions: [{ prefix: 'fix', count: 12 }],
-  invariants: [{ a: 'x.ts', b: 'y.ts', count: 60 }],
-  fileChanges: {
-    'a.ts': [groupOwn, groupShared],
-    'b.ts': [groupShared],
-  },
-  filePartners: {},
-  strengths: { 'a.ts': 50 },
-};
-
-const index: GitMemoryIndex = buildIndex('/repo', SHA_A, 1500, facts, '2026-10-31T00:00:00.000Z');
+const index: GitMemoryIndex = buildIndex('/repo', SHA_C, 1500, commits, '2026-10-31T00:00:00.000Z');
 
 interface Harness {
   readonly service: GitMemoryService;
@@ -111,19 +97,21 @@ describe('git memory service', () => {
     expect(await h.service.signalBlock('fix a.ts')).toBe('');
   });
 
-  it('renders the repo block', async () => {
+  it('renders the most recent commits in the repo block', async () => {
     const h = harness({ flagOn: true, stub: index });
     const block = await h.service.repoBlock();
     expect(block.startsWith('<repo-memory>')).toBe(true);
-    expect(block).toContain('fix 12');
+    expect(block).toContain('feat: newest');
+    expect(block).toContain('refactor: oldest');
   });
 
-  it('renders the change groups of a file', async () => {
+  it('renders the commits that touched a file', async () => {
     const h = harness({ flagOn: true, stub: index });
     const block = await h.service.fileBlock('a.ts');
     expect(block).toContain('<file-memory path="a.ts">');
-    expect(block).toContain('fix(tui): align footer');
-    expect(block).toContain('refactor(tui): move panel');
+    expect(block).toContain('fix: middle');
+    expect(block).toContain('refactor: oldest');
+    expect(block).not.toContain('feat: newest');
   });
 
   it('abstains for a file with no history', async () => {
@@ -137,18 +125,18 @@ describe('git memory service', () => {
     expect(await h.service.fileBlock('a.ts')).toBe('');
   });
 
-  it('points at an already rendered change group instead of repeating it', async () => {
+  it('points at an already rendered commit instead of repeating it', async () => {
     const h = harness({ flagOn: true, stub: index });
     await h.service.fileBlock('a.ts');
-    const block = await h.service.fileBlock('b.ts');
-    expect(block).toContain('see change');
-    expect(block).not.toContain('refactor(tui): move panel');
+    const block = await h.service.fileBlock('shared.ts');
+    expect(block).toContain('see commit');
+    expect(block).not.toContain('fix: middle');
   });
 
   it('extracts paths from a message and renders their history', async () => {
     const h = harness({ flagOn: true, stub: index });
-    const block = await h.service.signalBlock('please look at src/tui/a.ts and b.ts');
-    expect(block).toContain('a.ts');
+    const block = await h.service.signalBlock('please look at a.ts and shared.ts');
+    expect(block).toContain('<repo-memory signal="a.ts">');
   });
 
   it('abstains when the message names no path', async () => {
