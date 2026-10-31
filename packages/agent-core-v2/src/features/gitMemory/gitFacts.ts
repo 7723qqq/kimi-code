@@ -114,6 +114,15 @@ export function computeInvariants(commits: readonly CommitInput[]): Invariant[] 
 
 const CONVENTION_PREFIX = /^([a-z]+)(\([^)]*\))?:/;
 
+function dirsOf(files: readonly string[]): string[] {
+  const dirs = new Set<string>();
+  for (const file of files) {
+    const parts = file.split('/');
+    dirs.add(parts.length >= 2 ? `${parts[0]}/${parts[1]}` : (parts[0] ?? file));
+  }
+  return [...dirs].sort();
+}
+
 export function computeFileChanges(commits: readonly CommitInput[]): Record<string, ChangeGroup[]> {
   const byFile = new Map<string, ChangeGroup[]>();
   for (const commit of commits) {
@@ -124,6 +133,8 @@ export function computeFileChanges(commits: readonly CommitInput[]): Record<stri
       subject: commit.subject,
       date: commit.date,
       files: truncated ? files.slice(0, GIT_MEMORY_MAX_FILES_PER_GROUP) : files,
+      fileCount: files.length,
+      dirs: dirsOf(files),
       truncated,
     };
     for (const file of files) {

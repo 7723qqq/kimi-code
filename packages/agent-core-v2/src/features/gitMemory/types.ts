@@ -7,6 +7,9 @@ export const GIT_MEMORY_PARTNER_MIN_COUNT = 5;
 export const GIT_MEMORY_PARTNER_MIN_SCORE = 0.8;
 export const GIT_MEMORY_MAX_FILES_PER_GROUP = 25;
 export const GIT_MEMORY_CLIQUE_PARTNER_LIMIT = 30;
+export const GIT_MEMORY_MANIFEST_LIMIT = 30;
+export const GIT_MEMORY_MAX_PARTNERS = 10;
+export const GIT_MEMORY_MAX_DIRS = 12;
 export const GIT_MEMORY_INDEX_VERSION = 1;
 
 export interface CommitInput {
@@ -21,6 +24,8 @@ export interface ChangeGroup {
   readonly subject: string;
   readonly date: string;
   readonly files: readonly string[];
+  readonly fileCount: number;
+  readonly dirs: readonly string[];
   readonly truncated: boolean;
 }
 
