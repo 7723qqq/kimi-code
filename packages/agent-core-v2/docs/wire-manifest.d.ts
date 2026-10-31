@@ -24,7 +24,7 @@
 // cross-reducers), blobs (the folding states whose blob codec offloads inline
 // media to blob storage), owner (the source file declaring the class).
 
-// Index (76 record types)
+// Index (77 record types)
 //   changeNotifier.snapshot            changeNotifier.snapshot                                                                               src/agent/changeNotifier/changeNotifierOps.ts
 //   config.update                      profile                                                                                               src/agent/profile/profileOps.ts
 //   context.append_loop_event          contextMemory, turn                                                                                   src/agent/contextMemory/contextEvents.ts
@@ -35,6 +35,7 @@
 //   cron.add                           (none)                                                                                                src/features/cron/cronOps.ts
 //   cron.cursor                        (none)                                                                                                src/features/cron/cronOps.ts
 //   cron.delete                        (none)                                                                                                src/features/cron/cronOps.ts
+//   environment.set_binding            environmentBinding                                                                                    src/agent/environmentBinding/environmentBindingOps.ts
 //   file_history.checkpoint            fileHistory                                                                                           src/features/fileHistory/fileHistoryOps.ts
 //   file_history.tracked               fileHistory                                                                                           src/features/fileHistory/fileHistoryOps.ts
 //   forked                             (none)                                                                                                src/session/agentLifecycle/forked.ts
@@ -239,6 +240,17 @@ interface CronCursorPayload {
 interface CronDeletePayload {
   _name: 'cron.delete';
   ids: string[];
+}
+
+/**
+ * states: environmentBinding
+ * owner: src/agent/environmentBinding/environmentBindingOps.ts
+ */
+interface EnvironmentSetBindingPayload {
+  _name: 'environment.set_binding';
+  agentId: string;
+  environmentId: string;
+  cwd?: string;
 }
 
 /**
@@ -1128,6 +1140,7 @@ interface WirePayloadMap {
   "cron.add": CronAddPayload;
   "cron.cursor": CronCursorPayload;
   "cron.delete": CronDeletePayload;
+  "environment.set_binding": EnvironmentSetBindingPayload;
   "file_history.checkpoint": FileHistoryCheckpointPayload;
   "file_history.tracked": FileHistoryTrackedPayload;
   "forked": ForkedPayload;
