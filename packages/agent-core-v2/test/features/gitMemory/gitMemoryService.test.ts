@@ -32,10 +32,18 @@ interface Harness {
   readonly registered: string[];
 }
 
+interface MemoryFixture {
+  readonly path: string;
+  readonly title: string;
+  readonly body: string;
+  readonly updatedAt: number;
+}
+
 function harness(options: {
   readonly flagOn?: boolean;
   readonly stub?: GitMemoryIndex | undefined;
   readonly messages?: unknown[];
+  readonly memories?: readonly MemoryFixture[];
 } = {}): Harness {
   const state = { spawns: 0, registered: [] as string[] };
   const process = {
@@ -61,6 +69,14 @@ function harness(options: {
           },
         } as never,
         { get: () => options.messages ?? [] } as never,
+        {
+          list: async () => (options.memories ?? []).map((entry) => entry.path),
+          get: async (path: string) =>
+            (options.memories ?? []).find((entry) => entry.path === path),
+        } as never,
+        {
+          lastCommitSha: async (path: string) => `a${path.replace(/[^a-z]/gi, '').padEnd(39, '0')}`,
+        } as never,
       );
       this.stub = options.stub;
     }
@@ -147,5 +163,44 @@ describe('git memory service', () => {
   it('registers the turn signal variant', () => {
     const h = harness({ flagOn: true, stub: index });
     expect(h.registered).toContain('git_memory_signal');
+  });
+});
+
+describe('git memory written entries', () => {
+  const scoped = {
+    path: 'global/tui.md',
+    title: 'TUI panel heights',
+    body: '---\napplies_to: ["apps/tui/**"]\n---\n# TUI panel heights\nkeep the dock budget in sync',
+    updatedAt: Date.parse('2026-10-20T00:00:00.000Z'),
+  };
+
+  it('injects a scoped memory into the matching file block', async () => {
+    const h = harness({ flagOn: true, stub: index, memories: [scoped] });
+    const block = await h.service.fileBlock('apps/tui/panel.ts');
+    expect(block).toContain('<memory sha="');
+    expect(block).toContain('TUI panel heights');
+  });
+
+  it('does not inject a scoped memory into an unrelated file', async () => {
+    const h = harness({ flagOn: true, stub: index, memories: [scoped] });
+    const block = await h.service.fileBlock('apps/other/panel.ts');
+    expect(block).not.toContain('TUI panel heights');
+  });
+
+  it('injects an unscoped memory into the repo block', async () => {
+    const h = harness({
+      flagOn: true,
+      stub: index,
+      memories: [
+        {
+          path: 'global/general.md',
+          title: 'General note',
+          body: '# General note\nalways run the type check',
+          updatedAt: Date.parse('2026-10-21T00:00:00.000Z'),
+        },
+      ],
+    });
+    const block = await h.service.repoBlock();
+    expect(block).toContain('General note');
   });
 });

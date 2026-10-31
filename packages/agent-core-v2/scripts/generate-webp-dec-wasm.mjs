@@ -15,7 +15,7 @@ writeFileSync(
   `// GENERATED FILE — do not edit by hand.
 // WebP decoder wasm from @jsquash/webp@${version} (codec/dec/webp_dec.wasm),
 // base64-encoded so the bundled CLI needs no on-disk wasm asset.
-// Regenerate with: node scripts/generate-webp-dec-wasm.mjs
+// Regenerate with: bun packages/agent-core-v2/scripts/generate-webp-dec-wasm.mjs
 
 export const WEBP_DECODER_WASM_BASE64 =
   '${wasm.toString('base64')}';

@@ -10,6 +10,17 @@ export function projectCommit(commit: CommitRecord, seen: ReadonlySet<string>): 
   return lines;
 }
 
+export interface MemoryEntryView {
+  readonly sha: string;
+  readonly date: string;
+  readonly title: string;
+  readonly body: string;
+}
+
+export function projectMemoryBlock(entry: MemoryEntryView): string {
+  return `<memory sha="${entry.sha}" date="${entry.date}">\n${entry.title}\n${entry.body}\n</memory>`;
+}
+
 export function projectRepoBlock(commits: readonly CommitRecord[]): string {
   if (commits.length === 0) return '';
   const lines: string[] = [];
