@@ -11,6 +11,7 @@ import type {
   ChangeGroup,
   CommitInput,
   ConventionEntry,
+  GitFacts,
   Invariant,
   Partner,
 } from './types';
@@ -121,6 +122,16 @@ function dirsOf(files: readonly string[]): string[] {
     dirs.add(parts.length >= 2 ? `${parts[0]}/${parts[1]}` : (parts[0] ?? file));
   }
   return [...dirs].sort();
+}
+
+export function computeFacts(commits: readonly CommitInput[]): GitFacts {
+  return {
+    conventions: computeConventions(commits.map((commit) => commit.subject)),
+    invariants: computeInvariants(commits),
+    fileChanges: computeFileChanges(commits),
+    filePartners: computePartners(commits),
+    strengths: computeStrengths(commits),
+  };
 }
 
 export function computeFileChanges(commits: readonly CommitInput[]): Record<string, ChangeGroup[]> {

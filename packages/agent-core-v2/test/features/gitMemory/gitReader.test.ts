@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { Readable, Writable } from 'node:stream';
 
-import { readGitHistory } from '#/features/gitMemory/gitReader';
+import { readGitHistory, readRepoHead } from '#/features/gitMemory/gitReader';
 import type { IHostProcessService } from '#/os/interface/hostProcess';
 
 const SHA_A = 'a'.repeat(40);
@@ -58,6 +58,33 @@ function repoHandler(args: readonly string[]): FakeReply {
     code: 0,
   };
 }
+
+describe('repo head', () => {
+  it('reads the repository root, the working prefix and the head sha in one command', async () => {
+    const { service, calls } = fakeProcess(() => ({
+      out: 'D:/repo\npackages/core/\nsha\n',
+      err: '',
+      code: 0,
+    }));
+    const head = await readRepoHead(service, '/repo');
+    expect(head?.repoRoot).toBe('D:/repo');
+    expect(head?.prefix).toBe('packages/core/');
+    expect(head?.headSha).toBe('sha');
+    expect(calls[0]).toEqual([
+      '-C',
+      '/repo',
+      'rev-parse',
+      '--show-toplevel',
+      '--show-prefix',
+      'HEAD',
+    ]);
+  });
+
+  it('returns undefined when there is no repository', async () => {
+    const { service } = fakeProcess(() => ({ out: '', err: 'fatal', code: 128 }));
+    expect(await readRepoHead(service, '/repo')).toBeUndefined();
+  });
+});
 
 describe('git reader', () => {
   it('runs exactly three bounded commands', async () => {

@@ -21,9 +21,13 @@ export function formatScore(value: number): string {
   return value.toFixed(2);
 }
 
-function changeLines(group: ChangeGroup): string[] {
+function changeLines(group: ChangeGroup, seen: ReadonlySet<string>): string[] {
+  const sha = group.sha.slice(0, 7);
+  if (seen.has(group.sha)) {
+    return [`  see change ${sha} above`];
+  }
   const lines = [
-    `Change ${group.sha.slice(0, 7)} (${group.date}) ${sanitizeText(group.subject, 120)} - touched ${group.fileCount} files:`,
+    `Change ${sha} (${group.date}) ${sanitizeText(group.subject, 120)} - touched ${group.fileCount} files:`,
   ];
   if (group.truncated) {
     const dirs = group.dirs.slice(0, GIT_MEMORY_MAX_DIRS);
@@ -88,9 +92,10 @@ export function renderFileBlock(
   path: string,
   groups: readonly ChangeGroup[],
   partners: readonly Partner[],
+  seen: ReadonlySet<string> = new Set<string>(),
 ): string {
   const lines: string[] = [];
-  for (const group of groups) lines.push(...changeLines(group));
+  for (const group of groups) lines.push(...changeLines(group, seen));
   if (partners.length > 0) {
     lines.push(`Usually changes with: ${partnerText(partners)}`);
   }
@@ -100,12 +105,13 @@ export function renderFileBlock(
 
 export function renderSignalBlock(
   entries: readonly { readonly path: string; readonly groups: readonly ChangeGroup[] }[],
+  seen: ReadonlySet<string> = new Set<string>(),
 ): string {
   const lines: string[] = [];
   for (const entry of entries) {
     if (entry.groups.length === 0) continue;
     lines.push(`${sanitizeText(entry.path, 200)}:`);
-    for (const group of entry.groups) lines.push(...changeLines(group));
+    for (const group of entry.groups) lines.push(...changeLines(group, seen));
   }
   if (lines.length === 0) return '';
   return `<repo-memory signal="true">\n${lines.join('\n')}\n</repo-memory>`;

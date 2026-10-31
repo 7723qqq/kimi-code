@@ -137,6 +137,32 @@ function parseCommits(
   return commits;
 }
 
+export interface RepoHead {
+  readonly repoRoot: string;
+  readonly prefix: string;
+  readonly headSha: string;
+}
+
+export async function readRepoHead(
+  process: IHostProcessService,
+  cwd: string,
+  timers?: IHostTimers,
+): Promise<RepoHead | undefined> {
+  const head = await runGit(
+    process,
+    cwd,
+    ['rev-parse', '--show-toplevel', '--show-prefix', 'HEAD'],
+    timers,
+  );
+  if (!head.ok) return undefined;
+  const lines = head.stdout.split('\n');
+  const repoRoot = (lines[0] ?? '').trim();
+  const prefix = (lines[1] ?? '').trim();
+  const headSha = (lines[2] ?? '').trim();
+  if (repoRoot.length === 0 || headSha.length === 0) return undefined;
+  return { repoRoot, prefix, headSha };
+}
+
 export async function readGitHistory(
   process: IHostProcessService,
   cwd: string,
