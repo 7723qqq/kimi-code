@@ -53,6 +53,23 @@ export async function readIndex(
   return { kind: 'hit', index };
 }
 
+export async function readAnyIndex(path: string): Promise<GitMemoryIndex | undefined> {
+  let raw: string;
+  try {
+    raw = await readFile(path, 'utf8');
+  } catch {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(raw) as GitMemoryIndex;
+    if (typeof parsed !== 'object' || parsed === null) return undefined;
+    if (parsed.version !== GIT_MEMORY_INDEX_VERSION) return undefined;
+    return parsed;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function writeIndex(path: string, index: GitMemoryIndex): Promise<boolean> {
   try {
     await mkdir(dirname(path), { recursive: true });

@@ -33,6 +33,19 @@ type RenderlessInputIsNotAssignable = AssertFalse<
 >;
 
 describe('systemPromptVars', () => {
+  it('renders an empty repo memory when none was provided', () => {
+    const vars = systemPromptVars({}, { skillActive: false });
+    expect(vars['repo_memory']).toBe('');
+  });
+
+  it('renders the repo memory block verbatim', () => {
+    const vars = systemPromptVars(
+      { repoMemory: '<repo-memory>\nfix 12\n</repo-memory>' },
+      { skillActive: false },
+    );
+    expect(vars['repo_memory']).toBe('<repo-memory>\nfix 12\n</repo-memory>');
+  });
+
   it('builds the full variable table from the context', () => {
     const vars = systemPromptVars(
       {

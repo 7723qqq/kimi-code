@@ -193,6 +193,7 @@ export function systemPromptVars(
     cwd: context.cwd ?? '',
     cwd_listing: context.cwdListing ?? '',
     agents_md: context.agentsMd ?? '',
+    repo_memory: context.repoMemory ?? '',
     additional_dirs_info: additionalDirsInfo,
     additional_dirs_section:
       additionalDirsInfo.length > 0

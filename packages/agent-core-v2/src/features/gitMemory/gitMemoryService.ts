@@ -10,10 +10,11 @@ import { IHostProcessService } from '#/os/interface/hostProcess';
 
 import { IAgentReminderService } from '#/features/reminder/reminderService';
 
-import { buildIndex, cachePath, readIndex, writeIndex } from './cache';
+import { buildIndex, cachePath, readAnyIndex, readIndex, writeIndex } from './cache';
 import { GIT_MEMORY_FLAG_ID } from './flag';
 import { computeFacts } from './gitFacts';
 import { readGitHistory, readRepoHead } from './gitReader';
+import type { RepoHead } from './gitReader';
 import { renderFileBlock, renderRepoBlock, renderSignalBlock } from './render';
 import { GIT_MEMORY_WINDOW } from './types';
 import type { GitMemoryIndex } from './types';
@@ -40,6 +41,7 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
   private index: GitMemoryIndex | undefined;
   private indexLoaded = false;
   private loading: Promise<void> | undefined;
+  private refresh: Promise<void> | undefined;
   private repoRoot = '';
   private pathPrefix = '';
   private readonly renderedPaths = new Set<string>();
@@ -68,10 +70,36 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
     const path = cachePath(head.repoRoot);
     const cached = await readIndex(path, head.headSha, GIT_MEMORY_WINDOW);
     if (cached.kind === 'hit') return cached.index;
-    if (cached.kind === 'corrupt') {
+    if (cached.kind === 'miss') {
+      const stale = await readAnyIndex(path);
+      if (stale !== undefined) {
+        this.scheduleRefresh(head, path);
+        return stale;
+      }
+    } else {
       this.log.warn('git memory cache was corrupted; rebuilding it');
     }
+    return this.rebuild(head, path);
+  }
 
+  private scheduleRefresh(head: RepoHead, path: string): void {
+    if (this.refresh !== undefined) return;
+    this.refresh = this.rebuild(head, path)
+      .then((index) => {
+        if (index !== undefined) this.index = index;
+      })
+      .catch((error) => {
+        this.log.warn('git memory refresh failed', { error });
+      })
+      .finally(() => {
+        this.refresh = undefined;
+      });
+  }
+
+  private async rebuild(
+    head: RepoHead,
+    path: string,
+  ): Promise<GitMemoryIndex | undefined> {
     const history = await readGitHistory(this.process, head.repoRoot, GIT_MEMORY_WINDOW);
     if (history.kind !== 'ok') return undefined;
     const index = buildIndex(
