@@ -13,6 +13,10 @@ export interface MemoryEntry {
   readonly body: string;
   readonly fingerprint: string;
   readonly updatedAt: number;
+  readonly sha?: string;
+  readonly intent?: string;
+  readonly note?: string;
+  readonly appliesTo?: readonly string[];
 }
 
 export interface MemorySearchResult {

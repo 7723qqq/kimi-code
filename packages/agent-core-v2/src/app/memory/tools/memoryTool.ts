@@ -10,6 +10,7 @@ import {
   detectType,
   extractTitle,
   memoryDir,
+  parseAppliesTo,
   projectIdFromCwd,
   scopeDir,
   type MemoryScope,
@@ -221,6 +222,12 @@ export class MemoryTool implements IMemoryTool {
     }
     const commits = await this.repo.logCommits(1);
     const sha = commits[0]?.sha ?? '';
+    await this.store.put({
+      ...entry,
+      ...(sha.length > 0 ? { sha } : {}),
+      intent: entry.title,
+      appliesTo: parseAppliesTo(args.content),
+    });
     return {
       output: t('toolsV2.memory.writtenCommitted', {
         path: relPath,

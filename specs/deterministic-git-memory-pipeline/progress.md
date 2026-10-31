@@ -242,7 +242,7 @@ R4 要求注入内容是 git 对象的原始投影，而"人自由写的散文�
 | T7 L3 接线 | ✅ | `agent/tools/fileMemory.ts` + Read/Edit/Write 三处 |
 | T8 L2 接线 | ✅ | reminder variant `git_memory_signal` |
 | T9 门禁 | ✅ | `check:git-memory`、`check:no-comments`、`check:locale-keys`、`check:t-coverage`、typecheck |
-| T10 memory 仓库 | ✅ | `app/memory/memoryRepo.ts`：懒 `git init`，写入即提交，author 固定 `kimi-code memory <memory@local>` |
+| T10 memory 仓库 | ⚠️ 部分 | `app/memory/memoryRepo.ts`：懒 `git init`，写入即提交，author 固定 `kimi-code memory <memory@local>`；条目落库时带 `sha`/`intent`/`applies_to`。**R25 要求的"独立瘦索引文件"未做**——见偏离 8 |
 | T11 log / revert | ✅ | `Memory` 工具新增 `log` / `revert` 两个 action |
 | T12 applies_to | ✅ | `memoryPaths.parseAppliesTo` + `picomatch` 匹配，命中进 L3、未声明进 L1 |
 | T13 内容纪律 | ✅ | agent 写入必须引用一个已存在的 git 提交 sha，否则拒绝落盘 |
@@ -309,3 +309,19 @@ R4 要求注入内容是 git 对象的原始投影，而"人自由写的散文�
 
 - **flag 开/关的任务行为对照**：需要一批同类任务各跑多次，对比改动文件数、测试失败数、完成轮数。CommitDistill 的教训表明检索命中不等于任务变好，这个结论必须自己测。
 - **L2（reminder 通道）**：只在用户消息里出现路径时触发，本轮未构造这样的会话验证。
+
+
+### 偏离 8 — R25 的"独立瘦索引文件"未实现（实施期自查发现）
+
+**R25 要求**：写入记忆用瘦索引形态，索引项 = `{ sha, intent, note, applies_to, date }`，**正文不复制进索引**，内容从 git 重建。
+
+**实际做成的**：
+- git 持有版本化真相（markdown 文件 + 每次写入一次提交）✓
+- MiniDb 里的条目是**可重建的检索索引**（`reconcile()` 已能从磁盘文件重建）✓，语义上不是"第二份真相"
+- 条目落库时带上 `sha`（写入那次提交）、`intent`（提交意图）、`applies_to`（从 front matter 解析）✓
+
+**没做的**：**没有独立的瘦索引文件**（类似 GCC 的 `index.yaml`），因此正文仍在 MiniDb 条目里留了一份拷贝。这是既有 `memoryStore` 的结构（FTS 索引需要正文），改它要动既有检索路径与 `reconcile()` 语义，超出本轮改动范围。
+
+**为什么要记下来**：本文件的"已实施"表原本把 T10 标成 ✅，属于 overclaim——R25 的核心诉求（避免两份真相）达成了，但字面要求的瘦索引文件没做。已把该行改成 ⚠️ 并在此说明。
+
+**若要补齐**：写入时在内容提交之后再写一份 `index.json`（`{ path: { sha, intent, note, applies_to, date } }`）并单独提交一次（sha 必须晚于内容提交，否则自引用），读取时以该文件为元数据来源、以 git blob 为正文来源。

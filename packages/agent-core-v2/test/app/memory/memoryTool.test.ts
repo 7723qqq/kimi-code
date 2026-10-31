@@ -15,12 +15,15 @@ async function run(tool: MemoryTool, args: MemoryToolInput) {
 }
 
 async function makeTool(homeDir: string, flagOn: boolean, repo: MemoryRepo) {
+  const puts: { sha?: string; intent?: string; appliesTo?: readonly string[] }[] = [];
   const store = {
     list: async () => [] as string[],
     get: async () => undefined,
-    put: async () => undefined,
+    put: async (entry: { sha?: string; intent?: string; appliesTo?: readonly string[] }) => {
+      puts.push(entry);
+    },
   };
-  return new MemoryTool(
+  const tool = new MemoryTool(
     store as never,
     { cwd: homeDir } as never,
     { agentId: 'main' } as never,
@@ -29,6 +32,7 @@ async function makeTool(homeDir: string, flagOn: boolean, repo: MemoryRepo) {
     { enabled: () => flagOn } as never,
     new HostProcessService() as unknown as IHostProcessService,
   );
+  return { tool, puts };
 }
 
 function makeRepo(homeDir: string) {
@@ -50,7 +54,7 @@ describe('memory tool audit loop', () => {
     await repo.commit('remember: seed');
     const [seed] = await repo.logCommits(1);
 
-    const tool = await makeTool(homeDir, true, repo);
+    const { tool, puts } = await makeTool(homeDir, true, repo);
     const written = await run(tool, {
       action: 'write',
       path: 'note.md',
@@ -62,6 +66,9 @@ describe('memory tool audit loop', () => {
 
     const commits = await repo.logCommits(10);
     expect(commits.some((c) => c.message === 'remember: note')).toBe(true);
+    const stored = puts.at(-1);
+    expect(stored?.sha).toBe(commits.find((c) => c.message === 'remember: note')?.sha);
+    expect(stored?.intent).toBe('note');
 
     const logged = await run(tool, { action: 'log' });
     expect(logged.output).toContain('remember: note');
@@ -76,7 +83,7 @@ describe('memory tool audit loop', () => {
 
   it('refuses a write that references no existing git object', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'memorytool-'));
-    const tool = await makeTool(homeDir, true, makeRepo(homeDir));
+    const { tool } = await makeTool(homeDir, true, makeRepo(homeDir));
     const result = await run(tool, {
       action: 'write',
       path: 'note.md',
@@ -90,7 +97,7 @@ describe('memory tool audit loop', () => {
   it('keeps the pre-flag behaviour when the flag is off', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'memorytool-'));
     const repo = makeRepo(homeDir);
-    const tool = await makeTool(homeDir, false, repo);
+    const { tool } = await makeTool(homeDir, false, repo);
     const result = await run(tool, {
       action: 'write',
       path: 'note.md',
