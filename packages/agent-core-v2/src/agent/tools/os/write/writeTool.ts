@@ -3,6 +3,8 @@ import { dirname } from 'pathe';
 import { unwrapErrorCause } from '#/_base/errors/errors';
 import { IAgentRuntimeService, inspectAgentRuntime } from '#/agent/runtimeBinding/agentRuntime';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { withFileMemory } from '#/agent/tools/fileMemory';
+import { IGitMemoryService } from '#/features/gitMemory/gitMemoryService';
 import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import type { HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
@@ -31,6 +33,7 @@ export class WriteTool implements IWriteTool {
     @IAgentRuntimeService private readonly runtime: IAgentRuntimeService,
     @ISessionWorkspaceContext private readonly workspaceCtx: ISessionWorkspaceContext,
     @ISessionSkillCatalog private readonly skillCatalog?: ISessionSkillCatalog,
+    @IGitMemoryService private readonly gitMemory?: IGitMemoryService,
   ) {}
 
   private workspaceConfig(view: RuntimeWorkspaceView): WorkspaceConfig {
@@ -107,9 +110,13 @@ export class WriteTool implements IWriteTool {
         await fs.writeText(safePath, args.content);
       }
       const bytesWritten = Buffer.byteLength(args.content, 'utf8');
-      return {
-        output: `${mode === 'append' ? 'Appended' : 'Wrote'} ${String(bytesWritten)} bytes to ${args.path}`,
-      };
+      return withFileMemory(
+        {
+          output: `${mode === 'append' ? 'Appended' : 'Wrote'} ${String(bytesWritten)} bytes to ${args.path}`,
+        },
+        args.path,
+        this.gitMemory,
+      );
     } catch (error) {
       const code = (unwrapErrorCause(error) as { code?: unknown } | null)?.code;
       if (code === 'ENOENT') {

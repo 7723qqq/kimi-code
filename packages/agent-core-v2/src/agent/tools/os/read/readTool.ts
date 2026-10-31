@@ -17,6 +17,7 @@ import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
+import { withFileMemory } from '#/agent/tools/fileMemory';
 import {
   attachmentFileSource,
   runtimeFileSource,
@@ -26,6 +27,7 @@ import {
 import { executeMediaRead } from '#/agent/tools/read-media-file/execute-media-read';
 import { MAX_MEDIA_MEGABYTES } from '#/agent/tools/read-media-file/read-media-file';
 import { IConfigService } from '#/app/config/config';
+import { IGitMemoryService } from '#/features/gitMemory/gitMemoryService';
 import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import type { HostEnvironmentInfo } from '#/os/interface/hostEnvironment';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
@@ -201,6 +203,7 @@ export class ReadTool implements IReadTool {
     @IAgentToolPolicyService private readonly toolPolicy: IAgentToolPolicyService,
     @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
     @ISessionMediaStore private readonly attachmentStore?: ISessionMediaStore,
+    @IGitMemoryService private readonly gitMemory?: IGitMemoryService,
   ) {}
 
   private limits(): { defaultMaxChars: number; maxChars: number } {
@@ -287,10 +290,18 @@ export class ReadTool implements IReadTool {
       display: { kind: 'file_io', operation: 'read', path: source.localPath ?? args.path },
       approvalRule: literalRulePattern(this.name, args.path),
       matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, args.path),
-      execute: async ({ signal }) => ({
-        ...withAttachmentLocation(await this.execution(source, args, undefined, false, signal), source),
-        spillExempt: true,
-      }),
+      execute: async ({ signal }) =>
+        withFileMemory(
+          {
+            ...withAttachmentLocation(
+              await this.execution(source, args, undefined, false, signal),
+              source,
+            ),
+            spillExempt: true as const,
+          },
+          args.path,
+          this.gitMemory,
+        ),
     };
   }
 

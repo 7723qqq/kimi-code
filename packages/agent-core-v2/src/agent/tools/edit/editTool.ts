@@ -1,6 +1,8 @@
 import { IAgentRuntimeService, inspectAgentRuntime } from '#/agent/runtimeBinding/agentRuntime';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { withFileMemory } from '#/agent/tools/fileMemory';
 import { IFileEditService } from '#/app/edit/fileEdit';
+import { IGitMemoryService } from '#/features/gitMemory/gitMemoryService';
 import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { Runtime } from '#/runtime/runtime';
@@ -31,6 +33,7 @@ export class EditTool implements IEditTool {
     @IAgentRuntimeService private readonly runtime: IAgentRuntimeService,
     @ISessionWorkspaceContext private readonly workspaceCtx: ISessionWorkspaceContext,
     @ISessionSkillCatalog private readonly skillCatalog?: ISessionSkillCatalog,
+    @IGitMemoryService private readonly gitMemory?: IGitMemoryService,
   ) {}
 
   private workspaceConfig(runtime: Runtime): WorkspaceConfig {
@@ -121,7 +124,11 @@ export class EditTool implements IEditTool {
       return { isError: true, output: result.error };
     }
     const word = result.count === 1 ? 'occurrence' : 'occurrences';
-    return { output: `Replaced ${String(result.count)} ${word} in ${args.path}` };
+    return withFileMemory(
+      { output: `Replaced ${String(result.count)} ${word} in ${args.path}` },
+      args.path,
+      this.gitMemory,
+    );
   }
 }
 
