@@ -5,6 +5,7 @@ import { createDecorator } from '#/_base/di/instantiation';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IFlagService } from '#/app/flag/flag';
 import {
   detectType,
   extractTitle,
@@ -13,14 +14,25 @@ import {
   scopeDir,
   type MemoryScope,
 } from '#/app/memory/memoryPaths';
+import { IMemoryRepo } from '#/app/memory/memoryRepo';
 import { IMemoryStore } from '#/app/memory/memoryStore';
+import { GIT_MEMORY_FLAG_ID } from '#/features/gitMemory/flag';
+import { IHostProcessService } from '#/os/interface/hostProcess';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import type { AgentTool, ToolExecution } from '#/tool/toolContract';
 
 import DESCRIPTION from './memory.md?raw';
 
-const MemoryActionSchema = z.enum(['search', 'read', 'write', 'list', 'delete']);
+const MemoryActionSchema = z.enum([
+  'search',
+  'read',
+  'write',
+  'list',
+  'delete',
+  'log',
+  'revert',
+]);
 
 export const MemoryToolInputSchema = z
   .object({
@@ -37,6 +49,10 @@ export const MemoryToolInputSchema = z
       .optional()
       .describe('Memory scope (for `write`, `list`). Defaults to `project`.'),
     content: z.string().optional().describe('Markdown content (for `write` action).'),
+    sha: z
+      .string()
+      .optional()
+      .describe('Memory repository commit sha (for `revert` action).'),
   })
   .strict();
 
@@ -59,6 +75,9 @@ export class MemoryTool implements IMemoryTool {
     @ISessionContext private readonly sessionContext: ISessionContext,
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
+    @IMemoryRepo private readonly repo: IMemoryRepo,
+    @IFlagService private readonly flags: IFlagService,
+    @IHostProcessService private readonly process: IHostProcessService,
   ) {}
 
   resolveExecution(args: MemoryToolInput): ToolExecution {
@@ -79,6 +98,10 @@ export class MemoryTool implements IMemoryTool {
             return this.handleList(args);
           case 'delete':
             return this.handleDelete(args);
+          case 'log':
+            return this.handleLog(args);
+          case 'revert':
+            return this.handleRevert(args);
           default:
             return { output: t('toolsV2.memory.unknownAction', { action }), isError: true };
         }
@@ -150,6 +173,13 @@ export class MemoryTool implements IMemoryTool {
     }
     const relPath = buildRelPath(scope, scopeId, fileName);
 
+    if (this.gitMemoryEnabled() && !(await this.hasGitReference(args.content))) {
+      return {
+        output: t('toolsV2.memory.writeNeedsReference', { path: relPath }),
+        isError: true,
+      };
+    }
+
     const { stat, mkdir, writeFile } = await import('node:fs/promises');
     const { join: joinPath } = await import('pathe');
 
@@ -173,9 +203,97 @@ export class MemoryTool implements IMemoryTool {
     };
     await this.store.put(entry);
 
+    if (!this.gitMemoryEnabled()) {
+      return {
+        output: t('toolsV2.memory.written', { path: relPath, title: entry.title, type: entry.type }),
+      };
+    }
+
+    const committed = await this.repo.commit(`remember: ${entry.title}`);
+    if (!committed) {
+      return {
+        output: t('toolsV2.memory.writtenNotCommitted', {
+          path: relPath,
+          title: entry.title,
+          type: entry.type,
+        }),
+      };
+    }
+    const commits = await this.repo.logCommits(1);
+    const sha = commits[0]?.sha ?? '';
     return {
-      output: t('toolsV2.memory.written', { path: relPath, title: entry.title, type: entry.type }),
+      output: t('toolsV2.memory.writtenCommitted', {
+        path: relPath,
+        title: entry.title,
+        type: entry.type,
+        sha,
+      }),
     };
+  }
+
+  private async handleLog(args: MemoryToolInput) {
+    const commits = await this.repo.logCommits(20);
+    const lines = [t('toolsV2.memory.logHeader', { count: String(commits.length) })];
+    for (const commit of commits) {
+      lines.push(
+        t('toolsV2.memory.logLine', {
+          sha: commit.sha.slice(0, 7),
+          date: commit.date,
+          message: commit.message,
+        }),
+      );
+    }
+    return { output: lines.join('\n') };
+  }
+
+  private async handleRevert(args: MemoryToolInput) {
+    if (!args.sha) {
+      return { output: t('toolsV2.memory.revertFailed', { sha: '' }), isError: true };
+    }
+    const reverted = await this.repo.revert(args.sha);
+    if (!reverted) {
+      return { output: t('toolsV2.memory.revertFailed', { sha: args.sha }), isError: true };
+    }
+    return { output: t('toolsV2.memory.reverted', { sha: args.sha }) };
+  }
+
+  private gitMemoryEnabled(): boolean {
+    try {
+      return this.flags.enabled(GIT_MEMORY_FLAG_ID);
+    } catch {
+      return false;
+    }
+  }
+
+  private async hasGitReference(content: string): Promise<boolean> {
+    const candidates = content.match(/\b[0-9a-f]{7,40}\b/g) ?? [];
+    const repos = [this.sessionContext.cwd, memoryDir(this.bootstrap.homeDir)];
+    for (const candidate of candidates) {
+      for (const repo of repos) {
+        if (await this.commitExists(repo, candidate)) return true;
+      }
+    }
+    return false;
+  }
+
+  private async commitExists(repo: string, sha: string): Promise<boolean> {
+    try {
+      const child = await this.process.spawn(
+        'git',
+        ['-C', repo, 'cat-file', '-e', `${sha}^{commit}`],
+        { cwd: repo },
+      );
+      try {
+        child.stdin.end();
+      } catch {}
+      for await (const _chunk of child.stdout) {
+        void _chunk;
+      }
+      const code = await child.wait();
+      return code === 0;
+    } catch {
+      return false;
+    }
   }
 
   private async handleList(args: MemoryToolInput) {

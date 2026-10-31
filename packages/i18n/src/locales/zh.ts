@@ -436,6 +436,13 @@ export const zh: DeepPartial<typeof import('./en').default> = {
     fileNotFound: '未找到文件：{{fileId}}',
     fileTooLarge: '上传大小 {{seen}} 字节超过限制 {{limit}} 字节',
   },
+  remoteControl: {
+    disconnected: 'Remote Control 连接断开：{{error}}',
+    connectionSilent: 'Remote Control {{label}} 连接已静默 {{seconds}} 秒，正在重连…',
+    messageError: 'Remote Control 消息错误：{{error}}',
+    httpMessageError: 'Remote Control HTTP 消息错误：{{error}}',
+    httpForwardingFailed: 'Remote Control HTTP 转发失败：{{error}}',
+  },
   svc: {
     common: {
       description: 'Kimi Code 本地服务器（由 `kimi server install` 管理）',
@@ -571,6 +578,15 @@ export const zh: DeepPartial<typeof import('./en').default> = {
       deleted: '已删除: {{path}}',
       noFilesFound: '未找到 memory 文件。',
       listHeader: 'Memory 文件 ({{count}}):\n',
+      writtenCommitted:
+        'Memory 已写入 {{path}}\ntitle: {{title}}\ntype: {{type}}\ncommit: {{sha}}',
+      writtenNotCommitted:
+        'Memory 已写入 {{path}}，但未提交到 memory 仓库。\ntitle: {{title}}\ntype: {{type}}',
+      logHeader: 'Memory 提交记录 ({{count}}):\n',
+      logLine: '  {{sha}} {{date}} {{message}}',
+      reverted: '已回滚 {{sha}}',
+      revertFailed: '回滚失败: {{sha}}',
+      writeNeedsReference: 'Memory 内容必须引用一个已存在的 git 提交 sha。\npath: {{path}}',
     },
     bash: {
       startingBackground: '正在启动后台: {{preview}}',

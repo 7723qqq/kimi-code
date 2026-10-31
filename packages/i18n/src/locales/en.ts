@@ -488,6 +488,13 @@ export const en = {
   // ============================================================================
   // kap-server service manager strings
   // ============================================================================
+  remoteControl: {
+    disconnected: 'Remote Control disconnected: {{error}}',
+    connectionSilent: 'Remote Control {{label}} connection silent for {{seconds}}s; reconnecting…',
+    messageError: 'Remote Control message error: {{error}}',
+    httpMessageError: 'Remote Control HTTP message error: {{error}}',
+    httpForwardingFailed: 'Remote Control HTTP forwarding failed: {{error}}',
+  },
   svc: {
     common: {
       description: 'Kimi Code local server (managed by `kimi server install`)',
@@ -635,6 +642,16 @@ export const en = {
       deleted: 'Deleted: {{path}}',
       noFilesFound: 'No memory files found.',
       listHeader: 'Memory files ({{count}}):\n',
+      writtenCommitted:
+        'Memory written to {{path}}\ntitle: {{title}}\ntype: {{type}}\ncommit: {{sha}}',
+      writtenNotCommitted:
+        'Memory written to {{path}} but NOT committed to the memory repo.\ntitle: {{title}}\ntype: {{type}}',
+      logHeader: 'Memory commits ({{count}}):\n',
+      logLine: '  {{sha}} {{date}} {{message}}',
+      reverted: 'Reverted {{sha}}',
+      revertFailed: 'Revert failed for {{sha}}',
+      writeNeedsReference:
+        'Memory content must reference an existing git commit sha.\npath: {{path}}',
     },
     bash: {
       startingBackground: 'Starting background: {{preview}}',

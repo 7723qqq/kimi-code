@@ -533,6 +533,13 @@ export declare const en: {
             readonly deleted: 'Deleted: {{path}}';
             readonly noFilesFound: 'No memory files found.';
             readonly listHeader: 'Memory files ({{count}}):\n';
+            readonly writtenCommitted: 'Memory written to {{path}}\ntitle: {{title}}\ntype: {{type}}\ncommit: {{sha}}';
+            readonly writtenNotCommitted: 'Memory written to {{path}} but NOT committed to the memory repo.\ntitle: {{title}}\ntype: {{type}}';
+            readonly logHeader: 'Memory commits ({{count}}):\n';
+            readonly logLine: '  {{sha}} {{date}} {{message}}';
+            readonly reverted: 'Reverted {{sha}}';
+            readonly revertFailed: 'Revert failed for {{sha}}';
+            readonly writeNeedsReference: 'Memory content must reference an existing git commit sha.\npath: {{path}}';
         };
         readonly bash: {
             readonly startingBackground: 'Starting background: {{preview}}';
