@@ -80,6 +80,29 @@ function isValidMemoryType(t: string): boolean {
   return t === 'note' || t === 'decision' || t === 'pattern' || t === 'lesson' || t === 'reference';
 }
 
+export function parseAppliesTo(body: string): string[] {
+  const front = body.match(/^---[\s\S]*?\n---/);
+  if (front === null) return [];
+  const block = front[0];
+  const patterns: string[] = [];
+  const inline = block.match(/applies_to:\s*\[([^\]]*)\]/);
+  if (inline !== null) {
+    for (const item of inline[1]!.split(',')) {
+      const value = item.trim().replace(/^['"]|['"]$/g, '');
+      if (value.length > 0) patterns.push(value);
+    }
+    return patterns;
+  }
+  const list = block.match(/applies_to:\s*\n((?:\s*-\s*[^\n]+\n?)+)/);
+  if (list !== null) {
+    for (const line of list[1]!.split('\n')) {
+      const value = line.trim().replace(/^-\s*/, '').replace(/^['"]|['"]$/g, '');
+      if (value.length > 0) patterns.push(value);
+    }
+  }
+  return patterns;
+}
+
 export function buildSnippet(body: string, query: string, maxLen = 200): string {
   const lowerBody = body.toLowerCase();
   const lowerQuery = query.toLowerCase();

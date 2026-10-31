@@ -231,7 +231,7 @@ export class MemoryTool implements IMemoryTool {
     };
   }
 
-  private async handleLog(args: MemoryToolInput) {
+  private async handleLog(_args: MemoryToolInput) {
     const commits = await this.repo.logCommits(20);
     const lines = [t('toolsV2.memory.logHeader', { count: String(commits.length) })];
     for (const commit of commits) {

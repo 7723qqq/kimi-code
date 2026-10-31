@@ -24,6 +24,8 @@ export interface IMemoryRepo {
 
   logCommits(limit: number): Promise<readonly MemoryCommit[]>;
 
+  lastCommitSha(relPath: string): Promise<string | undefined>;
+
   revert(sha: string): Promise<boolean>;
 }
 
@@ -135,6 +137,13 @@ export class MemoryRepo extends Disposable implements IMemoryRepo {
       });
     }
     return commits;
+  }
+
+  async lastCommitSha(relPath: string): Promise<string | undefined> {
+    const result = await this.run(['log', '-1', '--format=%H', '--', relPath]);
+    if (!result.ok) return undefined;
+    const sha = result.stdout.trim();
+    return sha.length === 0 ? undefined : sha;
   }
 
   async revert(sha: string): Promise<boolean> {

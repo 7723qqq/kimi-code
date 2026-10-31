@@ -4,13 +4,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { MemoryRepo } from '#/app/memory/memoryRepo';
-import { MemoryTool } from '#/app/memory/tools/memoryTool';
+import { MemoryTool, type MemoryToolInput } from '#/app/memory/tools/memoryTool';
 import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import type { IHostProcessService } from '#/os/interface/hostProcess';
 
-const SHA_A = 'a'.repeat(40);
+async function run(tool: MemoryTool, args: MemoryToolInput) {
+  const execution = await tool.resolveExecution(args);
+  if (!('execute' in execution)) throw new Error('expected a runnable execution');
+  return execution.execute({} as never);
+}
 
-function makeTool(homeDir: string, flagOn: boolean, repo: MemoryRepo) {
+async function makeTool(homeDir: string, flagOn: boolean, repo: MemoryRepo) {
   const store = {
     list: async () => [] as string[],
     get: async () => undefined,
@@ -27,14 +31,18 @@ function makeTool(homeDir: string, flagOn: boolean, repo: MemoryRepo) {
   );
 }
 
+function makeRepo(homeDir: string) {
+  return new MemoryRepo(
+    new HostProcessService() as unknown as IHostProcessService,
+    { homeDir } as never,
+    { debug() {}, warn() {}, error() {}, info() {} } as never,
+  );
+}
+
 describe('memory tool audit loop', () => {
   it('writes, commits, lists and reverts a memory', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'memorytool-'));
-    const repo = new MemoryRepo(
-      new HostProcessService() as unknown as IHostProcessService,
-      { homeDir } as never,
-      { debug() {}, warn() {}, error() {}, info() {} } as never,
-    );
+    const repo = makeRepo(homeDir);
     const { mkdir, writeFile } = await import('node:fs/promises');
     const memoryDir = join(homeDir, 'memory');
     await mkdir(memoryDir, { recursive: true });
@@ -42,67 +50,53 @@ describe('memory tool audit loop', () => {
     await repo.commit('remember: seed');
     const [seed] = await repo.logCommits(1);
 
-    const tool = makeTool(homeDir, true, repo);
-    const written = await tool.resolveExecution({
+    const tool = await makeTool(homeDir, true, repo);
+    const written = await run(tool, {
       action: 'write',
       path: 'note.md',
       scope: 'global',
       content: `# note\n\nderived from ${seed!.sha}`,
-    }).execute({} as never);
+    });
     expect(written.isError).toBeFalsy();
     expect(written.output).toContain('commit:');
 
     const commits = await repo.logCommits(10);
     expect(commits.some((c) => c.message === 'remember: note')).toBe(true);
 
-    const logged = await tool.resolveExecution({ action: 'log' }).execute({} as never);
+    const logged = await run(tool, { action: 'log' });
     expect(logged.output).toContain('remember: note');
 
     const target = commits.find((c) => c.message === 'remember: note');
-    const reverted = await tool
-      .resolveExecution({ action: 'revert', sha: target!.sha })
-      .execute({} as never);
+    const reverted = await run(tool, { action: 'revert', sha: target!.sha });
     expect(reverted.isError).toBeFalsy();
     const after = await repo.logCommits(10);
     expect(after.some((c) => c.message.startsWith('Revert'))).toBe(true);
+    expect(await readFile(join(memoryDir, 'note.md'), 'utf-8').catch(() => null)).toBeNull();
   });
 
   it('refuses a write that references no existing git object', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'memorytool-'));
-    const repo = new MemoryRepo(
-      new HostProcessService() as unknown as IHostProcessService,
-      { homeDir } as never,
-      { debug() {}, warn() {}, error() {}, info() {} } as never,
-    );
-    const tool = makeTool(homeDir, true, repo);
-    const result = await tool
-      .resolveExecution({
-        action: 'write',
-        path: 'note.md',
-        scope: 'global',
-        content: '# note\n\nno reference here',
-      })
-      .execute({} as never);
+    const tool = await makeTool(homeDir, true, makeRepo(homeDir));
+    const result = await run(tool, {
+      action: 'write',
+      path: 'note.md',
+      scope: 'global',
+      content: '# note\n\nno reference here',
+    });
     expect(result.isError).toBe(true);
     expect(result.output).toContain('must reference an existing git commit sha');
   });
 
   it('keeps the pre-flag behaviour when the flag is off', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'memorytool-'));
-    const repo = new MemoryRepo(
-      new HostProcessService() as unknown as IHostProcessService,
-      { homeDir } as never,
-      { debug() {}, warn() {}, error() {}, info() {} } as never,
-    );
-    const tool = makeTool(homeDir, false, repo);
-    const result = await tool
-      .resolveExecution({
-        action: 'write',
-        path: 'note.md',
-        scope: 'global',
-        content: '# note\n\nfree prose without any reference',
-      })
-      .execute({} as never);
+    const repo = makeRepo(homeDir);
+    const tool = await makeTool(homeDir, false, repo);
+    const result = await run(tool, {
+      action: 'write',
+      path: 'note.md',
+      scope: 'global',
+      content: '# note\n\nfree prose without any reference',
+    });
     expect(result.isError).toBeFalsy();
     expect(result.output).not.toContain('commit:');
     expect(await repo.logCommits(5)).toHaveLength(0);
