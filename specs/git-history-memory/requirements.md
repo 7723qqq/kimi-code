@@ -127,7 +127,9 @@ Read / Edit / Write 某个文件时把该文件的蒸馏结果附在工具结果
 每文件每会话只注入一次；同一 change-group 的文件列表每会话只铺开一次，后续引用它的文件只输出 `see change <sha> above`。这条让累积量随会话收敛，是不按 token 裁剪的替代方案。
 
 **R11 取数只允许窗口扫描，缓存命中时零 git 进程。**
-只跑 `rev-parse HEAD`、`log -N --format=%s`、`log -N --name-only`。禁止在启动/工具路径跑全历史 `--numstat`。索引按 HEAD 缓存。
+只跑三条命令：`rev-parse HEAD`、`log -N --date=short --format=%H%x09%ad%x09%s`、`log -N --name-only --no-renames --format=%H`。禁止在启动/工具路径跑全历史 `--numstat`。索引按 HEAD 缓存。
+
+**`--no-renames` 是必需的**：实测本仓库 1500 提交窗口下，带重命名检测的 `--name-only` 扫描耗时 **3.25s**，加 `--no-renames` 后 **0.54s**（6 倍），端到端从 3.45s 降到 0.84s。重命名检测是主要开销，而索引每次 HEAD 变化都要重算，这个成本必须压住。代价：改名文件在文件级视图里丢失改名前的历史（表现为"旧路径删除 + 新路径新增"）。
 
 **R12 失败必须降级且留痕，不得阻塞工具调用。**
 非 git 仓库 / git 缺失 / 超时 → 不注入（`log.debug`/`log.warn`）。索引损坏 → 丢弃重算。
