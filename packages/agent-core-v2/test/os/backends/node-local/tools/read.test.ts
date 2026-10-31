@@ -89,6 +89,7 @@ function createReadTool(
   profile: IAgentProfileService = stubProfileService({ image_in: true, video_in: true }),
   toolPolicy: IAgentToolPolicyService = { isToolActive: () => true } as unknown as IAgentToolPolicyService,
   toolRegistry: IAgentToolRegistryService = { resolve: () => ({}) } as unknown as IAgentToolRegistryService,
+  gitMemory?: unknown,
 ): ReadTool {
   const runtime = Object.assign(
     new FakeRuntime(
@@ -114,6 +115,8 @@ function createReadTool(
     profile,
     toolPolicy,
     toolRegistry,
+    undefined,
+    gitMemory as never,
   );
 }
 
@@ -420,6 +423,30 @@ describe('ReadTool', () => {
         '2 lines read from file starting from line 1. Total lines in file: 2. Requested range complete. Effective max_chars: 100000. End of file reached.',
       ),
     });
+  });
+
+  it('appends the git memory block to the read result', async () => {
+    const { fs } = createSpiedFs('alpha\n');
+    const gitMemory = {
+      fileBlock: async () =>
+        '<file-memory path="/tmp/a.txt">\nCommit abc1234 2026-01-01 luozihao\n  fix: something\n</file-memory>',
+    };
+    const tool = createReadTool(
+      fs,
+      createTestEnv(),
+      PERMISSIVE_WORKSPACE,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      gitMemory,
+    );
+
+    const result = await execute(tool, { path: '/tmp/a.txt' });
+
+    expect(result.output).toContain('<file-memory path="/tmp/a.txt">');
+    expect(result.output).toContain('Commit abc1234 2026-01-01 luozihao');
   });
 
   it('stats the resolved target so symlinked files stay readable', async () => {

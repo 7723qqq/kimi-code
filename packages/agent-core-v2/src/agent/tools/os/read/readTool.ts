@@ -274,7 +274,11 @@ export class ReadTool implements IReadTool {
             eventLog,
             signal,
           );
-          return { ...result, spillExempt: true };
+          return withFileMemory(
+            { ...result, spillExempt: true as const },
+            args.path,
+            this.gitMemory,
+          );
         } finally {
           lease.dispose();
         }
