@@ -19,7 +19,6 @@
         "sherif": "1.11.1",
         "simple-git-hooks": "2.13.1",
         "tsdown": "0.23.1",
-        "tsx": "^4.21.0",
         "typescript": "7.0.2",
         "typescript-legacy": "npm:typescript@6.0.2",
         "vite": "^6.4.3",
@@ -27,7 +26,7 @@
     },
     "apps/kimi-code": {
       "name": "@moonshot-ai/kimi-code",
-      "version": "2.3.3",
+      "version": "2.4.1",
       "bin": {
         "kimi": "dist/main.mjs",
       },
@@ -64,7 +63,6 @@
         "pathe": "catalog:",
         "semver": "^7.7.4",
         "smol-toml": "catalog:",
-        "tsx": "catalog:",
         "yazl": "catalog:",
         "zod": "catalog:",
       },
@@ -111,7 +109,6 @@
       "devDependencies": {
         "@types/yauzl": "^2.10.3",
         "@types/yazl": "^2.4.6",
-        "tsx": "catalog:",
         "yazl": "catalog:",
       },
     },
@@ -233,6 +230,7 @@
         "@moonshot-ai/kimi-code-oauth": "workspace:^",
         "@moonshot-ai/kimi-i18n": "workspace:^",
         "@moonshot-ai/minidb": "workspace:^",
+        "@moonshot-ai/runtime-shared": "workspace:^",
         "@moonshot-ai/tree-sitter-bash": "workspace:^",
         "@mozilla/readability": "^0.6.0",
         "ajv": "^8.18.0",
@@ -270,7 +268,6 @@
         "@types/yazl": "^2.4.6",
         "sinon": "^22.0.0",
         "ts-morph": "^28.0.0",
-        "tsx": "catalog:",
       },
     },
     "packages/i18n": {
@@ -310,7 +307,6 @@
         "@types/bcryptjs": "^2.4.6",
         "@types/semver": "^7.7.0",
         "@types/ws": "^8.18.0",
-        "tsx": "catalog:",
       },
     },
     "packages/klient": {
@@ -418,6 +414,7 @@
       "dependencies": {
         "@moonshot-ai/agent-core-v2": "workspace:^",
         "@moonshot-ai/kimi-code-oauth": "workspace:^",
+        "@moonshot-ai/kimi-i18n": "workspace:^",
         "@moonshot-ai/runtime-shared": "workspace:^",
         "ws": "catalog:",
       },
@@ -496,7 +493,6 @@
     "jimp": "^1.6.1",
     "pathe": "^2.0.3",
     "smol-toml": "^1.6.1",
-    "tsx": "^4.21.0",
     "ulid": "^3.0.1",
     "ws": "^8.18.0",
     "yazl": "^3.3.1",
@@ -2353,7 +2349,7 @@
 
     "get-stream": ["get-stream@9.0.1", "https://registry.npmmirror.com/get-stream/-/get-stream-9.0.1.tgz", { "dependencies": { "@sec-ant/readable-stream": "0.4.1", "is-stream": "4.0.1" } }, "sha512-kVCxPF3vQM/N0B1PmoqVUqgHP+EeVjmZSQn+1oCRPxd2P21P2F19lIgbR3HBosbB1PUhOAoctJnfEn2GbN2eZA=="],
 
-    "get-tsconfig": ["get-tsconfig@4.13.7", "https://registry.npmmirror.com/get-tsconfig/-/get-tsconfig-4.13.7.tgz", { "dependencies": { "resolve-pkg-maps": "1.0.0" } }, "sha512-7tN6rFgBlMgpBML5j8typ92BKFi2sFQvIdpAqLA2beia5avZDrMs0FLZiM5etShWq5irVyGcGMEA1jcDaK7A/Q=="],
+    "get-tsconfig": ["get-tsconfig@5.0.0-beta.6", "", { "dependencies": { "resolve-pkg-maps": "^1.0.0" } }, "sha512-X6fBC0pmImC70gvX2zm56go9hx0MyoGVdG0tUCkg/D+Xnh5TJsOZ7iDbOdI3PvmtrDxnu1YdDufpK2QJX1Meqw=="],
 
     "gifwrap": ["gifwrap@0.10.1", "https://registry.npmmirror.com/gifwrap/-/gifwrap-0.10.1.tgz", { "dependencies": { "image-q": "4.0.0", "omggif": "1.0.10" } }, "sha512-2760b1vpJHNmLzZ/ubTtNnEx5WApN/PYWJvXvgS+tL1egTTthayFYIQQNi136FLEDcN/IyEY2EcGpIITD6eYUw=="],
 
@@ -3481,8 +3477,6 @@
 
     "tslib": ["tslib@2.8.1", "https://registry.npmmirror.com/tslib/-/tslib-2.8.1.tgz", {}, "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w=="],
 
-    "tsx": ["tsx@4.21.0", "https://registry.npmmirror.com/tsx/-/tsx-4.21.0.tgz", { "dependencies": { "esbuild": "0.28.2", "get-tsconfig": "4.13.7" }, "optionalDependencies": { "fsevents": "2.3.3" }, "bin": { "tsx": "dist/cli.mjs" } }, "sha512-5C1sg4USs1lfG0GFb2RLXsdpXqBSEhAaA/0kPL01wxzpMqLILNxIxIOKiILz+cdg/pLnOUxFYOR5yhHU666wbw=="],
-
     "tunnel": ["tunnel@0.0.6", "https://registry.npmmirror.com/tunnel/-/tunnel-0.0.6.tgz", {}, "sha512-1h/Lnq9yajKY2PEbBadPXj3VxsDDu844OnaAo52UVmIzIvwwtBPIuNvkjuzBlTWpfJyUbG3ez0KSBibQkj4ojg=="],
 
     "tunnel-agent": ["tunnel-agent@0.6.0", "https://registry.npmmirror.com/tunnel-agent/-/tunnel-agent-0.6.0.tgz", { "dependencies": { "safe-buffer": "5.2.1" } }, "sha512-McnNiV1l8RYeY8tBgEpuodCC1mLUdbSN+CYBL7kJsJNInOP8UjDDEwdk6Mw60vdLLrr5NHKZhMAOSrR2NZuQ+w=="],
@@ -4146,8 +4140,6 @@
     "restore-cursor/signal-exit": ["signal-exit@4.1.0", "https://registry.npmmirror.com/signal-exit/-/signal-exit-4.1.0.tgz", {}, "sha512-bzyZ1e88w9O1iNJbKnOlvYTrWPDl46O1bG0D3XInv+9tkPrxrN8jUUTiFlDkkmKWgn1M6CfIA13SuGqOa9Korw=="],
 
     "rolldown/@rolldown/pluginutils": ["@rolldown/pluginutils@1.0.1", "https://registry.npmmirror.com/@rolldown/pluginutils/-/pluginutils-1.0.1.tgz", {}, "sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw=="],
-
-    "rolldown-plugin-dts/get-tsconfig": ["get-tsconfig@5.0.0-beta.6", "", { "dependencies": { "resolve-pkg-maps": "^1.0.0" } }, "sha512-X6fBC0pmImC70gvX2zm56go9hx0MyoGVdG0tUCkg/D+Xnh5TJsOZ7iDbOdI3PvmtrDxnu1YdDufpK2QJX1Meqw=="],
 
     "router/path-to-regexp": ["path-to-regexp@8.4.2", "https://registry.npmmirror.com/path-to-regexp/-/path-to-regexp-8.4.2.tgz", {}, "sha512-qRcuIdP69NPm4qbACK+aDogI5CBDMi1jKe0ry5rSQJz8JVLsC7jV8XpiJjGRLLol3N+R5ihGYcrPLTno6pAdBA=="],
 

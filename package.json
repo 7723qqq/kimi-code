@@ -18,8 +18,7 @@
       "jimp": "^1.6.1",
       "yazl": "^3.3.1",
       "ulid": "^3.0.1",
-      "ws": "^8.18.0",
-      "tsx": "^4.21.0"
+      "ws": "^8.18.0"
     }
   },
   "type": "module",
@@ -97,7 +96,6 @@
     "sherif": "1.11.1",
     "simple-git-hooks": "2.13.1",
     "tsdown": "0.23.1",
-    "tsx": "^4.21.0",
     "typescript": "7.0.2",
     "typescript-legacy": "npm:typescript@6.0.2",
     "vite": "^6.4.3"

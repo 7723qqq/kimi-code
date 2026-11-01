@@ -2,13 +2,11 @@
 #
 # Start the CLI from a fresh bundle.
 #
-# Why not `bun run dev:cli`: that path executes `src/main.ts` directly, and Bun
-# 1.4.2 does not resolve `package.json` `imports` wildcards (`"#/*": "./src/*.ts"`),
-# so the first `#/` import inside any package aborts with
-# "Cannot find module '#/kimi-harness'". Node resolves those correctly and tsx
-# proved it, but `main.ts` hard-exits on a non-Bun runtime, so the source path
-# cannot be used under either runtime. Bundling sidesteps resolution entirely
-# (tsdown inlines every `#/` specifier), and the bundle step takes ~2s.
+# `bun run dev:cli` runs the sources directly and works: Bun 1.4.4 resolves the
+# `package.json` `imports` wildcards (`"#/*": "./src/*.ts"`) that 1.4.2 did not,
+# so the first `#/` import inside a package no longer aborts. This script exists
+# for the other half of the trade — a bundle inlines every `#/` specifier and
+# skips the per-start resolution work — and the bundle step takes ~2s.
 #
 # Usage:
 #   scripts/run-local.sh [--watch] [--verbose] [-- kimi args...]

@@ -1657,10 +1657,6 @@ async function runTelemetryCrashScript(body: string): Promise<number> {
   const dir = await tempHome();
   const scriptPath = join(dir, 'crash-worker.ts');
   const testDir = import.meta.dirname;
-  const tsxCli = join(
-    dirname(fileURLToPath(import.meta.resolve('tsx/package.json'))),
-    'dist/cli.mjs',
-  );
   const crashModuleUrl = pathToFileURL(join(testDir, '../src/crash.ts')).href;
   const clientModuleUrl = pathToFileURL(join(testDir, '../src/client.ts')).href;
   writeFileSync(
@@ -1674,7 +1670,7 @@ async function runTelemetryCrashScript(body: string): Promise<number> {
   );
 
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [tsxCli, scriptPath], {
+    const child = spawn(process.execPath, [scriptPath], {
       cwd: join(testDir, '../../..'),
       stdio: ['ignore', 'ignore', 'pipe'],
     });

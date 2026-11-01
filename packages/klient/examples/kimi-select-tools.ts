@@ -38,7 +38,7 @@
  *           the loaded computer-use tool?
  *
  * Run:
- *   cd packages/klient && bunx tsx --tsconfig ./tsconfig.examples.json \
+ *   cd packages/klient && bun --tsconfig ./tsconfig.examples.json \
  *     --import ../../build/register-raw-text-loader.mjs examples/kimi-select-tools.ts
  *
  * Env:

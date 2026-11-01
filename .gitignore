@@ -74,6 +74,11 @@ logs/
 /pnpm-lock.yaml
 /pnpm-workspace.yaml
 
+# simple-git-hooks' husky compatibility path. The postinstall writes
+# `.husky/_/pre-commit` on every install even though this repository has no
+# husky hooks — the directory is never committed.
+/.husky/
+
 # Zig build output for the structural review tool (tools/review).
 tools/review/zig-out/
 tools/review/.zig-cache/

@@ -111,7 +111,6 @@
     "pathe": "catalog:",
     "semver": "^7.7.4",
     "smol-toml": "catalog:",
-    "tsx": "catalog:",
     "yazl": "catalog:",
     "zod": "catalog:"
   },

@@ -20,7 +20,7 @@
  * engine has no default model), so both env vars are required. Run it (the
  * engine sources need the decorators tsconfig + raw-text loader):
  *   cd packages/klient && KIMI_EXAMPLE_MODEL=... KIMI_EXAMPLE_API_KEY=... \
- *     bunx tsx --tsconfig ./tsconfig.examples.json \
+ *     bun --tsconfig ./tsconfig.examples.json \
  *     --import ../../build/register-raw-text-loader.mjs examples/context-usage.ts
  *
  * Env:

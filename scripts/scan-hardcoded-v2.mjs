@@ -18,7 +18,6 @@
  */
 
 import { readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
-import { register } from 'node:module';
 import { join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -100,19 +99,7 @@ const MODULES = [
 
 // ── TS module loader ───────────────────────────────────────────────────────
 
-let tsxRegistered = false;
-function ensureTsx() {
-  if (tsxRegistered) return;
-  try {
-    register('tsx/esm', pathToFileURL(import.meta.url));
-    tsxRegistered = true;
-  } catch {
-    // tsx not available
-  }
-}
-
 async function loadTSModule(p) {
-  ensureTsx();
   const fullPath = resolve(ROOT, p);
   const fileUrl = pathToFileURL(fullPath).href;
   try {
