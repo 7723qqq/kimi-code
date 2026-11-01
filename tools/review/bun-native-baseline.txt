@@ -51,3 +51,6 @@ packages/migration-legacy/src/stub-detect.ts:readFile 2
 packages/node-sdk/src/v2/resume-replay.ts:readFile 1
 packages/product/src/shared/node/json-file.ts:readFile 1
 packages/telemetry/src/transport.ts:readFile 1
+packages/agent-core-v2/src/_base/execEnv/shellPayload.ts:readFile 2
+packages/agent-core-v2/src/_base/execEnv/shellPayload.ts:createHash 1
+packages/agent-core-v2/src/features/gitMemory/cache.ts:readFile 2
