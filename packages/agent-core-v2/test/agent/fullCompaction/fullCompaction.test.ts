@@ -335,6 +335,40 @@ describe('FullCompaction', () => {
     await ctx.expectResumeMatches();
   });
 
+  it('probes the compaction request against the last completed turn', async () => {
+    const records: TelemetryRecord[] = [];
+    const ctx = testAgent({ telemetry: recordingTelemetry(records) });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+      tools: SNAPSHOT_VISIBLE_TOOLS,
+    });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    ctx.appendExchange(2, 'recent user two', 'recent assistant two', 40);
+
+    ctx.mockNextResponse({ type: 'text', text: 'Turn reply.' });
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Answer the turn' }] });
+    await ctx.untilTurnEnd();
+
+    const completed = ctx.once('compaction.completed');
+    ctx.mockNextResponse({ type: 'text', text: 'Compacted summary.' });
+    await ctx.rpc.beginCompaction({ instruction: 'Keep the important test facts.' });
+    await completed;
+
+    const probes = records.filter((record) => record.event === 'prompt_cache_probe');
+    expect(probes).toHaveLength(1);
+    expect(probes[0]?.properties).toMatchObject({
+      source: 'compaction',
+      input_cache_read: 0,
+      input_cache_creation: 0,
+      model_match: true,
+      tools_match: true,
+      system_prompt_match: true,
+      history_prefix_match: true,
+      parent_message_count: expect.any(Number),
+    });
+  });
+
   it('holds the loop quiescence lease for the full manual compaction', async () => {
     const ctx = testAgent();
     ctx.configure({

@@ -682,6 +682,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
                   requestKind: 'full_compaction',
                   logFields: { droppedCount },
                 },
+                promptCacheProbe: 'compaction',
               },
               undefined,
               signal,
