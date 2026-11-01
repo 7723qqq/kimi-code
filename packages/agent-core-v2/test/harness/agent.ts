@@ -1366,6 +1366,10 @@ export class AgentTestContext {
     let adoptAgent: (() => void) | undefined;
     this.agent = this.session.createChild(LifecycleScope.Agent, agentId, {
       configureContainer: (container) => {
+        const scopeContext = container.invokeFunction((accessor) =>
+          accessor.get(IAgentScopeContext),
+        );
+        this.session.accessor.get(ISessionEventBus).activateAgent(scopeContext.agentContext);
         adoptAgent = () => {
           this.session.accessor.get(IAgentLifecycleService).adopt({
             id: agentId,
