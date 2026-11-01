@@ -11,12 +11,20 @@ import {
   visibleWidth,
   wrapTextWithAnsi,
   type Focusable,
+  type TuiMouseDispatchResult,
+  type TuiMouseEvent,
 } from '@moonshot-ai/pi-tui';
 
 import { DEFAULT_OAUTH_PROVIDER_NAME, PRODUCT_NAME } from '#/constant/app';
 import { t } from '#/i18n';
 import { getCurrentMark, SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
+import {
+  listMouseDispatch,
+  ListMouseRouter,
+  type ListRowRegion,
+  searchableListCursor,
+} from '#/tui/utils/list-mouse';
 import { SearchableList } from '#/tui/utils/searchable-list';
 
 import type { ChoiceOption } from './choice-picker';
@@ -174,6 +182,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
   focused = false;
   private readonly opts: ModelSelectorOptions;
   private readonly list: SearchableList<ModelChoice>;
+  private readonly mouse: ListMouseRouter<ModelChoice>;
   /** Per-model thinking-effort override set by ←/→; absent → the default. */
   private readonly thinkingOverrides = new Map<string, string>();
 
@@ -189,6 +198,18 @@ export class ModelSelectorComponent extends Container implements Focusable {
       pageSize: opts.pageSize,
       initialIndex: Math.max(selectedIdx, 0),
       searchable: opts.searchable === true,
+    });
+    this.mouse = new ListMouseRouter(
+      searchableListCursor(() => this.list),
+      (choice) => this.commitChoice(choice),
+      { isFocused: () => this.focused },
+    );
+  }
+
+  private commitChoice(choice: ModelChoice): void {
+    this.opts.onSelect({
+      alias: choice.alias,
+      thinking: commitEffort(choice, this.effectiveEffort(choice)),
     });
   }
 
@@ -263,10 +284,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
     if (matchesKey(data, Key.enter)) {
       const selected = this.selectedChoice();
       if (selected === undefined) return;
-      this.opts.onSelect({
-        alias: selected.alias,
-        thinking: commitEffort(selected, this.effectiveEffort(selected)),
-      });
+      this.commitChoice(selected);
       return;
     }
 
@@ -278,6 +296,10 @@ export class ModelSelectorComponent extends Container implements Focusable {
         thinking: commitEffort(selected, this.effectiveEffort(selected)),
       });
     }
+  }
+
+  override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
+    return listMouseDispatch(this, event, this.mouse.handleMouse(event));
   }
 
   override render(width: number): string[] {
@@ -324,6 +346,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
       );
     }
 
+    const regions: ListRowRegion[] = [];
     if (view.items.length === 0) {
       lines.push(currentTheme.fg('textMuted', '   ' + t('tui.dialogs.modelSelector.noMatches')));
     } else {
@@ -354,9 +377,12 @@ export class ModelSelectorComponent extends Container implements Focusable {
         if (isCurrent) {
           line += ' ' + currentTheme.fg('success', getCurrentMark());
         }
+        const start = lines.length;
         lines.push(line);
+        regions.push({ start, end: lines.length, index: i });
       }
     }
+    this.mouse.setRegions(regions);
 
     // Scroll / match indicator.
     if (view.query.length > 0) {

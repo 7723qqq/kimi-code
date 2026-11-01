@@ -5,11 +5,19 @@ import {
   truncateToWidth,
   visibleWidth,
   type Focusable,
+  type TuiMouseDispatchResult,
+  type TuiMouseEvent,
 } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
+import {
+  listMouseDispatch,
+  ListMouseRouter,
+  type ListRowRegion,
+  searchableListCursor,
+} from '#/tui/utils/list-mouse';
 import { SearchableList } from '#/tui/utils/searchable-list';
 
 const MAX_VISIBLE_CHOICES = 5;
@@ -32,6 +40,7 @@ export class UndoSelectorComponent extends Container implements Focusable {
   focused = false;
   private readonly opts: UndoSelectorOptions;
   private readonly list: SearchableList<UndoChoice>;
+  private readonly mouse: ListMouseRouter<UndoChoice>;
   private submitted = false;
 
   constructor(opts: UndoSelectorOptions) {
@@ -42,6 +51,19 @@ export class UndoSelectorComponent extends Container implements Focusable {
       toSearchText: (choice) => choice.label,
       initialIndex: Math.max(0, opts.choices.length - 1),
     });
+    this.mouse = new ListMouseRouter(
+      searchableListCursor(() => this.list),
+      (choice) => this.submit(choice),
+      {
+        isFocused: () => this.focused,
+      },
+    );
+  }
+
+  private submit(choice: UndoChoice): void {
+    if (this.submitted) return;
+    this.submitted = true;
+    this.opts.onSelect(choice);
   }
 
   handleInput(data: string): void {
@@ -59,10 +81,13 @@ export class UndoSelectorComponent extends Container implements Focusable {
     if (matchesKey(data, Key.enter)) {
       const selected = this.list.selected();
       if (selected !== undefined) {
-        this.submitted = true;
-        this.opts.onSelect(selected);
+        this.submit(selected);
       }
     }
+  }
+
+  override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
+    return listMouseDispatch(this, event, this.mouse.handleMouse(event));
   }
 
   override render(width: number): string[] {
@@ -75,6 +100,7 @@ export class UndoSelectorComponent extends Container implements Focusable {
       '',
     ];
 
+    const regions: ListRowRegion[] = [];
     if (view.items.length === 0) {
       lines.push(currentTheme.fg('textMuted', t('tui.dialogs.undoSelector.noMessages')));
     } else {
@@ -86,11 +112,14 @@ export class UndoSelectorComponent extends Container implements Focusable {
       for (let i = start; i < end; i++) {
         const choice = view.items[i];
         if (choice === undefined) continue;
+        const rowStart = lines.length;
         lines.push(
           this.renderChoiceLine(choice, i === view.selectedIndex, i > view.selectedIndex, width),
         );
+        regions.push({ start: rowStart, end: lines.length, index: i });
       }
     }
+    this.mouse.setRegions(regions);
 
     lines.push('');
     lines.push(currentTheme.fg('primary', '─'.repeat(width)));

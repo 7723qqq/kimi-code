@@ -12,6 +12,9 @@ import {
   truncateToWidth,
   visibleWidth,
   type Focusable,
+  type TuiMouseDispatchResult,
+  type TuiMouseEvent,
+  type TuiMouseEventResult,
 } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
@@ -19,9 +22,10 @@ import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import type { ColorPalette } from '#/tui/theme/colors';
+import { listMouseDispatch, regionAt, type ListRowRegion } from '#/tui/utils/list-mouse';
 import { formatPluginSourceLabel, pluginTrustLabel } from '#/tui/utils/plugin-source-label';
 import { printableChar } from '#/tui/utils/printable-key';
-import { renderTabStrip } from '#/tui/utils/tab-strip';
+import { layoutTabStrip, type TabStripSpan } from '#/tui/utils/tab-strip';
 import { wrapText as wrapOverviewDescription } from '#/tui/utils/wrap-text';
 import { computeUpdateStatus, type PluginMarketplaceEntry } from '#/utils/plugin-marketplace';
 
@@ -435,6 +439,11 @@ export class PluginsPanelComponent extends Container implements Focusable {
   private market: MarketState = { status: 'idle' };
   private installing: string | undefined;
 
+  /** Rows and tabs recorded by the last render, for pointer hits. */
+  private readonly rowRegions: ListRowRegion[] = [];
+  private tabRow: number | undefined;
+  private tabSpans: readonly TabStripSpan[] = [];
+
   constructor(opts: PluginsPanelOptions) {
     super();
     this.opts = opts;
@@ -668,12 +677,79 @@ export class PluginsPanelComponent extends Container implements Focusable {
     }
   }
 
+  override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
+    return listMouseDispatch(this, event, this.mouseEvent(event));
+  }
+
+  private mouseEvent(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    if (!this.focused) {
+      if (event.type === 'press') return { handled: true };
+      if (event.type === 'click') return { handled: true, focus: true };
+      return undefined;
+    }
+
+    if (event.type === 'wheel') {
+      if (event.wheelDelta === undefined) return { handled: true };
+      return { handled: true, render: this.stepSelection(event.wheelDelta < 0 ? -1 : 1) };
+    }
+
+    if (this.tabRow !== undefined && event.y === this.tabRow) {
+      if (event.type !== 'press' && event.type !== 'click') return undefined;
+      const span = this.tabSpans.find(
+        (candidate) => event.x >= candidate.start && event.x < candidate.end,
+      );
+      if (span === undefined || span.index === this.activeTabIndex) return { handled: true };
+      this.activeTabIndex = span.index;
+      this.selectedIndex = 0;
+      this.requestMarketplaceIfNeeded();
+      return { handled: true, render: true };
+    }
+
+    const row = regionAt(this.rowRegions, event);
+    if (event.type !== 'move' && event.button !== 'left') return undefined;
+    if (row === undefined) return undefined;
+    // A click selects the row the way ↑/↓ would. Acting on it stays on the
+    // keyboard: a pointer landing on a row cannot mean "delete this plugin".
+    if (event.type === 'click' || event.type === 'press' || event.type === 'move') {
+      return { handled: true, render: this.selectIndex(row.index) };
+    }
+    return { handled: true };
+  }
+
+  private selectIndex(index: number): boolean {
+    const last = Math.max(0, this.activeRowCount() - 1);
+    const next = Math.max(0, Math.min(last, index));
+    if (next === this.selectedIndex) return false;
+    this.selectedIndex = next;
+    return true;
+  }
+
+  private stepSelection(delta: number): boolean {
+    return this.selectIndex(this.selectedIndex + delta);
+  }
+
+  private activeRowCount(): number {
+    switch (this.activeTab.id) {
+      case 'installed':
+        return this.opts.installed.length;
+      case 'official':
+        return this.officialEntries.length;
+      case 'third-party':
+        return this.thirdPartyEntries.length;
+      case 'custom':
+        return 0;
+    }
+  }
+
   override invalidate(): void {
     super.invalidate();
     this.customInput.invalidate();
   }
 
   override render(width: number): string[] {
+    this.rowRegions.length = 0;
+    this.tabRow = undefined;
+    this.tabSpans = [];
     if (this.installing !== undefined) {
       return this.renderInstalling(width);
     }
@@ -690,14 +766,16 @@ export class PluginsPanelComponent extends Container implements Focusable {
       chalk.hex(colors.primary).bold(` ${t('tui.dialogs.pluginsSelector.panelTitle')}`),
       mutedHintLine(hint, colors),
       '',
-      renderTabStrip({
-        labels: this.tabs.map((t) => t.label),
-        activeIndex: this.activeTabIndex,
-        width,
-        colors,
-      }),
-      '',
     ];
+    const strip = layoutTabStrip({
+      labels: this.tabs.map((t) => t.label),
+      activeIndex: this.activeTabIndex,
+      width,
+      colors,
+    });
+    this.tabRow = lines.length;
+    this.tabSpans = strip.spans;
+    lines.push(strip.text, '');
 
     if (tab === 'installed') this.renderInstalled(lines, width);
     else if (tab === 'official') this.renderOfficial(lines, width);
@@ -717,7 +795,9 @@ export class PluginsPanelComponent extends Container implements Focusable {
       );
     } else {
       for (let i = 0; i < installed.length; i++) {
+        const start = lines.length;
         lines.push(...this.renderInstalledRow(installed[i]!, i, width));
+        this.rowRegions.push({ start, end: lines.length, index: i });
       }
     }
     lines.push('');
@@ -822,7 +902,9 @@ export class PluginsPanelComponent extends Container implements Focusable {
       );
     } else {
       for (let i = 0; i < entries.length; i++) {
+        const start = lines.length;
         lines.push(...this.renderMarketplaceRow(entries[i]!, i + indexOffset, width));
+        this.rowRegions.push({ start, end: lines.length, index: i + indexOffset });
       }
     }
     const installedCount = entriesForCount.filter((entry) =>
@@ -854,7 +936,9 @@ export class PluginsPanelComponent extends Container implements Focusable {
     if (this.market.status !== 'loaded') {
       const entries = this.officialEntries;
       for (let i = 0; i < entries.length; i += 1) {
+        const start = lines.length;
         lines.push(...this.renderMarketplaceRow(entries[i]!, i, width));
+        this.rowRegions.push({ start, end: lines.length, index: i });
       }
       this.renderMarketplaceTab(lines, width, [], entries.length);
       return;

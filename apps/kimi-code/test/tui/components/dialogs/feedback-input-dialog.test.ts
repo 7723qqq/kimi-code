@@ -2,6 +2,7 @@ import { visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 import { beforeAll, describe, expect, it } from 'bun:test';
 
+import { mouse } from '#test/helpers/mouse';
 import {
   FeedbackInputDialogComponent,
   type FeedbackInputDialogResult,
@@ -115,5 +116,18 @@ describe('FeedbackInputDialogComponent', () => {
     dialog.handleInput('\r');
     dialog.handleInput(ESC);
     expect(collected).toEqual([{ kind: 'ok', value: 'hi' }]);
+  });
+
+  it('places the caret where the input line was clicked', () => {
+    const { dialog, collected } = makeDialog();
+    dialog.handleInput('abc');
+    const row = dialog.render(60).findIndex((line) => strip(line).includes('> '));
+    expect(row).toBeGreaterThan(0);
+
+    dialog.handleMouse(mouse('click', row, undefined, 5));
+    dialog.handleInput('X');
+    dialog.handleInput('\r');
+
+    expect(collected).toEqual([{ kind: 'ok', value: 'Xabc' }]);
   });
 });

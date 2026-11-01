@@ -46,12 +46,20 @@ import {
   truncateToWidth,
   visibleWidth,
   type Focusable,
+  type TuiMouseDispatchResult,
+  type TuiMouseEvent,
 } from '@moonshot-ai/pi-tui';
 
 import { DEFAULT_OAUTH_PROVIDER_NAME } from '#/constant/app';
 import { t } from '#/i18n';
 import { getCurrentMark, SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
+import {
+  listMouseDispatch,
+  ListMouseRouter,
+  type ListCursor,
+  type ListRowRegion,
+} from '#/tui/utils/list-mouse';
 import { pageView, type PageView } from '#/tui/utils/paging';
 import { printableChar } from '#/tui/utils/printable-key';
 
@@ -229,6 +237,7 @@ export class ProviderManagerComponent extends Container implements Focusable {
   private rows: readonly Row[];
   private selectedIndex: number;
   private confirm: ConfirmState | undefined;
+  private readonly mouse: ListMouseRouter<Row>;
 
   constructor(opts: ProviderManagerOptions) {
     super();
@@ -241,6 +250,33 @@ export class ProviderManagerComponent extends Container implements Focusable {
       : -1;
     this.selectedIndex = Math.max(activeIdx, 0);
     this.confirm = undefined;
+    this.mouse = new ListMouseRouter(this.cursor, (row) => this.pickRow(row), {
+      isFocused: () => this.focused,
+    });
+  }
+
+  /** The cursor the mouse router drives; the rows are rebuilt on every refresh. */
+  private readonly cursor: ListCursor<Row> = {
+    items: () => this.rows,
+    selectedIndex: () => this.selectedIndex,
+    pageCount: () => this.page().pageCount,
+    moveTo: (index) => {
+      this.selectedIndex = Math.max(0, Math.min(this.rows.length - 1, index));
+      this.invalidate();
+    },
+    page: (direction) => {
+      this.selectedIndex = Math.max(
+        0,
+        Math.min(this.rows.length - 1, this.selectedIndex + direction * PAGE_SIZE),
+      );
+      this.invalidate();
+    },
+  };
+
+  /** What Enter does on a row: only the synthetic add-row has an action. */
+  private pickRow(row: Row): void {
+    if (this.confirm !== undefined) return;
+    if (row.kind === 'add') this.opts.onAdd();
   }
 
   /**
@@ -273,6 +309,10 @@ export class ProviderManagerComponent extends Container implements Focusable {
     }
     this.selectedIndex = newIdx;
     this.invalidate();
+  }
+
+  override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
+    return listMouseDispatch(this, event, this.mouse.handleMouse(event));
   }
 
   /** The slice of {@link rows} the list renders; the synthetic add-row is one of them. */
@@ -399,13 +439,17 @@ export class ProviderManagerComponent extends Container implements Focusable {
       lines.push(currentTheme.fg('textMuted', `  ${t('tui.dialogs.providerManager.empty')}`));
     } else {
       const view = this.page();
+      const regions: ListRowRegion[] = [];
       for (let i = view.start; i < view.end; i++) {
         const row = rows[i];
         if (row === undefined) continue;
+        const start = lines.length;
         for (const line of renderRow(row, { isSelected: i === this.selectedIndex, width })) {
           lines.push(line);
         }
+        regions.push({ start, end: lines.length, index: i });
       }
+      this.mouse.setRegions(regions);
     }
 
     lines.push('');

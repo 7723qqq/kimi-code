@@ -1,9 +1,23 @@
 import type { ExperimentalFeatureState } from '@moonshot-ai/kimi-code-sdk';
-import { Container, Key, matchesKey, truncateToWidth, type Focusable } from '@moonshot-ai/pi-tui';
+import {
+  Container,
+  Key,
+  matchesKey,
+  truncateToWidth,
+  type Focusable,
+  type TuiMouseDispatchResult,
+  type TuiMouseEvent,
+} from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
+import {
+  listMouseDispatch,
+  ListMouseRouter,
+  type ListRowRegion,
+  searchableListCursor,
+} from '#/tui/utils/list-mouse';
 import { printableChar } from '#/tui/utils/printable-key';
 import { SearchableList } from '#/tui/utils/searchable-list';
 import { wrapText } from '#/tui/utils/wrap-text';
@@ -26,6 +40,7 @@ export class ExperimentsSelectorComponent extends Container implements Focusable
 
   private readonly opts: ExperimentsSelectorOptions;
   private readonly list: SearchableList<ExperimentalFeatureState>;
+  private readonly mouse: ListMouseRouter<ExperimentalFeatureState>;
   private readonly draft = new Map<ExperimentalFeatureState['id'], boolean>();
 
   constructor(opts: ExperimentsSelectorOptions) {
@@ -37,6 +52,13 @@ export class ExperimentsSelectorComponent extends Container implements Focusable
         `${featureTitle(feature)} ${feature.id} ${featureDescription(feature)}`,
       searchable: true,
     });
+    this.mouse = new ListMouseRouter(
+      searchableListCursor(() => this.list),
+      (feature) => this.toggleDraft(feature),
+      {
+        isFocused: () => this.focused,
+      },
+    );
   }
 
   handleInput(data: string): void {
@@ -65,6 +87,10 @@ export class ExperimentsSelectorComponent extends Container implements Focusable
       return;
     }
     this.list.handleKey(data);
+  }
+
+  override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
+    return listMouseDispatch(this, event, this.mouse.handleMouse(event));
   }
 
   override render(width: number): string[] {
@@ -101,11 +127,15 @@ export class ExperimentsSelectorComponent extends Container implements Focusable
       lines.push(currentTheme.fg('textMuted', '   ' + t('tui.dialogs.modelSelector.noMatches')));
     }
 
+    const regions: ListRowRegion[] = [];
     for (let i = view.page.start; i < view.page.end; i++) {
       const feature = view.items[i]!;
       const selected = i === view.selectedIndex;
+      const start = lines.length;
       lines.push(...this.renderFeature(feature, selected, width));
+      regions.push({ start, end: lines.length, index: i });
     }
+    this.mouse.setRegions(regions);
 
     lines.push('');
     if (view.query.length > 0) {

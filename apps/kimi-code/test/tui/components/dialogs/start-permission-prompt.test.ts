@@ -1,5 +1,6 @@
 import { describe, expect, it, mock } from 'bun:test';
 
+import { mouse, pastSettlingWindow } from '#test/helpers/mouse';
 import { GoalStartPermissionPromptComponent } from '#/tui/components/dialogs/goal-start-permission-prompt';
 import { SwarmStartPermissionPromptComponent } from '#/tui/components/dialogs/swarm-start-permission-prompt';
 import type { GoalStartPermissionChoice } from '#/tui/components/dialogs/goal-start-permission-prompt';
@@ -83,5 +84,26 @@ describe('start permission prompt initial highlight', () => {
     component.handleInput(ENTER);
 
     expect(onSelect).toHaveBeenCalledWith('auto');
+  });
+});
+
+describe('start permission prompt — mouse', () => {
+  it('picks the choice under the pointer', () => {
+    const onSelect = mock<(choice: GoalStartPermissionChoice) => void>();
+    const component = new GoalStartPermissionPromptComponent({
+      mode: 'manual',
+      onSelect,
+      onCancel: mock(),
+    });
+    pastSettlingWindow();
+    component.focused = true;
+    const rows = component.render(80).map(stripAnsi);
+    const row = rows.findIndex((line) => line.includes('Start in Always Ask'));
+    expect(row).toBeGreaterThan(0);
+
+    for (const type of ['press', 'release', 'click'] as const) {
+      component.handleMouse(mouse(type, row));
+    }
+    expect(onSelect).toHaveBeenCalledWith('manual');
   });
 });

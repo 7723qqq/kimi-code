@@ -1,6 +1,7 @@
 import { describe, expect, it, jest } from 'bun:test';
 
 import { ModelSwitchConfirmDialogComponent } from '#/tui/components/dialogs/model-switch-confirm-dialog';
+import { mouse, pastSettlingWindow } from '#test/helpers/mouse';
 
 const ANSI_SGR = /\[[0-9;]*m/g;
 
@@ -136,5 +137,26 @@ describe('ModelSwitchConfirmDialogComponent', () => {
     const titleIdx = lines.findIndex((l) => l.includes('Switch model'));
     const firstOptionIdx = lines.findIndex((l) => l.includes('Start a new session'));
     expect(firstOptionIdx - titleIdx).toBe(3);
+  });
+});
+
+describe('ModelSwitchConfirmDialogComponent — mouse', () => {
+  it('picks the option the pointer is over', () => {
+    const onSelect = jest.fn();
+    const dialog = new ModelSwitchConfirmDialogComponent({
+      fromModel: 'Kimi K2.5',
+      toModel: 'Kimi K2 Turbo',
+      hint: DEFAULT_HINT,
+      onSelect,
+      onCancel: jest.fn(),
+    });
+    pastSettlingWindow();
+    dialog.focused = true;
+    const rows = dialog.render(120).map(strip);
+    const row = rows.findIndex((line) => line.includes('Continue as-is'));
+    expect(row).toBeGreaterThan(0);
+
+    for (const type of ['press', 'release', 'click'] as const) dialog.handleMouse(mouse(type, row));
+    expect(onSelect).toHaveBeenCalled();
   });
 });

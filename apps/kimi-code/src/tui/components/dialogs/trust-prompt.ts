@@ -6,11 +6,14 @@ import {
   wrapTextWithAnsi,
   type Component,
   type Focusable,
+  type TuiMouseEvent,
+  type TuiMouseEventResult,
 } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme, type ColorToken } from '#/tui/theme';
+import { ListMouseRouter, type ListCursor } from '#/tui/utils/list-mouse';
 import { pageView } from '#/tui/utils/paging';
 
 export type TrustPromptChoice = 'trust' | 'distrust';
@@ -38,8 +41,26 @@ export class TrustPromptComponent implements Component, Focusable {
   private disclosureIndex = 0;
   private disclosurePageSize = 1;
   private canConfirm = true;
+  private readonly mouse: ListMouseRouter<{ value: TrustPromptChoice; label: string }>;
 
-  constructor(private readonly opts: TrustPromptOptions) {}
+  constructor(private readonly opts: TrustPromptOptions) {
+    this.mouse = new ListMouseRouter(this.cursor(), (option) => this.opts.onSelect(option.value), {
+      isFocused: () => this.focused,
+    });
+  }
+
+  /** The cursor the mouse router drives over the prompt's choices. */
+  private cursor(): ListCursor<{ value: TrustPromptChoice; label: string }> {
+    return {
+      items: () => getOptions(),
+      selectedIndex: () => this.selectedIndex,
+      pageCount: () => 1,
+      moveTo: (index) => {
+        this.selectedIndex = Math.max(0, Math.min(getOptions().length - 1, index));
+      },
+      page: () => false,
+    };
+  }
 
   invalidate(): void {}
 
@@ -70,6 +91,11 @@ export class TrustPromptComponent implements Component, Focusable {
     }
   }
 
+  handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    if (!this.canConfirm) return undefined;
+    return this.mouse.handleMouse(event);
+  }
+
   render(width: number): string[] {
     const rule = currentTheme.fg('primary', '─'.repeat(width));
     const availableRows = Math.max(0, Math.floor(this.opts.getAvailableRows?.() ?? Infinity));
@@ -84,22 +110,21 @@ export class TrustPromptComponent implements Component, Focusable {
       '',
       ...this.renderDisclosure(width),
     ];
-    const footer = [
-      ...wrap(t('tui.dialogs.trustPrompt.remembered'), 1, width, 'textMuted'),
-      ...wrap(t('tui.dialogs.trustPrompt.approvals'), 1, width, 'textMuted'),
-      '',
-      ...getOptions().map((option, i) => {
-        const selected = i === this.selectedIndex;
-        const pointer = selected ? SELECT_POINTER : ' ';
-        const label = selected
-          ? currentTheme.boldFg('primary', option.label)
-          : currentTheme.fg('text', option.label);
-        return currentTheme.fg(selected ? 'primary' : 'textDim', `  ${pointer} `) + label;
-      }),
-      rule,
-    ];
+    const options = getOptions();
+    const optionLines = options.map((option, i) => {
+      const selected = i === this.selectedIndex;
+      const pointer = selected ? SELECT_POINTER : ' ';
+      const label = selected
+        ? currentTheme.boldFg('primary', option.label)
+        : currentTheme.fg('text', option.label);
+      return currentTheme.fg(selected ? 'primary' : 'textDim', `  ${pointer} `) + label;
+    });
+    const remembered = wrap(t('tui.dialogs.trustPrompt.remembered'), 1, width, 'textMuted');
+    const approvals = wrap(t('tui.dialogs.trustPrompt.approvals'), 1, width, 'textMuted');
+    const footer = [...remembered, ...approvals, '', ...optionLines, rule];
     this.canConfirm = header.length + footer.length + 2 <= availableRows;
     if (!this.canConfirm) {
+      this.mouse.setRegions([]);
       return [header[1]!, ` ${t('tui.dialogs.trustPrompt.enlargeTerminal')}`]
         .slice(0, availableRows)
         .map((line) => truncateToWidth(line, width));
@@ -123,6 +148,15 @@ export class TrustPromptComponent implements Component, Focusable {
         ),
       );
     lines.push(...footer);
+    // The choices sit at the bottom of the panel, below the paged disclosure.
+    const optionsStart = lines.length - footer.length + remembered.length + approvals.length + 1;
+    this.mouse.setRegions(
+      optionLines.map((_, i) => ({
+        start: optionsStart + i,
+        end: optionsStart + i + 1,
+        index: i,
+      })),
+    );
     return lines.map((line) => truncateToWidth(line, width));
   }
 

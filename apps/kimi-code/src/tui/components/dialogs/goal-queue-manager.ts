@@ -6,6 +6,8 @@ import {
   truncateToWidth,
   visibleWidth,
   type Focusable,
+  type TuiMouseDispatchResult,
+  type TuiMouseEvent,
 } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
@@ -17,6 +19,12 @@ import type {
   UpcomingGoal,
 } from '#/tui/goal-queue-store';
 import { currentTheme } from '#/tui/theme';
+import {
+  listMouseDispatch,
+  ListMouseRouter,
+  type ListRowRegion,
+  searchableListCursor,
+} from '#/tui/utils/list-mouse';
 import { isPrintableText, printableChar } from '#/tui/utils/printable-key';
 import { SearchableList } from '#/tui/utils/searchable-list';
 
@@ -65,6 +73,7 @@ export class GoalQueueManagerComponent extends Container implements Focusable {
   private readonly opts: GoalQueueManagerOptions;
   private goals: readonly UpcomingGoal[];
   private list: SearchableList<UpcomingGoal>;
+  private readonly mouse: ListMouseRouter<UpcomingGoal>;
   private movingGoalId: string | undefined;
   private busy = false;
 
@@ -73,6 +82,18 @@ export class GoalQueueManagerComponent extends Container implements Focusable {
     this.opts = opts;
     this.goals = opts.goals;
     this.list = this.createList(opts.selectedGoalId);
+    this.mouse = new ListMouseRouter(
+      searchableListCursor(() => this.list),
+      (goal) => this.toggleMoving(goal),
+      { isFocused: () => this.focused },
+    );
+  }
+
+  /** Mark a goal for reordering — what the space bar does. */
+  private toggleMoving(goal: UpcomingGoal): void {
+    if (this.busy) return;
+    this.movingGoalId = this.movingGoalId === goal.id ? undefined : goal.id;
+    this.invalidate();
   }
 
   handleInput(data: string): void {
@@ -85,7 +106,7 @@ export class GoalQueueManagerComponent extends Container implements Focusable {
     const selected = this.selectedGoal();
     const decoded = printableChar(data);
     if (matchesKey(data, Key.space) || decoded === ' ') {
-      this.movingGoalId = this.movingGoalId === selected?.id ? undefined : selected?.id;
+      if (selected !== undefined) this.toggleMoving(selected);
       return;
     }
 
@@ -113,6 +134,10 @@ export class GoalQueueManagerComponent extends Container implements Focusable {
     if (this.list.handleKey(data)) return;
   }
 
+  override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
+    return listMouseDispatch(this, event, this.mouse.handleMouse(event));
+  }
+
   override render(width: number): string[] {
     const view = this.list.view();
     const hint =
@@ -129,11 +154,15 @@ export class GoalQueueManagerComponent extends Container implements Focusable {
     if (this.goals.length === 0) {
       lines.push(currentTheme.fg('textMuted', `  ${t('tui.dialogs.goalQueueManager.empty')}`));
     } else {
+      const regions: ListRowRegion[] = [];
       for (let i = view.page.start; i < view.page.end; i++) {
         const goal = view.items[i];
         if (goal === undefined) continue;
+        const start = lines.length;
         lines.push(this.renderGoal(goal, i, i === view.selectedIndex, width));
+        regions.push({ start, end: lines.length, index: i });
       }
+      this.mouse.setRegions(regions);
 
       const below = view.items.length - view.page.end;
       if (below > 0) {

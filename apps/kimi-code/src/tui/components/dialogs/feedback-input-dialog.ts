@@ -19,10 +19,15 @@ import {
   truncateToWidth,
   visibleWidth,
   type Focusable,
+  type TuiMouseDispatchResult,
+  type TuiMouseEvent,
+  type TuiMouseEventResult,
 } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
+import { inputPressAt, type InputFrame } from '#/tui/utils/form-mouse';
+import { listMouseDispatch } from '#/tui/utils/list-mouse';
 
 export type FeedbackInputDialogResult =
   | { readonly kind: 'ok'; readonly value: string }
@@ -48,6 +53,8 @@ export class FeedbackInputDialogComponent extends Container implements Focusable
   private readonly onDone: (result: FeedbackInputDialogResult) => void;
   private done = false;
   private emptyHinted = false;
+  /** Where the last render put the input line, in the dialog's own frame. */
+  private inputFrame: InputFrame = { row: -1, column: 0 };
 
   constructor(onDone: (result: FeedbackInputDialogResult) => void) {
     super();
@@ -71,6 +78,20 @@ export class FeedbackInputDialogComponent extends Container implements Focusable
       this.emptyHinted = false;
     }
     this.input.handleInput(data);
+  }
+
+  override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
+    return listMouseDispatch(this, event, this.mouseEvent(event));
+  }
+
+  private mouseEvent(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    if (this.done) return undefined;
+    if (!this.focused) {
+      if (event.type === 'press') return { handled: true };
+      if (event.type === 'click') return { handled: true, focus: true };
+      return undefined;
+    }
+    return inputPressAt(this.input, event, this.inputFrame);
   }
 
   override invalidate(): void {
@@ -98,10 +119,13 @@ export class FeedbackInputDialogComponent extends Container implements Focusable
     const inputLine = this.input.render(innerWidth)[0] ?? '> ';
 
     const contentLines: string[] = [titleLine, '', subtitleLine, '', inputLine, '', footerLine];
+    const inputIndex = contentLines.indexOf(inputLine);
 
     if (safeWidth < 4) {
+      this.inputFrame = { row: 1 + inputIndex, column: 0 };
       return ['', ...contentLines.map((line) => truncateToWidth(line, safeWidth, '…'))];
     }
+    this.inputFrame = { row: 3 + inputIndex, column: 3 };
 
     const lines: string[] = [
       '',

@@ -8,6 +8,7 @@ import {
 import { SubagentActivityStore } from '@/tui/controllers/subagent-activity-store';
 import { TasksBrowserController } from '@/tui/controllers/tasks-browser';
 import type { SubagentActivityRecord } from '@/tui/controllers/subagent-activity-store';
+import { mouse, pastSettlingWindow } from '#test/helpers/mouse';
 
 const ANSI_SGR = /\[[0-9;]*m/g;
 function strip(text: string): string {
@@ -515,5 +516,55 @@ describe('TasksBrowserController — data sources', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(browser.output).toBe('engine output');
     controller.close();
+  });
+});
+
+describe('TasksPanelComponent — mouse', () => {
+  it('selects the task whose row the pointer is over', () => {
+    const onSelect = mock();
+    const panel = makePanel({
+      tasks: [
+        task({ taskId: 'bash-first', description: 'first task' }),
+        task({ taskId: 'bash-second', description: 'second task' }),
+      ],
+      selectedTaskId: 'bash-first',
+      onSelect,
+    });
+    pastSettlingWindow();
+    panel.focused = true;
+    const rows = panel.render(120);
+    const row = rows.findIndex((line) => line.includes('second task'));
+    expect(row).toBeGreaterThan(0);
+    const column = rows[row]!.indexOf('second task');
+
+    for (const type of ['press', 'release', 'click'] as const) {
+      panel.handleMouse(mouse(type, row, undefined, column));
+    }
+    expect(onSelect).toHaveBeenCalledWith('bash-second');
+  });
+
+  it('ignores a click in the detail column', () => {
+    const onSelect = mock();
+    const panel = makePanel({
+      tasks: [
+        task({ taskId: 'bash-first', description: 'first task' }),
+        task({ taskId: 'bash-second', description: 'second task' }),
+      ],
+      selectedTaskId: 'bash-first',
+      onSelect,
+    });
+    pastSettlingWindow();
+    panel.focused = true;
+    const rows = panel.render(120);
+    const row = rows.findIndex((line) => line.includes('second task'));
+    expect(row).toBeGreaterThan(0);
+
+    // The detail pane starts after the list column; a click there is not a
+    // click on a task row.
+    const detailColumn = rows[row]!.indexOf('│') + 2;
+    for (const type of ['press', 'release', 'click'] as const) {
+      panel.handleMouse(mouse(type, row, undefined, detailColumn));
+    }
+    expect(onSelect).not.toHaveBeenCalled();
   });
 });

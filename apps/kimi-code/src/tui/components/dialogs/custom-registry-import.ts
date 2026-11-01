@@ -18,10 +18,15 @@ import {
   truncateToWidth,
   visibleWidth,
   type Focusable,
+  type TuiMouseDispatchResult,
+  type TuiMouseEvent,
+  type TuiMouseEventResult,
 } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
+import { inputPressAt, type InputFrame } from '#/tui/utils/form-mouse';
+import { listMouseDispatch } from '#/tui/utils/list-mouse';
 
 export interface CustomRegistryImportValue {
   readonly url: string;
@@ -84,6 +89,9 @@ export class CustomRegistryImportDialogComponent extends Container implements Fo
   private activeField: FieldId = 'url';
   private done = false;
   private hint: 'none' | 'url-empty' = 'none';
+  /** Where the last render put each input line, in the dialog's own frame. */
+  private urlFrame: InputFrame = { row: -1, column: 0 };
+  private tokenFrame: InputFrame = { row: -1, column: 0 };
 
   constructor(onDone: (result: CustomRegistryImportResult) => void, defaultUrl: string = '') {
     super();
@@ -192,10 +200,16 @@ export class CustomRegistryImportDialogComponent extends Container implements Fo
       '',
       footerLine,
     ];
+    const urlIndex = contentLines.indexOf(urlInputLine);
+    const tokenIndex = contentLines.indexOf(tokenInputLine);
 
     if (safeWidth < 4) {
+      this.urlFrame = { row: 1 + urlIndex, column: 0 };
+      this.tokenFrame = { row: 1 + tokenIndex, column: 0 };
       return ['', ...contentLines.map((line) => truncateToWidth(line, safeWidth, '…'))];
     }
+    this.urlFrame = { row: 3 + urlIndex, column: 3 };
+    this.tokenFrame = { row: 3 + tokenIndex, column: 3 };
 
     const lines: string[] = [
       '',
@@ -214,6 +228,31 @@ export class CustomRegistryImportDialogComponent extends Container implements Fo
     lines.push('');
 
     return lines.map((line) => truncateToWidth(line, safeWidth, '…'));
+  }
+
+  override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
+    return listMouseDispatch(this, event, this.mouseEvent(event));
+  }
+
+  private mouseEvent(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    if (this.done) return undefined;
+    if (!this.focused) {
+      if (event.type === 'press') return { handled: true };
+      if (event.type === 'click') return { handled: true, focus: true };
+      return undefined;
+    }
+
+    const urlHit = inputPressAt(this.urlInput, event, this.urlFrame);
+    if (urlHit !== undefined) {
+      this.focusField('url');
+      return urlHit;
+    }
+    const tokenHit = inputPressAt(this.tokenInput, event, this.tokenFrame);
+    if (tokenHit !== undefined) {
+      this.focusField('token');
+      return tokenHit;
+    }
+    return undefined;
   }
 
   private toggleField(): void {

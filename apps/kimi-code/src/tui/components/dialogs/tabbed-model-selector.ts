@@ -14,11 +14,20 @@
  */
 
 import type { ModelAlias } from '@moonshot-ai/kimi-code-sdk';
-import { Container, Key, matchesKey, truncateToWidth, type Focusable } from '@moonshot-ai/pi-tui';
+import {
+  Container,
+  Key,
+  matchesKey,
+  truncateToWidth,
+  type Focusable,
+  type TuiMouseDispatchResult,
+  type TuiMouseEvent,
+} from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
-import { renderTabStrip } from '#/tui/utils/tab-strip';
+import { listMouseDispatch } from '#/tui/utils/list-mouse';
+import { layoutTabStrip, type TabStripSpan } from '#/tui/utils/tab-strip';
 
 import {
   ModelSelectorComponent,
@@ -63,10 +72,27 @@ interface ModelTab {
 }
 
 export class TabbedModelSelectorComponent extends Container implements Focusable {
-  focused = false;
+  private hasFocus = false;
   private readonly opts: TabbedModelSelectorOptions;
   private readonly tabs: readonly ModelTab[];
   private activeIndex: number;
+
+  /** Where the last render put the strip, and where the inner list starts. */
+  private stripRow: number | undefined;
+  private stripSpans: readonly TabStripSpan[] = [];
+  private bodyOffset = 0;
+  /** Lines the strip inserts above the inner list, for coordinate forwarding. */
+  private bodyShift = 0;
+
+  /** Focus belongs to the active tab, so it has to be handed down on every change. */
+  get focused(): boolean {
+    return this.hasFocus;
+  }
+
+  set focused(value: boolean) {
+    this.hasFocus = value;
+    this.syncFocusToActive();
+  }
 
   constructor(opts: TabbedModelSelectorOptions) {
     super();
@@ -99,18 +125,49 @@ export class TabbedModelSelectorComponent extends Container implements Focusable
     this.tabs[this.activeIndex]?.selector.handleInput(data);
   }
 
+  override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
+    if (this.stripRow !== undefined) {
+      if (event.y === this.stripRow) {
+        if (event.type !== 'press' && event.type !== 'click') return undefined;
+        const span = this.stripSpans.find(
+          (candidate) => event.x >= candidate.start && event.x < candidate.end,
+        );
+        if (span === undefined || span.index === this.activeIndex) {
+          return listMouseDispatch(this, event, { handled: true });
+        }
+        this.activeIndex = span.index;
+        this.syncFocusToActive();
+        return listMouseDispatch(this, event, { handled: true, render: true });
+      }
+      if (event.y < this.bodyOffset) return undefined;
+    }
+
+    const inner = this.tabs[this.activeIndex]?.selector;
+    if (inner === undefined) return undefined;
+    const forwarded = inner.handleMouse?.({
+      ...event,
+      y: event.y - this.bodyShift,
+      height: Math.max(0, event.height - this.bodyOffset),
+    });
+    return forwarded === undefined ? undefined : listMouseDispatch(this, event, forwarded);
+  }
+
   override render(width: number): string[] {
     const active = this.tabs[this.activeIndex];
     if (active === undefined) return [];
     const inner = active.selector.render(width);
     if (this.tabs.length <= 1) {
+      this.stripRow = undefined;
+      this.stripSpans = [];
+      this.bodyOffset = 0;
+      this.bodyShift = 0;
       return inner.map((line) => truncateToWidth(line, width));
     }
     // Layout: divider, title, hint, optional warning, blank, tab strip, blank,
     // then the model list. The header ends at its first blank line — keep that
     // blank above the strip, and separate the tabs from the list with another
     // blank.
-    const stripLine = renderTabStrip({
+    const strip = layoutTabStrip({
       labels: this.tabs.map((tab) => tab.label),
       activeIndex: this.activeIndex,
       width,
@@ -118,8 +175,12 @@ export class TabbedModelSelectorComponent extends Container implements Focusable
     });
     const headerEnd = inner.findIndex((line) => line === '');
     const splitAt = headerEnd === -1 ? 3 : headerEnd;
-    const out: string[] = [...inner.slice(0, splitAt + 1), stripLine, ''];
+    const out: string[] = [...inner.slice(0, splitAt + 1), strip.text, ''];
     for (let i = splitAt + 1; i < inner.length; i++) out.push(inner[i]!);
+    this.stripRow = splitAt + 1;
+    this.stripSpans = strip.spans;
+    this.bodyOffset = this.stripRow + 2;
+    this.bodyShift = 2;
     return out.map((line) => truncateToWidth(line, width));
   }
 

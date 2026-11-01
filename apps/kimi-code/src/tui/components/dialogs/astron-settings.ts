@@ -7,11 +7,25 @@
  * this component never touches config or the SDK directly.
  */
 
-import { Container, Key, matchesKey, truncateToWidth, type Focusable } from '@moonshot-ai/pi-tui';
+import {
+  Container,
+  Key,
+  matchesKey,
+  truncateToWidth,
+  type Focusable,
+  type TuiMouseDispatchResult,
+  type TuiMouseEvent,
+} from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
+import {
+  ListMouseRouter,
+  listMouseDispatch,
+  type ListCursor,
+  type ListRowRegion,
+} from '#/tui/utils/list-mouse';
 import { printableChar } from '#/tui/utils/printable-key';
 
 export interface AstronSettings {
@@ -64,11 +78,15 @@ export class AstronSettingsComponent extends Container implements Focusable {
   private editing = false;
   private editBuffer = '';
   private errorMessage: string | null = null;
+  private readonly mouse: ListMouseRouter<FieldDef>;
 
   constructor(opts: AstronSettingsOptions) {
     super();
     this.opts = opts;
     this.settings = { ...opts.initial };
+    this.mouse = new ListMouseRouter(this.cursor(), (field) => this.activate(FIELDS.indexOf(field)), {
+      isFocused: () => this.focused,
+    });
   }
 
   private currentField(): FieldDef {
@@ -144,6 +162,53 @@ export class AstronSettingsComponent extends Container implements Focusable {
     }
   }
 
+  override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
+    return listMouseDispatch(this, event, this.mouse.handleMouse(event));
+  }
+
+  private cursor(): ListCursor<FieldDef> {
+    return {
+      items: () => FIELDS,
+      selectedIndex: () => this.index,
+      pageCount: () => FIELDS.length,
+      moveTo: (index) => {
+        const next = Math.max(0, Math.min(FIELDS.length - 1, index));
+        if (next === this.index) return;
+        this.index = next;
+        this.stopEditing();
+        this.errorMessage = null;
+      },
+      page: (direction) => {
+        this.index = Math.max(0, Math.min(FIELDS.length - 1, this.index + direction));
+        this.stopEditing();
+        this.errorMessage = null;
+      },
+    };
+  }
+
+  /** A click is the pointer's Enter: toggles a switch, opens a number for typing. */
+  private activate(index: number): void {
+    const item = FIELDS[index];
+    if (item === undefined) return;
+    if (index !== this.index) {
+      this.index = index;
+      this.stopEditing();
+    }
+    this.errorMessage = null;
+    if (this.editing) return;
+    if (item.type === 'bool') {
+      this.setField(item.name, !this.settings[item.name]);
+      return;
+    }
+    this.editing = true;
+    this.editBuffer = String(this.settings[item.name]);
+  }
+
+  private stopEditing(): void {
+    this.editing = false;
+    this.editBuffer = '';
+  }
+
   override render(width: number): string[] {
     const lines: string[] = [
       currentTheme.fg('primary', '\u2500'.repeat(width)),
@@ -152,11 +217,13 @@ export class AstronSettingsComponent extends Container implements Focusable {
       '',
     ];
 
+    const regions: ListRowRegion[] = [];
     for (let i = 0; i < FIELDS.length; i++) {
       const item = FIELDS[i]!;
       const selected = i === this.index;
       const pointer = selected ? SELECT_POINTER : ' ';
       const label = t(`tui.dialogs.astronSettings.${item.name}` as `${string}`);
+      const row = lines.length;
 
       const prefix = currentTheme.fg(selected ? 'primary' : 'textDim', `  ${pointer} `);
       const labelText = selected
@@ -180,7 +247,9 @@ export class AstronSettingsComponent extends Container implements Focusable {
         const valueText = currentTheme.fg('text', ` ${String(this.settings[item.name])}`);
         lines.push(truncateToWidth(`${prefix}${labelText}:${valueText}`, width, ELLIPSIS));
       }
+      regions.push({ start: row, end: lines.length, index: i });
     }
+    this.mouse.setRegions(regions);
 
     if (this.errorMessage !== null) {
       lines.push('');

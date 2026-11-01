@@ -8,6 +8,7 @@ import {
   type GoalQueueManagerAction,
 } from '#/tui/components/dialogs/goal-queue-manager';
 import type { GoalQueueSnapshot, UpcomingGoal } from '#/tui/goal-queue-store';
+import { mouse, pastSettlingWindow } from '#test/helpers/mouse';
 
 const ANSI = /\u001B\[[0-9;]*m/g;
 const strip = (s: string): string => s.replaceAll(ANSI, '');
@@ -283,5 +284,25 @@ describe('GoalQueueEditDialogComponent', () => {
 
     expect(onDone).not.toHaveBeenCalled();
     expect(text(dialog)).toContain('Goal objective cannot be empty.');
+  });
+});
+
+describe('GoalQueueManagerComponent — mouse', () => {
+  it('marks the goal under the pointer for reordering', () => {
+    const manager = new GoalQueueManagerComponent({
+      goals: [goal('g1', 'First queued goal'), goal('g2', 'Second queued goal')],
+      onAction: mock(),
+      onCancel: mock(),
+    });
+    pastSettlingWindow();
+    manager.focused = true;
+    const rows = manager.render(100).map(strip);
+    const row = rows.findIndex((line) => line.includes('Second queued goal'));
+    expect(row).toBeGreaterThan(0);
+
+    for (const type of ['press', 'release', 'click'] as const) {
+      manager.handleMouse(mouse(type, row));
+    }
+    expect(text(manager)).toContain('↑↓ reorder · Space done · E edit · D delete · Esc cancel');
   });
 });

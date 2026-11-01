@@ -15,6 +15,7 @@ import {
 import { currentTheme } from '#/tui/theme';
 import { darkColors, lightColors } from '#/tui/theme/colors';
 import { isOfficialPluginInstall, isOfficialPluginSource, pluginTrustLabel } from '#/tui/utils/plugin-source-label';
+import { mouse } from '#test/helpers/mouse';
 
 const ANSI_SGR = /\u001B\[[0-9;]*m/g;
 
@@ -1057,5 +1058,61 @@ describe('plugins selector dialogs', () => {
     picker.handleInput('\r');
 
     expect(results).toEqual([{ kind: 'confirm' }]);
+  });
+});
+
+describe('plugins panel mouse', () => {
+  const secondPlugin = {
+    ...superpowers,
+    id: 'kimi-cu',
+    displayName: 'Kimi Computer Use',
+    version: '1.0.0',
+  };
+
+  function selectedRow(panel: PluginsPanelComponent): number {
+    return renderRaw(panel)
+      .split('\n')
+      .map(strip)
+      .findIndex((line) => line.trimStart().startsWith('?'));
+  }
+
+  it('selects a row on click without acting on it', () => {
+    const { panel, onSelect } = makePanel({ installed: [superpowers, secondPlugin] });
+    panel.focused = true;
+    const rows = renderRaw(panel).split('\n').map(strip);
+    const row = rows.findIndex((line) => line.includes('Kimi Computer Use'));
+
+    const result = panel.handleMouse(mouse('click', row));
+
+    expect(result?.handled).toBe(true);
+    expect(selectedRow(panel)).toBe(row);
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('steps the selection with the wheel', () => {
+    const { panel } = makePanel({ installed: [superpowers, secondPlugin] });
+    panel.focused = true;
+    const first = selectedRow(panel);
+
+    panel.handleMouse(mouse('wheel', 0, 1));
+    const second = selectedRow(panel);
+
+    expect(second).toBeGreaterThan(first);
+    // A notch past the last row clamps instead of wrapping.
+    panel.handleMouse(mouse('wheel', 0, 1));
+    expect(selectedRow(panel)).toBe(second);
+  });
+
+  it('switches tabs when the strip is clicked', () => {
+    const { panel, onRequestMarketplace } = makePanel({ installed: [superpowers] });
+    panel.focused = true;
+    const rows = renderRaw(panel).split('\n').map(strip);
+    const tabRow = rows.findIndex((line) => line.includes('Installed') && line.includes('Official'));
+    const column = rows[tabRow]!.indexOf('Official');
+
+    panel.handleMouse(mouse('click', tabRow, undefined, column + 1));
+
+    expect(onRequestMarketplace).toHaveBeenCalledTimes(1);
+    expect(renderRaw(panel)).toContain('Loading marketplace');
   });
 });

@@ -4,6 +4,7 @@ import { describe, expect, it, mock } from 'bun:test';
 
 import { ModelSelectorComponent } from '#/tui/components/dialogs/model-selector';
 import { currentTheme } from '#/tui/theme';
+import { mouse, pastSettlingWindow } from '#test/helpers/mouse';
 
 const ANSI = /\[[0-9;]*m/g;
 const strip = (s: string): string => s.replaceAll(ANSI, '');
@@ -562,5 +563,34 @@ describe('ModelSelectorComponent overrides', () => {
     expect(out).toContain('Low');
     expect(out).toContain('High');
     expect(out).not.toContain('Max');
+  });
+});
+
+describe('ModelSelectorComponent — mouse', () => {
+  it('highlights the row under the pointer and picks it on click', () => {
+    const onSelect = mock();
+    const picker = new ModelSelectorComponent({
+      models: { kimi: model('Kimi K2'), other: model('Other Model') },
+      currentValue: 'kimi',
+      currentThinkingEffort: 'on',
+      onSelect,
+      onCancel: mock(),
+    });
+    pastSettlingWindow();
+    picker.focused = true;
+    const rows = picker.render(120).map(strip);
+    const row = rows.findIndex((line) => line.includes('Other Model'));
+    expect(row).toBeGreaterThan(0);
+
+    const moved = picker.handleMouse(mouse('move', row));
+    expect(moved?.handled).toBe(true);
+    expect(moved?.render).toBe(true);
+    const hovered = picker.render(120).map(strip);
+    expect(hovered.find((line) => line.includes('Other Model'))).toContain('❯');
+    expect(hovered.find((line) => line.includes('Kimi K2'))).not.toContain('❯');
+    expect(onSelect).not.toHaveBeenCalled();
+
+    for (const type of ['press', 'release', 'click'] as const) picker.handleMouse(mouse(type, row));
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ alias: 'other' }));
   });
 });

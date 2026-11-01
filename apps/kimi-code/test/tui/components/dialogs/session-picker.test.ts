@@ -2,6 +2,7 @@ import { visibleWidth } from '@moonshot-ai/pi-tui';
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 
 import { SessionPickerComponent } from '#/tui/components/dialogs/session-picker';
+import { mouse, pastSettlingWindow } from '#test/helpers/mouse';
 
 void mock.module('#/i18n', () => ({
   t: (key: string, params?: Record<string, string>) => {
@@ -1211,5 +1212,41 @@ describe('SessionPickerComponent', () => {
         expect(renderPlain(component, width)).toContain('? [y/N]');
       }
     });
+  });
+});
+
+describe('SessionPickerComponent — mouse', () => {
+  it('picks the session whose card the pointer is over', () => {
+    const onSelect = mock();
+    const component = new SessionPickerComponent({
+      sessions: [
+        {
+          id: 'ses_first',
+          title: 'first session',
+          work_dir: '/tmp/project',
+          updated_at: Date.now(),
+        },
+        {
+          id: 'ses_second',
+          title: 'second session',
+          work_dir: '/tmp/project',
+          updated_at: Date.now(),
+        },
+      ],
+      loading: false,
+      currentSessionId: 'ses_first',
+      onSelect,
+      onCancel: mock(),
+    });
+    pastSettlingWindow();
+    component.focused = true;
+    const rows = component.render(120).map(stripAnsi);
+    const row = rows.findIndex((line) => line.includes('second session'));
+    expect(row).toBeGreaterThan(0);
+
+    for (const type of ['press', 'release', 'click'] as const) {
+      component.handleMouse(mouse(type, row));
+    }
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 'ses_second' }));
   });
 });

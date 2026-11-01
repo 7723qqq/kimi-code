@@ -9,12 +9,20 @@ import {
   truncateToWidth,
   visibleWidth,
   type Focusable,
+  type TuiMouseDispatchResult,
+  type TuiMouseEvent,
 } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
 import { formatSessionLabel } from '#/migration/index';
 import { getCurrentMark, SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
+import {
+  listMouseDispatch,
+  ListMouseRouter,
+  type ListRowRegion,
+  searchableListCursor,
+} from '#/tui/utils/list-mouse';
 import { printableChar } from '#/tui/utils/printable-key';
 import { SearchableList } from '#/tui/utils/searchable-list';
 
@@ -95,6 +103,7 @@ export class SessionPickerComponent extends Container implements Focusable {
   private hasMore: boolean;
   private loadingMore: boolean;
   private list: SearchableList<SessionRow>;
+  private readonly mouse: ListMouseRouter<SessionRow>;
   private deleteState?: { session: SessionRow; phase: 'confirm' | 'deleting' };
   private selectInFlight = false;
 
@@ -154,6 +163,13 @@ export class SessionPickerComponent extends Container implements Focusable {
     this.onCtrlC = opts.onCtrlC;
     this.onCtrlD = opts.onCtrlD;
     this.onDeleteRequest = opts.onDeleteRequest;
+    this.mouse = new ListMouseRouter(
+      searchableListCursor(() => this.list),
+      (session) => this.selectSession(session),
+      {
+        isFocused: () => this.focused,
+      },
+    );
   }
 
   private readonly onCtrlC?: () => void;
@@ -260,16 +276,7 @@ export class SessionPickerComponent extends Container implements Focusable {
     }
     if (matchesKey(data, Key.enter)) {
       const session = this.list.selected();
-      if (session) {
-        const selection = this.onSelect(session);
-        if (selection !== undefined) {
-          this.selectInFlight = true;
-          const clear = (): void => {
-            this.selectInFlight = false;
-          };
-          void selection.then(clear, clear);
-        }
-      }
+      if (session) this.selectSession(session);
       return;
     }
 
@@ -277,6 +284,23 @@ export class SessionPickerComponent extends Container implements Focusable {
     if (this.list.handleKey(data)) {
       this.syncVisibleCount(previousQuery);
     }
+  }
+
+  override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
+    return listMouseDispatch(this, event, this.mouse.handleMouse(event));
+  }
+
+  /** Commit a session the way Enter does, and keep the picker honest while the
+   * switch is in flight. */
+  private selectSession(session: SessionRow): void {
+    if (this.deleteState !== undefined || this.selectInFlight) return;
+    const selection = this.onSelect(session);
+    if (selection === undefined) return;
+    this.selectInFlight = true;
+    const clear = (): void => {
+      this.selectInFlight = false;
+    };
+    void selection.then(clear, clear);
   }
 
   private handleDeleteInput(data: string): void {
@@ -436,14 +460,18 @@ export class SessionPickerComponent extends Container implements Focusable {
       visibleStart + this.maxVisibleSessions,
     );
 
+    const regions: ListRowRegion[] = [];
     for (const [vi, session] of visibleSessions.entries()) {
       const index = visibleStart + vi;
       const isSelected = index === selectedIndex;
       const isCurrent = session.id === this.currentSessionId;
       const card = this.renderSessionCard(width, session, isSelected, isCurrent);
+      const start = lines.length;
       lines.push(...card);
+      regions.push({ start, end: lines.length, index });
       if (vi < visibleSessions.length - 1) lines.push('');
     }
+    this.mouse.setRegions(regions);
 
     const filteredCount = view.items.length;
     if (

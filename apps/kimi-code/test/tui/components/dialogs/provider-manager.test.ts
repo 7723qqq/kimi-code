@@ -6,6 +6,7 @@ import { darkColors } from '#/tui/theme/colors';
 import { DEFAULT_OAUTH_PROVIDER_NAME } from '#/constant/app';
 import { t } from '#/i18n';
 import { ProviderManagerComponent, type ProviderManagerOptions } from '#/tui/components/dialogs/provider-manager';
+import { mouse, pastSettlingWindow } from '#test/helpers/mouse';
 
 // Truecolor SGR fragments for the darkColors tokens we assert on
 // (see theme/colors.ts). Forcing chalk.level below guarantees they appear.
@@ -208,5 +209,26 @@ describe('ProviderManagerComponent', () => {
     component.handleInput('D');
     component.handleInput('y');
     expect(onDeleteSource).toHaveBeenCalledWith(['acme']);
+  });
+});
+
+describe('ProviderManagerComponent — mouse', () => {
+  it('highlights the row under the pointer', () => {
+    const component = makeComponent({
+      providers: {
+        acme: { baseUrl: 'https://acme.test' },
+        bravo: { baseUrl: 'https://bravo.test' },
+      } as unknown as Record<string, ProviderConfig>,
+    });
+    pastSettlingWindow();
+    component.focused = true;
+    const rows = component.render(120).map((line) => line.replaceAll(SGR, ''));
+    const row = rows.findIndex((line) => line.includes('bravo'));
+    expect(row).toBeGreaterThan(0);
+
+    const moved = component.handleMouse(mouse('move', row));
+    expect(moved?.handled).toBe(true);
+    expect(moved?.render).toBe(true);
+    expect(component.render(120).join('\n').replaceAll(SGR, '')).toContain('❯');
   });
 });

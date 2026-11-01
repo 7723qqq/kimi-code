@@ -1,7 +1,20 @@
-import { Container, Key, matchesKey, type Focusable } from '@moonshot-ai/pi-tui';
+import {
+  Container,
+  Key,
+  matchesKey,
+  type Focusable,
+  type TuiMouseDispatchResult,
+  type TuiMouseEvent,
+} from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
+import {
+  ListMouseRouter,
+  listMouseDispatch,
+  type ListCursor,
+  type ListRowRegion,
+} from '#/tui/utils/list-mouse';
 import { printableChar, isPrintableText } from '#/tui/utils/printable-key';
 
 export interface CodingPlanConfigOptions {
@@ -26,6 +39,7 @@ export class CodingPlanConfigComponent extends Container implements Focusable {
   private selectedField = 0;
   private readonly fieldOrder: string[];
   private errorMsg = '';
+  private readonly mouse: ListMouseRouter<string>;
 
   constructor(opts: CodingPlanConfigOptions) {
     super();
@@ -46,6 +60,14 @@ export class CodingPlanConfigComponent extends Container implements Focusable {
       this.fields[key] =
         value === undefined ? '' : typeof value === 'string' ? value : displayConfigValue(value);
     }
+    this.mouse = new ListMouseRouter(
+      this.cursor(),
+      (key) => {
+        const index = this.fieldOrder.indexOf(key);
+        if (index >= 0) this.selectedField = index;
+      },
+      { isFocused: () => this.focused },
+    );
   }
 
   handleInput(data: string): void {
@@ -100,12 +122,34 @@ export class CodingPlanConfigComponent extends Container implements Focusable {
     }
   }
 
+  override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
+    return listMouseDispatch(this, event, this.mouse.handleMouse(event));
+  }
+
+  private cursor(): ListCursor<string> {
+    return {
+      items: () => this.fieldOrder,
+      selectedIndex: () => this.selectedField,
+      pageCount: () => this.fieldOrder.length,
+      moveTo: (index) => {
+        this.selectedField = Math.max(0, Math.min(this.fieldOrder.length - 1, index));
+      },
+      page: (direction) => {
+        this.selectedField = Math.max(
+          0,
+          Math.min(this.fieldOrder.length - 1, this.selectedField + direction),
+        );
+      },
+    };
+  }
+
   override render(width: number): string[] {
     const lines: string[] = [
       currentTheme.fg('primary', '─'.repeat(width)),
       currentTheme.boldFg('primary', t('tui.codingPlan.title')),
       '',
     ];
+    const regions: ListRowRegion[] = [];
     for (let i = 0; i < this.fieldOrder.length; i++) {
       const key = this.fieldOrder[i]!;
       const label = fieldLabel(key);
@@ -115,8 +159,11 @@ export class CodingPlanConfigComponent extends Container implements Focusable {
       const field = isSelected
         ? currentTheme.boldFg('primary', `${label}: ${value}█`)
         : ` ${label}: ${value}`;
+      const row = lines.length;
       lines.push(` ${pointer} ${field}`);
+      regions.push({ start: row, end: lines.length, index: i });
     }
+    this.mouse.setRegions(regions);
     lines.push('');
     if (this.errorMsg.length > 0) {
       lines.push(currentTheme.fg('error', ` ${this.errorMsg}`));

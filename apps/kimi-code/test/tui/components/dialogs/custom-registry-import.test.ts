@@ -1,6 +1,7 @@
 import { visibleWidth } from '@moonshot-ai/pi-tui';
 import { describe, expect, it, mock, type Mock } from 'bun:test';
 
+import { mouse } from '#test/helpers/mouse';
 import { CustomRegistryImportDialogComponent, type CustomRegistryImportResult } from '#/tui/components/dialogs/custom-registry-import';
 
 const ANSI = /\[[0-9;]*m/g;
@@ -76,5 +77,34 @@ describe('CustomRegistryImportDialogComponent', () => {
         expect(visibleWidth(line)).toBeLessThanOrEqual(width);
       }
     }
+  });
+
+  it('moves the caret into whichever field was clicked', () => {
+    const { dialog, onDone } = makeDialog('https://example.com/api.json');
+    const rows = dialog.render(80).map(strip);
+    const urlRow = rows.findIndex((line) => line.includes('Registry URL')) + 1;
+    const tokenRow = rows.findIndex((line) => line.includes('Bearer token (optional)')) + 1;
+    expect(urlRow).toBeGreaterThan(0);
+    expect(tokenRow).toBeGreaterThan(urlRow);
+    // The caret marker sits inside the value line; drop it before comparing.
+    const visible = (): string => plain(dialog).replaceAll('\u001b_pi:c\u0007', '');
+
+    // Click the URL line and type: the character lands at the caret the click
+    // placed, i.e. at the start of the value.
+    dialog.handleMouse(mouse('click', urlRow, undefined, 5));
+    dialog.handleInput('u');
+    expect(visible()).toContain('> uhttps://example.com/api.json');
+
+    // The token field is masked, so its value is invisible; what proves the
+    // switch is that typing there leaves the URL alone.
+    dialog.handleMouse(mouse('click', tokenRow, undefined, 5));
+    dialog.handleInput('t');
+    expect(visible()).toContain('> uhttps://example.com/api.json');
+
+    // And back: the URL keeps taking keystrokes.
+    dialog.handleMouse(mouse('click', urlRow, undefined, 5));
+    dialog.handleInput('v');
+    expect(visible()).toContain('> vuhttps://example.com/api.json');
+    expect(onDone).not.toHaveBeenCalled();
   });
 });

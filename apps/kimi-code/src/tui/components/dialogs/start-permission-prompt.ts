@@ -4,11 +4,18 @@ import {
   truncateToWidth,
   type Component,
   type Focusable,
+  type TuiMouseEvent,
+  type TuiMouseEventResult,
 } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
+import {
+  ListMouseRouter,
+  type ListCursor,
+  type ListRowRegion,
+} from '#/tui/utils/list-mouse';
 import { wrapText as wrapPlain } from '#/tui/utils/wrap-text';
 
 export type StartPermissionChoice = 'auto' | 'yolo' | 'manual' | 'cancel';
@@ -45,6 +52,7 @@ export class StartPermissionPromptComponent<
 {
   focused = false;
   private selectedIndex: number;
+  private readonly mouse: ListMouseRouter<StartPermissionOption<TChoice>>;
 
   constructor(private readonly opts: StartPermissionPromptOptions<TChoice>) {
     const initialIndex =
@@ -52,6 +60,24 @@ export class StartPermissionPromptComponent<
         ? -1
         : opts.options.findIndex((option) => option.value === opts.initialValue);
     this.selectedIndex = initialIndex >= 0 ? initialIndex : 0;
+    this.mouse = new ListMouseRouter(
+      this.cursor(),
+      (option) => this.opts.onSelect(option.value),
+      { isFocused: () => this.focused },
+    );
+  }
+
+  /** The cursor the mouse router drives over the prompt's options. */
+  private cursor(): ListCursor<StartPermissionOption<TChoice>> {
+    return {
+      items: () => this.opts.options,
+      selectedIndex: () => this.selectedIndex,
+      pageCount: () => 1,
+      moveTo: (index) => {
+        this.selectedIndex = Math.max(0, Math.min(this.opts.options.length - 1, index));
+      },
+      page: () => false,
+    };
   }
 
   invalidate(): void {}
@@ -74,6 +100,10 @@ export class StartPermissionPromptComponent<
     }
   }
 
+  handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    return this.mouse.handleMouse(event);
+  }
+
   render(width: number): string[] {
     const rule = currentTheme.fg('primary', '─'.repeat(width));
     const lines = [
@@ -91,10 +121,12 @@ export class StartPermissionPromptComponent<
       lines.push('');
     }
 
+    const regions: ListRowRegion[] = [];
     for (let i = 0; i < this.opts.options.length; i += 1) {
       const option = this.opts.options[i]!;
       const selected = i === this.selectedIndex;
       const pointer = selected ? SELECT_POINTER : ' ';
+      const start = lines.length;
       lines.push(
         currentTheme.fg(selected ? 'primary' : 'textDim', `  ${pointer} `) +
           styleLabel(option.label, selected),
@@ -102,8 +134,10 @@ export class StartPermissionPromptComponent<
       for (const line of wrapPlain(option.description, Math.max(20, width - 4))) {
         lines.push(`    ${styleModeNames(line, 'textMuted')}`);
       }
+      regions.push({ start, end: lines.length, index: i });
       lines.push('');
     }
+    this.mouse.setRegions(regions);
 
     lines.push(rule);
     return lines.map((line) => truncateToWidth(line, width));

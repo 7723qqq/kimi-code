@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import { afterAll, beforeAll, describe, expect, it, mock, type Mock } from 'bun:test';
 
 import { t } from '#/i18n';
+import { mouse } from '#test/helpers/mouse';
 import {
   ProviderFormDialogComponent,
   type ProviderFormDialogOptions,
@@ -1171,5 +1172,56 @@ describe('ProviderFormDialogComponent', () => {
     dialog.handleInput(ENTER);
 
     expect(submittedValue(onDone).models?.[0]?.clearOverrides).toBeUndefined();
+  });
+});
+
+describe('ProviderFormDialogComponent mouse', () => {
+  function rowOf(dialog: ProviderFormDialogComponent, needle: string): number {
+    return plain(dialog)
+      .split('\n')
+      .findIndex((line) => line.includes(needle));
+  }
+
+  it('selects the field whose label was clicked so typing lands there', () => {
+    const { dialog } = makeDialog({ mode: 'add' });
+    const row = rowOf(dialog, t(`${FORM}.envLabel`));
+    expect(row).toBeGreaterThan(0);
+
+    dialog.handleMouse(mouse('click', row));
+    typeText(dialog, 'MY_ENV');
+
+    expect(plain(dialog)).toContain('MY_ENV');
+  });
+
+  it('moves the model selection to the row under the pointer', () => {
+    const { dialog } = makeDialog({ mode: 'add' });
+    fillAddForm(dialog);
+    commitRow(dialog);
+    const row = plain(dialog)
+      .split('\n')
+      .findIndex((line) => /^\s*│\s+❯\s*\d+\. /.test(line));
+    expect(row).toBeGreaterThan(0);
+
+    dialog.handleMouse(mouse('click', row));
+
+    const after = plain(dialog)
+      .split('\n')
+      .filter((line) => /^\s*│\s+(?:❯ | {2})\d+\. /.test(line));
+    expect(after).toHaveLength(1);
+    expect(after[0]).toContain('❯');
+  });
+
+  it('selects Save on click and submits only on Enter', () => {
+    const { dialog, onDone } = makeDialog({ mode: 'add' });
+    fillAddForm(dialog);
+    commitRow(dialog);
+    const row = rowOf(dialog, `[ ${t(`${FORM}.save`)} ]`);
+    expect(row).toBeGreaterThan(0);
+
+    dialog.handleMouse(mouse('click', row));
+    expect(onDone).not.toHaveBeenCalled();
+
+    dialog.handleInput(ENTER);
+    expect(submittedValue(onDone).id).toBe('demo');
   });
 });

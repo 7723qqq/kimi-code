@@ -18,7 +18,7 @@ The following keys are always available in the input box:
 | `Ctrl-P` | Rewrite the drafted prompt with AI |
 | `Ctrl-N` | Focus or release the experimental `Updates` panel |
 
-While the `Updates` panel is focused: `←` / `→` switch agent channels, `↑` / `↓` scroll the current update, `[` / `]` step between that channel's updates (`PgUp` / `PgDn` also step, outside fullscreen where those keys page the transcript), and `Esc` releases focus. The updates area lives in the strip above the input box, alongside the activity pane. Its header row reports the current page and how many rows are out of view. The strip never takes more than half the terminal height (up to 20 rows). Agents that have finished collapse into a single `+N done` tab; the agent you are viewing always keeps its own tab, and folded entries stay reachable with `←` / `→`. Each new update opens at its **top** and the area reads it downward on its own, so a long update is read in the order it was written; the walk stops at the end, and scrolling by hand takes over. The mouse works too, without taking the keyboard: the wheel over the updates area scrolls the current update (it no longer falls through to the transcript, and does not grab focus — `Ctrl-N` is still what takes focus), and it takes effect immediately rather than after a priming click. Clicking a channel tab switches to that agent; clicking `+N done` expands the folded agents into their own tabs, and the tab then reads `−N done` so the same spot folds them back. Clicking anywhere else on the updates area folds or unfolds it, exactly like clicking a folded tool card in the transcript — it does not take the keyboard. Scrolling up stops the view from following new updates until you scroll back to the bottom.
+While the `Updates` panel is focused: `←` / `→` switch agent channels, `↑` / `↓` scroll the current update, `[` / `]` step between that channel's updates (`PgUp` / `PgDn` also step; in both modes they go to the focused panel or the status strip, never to the transcript), and `Esc` releases focus. The updates area lives in the strip above the input box, alongside the activity pane. Its header row reports the current page and how many rows are out of view. The strip never takes more than half the terminal height (up to 20 rows). Agents that have finished collapse into a single `+N done` tab; the agent you are viewing always keeps its own tab, and folded entries stay reachable with `←` / `→`. Each new update opens at its **top** and the area reads it downward on its own, so a long update is read in the order it was written; the walk stops at the end, and scrolling by hand takes over. The mouse works too, without taking the keyboard: the wheel over the updates area scrolls the current update (it no longer falls through to the transcript, and does not grab focus — `Ctrl-N` is still what takes focus), and it takes effect immediately rather than after a priming click. Clicking a channel tab switches to that agent; clicking `+N done` expands the folded agents into their own tabs, and the tab then reads `−N done` so the same spot folds them back. Clicking anywhere else on the updates area folds or unfolds it, exactly like clicking a folded tool card in the transcript — it does not take the keyboard. Scrolling up stops the view from following new updates until you scroll back to the bottom.
 
 Pressing `Ctrl-C` **during streaming** cancels immediately — no second confirmation needed.
 
@@ -99,6 +99,22 @@ After opening the help panel with `/help`, use the following keys to navigate an
 | `↑` / `↓` | Scroll one line at a time |
 | `PageUp` / `PageDown` | Scroll 10 lines at a time |
 | `Esc` / `Enter` / `q` / `Q` | Close the panel |
+
+## Fullscreen mode (`tui_mode = "fullscreen"`)
+
+Set `tui_mode` to `"fullscreen"` (or pick "Fullscreen (experimental)" under "TUI mode" in `/settings`) and restart: Kimi Code CLI then renders into the terminal's alternate screen. The transcript becomes an in-app scroll area and is replayed into the terminal scrollback on exit.
+
+Both modes ship the same panels, dialogs and key bindings; fullscreen mode only adds:
+
+| Shortcut | Function |
+| --- | --- |
+| Mouse wheel | Scroll the transcript; on a panel that scrolls itself, such as the help panel, scroll that panel |
+| Mouse drag | Select transcript text and copy it to the clipboard |
+| Mouse click | Pick a row in a list dialog (model, session, provider, theme, permission, workspace trust, experiment toggle, task list, plugins, …); switch tabs by clicking a tab strip (model providers, plugin marketplace, question tabs); in the question dialog a click picks an option (click again to toggle a multi-select), opens the Other editor, or runs Submit/Cancel; the model's thinking-effort segments are clickable too; in a form panel a click on an input line puts the caret where you clicked (API key, feedback, custom registry, provider form), and in the settings forms (Astron, Coding Plan) a click selects that field |
+| `Ctrl-Shift-F` | Search the transcript |
+| `Ctrl-Up` / `Ctrl-Down` | Jump between prompts |
+
+`PgUp` / `PgDn` go to the focused panel or the status strip (for example the `Updates` panel) in both modes; they never page the transcript. Use the mouse wheel to page the transcript in fullscreen mode.
 
 ## Next steps
 

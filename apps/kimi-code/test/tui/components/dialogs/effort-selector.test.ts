@@ -1,6 +1,7 @@
 import { describe, expect, it, mock } from 'bun:test';
 
 import { EffortSelectorComponent } from '#/tui/components/dialogs/effort-selector';
+import { mouse, pastSettlingWindow } from '#test/helpers/mouse';
 
 const ANSI = /\[[0-9;]*m/g;
 const strip = (s: string): string => s.replaceAll(ANSI, '');
@@ -30,6 +31,50 @@ describe('EffortSelectorComponent', () => {
     expect(out).toContain('[ High ]');
     expect(out).not.toContain('[ Off ]');
     expect(out).not.toContain('[ Max ]');
+  });
+
+  describe('mouse', () => {
+    function segmentRow(
+      picker: EffortSelectorComponent,
+      label: string,
+    ): { row: number; column: number } {
+      const rows = picker.render(120).map(strip);
+      const row = rows.findIndex((line) => line.includes('Off') && line.includes('Max'));
+      return { row, column: rows[row]!.indexOf(label) };
+    }
+
+    it('picks the segment under the pointer', () => {
+      const onSelect = mock();
+      const picker = new EffortSelectorComponent({
+        efforts: ['off', 'low', 'high', 'max'],
+        currentValue: 'off',
+        onSelect,
+        onCancel: mock(),
+      });
+      picker.focused = true;
+      pastSettlingWindow();
+
+      const { row, column } = segmentRow(picker, 'Max');
+      picker.handleMouse(mouse('click', row, undefined, column + 1));
+
+      expect(onSelect).toHaveBeenCalledWith('max');
+    });
+
+    it('steps the highlight with the wheel without committing', () => {
+      const onSelect = mock();
+      const picker = new EffortSelectorComponent({
+        efforts: ['off', 'low', 'high', 'max'],
+        currentValue: 'off',
+        onSelect,
+        onCancel: mock(),
+      });
+      picker.focused = true;
+
+      picker.handleMouse(mouse('wheel', 0, 1));
+
+      expect(text(picker)).toContain('[ Low ]');
+      expect(onSelect).not.toHaveBeenCalled();
+    });
   });
 
   it('invokes onSelect with the chosen effort on Enter', () => {

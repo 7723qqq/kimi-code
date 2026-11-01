@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it, mock, type Mock } from 'bun:
 import { TabbedModelSelectorComponent } from '#/tui/components/dialogs/tabbed-model-selector';
 import { currentTheme } from '#/tui/theme';
 import { darkColors, lightColors } from '#/tui/theme/colors';
+import { mouse, pastSettlingWindow } from '#test/helpers/mouse';
 
 const ESC = String.fromCodePoint(27);
 const SGR = new RegExp(`${ESC}\\[[0-9;]*m`, 'g');
@@ -170,5 +171,34 @@ describe('TabbedModelSelectorComponent', () => {
     expect(stripIdx).toBe(hintIdx + 3);
     expect(lines[stripIdx + 1]).toBe(''); // blank between tabs and list
     expect(lines.findIndex((l) => l.includes('Kimi K2'))).toBeGreaterThan(stripIdx);
+  });
+});
+
+describe('TabbedModelSelectorComponent — mouse', () => {
+  it('picks a model in the active tab through the tab strip offset', () => {
+    const { component, onSelect } = make();
+    pastSettlingWindow();
+    const rows = component.render(120).map(strip);
+    const row = rows.findIndex((line) => line.includes('GPT-5'));
+    expect(row).toBeGreaterThan(0);
+
+    for (const type of ['press', 'release', 'click'] as const) {
+      component.handleMouse(mouse(type, row));
+    }
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ alias: 'gpt' }));
+  });
+
+  it('switches tabs when a tab in the strip is clicked', () => {
+    const { component } = make();
+    const rows = component.render(120).map(strip);
+    const tabRow = rows.findIndex((line) => line.includes('All') && line.includes('openai'));
+    expect(tabRow).toBeGreaterThan(0);
+
+    const column = rows[tabRow]!.indexOf('openai');
+    component.handleMouse(mouse('click', tabRow, undefined, column + 1));
+
+    const after = component.render(120).map(strip);
+    expect(after.some((line) => line.includes('GPT-5'))).toBe(true);
+    expect(after.some((line) => line.includes('Kimi K2'))).toBe(false);
   });
 });

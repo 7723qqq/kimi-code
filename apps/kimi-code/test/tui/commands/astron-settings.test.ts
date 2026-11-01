@@ -1,8 +1,13 @@
 import type { Component, Focusable } from '@moonshot-ai/pi-tui';
 import { describe, expect, it, mock, type Mock } from 'bun:test';
 
+import { mouse, pastSettlingWindow } from '#test/helpers/mouse';
 import type { SlashCommandHost } from '#/tui/commands';
 import { saveAstronSettings, showAstronSettingsPanel } from '#/tui/commands/config';
+import {
+  ASTRON_DEFAULT_SETTINGS,
+  AstronSettingsComponent,
+} from '#/tui/components/dialogs/astron-settings';
 import { darkColors } from '#/tui/theme/colors';
 
 void mock.module('#/i18n', () => ({
@@ -190,5 +195,48 @@ describe('showAstronSettingsPanel', () => {
     const rendered = plain(panel as Panel);
     expect(rendered).toContain('0.7');
     expect(rendered).toContain('512');
+  });
+});
+
+describe('AstronSettingsComponent mouse', () => {
+  function makePanel(): AstronSettingsComponent {
+    const panel = new AstronSettingsComponent({
+      initial: ASTRON_DEFAULT_SETTINGS,
+      onSave: mock(),
+      onCancel: mock(),
+    });
+    panel.focused = true;
+    return panel;
+  }
+
+  it('toggles the switch under the pointer', () => {
+    const panel = makePanel();
+    pastSettlingWindow();
+    const rows = panel.render(80).map((line) => line.replaceAll(ANSI, ''));
+    const row = rows.findIndex((line) => line.includes('astronSettings.stream'));
+    expect(row).toBeGreaterThan(0);
+    expect(rows[row]).toContain('on');
+
+    panel.handleMouse(mouse('click', row));
+
+    const after = panel.render(80).map((line) => line.replaceAll(ANSI, ''));
+    expect(after[row]).toContain('off');
+  });
+
+  it('steps the highlight with the wheel', () => {
+    const panel = makePanel();
+    const first = panel
+      .render(80)
+      .map((line) => line.replaceAll(ANSI, ''))
+      .findIndex((line) => line.includes('\u276F'));
+    expect(first).toBeGreaterThan(0);
+
+    panel.handleMouse(mouse('wheel', 0, 1));
+
+    const moved = panel
+      .render(80)
+      .map((line) => line.replaceAll(ANSI, ''))
+      .findIndex((line) => line.includes('\u276F'));
+    expect(moved).toBe(first + 1);
   });
 });

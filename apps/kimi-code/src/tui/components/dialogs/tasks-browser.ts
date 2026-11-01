@@ -22,6 +22,8 @@ import {
   truncateToWidth,
   visibleWidth,
   type Focusable,
+  type TuiMouseDispatchResult,
+  type TuiMouseEvent,
 } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
@@ -39,6 +41,12 @@ import {
   taskStatusToken,
   type TaskDetailContext,
 } from '#/tui/utils/background-task';
+import {
+  listMouseDispatch,
+  ListMouseRouter,
+  type ListCursor,
+  type ListRowRegion,
+} from '#/tui/utils/list-mouse';
 import { printableChar } from '#/tui/utils/printable-key';
 import { SearchableList } from '#/tui/utils/searchable-list';
 import { sanitizeShellOutput } from '#/tui/utils/shell-output';
@@ -114,6 +122,11 @@ export class TasksPanelComponent extends Container implements Focusable {
   private props: TasksPanelProps;
   private list: SearchableList<BackgroundTaskInfo> | undefined;
   private listScroll = 0;
+  /** The list rows, in the list column's own frame; the render pass places them. */
+  private listRegions: ListRowRegion[] = [];
+  /** The list rows, in the panel's frame. */
+  private bodyRegions: ListRowRegion[] = [];
+  private readonly mouse: ListMouseRouter<BackgroundTaskInfo>;
   /** Last task id the panel reported, to tell its own selection apart. */
   private emittedTaskId: string | undefined;
   private readonly activityViewer: AgentActivityViewer;
@@ -138,6 +151,9 @@ export class TasksPanelComponent extends Container implements Focusable {
       expanded: false,
     });
     this.syncOutput();
+    this.mouse = new ListMouseRouter(this.cursor(), () => this.emitSelect(), {
+      isFocused: () => this.focused,
+    });
   }
 
   setProps(next: TasksPanelProps): void {
@@ -152,6 +168,31 @@ export class TasksPanelComponent extends Container implements Focusable {
   }
 
   // ── input ──────────────────────────────────────────────────────────
+
+  /** The cursor the mouse router drives over the task list. */
+  private cursor(): ListCursor<BackgroundTaskInfo> {
+    return {
+      items: () => this.list?.view().items ?? [],
+      selectedIndex: () => this.list?.view().selectedIndex ?? 0,
+      pageCount: () => this.list?.view().page.pageCount ?? 1,
+      moveTo: (index) => {
+        this.list?.moveTo(index);
+      },
+      page: (direction) => {
+        const list = this.list;
+        if (list === undefined) return false;
+        const before = list.view().selectedIndex;
+        if (direction < 0) list.pageUp();
+        else list.pageDown();
+        return list.view().selectedIndex !== before;
+      },
+    };
+  }
+
+  override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
+    this.ensureList(this.visibleTasks());
+    return listMouseDispatch(this, event, this.mouse.handleMouse(event));
+  }
 
   handleInput(data: string): void {
     const k = printableChar(data);
@@ -365,10 +406,20 @@ export class TasksPanelComponent extends Container implements Focusable {
       while (out.length < height) out.push('');
       return out.slice(0, height);
     }
+    const chrome = this.renderChrome(width);
+    const body = this.renderBody(width, bodyHeight);
+    const bodyStart = 1 + chrome.length;
+    this.mouse.setRegions(
+      this.bodyRegions.map((region) => ({
+        ...region,
+        start: region.start + bodyStart,
+        end: region.end + bodyStart,
+      })),
+    );
     const out: string[] = [
       currentTheme.fg('primary', '─'.repeat(width)),
-      ...this.renderChrome(width),
-      ...this.renderBody(width, bodyHeight),
+      ...chrome,
+      ...body,
       currentTheme.fg('primary', '─'.repeat(width)),
     ];
     return out;
@@ -431,10 +482,13 @@ export class TasksPanelComponent extends Container implements Focusable {
       );
       const detailHeight = Math.max(1, height - listHeight);
       this.detailWidth = width;
-      return [
-        ...this.renderList(width, listHeight),
-        ...this.renderDetail(width, detailHeight),
-      ];
+      const list = this.renderList(width, listHeight);
+      this.bodyRegions = this.listRegions.map((region) => ({
+        ...region,
+        columnStart: 0,
+        columnEnd: width,
+      }));
+      return [...list, ...this.renderDetail(width, detailHeight)];
     }
 
     const listWidth = Math.max(
@@ -444,6 +498,11 @@ export class TasksPanelComponent extends Container implements Focusable {
     const detailWidth = Math.max(1, width - listWidth - 1);
     this.detailWidth = detailWidth;
     const list = this.renderList(listWidth, height);
+    this.bodyRegions = this.listRegions.map((region) => ({
+      ...region,
+      columnStart: 0,
+      columnEnd: listWidth,
+    }));
     const detail = this.renderDetail(detailWidth, height);
     const separator = currentTheme.fg('border', '│');
     const out: string[] = [];
@@ -473,6 +532,7 @@ export class TasksPanelComponent extends Container implements Focusable {
     const rows = Math.max(1, height);
     const more = items.length - (this.listScroll + rows);
     const out: string[] = [];
+    const regions: ListRowRegion[] = [];
     for (let i = 0; i < rows; i++) {
       const task = items[this.listScroll + i];
       if (task === undefined) {
@@ -480,7 +540,9 @@ export class TasksPanelComponent extends Container implements Focusable {
         continue;
       }
       out.push(this.renderRow(task, this.listScroll + i === selectedIndex, width));
+      regions.push({ start: i, end: i + 1, index: this.listScroll + i });
     }
+    this.listRegions = regions;
     if (more > 0 && out.length > 0) {
       out[out.length - 1] = fitExactly(
         currentTheme.fg('textMuted', t('tui.dialogs.tasksBrowser.scrollMore', { count: more })),

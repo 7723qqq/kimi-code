@@ -58,11 +58,16 @@ import {
   truncateToWidth,
   visibleWidth,
   type Focusable,
+  type TuiMouseDispatchResult,
+  type TuiMouseEvent,
+  type TuiMouseEventResult,
 } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
+import { inputPressAt } from '#/tui/utils/form-mouse';
+import { listMouseDispatch } from '#/tui/utils/list-mouse';
 import { printableChar } from '#/tui/utils/printable-key';
 import {
   CAPABILITY_NAMES,
@@ -149,6 +154,15 @@ type RowFieldId =
   | 'betaApi'
   | 'reasoningKey'
   | 'baseUrl';
+
+/** What a rendered line of the form answers to when the pointer lands on it. */
+type FormTag =
+  | { readonly kind: 'field'; readonly field: FieldId }
+  | { readonly kind: 'input'; readonly field: FieldId; readonly input: Input }
+  | { readonly kind: 'row'; readonly index: number }
+  | { readonly kind: 'save' };
+
+type FormHit = FormTag & { readonly row: number };
 
 const FIELD_ORDER: readonly FieldId[] = [
   'id',
@@ -359,6 +373,9 @@ export class ProviderFormDialogComponent extends Container implements Focusable 
   private readonly rowBaseUrlInput = new Input();
 
   private activeField: FieldId = 'id';
+  /** Rows the last render tagged, and the column an input's own frame starts at. */
+  private frames: readonly FormHit[] = [];
+  private frameColumn = 3;
   /**
    * What the edited record declared for each provider-level field the form
    * owns, as the form received it. Blank reads as "clear" only for a field
@@ -602,6 +619,48 @@ export class ProviderFormDialogComponent extends Container implements Focusable 
     this.activeInput().handleInput(data);
   }
 
+  override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
+    return listMouseDispatch(this, event, this.mouseEvent(event));
+  }
+
+  private mouseEvent(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    if (this.done) return undefined;
+    if (!this.focused) {
+      if (event.type === 'press') return { handled: true };
+      if (event.type === 'click') return { handled: true, focus: true };
+      return undefined;
+    }
+    if (this.disabled) {
+      // Read-only records still swallow the event: it must not fall through to
+      // the transcript behind the form.
+      if (event.type === 'press' || event.type === 'click') return { handled: true };
+      return undefined;
+    }
+    if (event.type !== 'press' && event.type !== 'click') return undefined;
+    // The row editor owns the keyboard until it closes. A click outside it must
+    // not commit or discard the row being edited.
+    if (this.modelsMode === 'row') return undefined;
+
+    const hit = this.frames.find((frame) => frame.row === event.y);
+    if (hit === undefined) return undefined;
+
+    if (hit.kind === 'row') {
+      this.activeField = 'models';
+      this.selectRow(hit.index);
+      return { handled: true, render: true };
+    }
+    if (hit.kind === 'save') {
+      // Selecting Save leaves the commit to Enter: a stray click must not
+      // submit a form the user has not looked over.
+      this.activeField = 'save';
+      return { handled: true, render: true };
+    }
+
+    this.activeField = hit.field;
+    if (hit.kind === 'field') return { handled: true, render: true };
+    return inputPressAt(hit.input, event, { row: hit.row, column: this.frameColumn });
+  }
+
   override invalidate(): void {
     super.invalidate();
     for (const input of this.allInputs()) input.invalidate();
@@ -645,58 +704,104 @@ export class ProviderFormDialogComponent extends Container implements Focusable 
     const hintFor = (fields: readonly FieldId[], text: string): string[] =>
       fields.some((field) => fieldFocused(field)) ? [currentTheme.fg('textMuted', text)] : [];
 
-    const rawLines: string[] = [currentTheme.boldFg('textStrong', title)];
-    if (this.hint !== null) rawLines.push(currentTheme.fg('error', hintText(this.hint)));
-    rawLines.push(
-      '',
-      labelStyled(t('tui.dialogs.providerForm.idLabel'), fieldFocused('id')),
+    const rawLines: string[] = [];
+    const frames: FormHit[] = [];
+    const add = (line: string, tag?: FormTag): void => {
+      if (tag !== undefined) frames.push({ ...tag, row: rawLines.length });
+      rawLines.push(line);
+    };
+    const addField = (field: FieldId, label: string, valueLine: string, input?: Input): void => {
+      add(labelStyled(label, fieldFocused(field)), { kind: 'field', field });
+      add(valueLine, input === undefined ? undefined : { kind: 'input', field, input });
+    };
+
+    add(currentTheme.boldFg('textStrong', title));
+    if (this.hint !== null) add(currentTheme.fg('error', hintText(this.hint)));
+    add('');
+    addField(
+      'id',
+      t('tui.dialogs.providerForm.idLabel'),
       this.inputLine(this.idInput, innerWidth),
-      ...this.idNoteLines(),
-      '',
-      labelStyled(t('tui.dialogs.providerForm.typeLabel'), fieldFocused('type')),
-      this.typeLine(),
-      '',
-      labelStyled(t('tui.dialogs.providerForm.apiKeyLabel'), fieldFocused('apiKey')),
-      this.apiKeyLine(innerWidth),
+      this.idInput,
     );
+    for (const note of this.idNoteLines()) add(note);
+    add('');
+    addField('type', t('tui.dialogs.providerForm.typeLabel'), this.typeLine());
+    add('');
+    // The API key renders masked, so a click can only select the field: the
+    // caret would land on the mask rather than the secret behind it.
+    addField('apiKey', t('tui.dialogs.providerForm.apiKeyLabel'), this.apiKeyLine(innerWidth));
     const apiKeyNote = this.apiKeyNoteLine();
-    if (apiKeyNote !== null) rawLines.push(currentTheme.fg('textMuted', apiKeyNote));
-    rawLines.push(
-      '',
-      labelStyled(t('tui.dialogs.providerForm.apiKeyEnvLabel'), fieldFocused('apiKeyEnv')),
+    if (apiKeyNote !== null) add(currentTheme.fg('textMuted', apiKeyNote));
+    add('');
+    addField(
+      'apiKeyEnv',
+      t('tui.dialogs.providerForm.apiKeyEnvLabel'),
       this.inputLine(this.apiKeyEnvInput, innerWidth),
-      // The rule the field implements binds both credential sources, so the
-      // hint is shown from whichever of the two has focus.
-      ...hintFor(['apiKey', 'apiKeyEnv'], t('tui.dialogs.providerForm.apiKeyEnvHint')),
-      '',
-      labelStyled(t('tui.dialogs.providerForm.baseUrlLabel'), fieldFocused('baseUrl')),
-      this.inputLine(this.baseUrlInput, innerWidth),
-      '',
-      labelStyled(
-        t('tui.dialogs.providerForm.providerDefaultModelLabel'),
-        fieldFocused('defaultModel'),
-      ),
-      this.inputLine(this.defaultModelInput, innerWidth),
-      ...hintFor(['defaultModel'], t('tui.dialogs.providerForm.providerDefaultModelHint')),
-      '',
-      labelStyled(t('tui.dialogs.providerForm.customHeadersLabel'), fieldFocused('customHeaders')),
-      this.inputLine(this.customHeadersInput, innerWidth),
-      ...hintFor(['customHeaders'], t('tui.dialogs.providerForm.customHeadersHint')),
-      '',
-      labelStyled(t('tui.dialogs.providerForm.envLabel'), fieldFocused('env')),
-      this.inputLine(this.envInput, innerWidth),
-      ...hintFor(['env'], t('tui.dialogs.providerForm.envHint')),
-      '',
-      labelStyled(t('tui.dialogs.providerForm.modelsLabel'), fieldFocused('models')),
-      ...this.modelsLines(innerWidth, fieldFocused('models')),
-      '',
-      this.saveLine(fieldFocused('save')),
-      '',
-      this.footerLine(),
+      this.apiKeyEnvInput,
     );
+    // The rule the field implements binds both credential sources, so the
+    // hint is shown from whichever of the two has focus.
+    for (const line of hintFor(['apiKey', 'apiKeyEnv'], t('tui.dialogs.providerForm.apiKeyEnvHint')))
+      add(line);
+    add('');
+    addField(
+      'baseUrl',
+      t('tui.dialogs.providerForm.baseUrlLabel'),
+      this.inputLine(this.baseUrlInput, innerWidth),
+      this.baseUrlInput,
+    );
+    add('');
+    addField(
+      'defaultModel',
+      t('tui.dialogs.providerForm.providerDefaultModelLabel'),
+      this.inputLine(this.defaultModelInput, innerWidth),
+      this.defaultModelInput,
+    );
+    for (const line of hintFor(
+      ['defaultModel'],
+      t('tui.dialogs.providerForm.providerDefaultModelHint'),
+    ))
+      add(line);
+    add('');
+    addField(
+      'customHeaders',
+      t('tui.dialogs.providerForm.customHeadersLabel'),
+      this.inputLine(this.customHeadersInput, innerWidth),
+      this.customHeadersInput,
+    );
+    for (const line of hintFor(['customHeaders'], t('tui.dialogs.providerForm.customHeadersHint')))
+      add(line);
+    add('');
+    addField(
+      'env',
+      t('tui.dialogs.providerForm.envLabel'),
+      this.inputLine(this.envInput, innerWidth),
+      this.envInput,
+    );
+    for (const line of hintFor(['env'], t('tui.dialogs.providerForm.envHint'))) add(line);
+    add('');
+    add(labelStyled(t('tui.dialogs.providerForm.modelsLabel'), fieldFocused('models')), {
+      kind: 'field',
+      field: 'models',
+    });
+    const modelLines = this.modelsLines(innerWidth, fieldFocused('models'));
+    const rowCount = this.modelsMode === 'row' ? 0 : this.models.length;
+    for (let i = 0; i < modelLines.length; i++) {
+      add(modelLines[i]!, i < rowCount ? { kind: 'row', index: i } : undefined);
+    }
+    add('');
+    add(this.saveLine(fieldFocused('save')), { kind: 'save' });
+    add('');
+    add(this.footerLine());
     const contentLines = rawLines.map((line) => truncateToWidth(line, innerWidth, '…'));
 
-    if (safeWidth < 4) {
+    const boxed = safeWidth >= 4;
+    const shift = boxed ? 3 : 1;
+    this.frameColumn = boxed ? 3 : 0;
+    this.frames = frames.map((frame) => ({ ...frame, row: frame.row + shift }));
+
+    if (!boxed) {
       return ['', ...contentLines.map((line) => truncateToWidth(line, safeWidth, '…'))];
     }
 

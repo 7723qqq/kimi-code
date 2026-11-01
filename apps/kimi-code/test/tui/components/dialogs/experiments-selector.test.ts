@@ -5,6 +5,7 @@ import {
   ExperimentsSelectorComponent,
   type ExperimentalFeatureDraftChange,
 } from '#/tui/components/dialogs/experiments-selector';
+import { mouse, pastSettlingWindow } from '#test/helpers/mouse';
 
 
 const ANSI = /\u001B\[[0-9;]*m/g;
@@ -152,5 +153,26 @@ describe('ExperimentsSelectorComponent', () => {
     expect(onCancel).not.toHaveBeenCalled();
     selector.handleInput(ESC);
     expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ExperimentsSelectorComponent — mouse', () => {
+  it('toggles the feature under the pointer', () => {
+    const selector = new ExperimentsSelectorComponent({
+      features: [feature({ id: 'web_search', title: 'Web search' })],
+      onApply: mock(),
+      onCancel: mock(),
+    });
+    pastSettlingWindow();
+    selector.focused = true;
+    const rows = selector.render(120).map(strip);
+    const row = rows.findIndex((line) => line.includes('Web search'));
+    expect(row).toBeGreaterThan(0);
+
+    for (const type of ['press', 'release', 'click'] as const) {
+      selector.handleMouse(mouse(type, row));
+    }
+    expect(text(selector)).toContain('disabled');
+    expect(text(selector)).toContain('1 change');
   });
 });

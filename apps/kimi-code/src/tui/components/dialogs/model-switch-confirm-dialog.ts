@@ -12,10 +12,25 @@
  * descriptions.
  */
 
-import { Container, matchesKey, Key, truncateToWidth, visibleWidth, type Focusable } from '@moonshot-ai/pi-tui';
+import {
+  Container,
+  matchesKey,
+  Key,
+  truncateToWidth,
+  visibleWidth,
+  type Focusable,
+  type TuiMouseDispatchResult,
+  type TuiMouseEvent,
+} from '@moonshot-ai/pi-tui';
 import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
+import {
+  listMouseDispatch,
+  ListMouseRouter,
+  type ListRowRegion,
+  searchableListCursor,
+} from '#/tui/utils/list-mouse';
 import { SearchableList } from '#/tui/utils/searchable-list';
 import type { ModelSwitchAction } from '#/utils/model-switch-confirm-config';
 
@@ -72,6 +87,7 @@ export class ModelSwitchConfirmDialogComponent extends Container implements Focu
   focused = false;
   private readonly opts: ModelSwitchConfirmDialogOptions;
   private readonly list: SearchableList<ModelSwitchOption>;
+  private readonly mouse: ListMouseRouter<ModelSwitchOption>;
 
   constructor(opts: ModelSwitchConfirmDialogOptions) {
     super();
@@ -82,6 +98,11 @@ export class ModelSwitchConfirmDialogComponent extends Container implements Focu
       initialIndex: 0,
       searchable: false,
     });
+    this.mouse = new ListMouseRouter(
+      searchableListCursor(() => this.list),
+      (option) => this.opts.onSelect(option.value),
+      { isFocused: () => this.focused },
+    );
   }
 
   handleInput(data: string): void {
@@ -95,6 +116,10 @@ export class ModelSwitchConfirmDialogComponent extends Container implements Focu
       return;
     }
     this.list.handleKey(data);
+  }
+
+  override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
+    return listMouseDispatch(this, event, this.mouse.handleMouse(event));
   }
 
   override render(width: number): string[] {
@@ -114,6 +139,7 @@ export class ModelSwitchConfirmDialogComponent extends Container implements Focu
     }
 
     const maxLabelWidth = Math.max(...view.items.map((o) => visibleWidth(o.label)));
+    const regions: ListRowRegion[] = [];
     for (let i = view.page.start; i < view.page.end; i++) {
       const opt = view.items[i]!;
       const isSelected = i === view.selectedIndex;
@@ -126,8 +152,11 @@ export class ModelSwitchConfirmDialogComponent extends Container implements Focu
         const gap = maxLabelWidth - visibleWidth(opt.label) + 4;
         line += ' '.repeat(gap) + currentTheme.fg('textMuted', opt.description);
       }
+      const start = lines.length;
       lines.push(line);
+      regions.push({ start, end: lines.length, index: i });
     }
+    this.mouse.setRegions(regions);
 
     lines.push('');
     lines.push(currentTheme.fg('primary', '─'.repeat(width)));

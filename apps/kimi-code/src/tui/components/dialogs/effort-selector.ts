@@ -4,12 +4,18 @@ import {
   Key,
   matchesKey,
   truncateToWidth,
+  visibleWidth,
   wrapTextWithAnsi,
   type Focusable,
+  type TuiMouseDispatchResult,
+  type TuiMouseEvent,
+  type TuiMouseEventResult,
 } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
+import { listMouseDispatch, regionAt, type ListRowRegion } from '#/tui/utils/list-mouse';
+import { isSettlingClick } from '#/tui/utils/terminal-focus';
 
 import { effortLabel } from './model-selector';
 
@@ -41,6 +47,9 @@ export class EffortSelectorComponent extends Container implements Focusable {
   focused = false;
   private readonly opts: EffortSelectorOptions;
   private activeIndex: number;
+  /** Columns each segment occupied in the last render, for pointer hits. */
+  private readonly segmentRegions: ListRowRegion[] = [];
+  private readonly shownAt = Date.now();
 
   constructor(opts: EffortSelectorOptions) {
     super();
@@ -70,6 +79,37 @@ export class EffortSelectorComponent extends Container implements Focusable {
       this.opts.onSelect(this.opts.efforts[this.activeIndex]!);
       return;
     }
+  }
+
+  override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
+    return listMouseDispatch(this, event, this.mouseEvent(event));
+  }
+
+  private mouseEvent(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    if (!this.focused) {
+      if (event.type === 'press') return { handled: true };
+      if (event.type === 'click') return { handled: true, focus: true };
+      return undefined;
+    }
+
+    if (event.type === 'wheel') {
+      if (event.wheelDelta === undefined) return { handled: true };
+      const delta = event.wheelDelta < 0 ? -1 : 1;
+      const next = Math.max(0, Math.min(this.opts.efforts.length - 1, this.activeIndex + delta));
+      if (next === this.activeIndex) return { handled: true };
+      this.activeIndex = next;
+      return { handled: true, render: true };
+    }
+
+    if (event.type !== 'press' && event.type !== 'click') return undefined;
+    const segment = regionAt(this.segmentRegions, event);
+    if (segment === undefined) return undefined;
+
+    this.activeIndex = segment.index;
+    if (event.type === 'click' && !isSettlingClick(this.shownAt)) {
+      this.opts.onSelect(this.opts.efforts[segment.index]!);
+    }
+    return { handled: true, render: true };
   }
 
   override render(width: number): string[] {
@@ -102,6 +142,20 @@ export class EffortSelectorComponent extends Container implements Focusable {
         ? currentTheme.boldFg('primary', `[ ${label} ]`)
         : currentTheme.fg('text', `  ${label}  `);
     });
+    const row = lines.length;
+    this.segmentRegions.length = 0;
+    let column = 2;
+    for (let i = 0; i < segments.length; i++) {
+      const segmentWidth = visibleWidth(segments[i]!);
+      this.segmentRegions.push({
+        start: row,
+        end: row + 1,
+        columnStart: column,
+        columnEnd: column + segmentWidth,
+        index: i,
+      });
+      column += segmentWidth + 2;
+    }
     lines.push(`  ${segments.join('  ')}`);
 
     lines.push('');

@@ -25,7 +25,11 @@ import { createMarkdownTheme } from '#/tui/theme/pi-tui-theme';
 import { createMarkdownOptions } from '#/tui/utils/markdown-options';
 import { Markdown } from '#/tui/components/markdown/markdown';
 import { printableChar } from '#/tui/utils/printable-key';
-import { isSettlingClick } from '#/tui/utils/terminal-focus';
+import {
+  ListMouseRouter,
+  type ListRowRegion,
+  searchableListCursor,
+} from '#/tui/utils/list-mouse';
 import { SearchableList } from '#/tui/utils/searchable-list';
 import { wrapText as wrapDescription } from '#/tui/utils/wrap-text';
 
@@ -66,18 +70,15 @@ export interface ChoicePickerOptions {
   readonly onCancel: () => void;
 }
 
-interface ChoiceRegion {
-  readonly start: number;
-  readonly end: number;
-  readonly index: number;
-}
-
 export class ChoicePickerComponent implements Component, Focusable {
   focused = false;
+  // The picker pages its own list with PageUp/PageDown; in the alternate screen
+  // that key would otherwise scroll the transcript behind it.
+  readonly ownsViewportKeys = true;
   private readonly opts: ChoicePickerOptions;
   private readonly list: SearchableList<ChoiceOption>;
   private readonly shownAt = Date.now();
-  private choiceRegions: readonly ChoiceRegion[] = [];
+  private readonly mouse: ListMouseRouter<ChoiceOption>;
 
   constructor(opts: ChoicePickerOptions) {
     this.opts = opts;
@@ -91,6 +92,11 @@ export class ChoicePickerComponent implements Component, Focusable {
       initialIndex: Math.max(initialIdx, 0),
       searchable: opts.searchable === true,
     });
+    this.mouse = new ListMouseRouter(
+      searchableListCursor(() => this.list),
+      (option) => this.opts.onSelect(option.value),
+      { shownAt: this.shownAt, isFocused: () => this.focused },
+    );
   }
 
   handleInput(data: string): void {
@@ -127,48 +133,7 @@ export class ChoicePickerComponent implements Component, Focusable {
   }
 
   handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
-    if (!this.focused) {
-      if (event.type === 'press') return { handled: true };
-      if (event.type === 'click') return { handled: true, focus: true };
-      return undefined;
-    }
-    if (event.type === 'wheel') {
-      const view = this.list.view();
-      if (view.page.pageCount > 1 && event.wheelDelta !== undefined) {
-        const before = view.selectedIndex;
-        if (event.wheelDelta < 0) this.list.pageUp();
-        else if (event.wheelDelta > 0) this.list.pageDown();
-        return { handled: true, render: this.list.view().selectedIndex !== before };
-      }
-      return { handled: true };
-    }
-    if (event.type === 'move') {
-      const index = this.choiceIndexAt(event.y);
-      if (index === undefined) return undefined;
-      return { handled: true, render: this.selectIndex(index) };
-    }
-    if (event.button !== 'left') return undefined;
-    const index = this.choiceIndexAt(event.y);
-    if (index === undefined) return undefined;
-    if (event.type === 'press') {
-      return { handled: true, render: this.selectIndex(index) };
-    }
-    if (event.type === 'click' && !isSettlingClick(this.shownAt)) {
-      this.selectIndex(index);
-      const chosen = this.list.view().items[index];
-      if (chosen !== undefined) this.opts.onSelect(chosen.value);
-    }
-    return { handled: true };
-  }
-
-  private choiceIndexAt(y: number): number | undefined {
-    return this.choiceRegions.find((region) => y >= region.start && y < region.end)?.index;
-  }
-
-  private selectIndex(index: number): boolean {
-    const changed = this.list.view().selectedIndex !== index;
-    this.list.moveTo(index);
-    return changed;
+    return this.mouse.handleMouse(event);
   }
 
   invalidate(): void {}
@@ -229,7 +194,7 @@ export class ChoicePickerComponent implements Component, Focusable {
     if (options.length === 0) {
       lines.push(currentTheme.fg('textMuted', `   ${t('tui.dialogs.choicePicker.noMatches')}`));
     }
-    const choiceRegions: ChoiceRegion[] = [];
+    const choiceRegions: ListRowRegion[] = [];
     for (let i = view.page.start; i < view.page.end; i++) {
       const start = lines.length;
       const opt = options[i]!;
@@ -253,7 +218,7 @@ export class ChoicePickerComponent implements Component, Focusable {
       }
       choiceRegions.push({ start, end: lines.length, index: i });
     }
-    this.choiceRegions = choiceRegions;
+    this.mouse.setRegions(choiceRegions);
 
     lines.push('');
     if (view.page.pageCount > 1) {

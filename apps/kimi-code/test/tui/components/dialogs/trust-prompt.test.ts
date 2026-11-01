@@ -1,6 +1,10 @@
 import { describe, expect, it, mock } from 'bun:test';
 import type { WorkspaceTrustInfo } from '@moonshot-ai/kimi-code-sdk';
-import { TrustPromptComponent } from '#/tui/components/dialogs/trust-prompt';
+import { mouse, pastSettlingWindow } from '#test/helpers/mouse';
+import {
+  TrustPromptComponent,
+  type TrustPromptChoice,
+} from '#/tui/components/dialogs/trust-prompt';
 
 function info(overrides: Partial<WorkspaceTrustInfo> = {}): WorkspaceTrustInfo {
   return {
@@ -189,5 +193,26 @@ describe('TrustPromptComponent', () => {
       for (const key of keys) prompt.handleInput(key);
       expect(onSelect).toHaveBeenCalledWith(expected);
     }
+  });
+});
+
+describe('TrustPromptComponent — mouse', () => {
+  it('picks the choice under the pointer', () => {
+    const onSelect = mock<(choice: TrustPromptChoice) => void>();
+    const prompt = new TrustPromptComponent({
+      workDir,
+      info: info(),
+      onSelect,
+    });
+    pastSettlingWindow();
+    prompt.focused = true;
+    const rows = render(prompt);
+    const row = rows.findIndex((line) => line.includes('Trust and continue'));
+    expect(row).toBeGreaterThan(0);
+
+    for (const type of ['press', 'release', 'click'] as const) {
+      prompt.handleMouse(mouse(type, row));
+    }
+    expect(onSelect).toHaveBeenCalledWith('trust');
   });
 });

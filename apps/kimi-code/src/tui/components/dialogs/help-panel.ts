@@ -14,11 +14,14 @@ import {
   Key,
   decodeKittyPrintable,
   type Focusable,
+  type TuiMouseDispatchResult,
+  type TuiMouseEvent,
   truncateToWidth,
 } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
+import { ScrollMouseRouter } from '#/tui/utils/list-mouse';
 
 export interface KeyboardShortcut {
   readonly keys: string;
@@ -37,6 +40,9 @@ export interface HelpPanelCommand {
   readonly aliases: readonly string[];
   readonly description: string;
 }
+
+/** Rows the wheel moves per notch. */
+const WHEEL_LINES = 3;
 
 /** Static list — keep in sync with the global editor bindings. */
 export function getDefaultKeyboardShortcuts(options?: {
@@ -81,10 +87,21 @@ export class HelpPanelComponent extends Container implements Focusable {
   readonly ownsViewportSearchKey = true;
   private readonly opts: HelpPanelOptions;
   private scrollTop = 0;
+  /** How far the view may scroll; the render pass clamps the scroll to it. */
+  private maxScrollTop = 0;
+  private readonly mouse = new ScrollMouseRouter((direction) => this.scrollBy(direction * WHEEL_LINES));
 
   constructor(opts: HelpPanelOptions) {
     super();
     this.opts = opts;
+  }
+
+  /** Move the view by `lines` rows; false when it is already at the end. */
+  private scrollBy(lines: number): boolean {
+    const next = Math.max(0, Math.min(this.maxScrollTop, this.scrollTop + lines));
+    if (next === this.scrollTop) return false;
+    this.scrollTop = next;
+    return true;
   }
 
   handleInput(data: string): void {
@@ -113,6 +130,22 @@ export class HelpPanelComponent extends Container implements Focusable {
     if (matchesKey(data, Key.pageDown)) {
       this.scrollTop += 10;
     }
+  }
+
+  override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
+    const result = this.mouse.handleMouse(event);
+    if (!result) return undefined;
+    return {
+      ...result,
+      handled: true,
+      target: {
+        component: this,
+        originX: event.screenX - event.x,
+        originY: event.screenY - event.y,
+        width: event.width,
+        height: event.height,
+      },
+    };
   }
 
   override render(width: number): string[] {
@@ -161,6 +194,7 @@ export class HelpPanelComponent extends Container implements Focusable {
     // Apply scroll windowing — keep the borders visible.
     const content = lines.slice(1, lines.length - 1);
     const maxVisible = Math.max(5, this.opts.maxVisible ?? 24);
+    this.maxScrollTop = Math.max(0, content.length - maxVisible);
     if (content.length > maxVisible) {
       this.scrollTop = Math.max(0, Math.min(this.scrollTop, content.length - maxVisible));
       const slice = content.slice(this.scrollTop, this.scrollTop + maxVisible);
