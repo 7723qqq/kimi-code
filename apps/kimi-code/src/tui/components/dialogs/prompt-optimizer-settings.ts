@@ -52,8 +52,12 @@ export class PromptOptimizerSettingsComponent implements Focusable {
     this.opts = opts;
     this.rows = [...opts.efforts, EFFORT_ANY];
     const current = opts.initial.effort;
-    this.rowIndex =
-      current === undefined ? this.rows.length - 1 : Math.max(0, this.rows.indexOf(current));
+    // A stored level this model does not offer (another model's effort, or a
+    // typo) has no row of its own. Selecting row 0 would claim the rewrite runs
+    // at a level it does not, so fall back to the follow-main row — the engine's
+    // own behaviour for an effort it does not recognize.
+    const index = current === undefined ? -1 : this.rows.indexOf(current);
+    this.rowIndex = index >= 0 ? index : this.rows.length - 1;
     this.timeoutText =
       opts.initial.timeoutMs === undefined ? '' : String(Math.round(opts.initial.timeoutMs / 1000));
   }
@@ -91,7 +95,8 @@ export class PromptOptimizerSettingsComponent implements Focusable {
 
   private save(): void {
     const raw = this.timeoutText.trim();
-    const effort = this.rows[this.rowIndex];
+    const row = this.rows[this.rowIndex];
+    const effort = row === EFFORT_ANY ? undefined : row;
     if (raw === '') {
       this.opts.onSave({ timeoutMs: undefined, effort });
       return;
@@ -122,10 +127,10 @@ export class PromptOptimizerSettingsComponent implements Focusable {
 
     const label = (value: string): string =>
       value === EFFORT_ANY ? t('tui.dialogs.promptOptimizerSettings.followMain') : value;
-    for (let i = 0; i < this.rows.length; i++) {
+    for (const [i, row] of this.rows.entries()) {
       const selected = i === this.rowIndex;
       const pointer = selected ? SELECT_POINTER : ' ';
-      const text = label(this.rows[i]!);
+      const text = label(row);
       lines.push(
         currentTheme.fg(selected ? 'primary' : 'textDim', `  ${pointer} `) +
           (selected ? currentTheme.boldFg('primary', text) : currentTheme.fg('text', text)),

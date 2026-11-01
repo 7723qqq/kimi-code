@@ -1,8 +1,9 @@
-import { describe, expect, it, mock, onTestFinished, setSystemTime } from 'bun:test';
+import { afterEach, describe, expect, it, mock, onTestFinished, setSystemTime } from 'bun:test';
 import { stripVTControlCharacters } from 'node:util';
 
 import { visibleWidth, type TuiMouseEvent } from '@moonshot-ai/pi-tui';
 
+import { setExperimentalFeatures } from '#/tui/commands/experimental-flags';
 import { ChoicePickerComponent, type ChoiceOption } from '#/tui/components/dialogs/choice-picker';
 import { EditorSelectorComponent } from '#/tui/components/dialogs/editor-selector';
 import { PermissionSelectorComponent } from '#/tui/components/dialogs/permission-selector';
@@ -335,5 +336,68 @@ describe('ChoicePickerComponent', () => {
     picker.focused = true;
     for (const type of ['press', 'release', 'click'] as const) picker.handleMouse(mouse(type, row));
     expect(onSelect).toHaveBeenCalledWith('a');
+  });
+});
+
+describe('SettingsSelectorComponent experimental entries', () => {
+  afterEach(() => {
+    setExperimentalFeatures([]);
+  });
+
+  it('dispatches every listed option through the guard, prompt optimizer included', () => {
+    setExperimentalFeatures([{ id: 'prompt_optimizer', enabled: true }]);
+    const selected: string[] = [];
+    const picker = new SettingsSelectorComponent({
+      onSelect: (value) => selected.push(value),
+      onCancel: mock(),
+    });
+    picker.focused = true;
+
+    for (let i = 0; i < 13; i++) {
+      picker.handleInput('\r');
+      if (i < 12) picker.handleInput('\u001B[B');
+    }
+    expect(selected).toEqual([
+      'model',
+      'permission',
+      'theme',
+      'tuiMode',
+      'mermaid',
+      'language',
+      'editor',
+      'survey',
+      'experiments',
+      'upgrade',
+      'usage',
+      'github_token',
+      'promptOptimizer',
+    ]);
+  });
+
+  it('renders the prompt optimizer row last when the flag is on', () => {
+    setExperimentalFeatures([{ id: 'prompt_optimizer', enabled: true }]);
+    const picker = new SettingsSelectorComponent({ onSelect: mock(), onCancel: mock() });
+    picker.focused = true;
+
+    for (let i = 0; i < 13; i++) picker.handleInput('\u001B[B');
+    const out = picker.render(120).map(strip);
+    expect(out).toContain('  ❯ Prompt optimizer');
+    expect(out).toContain('    Thinking effort and time budget for the Ctrl+P rewrite.');
+  });
+
+  it('omits the prompt optimizer entry when the flag is off', () => {
+    setExperimentalFeatures([]);
+    const selected: string[] = [];
+    const picker = new SettingsSelectorComponent({
+      onSelect: (value) => selected.push(value),
+      onCancel: mock(),
+    });
+    picker.focused = true;
+
+    expect(picker.render(120).map(strip).join('\n')).not.toContain('Prompt optimizer');
+
+    for (let i = 0; i < 11; i++) picker.handleInput('\u001B[B');
+    picker.handleInput('\r');
+    expect(selected).toEqual(['github_token']);
   });
 });

@@ -3,24 +3,39 @@ import { t } from '#/i18n';
 import { isExperimentalFlagEnabled } from '../../commands/experimental-flags';
 import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
 
-export type SettingsSelection =
-  | 'model'
-  | 'theme'
-  | 'tuiMode'
-  | 'mermaid'
-  | 'editor'
-  | 'language'
-  | 'permission'
-  | 'survey'
-  | 'experiments'
-  | 'upgrade'
-  | 'usage'
-  | 'github_token'
-  | 'astron'
-  | 'promptOptimizer';
+const SETTINGS_SELECTION_MEMBERS = [
+  'model',
+  'theme',
+  'tuiMode',
+  'mermaid',
+  'editor',
+  'language',
+  'permission',
+  'survey',
+  'experiments',
+  'upgrade',
+  'usage',
+  'github_token',
+  'astron',
+  'promptOptimizer',
+] as const;
 
-function getSettingsOptions(): readonly ChoiceOption[] {
-  const options: ChoiceOption[] = [
+export type SettingsSelection = (typeof SETTINGS_SELECTION_MEMBERS)[number];
+
+/**
+ * An option whose value the guard is guaranteed to accept.
+ *
+ * Without this, `getSettingsOptions` could add a value the members list does
+ * not know about and the picker would silently drop the selection — the shape
+ * of the original missing-`promptOptimizer` bug. Narrowing `value` here makes
+ * that divergence a type error instead of a dead click.
+ */
+interface SettingsChoiceOption extends ChoiceOption {
+  readonly value: SettingsSelection;
+}
+
+function getSettingsOptions(): readonly SettingsChoiceOption[] {
+  const options: SettingsChoiceOption[] = [
     {
       value: 'model',
       label: t('tui.dialogs.settingsSelector.model'),
@@ -102,21 +117,7 @@ function getSettingsOptions(): readonly ChoiceOption[] {
 }
 
 function isSettingsSelection(value: string): value is SettingsSelection {
-  return (
-    value === 'model' ||
-    value === 'theme' ||
-    value === 'tuiMode' ||
-    value === 'mermaid' ||
-    value === 'language' ||
-    value === 'editor' ||
-    value === 'permission' ||
-    value === 'survey' ||
-    value === 'experiments' ||
-    value === 'upgrade' ||
-    value === 'usage' ||
-    value === 'github_token' ||
-    value === 'astron'
-  );
+  return (SETTINGS_SELECTION_MEMBERS as readonly string[]).includes(value);
 }
 
 export interface SettingsSelectorOptions {

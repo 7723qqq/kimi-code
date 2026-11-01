@@ -66,7 +66,13 @@ export class PromptOptimizerActivityLine implements Component {
 
   setPhase(phase: PromptOptimizerPhase): void {
     this.phase = phase;
-    this.recent.push(phaseText(phase));
+    const text = phaseText(phase);
+    // Stream events report the same phase over and over: every assistant token
+    // is a delta, and a step boundary plus the tool result either side of it
+    // both read as "thinking". Recording each one verbatim turned the expanded
+    // step list into the same sentence three times.
+    if (this.recent.at(-1) === text) return;
+    this.recent.push(text);
     if (this.recent.length > EXPANDED_DETAIL_ROWS + 1) this.recent.shift();
   }
 
@@ -78,12 +84,17 @@ export class PromptOptimizerActivityLine implements Component {
 
   /**
    * A click on the row unfolds it, so the pointer has the same gesture as
-   * Ctrl+O. `press` and `click` both count: the alternate screen reports a
-   * click on release, and waiting for it would make the row feel unresponsive.
+   * Ctrl+O. Only `click` toggles: one physical click reaches the row twice —
+   * `press` on the way down, then a synthesized `click` on release — so acting
+   * on both flipped the row open and shut within the same gesture, which is
+   * what made it look like a flicker instead of an expansion.
    */
   handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
-    if (event.button !== 'left') return undefined;
-    if (event.type !== 'press' && event.type !== 'click') return undefined;
+    if (event.button !== 'left' || event.type !== 'click') return undefined;
+    // A second click in a rapid double click carries clickCount 2; toggling it
+    // would unfold and fold the list within one gesture — the same flicker the
+    // press/click double dispatch used to cause.
+    if (event.clickCount !== undefined && event.clickCount > 1) return { handled: true };
     this.onToggle();
     return { handled: true, render: true };
   }

@@ -1,7 +1,12 @@
 import { describe, expect, it, mock } from 'bun:test';
 
 import type { Event } from '@moonshot-ai/kimi-code-sdk';
-import { Container } from '@moonshot-ai/pi-tui';
+import {
+  Container,
+  type Component,
+  type TuiMouseEvent,
+  type TuiMouseEventType,
+} from '@moonshot-ai/pi-tui';
 
 import { PromptOptimizerActivityController } from '#/tui/controllers/prompt-optimizer-activity';
 import { createFakeClock } from '#test/helpers/fake-clock';
@@ -47,6 +52,29 @@ function makeHarness() {
 
 function event(type: string, rest: Record<string, unknown> = {}): Event {
   return { type, agentId: 'agent-opt', sessionId: 's1', ...rest } as unknown as Event;
+}
+
+function mouse(type: TuiMouseEventType, clickCount = 1): TuiMouseEvent {
+  return {
+    type,
+    button: 'left',
+    x: 0,
+    y: 0,
+    screenX: 0,
+    screenY: 0,
+    width: 80,
+    height: 1,
+    shift: false,
+    alt: false,
+    ctrl: false,
+    ...(type === 'click' ? { clickCount } : {}),
+  };
+}
+
+function firstRow(h: ReturnType<typeof makeHarness>): Component {
+  const row = h.activityContainer.children[0];
+  if (row === undefined) throw new Error('activity row is not mounted');
+  return row;
 }
 
 describe('PromptOptimizerActivityController', () => {
@@ -236,6 +264,90 @@ describe('PromptOptimizerActivityController', () => {
     expect(expanded.length).toBeGreaterThan(1);
     expect(expanded.join('\n')).toContain('checking Read a.ts…');
     expect(expanded.join('\n')).toContain('ctrl+o to collapse');
+  });
+
+  it('expands on a physical click even though the renderer also sends a press', () => {
+    const h = makeHarness();
+    h.controller.begin();
+    h.controller.applyEvent(
+      event('tool.call.started', { name: 'Read', args: { path: 'a.ts' }, toolCallId: 'c1' }),
+    );
+    h.controller.applyEvent(event('tool.result', { toolCallId: 'c1' }));
+    const row = firstRow(h);
+
+    row.handleMouse?.(mouse('press'));
+    row.handleMouse?.(mouse('click'));
+
+    expect(h.controller.expanded).toBe(true);
+    expect(h.rows().length).toBeGreaterThan(1);
+  });
+
+  it('folds back on a second physical click', () => {
+    const h = makeHarness();
+    h.controller.begin();
+    h.controller.applyEvent(
+      event('tool.call.started', { name: 'Read', args: { path: 'a.ts' }, toolCallId: 'c1' }),
+    );
+
+    const click = (): void => {
+      const row = firstRow(h);
+      row.handleMouse?.(mouse('press'));
+      row.handleMouse?.(mouse('click'));
+    };
+
+    click();
+    expect(h.controller.expanded).toBe(true);
+
+    click();
+    expect(h.controller.expanded).toBe(false);
+    expect(h.rows()).toHaveLength(1);
+    expect(h.rows()[0]).toContain('ctrl+o for steps');
+  });
+
+  it('treats a rapid second click as part of the same gesture', () => {
+    const h = makeHarness();
+    h.controller.begin();
+    h.controller.applyEvent(
+      event('tool.call.started', { name: 'Read', args: { path: 'a.ts' }, toolCallId: 'c1' }),
+    );
+    const row = firstRow(h);
+
+    row.handleMouse?.(mouse('click', 1));
+    row.handleMouse?.(mouse('click', 2));
+
+    expect(h.controller.expanded).toBe(true);
+    expect(h.rows().length).toBeGreaterThan(1);
+  });
+
+  it('keeps the step list open when the activity pane rebuilds the container', () => {
+    const h = makeHarness();
+    h.controller.begin();
+    h.controller.applyEvent(
+      event('tool.call.started', { name: 'Read', args: { path: 'a.ts' }, toolCallId: 'c1' }),
+    );
+    h.controller.toggleExpanded();
+
+    h.activityContainer.clear();
+    h.controller.applyEvent(event('tool.result', { toolCallId: 'c1' }));
+
+    expect(h.controller.expanded).toBe(true);
+    expect(h.rows().length).toBeGreaterThan(1);
+  });
+
+  it('does not repeat a phase that streams in more than once', () => {
+    const h = makeHarness();
+    h.controller.begin();
+    h.controller.applyEvent(
+      event('tool.call.started', { name: 'Read', args: { path: 'a.ts' }, toolCallId: 'c1' }),
+    );
+    // The tool result and the next step start both read as "thinking".
+    h.controller.applyEvent(event('tool.result', { toolCallId: 'c1' }));
+    h.controller.applyEvent(event('turn.step.started', { turnId: 1, step: 1 }));
+
+    h.controller.toggleExpanded();
+
+    const occurrences = h.rows().filter((row) => row.includes('reading your draft…'));
+    expect(occurrences).toHaveLength(1);
   });
 
   it('reports nothing to toggle when no rewrite is running', () => {

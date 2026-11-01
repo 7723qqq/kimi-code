@@ -619,7 +619,7 @@ export async function compactForModelSwitch(
   session: Session,
 ): Promise<boolean> {
   type CompactionSettle = 'completed' | 'cancelled' | 'failed' | 'timeout';
-  let settle: (outcome: CompactionSettle) => void = () => undefined;
+  let settle!: (outcome: CompactionSettle) => void;
   const settled = new Promise<CompactionSettle>((resolve) => {
     settle = resolve;
   });
@@ -1385,7 +1385,7 @@ async function handleGitHubTokenInput(host: SlashCommandHost): Promise<void> {
     );
   }
 }
-async function showPromptOptimizerSettingsPanel(host: SlashCommandHost): Promise<void> {
+export async function showPromptOptimizerSettingsPanel(host: SlashCommandHost): Promise<void> {
   const config = await host.harness.getConfig({ reload: true });
   const stored = config.promptOptimizer;
   const alias = host.state.appState.model;
@@ -1411,7 +1411,7 @@ async function showPromptOptimizerSettingsPanel(host: SlashCommandHost): Promise
   );
 }
 
-async function savePromptOptimizerSettings(
+export async function savePromptOptimizerSettings(
   host: SlashCommandHost,
   settings: PromptOptimizerSettings,
 ): Promise<void> {
