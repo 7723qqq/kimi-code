@@ -22,8 +22,9 @@ const LIFECYCLE_SCRIPTS = [_][]const u8{
 /// A root script that means "run this in a package" is written as
 /// `cd <package dir> && bun run <script>` (e.g. `cd apps/kimi-code && bun run dev`).
 const SKIP_DIRS = [_][]const u8{
-    "node_modules", "dist",     "dist-web", "dist-native", "coverage",
-    ".git",         ".zig-cache", "zig-out",  "target",      "参考目录",
+    "node_modules", "dist",       "dist-web",  "dist-native", "coverage", ".git",
+    ".zig-cache",   "zig-out",    "target",    "参考目录",     ".tmp",     ".worktrees",
+    ".superpowers",
 };
 
 /// Scripts that are deliberately manual: a maintainer types them, so nothing

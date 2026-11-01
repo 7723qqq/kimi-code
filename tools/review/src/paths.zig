@@ -7,6 +7,7 @@ const std = @import("std");
 pub const SKIP_DIRS = [_][]const u8{
     "node_modules", "dist", "dist-web", "dist-native", "coverage",
     ".git",         ".zig-cache", "zig-out", "target", "参考目录",
+    ".tmp",         ".worktrees", ".superpowers",
 };
 
 /// A file under `packages/` or `apps/`, the two trees the checks reason about.
@@ -131,7 +132,7 @@ test "isSrcSourceIncludingTests differs from isProductionSource only on tests" {
 }
 
 test "SKIP_DIRS covers the vendor and build trees" {
-    for ([_][]const u8{ "node_modules", "dist", "dist-web", "dist-native", "coverage", ".git", ".zig-cache", "zig-out", "target", "参考目录" }) |name| {
+    for ([_][]const u8{ "node_modules", "dist", "dist-web", "dist-native", "coverage", ".git", ".zig-cache", "zig-out", "target", "参考目录", ".tmp", ".worktrees", ".superpowers" }) |name| {
         var found = false;
         for (SKIP_DIRS) |entry| {
             if (std.mem.eql(u8, entry, name)) found = true;
