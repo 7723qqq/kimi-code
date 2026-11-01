@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { configToTomlData, parseConfigString } from '#/config/index';
+import { KimiConfigSchema } from '#/config/schema';
 import { createKimiConfigRpc } from '#/index';
+import { KIMI_CONFIG_DOMAINS, resolvedConfigToKimiConfig } from '#/v2/config-mapper';
 
 const toPosix = (p: string): string => p.replaceAll('\\', '/');
 
@@ -118,5 +120,32 @@ retirement_at = "2030-01-01T00:00:00Z"
       { upgrade?: Record<string, unknown> }
     >;
     expect(withoutUpgrade['acme/current']).not.toHaveProperty('upgrade');
+  });
+});
+
+describe('config domain allowlist', () => {
+  it('carries every schema section, so getConfig cannot silently drop one', () => {
+    // `KIMI_CONFIG_DOMAINS` is the read path from the engine's per-domain
+    // config to the SDK shape. A domain missing here survives every type
+    // check — the parity assertions are structural — and the value is lost
+    // between a successful write and the next read. The [prompt_optimizer]
+    // settings shipped exactly this hole: writes landed, reads dropped the
+    // section, and the panel reopened over stored values with defaults.
+    const schemaDomains = Object.keys(KimiConfigSchema.shape).filter((key) => key !== 'raw');
+    const missing = schemaDomains.filter(
+      (domain) => !KIMI_CONFIG_DOMAINS.includes(domain as (typeof KIMI_CONFIG_DOMAINS)[number]),
+    );
+    expect(missing).toEqual([]);
+  });
+
+  it('round-trips every allowlisted domain through the read projection', () => {
+    const resolved: Record<string, unknown> = {};
+    for (const domain of KIMI_CONFIG_DOMAINS) {
+      resolved[domain] = { marker: domain };
+    }
+    const config = resolvedConfigToKimiConfig(resolved) as Record<string, unknown>;
+    for (const domain of KIMI_CONFIG_DOMAINS) {
+      expect(config[domain]).toEqual({ marker: domain });
+    }
   });
 });

@@ -19,8 +19,13 @@ import type { ConfigDiagnostics, KimiConfig } from '#/types';
  * Every top-level `KimiConfig` field except `raw` (a v1 write-path
  * implementation detail with no v2 counterpart). Each entry is both the v1
  * field name and the v2 config domain name.
+ *
+ * The `config.test.ts` allowlist check pins this list against
+ * `KimiConfigSchema`: a schema section missing here type-checks fine and
+ * silently disappears between a write and the next read, which is how the
+ * `[prompt_optimizer]` settings shipped.
  */
-const KIMI_CONFIG_DOMAINS = [
+export const KIMI_CONFIG_DOMAINS = [
   'providers',
   'defaultProvider',
   'defaultModel',
