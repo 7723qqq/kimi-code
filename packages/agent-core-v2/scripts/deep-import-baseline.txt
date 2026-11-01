@@ -19,7 +19,12 @@
 #     graph stays out of CLI startup — constant/app.ts and
 #     utils/plugin-marketplace.ts are there for this reason (see efa3556);
 #   * a test file reachable from a package's startup graph or a fixture-heavy
-#     suite keeps the narrow import to hold its own module graph small.
+#     suite keeps the narrow import to hold its own module graph small;
+#   * a consumer whose behavior depends on WHICH registrations a narrow module
+#     performs (migration-legacy's config step derives its keep/drop sets from
+#     the flag and config-section registries) must keep the narrow imports —
+#     importing the root registers every section and flag, which changes the
+#     migration's output (see the reverted 2026-11 redirect batch).
 #
 # Everything listed below is an accepted exception, reviewed at the time the
 # check was introduced. Shrink the list; do not grow it without recording why.
