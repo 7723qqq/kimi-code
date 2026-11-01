@@ -1,4 +1,5 @@
 import type { Event } from '@moonshot-ai/kimi-code-sdk';
+import type { Container } from '@moonshot-ai/pi-tui';
 
 import { MoonLoader } from '../components/chrome/moon-loader';
 import {
@@ -33,6 +34,8 @@ export class PromptOptimizerActivityController {
   private readonly host: PromptOptimizerActivityHost;
   private line: PromptOptimizerActivityLine | undefined;
   private spinner: MoonLoader | undefined;
+  /** Container the row was last appended to, so a re-mount is not repeated. */
+  private attachedTo: Container | undefined;
 
   constructor(host: PromptOptimizerActivityHost) {
     this.host = host;
@@ -59,16 +62,60 @@ export class PromptOptimizerActivityController {
       this.host.state.renderClock,
     );
     spinner.start();
-    const line = new PromptOptimizerActivityLine(spinner);
+    const line = new PromptOptimizerActivityLine(spinner, () => {
+      this.toggleExpanded();
+    });
     line.setPhase({ kind: 'starting' });
     this.spinner = spinner;
     this.line = line;
-    this.host.state.activityContainer.addChild(line);
+    this.mountLine();
     this.host.state.ui.requestRender();
   }
 
+  /**
+   * Keep the row attached to the activity container.
+   *
+   * `ActivityPaneController` owns that container and rebuilds it with
+   * `clear()` whenever the main agent's pane mode changes, which removes every
+   * child — this row included, since the two are siblings there rather than
+   * one being the other's child. Re-adding is idempotent, so the controller
+   * calls this after each phase update and the row comes back on the next
+   * frame instead of silently disappearing mid-rewrite.
+   */
+  private mountLine(): void {
+    const line = this.line;
+    if (line === undefined) return;
+    const container = this.host.state.activityContainer;
+    if (this.attachedTo === container && container.children.includes(line)) return;
+    // `Container` exposes no membership test beyond its children array, and
+    // `addChild` does not dedupe: appending twice would paint the row twice.
+    if (container.children.includes(line)) {
+      this.attachedTo = container;
+      return;
+    }
+    container.addChild(line);
+    this.attachedTo = container;
+  }
+
+  /** Whether the row is showing its expanded step list. */
+  get expanded(): boolean {
+    return this.line?.isExpanded ?? false;
+  }
+
+  /** Fold or unfold the step list. Returns whether a row was showing. */
+  toggleExpanded(): boolean {
+    const line = this.line;
+    if (line === undefined) return false;
+    const changed = line.toggleExpanded();
+    if (changed) this.host.state.ui.requestRender();
+    return true;
+  }
+
   setPhase(phase: PromptOptimizerPhase): void {
-    this.line?.setPhase(phase);
+    if (this.line === undefined) return;
+    this.line.setPhase(phase);
+    // The pane controller may have cleared the container since the last event.
+    this.mountLine();
     this.host.state.ui.requestRender();
   }
 
@@ -104,6 +151,7 @@ export class PromptOptimizerActivityController {
     const line = this.line;
     if (line === undefined) return;
     this.line = undefined;
+    this.attachedTo = undefined;
     // pi-tui's `Component` has no `remove()`; `Container.removeChild` is the
     // only removal API, so the DOM-flavoured rule does not apply here.
     // oxlint-disable-next-line eslint-plugin-unicorn/prefer-dom-node-remove

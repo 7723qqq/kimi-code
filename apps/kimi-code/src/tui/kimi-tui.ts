@@ -4156,6 +4156,12 @@ export class KimiTUI {
   }
 
   toggleToolOutputExpansion(): void {
+    // While a rewrite is running its own row is the thing the user is watching,
+    // so Ctrl+O unfolds that instead of reaching past it to the transcript.
+    if (this.promptOptimizerActivity.toggleExpanded()) {
+      this.track('shortcut_expand_prompt_optimizer');
+      return;
+    }
     this.state.toolOutputExpanded = !this.state.toolOutputExpanded;
     const children = this.state.transcriptContainer.children;
     const expandCutoff = this.expandCutoff(children);

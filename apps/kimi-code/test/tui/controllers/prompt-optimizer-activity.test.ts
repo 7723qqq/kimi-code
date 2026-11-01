@@ -13,6 +13,8 @@ void mock.module('#/i18n', () => ({
       'tui.messages.promptOptimizePhases.thinking': 'reading your draft…',
       'tui.messages.promptOptimizePhases.tool': 'checking {{tool}}…',
       'tui.messages.promptOptimizePhases.writing': 'writing the rewrite…',
+      'tui.messages.promptOptimizePhases.hintCollapsed': 'ctrl+o for steps',
+      'tui.messages.promptOptimizePhases.hintExpanded': 'ctrl+o to collapse',
     };
     const msg = translations[key] ?? key;
     if (params === undefined) return msg;
@@ -190,5 +192,90 @@ describe('PromptOptimizerActivityController', () => {
 
     expect(h.activityContainer.children).toHaveLength(1);
     expect(h.rows()).toEqual(['main agent working']);
+  });
+
+  it('re-attaches the row after the activity pane rebuilds the container', () => {
+    const h = makeHarness();
+    h.controller.begin();
+    h.activityContainer.clear();
+
+    h.controller.applyEvent(
+      event('tool.call.started', { name: 'Read', args: { path: 'a.ts' }, toolCallId: 'c1' }),
+    );
+
+    expect(h.activityContainer.children).toHaveLength(1);
+    expect(h.rows().join('\n')).toContain('checking Read a.ts…');
+  });
+
+  it('never mounts the row twice when the container still holds it', () => {
+    const h = makeHarness();
+    h.controller.begin();
+
+    h.controller.applyEvent(event('turn.step.started', { turnId: 1, step: 0 }));
+    h.controller.applyEvent(event('assistant.delta', { delta: 'x' }));
+
+    expect(h.activityContainer.children).toHaveLength(1);
+  });
+
+  it('stays one row until it is expanded, then lists the recent steps', () => {
+    const h = makeHarness();
+    h.controller.begin();
+    h.controller.applyEvent(
+      event('tool.call.started', { name: 'Read', args: { path: 'a.ts' }, toolCallId: 'c1' }),
+    );
+    h.controller.applyEvent(event('tool.result', { toolCallId: 'c1' }));
+    h.controller.applyEvent(event('assistant.delta', { delta: 'x' }));
+
+    expect(h.rows()).toHaveLength(1);
+    expect(h.rows()[0]).toContain('ctrl+o for steps');
+
+    expect(h.controller.expanded).toBe(false);
+    expect(h.controller.toggleExpanded()).toBe(true);
+
+    const expanded = h.rows();
+    expect(expanded.length).toBeGreaterThan(1);
+    expect(expanded.join('\n')).toContain('checking Read a.ts…');
+    expect(expanded.join('\n')).toContain('ctrl+o to collapse');
+  });
+
+  it('reports nothing to toggle when no rewrite is running', () => {
+    const h = makeHarness();
+    expect(h.controller.toggleExpanded()).toBe(false);
+    expect(h.controller.expanded).toBe(false);
+  });
+
+  it('keeps the step list bounded so a long rewrite stays a few rows', () => {
+    const h = makeHarness();
+    h.controller.begin();
+    for (let i = 0; i < 12; i++) {
+      h.controller.applyEvent(
+        event('tool.call.started', {
+          name: 'Read',
+          args: { path: `f${i}.ts` },
+          toolCallId: `c${i}`,
+        }),
+      );
+    }
+    h.controller.toggleExpanded();
+
+    expect(h.rows().length).toBeLessThanOrEqual(4);
+  });
+
+  it('survives the activity pane removing only its own children', () => {
+    const h = makeHarness();
+    // A sibling the activity pane owns, next to the optimizer row in the same
+    // shared container.
+    const mainPaneRow = { render: () => ['main agent working'], invalidate: () => {} };
+    h.activityContainer.addChild(mainPaneRow as never);
+    h.controller.begin();
+
+    h.controller.applyEvent(
+      event('tool.call.started', { name: 'Read', args: { path: 'a.ts' }, toolCallId: 'c1' }),
+    );
+
+    // Both survive: the pane rebuild drops the pane's own row only, and the
+    // optimizer's row is still mounted beside it.
+    expect(h.activityContainer.children).toHaveLength(2);
+    expect(h.rows().join('\n')).toContain('checking Read a.ts…');
   });
 });

@@ -1,4 +1,4 @@
-import { Spacer } from '@moonshot-ai/pi-tui';
+import { Spacer, type Component } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
 
@@ -38,11 +38,26 @@ export interface ActivityPaneHost {
 export class ActivityPaneController {
   private readonly host: ActivityPaneHost;
   private lastActivityMode: string | undefined;
+  /** Children this controller mounted into the shared activity container. */
+  private readonly mountedChildren: Component[] = [];
   private currentLoadingTip: { kind: LoadingTipKind; tip: string | undefined } | undefined =
     undefined;
 
   constructor(host: ActivityPaneHost) {
     this.host = host;
+  }
+
+  /**
+   * Mount a pane, remembering it so the next rebuild removes only this
+   * controller's own children.
+   *
+   * The activity container is shared: the prompt optimizer keeps its live
+   * rewrite row there as a sibling. A plain `clear()` used to take that row
+   * with it, which looked like the progress disappearing after a single frame.
+   */
+  private mount(child: Component): void {
+    this.host.state.activityContainer.addChild(child);
+    this.mountedChildren.push(child);
   }
 
   updateActivityPane(): void {
@@ -86,7 +101,14 @@ export class ActivityPaneController {
     }
 
     this.lastActivityMode = activityModeKey;
-    state.activityContainer.clear();
+    // Remove only what this controller mounted. The container is shared — the
+    // prompt optimizer puts its own live row here — so a plain `clear()` would
+    // silently drop a rewrite's progress row mid-run and leave the controller
+    // updating a component nothing renders.
+    for (const child of this.mountedChildren) {
+      state.activityContainer.removeChild(child);
+    }
+    this.mountedChildren.length = 0;
 
     switch (effectiveMode) {
       case 'hidden':
@@ -99,7 +121,7 @@ export class ActivityPaneController {
         const spinner = this.ensureActivitySpinner('moon', waitingSpinnerLabel(stepRetry));
         this.syncAgentSwarmActivitySpinner(placeSpinnerInAgentSwarm ? spinner : undefined);
         if (placeSpinnerInAgentSwarm) break;
-        state.activityContainer.addChild(
+        this.mount(
           new ActivityPaneComponent({
             mode: 'waiting',
             spinner,
@@ -114,7 +136,7 @@ export class ActivityPaneController {
           currentTheme.fg('primary', s),
         );
         this.syncAgentSwarmActivitySpinner(undefined);
-        state.activityContainer.addChild(
+        this.mount(
           new ActivityPaneComponent({
             mode: 'thinking',
             spinner,
@@ -130,7 +152,7 @@ export class ActivityPaneController {
           (s) => currentTheme.fg('primary', s),
         );
         this.syncAgentSwarmActivitySpinner(undefined);
-        state.activityContainer.addChild(
+        this.mount(
           new ActivityPaneComponent({
             mode: 'compacting',
             spinner,
@@ -144,7 +166,7 @@ export class ActivityPaneController {
           currentTheme.fg('primary', s),
         );
         this.syncAgentSwarmActivitySpinner(undefined);
-        state.activityContainer.addChild(
+        this.mount(
           new ActivityPaneComponent({
             mode: 'composing',
             spinner,
@@ -157,7 +179,7 @@ export class ActivityPaneController {
         const spinner = this.ensureActivitySpinner('moon');
         this.syncAgentSwarmActivitySpinner(placeSpinnerInAgentSwarm ? spinner : undefined);
         if (placeSpinnerInAgentSwarm) break;
-        state.activityContainer.addChild(
+        this.mount(
           new ActivityPaneComponent({
             mode: 'tool',
             spinner,
@@ -173,7 +195,7 @@ export class ActivityPaneController {
         // Keep a placeholder row so the activity area does not fully shrink
         // when the spinner is removed at the end of streaming; combined with
         // pi-tui's clamp, this avoids a destructive full redraw (viewport jump).
-        state.activityContainer.addChild(new Spacer(1));
+        this.mount(new Spacer(1));
         break;
       }
     }

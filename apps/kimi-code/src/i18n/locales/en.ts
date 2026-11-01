@@ -2960,6 +2960,8 @@ export default {
         thinking: 'reading your draft…',
         tool: 'checking {{tool}}…',
         writing: 'writing the rewrite…',
+        hintCollapsed: 'ctrl+o for steps',
+        hintExpanded: 'ctrl+o to collapse',
       },
       // tui/controllers/tasks-browser.ts
       tasksLoadFailed: 'Failed to load tasks: {{error}}',

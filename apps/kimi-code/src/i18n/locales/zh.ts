@@ -2861,6 +2861,8 @@ export default {
         thinking: '正在读取你的草稿…',
         tool: '正在查看 {{tool}}…',
         writing: '正在写出重写结果…',
+        hintCollapsed: 'Ctrl+O 查看步骤',
+        hintExpanded: 'Ctrl+O 收起',
       },
       // tui/controllers/tasks-browser.ts
       tasksLoadFailed: '加载任务失败：{{error}}',
