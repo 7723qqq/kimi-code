@@ -2334,7 +2334,7 @@ export default {
       // utils/process/fd-detect.ts
       fdDownloadEmptyResponse: '下载 fd 失败：响应体为空',
       // main.ts
-      bunRuntimeRequired: '@moonshot-ai/kimi-code 需要 Bun >= 1.4。请前往 https://bun.sh 安装',
+      bunRuntimeRequired: '@moonshot-ai/kimi-code 需要 Bun >= 1.4.4。请前往 https://bun.sh 安装',
     },
     messages: {
       providerRefreshAllSpinning: '正在刷新所有 provider 的模型列表…',

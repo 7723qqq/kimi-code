@@ -100,7 +100,7 @@ cd apps/kimi-code && bun run build
 
 ### 原生构建（自包含二进制）
 
-原生构建用 Bun 把 CLI 编译为单文件可执行文件。需要 Bun >= 1.4（`curl -fsSL https://bun.sh/install | bash`；详见 [bun.sh](https://bun.sh)），构建脚本本身也运行在 Bun 上。
+原生构建用 Bun 把 CLI 编译为单文件可执行文件。需要 Bun >= 1.4.4（`curl -fsSL https://bun.sh/install | bash`；详见 [bun.sh](https://bun.sh)），构建脚本本身也运行在 Bun 上。
 
 Windows（x64）：
 
@@ -140,7 +140,7 @@ mv ~/.kimi-code/bin/kimi-new ~/.kimi-code/bin/kimi
 
 产物输出到 `apps/kimi-code/dist-native/bin/<target>/kimi`。
 
-Bun 字节码默认关闭：在本流水线上实测启动无收益，而字节码会增大产物体积，且与构建时的 Bun 版本强绑定。设置 `KIMI_CODE_BUN_ENABLE_BYTECODE=1` 可显式嵌入字节码。开启时编译步骤会同时传入 `--bytecode --format=esm`：裸 `--bytecode` 默认输出 CommonJS，无法表达顶层 `await`；ESM 字节码自 Bun v1.3.9 起支持顶层 `await`。
+Bun 字节码默认开启：在 Bun 1.4.4 上，`kimi --version` 中位数从约 604ms 降到约 283ms（30 次采样），启动峰值工作集约从 237MB 降到 181MB，可执行文件体积增加约 18%。设置 `KIMI_CODE_BUN_DISABLE_BYTECODE=1` 可构建不带字节码的对比版本。编译步骤同时传入 `--bytecode --format=esm`：裸 `--bytecode` 默认输出 CommonJS，无法表达顶层 `await`；ESM 字节码自 Bun v1.3.9 起支持顶层 `await`。
 
 运行时集成说明：
 

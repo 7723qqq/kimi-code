@@ -58,7 +58,7 @@ bun add -g @moonshot-ai/kimi-code
 
 :::
 
-> The CLI itself runs on Bun, not Node.js. Installing with npm works fine, but Bun >= 1.4 must be present on your `PATH` to run `kimi`. If you don't have it yet, see [bun.sh](https://bun.sh).
+> The CLI itself runs on Bun, not Node.js. Installing with npm works fine, but Bun >= 1.4.4 must be present on your `PATH` to run `kimi`. If you don't have it yet, see [bun.sh](https://bun.sh).
 
 ## First launch
 

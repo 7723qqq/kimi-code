@@ -175,7 +175,7 @@ Outline prompt:
 
 ```
 * Install and upgrade
-  * System requirements: Bun 1.4.0+, recommend bun
+  * System requirements: Bun 1.4.4+, recommend bun
   * Install, upgrade, uninstall steps
 ```
 
@@ -186,7 +186,7 @@ Outline prompt:
 
 ### System requirements
 
-- Bun 1.4.0+
+- Bun 1.4.4+
 - Recommend bun
 
 ### Install
@@ -203,7 +203,7 @@ Outline prompt:
 ```markdown
 ## Install and upgrade
 
-Kimi Code CLI requires Bun 1.4.0 or later. We recommend using Bun for installation and management.
+Kimi Code CLI requires Bun 1.4.4 or later. We recommend using Bun for installation and management.
 
 If you haven't installed Bun yet, please refer to the Bun installation docs first. Install Kimi Code CLI:
 

@@ -101,7 +101,7 @@ There are two ways to run a local build, and they are not interchangeable.
 
 ### Native build (self-contained binary)
 
-The native build compiles the CLI into a standalone single-file executable with Bun. Requires Bun >= 1.4 (`curl -fsSL https://bun.sh/install | bash`; see [bun.sh](https://bun.sh)); the build script itself runs under Bun as well.
+The native build compiles the CLI into a standalone single-file executable with Bun. Requires Bun >= 1.4.4 (`curl -fsSL https://bun.sh/install | bash`; see [bun.sh](https://bun.sh)); the build script itself runs under Bun as well.
 
 Windows (x64):
 
@@ -141,7 +141,7 @@ mv ~/.kimi-code/bin/kimi-new ~/.kimi-code/bin/kimi
 
 Output: `apps/kimi-code/dist-native/bin/<target>/kimi`.
 
-Bun bytecode is disabled by default: it measured no startup gain on this pipeline, while bytecode adds binary size and locks the artifact to the exact Bun version that built it. Set `KIMI_CODE_BUN_ENABLE_BYTECODE=1` to embed bytecode anyway. When enabled, the compile step passes `--bytecode --format=esm`: bare `--bytecode` defaults to CommonJS output, which cannot express top-level `await`, while ESM bytecode has supported top-level `await` since Bun v1.3.9.
+Bun bytecode is enabled by default: on Bun 1.4.4 it takes `kimi --version` from ~604ms to ~283ms median (30 samples) and startup peak working set from ~237MB to ~181MB, while adding about 18% to the binary size. Build with `KIMI_CODE_BUN_DISABLE_BYTECODE=1` to produce a comparison build without it. The compile step passes `--bytecode --format=esm`: bare `--bytecode` defaults to CommonJS output, which cannot express top-level `await`, while ESM bytecode has supported top-level `await` since Bun v1.3.9.
 
 Runtime integration notes:
 

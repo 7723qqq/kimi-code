@@ -58,7 +58,7 @@ bun add -g @moonshot-ai/kimi-code
 
 :::
 
-> CLI 本体运行在 Bun 上，而非 Node.js。用 npm 安装没有问题，但运行 `kimi` 时 `PATH` 中必须存在 Bun >= 1.4。尚未安装的请见 [bun.sh](https://bun.sh)。
+> CLI 本体运行在 Bun 上，而非 Node.js。用 npm 安装没有问题，但运行 `kimi` 时 `PATH` 中必须存在 Bun >= 1.4.4。尚未安装的请见 [bun.sh](https://bun.sh)。
 
 ## 第一次启动
 
