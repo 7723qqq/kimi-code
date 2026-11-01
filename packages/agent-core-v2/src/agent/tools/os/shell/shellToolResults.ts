@@ -1,3 +1,4 @@
+import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { userCancellationReason } from '#/_base/utils/abort';
 import type { IAgentTaskService } from '#/agent/task/task';
 import type { IHostProcess } from '#/os/interface/hostProcess';
@@ -52,13 +53,16 @@ export function foregroundDescription(
 export async function disposeProcess(proc: IHostProcess): Promise<void> {
   try {
     await proc.dispose();
-  } catch {}
+  } catch (error) {
+    onUnexpectedError(error);
+  }
 }
 
 export async function killSpawnedProcess(proc: IHostProcess): Promise<void> {
   try {
     await proc.kill('SIGTERM');
-  } catch {
+  } catch (error) {
+    onUnexpectedError(error);
   } finally {
     await disposeProcess(proc);
   }

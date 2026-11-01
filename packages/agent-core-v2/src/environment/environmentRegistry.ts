@@ -1,3 +1,4 @@
+import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { Emitter, type Event } from '#/_base/event';
 
 import type {
@@ -237,7 +238,9 @@ export class EnvironmentRegistry {
     for (const record of records.toReversed()) {
       try {
         await record.dispose();
-      } catch {}
+      } catch (error) {
+        onUnexpectedError(error);
+      }
     }
   }
 
@@ -301,7 +304,9 @@ export class EnvironmentRegistry {
     for (const record of records) {
       try {
         await record.dispose();
-      } catch {}
+      } catch (error) {
+        onUnexpectedError(error);
+      }
     }
     await entry.environment.dispose();
   }

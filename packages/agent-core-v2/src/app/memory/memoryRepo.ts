@@ -1,6 +1,7 @@
 import { createDecorator } from '#/_base/di/instantiation';
 import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { LifecycleScope } from '#/app/scopes';
@@ -54,7 +55,9 @@ export class MemoryRepo extends Disposable implements IMemoryRepo {
       const child = await this.process.spawn('git', args, { cwd: this.dir });
       try {
         child.stdin.end();
-      } catch {}
+      } catch (error) {
+        onUnexpectedError(error);
+      }
       const chunks: Buffer[] = [];
       for await (const chunk of child.stdout) {
         chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string));

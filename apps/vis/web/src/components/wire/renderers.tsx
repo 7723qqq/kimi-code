@@ -1654,6 +1654,19 @@ export const WIRE_RENDERERS: RendererMap = {
     }),
   },
 
+  'environment.set_binding': {
+    tone: 'lifecycle',
+    label: 'env·bind',
+    headline: (r) => ({
+      main: (
+        <span className="flex items-center gap-2 min-w-0">
+          <Mono>{r.environmentId}</Mono>
+          <Dim>{r.cwd === undefined ? '' : `cwd ${r.cwd}`}</Dim>
+        </span>
+      ),
+    }),
+  },
+
   'plan.revision': {
     tone: 'lifecycle',
     label: 'plan·rev',

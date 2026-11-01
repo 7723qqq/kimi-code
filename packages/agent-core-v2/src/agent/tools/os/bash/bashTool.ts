@@ -1,3 +1,4 @@
+import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { getShellPathBridge } from '#/_base/execEnv/shellPathBridge';
 import { renderPrompt } from '#/_base/utils/render-prompt';
 import { IAgentRuntimeService, inspectAgentRuntime } from '#/agent/runtimeBinding/agentRuntime';
@@ -277,7 +278,9 @@ registerAgentToolService(IBashTool, BashTool, {
 function closeProcessStdin(proc: IHostProcess): void {
   try {
     proc.stdin.end();
-  } catch {}
+  } catch (error) {
+    onUnexpectedError(error);
+  }
 }
 
 function shellQuote(s: string): string {

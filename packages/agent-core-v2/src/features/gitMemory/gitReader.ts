@@ -1,5 +1,6 @@
 import type { Readable } from 'node:stream';
 
+import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import type { IHostProcessService } from '#/os/interface/hostProcess';
 import type { IHostTimerHandle, IHostTimers } from '#/os/interface/hostTimers';
 
@@ -62,7 +63,9 @@ async function runGit(
   }
   try {
     child.stdin.end();
-  } catch {}
+  } catch (error) {
+    onUnexpectedError(error);
+  }
 
   const work = Promise.all([collect(child.stdout), collect(child.stderr), child.wait()]);
   work.catch(() => {});
@@ -81,14 +84,18 @@ async function runGit(
   } catch {
     try {
       await child.kill('SIGKILL');
-    } catch {}
+    } catch (error) {
+      onUnexpectedError(error);
+    }
     await work.catch(() => {});
     return { ok: false, stdout: '', stderr: timedOut ? 'timeout' : 'command failed' };
   } finally {
     if (handle !== undefined) hostTimers.clearTimeout(handle);
     try {
       await child.dispose();
-    } catch {}
+    } catch (error) {
+      onUnexpectedError(error);
+    }
   }
 }
 

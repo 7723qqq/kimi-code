@@ -31,6 +31,12 @@ export const configResponseSchema = z
     subagent: z.unknown().optional(),
     secondary_model: z.unknown().optional(),
     experimental: z.record(z.string(), z.boolean()).optional(),
+    prompt_optimizer: z
+      .object({
+        timeout_ms: z.number().int().positive().optional(),
+        effort: z.string().optional(),
+      })
+      .optional(),
     telemetry: z.boolean().optional(),
     disable_feedback_survey: z.boolean().optional(),
     default_workspace: z.unknown().optional(),
@@ -77,6 +83,12 @@ export const patchConfigRequestSchema = z
     database: z.unknown().optional(),
     watch: z.unknown().optional(),
     experimental: z.record(z.string(), z.boolean()).optional(),
+    prompt_optimizer: z
+      .object({
+        timeout_ms: z.number().int().positive().optional(),
+        effort: z.string().optional(),
+      })
+      .optional(),
     telemetry: z.boolean().optional(),
     disable_feedback_survey: z.boolean().optional(),
     workspace: z.unknown().optional(),

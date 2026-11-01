@@ -93,6 +93,7 @@ import type {
   ToolsSetActiveTools,
 } from '@moonshot-ai/agent-core-v2/agent/profile/profileOps';
 import type { RuntimeSetBinding } from '@moonshot-ai/agent-core-v2/agent/runtimeBinding/runtimeBindingOps';
+import type { EnvironmentSetBinding } from '@moonshot-ai/agent-core-v2/agent/environmentBinding/environmentBindingOps';
 import type {
   TurnCancel,
   TurnEnded,
@@ -215,6 +216,7 @@ export type AgentRecord =
   | WireRecordOf<'cron.add', CronAddPayload>
   | WireRecordOf<'cron.cursor', CronCursorPayload>
   | WireRecordOf<'cron.delete', CronDeletePayload>
+  | WireRecordOf<'environment.set_binding', EnvironmentSetBinding>
   | WireRecordOf<'file_history.checkpoint', FileHistoryCheckpointed>
   | WireRecordOf<'file_history.tracked', FileHistoryTracked>
   | WireRecordOf<'forked', Forked>

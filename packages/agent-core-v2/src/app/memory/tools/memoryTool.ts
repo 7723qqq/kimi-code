@@ -2,6 +2,7 @@ import { t } from '@moonshot-ai/kimi-i18n';
 import { z } from 'zod';
 
 import { createDecorator } from '#/_base/di/instantiation';
+import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
@@ -285,7 +286,9 @@ export class MemoryTool implements IMemoryTool {
       );
       try {
         child.stdin.end();
-      } catch {}
+      } catch (error) {
+        onUnexpectedError(error);
+      }
       for await (const _chunk of child.stdout) {
         void _chunk;
       }
@@ -346,7 +349,9 @@ export class MemoryTool implements IMemoryTool {
     const fullPath = joinPath(scopeDir(memoryDir(homeDir), entry.scope, entry.scopeId), fileName);
     try {
       await unlink(fullPath);
-    } catch {}
+    } catch (error) {
+      onUnexpectedError(error);
+    }
 
     await this.store.delete(path);
     return { output: t('toolsV2.memory.deleted', { path }) };

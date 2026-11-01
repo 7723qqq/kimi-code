@@ -46,9 +46,11 @@ export class SessionNotify implements ISessionNotify {
       return;
     }
     let enabled = false;
+    const tolerate = { onTruncate: () => {} };
     for await (const record of this.journal.read<WireRecord>(
       this.context.scope('agents/main'),
       AGENT_WIRE_RECORD_KEY,
+      tolerate,
     )) {
       if (record.type !== 'profile.bind' || typeof record['systemPrompt'] !== 'string') continue;
       enabled =
