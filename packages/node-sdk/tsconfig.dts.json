@@ -18,7 +18,8 @@
     "../klient/src/**/*.ts",
     "../kosong/src/**/*.ts",
     "../oauth/src/**/*.ts",
-    "../protocol/src/**/*.ts"
+    "../protocol/src/**/*.ts",
+    "../runtime-shared/src/**/*.ts"
   ],
   "exclude": ["dist", ".tmp-api-extractor", "examples", "test", "../*/dist", "../*/test", "../agent-core-v2/src/human/test"]
 }

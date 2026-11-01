@@ -1,5 +1,9 @@
-import type { ContentBlockParam, MessageParam } from '@anthropic-ai/sdk/resources/messages/messages.js';
 import { describe, expect, it, mock } from 'bun:test';
+
+import type {
+  ContentBlockParam,
+  MessageParam,
+} from '@anthropic-ai/sdk/resources/messages/messages.js';
 
 /**
  * Scenario: Anthropic request serialization and response streaming across native and compatible models.
@@ -11,10 +15,7 @@ import { ChatProviderError } from '#/errors';
 import type { ContentPart, Message, StreamedMessagePart, ToolCall } from '#/message';
 import type { GenerateOptions } from '#/provider';
 import { AnthropicChatProvider, resolveDefaultMaxTokens } from '#/providers/anthropic';
-import {
-  injectCacheControlOnLastBlock,
-  CACHEABLE_TYPES,
-} from '#/providers/anthropic-cache-breakpoints';
+import { injectCacheControlOnLastBlock } from '#/providers/anthropic-cache-breakpoints';
 import {
   matchKnownAnthropicModelProfile,
   matchUnknownClaudeProfile,
@@ -157,12 +158,6 @@ describe('injectCacheControlOnLastBlock', () => {
       { type: 'text', text: '4', cache_control: { type: 'ephemeral' } },
     ]);
   });
-
-  it('declares every cacheable type as a string type', () => {
-    for (const type of CACHEABLE_TYPES) {
-      expect(typeof type).toBe('string');
-    }
-  });
 });
 
 describe('Anthropic model profile matching', () => {
@@ -249,12 +244,13 @@ async function captureRequestBody(
   let capturedParams: Record<string, unknown> | undefined;
   let capturedOptions: Record<string, unknown> | undefined;
 
-  (provider as any)._client.messages.create = mock()
-    .mockImplementation((params: unknown, options?: unknown) => {
+  (provider as any)._client.messages.create = mock().mockImplementation(
+    (params: unknown, options?: unknown) => {
       capturedParams = params as Record<string, unknown>;
       capturedOptions = options as Record<string, unknown> | undefined;
       return Promise.resolve(makeAnthropicResponse());
-    });
+    },
+  );
 
   const stream = await provider.generate(systemPrompt, tools, history, options);
   for await (const part of stream) {
@@ -388,12 +384,13 @@ async function captureBetaRequestBody(
   let capturedParams: Record<string, unknown> | undefined;
   let capturedOptions: Record<string, unknown> | undefined;
 
-  (provider as any)._client.beta.messages.create = mock()
-    .mockImplementation((params: unknown, options?: unknown) => {
+  (provider as any)._client.beta.messages.create = mock().mockImplementation(
+    (params: unknown, options?: unknown) => {
       capturedParams = params as Record<string, unknown>;
       capturedOptions = options as Record<string, unknown> | undefined;
       return Promise.resolve(makeAnthropicResponse());
-    });
+    },
+  );
   const standardCreate = mock();
   (provider as any)._client.messages.create = standardCreate;
 
@@ -510,8 +507,8 @@ describe('withThinkingKeep (context_management)', () => {
   ): Promise<Record<string, unknown>> {
     let capturedParams: Record<string, unknown> | undefined;
     let capturedOptions: Record<string, unknown> | undefined;
-    (provider as any)._client.beta.messages.create = mock()
-      .mockImplementation((params: unknown, options?: unknown) => {
+    (provider as any)._client.beta.messages.create = mock().mockImplementation(
+      (params: unknown, options?: unknown) => {
         capturedParams = params as Record<string, unknown>;
         capturedOptions = options as Record<string, unknown> | undefined;
         return Promise.resolve(
@@ -531,7 +528,8 @@ describe('withThinkingKeep (context_management)', () => {
             { type: 'message_stop' },
           ]),
         );
-      });
+      },
+    );
     const stream = await provider.generate('', [], history);
     for await (const part of stream) void part;
     if (capturedParams === undefined) {

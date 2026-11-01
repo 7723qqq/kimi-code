@@ -19,6 +19,7 @@ const workspacePackages = new Map([
   ['@moonshot-ai/i18n-shared', 'i18n-shared'],
   ['@moonshot-ai/klient', 'klient'],
   ['@moonshot-ai/kosong', 'kosong'],
+  ['@moonshot-ai/runtime-shared', 'runtime-shared'],
 ]);
 const packageDirs = new Set([...workspacePackages.values(), 'node-sdk']);
 
