@@ -848,6 +848,7 @@ function workspaceStub(initialWorkDir: string): {
   const stub: ISessionWorkspaceContext = {
     _serviceBrand: undefined,
     workDir: initialWorkDir,
+    setWorkDir: () => {},
     get additionalDirs() {
       return additionalDirs;
     },

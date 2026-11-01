@@ -923,12 +923,13 @@ describe('BashTool', () => {
     expect(properties['timeout']?.default).toBe(60);
   });
 
-  it('renders the available commands section and the background-task panel hint', () => {
+  it('renders the shell command category hints and the background guidance', () => {
     const { runner } = createTestRunner(processWithOutput());
     const tool = bashTool(runner);
 
-    expect(tool.description).toContain('Commands available');
-    expect(tool.description).toContain('background-task panel');
+    expect(tool.description).toContain('→ `Glob`');
+    expect(tool.description).toContain('run_in_background=true');
+    expect(tool.description).toContain('TaskOutput');
   });
 
   it('runs through runner.spawn, injects cwd, noninteractive env, and closes stdin', async () => {
@@ -1464,7 +1465,7 @@ describe('BashTool', () => {
     expect(args[1]).toBe("cd '/workspace' && ls 2>nul");
   });
 
-  it('exposes a shell description that documents /bin/bash, TaskOutput/TaskStop, safety and efficiency sections, and background semantics', () => {
+  it('exposes a shell description that documents the shell, background tools, safety rules, and timeout semantics', () => {
     const { runner } = createTestRunner(processWithOutput());
     const tool = bashTool(runner);
 
@@ -1472,8 +1473,8 @@ describe('BashTool', () => {
     expect(description).toContain('`bash`');
     expect(description).toContain('TaskOutput');
     expect(description).toContain('TaskStop');
-    expect(description).toContain('**Guidelines for safety and security:**');
-    expect(description).toContain('**Guidelines for efficiency:**');
+    expect(description).toContain('Do not use superuser privileges');
+    expect(description).toContain('parallel Bash calls');
     expect(description).toContain('run_in_background=true');
   });
 

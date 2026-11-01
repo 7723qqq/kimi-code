@@ -33,6 +33,8 @@ export interface HostEnvironmentInfo {
   readonly shellPath: string;
   readonly pathClass: PathClass;
   readonly homeDir: string;
+  readonly cwd?: string;
+  readonly tempDir?: string;
   readonly jsRuntimes?: ReadonlyArray<JsRuntimeInfo>;
 }
 
