@@ -660,6 +660,7 @@ export default {
         noActiveSession: '没有活动会话。发送 /login 登录。',
         oauthLoginExpired: 'OAuth 登录已过期。发送 /login 登录。',
         sessionlessStartup: '还没有会话——发送第一条消息时自动创建。',
+        workspaceDirsUnavailable: '附加工作区目录加载失败：{{error}}',
         shuttingDown: '正在关闭…（执行关闭钩子）',
         tuiModeRestart: 'TUI 模式将在重启 Kimi Code 后生效。',
       },
@@ -1247,10 +1248,10 @@ export default {
         lockedBy: '被 {{env}} 锁定',
         lockedByMasterEnv: '被 KIMI_CODE_EXPERIMENTAL_FLAG 锁定',
         features: {
-          auto_session_title: {
-            title: 'AI 会话标题',
+          git_memory: {
+            title: 'Git 记忆',
             description:
-              '通过托管的 chat_title 工具从对话内容生成简洁的会话标题：客户端在第一轮结束后自动生成，并在重命名输入框中提供按需重新生成。',
+              '把提炼后的 git 历史注入系统提示与文件工具结果：工作区最近的提交、共同改动的文件，以及按目录组织的历史记忆。',
           },
           lsp: {
             title: 'LSP 工具',
@@ -1262,25 +1263,15 @@ export default {
             description:
               '在 prompt 缓存未命中后，将请求中过大的旧工具结果替换为占位标记，使重建的前缀保持精简。',
           },
-          persistence_minidb_readmodel: {
-            title: 'minidb 读模型',
+          notify_user: {
+            title: 'NotifyUser 工具',
             description:
-              '使用基于 minidb 的 IQueryStore 作为派生读模型，用于会话索引和 wire 回放。',
+              '展示主代理和子代理的实时进度更新：TUI 中的 Updates 面板，以及桌面端和 Web 端的进度行。',
           },
-          'remote-control': {
-            title: '远程控制',
+          prompt_optimizer: {
+            title: '提示词优化器',
             description:
-              '通过 Kimi 远程控制暴露本机 Web UI（`kimi web --remote-control`、`/remote-control`）。',
-          },
-          search_worker: {
-            title: '搜索 worker 隔离',
-            description:
-              '在独立的 worker 线程中运行全局搜索索引 MiniDB（打开、WAL 回放、同步、查询），而不是在服务器主线程中运行。',
-          },
-          'secondary-model': {
-            title: '子代理副模型',
-            description:
-              '让新启动的子代理默认使用单独配置的副模型，并可显式指定 primary 模型以应对质量敏感的任务。',
+              '让输入框通过当前模型重写草稿提示词，可从 TUI 快捷键和会话 API 触发。',
           },
           subagent_backends: {
             title: '外部子代理后端',
@@ -1301,6 +1292,11 @@ export default {
             title: 'Tower 模式',
             description:
               '启用 tower 模式：让多个 agent 围绕同一目标协同工作，通过 /tower 命令切换。',
+          },
+          wait_for: {
+            title: 'WaitFor 工具',
+            description:
+              '向模型提供 WaitFor 工具，使其能在当前轮内等待后台任务，而不必结束本轮后被重新调用。',
           },
           xunfei_coding_plan: {
             title: 'Astron（讯飞编程套餐）',
@@ -2236,6 +2232,7 @@ export default {
       rcStopLabel: '停止：',
       rcStatusRelayConnected: '已连接到中继，等待远程设备…',
       rcStatusRelayDisconnected: '中继连接断开，正在重连…',
+      rcStatusRelayTerminated: '已从网页端下线，正在退出…',
       rcStatusDeviceConnected: '远程设备已连接（1 个活动会话）',
       rcStatusDeviceDisconnected: '远程设备已断开',
       // sub/web/run.ts
@@ -2315,6 +2312,8 @@ export default {
       nativeWorkerAssetMissing: '此构建中缺少原生 worker "{{worker}}"；其索引已降级为回退实现。',
       // utils/clipboard/clipboard-text.ts
       noClipboardCommandAvailable: '没有可用的剪贴板命令。',
+      // utils/clipboard/clipboard-image.ts
+      videoExceedsMaxSize: '视频为 {{size}} MB，超出支持的最大大小 {{max}} MB。',
       // utils/process/fd-detect.ts
       fdDownloadEmptyResponse: '下载 fd 失败：响应体为空',
       // main.ts
@@ -3116,6 +3115,9 @@ export default {
     migration: {
       failed: ' 迁移失败',
       reason: ' 原因：{{reason}}',
+      reasonSymbolRejection: '拒绝了 Symbol 值',
+      reasonFunctionRejection: '拒绝了函数值',
+      reasonObjectRejection: '拒绝了对象值',
       retryHint: ' 你可以稍后通过运行 "kimi migrate" 重试。',
       continueHint: ' ⏎ 继续使用 kimi-code',
       complete: ' 迁移完成',
@@ -3135,6 +3137,49 @@ export default {
       sessionsSkipped: '  ⚠ {{count}} 个会话已跳过（目标位置已被占用）',
       emptySessionsSkipped: '  {{count}} 个空会话已跳过',
       contains: '     包含：{{items}}',
+      containsProviders_one: '{{count}} 个 provider',
+      containsProviders_other: '{{count}} 个 provider',
+      containsModels_one: '{{count}} 个模型',
+      containsModels_other: '{{count}} 个模型',
+      containsHooks_one: '{{count}} 个 hook',
+      containsHooks_other: '{{count}} 个 hook',
+      listSeparator: '、',
+      plansCopied_one: '  ⓘ {{count}} 个 plan 文件已复制到 {{path}} — 只是普通文件，未接入 plan 模式。',
+      plansCopied_other: '  ⓘ {{count}} 个 plan 文件已复制到 {{path}} — 只是普通文件，未接入 plan 模式。',
+      headlessRelogin: '提示：请为以下账号重新执行 /login：{{names}}',
+      headlessMcpReauth: '提示：请重新认证 MCP 服务器：{{names}}',
+      headlessSource: '来源：{{path}}（{{origin}}）',
+      headlessSkillsSource: 'skills 来源：{{path}}（kimi-cli 的 skills 不受 KIMI_SHARE_DIR 影响）',
+      headlessTarget: '目标：{{path}}',
+      headlessSameSourceTarget: '错误：来源与目标是同一个目录，拒绝迁移',
+      headlessScopeConfigOnly: '范围：仅配置（config、mcp、user-history、skills）',
+      headlessScopeFull: '范围：完整（config、mcp、user-history、skills、sessions）',
+      headlessDetecting: '正在检测旧版数据…',
+      headlessNothingToMigrate: '{{path}} 中没有需要迁移的数据',
+      headlessStep: '步骤：{{message}}',
+      headlessSessionsTranslating: '会话：正在转换 {{done}}/{{total}}',
+      headlessCrashed: '错误：迁移崩溃：{{message}}',
+      headlessReportWritten: '报告已写入 {{path}}',
+      headlessRunLog: '运行日志已追加到 {{path}}',
+      headlessResultComplete: '结果：已完成 — 已写入完成标记，之后启动不会再提示迁移',
+      headlessResultIncomplete: '结果：未完成 — 没有完成标记，下次启动会再次提示迁移',
+      headlessConfigSibling:
+        '配置：当前 config.toml 无法解析 — 迁移副本位于 config.migrated-from-kimi-cli.toml（{{providers}} 个 provider、{{models}} 个 model、{{hooks}} 个 hook）',
+      headlessTuiSibling:
+        '配置：tui.toml 存在冲突 — 迁移副本位于 tui.migrated-from-kimi-cli.toml',
+      headlessDetected:
+        '检测到：{{sessions}} 个会话，分布在 {{workdirs}} 个工作目录 · config={{config}} · mcp={{mcp}} · user-history={{userHistory}} · skills={{skills}}',
+      headlessDetectedUnreadable: ' · {{count}} 个不可读的会话存储',
+      headlessUnreadableStore: '  不可读：{{path}} — {{reason}}',
+      headlessFailedSession: '  失败：{{path}} — {{reason}}',
+      headlessConflictSession: '  冲突：{{path}} — 目标已存在：{{target}}',
+      headlessPluginsNotMigrated: 'kimi-cli 插件（未迁移）：{{names}}',
+      headlessConfigConflict: '提示：config.toml 无法解析，迁移副本已保存到 {{path}} — 请手动检查并合并。',
+      headlessTuiConflict: '提示：tui.toml 有用户修改，迁移副本已保存到 {{path}} — 请手动检查并合并。',
+      headlessPlansCopied_one:
+        '提示：{{count}} 个 plan 文件已复制到 {{path}} — 只是普通文件，未接入 plan 模式，可自行复用或删除。',
+      headlessPlansCopied_other:
+        '提示：{{count}} 个 plan 文件已复制到 {{path}} — 只是普通文件，未接入 plan 模式，可自行复用或删除。',
       stepLabelConfig: '配置',
       stepLabelMcp: 'MCP',
       stepLabelReplHistory: 'REPL 历史',

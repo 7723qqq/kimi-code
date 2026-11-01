@@ -10,6 +10,7 @@ import {
   resolveKimiRemoteControlAuth,
   resolveKimiTokenStorageName,
 } from '@moonshot-ai/kimi-code-oauth';
+import { t } from '@moonshot-ai/kimi-i18n';
 import { errorMessage, isRecord } from '@moonshot-ai/runtime-shared';
 import { WebSocket, type RawData } from 'ws';
 
@@ -530,7 +531,9 @@ class RemoteControlClient {
           }
           this.stderr.write(`${error.message}\n`);
         } else if (!this.stopped && !this.reconnectImmediately) {
-          this.stderr.write(`Remote Control disconnected: ${errorMessage(error)}\n`);
+          this.stderr.write(
+            `${t('remoteControl.disconnected', { error: errorMessage(error) })}\n`,
+          );
         }
       } finally {
         this.closeCycle();
@@ -646,7 +649,10 @@ class RemoteControlClient {
       if (silenceTimer !== undefined) clearTimeout(silenceTimer);
       silenceTimer = setTimeout(() => {
         this.stderr.write(
-          `Remote Control ${label} connection silent for ${Math.round(this.silenceTimeoutMs / 1000)}s; reconnecting…\n`,
+          `${t('remoteControl.connectionSilent', {
+            label,
+            seconds: String(Math.round(this.silenceTimeoutMs / 1000)),
+          })}\n`,
         );
         socket.terminate();
       }, this.silenceTimeoutMs);
@@ -673,7 +679,7 @@ class RemoteControlClient {
     try {
       message = parseRelayMessage(data);
     } catch (error) {
-      this.stderr.write(`Remote Control message error: ${errorMessage(error)}\n`);
+      this.stderr.write(`${t('remoteControl.messageError', { error: errorMessage(error) })}\n`);
       return;
     }
     if (message.type === 'open_ws') {
@@ -904,7 +910,9 @@ export class HttpTunnel {
               : 502;
         this.respond(receiving, [buildErrorResponse(status)]);
       }
-      this.stderr.write(`Remote Control HTTP message error: ${errorMessage(error)}\n`);
+      this.stderr.write(
+        `${t('remoteControl.httpMessageError', { error: errorMessage(error) })}\n`,
+      );
     }
   }
 
@@ -949,7 +957,9 @@ export class HttpTunnel {
             ? 400
             : 502;
       this.respond(transfer, [buildErrorResponse(status)]);
-      this.stderr.write(`Remote Control HTTP forwarding failed: ${errorMessage(error)}\n`);
+      this.stderr.write(
+        `${t('remoteControl.httpForwardingFailed', { error: errorMessage(error) })}\n`,
+      );
     }
   }
 

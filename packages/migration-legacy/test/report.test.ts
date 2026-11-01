@@ -79,9 +79,9 @@ describe('writeReport', () => {
         mcpOauthServersRequiringReauth: [],
         oauthLoginsRequiringRelogin: [],
         detectedPlugins: [],
-        configConflictNotice: null,
-        tuiConflictNotice: null,
-        plansCopiedNotice: null,
+        configConflictSibling: null,
+        tuiConflictSibling: null,
+        plansCopied: null,
       },
     };
     await writeReport(tgt, report);

@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 
 import { parse as parseToml } from 'smol-toml';
 
-// Verbatim from packages/kimi-core/src/harness/configs/toml.ts:42
+// Verbatim from kimi-cli's `kimi-core` config loader (harness/configs/toml.ts).
 export const DEFAULT_CONFIG_FILE_TEXT =
   '# ~/.kimi-code/config.toml\n' +
   '# Runtime settings for Kimi Code.\n' +

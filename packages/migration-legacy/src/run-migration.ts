@@ -2,6 +2,7 @@ import { join } from 'node:path';
 
 import { appendMarkerRun, readMarker, writeMarker } from './marker.js';
 import { writeMigrationErrorsLog } from './migration-errors-log.js';
+import { siblingConfigToml, siblingTuiToml } from './paths.js';
 import { writeReport } from './report.js';
 import { migrateSessionsStep } from './sessions/index.js';
 import { migrateConfigStep } from './steps/config.js';
@@ -12,12 +13,6 @@ import { migrateUserHistoryStep } from './steps/user-history.js';
 import type { MigrationPlan, MigrationReport, MigrationScope, SessionsSummary } from './types.js';
 
 const DEFAULT_MIGRATOR_VERSION = '0.1.1';
-
-const CONFIG_CONFLICT_NOTICE =
-  'Your existing config.toml could not be parsed; migrated copy saved to ~/.kimi-code/config.migrated-from-kimi-cli.toml — please review and merge manually.';
-
-const TUI_CONFLICT_NOTICE =
-  'Your existing tui.toml had user modifications; migrated copy saved to ~/.kimi-code/tui.migrated-from-kimi-cli.toml — please review and merge manually.';
 
 export interface RunMigrationInput {
   readonly plan: MigrationPlan;
@@ -97,10 +92,8 @@ export async function runMigration(input: RunMigrationInput): Promise<MigrationR
 
   const completedAt = new Date().toISOString();
 
-  const plansCopiedNotice =
-    plans.copied > 0
-      ? `${plans.copied} plan file(s) copied to ${join(input.target, 'plans')} — plain copies, not wired into plan mode; reuse or delete them as you see fit.`
-      : null;
+  const plansCopied =
+    plans.copied > 0 ? { count: plans.copied, directory: join(input.target, 'plans') } : null;
 
   const report: MigrationReport = {
     startedAt,
@@ -120,9 +113,11 @@ export async function runMigration(input: RunMigrationInput): Promise<MigrationR
       mcpOauthServersRequiringReauth: input.plan.detectedMcpOauthServers,
       oauthLoginsRequiringRelogin: input.plan.oauthCredentials,
       detectedPlugins: input.plan.detectedPlugins,
-      configConflictNotice: config.wroteSiblingDueToConflict ? CONFIG_CONFLICT_NOTICE : null,
-      tuiConflictNotice: config.wroteTuiSibling ? TUI_CONFLICT_NOTICE : null,
-      plansCopiedNotice,
+      configConflictSibling: config.wroteSiblingDueToConflict
+        ? siblingConfigToml(input.target)
+        : null,
+      tuiConflictSibling: config.wroteTuiSibling ? siblingTuiToml(input.target) : null,
+      plansCopied,
     },
   };
 

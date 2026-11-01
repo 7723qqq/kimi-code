@@ -364,13 +364,21 @@ kimi session list --all --json
 
 ### `kimi migrate`
 
-将旧版 kimi-cli 的本地数据迁移到 kimi-code，包括历史会话和配置文件。纯交互式运行，会引导你完成全流程。
+将旧版 kimi-cli 的本地数据迁移到 kimi-code，包括历史会话和配置文件。不带参数时打开迁移界面，迁移完成后退出。
 
 ```sh
 kimi migrate
 ```
 
-完整迁移说明见[从 kimi-cli 迁移](../guides/migration.md)。
+`--run` 不打开界面，直接执行迁移并逐步骤输出日志；与 `--config-only` 同用时可只迁移配置、MCP 服务器、REPL 历史和技能，跳过聊天会话。完整说明见[从 kimi-cli 迁移](../guides/migration.md)。
+
+### `kimi import-sessions`
+
+将最近的 Claude Code 与 Codex 会话导入 Kimi Code。会在精简终端界面中打开导入页，完成后退出；需要交互式终端。
+
+```sh
+kimi import-sessions
+```
 
 ### `kimi upgrade`
 

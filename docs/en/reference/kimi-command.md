@@ -364,13 +364,21 @@ kimi session list --all --json
 
 ### `kimi migrate`
 
-Migrate local data from a legacy kimi-cli installation to kimi-code, including session history and configuration files. Runs entirely interactively, guiding you through the full process.
+Migrate local data from a legacy kimi-cli installation to kimi-code, including session history and configuration files. Without flags it opens the migration screen and exits when the migration finishes.
 
 ```sh
 kimi migrate
 ```
 
-For full migration instructions, see [Migrating from kimi-cli](../guides/migration.md).
+`--run` performs the same migration without the screen and prints step-by-step logs; add `--config-only` with it to migrate config, MCP servers, REPL history and skills but skip chat sessions. See [Migrating from kimi-cli](../guides/migration.md).
+
+### `kimi import-sessions`
+
+Import recent Claude Code and Codex sessions into Kimi Code. It opens the import page in a bare terminal UI and exits when done; it needs an interactive terminal.
+
+```sh
+kimi import-sessions
+```
 
 ### `kimi upgrade`
 

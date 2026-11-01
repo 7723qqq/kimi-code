@@ -355,8 +355,18 @@ export class MigrationScreenComponent extends Container implements Focusable {
           ),
         );
       }
-      if (r.notices.plansCopiedNotice !== null) {
-        lines.push(chalk.hex(colors.textMuted)(`  ⓘ ${r.notices.plansCopiedNotice}`));
+      if (r.notices.plansCopied !== null) {
+        const { count, directory } = r.notices.plansCopied;
+        lines.push(
+          chalk.hex(colors.textMuted)(
+            t(
+              count === 1
+                ? 'tui.migration.plansCopied_one'
+                : 'tui.migration.plansCopied_other',
+              { count: String(count), path: directory },
+            ),
+          ),
+        );
       }
       if (sum.config.droppedHooks > 0) {
         lines.push(
@@ -380,17 +390,42 @@ export class MigrationScreenComponent extends Container implements Focusable {
         const sc = sum.config.siblingContents;
         const items: string[] = [];
         if (sc.providers.length > 0) {
-          items.push(`${sc.providers.length} provider${sc.providers.length === 1 ? '' : 's'}`);
+          items.push(
+            t(
+              sc.providers.length === 1
+                ? 'tui.migration.containsProviders_one'
+                : 'tui.migration.containsProviders_other',
+              { count: String(sc.providers.length) },
+            ),
+          );
         }
         if (sc.models.length > 0) {
-          items.push(`${sc.models.length} model${sc.models.length === 1 ? '' : 's'}`);
+          items.push(
+            t(
+              sc.models.length === 1
+                ? 'tui.migration.containsModels_one'
+                : 'tui.migration.containsModels_other',
+              { count: String(sc.models.length) },
+            ),
+          );
         }
         if (sc.hooks > 0) {
-          items.push(`${sc.hooks} hook${sc.hooks === 1 ? '' : 's'}`);
+          items.push(
+            t(
+              sc.hooks === 1
+                ? 'tui.migration.containsHooks_one'
+                : 'tui.migration.containsHooks_other',
+              { count: String(sc.hooks) },
+            ),
+          );
         }
         if (items.length > 0) {
           lines.push(
-            chalk.hex(colors.warning)(t('tui.migration.contains', { items: items.join(', ') })),
+            chalk.hex(colors.warning)(
+              t('tui.migration.contains', {
+                items: items.join(t('tui.migration.listSeparator')),
+              }),
+            ),
           );
         }
       }
@@ -538,13 +573,13 @@ function formatMigrationFailureReason(error: unknown): string | undefined {
         break;
       case 'symbol':
         reason =
-          error.description !== undefined ? `Symbol(${error.description})` : 'Symbol rejection';
+          error.description !== undefined ? `Symbol(${error.description})` : t('tui.migration.reasonSymbolRejection');
         break;
       case 'function':
-        reason = error.name !== '' ? `Function ${error.name}` : 'Function rejection';
+        reason = error.name !== '' ? `Function ${error.name}` : t('tui.migration.reasonFunctionRejection');
         break;
       case 'object':
-        if (error !== null) reason = 'Object rejection';
+        if (error !== null) reason = t('tui.migration.reasonObjectRejection');
         break;
       case 'undefined':
         break;

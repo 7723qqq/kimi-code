@@ -680,6 +680,7 @@ export default {
         noActiveSession: 'No active session. Send /login to login.',
         oauthLoginExpired: 'OAuth login expired. Send /login to login.',
         sessionlessStartup: 'No session yet — one will be created on your first message.',
+        workspaceDirsUnavailable: 'Additional workspace directories could not be loaded: {{error}}',
         shuttingDown: 'Shutting down… (running shutdown hooks)',
         tuiModeRestart: 'TUI mode takes effect after restarting Kimi Code.',
       },
@@ -1275,10 +1276,10 @@ export default {
         lockedBy: 'locked by {{env}}',
         lockedByMasterEnv: 'locked by KIMI_CODE_EXPERIMENTAL_FLAG',
         features: {
-          auto_session_title: {
-            title: 'AI session titles',
+          git_memory: {
+            title: 'Git memory',
             description:
-              'Generate concise session titles from the conversation through the managed chat_title tool: clients auto-generate once the first turn completes and offer on-demand regeneration in the rename field.',
+              'Inject distilled git history into the system prompt and file tool results: recent commits, co-change partners, and per-directory memory for the workspace.',
           },
           lsp: {
             title: 'LSP tool',
@@ -1290,25 +1291,15 @@ export default {
             description:
               'After a prompt-cache miss, replace old oversized tool results in the outgoing request with a marker so the rebuilt prefix stays small.',
           },
-          persistence_minidb_readmodel: {
-            title: 'minidb read model',
+          notify_user: {
+            title: 'NotifyUser tool',
             description:
-              'Use the minidb-backed IQueryStore as a derived read model for session indexing and wire replay.',
+              'Show live progress updates from the main agent and subagents: the Updates panel in the TUI and progress rows in desktop and web.',
           },
-          'remote-control': {
-            title: 'Remote Control',
+          prompt_optimizer: {
+            title: 'Prompt optimizer',
             description:
-              'Expose the local web UI through Kimi Remote Control (`kimi web --remote-control`, `/remote-control`).',
-          },
-          search_worker: {
-            title: 'search worker isolation',
-            description:
-              'Run the global search-index MiniDB (open, WAL replay, sync, queries) in a dedicated worker thread instead of the server main thread.',
-          },
-          'secondary-model': {
-            title: 'Secondary model for subagents',
-            description:
-              'Let newly spawned subagents use a separately configured secondary model by default, with an explicit primary-model override for quality-sensitive tasks.',
+              'Let the input box rewrite a drafted prompt through the current model, reaching it from the TUI shortcut and the session API.',
           },
           subagent_backends: {
             title: 'External subagent backends',
@@ -1329,6 +1320,11 @@ export default {
             title: 'Tower mode',
             description:
               'Enable tower mode: coordinate multiple agents on a shared objective, toggled with the /tower command.',
+          },
+          wait_for: {
+            title: 'WaitFor tool',
+            description:
+              'Give the model the WaitFor tool so it can wait for background tasks inside the current turn instead of ending the turn and being re-invoked.',
           },
           xunfei_coding_plan: {
             title: 'Astron (Xunfei coding plan)',
@@ -2322,6 +2318,7 @@ export default {
       rcStopLabel: 'Stop: ',
       rcStatusRelayConnected: 'Connected to relay, waiting for remote devices…',
       rcStatusRelayDisconnected: 'Relay disconnected; reconnecting…',
+      rcStatusRelayTerminated: 'Taken offline from the web; exiting…',
       rcStatusDeviceConnected: 'Remote device connected (1 active session)',
       rcStatusDeviceDisconnected: 'Remote device disconnected',
       // sub/web/run.ts
@@ -2405,6 +2402,9 @@ export default {
         'Native worker "{{worker}}" is missing from this build; its index runs in the degraded fallback.',
       // utils/clipboard/clipboard-text.ts
       noClipboardCommandAvailable: 'No clipboard command is available.',
+      // utils/clipboard/clipboard-image.ts
+      videoExceedsMaxSize:
+        'Video is {{size}} MB; maximum supported size is {{max}} MB.',
       // utils/process/fd-detect.ts
       fdDownloadEmptyResponse: 'Failed to download fd: empty response body',
       // main.ts
@@ -3218,6 +3218,9 @@ export default {
     migration: {
       failed: ' Migration failed',
       reason: ' Reason: {{reason}}',
+      reasonSymbolRejection: 'Symbol rejection',
+      reasonFunctionRejection: 'Function rejection',
+      reasonObjectRejection: 'Object rejection',
       retryHint: ' You can retry later by running "kimi migrate".',
       continueHint: ' ⏎ continue to kimi-code',
       complete: ' Migration complete',
@@ -3238,6 +3241,57 @@ export default {
       sessionsSkipped: '  ⚠ {{count}} sessions skipped (target already occupied)',
       emptySessionsSkipped: '  {{count}} empty sessions skipped',
       contains: '     contains: {{items}}',
+      containsProviders_one: '{{count}} provider',
+      containsProviders_other: '{{count}} providers',
+      containsModels_one: '{{count}} model',
+      containsModels_other: '{{count}} models',
+      containsHooks_one: '{{count}} hook',
+      containsHooks_other: '{{count}} hooks',
+      listSeparator: ', ',
+      plansCopied_one:
+        '  ⓘ {{count}} plan file copied to {{path}} — a plain copy, not wired into plan mode.',
+      plansCopied_other:
+        '  ⓘ {{count}} plan files copied to {{path}} — plain copies, not wired into plan mode.',
+      headlessRelogin: 'notice: run /login for: {{names}}',
+      headlessMcpReauth: 'notice: re-authenticate MCP servers: {{names}}',
+      headlessSource: 'source: {{path}} ({{origin}})',
+      headlessSkillsSource:
+        'skills source: {{path}} (kimi-cli skills are not relocated by KIMI_SHARE_DIR)',
+      headlessTarget: 'target: {{path}}',
+      headlessSameSourceTarget:
+        'error: source and target are the same directory; refusing to migrate',
+      headlessScopeConfigOnly: 'scope: config-only (config, mcp, user-history, skills)',
+      headlessScopeFull: 'scope: full (config, mcp, user-history, skills, sessions)',
+      headlessDetecting: 'detecting legacy data…',
+      headlessNothingToMigrate: 'nothing to migrate from {{path}}',
+      headlessStep: 'step: {{message}}',
+      headlessSessionsTranslating: 'sessions: translating {{done}}/{{total}}',
+      headlessCrashed: 'error: migration crashed: {{message}}',
+      headlessReportWritten: 'report written to {{path}}',
+      headlessRunLog: 'run log appended to {{path}}',
+      headlessResultComplete:
+        'result: complete — completion marker written; future launches will not re-prompt',
+      headlessResultIncomplete:
+        'result: incomplete — no completion marker; the next launch will offer migration again',
+      headlessConfigSibling:
+        'config: live config.toml unparseable — migrated copy at config.migrated-from-kimi-cli.toml ({{providers}} providers, {{models}} models, {{hooks}} hooks)',
+      headlessTuiSibling:
+        'config: tui.toml conflicted — migrated copy at tui.migrated-from-kimi-cli.toml',
+      headlessDetected:
+        'detected: {{sessions}} sessions across {{workdirs}} workdirs · config={{config}} · mcp={{mcp}} · user-history={{userHistory}} · skills={{skills}}',
+      headlessDetectedUnreadable: ' · {{count}} unreadable session stores',
+      headlessUnreadableStore: '  unreadable: {{path}} — {{reason}}',
+      headlessFailedSession: '  failed: {{path}} — {{reason}}',
+      headlessConflictSession: '  conflict: {{path}} — target occupied: {{target}}',
+      headlessPluginsNotMigrated: 'kimi-cli plugins (not migrated): {{names}}',
+      headlessConfigConflict:
+        'notice: config.toml could not be parsed; migrated copy saved to {{path}} — please review and merge manually.',
+      headlessTuiConflict:
+        'notice: tui.toml had user modifications; migrated copy saved to {{path}} — please review and merge manually.',
+      headlessPlansCopied_one:
+        'notice: {{count}} plan file copied to {{path}} — a plain copy, not wired into plan mode; reuse or delete it as you see fit.',
+      headlessPlansCopied_other:
+        'notice: {{count}} plan files copied to {{path}} — plain copies, not wired into plan mode; reuse or delete them as you see fit.',
       stepLabelConfig: 'Config',
       stepLabelMcp: 'MCP',
       stepLabelReplHistory: 'REPL history',

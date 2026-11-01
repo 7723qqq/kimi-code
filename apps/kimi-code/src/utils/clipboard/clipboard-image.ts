@@ -23,6 +23,7 @@ import { tmpdir } from 'node:os';
 import { basename, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { t } from '#/i18n';
 import { parseImageMeta } from '#/utils/image/image-mime';
 
 import {
@@ -205,7 +206,10 @@ function readVideoPath(path: string): ClipboardVideo | null {
   if (!stat.isFile()) return null;
   if (stat.size > MAX_VIDEO_BYTES) {
     throw new ClipboardMediaError(
-      `Video is ${(stat.size / 1024 / 1024).toFixed(1)} MB; maximum supported size is 100 MB.`,
+      t('tui.statusMessages.videoExceedsMaxSize', {
+        size: (stat.size / 1024 / 1024).toFixed(1),
+        max: String(MAX_VIDEO_BYTES / 1024 / 1024),
+      }),
     );
   }
   return {

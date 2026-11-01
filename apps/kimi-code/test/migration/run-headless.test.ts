@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
+import { t } from '#/i18n';
 import { MIGRATE_HEADLESS_EXIT, runHeadlessMigrate } from '#/migration/run-headless';
 
 let home: string;
@@ -60,7 +61,9 @@ describe('runHeadlessMigrate', () => {
       { env: {}, userHome: home, targetHome: target, write },
     );
     expect(code).toBe(MIGRATE_HEADLESS_EXIT.success);
-    expect(lines.join('\n')).toContain('nothing to migrate');
+    expect(lines.join('\n')).toContain(
+      t('tui.migration.headlessNothingToMigrate', { path: sourceHome() }),
+    );
   });
 
   it('refuses when source and target are the same directory', async () => {
@@ -69,7 +72,7 @@ describe('runHeadlessMigrate', () => {
       { env: {}, userHome: home, targetHome: sourceHome(), write },
     );
     expect(code).toBe(MIGRATE_HEADLESS_EXIT.error);
-    expect(lines.join('\n')).toContain('refusing to migrate');
+    expect(lines.join('\n')).toContain(t('tui.migration.headlessSameSourceTarget'));
   });
 
   it('migrates config and sessions, writes the report and the completion marker', async () => {
@@ -85,7 +88,7 @@ describe('runHeadlessMigrate', () => {
     expect(out).toContain('step: config done');
     expect(out).toContain('sessions: translating 1/1');
     expect(out).toContain('migrated=1');
-    expect(out).toContain('result: complete');
+    expect(out).toContain(t('tui.migration.headlessResultComplete'));
     const report = JSON.parse(await readFile(join(target, 'migration-report.json'), 'utf-8'));
     expect(report.summary.sessions.sessionsMigrated).toBe(1);
     expect(report.summary.config.migrated).toBe(true);
@@ -103,7 +106,7 @@ describe('runHeadlessMigrate', () => {
       { env: {}, userHome: home, targetHome: target, write },
     );
     expect(code).toBe(MIGRATE_HEADLESS_EXIT.success);
-    expect(lines.join('\n')).toContain('scope: config-only');
+    expect(lines.join('\n')).toContain(t('tui.migration.headlessScopeConfigOnly'));
     const report = JSON.parse(await readFile(join(target, 'migration-report.json'), 'utf-8'));
     expect(report.summary.sessions.scope).toBe('config-only');
     expect(report.summary.sessions.sessionsMigrated).toBe(0);
@@ -127,7 +130,7 @@ describe('runHeadlessMigrate', () => {
     expect(code).toBe(MIGRATE_HEADLESS_EXIT.incomplete);
     const out = lines.join('\n');
     expect(out).toContain('failed=');
-    expect(out).toContain('result: incomplete');
+    expect(out).toContain(t('tui.migration.headlessResultIncomplete'));
     await expect(
       readFile(join(sourceHome(), '.migrated-to-kimi-code'), 'utf-8'),
     ).rejects.toThrow();

@@ -36,9 +36,10 @@ const ROOT = resolve(import.meta.dirname, '..');
 const BASELINE_PATH = join(ROOT, 'scripts/no-hardcoded-prose-baseline.txt');
 
 const ROOTS = [
-  'apps/kimi-code/src/tui',
-  'apps/kimi-code/src/cli',
-  'apps/kimi-code/src/session-import',
+  // All of the app's source. Scoping this to `tui` / `cli` / `session-import`
+  // once left `utils/`, `native/`, `migration/` and the root entry files
+  // unscanned, so copy there passed every gate.
+  'apps/kimi-code/src',
   'apps/kimi-inspect/src',
   'apps/vscode/src',
   'apps/vscode/webview-ui/src',
@@ -158,9 +159,10 @@ function stripNonStrings(source) {
  * Single and double quoted strings are single-line, as before. Template
  * literals are also scanned — they were the gate's largest blind spot, since a
  * `` `Attached ${kind} file` `` sentence is exactly as user-visible as a quoted
- * one. A template's `${...}` interpolations are dropped from `text` (they are
- * code, not copy) but still count toward the match, so the literal's length and
- * position stay correct.
+ * one. A template's `${...}` interpolations are dropped from its own `text`
+ * (they are code, not copy), but the string literals inside them are scanned
+ * separately: `${label('taken offline…')}` was consumed by the template match
+ * and never inspected otherwise.
  */
 function matchStringLiterals(source) {
   const out = [];
@@ -168,10 +170,25 @@ function matchStringLiterals(source) {
   let match;
   while ((match = pattern.exec(source)) !== null) {
     const quoted = match[1] !== undefined;
-    const text = quoted ? match[2] : match[3].replace(/\$\{[^{}]*\}/g, ' ');
-    out.push({ index: match.index, text });
+    if (quoted) {
+      out.push({ index: match.index, text: match[2] });
+      continue;
+    }
+    out.push({ index: match.index, text: match[3].replace(/\$\{[^{}]*\}/g, ' ') });
+    // A template's interpolations are code, but a string literal inside one is
+    // still copy the user can see (`${label('Relay disconnected…')}`). The
+    // template match consumes the whole literal, so those inner strings were
+    // never inspected — descend into each interpolation instead.
+    const interpolation = /\$\{([^{}]*)\}/g;
+    let part;
+    while ((part = interpolation.exec(match[0])) !== null) {
+      const start = match.index + part.index + 2;
+      for (const inner of matchStringLiterals(part[1])) {
+        out.push({ index: start + inner.index, text: inner.text });
+      }
+    }
   }
-  return out;
+  return out.sort((a, b) => a.index - b.index);
 }
 
 function tCallRanges(source) {
@@ -240,13 +257,28 @@ function walk(target, out) {
 }
 
 /**
- * Files whose literals are protocol values rather than copy: the VS Code
- * notification API hands back the label the user clicked, so the string that is
- * passed in and the string that is compared must be the same literal. They live
- * once, in `NotificationAction`, which is also where a future localization pass
- * would thread a translated label through.
+ * Files whose literals are protocol values rather than copy, where translating
+ * the string would break behaviour rather than merely leave English on screen.
+ *
+ * - The VS Code notification API hands back the label the user clicked, so the
+ *   string that is passed in and the string that is compared must be the same
+ *   literal. They live once, in `NotificationAction`, which is also where a
+ *   future localization pass would thread a translated label through.
+ * - `git-status.ts` matches the porcelain/status output git itself produces
+ *   (`No commits yet on <branch>`); translating these prefixes would stop the
+ *   parser from recognising an unborn branch.
+ *
+ * Developer diagnostics (`native/`, `feedback/`, `open-url`, `fd-detect`,
+ * `debug-timing`) are *not* listed here: they are accepted debt, recorded in
+ * the ledger like every other reviewed literal, so the count stays visible and
+ * can only shrink.
  */
-const PROTOCOL_LITERAL_FILES = new Set(['apps/vscode/src/utils/notification-actions.ts']);
+const PROTOCOL_LITERAL_FILES = new Set([
+  'apps/vscode/src/utils/notification-actions.ts',
+  'apps/kimi-code/src/utils/git/git-status.ts',
+  'apps/kimi-code/src/constant/app.ts',
+  'apps/kimi-inspect/src/channel/channels.ts',
+]);
 
 function collectCounts() {
   const counts = new Map();

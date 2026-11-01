@@ -54,7 +54,7 @@ export async function writeMainAgentWire(sessionDir: string, input: WireWriteInp
   }
   // kimi-cli keeps the session todo list in state.json; v2 replays it from a
   // durable tools.update_store wire record, so a migrated session must carry
-  // its todos here or the todo panel shows up empty after resume.
+  // its todos here or the todo card shows up empty after resume.
   if (input.todoItems !== undefined && input.todoItems.length > 0) {
     lines.push(
       JSON.stringify({

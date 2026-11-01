@@ -122,6 +122,7 @@ import {
   getNoActiveSessionMessage,
   getSessionlessStartupNotice,
   getShuttingDownHint,
+  getWorkspaceDirsUnavailableNotice,
   MAIN_AGENT_ID,
   MAX_AUTO_TITLE_ATTEMPTS,
   PRODUCT_NAME,
@@ -845,7 +846,7 @@ export class KimiTUI {
         .then(() => this.harness.getWorkspaceAdditionalDirs(workDir))
         .catch((error: unknown) => {
           this.appendStartupNotice(
-            `Additional workspace directories could not be loaded: ${formatErrorMessage(error)}`,
+            getWorkspaceDirsUnavailableNotice(formatErrorMessage(error)),
           );
           return [];
         });

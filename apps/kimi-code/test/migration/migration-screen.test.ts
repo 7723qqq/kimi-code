@@ -71,6 +71,17 @@ void mock.module('#/i18n', () => ({
         '  ⚠ mcp.json unreadable — review mcp.migrated-from-kimi-cli.json',
       'tui.migration.sessionsFailed': '  ⚠ {{count}} sessions failed to migrate',
       'tui.migration.contains': '     contains: {{items}}',
+      'tui.migration.containsProviders_one': '{{count}} provider',
+      'tui.migration.containsProviders_other': '{{count}} providers',
+      'tui.migration.containsModels_one': '{{count}} model',
+      'tui.migration.containsModels_other': '{{count}} models',
+      'tui.migration.containsHooks_one': '{{count}} hook',
+      'tui.migration.containsHooks_other': '{{count}} hooks',
+      'tui.migration.listSeparator': ', ',
+      'tui.migration.plansCopied_one':
+        '  ⓘ {{count}} plan file copied to {{path}} — a plain copy, not wired into plan mode.',
+      'tui.migration.plansCopied_other':
+        '  ⓘ {{count}} plan files copied to {{path}} — plain copies, not wired into plan mode.',
       'tui.migration.emptySessionsSkipped': '  {{count}} empty sessions skipped',
       'tui.migration.configConflicts': '  ⚠ {{count}} config conflicts kept yours: {{keys}}',
       'tui.migration.mcpNeedsAuth': '  ⚠ {{count}} MCP servers need re-authentication',
@@ -394,9 +405,9 @@ function makeReport(
       mcpOauthServersRequiringReauth: [],
       oauthLoginsRequiringRelogin: [],
       detectedPlugins: ['p1', 'p2'],
-      configConflictNotice: null,
-      tuiConflictNotice: null,
-      plansCopiedNotice: null,
+      configConflictSibling: null,
+      tuiConflictSibling: null,
+      plansCopied: null,
       ...noticesOver,
     },
   };
@@ -425,7 +436,7 @@ describe('MigrationScreenComponent — result phase', () => {
       onComplete: () => {},
     });
     c._testShowResult(
-      makeReport({}, {}, { plansCopiedNotice: '3 plan files copied to ~/.kimi-code/plans' }),
+      makeReport({}, {}, { plansCopied: { count: 3, directory: '~/.kimi-code/plans' } }),
     );
     const out = c.render(80).join('\n');
     expect(out).toContain('3 plan files copied to ~/.kimi-code/plans');

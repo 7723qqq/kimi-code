@@ -187,11 +187,16 @@ export interface MigrationNotices {
    */
   readonly oauthLoginsRequiringRelogin: readonly string[];
   readonly detectedPlugins: readonly string[];
-  readonly configConflictNotice: string | null;
-  readonly tuiConflictNotice: string | null;
   /**
-   * Tells the user that legacy plan files were copied as plain files (no
-   * plan-mode wiring) and where to find them. Null when nothing was copied.
+   * Path of the `config.toml` sibling that holds the migrated copy when the
+   * live target config could not be parsed. Null when no sibling was written.
    */
-  readonly plansCopiedNotice: string | null;
+  readonly configConflictSibling: string | null;
+  /** Path of the `tui.toml` sibling kept after a user-modification conflict. */
+  readonly tuiConflictSibling: string | null;
+  /**
+   * Legacy plan files copied as plain files (no plan-mode wiring) and where
+   * they landed. Null when nothing was copied.
+   */
+  readonly plansCopied: { readonly count: number; readonly directory: string } | null;
 }

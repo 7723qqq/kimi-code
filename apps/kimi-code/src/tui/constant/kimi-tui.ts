@@ -32,6 +32,9 @@ export function getSessionlessStartupNotice(): string {
 export function getShuttingDownHint(): string {
   return t('tui.chrome.hints.shuttingDown');
 }
+export function getWorkspaceDirsUnavailableNotice(error: string): string {
+  return t('tui.chrome.hints.workspaceDirsUnavailable', { error });
+}
 export const TOWER_TEARDOWN_PROMPT =
   'Tear down the tower: call TowerTeardown and report what it did. It refuses to destroy dirty worktrees unless forced.';
 export const EXIT_CONFIRM_WINDOW_MS = 1500;
