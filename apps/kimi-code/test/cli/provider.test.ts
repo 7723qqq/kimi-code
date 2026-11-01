@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import {
   resetModelsDevUpstreamForTest,
   setModelsDevUpstreamForTest,
-} from '@moonshot-ai/agent-core-v2/app/kosongConfig/modelsDevUpstream';
+} from '@moonshot-ai/agent-core-v2';
 import { type KimiConfig, KimiHarness } from '@moonshot-ai/kimi-code-sdk';
 import * as sdkModule from '@moonshot-ai/kimi-code-sdk';
 import { Command } from 'commander';

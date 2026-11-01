@@ -5,7 +5,7 @@
  * ctrl+o (or a click) shows every item.
  */
 
-import { TODO_LIST_HEADER } from '@moonshot-ai/agent-core-v2';
+import { TODO_LIST_HEADER } from '@moonshot-ai/kimi-code-sdk';
 import { truncateToWidth, type Component } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';

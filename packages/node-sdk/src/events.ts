@@ -9,6 +9,17 @@ export type { KimiErrorPayload } from '#/errors';
 
 export type { Event, ToolResultEvent } from '@moonshot-ai/agent-core-v2/events';
 
+export {
+  GoalPauseReason,
+  isGoalPauseReason,
+  isSubagentCancellationMessage,
+  NOTIFY_USER_DELIVERED_OUTPUT,
+  NOTIFY_USER_SUPPRESSED_OUTPUT,
+  PROMPT_OPTIMIZER_AGENT_HELPER,
+  ReviewDecision,
+  TODO_LIST_HEADER,
+} from '@moonshot-ai/agent-core-v2';
+
 export { MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE } from '@moonshot-ai/agent-core-v2/tool/toolContract';
 
 export type { AgentStatusUpdatedEvent } from '@moonshot-ai/agent-core-v2/agent/usage/usageEvents';

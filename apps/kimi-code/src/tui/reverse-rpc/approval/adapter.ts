@@ -1,4 +1,4 @@
-import { ReviewDecision } from '@moonshot-ai/agent-core-v2';
+import { ReviewDecision } from '@moonshot-ai/kimi-code-sdk';
 import type {
   ApprovalRequest,
   ApprovalResponse,

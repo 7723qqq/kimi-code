@@ -1,7 +1,7 @@
 import {
   isSubagentCancellationMessage,
   PROMPT_OPTIMIZER_AGENT_HELPER,
-} from '@moonshot-ai/agent-core-v2';
+} from '@moonshot-ai/kimi-code-sdk';
 import type { BackgroundTaskInfo, Event } from '@moonshot-ai/kimi-code-sdk';
 import type { Component } from '@moonshot-ai/pi-tui';
 

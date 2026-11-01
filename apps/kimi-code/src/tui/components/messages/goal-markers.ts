@@ -7,7 +7,7 @@
  * the richer completion card (the `/goal` box), not this marker.
  */
 
-import { GoalPauseReason, isGoalPauseReason } from '@moonshot-ai/agent-core-v2';
+import { GoalPauseReason, isGoalPauseReason } from '@moonshot-ai/kimi-code-sdk';
 import type { GoalChange } from '@moonshot-ai/kimi-code-sdk';
 import { truncateToWidth, type Component } from '@moonshot-ai/pi-tui';
 
