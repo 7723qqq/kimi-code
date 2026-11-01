@@ -205,7 +205,7 @@ This repo uses [changesets](https://github.com/changesets/changesets) to manage 
 
 ### Release flow on this fork
 
-Every push to `main` runs the Release workflow, which installs dependencies, builds all workspace packages, and builds the built-in catalog. The `changesets/action@v1` step that used to open or update a **"ci: release packages"** PR (branch `changeset-release/main`) is **commented out on this fork**, so no such PR is opened and nothing is published to npm.
+The Release workflow is wired to `release/*` branch pushes and manual dispatch, and every job is guarded to the MoonshotAI repository, so none of it runs on this fork. Upstream, its `version` job is the `changesets/action@v1` step that opens or updates the **"ci: release packages"** PR; this fork's copy of the workflow also has the publish step in the `release` job **commented out**, so nothing is published to npm here.
 
 - Changesets are still required on PRs: they are the changelog source, and the action is re-enabled when a standalone release is needed.
 - Before an intentional release, preview the user-facing changelog with the `pre-changelog` skill, then prune accumulated non-user-facing changesets from `main`.

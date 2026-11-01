@@ -134,7 +134,7 @@ bun install
 ```
 
 ```sh
-bun run dev:local     # run the CLI from a fresh bundle (use this, not dev:cli)
+bun run dev:local     # run the CLI from a fresh bundle (incremental, ~2s)
 bun run dev:local:watch
 bun run build         # build all workspace packages
 bun run typecheck     # TypeScript check (builds packages first)

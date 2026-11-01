@@ -137,7 +137,7 @@ bun install
 ```
 
 ```sh
-bun run dev:local     # 从新构建的 bundle 运行 CLI（用它，不要用 dev:cli）
+bun run dev:local     # 从新构建的 bundle 运行 CLI（增量，约 2 秒）
 bun run dev:local:watch
 bun run typecheck     # TypeScript 检查（会先构建 packages）
 bun run lint          # 运行 oxlint
