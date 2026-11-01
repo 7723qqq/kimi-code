@@ -22,7 +22,7 @@ import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import type { ColorPalette } from '#/tui/theme/colors';
-import { listMouseDispatch, regionAt, type ListRowRegion } from '#/tui/utils/list-mouse';
+import { DialogMouse, mouseDispatch, regionAt, type ListRowRegion } from '#/tui/utils/mouse';
 import { formatPluginSourceLabel, pluginTrustLabel } from '#/tui/utils/plugin-source-label';
 import { printableChar } from '#/tui/utils/printable-key';
 import { layoutTabStrip, type TabStripSpan } from '#/tui/utils/tab-strip';
@@ -443,6 +443,7 @@ export class PluginsPanelComponent extends Container implements Focusable {
   private readonly rowRegions: ListRowRegion[] = [];
   private tabRow: number | undefined;
   private tabSpans: readonly TabStripSpan[] = [];
+  private readonly mouse = new DialogMouse(() => this.focused);
 
   constructor(opts: PluginsPanelOptions) {
     super();
@@ -678,19 +679,17 @@ export class PluginsPanelComponent extends Container implements Focusable {
   }
 
   override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
-    return listMouseDispatch(this, event, this.mouseEvent(event));
+    return mouseDispatch(this, event, this.mouseEvent(event));
   }
 
   private mouseEvent(event: TuiMouseEvent): TuiMouseEventResult | undefined {
-    if (!this.focused) {
-      if (event.type === 'press') return { handled: true };
-      if (event.type === 'click') return { handled: true, focus: true };
-      return undefined;
-    }
+    const handoff = this.mouse.handoff(event);
+    if (handoff !== undefined) return handoff;
 
     if (event.type === 'wheel') {
-      if (event.wheelDelta === undefined) return { handled: true };
-      return { handled: true, render: this.stepSelection(event.wheelDelta < 0 ? -1 : 1) };
+      const direction = this.mouse.wheel(event);
+      if (direction === 0) return { handled: true };
+      return { handled: true, render: this.stepSelection(direction) };
     }
 
     if (this.tabRow !== undefined && event.y === this.tabRow) {

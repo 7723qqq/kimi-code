@@ -15,7 +15,7 @@ import {
   ListMouseRouter,
   type ListCursor,
   type ListRowRegion,
-} from '#/tui/utils/list-mouse';
+} from '#/tui/utils/mouse';
 import { wrapText as wrapPlain } from '#/tui/utils/wrap-text';
 
 export type StartPermissionChoice = 'auto' | 'yolo' | 'manual' | 'cancel';

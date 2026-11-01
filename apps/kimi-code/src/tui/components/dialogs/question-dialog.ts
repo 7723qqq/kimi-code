@@ -27,8 +27,7 @@ import type {
   QuestionSubmissionMethod,
 } from '#/tui/reverse-rpc/types';
 import { currentTheme } from '#/tui/theme';
-import { listMouseDispatch, regionAt, type RowRegion } from '#/tui/utils/list-mouse';
-import { isSettlingClick } from '#/tui/utils/terminal-focus';
+import { DialogMouse, mouseDispatch, regionAt, type RowRegion } from '#/tui/utils/mouse';
 
 const NUMBER_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
 const MAX_BODY_LINES = 12;
@@ -118,7 +117,7 @@ export class QuestionDialogComponent extends Container implements Focusable {
 
   /** Rectangles recorded by the last render, so a click knows what it hit. */
   private readonly hitRegions: QuestionHitRegion[] = [];
-  private readonly shownAt = Date.now();
+  private readonly mouse = new DialogMouse(() => this.focused);
 
   /** Per-question cursor position. */
   private readonly cursors: number[];
@@ -305,28 +304,25 @@ export class QuestionDialogComponent extends Container implements Focusable {
   // ── Mouse ─────────────────────────────────────────────────────────
 
   override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
-    return listMouseDispatch(this, event, this.mouseEvent(event));
+    return mouseDispatch(this, event, this.mouseEvent(event));
   }
 
   private mouseEvent(event: TuiMouseEvent): TuiMouseEventResult | undefined {
-    if (!this.focused) {
-      // The first click only hands the keyboard to the dialog; the next one
-      // acts. A question answered by the click that revealed it is worse than
-      // one extra click.
-      if (event.type === 'press') return { handled: true };
-      if (event.type === 'click') return { handled: true, focus: true };
-      return undefined;
-    }
+    // The first click only hands the keyboard to the dialog; the next one
+    // acts. A question answered by the click that revealed it is worse than
+    // one extra click.
+    const handoff = this.mouse.handoff(event);
+    if (handoff !== undefined) return handoff;
 
     if (event.type === 'wheel') {
-      if (event.wheelDelta === undefined || this.isEditingOther()) return { handled: true };
-      const delta = event.wheelDelta < 0 ? -1 : 1;
+      const direction = this.mouse.wheel(event);
+      if (direction === 0 || this.isEditingOther()) return { handled: true };
       if (this.isSubmitTab()) {
         const actions = getSubmitActions();
         this.submitActionIdx =
-          (this.submitActionIdx + delta + actions.length) % actions.length;
+          (this.submitActionIdx + direction + actions.length) % actions.length;
       } else {
-        this.moveQuestionCursor(delta);
+        this.moveQuestionCursor(direction);
       }
       return { handled: true, render: true };
     }
@@ -343,7 +339,7 @@ export class QuestionDialogComponent extends Container implements Focusable {
 
     if (hit.kind === 'tab') {
       if (event.type !== 'press' && event.type !== 'click') return undefined;
-      if (event.type === 'click' && isSettlingClick(this.shownAt)) return { handled: true };
+      if (this.mouse.settling(event)) return { handled: true };
       this.gotoTab(hit.index);
       return { handled: true, render: true };
     }
@@ -352,7 +348,7 @@ export class QuestionDialogComponent extends Container implements Focusable {
       if (event.type !== 'press' && event.type !== 'click') return undefined;
       this.submitActionIdx = hit.index;
       if (event.type === 'click') {
-        if (isSettlingClick(this.shownAt)) return { handled: true, render: true };
+        if (this.mouse.settling(event)) return { handled: true, render: true };
         this.executeSubmitAction(hit.index, 'enter');
       }
       return { handled: true, render: true };
@@ -362,7 +358,7 @@ export class QuestionDialogComponent extends Container implements Focusable {
       return { handled: true, render: this.pointAtOption(hit.index) };
     }
     if (event.type !== 'click') return { handled: true };
-    if (isSettlingClick(this.shownAt)) return { handled: true };
+    if (this.mouse.settling(event)) return { handled: true };
     this.leaveOtherInput();
     this.activateQuestionOption(hit.index, 'enter');
     return { handled: true, render: true };

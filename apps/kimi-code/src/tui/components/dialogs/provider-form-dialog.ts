@@ -66,8 +66,7 @@ import {
 import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
-import { inputPressAt } from '#/tui/utils/form-mouse';
-import { listMouseDispatch } from '#/tui/utils/list-mouse';
+import { DialogMouse, inputPressAt, mouseDispatch } from '#/tui/utils/mouse';
 import { printableChar } from '#/tui/utils/printable-key';
 import {
   CAPABILITY_NAMES,
@@ -423,6 +422,7 @@ export class ProviderFormDialogComponent extends Container implements Focusable 
   private apiKeyRevealed = false;
   private hint: ProviderFormError | null = null;
   private done = false;
+  private readonly mouse = new DialogMouse(() => this.focused);
 
   constructor(
     onDone: (result: ProviderFormDialogResult) => void,
@@ -620,16 +620,13 @@ export class ProviderFormDialogComponent extends Container implements Focusable 
   }
 
   override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
-    return listMouseDispatch(this, event, this.mouseEvent(event));
+    return mouseDispatch(this, event, this.mouseEvent(event));
   }
 
   private mouseEvent(event: TuiMouseEvent): TuiMouseEventResult | undefined {
     if (this.done) return undefined;
-    if (!this.focused) {
-      if (event.type === 'press') return { handled: true };
-      if (event.type === 'click') return { handled: true, focus: true };
-      return undefined;
-    }
+    const handoff = this.mouse.handoff(event);
+    if (handoff !== undefined) return handoff;
     if (this.disabled) {
       // Read-only records still swallow the event: it must not fall through to
       // the transcript behind the form.

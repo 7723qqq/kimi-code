@@ -55,11 +55,11 @@ import { t } from '#/i18n';
 import { getCurrentMark, SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import {
-  listMouseDispatch,
+  mouseDispatch,
   ListMouseRouter,
   type ListCursor,
   type ListRowRegion,
-} from '#/tui/utils/list-mouse';
+} from '#/tui/utils/mouse';
 import { pageView, type PageView } from '#/tui/utils/paging';
 import { printableChar } from '#/tui/utils/printable-key';
 
@@ -312,7 +312,7 @@ export class ProviderManagerComponent extends Container implements Focusable {
   }
 
   override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
-    return listMouseDispatch(this, event, this.mouse.handleMouse(event));
+    return mouseDispatch(this, event, this.mouse.handleMouse(event));
   }
 
   /** The slice of {@link rows} the list renders; the synthetic add-row is one of them. */

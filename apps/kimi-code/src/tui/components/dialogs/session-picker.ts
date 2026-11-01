@@ -18,11 +18,11 @@ import { formatSessionLabel } from '#/migration/index';
 import { getCurrentMark, SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import {
-  listMouseDispatch,
+  mouseDispatch,
   ListMouseRouter,
   type ListRowRegion,
   searchableListCursor,
-} from '#/tui/utils/list-mouse';
+} from '#/tui/utils/mouse';
 import { printableChar } from '#/tui/utils/printable-key';
 import { SearchableList } from '#/tui/utils/searchable-list';
 
@@ -287,7 +287,7 @@ export class SessionPickerComponent extends Container implements Focusable {
   }
 
   override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
-    return listMouseDispatch(this, event, this.mouse.handleMouse(event));
+    return mouseDispatch(this, event, this.mouse.handleMouse(event));
   }
 
   /** Commit a session the way Enter does, and keep the picker honest while the

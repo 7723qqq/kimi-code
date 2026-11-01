@@ -44,6 +44,15 @@ import { VirtualTerminal } from '../../../../packages/pi-tui/test/virtual-termin
 const WIDTH = 120;
 const HEIGHT = 30;
 
+/**
+ * Age a panel past the click-settling window so a case can test selection
+ * rather than the guard. The window lives in the panel's shared `DialogMouse`,
+ * so that is where the age goes.
+ */
+function agePastClickGuard(panel: object): void {
+  (panel as { mouse: { shownAt: number } }).mouse.shownAt = Date.now() - 1_000;
+}
+
 function fakeInitialAppState(): AppState {
   return {
     model: 'test-model',
@@ -961,7 +970,7 @@ describe('fullscreen layout', () => {
     );
     // The click guard ignores a click within CLICK_GUARD_MS of the panel
     // appearing; age the panel past it so this case tests selection.
-    (panel as unknown as { shownAt: number }).shownAt = Date.now() - 1_000;
+    agePastClickGuard(panel);
     state.editorContainer.clear();
     state.editorContainer.addChild(panel);
     const alt = state.ui as TuiAltScreen;

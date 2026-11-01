@@ -23,6 +23,7 @@ import { t } from '#/i18n';
 import { renderDiffLinesClustered } from '#/tui/components/media/diff-preview';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
+import { ScrollMouseRouter } from '#/tui/utils/mouse';
 
 export type PromptOptimizeChoice = 'accept' | 'discard';
 
@@ -127,6 +128,18 @@ export class PromptOptimizePanelComponent implements Component, Focusable {
   private scrollTop = 0;
   /** Row count of the last render, used by the page keys. */
   private lastDiffRowCount = 0;
+  /**
+   * A positive delta scrolls toward later rows. The wheel always consumes:
+   * letting the transcript take over mid-read would scroll the conversation
+   * out from under the panel the pointer is resting on.
+   */
+  private readonly mouse = new ScrollMouseRouter(
+    (_direction, delta) => {
+      this.scrollTo(this.scrollTop + delta);
+      return true;
+    },
+    true,
+  );
 
   constructor(opts: PromptOptimizePanelOptions) {
     this.opts = opts;
@@ -195,15 +208,7 @@ export class PromptOptimizePanelComponent implements Component, Focusable {
   }
 
   handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
-    if (event.type !== 'wheel') return undefined;
-    // Direction comes only from `wheelDelta` (the button field has no wheel
-    // value); a positive delta scrolls toward later rows.
-    const delta = event.wheelDelta ?? 0;
-    if (delta === 0) return undefined;
-    this.scrollTo(this.scrollTop + delta);
-    // Always consume: letting the transcript take over mid-read would scroll the
-    // conversation out from under the panel the pointer is resting on.
-    return { handled: true };
+    return this.mouse.handleMouse(event);
   }
 
   invalidate(): void {}

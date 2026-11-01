@@ -14,8 +14,7 @@ import {
 
 import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
-import { listMouseDispatch, regionAt, type ListRowRegion } from '#/tui/utils/list-mouse';
-import { isSettlingClick } from '#/tui/utils/terminal-focus';
+import { DialogMouse, mouseDispatch, regionAt, type ListRowRegion } from '#/tui/utils/mouse';
 
 import { effortLabel } from './model-selector';
 
@@ -49,7 +48,7 @@ export class EffortSelectorComponent extends Container implements Focusable {
   private activeIndex: number;
   /** Columns each segment occupied in the last render, for pointer hits. */
   private readonly segmentRegions: ListRowRegion[] = [];
-  private readonly shownAt = Date.now();
+  private readonly mouse = new DialogMouse(() => this.focused);
 
   constructor(opts: EffortSelectorOptions) {
     super();
@@ -82,20 +81,17 @@ export class EffortSelectorComponent extends Container implements Focusable {
   }
 
   override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
-    return listMouseDispatch(this, event, this.mouseEvent(event));
+    return mouseDispatch(this, event, this.mouseEvent(event));
   }
 
   private mouseEvent(event: TuiMouseEvent): TuiMouseEventResult | undefined {
-    if (!this.focused) {
-      if (event.type === 'press') return { handled: true };
-      if (event.type === 'click') return { handled: true, focus: true };
-      return undefined;
-    }
+    const handoff = this.mouse.handoff(event);
+    if (handoff !== undefined) return handoff;
 
     if (event.type === 'wheel') {
-      if (event.wheelDelta === undefined) return { handled: true };
-      const delta = event.wheelDelta < 0 ? -1 : 1;
-      const next = Math.max(0, Math.min(this.opts.efforts.length - 1, this.activeIndex + delta));
+      const direction = this.mouse.wheel(event);
+      if (direction === 0) return { handled: true };
+      const next = Math.max(0, Math.min(this.opts.efforts.length - 1, this.activeIndex + direction));
       if (next === this.activeIndex) return { handled: true };
       this.activeIndex = next;
       return { handled: true, render: true };
@@ -106,7 +102,7 @@ export class EffortSelectorComponent extends Container implements Focusable {
     if (segment === undefined) return undefined;
 
     this.activeIndex = segment.index;
-    if (event.type === 'click' && !isSettlingClick(this.shownAt)) {
+    if (event.type === 'click' && !this.mouse.settling(event)) {
       this.opts.onSelect(this.opts.efforts[segment.index]!);
     }
     return { handled: true, render: true };

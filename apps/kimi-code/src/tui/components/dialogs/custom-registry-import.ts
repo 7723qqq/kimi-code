@@ -25,8 +25,7 @@ import {
 
 import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
-import { inputPressAt, type InputFrame } from '#/tui/utils/form-mouse';
-import { listMouseDispatch } from '#/tui/utils/list-mouse';
+import { DialogMouse, inputPressAt, mouseDispatch, type InputFrame } from '#/tui/utils/mouse';
 
 export interface CustomRegistryImportValue {
   readonly url: string;
@@ -92,6 +91,7 @@ export class CustomRegistryImportDialogComponent extends Container implements Fo
   /** Where the last render put each input line, in the dialog's own frame. */
   private urlFrame: InputFrame = { row: -1, column: 0 };
   private tokenFrame: InputFrame = { row: -1, column: 0 };
+  private readonly mouse = new DialogMouse(() => this.focused);
 
   constructor(onDone: (result: CustomRegistryImportResult) => void, defaultUrl: string = '') {
     super();
@@ -231,16 +231,13 @@ export class CustomRegistryImportDialogComponent extends Container implements Fo
   }
 
   override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
-    return listMouseDispatch(this, event, this.mouseEvent(event));
+    return mouseDispatch(this, event, this.mouseEvent(event));
   }
 
   private mouseEvent(event: TuiMouseEvent): TuiMouseEventResult | undefined {
     if (this.done) return undefined;
-    if (!this.focused) {
-      if (event.type === 'press') return { handled: true };
-      if (event.type === 'click') return { handled: true, focus: true };
-      return undefined;
-    }
+    const handoff = this.mouse.handoff(event);
+    if (handoff !== undefined) return handoff;
 
     const urlHit = inputPressAt(this.urlInput, event, this.urlFrame);
     if (urlHit !== undefined) {

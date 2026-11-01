@@ -20,11 +20,11 @@ import type {
 } from '#/tui/goal-queue-store';
 import { currentTheme } from '#/tui/theme';
 import {
-  listMouseDispatch,
+  mouseDispatch,
   ListMouseRouter,
   type ListRowRegion,
   searchableListCursor,
-} from '#/tui/utils/list-mouse';
+} from '#/tui/utils/mouse';
 import { isPrintableText, printableChar } from '#/tui/utils/printable-key';
 import { SearchableList } from '#/tui/utils/searchable-list';
 
@@ -135,7 +135,7 @@ export class GoalQueueManagerComponent extends Container implements Focusable {
   }
 
   override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
-    return listMouseDispatch(this, event, this.mouse.handleMouse(event));
+    return mouseDispatch(this, event, this.mouse.handleMouse(event));
   }
 
   override render(width: number): string[] {

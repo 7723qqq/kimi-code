@@ -54,6 +54,16 @@ The feature type decides the landing spot:
 - **Constants** → shared CLI/TUI non-copy constants in `src/constant/`; TUI-only non-copy constants in `src/tui/constant/`. Component-local copy, option labels, help text, dialog titles/footers stay next to their component — do not centralize copy into a global module.
 - **General capability** → no TUI-state dependency → `src/utils/`; depends on TUI state or a component → `src/tui/utils/`.
 
+## Mouse
+
+Every pointer answer goes through `src/tui/utils/mouse.ts`. It is the single place the three rules that used to be copied into each panel live:
+
+- `DialogMouse` — the stateful facade a panel holds. `handoff(event)` answers the first press / click that only takes the keyboard (returns `undefined` once the panel is focused, meaning "this event is yours"); `wheel(event)` turns a notch into `-1 | 0 | 1`; `settling(event)` says whether a click landed too soon after the panel appeared to be deliberate — navigation may follow it, committing may not.
+- `ListMouseRouter` + `searchableListCursor` — the standard list interaction (row under the pointer highlights, wheel turns the page, click picks). `ScrollMouseRouter` — the wheel-only variant; its callback gets `(direction, delta)` and returns whether the view moved, which becomes the repaint decision. Pass `alwaysConsume` for a panel whose content sits over the transcript.
+- `mouseDispatch` — wraps an answer into the dispatch shape; `regionAt` and `ListRowRegion` / `RowRegion` — hit-testing the rows a render recorded; `inputPressAt` — forwarding a press into an `Input`'s own frame.
+
+Do not restate any of those rules in a component. A panel with its own hit model (tabs, submit actions, multi-select rows) keeps its branches, but takes the hand-off, the wheel direction and the settling window from `DialogMouse`.
+
 ## Test placement
 
 - Component behavior tests sit next to the component's existing tests (`test/tui/components/...`).

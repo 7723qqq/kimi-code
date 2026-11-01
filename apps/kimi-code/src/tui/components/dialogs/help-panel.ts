@@ -21,7 +21,7 @@ import {
 
 import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
-import { ScrollMouseRouter } from '#/tui/utils/list-mouse';
+import { mouseDispatch, ScrollMouseRouter } from '#/tui/utils/mouse';
 
 export interface KeyboardShortcut {
   readonly keys: string;
@@ -133,19 +133,7 @@ export class HelpPanelComponent extends Container implements Focusable {
   }
 
   override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
-    const result = this.mouse.handleMouse(event);
-    if (!result) return undefined;
-    return {
-      ...result,
-      handled: true,
-      target: {
-        component: this,
-        originX: event.screenX - event.x,
-        originY: event.screenY - event.y,
-        width: event.width,
-        height: event.height,
-      },
-    };
+    return mouseDispatch(this, event, this.mouse.handleMouse(event));
   }
 
   override render(width: number): string[] {

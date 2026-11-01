@@ -11,10 +11,10 @@ import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
 import {
   ListMouseRouter,
-  listMouseDispatch,
+  mouseDispatch,
   type ListCursor,
   type ListRowRegion,
-} from '#/tui/utils/list-mouse';
+} from '#/tui/utils/mouse';
 import { printableChar, isPrintableText } from '#/tui/utils/printable-key';
 
 export interface CodingPlanConfigOptions {
@@ -123,7 +123,7 @@ export class CodingPlanConfigComponent extends Container implements Focusable {
   }
 
   override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
-    return listMouseDispatch(this, event, this.mouse.handleMouse(event));
+    return mouseDispatch(this, event, this.mouse.handleMouse(event));
   }
 
   private cursor(): ListCursor<string> {

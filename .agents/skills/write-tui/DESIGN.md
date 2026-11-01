@@ -160,6 +160,7 @@
 | 分页视图 | `utils/paging.ts` → `pageView` |
 | Kitty 可打印字符 | `utils/printable-key.ts` → `printableChar` / `isPrintableChar`（含 guard） |
 | 选中指针 / 当前项标记 | `constant/symbols.ts` → `SELECT_POINTER` / `CURRENT_MARK` |
+| 鼠标交互 | `utils/mouse.ts` → `DialogMouse` / `ListMouseRouter` / `ScrollMouseRouter` / `mouseDispatch`（见 SKILL.md「Mouse」） |
 
 新列表组件**必须复用 `SearchableList`**（光标 / 搜索 / 翻页），并手工对齐本文件第 3–8 节的布局、键位、文案。
 

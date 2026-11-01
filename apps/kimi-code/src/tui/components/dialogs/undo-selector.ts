@@ -13,11 +13,11 @@ import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import {
-  listMouseDispatch,
+  mouseDispatch,
   ListMouseRouter,
   type ListRowRegion,
   searchableListCursor,
-} from '#/tui/utils/list-mouse';
+} from '#/tui/utils/mouse';
 import { SearchableList } from '#/tui/utils/searchable-list';
 
 const MAX_VISIBLE_CHOICES = 5;
@@ -87,7 +87,7 @@ export class UndoSelectorComponent extends Container implements Focusable {
   }
 
   override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
-    return listMouseDispatch(this, event, this.mouse.handleMouse(event));
+    return mouseDispatch(this, event, this.mouse.handleMouse(event));
   }
 
   override render(width: number): string[] {

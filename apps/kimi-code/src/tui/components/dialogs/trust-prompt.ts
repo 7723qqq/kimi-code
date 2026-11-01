@@ -13,7 +13,7 @@ import {
 import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme, type ColorToken } from '#/tui/theme';
-import { ListMouseRouter, type ListCursor } from '#/tui/utils/list-mouse';
+import { ListMouseRouter, type ListCursor } from '#/tui/utils/mouse';
 import { pageView } from '#/tui/utils/paging';
 
 export type TrustPromptChoice = 'trust' | 'distrust';

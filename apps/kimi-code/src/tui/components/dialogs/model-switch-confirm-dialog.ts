@@ -26,11 +26,11 @@ import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import {
-  listMouseDispatch,
+  mouseDispatch,
   ListMouseRouter,
   type ListRowRegion,
   searchableListCursor,
-} from '#/tui/utils/list-mouse';
+} from '#/tui/utils/mouse';
 import { SearchableList } from '#/tui/utils/searchable-list';
 import type { ModelSwitchAction } from '#/utils/model-switch-confirm-config';
 
@@ -119,7 +119,7 @@ export class ModelSwitchConfirmDialogComponent extends Container implements Focu
   }
 
   override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
-    return listMouseDispatch(this, event, this.mouse.handleMouse(event));
+    return mouseDispatch(this, event, this.mouse.handleMouse(event));
   }
 
   override render(width: number): string[] {

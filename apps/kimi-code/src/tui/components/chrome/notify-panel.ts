@@ -51,6 +51,7 @@ import {
   getMarkdownMermaidMode,
   type MermaidRenderMode,
 } from '#/tui/utils/markdown-options';
+import { ScrollMouseRouter } from '#/tui/utils/mouse';
 
 export interface NotifyEntry {
   readonly id: string;
@@ -204,6 +205,8 @@ export class NotifyPanelComponent extends DockSection implements Component {
   private lastBody: RenderedBodyCache | undefined;
   /** Clickable spans of the top border, refreshed by every `title()` call. */
   private tabHitRanges: TabHitRange[] = [];
+  /** The box owns the wheel unconditionally; see {@link handlePartMouse}. */
+  private readonly mouse = new ScrollMouseRouter((_direction, delta) => this.scrollBy(delta), true);
   /** `+N done` expanded into individual tabs (mouse toggle). */
   private finishedExpanded = false;
   /** Drives the auto-advance while a fresh update is being read through. */
@@ -419,16 +422,11 @@ export class NotifyPanelComponent extends DockSection implements Component {
     if (this.channels.length === 0) return undefined;
 
     if (event.type === 'wheel') {
-      // Direction comes only from `wheelDelta` (the button field has no wheel
-      // value); a positive delta scrolls toward later rows.
-      const delta = event.wheelDelta ?? 0;
-      if (delta === 0) return undefined;
       // Browse without taking the keyboard: the wheel is not `Ctrl+N`, and
       // grabbing focus would swallow the user's next keystroke into the panel.
-      this.scrollBy(delta);
       // Always consume: letting the transcript take over mid-read would scroll
       // the conversation out from under the box the pointer is resting on.
-      return { handled: true };
+      return this.mouse.handleMouse(event);
     }
 
     // Only `click`, never `press`: the alt-screen establishes a candidate target

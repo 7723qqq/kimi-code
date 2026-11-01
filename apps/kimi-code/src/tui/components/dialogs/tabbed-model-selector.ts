@@ -26,7 +26,7 @@ import {
 
 import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
-import { listMouseDispatch } from '#/tui/utils/list-mouse';
+import { mouseDispatch } from '#/tui/utils/mouse';
 import { layoutTabStrip, type TabStripSpan } from '#/tui/utils/tab-strip';
 
 import {
@@ -133,11 +133,11 @@ export class TabbedModelSelectorComponent extends Container implements Focusable
           (candidate) => event.x >= candidate.start && event.x < candidate.end,
         );
         if (span === undefined || span.index === this.activeIndex) {
-          return listMouseDispatch(this, event, { handled: true });
+          return mouseDispatch(this, event, { handled: true });
         }
         this.activeIndex = span.index;
         this.syncFocusToActive();
-        return listMouseDispatch(this, event, { handled: true, render: true });
+        return mouseDispatch(this, event, { handled: true, render: true });
       }
       if (event.y < this.bodyOffset) return undefined;
     }
@@ -149,7 +149,7 @@ export class TabbedModelSelectorComponent extends Container implements Focusable
       y: event.y - this.bodyShift,
       height: Math.max(0, event.height - this.bodyOffset),
     });
-    return forwarded === undefined ? undefined : listMouseDispatch(this, event, forwarded);
+    return forwarded === undefined ? undefined : mouseDispatch(this, event, forwarded);
   }
 
   override render(width: number): string[] {

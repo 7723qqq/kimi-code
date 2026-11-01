@@ -29,7 +29,7 @@ import {
   ListMouseRouter,
   type ListRowRegion,
   searchableListCursor,
-} from '#/tui/utils/list-mouse';
+} from '#/tui/utils/mouse';
 import { SearchableList } from '#/tui/utils/searchable-list';
 import { wrapText as wrapDescription } from '#/tui/utils/wrap-text';
 
@@ -77,7 +77,6 @@ export class ChoicePickerComponent implements Component, Focusable {
   readonly ownsViewportKeys = true;
   private readonly opts: ChoicePickerOptions;
   private readonly list: SearchableList<ChoiceOption>;
-  private readonly shownAt = Date.now();
   private readonly mouse: ListMouseRouter<ChoiceOption>;
 
   constructor(opts: ChoicePickerOptions) {
@@ -95,7 +94,7 @@ export class ChoicePickerComponent implements Component, Focusable {
     this.mouse = new ListMouseRouter(
       searchableListCursor(() => this.list),
       (option) => this.opts.onSelect(option.value),
-      { shownAt: this.shownAt, isFocused: () => this.focused },
+      { isFocused: () => this.focused },
     );
   }
 

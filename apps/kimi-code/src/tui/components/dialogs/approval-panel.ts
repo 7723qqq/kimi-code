@@ -20,7 +20,6 @@ import {
 } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
-import { isSettlingClick } from '#/tui/utils/terminal-focus';
 import { DockSection, type DockLayout, type DockPart } from '#/tui/components/chrome/dock-section';
 import { highlightLines, langFromPath } from '#/tui/components/media/code-highlight';
 import { renderDiffLinesClustered } from '#/tui/components/media/diff-preview';
@@ -32,6 +31,7 @@ import type {
   PendingApproval,
 } from '#/tui/reverse-rpc/types';
 import { currentTheme } from '#/tui/theme';
+import { DialogMouse } from '#/tui/utils/mouse';
 
 export interface ApprovalPanelResponse {
   readonly response: 'approved' | 'approved_for_session' | 'rejected' | 'cancelled';
@@ -276,8 +276,8 @@ export class ApprovalPanelComponent extends DockSection implements Focusable {
     | undefined;
   private readonly isTerminalFocused: () => boolean;
   private readonly onFocusUpdates: (() => boolean) | undefined;
-  /** A click this soon after the panel appeared was aimed at what was there before. */
-  private readonly shownAt = Date.now();
+  /** Pointer rules shared with every other panel: hand-off, wheel, settling. */
+  private readonly mouse = new DialogMouse(() => this.focused);
   /**
    * Set while the user's in-flight keystroke is still owed a drop.
    *
@@ -627,9 +627,13 @@ export class ApprovalPanelComponent extends DockSection implements Focusable {
       return { handled: true, render: true };
     }
     if (event.button !== 'left') return undefined;
-    if (event.type === 'click' && !this.focused) return { handled: true, focus: true };
+    // The hand-off is the shared rule: a click before the panel holds the
+    // keyboard only hands it over. A press is deliberately left to the row
+    // check below, since the body around the choices stays click-through.
+    const handoff = this.mouse.handoff(event);
+    if (handoff?.focus === true) return handoff;
     if (index === -1) return undefined;
-    if (event.type === 'click' && !isSettlingClick(this.shownAt)) {
+    if (event.type === 'click' && !this.mouse.settling(event)) {
       this.clickChoice(index);
     }
     return { handled: true };

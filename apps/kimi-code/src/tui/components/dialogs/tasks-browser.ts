@@ -42,11 +42,11 @@ import {
   type TaskDetailContext,
 } from '#/tui/utils/background-task';
 import {
-  listMouseDispatch,
+  mouseDispatch,
   ListMouseRouter,
   type ListCursor,
   type ListRowRegion,
-} from '#/tui/utils/list-mouse';
+} from '#/tui/utils/mouse';
 import { printableChar } from '#/tui/utils/printable-key';
 import { SearchableList } from '#/tui/utils/searchable-list';
 import { sanitizeShellOutput } from '#/tui/utils/shell-output';
@@ -191,7 +191,7 @@ export class TasksPanelComponent extends Container implements Focusable {
 
   override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
     this.ensureList(this.visibleTasks());
-    return listMouseDispatch(this, event, this.mouse.handleMouse(event));
+    return mouseDispatch(this, event, this.mouse.handleMouse(event));
   }
 
   handleInput(data: string): void {

@@ -20,6 +20,7 @@ import {
 } from '@moonshot-ai/pi-tui';
 
 import { CHROME_GUTTER } from '#/tui/constant/rendering';
+import { ScrollMouseRouter } from '#/tui/utils/mouse';
 
 import { GutterContainer } from './gutter-container';
 
@@ -35,6 +36,11 @@ export type DockPart = 'head' | 'body' | 'foot';
  * it is.
  */
 class OverflowScrollView extends ScrollView {
+  private readonly mouse = new ScrollMouseRouter((_direction, delta) => {
+    this.scrollBy(delta);
+    return true;
+  }, true);
+
   override get isScrollbarVisible(): boolean {
     return this.canScroll;
   }
@@ -42,7 +48,7 @@ class OverflowScrollView extends ScrollView {
   override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
     // Consume the wheel here so the renderer's fallback cannot hand overscroll to the transcript.
     if (event.type !== 'wheel') return undefined;
-    this.scrollBy(event.wheelDelta ?? 0);
+    this.mouse.handleMouse(event);
     return { handled: true, target: mouseTarget(this, event) };
   }
 }

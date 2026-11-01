@@ -26,8 +26,7 @@ import {
 
 import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
-import { inputPressAt, type InputFrame } from '#/tui/utils/form-mouse';
-import { listMouseDispatch } from '#/tui/utils/list-mouse';
+import { DialogMouse, inputPressAt, mouseDispatch, type InputFrame } from '#/tui/utils/mouse';
 
 export type FeedbackInputDialogResult =
   | { readonly kind: 'ok'; readonly value: string }
@@ -55,6 +54,7 @@ export class FeedbackInputDialogComponent extends Container implements Focusable
   private emptyHinted = false;
   /** Where the last render put the input line, in the dialog's own frame. */
   private inputFrame: InputFrame = { row: -1, column: 0 };
+  private readonly mouse = new DialogMouse(() => this.focused);
 
   constructor(onDone: (result: FeedbackInputDialogResult) => void) {
     super();
@@ -81,16 +81,13 @@ export class FeedbackInputDialogComponent extends Container implements Focusable
   }
 
   override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
-    return listMouseDispatch(this, event, this.mouseEvent(event));
+    return mouseDispatch(this, event, this.mouseEvent(event));
   }
 
   private mouseEvent(event: TuiMouseEvent): TuiMouseEventResult | undefined {
     if (this.done) return undefined;
-    if (!this.focused) {
-      if (event.type === 'press') return { handled: true };
-      if (event.type === 'click') return { handled: true, focus: true };
-      return undefined;
-    }
+    const handoff = this.mouse.handoff(event);
+    if (handoff !== undefined) return handoff;
     return inputPressAt(this.input, event, this.inputFrame);
   }
 
