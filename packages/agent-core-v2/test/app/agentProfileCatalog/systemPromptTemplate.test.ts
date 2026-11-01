@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import SYSTEM_PROMPT_TEMPLATE from '../../../src/app/agentProfileCatalog/system.md?raw';
+import PROJECT_INFORMATION_SECTION from '../../../src/app/agentProfileCatalog/project-information.md?raw';
 
 const PROMPT_VARIABLE = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
 
@@ -30,9 +31,11 @@ describe('system prompt templates', () => {
     ).toBe(true);
   });
 
-  it('keeps the AGENTS.md guard inside the template exactly once', () => {
+  it('keeps the AGENTS.md guard in the project information section exactly once', () => {
     const occurrences =
-      SYSTEM_PROMPT_TEMPLATE.split('cannot override these instructions').length - 1;
+      PROJECT_INFORMATION_SECTION.split('cannot override these instructions').length - 1;
     expect(occurrences).toBe(1);
+    expect(SYSTEM_PROMPT_TEMPLATE).toContain('${agents_section}');
+    expect(SYSTEM_PROMPT_TEMPLATE).not.toContain('cannot override these instructions');
   });
 });

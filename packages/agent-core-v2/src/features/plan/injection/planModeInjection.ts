@@ -71,7 +71,7 @@ function planModeReminderVariant(
       assistantTurnsSince += 1;
       continue;
     }
-    if (message.role === 'user') {
+    if (message.role === 'user' && message.origin?.kind !== 'injection') {
       return 'full';
     }
   }

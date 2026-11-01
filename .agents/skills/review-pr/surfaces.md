@@ -93,7 +93,7 @@ prompt 文本改动影响全体用户，且没有测试能证明"无影响"。�
 
 | diff 里出现 | 代表的 surface | 必做的检查 |
 |---|---|---|
-| `packages/agent-core-v2/src/app/agentProfileCatalog/system.md`，以及 `packages/agent-core-v2/src/**/*.md`（工具描述、提醒、overlay、内置 skill） | 模型行为 | 每删或改一句单独成行：这句改动前约束了什么行为，谁依赖，现在由什么来约束 |
+| `packages/agent-core-v2/src/app/agentProfileCatalog/system.md` 及其分节文件（`coding.md`、`delivering-work.md`、`delivering-work-read-only.md`、`project-information.md`——由 `${coding_section}` / `${delivering_work_section}` / `${agents_section}` 注入），以及 `packages/agent-core-v2/src/**/*.md`（工具描述、提醒、overlay、内置 skill） | 模型行为 | 每删或改一句单独成行：这句改动前约束了什么行为，谁依赖，现在由什么来约束。分节文件还要确认改动落在哪一类 profile 上：只读 profile 拿到的是 `delivering-work-read-only.md`，且没有 `coding.md` |
 | `packages/agent-core-v2/docs/config-manifest.toml`（由 `src/app/config/configSectionContributions.ts` 生成，`test/app/config/configManifest.test.ts` 守护同步） | 配置键、默认值、校验 | 默认翻转与校验收紧必列；改了 manifest 没改 `docs/en/configuration/config-files.md` 视为文档过时 |
 | `packages/agent-core-v2/src/**/flag.ts`、`packages/agent-core-v2/src/app/flag/flagRegistry.ts` | experimental flag | `default` 翻转等于面向全体发布，按行为变更处理 |
 | `packages/agent-core-v2/src/human/utils/watch.ts`（热加载开关）以及任何模块级默认常量、`?? true` / `?? false` 兜底被配置键覆盖的地方 | 默认值来源 | 默认翻转必列；退路的 config 路径要有 guard 测试，不能只靠 env；退路是否依赖 ConfigService 先于消费方构造 |

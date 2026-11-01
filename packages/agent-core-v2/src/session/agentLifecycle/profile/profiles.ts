@@ -44,6 +44,7 @@ const AGENT_TOOLS = [
   'TowerInit',
   'TowerStatus',
   'TowerTeardown',
+  'RepoMap',
   ...GITHUB_READONLY_TOOL_NAMES,
   ...GITHUB_MUTATING_TOOL_NAMES,
   'mcp__*',
@@ -60,6 +61,7 @@ const CODER_TOOLS = [
   'Glob',
   'Grep',
   'Read',
+  'RepoMap',
   'Skill',
   'TaskList',
   'TaskOutput',
@@ -84,7 +86,7 @@ const EXPLORE_TOOLS = [
 
 const CODER_ROLE =
   `${TASK_AGENT_ROLE_PREFIX}\n\n` +
-  'Your final message is the entire handoff — the parent sees nothing else from your run. ' +
+  'Your final message is the entire handoff. ' +
   'Make it technically complete: what you changed and why, the path of every file you touched, ' +
   'how you verified the change (tests or commands run, with results), and anything left undone ' +
   'or worth follow-up. If you are stopped before finishing, the parent receives only what ' +
@@ -117,7 +119,10 @@ registerAgentProfile({
     'Fast agent specialized for exploring codebases: it finds files by patterns (e.g. "src/**/*.yaml"), searches code for keywords (e.g. "database connection"), and answers questions about the codebase (e.g. "how does the auth module work?"). When calling this agent, specify the desired thoroughness level: "quick" for basic searches, "medium" for moderate exploration, or "thorough" for comprehensive analysis across multiple locations and naming conventions.',
   tools: EXPLORE_TOOLS,
   renderSystemPrompt: (context) =>
-    renderSystemPromptResult(EXPLORE_ROLE, context, { skillActive: skillActiveFor(EXPLORE_TOOLS) }),
+    renderSystemPromptResult(`${TASK_AGENT_ROLE_PREFIX}\n\n${EXPLORE_ROLE.trim()}`, context, {
+      skillActive: skillActiveFor(EXPLORE_TOOLS),
+      readOnly: true,
+    }),
   promptPrefix: async ({ cwd, process, log }) => {
     try {
       return await collectGitContext(process, cwd, log);

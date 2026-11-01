@@ -68,7 +68,7 @@ Only set tokens from this set — unknown keys are silently ignored at load. If 
 | `textDim` | Secondary, dimmed text (the most widely used dim shade): thinking, hints, descriptions, completed todos, Markdown quotes, footer status bar |
 | `textMuted` | Faintest text: counters, scroll info, descriptions, Markdown link URLs, code-block borders |
 | `border` | Pane and editor borders, Markdown horizontal rule |
-| `borderFocus` | Focus / attention border (currently only the approval panel) |
+| `borderFocus` | Focus / attention border (the status strip's focused unit) |
 | `success` | Success state: `✓`, "enabled", completed |
 | `warning` | Warning state: auto/yolo badges, stale markers, plan-mode hint |
 | `error` | Error state: error messages, failed tool output |

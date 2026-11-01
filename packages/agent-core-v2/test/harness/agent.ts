@@ -2342,6 +2342,7 @@ function createWorkspaceContextStub(
     _serviceBrand: undefined,
     workDir,
     additionalDirs,
+    setWorkDir: () => {},
     resolve: (path) => (isAbsolute(path) ? resolve(path) : resolve(workDir, path)),
     isWithin,
     assertAllowed: (absPath: string, op: PathAccessOperation) => {

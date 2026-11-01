@@ -32,51 +32,25 @@ import {
   type BashInput,
   BashInputSchema,
   DEFAULT_BACKGROUND_TIMEOUT_S,
-  DEFAULT_TIMEOUT_S,
   IBashTool,
-  MAX_BACKGROUND_TIMEOUT_S,
-  MAX_TIMEOUT_S,
 } from './bash';
 import bashDescriptionTemplate from './bash.md?raw';
 import { ProcessTask } from './process-task';
 
-const SHELL_TIMEOUT_VARS = {
-  DEFAULT_TIMEOUT_S,
-  DEFAULT_BACKGROUND_TIMEOUT_S,
-  MAX_TIMEOUT_S,
-  MAX_BACKGROUND_TIMEOUT_S,
-};
+const BACKGROUND_GUIDANCE =
+  'For long-running builds, tests, watchers, or servers that the conversation should not wait on, set `run_in_background=true` with a short `description`; the call returns a task ID. Set `disable_timeout=true` only when the task should run without a timeout. You are notified automatically when the task completes, so return control to the user instead of waiting on it. Use `TaskOutput` only for a non-blocking snapshot, and `TaskStop` only to cancel.';
 
-function renderBashDescription(shellName: string): string {
-  return renderPrompt(bashDescriptionTemplate, { ...SHELL_TIMEOUT_VARS, SHELL_NAME: shellName });
-}
+const NO_BACKGROUND_GUIDANCE =
+  'Background execution is disabled for this agent. Do not set `run_in_background=true`.';
 
-function withoutBackgroundDescription(description: string): string {
-  return description
-    .replace(
-      /\r?\n\r?\nIf `run_in_background=true`,[\s\S]*?point them to the background-task panel\./,
-      '\n\nBackground execution is disabled for this agent. Do not set `run_in_background=true`.',
-    )
-    .replace(
-      ` For possibly long-running foreground commands, set the \`timeout\` argument in seconds. Foreground commands default to ${String(DEFAULT_TIMEOUT_S)}s and allow up to ${String(MAX_TIMEOUT_S)}s. When a foreground command hits its timeout it is moved to the background instead of being killed, and you will be automatically notified when it completes.`,
-      ` For possibly long-running commands, set the \`timeout\` argument in seconds. The default is ${String(DEFAULT_TIMEOUT_S)}s; foreground commands allow up to ${String(MAX_TIMEOUT_S)}s; a foreground command that hits its timeout is killed.`,
-    )
-    .replace(
-      ' The user can also move a running foreground command to the background at any time.',
-      '',
-    )
-    .replace(
-      /\r?\n- Prefer `run_in_background=true`[\s\S]*?conversation to continue before the command finishes\./,
-      '\n- Do not set `run_in_background=true`; background task management tools are not available.',
-    );
-}
+const TIMEOUT_MOVES_TO_BACKGROUND =
+  'Set `timeout` for possibly long-running commands. A foreground command that hits its timeout is moved to the background instead of being killed, and you are notified when it completes. The user can also move a running foreground command to the background at any time.';
 
-function withoutAutoBackgroundOnTimeout(description: string): string {
-  return description.replace(
-    ' When a foreground command hits its timeout it is moved to the background instead of being killed, and you will be automatically notified when it completes.',
-    ' A foreground command that hits its timeout is killed.',
-  );
-}
+const TIMEOUT_KILLS_WITH_BACKGROUND =
+  'Set `timeout` for possibly long-running commands. A foreground command that hits its timeout is killed. The user can also move a running foreground command to the background at any time.';
+
+const TIMEOUT_KILLS =
+  'Set `timeout` for possibly long-running commands. A command that hits its timeout is killed.';
 
 export class BashTool implements IBashTool {
   declare readonly _serviceBrand: undefined;
@@ -115,14 +89,16 @@ export class BashTool implements IBashTool {
   }
 
   get description(): string {
-    const renderedDescription = renderBashDescription(
-      inspectAgentRuntime(this.runtime).environment.shellName,
-    );
-    if (!this.allowBackground()) return withoutBackgroundDescription(renderedDescription);
-    if (!this.autoBackgroundOnTimeout()) {
-      return withoutAutoBackgroundOnTimeout(renderedDescription);
-    }
-    return renderedDescription;
+    const allowBackground = this.allowBackground();
+    return renderPrompt(bashDescriptionTemplate, {
+      SHELL_NAME: inspectAgentRuntime(this.runtime).environment.shellName,
+      TIMEOUT_GUIDANCE: !allowBackground
+        ? TIMEOUT_KILLS
+        : this.autoBackgroundOnTimeout()
+          ? TIMEOUT_MOVES_TO_BACKGROUND
+          : TIMEOUT_KILLS_WITH_BACKGROUND,
+      BACKGROUND_GUIDANCE: allowBackground ? BACKGROUND_GUIDANCE : NO_BACKGROUND_GUIDANCE,
+    });
   }
 
   resolveExecution(args: BashInput): ToolExecution {

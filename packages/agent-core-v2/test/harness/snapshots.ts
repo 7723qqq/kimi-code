@@ -44,11 +44,43 @@ export interface GenerateInputsSnapshot {
   readonly previous: GenerateCall | undefined;
 }
 
+const FINGERPRINT_FIELDS = ['toolsHash', 'historyHash'] as const;
+
+function stableFingerprints<T>(value: T): T {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map((entry) => stableFingerprints(entry)) as T;
+  const pinned: readonly string[] = FINGERPRINT_FIELDS;
+  const out: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    out[key] = pinned.includes(key) ? '<fingerprint>' : stableFingerprints(entry);
+  }
+  return out as T;
+}
+
 export function eventSnapshot(
   events: readonly EventSnapshotEntry[],
   labels: SnapshotLabels,
 ) {
-  const normalized = events.map((event) => normalizeValue(event, labels));
+  const normalized = events.map((event) => {
+    let stableEvent = stableFingerprints(event);
+    if (event.type === '[wire]' && event.event === 'llm.tools_snapshot') {
+      const args = event.args as { readonly tools: readonly { readonly name: string }[] };
+      stableEvent = {
+        ...stableEvent,
+        args: { ...args, hash: '<tools-hash>', tools: args.tools.map((tool) => tool.name) },
+      };
+    }
+    if (
+      event.type === '[wire]' &&
+      event.event === 'llm.request' &&
+      event.args !== null &&
+      typeof event.args === 'object' &&
+      'toolsHash' in event.args
+    ) {
+      stableEvent = { ...stableEvent, args: { ...event.args, toolsHash: '<tools-hash>' } };
+    }
+    return normalizeValue(stableEvent, labels);
+  });
   (normalized as unknown as Record<symbol, true>)[IS_EVENT_ARRAY] = true;
   return normalized;
 }

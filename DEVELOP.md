@@ -11,7 +11,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 - **Author**: Moonshot AI
 - **License**: MIT
 - **Homepage**: https://github.com/MoonshotAI/kimi-code
-- **Version**: `@moonshot-ai/kimi-code` 2.4.0 (the main CLI app — upstream 2.4.0 plus this fork's own patch stream)
+- **Version**: `@moonshot-ai/kimi-code` 2.4.1 (the main CLI app — upstream 2.4.1 plus this fork's own patch stream)
 
 > **Note**: This repository is a personal experimental fork of MoonshotAI/kimi-code. Not affiliated with Moonshot AI. Use at your own risk — do not submit PRs from this fork to upstream.
 
@@ -112,7 +112,7 @@ src/
     kimi-tui.ts       — TUI initialization and main loop
     config.ts         — TUI configuration
     banner/           — Startup banner
-    commands/         — Slash command handlers (46 commands)
+    commands/         — Slash command handlers (47 commands)
     components/       — UI components (panes, messages, dialogs, editor, media)
     controllers/      — UI controllers (auth-flow, session, streaming, keyboard, etc.)
     theme/            — Theme system
@@ -126,7 +126,7 @@ src/
   generated/          — Generated asset references
 ```
 
-**CLI subcommands:** `acp`, `app`, `doctor`, `export`, `fork`, `import-sessions`, `install-desktop`, `login`, `migrate`, `provider`, `session`, `upgrade`, `vis`, `web` (plus the hidden `install-app`, `__update_download`, and `__plugin_run_node`)
+**CLI subcommands:** `acp`, `app`, `doctor`, `export`, `fork`, `import-sessions`, `install-desktop`, `login`, `migrate`, `provider`, `rc` (alias `remote`), `session`, `shells`, `upgrade` (alias `update`), `vis`, `web` (plus the deprecated `server` shim and the hidden `install-app`, `__update_download`, `__plugin_run_node`)
 
 **TUI slash commands (47 built-in, see `src/tui/commands/registry.ts`):** `yolo`, `auto`, `permission`, `settings`, `plan`, `spec`, `swarm`, `hello-world`, `workflow`, `tower`, `model`, `secondary-model`, `effort`, `provider`, `btw`, `help`, `new`, `sessions`, `tasks`, `mcp`, `plugins`, `add-dir`, `experiments`, `reload`, `reload-tui`, `compact`, `goal`, `init`, `fork`, `title`, `usage`, `status`, `feedback`, `undo`, `editor`, `theme`, `logout`, `login`, `export-md`, `export-debug-zip`, `copy`, `import-sessions`, `web`, `desktop`, `remote-control`, `exit`, `version`
 
@@ -491,7 +491,7 @@ Additional workflows: `_native-build.yml`, `codeql.yml`, `docs-deploy.yml`, `man
 
 ### Release flow (fork)
 
-Pushes to `main` run `release.yml`, which installs, builds all workspace packages, and builds the built-in catalog. The `changesets/action@v1` step is **commented out on this fork** (this fork follows upstream versions and never publishes to npm independently), so no "ci: release packages" PR is opened or updated and nothing is published; the `release` job's `packages_published` / `kimi_native_release` outputs are permanently empty, and the downstream jobs gated on them never run. Re-enable the step when a standalone release is needed. See CONTRIBUTING → "Release flow on this fork".
+`release.yml` runs on a push to a `release/*` branch or by manual dispatch — not on `main`. Every job is gated by `github.repository_owner == 'MoonshotAI'`, so on this fork the workflow never executes. Upstream, the `version` job lets `changesets/action@v1` open the `ci: release packages` PR and then re-runs CI on that branch. The publish step in the `release` job is **commented out** (this fork follows upstream versions and never publishes to npm independently), so `packages_published` / `kimi_native_release` are permanently empty and the downstream jobs gated on them never run. Re-enable the step when a standalone release is needed. See CONTRIBUTING → "Release flow on this fork".
 
 ### Native release
 
@@ -597,11 +597,16 @@ A prompt rule has exactly one owner; templates and project files reference it in
 | Concern | Owner |
 | --- | --- |
 | The six core behavior rules (`authority_and_untrusted_content`, `act_and_verify`, `tools_and_repository_context`, `safety_and_scope`, `failure_and_partial_progress`, `communication`) | `packages/agent-core-v2/src/app/agentProfileCatalog/behaviorContract.ts` |
-| Full-profile expression (all six clauses plus runtime sections) | `packages/agent-core-v2/src/app/agentProfileCatalog/system.md` |
-| Profile selection, delivery metadata (`system` / `intentionally_omitted`), unresolved-variable warnings | `packages/agent-core-v2/src/app/agentProfileCatalog/profile-shared.ts` |
+| The prompt skeleton: persona, Communicating, Tool use, Risky actions, Context management, Environment, and the placeholders the sections below are injected through | `packages/agent-core-v2/src/app/agentProfileCatalog/system.md` |
+| Coding guidance, injected through `${coding_section}`; rendered empty for read-only profiles | `coding.md` beside `system.md` |
+| Change-work guidance and TodoList guidance, injected through `${delivering_work_section}`; a read-only profile receives the short variant instead | `delivering-work.md` / `delivering-work-read-only.md` beside `system.md` |
+| The AGENTS.md section, injected through `${agents_section}` | `project-information.md` beside `system.md` |
+| Section selection per profile (`readOnly`), delivery metadata (`system` / `intentionally_omitted`), unresolved-variable warnings | `packages/agent-core-v2/src/app/agentProfileCatalog/profile-shared.ts` |
 | DeepSeek family guidance (curated body, provenance, token budget) | `packages/agent-core-v2/src/app/agentProfileCatalog/model-adaptations/curated/deepseek.md` through `modelAdaptations.ts` |
 | Family adaptation loading and cache into `${model_adaptation_section}` | `packages/agent-core-v2/src/agent/profile/profileService.ts` |
 | Project instruction entry (injected) versus on-demand project docs | `AGENTS.md` versus `DEVELOP.md` / `CONVENTIONS.md` |
+
+`system.md` is the skeleton, not the whole prompt: what a session receives is the skeleton with the section files spliced into its placeholders. Editing only `system.md` therefore does not tell you what changed for the model — read `profile-shared.ts`'s `systemPromptVars` to see which sections a given profile gets.
 
 `bun run check:prompt-ownership` fails when `AGENTS.md` stops linking `DEVELOP.md`, claims the latter is injected, or a core contract id disappears from the module.
 
@@ -623,13 +628,19 @@ Both print the profile, the source hash, the contract channels, the token counts
 cd scripts/prompt-optimizer
 bun test                                                    # Offline unit tests, no network
 bun src/cli.ts bench --dry-run --profile full --model kimi-k3-1
-bun src/cli.ts bench --profile deepseek-adapted --model deepseek-v4-pro   # Real call, needs credentials
+bun src/cli.ts bench --profile full --model deepseek-v4-pro  # Real call, needs credentials
+bun src/cli.ts prune --read-only --model kimi-k3-1           # Scan the read-only variant
 ```
 
-- The default benchmark input is the **production-rendered** profile, not `system.md`'s raw template. `--compare` with prune variants is the only raw-template experiment, and it is labelled as such.
-- `--profile` must match the model: `full` for a full-shape family, `deepseek-adapted` for a minimal-shape family with a curated adaptation. A mismatch is a named error, never a silent template fallback.
+- The default benchmark input is the **production-rendered** profile, not the raw template. `--compare` with prune variants is the only raw-template experiment, and it is labelled as such.
+- **`prune` scans the assembled prompt, not `system.md` alone.** The skeleton delegates three sections to files beside it — `${coding_section}` → `coding.md`, `${delivering_work_section}` → `delivering-work.md`, `${agents_section}` → `project-information.md` — so `loadPromptBundle` splices them in before parsing and the report names the file each section came from. Scanning the skeleton alone would report almost nothing prunable while the real prompt carries those hundreds of tokens.
+- `--read-only` scans and renders the variant a read-only profile receives: `delivering-work-read-only.md` replaces `delivering-work.md`, and `coding.md` is dropped entirely because those profiles are rendered without it. The two variants are never merged in one scan. `bench` honours the same flag, so its report carries `Shape: read-only` and a different `sourceHash` — a verdict about the full shape is not evidence about the read-only one.
+- `--profile` has one value, `full`: every model family renders the same system prompt, with family guidance embedded through `${model_adaptation_section}`. A retired profile name is a named error, never a silent fallback to `full`.
 - `--dry-run`, renderer warnings, missing credentials and provider failures all produce `effectivenessVerdict: "unavailable"` in the report. Only a completed real run may report an effect.
 - Sending the user's own global instructions is opt-in: `--actual-global C:/Users/Administrator/.kimi-code/AGENTS.md` accepts that one path and fails closed for any other. The content is sent only to the configured provider, never written to reports, logs, or the repository.
+- A real run needs `--model` naming a configured alias (`<provider>/<model>`); the alias selects the `[providers.*]` block and its `[models."<alias>"]` entry supplies the wire id the request body carries. Sending the alias itself fails with `unknown model`, so the optimizer resolves both.
+- `bun run bench:prompt:4521` reports what #4521 removed, reading both sides from the published tags. It measures tool descriptions as well as the system prompt, because that is where nearly all of the reduction happened: the system prompt moved by 204 characters (2.6%) while the tool descriptions lost 32,314 of theirs (32.8%) — 32,518 characters and 8,078 estimated tokens across the whole prompt surface.
+- A real `prune` is the only run whose per-section verdicts mean anything. `--dry-run` answers every case from the same text, so it reports `NONE` regardless of the section; with credentials it ranks sections by measured impact.
 
 Personal global prompt changes (`~/.kimi-code/AGENTS.md`) are local to the machine: they are never committed, never copied into a fixture, and never part of a report.
 
@@ -678,6 +689,20 @@ The monorepo enforces safe minimum versions for known-vulnerable packages via `o
 - **Never** decide on a `major` bump on your own. When a change meets major criteria (breaking changes, incompatible user configuration, renamed/removed commands/arguments, changed behavior semantics), stop and ask the user for confirmation. Default to `minor` (fall back to `patch` if unclear).
 - Base branch: `main`
 - Ignored from versioning: `@moonshot-ai/vis`, `@moonshot-ai/vis-server`, `@moonshot-ai/vis-web`, `@moonshot-ai/kimi-inspect`
+
+---
+
+## Upstream Gap Tracking
+
+This fork shares its root commit with `MoonshotAI/kimi-code` and has since diverged. Asking "how far behind are we" has no useful answer in commits or diff lines: the toolchains differ (pnpm/Node upstream, Bun here), so a distance metric measures two different baselines. The gap is tracked as a **ledger of open upstream commits**, one row per commit, each with an executable probe.
+
+- **`.upstream/ledger.tsv` is the only progress source.** Every open upstream commit is one row with a verdict (`pending` / `in_progress` / `ported` / `equivalent` / `partial` / `blocked` / `not-applicable`) and a probe (`test:` / `grep:` / `absent:` / `manual:`).
+- **`.upstream/PLAYBOOK.md`** maps each upstream pnpm/Node construct to its Bun equivalent. Upstream capability is *translated*, never dropped for being on the other toolchain.
+- **`bun scripts/upstream-ledger.mjs --refresh`** re-reads `upstream/main` and adds new commits as `pending`. `--verify` runs the probes and advances verdicts. `--report` prints the batch × verdict matrix. `--set` / `--probe` / `--cluster` / `--batch-done` are the only ways to edit a row.
+- **Never report progress with commit counts or diff line counts.** Aggregate the ledger.
+- **`tools/review`'s `upstream-drift` check is complementary, not a substitute.** It only catches whole files upstream has and this branch lacks; content-level gaps inside a shared file are the ledger's job.
+
+The full contract — batches, gates, execution order — lives in `specs/upstream-sync-ledger/`.
 
 ---
 
