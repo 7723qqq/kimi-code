@@ -67,7 +67,7 @@ describe('[prompt_optimizer] diagnostics', () => {
     const absent = makeConfig('');
     await absent.ready;
     expect(absent.config.diagnostics()).toEqual([]);
-    expect(absent.config.get(PROMPT_OPTIMIZER_SECTION)).toEqual({ timeoutMs: 90000 });
+    expect(absent.config.get(PROMPT_OPTIMIZER_SECTION)).toEqual({ timeoutMs: 180000 });
 
     const unset = makeConfig('[prompt_optimizer]\ntimeout_ms = 150000\n');
     await unset.ready;

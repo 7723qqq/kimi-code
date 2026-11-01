@@ -223,7 +223,7 @@ export type SubagentConfig = z.infer<typeof SubagentConfigSchema>;
 
 export const PromptOptimizerConfigSchema = z.object({
   /**
-   * Whole-rewrite deadline in milliseconds. Defaults to 90s when unset.
+   * Whole-rewrite deadline in milliseconds. Defaults to 180s when unset.
    */
   timeoutMs: z.number().int().positive().optional(),
   /**

@@ -331,7 +331,7 @@ Configuration errors fail loudly instead of falling back silently. Session creat
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `effort` | `string` | — | Thinking effort for the rewrite: `off` / `low` / `medium` / `high` / `xhigh` / `max`, as the current model supports. Unset means the rewrite runs at the main agent's current level; set it to pin the rewrite's reasoning independently of what the session is doing |
-| `timeout_ms` | `integer` | `90000` | Whole-rewrite deadline in milliseconds. The rewrite is one or two full model round-trips, so a slow endpoint or a long draft can outgrow the default; raise it rather than retrying |
+| `timeout_ms` | `integer` | `180000` | Whole-rewrite deadline in milliseconds. The rewrite is one or two full model round-trips, so a slow endpoint or a long draft can outgrow the default; raise it rather than retrying |
 
 `/settings` → Prompt optimizer edits both fields; a timed-out rewrite also offers "retry with more time" in place, which re-runs once with a five-minute budget without touching this file.
 

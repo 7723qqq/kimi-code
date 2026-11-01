@@ -1209,7 +1209,7 @@ export default {
         hint: '↑↓ effort · type seconds · Enter save · Esc cancel',
         followMain: 'Follow the main agent',
         timeoutLabel: 'Time budget (seconds):',
-        timeoutDefault: 'default 90',
+        timeoutDefault: 'default 180',
         timeoutOutOfRange: 'Seconds must be between {{min}} and {{max}}.',
         saved: 'Prompt optimizer settings saved.',
       },
@@ -1681,7 +1681,7 @@ export default {
         failed: 'Could not rewrite the prompt: {{error}}',
         timeoutTitle: 'The rewrite ran out of time',
         timeoutRetry: 'Retry with the same budget',
-        timeoutRetryDescription: 'Run the rewrite again with the default 90-second wait.',
+        timeoutRetryDescription: 'Run the rewrite again with the default 180-second wait.',
         timeoutExtended: 'Retry with more time',
         timeoutExtendedDescription:
           'Run the rewrite again, waiting up to {{minutes}} minutes this time.',
