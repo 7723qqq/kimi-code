@@ -62,6 +62,7 @@ export interface PromptOptimizerContext {
   readonly recentTurns?: readonly string[];
   readonly sessionKey?: string;
   readonly timeoutMs?: number;
+  readonly thinking?: string;
 }
 
 export interface ISessionPromptOptimizerService {

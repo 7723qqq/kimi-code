@@ -102,6 +102,17 @@ export interface OptimizePromptRpcInput extends SessionIdRpcInput {
   readonly text: string;
   readonly recentTurns?: readonly string[];
   /**
+   * Deadline for the whole rewrite. Absent means the engine's own default, so
+   * a caller that has just been told the default is too short can retry with a
+   * longer one instead of failing again.
+   */
+  readonly timeoutMs?: number;
+  /**
+   * Thinking effort for the rewriter's fork. Absent means the fork follows the
+   * main agent's level.
+   */
+  readonly thinking?: string;
+  /**
    * Cancels the rewrite. The wait is a full LLM round-trip, so without this
    * the caller has no way to give up on it.
    */

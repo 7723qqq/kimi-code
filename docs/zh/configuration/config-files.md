@@ -108,6 +108,7 @@ timeout = 5
 | [`providers`](#providers) | `table` | `{}` | API 供应商表 |
 | [`models`](#models) | `table` | — | 模型别名表 |
 | [`secondary_model`](#secondary-model) | `table` | — | subagent 模型池与默认绑定 |
+| [`prompt_optimizer`](#prompt_optimizer) | `table` | — | Ctrl+P 重写的思考等级与时间预算 |
 | [`thinking`](#thinking) | `table` | — | Thinking 模式默认参数 |
 | [`loop_control`](#loop-control) | `table` | — | Agent 循环控制参数 |
 | [`token_counting`](#token-counting) | `table` | — | 对外上报的上下文 token 计数策略 |
@@ -322,6 +323,17 @@ k3-max = "同一模型的 max Thinking 档位。适合最难的子任务。"
 - `default_model` 缺失、不是池中 key，或池中 key 无法解析到已配置的 [`[models]`](#models) 条目；
 - `force` 未搭配 `default_model`，或与 `models` 表同时使用。
 :::
+
+## `prompt_optimizer`
+
+`prompt_optimizer` 配置 Ctrl+P 提示词重写：执行重写的临时 agent 的思考等级，以及整个重写的等待上限。默认两项都不设置，重写跟随主 agent 当前设置。
+
+| 字段 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `effort` | `string` | — | 重写的思考等级：`off` / `low` / `medium` / `high` / `xhigh` / `max`，以当前模型支持的档位为准。不设置则跟随主 agent 当前的思考等级；设置后重写的推理深度与会话本身互相独立 |
+| `timeout_ms` | `integer` | `90000` | 整个重写的时限（毫秒）。一次重写是一到两次完整的模型请求，端点较慢或草稿较长时可能超出默认值；遇到超时应调大它，而不是反复重试 |
+
+`/settings` → 提示词优化 可修改这两项；重写超时后也会就地提供“延长时限重试”，以 5 分钟预算重跑一次，不改本文件。
 
 ## `thinking`
 

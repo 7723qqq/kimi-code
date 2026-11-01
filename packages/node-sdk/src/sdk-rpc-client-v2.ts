@@ -2453,6 +2453,8 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
           cwd: session.accessor.get(ISessionContext).cwd,
           recentTurns: input.recentTurns,
           sessionKey: input.sessionId,
+          timeoutMs: input.timeoutMs,
+          thinking: input.thinking,
         },
         input.signal,
       );

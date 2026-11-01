@@ -5,12 +5,14 @@ import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { denyToolExecution } from '#/agent/toolExecutor/beforeToolExecuteEvent';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { IConfigService } from '#/app/config/config';
 import { IFlagService } from '#/app/flag/flag';
 import { LifecycleScope } from '#/app/scopes';
 import { ErrorCodes, Error2 } from '#/errors';
 import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
 
+import { PROMPT_OPTIMIZER_SECTION } from './configSection';
 import {
   ISessionPromptOptimizerService,
   PROMPT_OPTIMIZER_AGENT_HELPER,
@@ -42,6 +44,7 @@ export class SessionPromptOptimizerService implements ISessionPromptOptimizerSer
     @IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService,
     @ISessionSubagentService private readonly subagents: ISessionSubagentService,
     @IFlagService private readonly flags: IFlagService,
+    @IConfigService private readonly config: IConfigService,
     @ILogService private readonly log: ILogService,
   ) {}
 
@@ -56,6 +59,11 @@ export class SessionPromptOptimizerService implements ISessionPromptOptimizerSer
         'The prompt optimizer is disabled. Turn on the prompt_optimizer experimental flag to use it.',
       );
     }
+    const configured = this.config.get<{ timeoutMs?: number; effort?: string } | undefined>(
+      PROMPT_OPTIMIZER_SECTION,
+    );
+    const timeoutMs = context.timeoutMs ?? configured?.timeoutMs ?? PROMPT_OPTIMIZER_TIMEOUT_MS;
+    const thinking = context.thinking ?? configured?.effort;
     const draft = text.trim();
     if (draft.length === 0) {
       throw new Error2(ErrorCodes.PROMPT_OPTIMIZER_EMPTY_DRAFT, 'There is no prompt to rewrite.');
@@ -80,10 +88,7 @@ export class SessionPromptOptimizerService implements ISessionPromptOptimizerSer
 
     const controller = new AbortController();
     const unlink = linkSignals(signal, controller);
-    const deadline = createDeadlineAbortSignal(
-      controller.signal,
-      context.timeoutMs ?? PROMPT_OPTIMIZER_TIMEOUT_MS,
-    );
+    const deadline = createDeadlineAbortSignal(controller.signal, timeoutMs);
     let childContext: Awaited<ReturnType<IAgentLifecycleService['fork']>> | undefined;
     try {
       const main = this.agentLifecycle.handleOf(MAIN_AGENT_ID);
@@ -95,7 +100,10 @@ export class SessionPromptOptimizerService implements ISessionPromptOptimizerSer
         main.accessor.get(IAgentScopeContext).agentContext,
         {
           labels: OPTIMIZER_LABELS,
-          binding: { profile: PROMPT_OPTIMIZER_PROFILE_NAME },
+          binding: {
+            profile: PROMPT_OPTIMIZER_PROFILE_NAME,
+            thinking,
+          },
           inheritedHistory:
             explicitTurns === undefined
               ? {
@@ -157,9 +165,9 @@ export class SessionPromptOptimizerService implements ISessionPromptOptimizerSer
       if (deadline.timedOut()) {
         throw new Error2(
           ErrorCodes.PROMPT_OPTIMIZER_TIMEOUT,
-          `The rewrite did not finish within ${String(context.timeoutMs ?? PROMPT_OPTIMIZER_TIMEOUT_MS)}ms.`,
+          `The rewrite did not finish within ${String(timeoutMs)}ms.`,
           {
-            details: { timeoutMs: context.timeoutMs ?? PROMPT_OPTIMIZER_TIMEOUT_MS },
+            details: { timeoutMs },
             cause: error,
           },
         );

@@ -1072,6 +1072,8 @@ async function optimizePromptSessionAction(
         cwd: session.accessor.get(ISessionContext).cwd,
         recentTurns: body.recent_turns,
         sessionKey: id,
+        timeoutMs: body.timeout_ms,
+        thinking: body.thinking,
       },
       abort.signal,
     );

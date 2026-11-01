@@ -39,6 +39,10 @@ import { modelDisplayName, segmentsFor } from '../components/dialogs/model-selec
 import { ModelSwitchConfirmDialogComponent } from '../components/dialogs/model-switch-confirm-dialog';
 import { PermissionSelectorComponent } from '../components/dialogs/permission-selector';
 import {
+  PromptOptimizerSettingsComponent,
+  type PromptOptimizerSettings,
+} from '../components/dialogs/prompt-optimizer-settings';
+import {
   SettingsSelectorComponent,
   type SettingsSelection,
 } from '../components/dialogs/settings-selector';
@@ -1363,6 +1367,9 @@ function handleSettingsSelection(host: SlashCommandHost, value: SettingsSelectio
     case 'survey':
       showSurveyPreferencePicker(host);
       return;
+    case 'promptOptimizer':
+      void showPromptOptimizerSettingsPanel(host);
+      return;
   }
 }
 
@@ -1376,5 +1383,48 @@ async function handleGitHubTokenInput(host: SlashCommandHost): Promise<void> {
     host.showError(
       t('tui.messages.configGithubTokenSaveFailed', { error: formatErrorMessage(error) }),
     );
+  }
+}
+async function showPromptOptimizerSettingsPanel(host: SlashCommandHost): Promise<void> {
+  const config = await host.harness.getConfig({ reload: true });
+  const stored = config.promptOptimizer;
+  const alias = host.state.appState.model;
+  const model = host.state.appState.availableModels[alias];
+  const efforts =
+    model === undefined
+      ? (['off', 'low', 'medium', 'high'] as const).slice()
+      : segmentsFor(effectiveModelForHost(host, model));
+  host.mountEditorReplacement(
+    new PromptOptimizerSettingsComponent({
+      initial: {
+        timeoutMs: typeof stored?.timeoutMs === 'number' ? stored.timeoutMs : undefined,
+        effort: typeof stored?.effort === 'string' ? stored.effort : undefined,
+      },
+      efforts,
+      onSave: (settings) => {
+        void savePromptOptimizerSettings(host, settings);
+      },
+      onCancel: () => {
+        host.restoreEditor();
+      },
+    }),
+  );
+}
+
+async function savePromptOptimizerSettings(
+  host: SlashCommandHost,
+  settings: PromptOptimizerSettings,
+): Promise<void> {
+  try {
+    await host.harness.setConfig({
+      promptOptimizer: {
+        timeoutMs: settings.timeoutMs,
+        effort: settings.effort,
+      },
+    });
+    host.restoreEditor();
+    host.showStatus(t('tui.dialogs.promptOptimizerSettings.saved'), 'success');
+  } catch (error) {
+    host.showError(formatErrorMessage(error));
   }
 }

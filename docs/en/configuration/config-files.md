@@ -108,6 +108,7 @@ Fields in the config file fall into two categories: **top-level scalars** that d
 | [`providers`](#providers) | `table` | `{}` | API provider table |
 | [`models`](#models) | `table` | — | Model alias table |
 | [`secondary_model`](#secondary-model) | `table` | — | Subagent model pool and default binding |
+| [`prompt_optimizer`](#prompt_optimizer) | `table` | — | The Ctrl+P rewrite: thinking effort and time budget |
 | [`thinking`](#thinking) | `table` | — | Default parameters for Thinking mode |
 | [`loop_control`](#loop-control) | `table` | — | Agent loop control parameters |
 | [`token_counting`](#token-counting) | `table` | — | Which context token count is reported externally |
@@ -322,6 +323,17 @@ Configuration errors fail loudly instead of falling back silently. Session creat
 - `default_model` is missing, is not a pool key, or a pool key does not resolve to a configured [`[models]`](#models) entry;
 - `force` is set without `default_model`, or combined with a `models` table.
 :::
+
+## `prompt_optimizer`
+
+`prompt_optimizer` configures the Ctrl+P prompt rewrite: the thinking effort of the throwaway agent that does the rewriting, and how long the whole rewrite may take. An out-of-the-box install sets neither and the rewrite follows the main agent.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `effort` | `string` | — | Thinking effort for the rewrite: `off` / `low` / `medium` / `high` / `xhigh` / `max`, as the current model supports. Unset means the rewrite runs at the main agent's current level; set it to pin the rewrite's reasoning independently of what the session is doing |
+| `timeout_ms` | `integer` | `90000` | Whole-rewrite deadline in milliseconds. The rewrite is one or two full model round-trips, so a slow endpoint or a long draft can outgrow the default; raise it rather than retrying |
+
+`/settings` → Prompt optimizer edits both fields; a timed-out rewrite also offers "retry with more time" in place, which re-runs once with a five-minute budget without touching this file.
 
 ## `thinking`
 

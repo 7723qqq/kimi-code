@@ -37,6 +37,7 @@ import {
   type MoonshotServiceConfig,
   type OAuthRef,
   type PermissionConfig,
+  type PromptOptimizerConfig,
   type ProviderConfig,
   type SecondaryModelConfig,
   type ServicesConfig,
@@ -355,6 +356,8 @@ export function transformTomlData(data: Record<string, unknown>): Record<string,
       result[targetKey] = transformPlainObject(value);
     } else if (targetKey === 'secondaryModel' && isRecord(value)) {
       result[targetKey] = transformPlainObject(value);
+    } else if (targetKey === 'promptOptimizer' && isRecord(value)) {
+      result[targetKey] = transformPlainObject(value);
     } else if (targetKey === 'mcp' && isRecord(value)) {
       result[targetKey] = transformPlainObject(value);
     } else if (targetKey === 'modelCatalog' && isRecord(value)) {
@@ -546,6 +549,7 @@ export function configToTomlData(config: KimiConfig): Record<string, unknown> {
   setSection(out, 'background', config.background, backgroundToToml);
   setSection(out, 'subagent', config.subagent, subagentToToml);
   setSection(out, 'secondary_model', config.secondaryModel, secondaryModelToToml);
+  setSection(out, 'prompt_optimizer', config.promptOptimizer, promptOptimizerToToml);
   setSection(out, 'mcp', config.mcp, mcpToToml);
   setSection(out, 'image', config.image, imageToToml);
   setSection(out, 'model_catalog', config.modelCatalog, modelCatalogToToml);
@@ -767,6 +771,17 @@ function secondaryModelToToml(
     } else {
       setDefined(out, camelToSnake(key), value);
     }
+  }
+  return out;
+}
+
+function promptOptimizerToToml(
+  promptOptimizer: PromptOptimizerConfig,
+  rawPromptOptimizer: unknown,
+): Record<string, unknown> {
+  const out = cloneRecord(rawPromptOptimizer);
+  for (const [key, value] of Object.entries(promptOptimizer)) {
+    setDefined(out, camelToSnake(key), value);
   }
   return out;
 }

@@ -221,6 +221,20 @@ export const SubagentConfigSchema = z.object({
 
 export type SubagentConfig = z.infer<typeof SubagentConfigSchema>;
 
+export const PromptOptimizerConfigSchema = z.object({
+  /**
+   * Whole-rewrite deadline in milliseconds. Defaults to 90s when unset.
+   */
+  timeoutMs: z.number().int().positive().optional(),
+  /**
+   * Thinking effort for the rewriter's fork. Absent means the fork follows
+   * the main agent's level.
+   */
+  effort: z.string().optional(),
+});
+
+export type PromptOptimizerConfig = z.infer<typeof PromptOptimizerConfigSchema>;
+
 export const MAX_MCP_TIMEOUT_MS = 2_147_483_647;
 const McpTimeoutMsSchema = z.number().int().min(1).max(MAX_MCP_TIMEOUT_MS);
 
@@ -427,6 +441,7 @@ export const KimiConfigSchema = z.object({
   background: BackgroundConfigSchema.optional(),
   subagent: SubagentConfigSchema.optional(),
   secondaryModel: SecondaryModelConfigSchema.optional(),
+  promptOptimizer: PromptOptimizerConfigSchema.optional(),
   mcp: McpConfigSchema.optional(),
   image: ImageConfigSchema.optional(),
   modelCatalog: ModelCatalogConfigSchema.optional(),
@@ -446,6 +461,7 @@ const LoopControlPatchSchema = LoopControlSchema.partial();
 const BackgroundConfigPatchSchema = BackgroundConfigSchema.partial();
 const SubagentConfigPatchSchema = SubagentConfigSchema.partial();
 const SecondaryModelConfigPatchSchema = SecondaryModelConfigSchema.partial();
+const PromptOptimizerConfigPatchSchema = PromptOptimizerConfigSchema.partial();
 const McpConfigPatchSchema = McpConfigSchema.partial();
 const ImageConfigPatchSchema = ImageConfigSchema.partial();
 const ModelCatalogConfigPatchSchema = ModelCatalogConfigSchema.partial();
@@ -480,6 +496,7 @@ export const KimiConfigPatchSchema = z
     background: BackgroundConfigPatchSchema.optional(),
     subagent: SubagentConfigPatchSchema.optional(),
     secondaryModel: SecondaryModelConfigPatchSchema.optional(),
+    promptOptimizer: PromptOptimizerConfigPatchSchema.optional(),
     mcp: McpConfigPatchSchema.optional(),
     image: ImageConfigPatchSchema.optional(),
     modelCatalog: ModelCatalogConfigPatchSchema.optional(),

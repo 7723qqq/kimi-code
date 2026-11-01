@@ -8,10 +8,12 @@ import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IFlagService } from '#/app/flag/flag';
+import { IConfigService } from '#/app/config/config';
 import {
   ISessionPromptOptimizerService,
   PROMPT_OPTIMIZER_FLAG_ID,
   PROMPT_OPTIMIZER_SYSTEM_PROMPT,
+  PROMPT_OPTIMIZER_TIMEOUT_MS,
 } from '#/features/promptOptimizer/promptOptimizer';
 import { SessionPromptOptimizerService } from '#/features/promptOptimizer/promptOptimizerService';
 import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
@@ -117,6 +119,10 @@ describe('SessionPromptOptimizerService', () => {
       _serviceBrand: undefined,
       enabled: (id: string) => (id === PROMPT_OPTIMIZER_FLAG_ID ? enabled : false),
     } as unknown as IFlagService);
+    ix.stub(IConfigService, {
+      _serviceBrand: undefined,
+      get: () => ({ timeoutMs: PROMPT_OPTIMIZER_TIMEOUT_MS }),
+    } as unknown as IConfigService);
     ix.set(ISessionPromptOptimizerService, new SyncDescriptor(SessionPromptOptimizerService));
   });
   afterEach(() => disposables.dispose());

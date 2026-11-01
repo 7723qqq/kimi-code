@@ -103,6 +103,8 @@ export const optimizePromptSessionRequestSchema = z
   .object({
     text: z.string(),
     recent_turns: z.array(z.string()).optional(),
+    timeout_ms: z.number().int().positive().optional(),
+    thinking: z.string().optional(),
   })
   .strict();
 export type OptimizePromptSessionRequest = z.infer<typeof optimizePromptSessionRequestSchema>;

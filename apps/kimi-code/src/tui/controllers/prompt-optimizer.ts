@@ -3,6 +3,7 @@ import { isKimiError } from '@moonshot-ai/kimi-code-sdk';
 
 import { t } from '#/i18n';
 
+import { ChoicePickerComponent } from '../components/dialogs/choice-picker';
 import {
   PromptOptimizePanelComponent,
   type PromptOptimizeChoice,
@@ -14,6 +15,9 @@ import type { PromptOptimizerActivityController } from './prompt-optimizer-activ
 const MAX_RECENT_TURN_CHARS = 400;
 
 const MAX_RECENT_TURNS = 6;
+
+/** Deadline the Retry-with-more-time option hands the engine, in ms. */
+const EXTENDED_TIMEOUT_MS = 300_000;
 
 /**
  * Rows the panel's diff region may occupy.
@@ -49,7 +53,10 @@ export interface PromptOptimizerHost {
   showError(msg: string): void;
   showInfo(msg: string): void;
   track(event: string, props?: Record<string, unknown>): void;
-  mountEditorReplacement(panel: PromptOptimizePanelComponent, onDisplaced?: () => void): void;
+  mountEditorReplacement(
+    panel: PromptOptimizePanelComponent | ChoicePickerComponent,
+    onDisplaced?: () => void,
+  ): void;
   restoreEditor(): void;
   /**
    * Show or clear the in-flight rewrite signal on the editor. The rewrite waits
@@ -92,7 +99,7 @@ export class PromptOptimizerController {
     return true;
   }
 
-  async optimize(): Promise<void> {
+  async optimize(overrides?: { timeoutMs?: number }): Promise<void> {
     const { host } = this;
     if (!host.promptOptimizerEnabled()) {
       host.track('prompt_optimize_disabled');
@@ -131,6 +138,7 @@ export class PromptOptimizerController {
       const recentTurns = await this.recentTurns(session);
       const optimized = await session.optimizePrompt(draft, {
         recentTurns,
+        timeoutMs: overrides?.timeoutMs,
         signal: controller.signal,
       });
       host.setEditorOptimizing(false);
@@ -159,6 +167,12 @@ export class PromptOptimizerController {
         return;
       }
       host.track('prompt_optimize_failed', { code: errorCodeOf(error) });
+      if (errorCodeOf(error) === 'prompt_optimizer.timeout') {
+        // The failure is a budget, not a bug. The next move is the user's:
+        // try the same wait again, try a longer one, or give up.
+        await this.timeoutChoices(draft, overrides);
+        return;
+      }
       host.showError(t('tui.dialogs.promptOptimize.failed', { error: formatErrorMessage(error) }));
     } finally {
       this.cancel = undefined;
@@ -166,6 +180,55 @@ export class PromptOptimizerController {
       host.setEditorOptimizing(false);
       this.inFlight = false;
     }
+  }
+
+  /**
+   * The choices a timed-out rewrite offers, answered in place.
+   *
+   * The draft is kept in the editor either way; the picker only decides what
+   * the next attempt's budget is. Retry keeps the default, the extended option
+   * re-runs with five minutes, and cancel returns the user to their draft.
+   */
+  private timeoutChoices(draft: string, overrides?: { timeoutMs?: number }): Promise<void> {
+    const { host } = this;
+    return new Promise((resolve) => {
+      host.state.activeDialog = 'prompt-optimize';
+      host.mountEditorReplacement(
+        new ChoicePickerComponent({
+          title: t('tui.dialogs.promptOptimize.timeoutTitle'),
+          options: [
+            {
+              value: 'retry',
+              label: t('tui.dialogs.promptOptimize.timeoutRetry'),
+              description: t('tui.dialogs.promptOptimize.timeoutRetryDescription'),
+            },
+            {
+              value: 'extended',
+              label: t('tui.dialogs.promptOptimize.timeoutExtended'),
+              description: t('tui.dialogs.promptOptimize.timeoutExtendedDescription', {
+                minutes: EXTENDED_TIMEOUT_MS / 60_000,
+              }),
+            },
+            {
+              value: 'cancel',
+              label: t('tui.dialogs.promptOptimize.timeoutCancel'),
+              description: t('tui.dialogs.promptOptimize.timeoutCancelDescription'),
+            },
+          ],
+          onSelect: (value) => {
+            host.restoreEditor();
+            resolve();
+            if (value === 'retry') void this.optimize(overrides);
+            if (value === 'extended') void this.optimize({ timeoutMs: EXTENDED_TIMEOUT_MS });
+          },
+          onCancel: () => {
+            host.restoreEditor();
+            resolve();
+            host.track('prompt_optimize_timeout_cancelled');
+          },
+        }),
+      );
+    });
   }
 
   private confirm(original: string, optimized: string, durationMs: number): Promise<void> {

@@ -263,13 +263,20 @@ export class Session {
 
   async optimizePrompt(
     text: string,
-    options?: { recentTurns?: readonly string[]; signal?: AbortSignal },
+    options?: {
+      recentTurns?: readonly string[];
+      timeoutMs?: number;
+      thinking?: string;
+      signal?: AbortSignal;
+    },
   ): Promise<string> {
     this.ensureOpen();
     return this.rpc.optimizePrompt({
       sessionId: this.id,
       text,
       recentTurns: options?.recentTurns,
+      timeoutMs: options?.timeoutMs,
+      thinking: options?.thinking,
       signal: options?.signal,
     });
   }

@@ -16,7 +16,8 @@ export type SettingsSelection =
   | 'upgrade'
   | 'usage'
   | 'github_token'
-  | 'astron';
+  | 'astron'
+  | 'promptOptimizer';
 
 function getSettingsOptions(): readonly ChoiceOption[] {
   const options: ChoiceOption[] = [
@@ -88,6 +89,13 @@ function getSettingsOptions(): readonly ChoiceOption[] {
       value: 'astron',
       label: t('tui.dialogs.settingsSelector.astron'),
       description: t('tui.dialogs.settingsSelector.astronDesc'),
+    });
+  }
+  if (isExperimentalFlagEnabled('prompt_optimizer')) {
+    options.push({
+      value: 'promptOptimizer',
+      label: t('tui.dialogs.settingsSelector.promptOptimizer'),
+      description: t('tui.dialogs.settingsSelector.promptOptimizerDesc'),
     });
   }
   return options;

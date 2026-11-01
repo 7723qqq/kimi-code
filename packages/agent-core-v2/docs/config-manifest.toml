@@ -8,7 +8,7 @@
 # commented "# field: type" lines describe the remaining schema fields.
 # Values resolve as: default -> config.toml -> env overlay -> memory.
 
-# Index (33 sections · 3 overlay(s))
+# Index (34 sections · 3 overlay(s))
 #   background               src/agent/task/configSection.ts
 #   builtinProductSkills     src/features/skill/catalog/configSection.ts
 #   cron                     src/features/cron/configSection.ts
@@ -30,6 +30,7 @@
 #   modelOverrides           src/app/kosongConfig/configSection.ts
 #   models                   src/app/kosongConfig/configSection.ts
 #   permission               src/agent/permissionRules/configSection.ts
+#   promptOptimizer          src/features/promptOptimizer/configSection.ts
 #   providers                src/app/kosongConfig/configSection.ts
 #   read                     src/agent/tools/os/read/configSection.ts
 #   secondaryModel           src/session/subagent/configSection.ts
@@ -369,6 +370,16 @@ merge_all_available_skills = true
   # pattern: string
   # reason: string
 # dangerous_command_guard: boolean
+
+# ##########################################################################
+# promptOptimizer (config.toml: prompt_optimizer)
+#   owner: src/features/promptOptimizer/configSection.ts
+#   scope: core
+# ##########################################################################
+
+[prompt_optimizer]
+timeout_ms = 90000
+# effort: string
 
 # ##########################################################################
 # providers
