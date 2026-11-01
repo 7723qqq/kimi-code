@@ -960,7 +960,10 @@ describe('PluginManager consumption plane', () => {
     const root = await makePlugin('demo', {
       mcpServers: { data: { command: 'node', args: ['./bin/data.mjs'] } },
     });
-    const manager = new PluginManager({ kimiHomeDir: home, pluginNodeRunner: true });
+    const manager = new PluginManager({
+      kimiHomeDir: home,
+      pluginNodeRunner: { command: process.execPath, args: ['__plugin_run_node'] },
+    });
     await manager.load();
     await manager.install(root);
     const managedRoot = await managedPluginRoot(manager, 'demo');
@@ -979,23 +982,26 @@ describe('PluginManager consumption plane', () => {
     );
   });
 
-  it('enabledMcpServers() keeps system node when the host declares no runner even if embedded assets exist', async () => {
+  it('enabledMcpServers() keeps the declared runner prefix before the plugin entry', async () => {
     const home = await makeKimiHome();
     const root = await makePlugin('demo', {
       mcpServers: { data: { command: 'node', args: ['./bin/data.mjs'] } },
     });
-    const globals = globalThis as { __KIMI_BUN_ASSETS__?: unknown };
-    const originalAssets = globals.__KIMI_BUN_ASSETS__;
-    globals.__KIMI_BUN_ASSETS__ = { probe: 'present' };
-    try {
-      const manager = new PluginManager({ kimiHomeDir: home, pluginNodeRunner: false });
-      await manager.load();
-      await manager.install(root);
-      const server = manager.enabledMcpServers()['plugin-demo:data'];
-      expect(server).toEqual(expect.objectContaining({ command: 'node' }));
-    } finally {
-      if (originalAssets === undefined) delete globals.__KIMI_BUN_ASSETS__;
-      else globals.__KIMI_BUN_ASSETS__ = originalAssets;
-    }
+    const manager = new PluginManager({
+      kimiHomeDir: home,
+      pluginNodeRunner: { command: 'runner', args: ['--pre', 'main.ts'] },
+    });
+    await manager.load();
+    await manager.install(root);
+    const managedRoot = await managedPluginRoot(manager, 'demo');
+
+    const server = manager.enabledMcpServers()['plugin-demo:data'];
+    expect(server).toEqual(
+      expect.objectContaining({
+        command: 'runner',
+        args: ['--pre', 'main.ts', './bin/data.mjs'],
+        cwd: managedRoot,
+      }),
+    );
   });
 });

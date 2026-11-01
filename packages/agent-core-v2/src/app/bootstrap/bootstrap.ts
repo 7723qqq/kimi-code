@@ -14,6 +14,11 @@ import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
 export type HostUiCapability = 'update_panel';
 
+export interface PluginNodeRunner {
+  readonly command: string;
+  readonly args: readonly string[];
+}
+
 export interface HostArgs {
   readonly agentFiles?: readonly string[];
   readonly skillDirs?: readonly string[];
@@ -22,7 +27,7 @@ export interface HostArgs {
   readonly replyStyleGuide?: string;
   readonly nonInteractive?: boolean;
   readonly uiCapabilities?: readonly HostUiCapability[];
-  readonly pluginNodeRunner?: boolean;
+  readonly pluginNodeRunner?: PluginNodeRunner;
 }
 
 export interface HostArgsInput {
@@ -33,7 +38,7 @@ export interface HostArgsInput {
   readonly replyStyleGuide?: string;
   readonly nonInteractive?: boolean;
   readonly uiCapabilities?: readonly HostUiCapability[];
-  readonly pluginNodeRunner?: boolean;
+  readonly pluginNodeRunner?: PluginNodeRunner;
 }
 
 export function resolveHostArgs(input: HostArgsInput | undefined): HostArgs {

@@ -33,6 +33,7 @@ import { restoreTerminalModes } from '#/utils/terminal-restore';
 
 import { resolveAgentProfileSelection } from './agent-selection';
 import type { CLIOptions } from './options';
+import { resolvePluginNodeRunner } from './plugin-node-runner';
 import { createCliTelemetryBootstrap, initializeCliTelemetry } from './telemetry';
 import { createKimiCodeHostIdentity } from './version';
 
@@ -84,7 +85,7 @@ export async function runShell(
     // The TUI renders the mid-turn update panel; declaring it here is what
     // makes the engine offer NotifyUser to this process and to no other host.
     uiCapabilities: TUI_HOST_UI_CAPABILITIES,
-    pluginNodeRunner: true,
+    pluginNodeRunner: resolvePluginNodeRunner(),
     telemetry: telemetryClient,
     onOAuthRefresh: (outcome) => {
       if (outcome.success) {

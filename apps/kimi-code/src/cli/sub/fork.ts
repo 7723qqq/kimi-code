@@ -12,6 +12,7 @@ import {
 } from '@moonshot-ai/kimi-telemetry';
 import type { Command } from 'commander';
 
+import { resolvePluginNodeRunner } from '#/cli/plugin-node-runner';
 import { createCliTelemetryBootstrap, initializeCliTelemetry } from '#/cli/telemetry';
 import { createKimiCodeHostIdentity } from '#/cli/version';
 import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE } from '#/constant/app';
@@ -124,7 +125,7 @@ function createDefaultForkDeps(overrides: Partial<ForkDeps> = {}): ForkDeps & {
     harness ??= createKimiHarness({
       homeDir: currentTelemetryBootstrap.homeDir,
       identity,
-      pluginNodeRunner: true,
+      pluginNodeRunner: resolvePluginNodeRunner(),
       telemetry: telemetryClient,
     });
     return harness;

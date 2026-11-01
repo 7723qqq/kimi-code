@@ -3,6 +3,7 @@ import { setTelemetryContext, track, withTelemetryContext } from '@moonshot-ai/k
 import { ProcessTerminal, TuiMainScreen } from '@moonshot-ai/pi-tui';
 import type { Command } from 'commander';
 
+import { resolvePluginNodeRunner } from '#/cli/plugin-node-runner';
 import { createCliTelemetryBootstrap } from '#/cli/telemetry';
 import { createKimiCodeHostIdentity } from '#/cli/version';
 import { t } from '#/i18n';
@@ -36,7 +37,7 @@ export async function runImportSessionsCommand(): Promise<number> {
   const harness = createKimiHarness({
     homeDir: createCliTelemetryBootstrap().homeDir,
     identity: createKimiCodeHostIdentity(),
-    pluginNodeRunner: true,
+    pluginNodeRunner: resolvePluginNodeRunner(),
     telemetry,
   });
   try {

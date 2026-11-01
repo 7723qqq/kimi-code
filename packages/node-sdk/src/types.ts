@@ -1,4 +1,4 @@
-import type { HostUiCapability, ScopeSeed } from '@moonshot-ai/agent-core-v2';
+import type { HostUiCapability, PluginNodeRunner, ScopeSeed } from '@moonshot-ai/agent-core-v2';
 import type {
   ExportSessionManifest,
   ShellEnvironment,
@@ -111,7 +111,7 @@ export interface GetCronTasksResult {
 export type { KimiHostIdentity, OAuthRefreshOutcome };
 // Host UI capabilities are an agent-core-v2 seam (`BootstrapInput.args.uiCapabilities`);
 // hosts name them through `KimiHarnessOptions.uiCapabilities`, so the type is public here.
-export type { HostUiCapability };
+export type { HostUiCapability, PluginNodeRunner };
 export type { TelemetryClient, TelemetryContextPatch, TelemetryProperties };
 export type { ContentPart, Role, ThinkingEffort, ToolCall } from '@moonshot-ai/kosong';
 // Contributed commands are an agent-core-v2 seam; the type is re-exported
@@ -220,12 +220,13 @@ export interface KimiHarnessOptions {
    */
   readonly uiCapabilities?: readonly HostUiCapability[];
   /**
-   * Whether this host implements the hidden `__plugin_run_node` entry that
-   * runs a plugin's `command: "node"` server under its own runtime. Forwarded
-   * as `BootstrapInput.args.pluginNodeRunner`; hosts that do not set it keep
-   * the existing detection (packaged CLI binary or Electron).
+   * How this host runs a plugin's `command: "node"` server under its own
+   * runtime, when it implements the hidden `__plugin_run_node` entry: the
+   * command and the arguments that precede the plugin entry. Forwarded as
+   * `BootstrapInput.args.pluginNodeRunner`; hosts that do not set it keep the
+   * existing detection (packaged CLI binary or Electron).
    */
-  readonly pluginNodeRunner?: boolean;
+  readonly pluginNodeRunner?: PluginNodeRunner;
   readonly telemetry?: TelemetryClient | undefined;
   readonly onOAuthRefresh?: ((outcome: OAuthRefreshOutcome) => void) | undefined;
   readonly sessionStartedProperties?: TelemetryProperties;

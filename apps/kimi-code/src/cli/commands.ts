@@ -1,3 +1,4 @@
+import { KIMI_NODE_FALLBACK_SUBCOMMAND } from '@moonshot-ai/kimi-code-sdk';
 import { Command, InvalidArgumentError, Option } from 'commander';
 
 import { CLI_COMMAND_NAME } from '#/constant/app';
@@ -139,7 +140,7 @@ export function createProgram(
     });
 
   program
-    .command('__plugin_run_node', { hidden: true })
+    .command(KIMI_NODE_FALLBACK_SUBCOMMAND, { hidden: true })
     .argument('<entry>')
     .argument('[args...]')
     .allowUnknownOption(true)

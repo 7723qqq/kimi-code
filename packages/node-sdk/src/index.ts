@@ -62,7 +62,7 @@ export {
   redact,
   resolveGlobalLogPath,
 } from '#/logging/index';
-export { resolveKimiHome } from '@moonshot-ai/agent-core-v2';
+export { KIMI_NODE_FALLBACK_SUBCOMMAND, resolveKimiHome } from '@moonshot-ai/agent-core-v2';
 export {
   ProbeShellNotFoundError,
   SHELL_PAYLOAD_MANIFEST,

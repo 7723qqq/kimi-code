@@ -16,6 +16,7 @@ import {
 } from '@moonshot-ai/kimi-code-oauth';
 import { createKimiHarness } from '@moonshot-ai/kimi-code-sdk';
 
+import { resolvePluginNodeRunner } from '#/cli/plugin-node-runner';
 import { createKimiCodeHostIdentity } from '#/cli/version';
 import { t } from '#/i18n';
 import { openUrl } from '#/utils/open-url';
@@ -66,7 +67,7 @@ export async function runLoginFlow(
   const harness = createKimiHarness({
     identity,
     uiMode: 'cli',
-    pluginNodeRunner: true,
+    pluginNodeRunner: resolvePluginNodeRunner(),
   });
   const controller = new AbortController();
   process.once('SIGINT', () => {
@@ -126,7 +127,7 @@ export async function runGoogleLoginFlow(): Promise<never> {
   const harness = createKimiHarness({
     identity,
     uiMode: 'cli',
-    pluginNodeRunner: true,
+    pluginNodeRunner: resolvePluginNodeRunner(),
   });
   const controller = new AbortController();
   process.once('SIGINT', () => {
@@ -193,7 +194,7 @@ export async function runAntigravitySyncFlow(): Promise<never> {
   const harness = createKimiHarness({
     identity,
     uiMode: 'cli',
-    pluginNodeRunner: true,
+    pluginNodeRunner: resolvePluginNodeRunner(),
   });
 
   const detection = GoogleOAuthManager.detectAntigravityCredentials();

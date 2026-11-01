@@ -23,6 +23,7 @@ import {
   withTelemetryContext,
 } from '@moonshot-ai/kimi-telemetry';
 
+import { resolvePluginNodeRunner } from '#/cli/plugin-node-runner';
 import { t } from '#/i18n';
 
 import { createProgram } from './cli/commands';
@@ -129,7 +130,7 @@ export async function handleUpgradeCommand(version: string, yes: boolean): Promi
   const harness = createKimiHarness({
     homeDir: telemetryBootstrap.homeDir,
     identity: createKimiCodeHostIdentity(version),
-    pluginNodeRunner: true,
+    pluginNodeRunner: resolvePluginNodeRunner(),
     telemetry: telemetryClient,
   });
   let exitCode = 1;

@@ -42,6 +42,7 @@ import {
 } from '@moonshot-ai/kimi-code-sdk';
 import type { Command } from 'commander';
 
+import { resolvePluginNodeRunner } from '#/cli/plugin-node-runner';
 import { createKimiCodeHostIdentity, createKimiCodeUserAgent } from '#/cli/version';
 import { t, type TranslationKey } from '#/i18n';
 import { fetchCatalogOrBuiltIn } from '#/utils/catalog-fetch';
@@ -1336,7 +1337,7 @@ function resolveDeps(overrides: Partial<ProviderDeps> = {}): ResolvedProviderDep
     getHarness:
       overrides.getHarness ??
       (() => {
-        harness ??= createKimiHarness({ identity, pluginNodeRunner: true });
+        harness ??= createKimiHarness({ identity, pluginNodeRunner: resolvePluginNodeRunner() });
         return harness;
       }),
     stdout: overrides.stdout ?? process.stdout,

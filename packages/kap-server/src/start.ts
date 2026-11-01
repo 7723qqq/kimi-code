@@ -30,6 +30,7 @@ import {
   resolveKimiHome,
   resolveLoggingConfig,
   type ConfigDiagnostic,
+  type PluginNodeRunner,
   type Scope,
   type ScopeSeed,
 } from '@moonshot-ai/agent-core-v2';
@@ -115,7 +116,7 @@ export interface ServerStartOptions {
   readonly rpcToken?: string;
   readonly seeds?: ScopeSeed;
   readonly hostIdentity: ServerHostIdentity;
-  readonly pluginNodeRunner?: boolean;
+  readonly pluginNodeRunner?: PluginNodeRunner;
   readonly skillDirs?: readonly string[];
   readonly webAssetsDir?: string;
   readonly serverVersion?: string;
@@ -201,7 +202,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
         displayName: opts.hostIdentity.displayName,
         replyStyleGuide: opts.hostIdentity.replyStyleGuide,
         uiCapabilities: [NOTIFY_USER_UI_CAPABILITY],
-        pluginNodeRunner: opts.pluginNodeRunner ?? false,
+        pluginNodeRunner: opts.pluginNodeRunner,
       },
     },
     [...logSeed(logging), ...(opts.seeds ?? [])],

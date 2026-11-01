@@ -16,6 +16,7 @@ import { shutdownTelemetry, track } from '@moonshot-ai/kimi-telemetry';
 import chalk from 'chalk';
 import { type Command, Option } from 'commander';
 
+import { resolvePluginNodeRunner } from '#/cli/plugin-node-runner';
 import {
   CLI_SHUTDOWN_TIMEOUT_MS,
   CLI_USER_AGENT_PRODUCT,
@@ -438,7 +439,7 @@ async function runServerInProcess(
       userAgentSuffix: WEB_USER_AGENT_SUFFIX,
     },
     logLevel: options.logLevel,
-    pluginNodeRunner: true,
+    pluginNodeRunner: resolvePluginNodeRunner(),
     logger,
     debugEndpoints: options.debugEndpoints,
     insecureNoTls: options.insecureNoTls,

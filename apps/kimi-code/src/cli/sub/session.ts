@@ -16,6 +16,7 @@ import {
 import { setTelemetryContext, track, withTelemetryContext } from '@moonshot-ai/kimi-telemetry';
 import type { Command } from 'commander';
 
+import { resolvePluginNodeRunner } from '#/cli/plugin-node-runner';
 import { createCliTelemetryBootstrap } from '#/cli/telemetry';
 import { createKimiCodeHostIdentity } from '#/cli/version';
 import { t } from '#/i18n';
@@ -115,7 +116,7 @@ function createDefaultSessionListDeps(
     harness ??= createKimiHarness({
       homeDir: createCliTelemetryBootstrap().homeDir,
       identity,
-      pluginNodeRunner: true,
+      pluginNodeRunner: resolvePluginNodeRunner(),
       telemetry: telemetryClient,
     });
     return harness;

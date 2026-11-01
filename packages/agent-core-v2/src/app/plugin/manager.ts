@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import type { ILogger } from '#/_base/log/log';
+import type { PluginNodeRunner } from '#/app/bootstrap/bootstrap';
 import { BugIndicatingError, Error2, ErrorCodes, PluginErrors, toErrorMessage } from '#/errors';
 import type { HookDef } from '#/features/externalHooks/internal/types';
 import { discoverFileSkills } from '#/features/skill/catalog/fileSkillDiscovery';
@@ -38,7 +39,7 @@ export interface PluginManagerOptions {
   readonly kimiHomeDir: string;
   readonly discoverSkills?: (roots: readonly SkillRoot[]) => Promise<SkillDiscoveryResult>;
   readonly log?: ILogger;
-  readonly pluginNodeRunner?: boolean;
+  readonly pluginNodeRunner?: PluginNodeRunner;
 }
 
 interface ManagedPluginCopy {
@@ -54,14 +55,18 @@ export class PluginManager {
   private readonly kimiHomeDir: string;
   private readonly discoverSkills: (roots: readonly SkillRoot[]) => Promise<SkillDiscoveryResult>;
   private readonly log: ILogger | undefined;
-  private readonly canRunPluginNodeEntry: boolean;
+  private readonly pluginNodeRunner: PluginNodeRunner | undefined;
   private records = new Map<string, PluginRecord>();
 
   constructor(options: PluginManagerOptions) {
     this.kimiHomeDir = options.kimiHomeDir;
     this.discoverSkills = options.discoverSkills ?? discoverFileSkills;
     this.log = options.log;
-    this.canRunPluginNodeEntry = options.pluginNodeRunner ?? isKimiNativeBinary();
+    this.pluginNodeRunner =
+      options.pluginNodeRunner ??
+      (isKimiNativeBinary()
+        ? { command: process.execPath, args: [KIMI_NODE_FALLBACK_SUBCOMMAND] }
+        : undefined);
   }
 
   async load(): Promise<void> {
@@ -373,7 +378,7 @@ export class PluginManager {
           withMcpServerEnabled(config, true),
           record.root,
           this.kimiHomeDir,
-          this.canRunPluginNodeEntry,
+          this.pluginNodeRunner,
         );
       }
     }
@@ -390,7 +395,7 @@ export class PluginManager {
           withMcpServerEnabled(config, enabled),
           record.root,
           this.kimiHomeDir,
-          this.canRunPluginNodeEntry,
+          this.pluginNodeRunner,
         );
         out.push({
           name: pluginMcpRuntimeName(record.id, name),
@@ -737,7 +742,7 @@ function pluginMcpRuntimeName(pluginId: string, serverName: string): string {
   return `plugin-${pluginId}:${serverName}`;
 }
 
-const KIMI_NODE_FALLBACK_SUBCOMMAND = '__plugin_run_node';
+export const KIMI_NODE_FALLBACK_SUBCOMMAND = '__plugin_run_node';
 
 function withMcpServerEnabled(config: McpServerConfig, enabled: boolean): McpServerConfig {
   return { ...config, enabled };
@@ -747,7 +752,7 @@ function withPluginMcpRuntime(
   config: McpServerConfig,
   pluginRoot: string,
   kimiHomeDir: string,
-  canRunPluginNodeEntry: boolean,
+  pluginNodeRunner: PluginNodeRunner | undefined,
 ): McpServerConfig {
   if (config.transport === 'http' || config.transport === 'sse') return config;
 
@@ -767,11 +772,11 @@ function withPluginMcpRuntime(
     };
   }
 
-  if (config.command === 'node' && canRunPluginNodeEntry) {
+  if (config.command === 'node' && pluginNodeRunner !== undefined) {
     return {
       ...config,
-      command: process.execPath,
-      args: [KIMI_NODE_FALLBACK_SUBCOMMAND, ...(config.args ?? [])],
+      command: pluginNodeRunner.command,
+      args: [...pluginNodeRunner.args, ...(config.args ?? [])],
       cwd: config.cwd ?? pluginRoot,
       env,
     };

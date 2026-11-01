@@ -22,6 +22,7 @@ import {
 } from '@moonshot-ai/kimi-telemetry';
 import type { Command } from 'commander';
 
+import { resolvePluginNodeRunner } from '#/cli/plugin-node-runner';
 import { createCliTelemetryBootstrap, initializeCliTelemetry } from '#/cli/telemetry';
 import { detectInstallSource } from '#/cli/update/source';
 import { createKimiCodeHostIdentity } from '#/cli/version';
@@ -159,7 +160,7 @@ function createDefaultExportDeps(overrides: Partial<ExportDeps> = {}): ExportDep
     harness ??= createKimiHarness({
       homeDir: currentTelemetryBootstrap.homeDir,
       identity,
-      pluginNodeRunner: true,
+      pluginNodeRunner: resolvePluginNodeRunner(),
       telemetry: telemetryClient,
     });
     return harness;
