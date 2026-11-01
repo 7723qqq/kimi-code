@@ -29,6 +29,7 @@ import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
 import { RuntimeError } from '#/runtime/runtimeRegistry';
 
+import { recordingTelemetry, type TelemetryRecord } from '../app/telemetry/stubs';
 import {
   closeServer,
   crashAfterConnectFixture,
@@ -160,8 +161,10 @@ describe('McpConnectionManager', () => {
 
   it('compacts MCP parameter descriptions when enabled', async () => {
     const env = { KIMI_TEST_MCP_VERBOSE_TOOL: '1' };
+    const telemetryRecords: TelemetryRecord[] = [];
     const compact = createManager({
       resolveDefaults: () => ({ compactToolSchemas: true }),
+      telemetry: recordingTelemetry(telemetryRecords),
     });
     const full = createManager();
     try {
@@ -181,6 +184,18 @@ describe('McpConnectionManager', () => {
       expect(parameter(compactTool, 'query')?.['description']).toBe('Query the thing.');
       expect(parameter(compactTool, 'query')?.['type']).toBe('string');
       expect(parameter(compactTool, 'mode')?.['enum']).toEqual(['fast', 'slow']);
+      expect(telemetryRecords).toContainEqual({
+        event: 'mcp_schema_compacted',
+        properties: expect.objectContaining({
+          tool_count: 5,
+          original_chars: expect.any(Number),
+          compacted_chars: expect.any(Number),
+        }),
+      });
+      const compacted = telemetryRecords.find((record) => record.event === 'mcp_schema_compacted');
+      expect(Number(compacted?.properties?.['compacted_chars'])).toBeLessThan(
+        Number(compacted?.properties?.['original_chars']),
+      );
     } finally {
       await compact.shutdown();
       await full.shutdown();

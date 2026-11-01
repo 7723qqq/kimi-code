@@ -61,6 +61,7 @@ export class WorkspaceMcpService extends Disposable implements IWorkspaceMcpServ
     this.manager = new McpConnectionManager({
       log: this.log,
       oauthService: this.oauthService,
+      telemetry: this.telemetry,
       stdioCwd: this.stdioCwd,
       runtimeResolver: this.runtimeResolver,
       workspaceId: workspace.workspaceId,
@@ -129,6 +130,7 @@ export class WorkspaceMcpService extends Disposable implements IWorkspaceMcpServ
     const sessionManager = new McpConnectionManager({
       log: this.log,
       oauthService: this.oauthService,
+      telemetry: this.telemetry,
       stdioCwd: opts?.stdioCwd ?? this.stdioCwd,
       runtimeResolver: this.runtimeResolver,
       workspaceId: this.workspaceId,

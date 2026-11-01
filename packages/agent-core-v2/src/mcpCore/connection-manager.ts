@@ -2,6 +2,7 @@ import { McpError } from '@modelcontextprotocol/sdk/types.js';
 
 import type { ILogger as Logger } from '#/_base/log/log';
 import { abortable } from '#/_base/utils/abort';
+import type { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ErrorCodes, Error2 } from '#/errors';
 import type { McpOAuthService } from '#/mcpCore/oauth/service';
 import { HostProcessError, HostProcessErrorCode } from '#/os/interface/hostProcess';
@@ -129,6 +130,7 @@ export interface McpConnectionManagerOptions {
   readonly requireStdioRuntimeId?: boolean;
   readonly reconnectRetryEnabled?: boolean;
   readonly oauthService?: McpOAuthService;
+  readonly telemetry?: ITelemetryService;
   readonly log?: Logger;
   readonly resolveDefaults?: () => McpDefaults;
   readonly resolveClientName?: () => string | undefined;
@@ -908,17 +910,25 @@ export class McpConnectionManager implements McpConnectionView {
     }
     const compact = this.options.resolveDefaults?.().compactToolSchemas === true;
     try {
-      return {
-        rawTools: mcpTools,
-        tools: mcpTools.map((mcpTool) => {
-          const parameters = assertMcpInputSchema(mcpTool.name, mcpTool.inputSchema);
-          return {
-            name: mcpTool.name,
-            description: mcpTool.description,
-            parameters: compact ? compactMcpInputSchema(parameters) : parameters,
-          };
-        }),
-      };
+      const prepared = mcpTools.map((mcpTool) => ({
+        name: mcpTool.name,
+        description: mcpTool.description,
+        parameters: assertMcpInputSchema(mcpTool.name, mcpTool.inputSchema),
+      }));
+      const tools = compact
+        ? prepared.map((tool) => ({
+            ...tool,
+            parameters: compactMcpInputSchema(tool.parameters),
+          }))
+        : prepared;
+      if (compact) {
+        this.options.telemetry?.track2('mcp_schema_compacted', {
+          tool_count: tools.length,
+          original_chars: JSON.stringify(prepared.map((tool) => tool.parameters)).length,
+          compacted_chars: JSON.stringify(tools.map((tool) => tool.parameters)).length,
+        });
+      }
+      return { rawTools: mcpTools, tools };
     } catch (error) {
       if (error instanceof Error2 && error.code === ErrorCodes.MCP_STARTUP_FAILED) {
         throw new McpClassifiedStartupError('protocol', error.message, { cause: error });

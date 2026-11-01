@@ -563,6 +563,12 @@ export interface ToolRetrievalEvent {
   matched: boolean;
 }
 
+export interface McpSchemaCompactedEvent {
+  tool_count: number;
+  original_chars: number;
+  compacted_chars: number;
+}
+
 export interface CronMissedEvent {
   count: number;
 }
@@ -1498,6 +1504,15 @@ export const telemetryEventDefinitions = {
       selected_count: 'Number of tools returned or announced',
       query_chars: 'Character length of the retrieval query, not its content',
       matched: 'Whether at least one positive retrieval match was found',
+    },
+  }),
+  mcp_schema_compacted: defineTelemetryEvent<McpSchemaCompactedEvent>({
+    owner: 'kimi-code',
+    comment: 'An MCP server connected with compacted tool schemas enabled.',
+    properties: {
+      tool_count: 'Number of tools discovered from the server',
+      original_chars: 'Serialized character length of the original parameter schemas',
+      compacted_chars: 'Serialized character length after compaction',
     },
   }),
   cron_missed: defineTelemetryEvent<CronMissedEvent>({
