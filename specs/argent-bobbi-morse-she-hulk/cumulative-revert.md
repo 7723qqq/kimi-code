@@ -66,7 +66,7 @@
 
 ### 四之二、精度实测（MiniMax-M2，2026-10-07）
 
-脚本：`measure-minimax.cjs`（主测量）、`probe-ineff.mjs`、`probe-window-anatomy.mjs`、
+脚本：`measure-minimax.mjs`（主测量）、`probe-ineff.mjs`、`probe-window-anatomy.mjs`、
 `probe-tail-inference.mjs`。走 MiniMax 的 Anthropic 兼容流式端点，每个 `content_block_delta`
 记到达时刻，只把 text/thinking 这类真正计入 `output_tokens` 的 part 当端点。
 
