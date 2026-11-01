@@ -10,6 +10,9 @@
     "packages/minidb/test/recovery.test.ts": "Comment only. The code patches the real node:fs exports and restores them in afterEach; the note records that vitest did this with doMock+resetModules, which Bun has no equivalent for. No stand-in API is defined.",
     "packages/minidb/test/worker-build.test.ts": "Comment only. The code uses Bun spyOn on the live ESM namespace; the note explains that Bun has no importActual. No stand-in API is defined.",
     "packages/node-sdk/test/session-runtime-helpers.ts": "Real polling helper. Bun 1.4.4 has no expect.poll and no vi.waitFor, so an async-settling probe needs a poll loop. This duplicates packages/agent-core-v2/test/helpers/waitFor.ts, but that helper is package-private to agent-core-v2; deduplicating it needs a shared test-helper package, which is a separate change.",
-    "apps/vscode/test/webview/setup.ts": "Real capability gap. Bun has no test environment option, so a webview suite that needs a document imports this module to build a jsdom window and tear it down per file. A bunfig preload cannot be used because the extension tests must not see a document."
+    "apps/vscode/test/webview/setup.ts": "Real capability gap. Bun has no test environment option, so a webview suite that needs a document imports this module to build a jsdom window and tear it down per file. A bunfig preload cannot be used because the extension tests must not see a document.",
+    "tools/bun-migrate/src/node-gaps.mjs": "Migrator data. The `Bun has no ...` strings are the gap catalogue's workaround text for Node APIs, not a hand-written stand-in for a runner API.",
+    "tools/bun-migrate/src/layers/packages.mjs": "Migrator data. The note records a Node feature Bun lacks while describing a migration rule; no runner API is defined here.",
+    "tools/bun-migrate/test/node-surface.test.mjs": "The suite's title and comment state the catalogue invariant (`Node has ... Bun lacks`); no runner API stand-in is defined."
   }
 }

@@ -101,6 +101,30 @@ describe('scan-test-residue', () => {
     expect(hits(report, 'vitest-import')).toContain('packages/a/test/import-form.test.ts');
   });
 
+  it('ignores a runner import that only appears inside a fixture string', async () => {
+    await write(
+      'tools/migrator/test/fixture.test.mjs',
+      fixture(`export const sample = "import { expect } from '${VITEST}';";`),
+    );
+
+    const { report } = await scan(['--json']);
+    expect(hits(report, 'vitest-import')).not.toContain('tools/migrator/test/fixture.test.mjs');
+    expect(hits(report, 'vi-binding')).not.toContain('tools/migrator/test/fixture.test.mjs');
+  });
+
+  it('still reports a real import next to a fixture string', async () => {
+    await write(
+      'packages/a/test/mixed.test.ts',
+      fixture(
+        `export const sample = "import { expect } from '${VITEST}';";`,
+        `import { expect } from '${VITEST}';`,
+      ),
+    );
+
+    const { report } = await scan(['--json']);
+    expect(hits(report, 'vitest-import')).toContain('packages/a/test/mixed.test.ts');
+  });
+
   it('does not let a URL in a string open a comment that hides the rest of the file', async () => {
     const manifest = {
       name: 'fixture',

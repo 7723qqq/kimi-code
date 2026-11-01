@@ -118,6 +118,55 @@ function strip(src, { keepComments = false, keepStrings = false } = {}) {
   return out;
 }
 
+/**
+ * Half-open ranges of the string literals in `src`, scanned exactly as `strip`
+ * does. Import rules must see module specifiers, but the same text also appears
+ * inside fixture strings — a migrator's test input, for example — where it is
+ * data rather than an import this repository executes.
+ */
+function stringSpans(src) {
+  const spans = [];
+  let i = 0;
+  while (i < src.length) {
+    const ch = src[i];
+    if (ch !== "'" && ch !== '"' && ch !== '`') {
+      i += 1;
+      continue;
+    }
+    let end = i + 1;
+    while (end < src.length) {
+      if (src[end] === '\\') {
+        end += 2;
+        continue;
+      }
+      if (src[end] === ch) {
+        end += 1;
+        break;
+      }
+      end += 1;
+    }
+    spans.push([i, end]);
+    i = end;
+  }
+  return spans;
+}
+
+/**
+ * Whether `pattern` matches anywhere outside a string literal. Rules that opt
+ * in via `exemptFixtureStrings` use this instead of a plain `test`, so fixture
+ * data cannot be reported as a live violation while a real import next to it
+ * still is.
+ */
+function matchesOutsideStrings(src, pattern) {
+  const spans = stringSpans(src);
+  const flags = pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`;
+  for (const match of src.matchAll(new RegExp(pattern.source, flags))) {
+    const start = match.index ?? 0;
+    if (!spans.some(([from, to]) => start >= from && start < to)) return true;
+  }
+  return false;
+}
+
 const RULES = [
   {
     id: 'vitest-import',
@@ -126,6 +175,7 @@ const RULES = [
     why: 'vitest is gone from the dependency graph; any import is stale.',
     pattern: /from\s*['"]vitest['"]/,
     keepStrings: true,
+    exemptFixtureStrings: true,
   },
   {
     id: 'vi-binding',
@@ -134,6 +184,7 @@ const RULES = [
     why: 'bun:test exports a vitest-compatible `vi` object; binding it routes calls through the compat layer.',
     pattern: /import\s+(?:type\s+)?\{[^}]*\bvi\b[^}]*\}\s+from\s+['"][^'"]+['"]/,
     keepStrings: true,
+    exemptFixtureStrings: true,
   },
   {
     id: 'vi-call',
@@ -150,6 +201,7 @@ const RULES = [
     why: 'Suites run on bun:test; node:test only worked through a shim.',
     pattern: /(?:from\s+|require\(\s*)['"]node:test['"]/,
     keepStrings: true,
+    exemptFixtureStrings: true,
   },
   {
     id: 'node-assert',
@@ -158,6 +210,7 @@ const RULES = [
     why: 'Node assertion style; Bun-native suites use expect.',
     pattern: /(?:from\s+|require\(\s*)['"]node:assert(?:\/strict)?['"]/,
     keepStrings: true,
+    exemptFixtureStrings: true,
   },
   {
     id: 'node-shebang',
@@ -257,6 +310,7 @@ const RULES = [
     why: 'vitest is gone from the dependency graph; a `require` reaches the same stale resolution as an import.',
     pattern: /require\(\s*['"]vitest['"]\s*\)/,
     keepStrings: true,
+    exemptFixtureStrings: true,
   },
   {
     id: 'wallclock-threshold',
@@ -324,7 +378,11 @@ for (const rule of RULES) {
       keepComments: rule.keepComments === true,
       keepStrings: rule.keepStrings === true,
     });
-    if (!rule.pattern.test(code)) continue;
+    const matched =
+      rule.exemptFixtureStrings === true
+        ? matchesOutsideStrings(raw, rule.pattern)
+        : rule.pattern.test(code);
+    if (!matched) continue;
     if (rule.needs && !rule.needs.test(strip(raw))) continue;
     if (accepted[rel] !== undefined) acceptedHits.push({ path: rel, reason: accepted[rel] });
     else hits.push(rel);
