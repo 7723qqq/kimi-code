@@ -43,6 +43,7 @@ const KIMI_CONFIG_DOMAINS = [
   'subagent',
   'agent',
   'secondaryModel',
+  'promptOptimizer',
   'mcp',
   'image',
   'modelCatalog',
