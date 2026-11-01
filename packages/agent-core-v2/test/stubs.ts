@@ -33,6 +33,8 @@ export class StubConfigService implements IConfigService {
     return this._values.get(domain) as T;
   }
 
+  assertValid(_domain: string): void {}
+
   inspect<T = unknown>(domain: string): ConfigInspectValue<T> {
     return {
       value: this._values.get(domain) as T | undefined,

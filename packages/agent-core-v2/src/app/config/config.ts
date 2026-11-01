@@ -210,7 +210,7 @@ export interface IConfigService {
   readonly onDidSectionChange: Event<ConfigSectionChangedEvent>;
   readonly onDidChangeDiagnostics: Event<readonly ConfigDiagnostic[]>;
   get<T = unknown>(domain: string): T;
-  assertValid?(domain: string): void;
+  assertValid(domain: string): void;
   inspect<T = unknown>(domain: string): ConfigInspectValue<T>;
   getAll(): ResolvedConfig;
   set(domain: string, patch: unknown, target?: ConfigTarget): Promise<void>;
