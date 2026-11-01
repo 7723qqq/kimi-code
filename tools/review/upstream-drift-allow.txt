@@ -55,6 +55,7 @@ packages/migration-legacy/vitest.config.ts
 packages/minidb/vitest.config.ts
 packages/node-sdk/vitest.config.ts
 packages/oauth/vitest.config.ts
+packages/product/vitest.config.ts
 packages/pi-tui/vitest.config.ts
 packages/remote-control/vitest.config.ts
 packages/telemetry/vitest.config.ts
