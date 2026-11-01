@@ -28,7 +28,6 @@ apps/kimi-code/src/tui/theme/custom-theme-loader.ts:readFile 1
 apps/kimi-code/src/utils/persistence.ts:readFile 2
 packages/agent-core-v2/src/human/persist/v2/migrate.ts:readFile 2
 packages/agent-core-v2/src/os/backends/host/hostFsService.ts:readFile 3
-packages/agent-core-v2/src/os/backends/host/tools/rgLocator.ts:readFile 2
 packages/agent-core-v2/src/persistence/backends/node-fs/fileStorageService.ts:readFile 1
 packages/kap-server/src/instanceRegistry.ts:readFile 1
 packages/kap-server/src/lib/promptMedia.ts:readFile 1
