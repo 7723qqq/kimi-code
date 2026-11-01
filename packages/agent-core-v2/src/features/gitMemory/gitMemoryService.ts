@@ -16,26 +16,31 @@ import { IHostProcessService } from '#/os/interface/hostProcess';
 
 import { buildIndex, cachePath, readAnyIndex, readIndex, writeIndex } from './cache';
 import { GIT_MEMORY_FLAG_ID } from './flag';
-import { readGitHistory, readRepoHead } from './gitReader';
+import { readGitHistory, readRepoHead, readRepoMap, readRepoTree } from './gitReader';
 import type { RepoHead } from './gitReader';
 import {
   projectFileBlock,
   projectMemoryBlock,
   projectRepoBlock,
+  projectRepoTree,
   projectSignalBlock,
 } from './projection';
 import type { MemoryEntryView } from './projection';
 import {
+  GIT_MEMORY_DIR_COMMITS,
   GIT_MEMORY_FILE_COMMITS,
   GIT_MEMORY_REPO_COMMITS,
   GIT_MEMORY_SIGNAL_COMMITS,
   GIT_MEMORY_SIGNAL_PATHS,
+  GIT_MEMORY_TREE_DEPTH,
   GIT_MEMORY_WINDOW,
 } from './types';
 import type { CommitRecord, GitMemoryIndex } from './types';
 
 const PATH_PATTERN =
   /[\w./\\-]+\.(?:ts|tsx|js|jsx|mjs|cjs|rs|go|py|java|kt|rb|vue|json|jsonc|md|yaml|yml|toml)/g;
+
+export const GIT_MEMORY_REPO_MAP_MAX_LINES = 2000;
 
 export interface IGitMemoryService {
   readonly _serviceBrand: undefined;
@@ -45,6 +50,8 @@ export interface IGitMemoryService {
   signalBlock(message: string): Promise<string>;
 
   fileBlock(path: string): Promise<string>;
+
+  repoMap(path: string | undefined, depth: number): Promise<string>;
 }
 
 export const IGitMemoryService = createDecorator<IGitMemoryService>('gitMemoryService');
@@ -56,12 +63,17 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
   private indexLoaded = false;
   private loading: Promise<void> | undefined;
   private refresh: Promise<void> | undefined;
-  private repoRoot = '';
-  private pathPrefix = '';
+  private head: RepoHead | undefined;
+  private headLoaded = false;
+  private headLoading: Promise<void> | undefined;
+  protected repoRoot = '';
+  protected pathPrefix = '';
   private readonly renderedPaths = new Set<string>();
   private readonly renderedCommits = new Set<string>();
   private readonly renderedMemories = new Set<string>();
+  private memoryStoreWarned = false;
   private readonly memoryScopeCache = new Map<string, string[]>();
+  private readonly directoryHistory = new Map<string, readonly CommitRecord[]>();
 
   constructor(
     @IHostProcessService private readonly process: IHostProcessService,
@@ -80,10 +92,8 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
   }
 
   protected async loadIndex(): Promise<GitMemoryIndex | undefined> {
-    const head = await readRepoHead(this.process, this.bootstrap.cwd);
+    const head = await this.ensureHead();
     if (head === undefined) return undefined;
-    this.repoRoot = head.repoRoot;
-    this.pathPrefix = head.prefix;
 
     const path = cachePath(head.repoRoot);
     const cached = await readIndex(path, head.headSha, GIT_MEMORY_WINDOW);
@@ -118,14 +128,21 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
     head: RepoHead,
     path: string,
   ): Promise<GitMemoryIndex | undefined> {
-    const history = await readGitHistory(this.process, head.repoRoot, GIT_MEMORY_WINDOW);
+    const history = await readGitHistory(
+      this.process,
+      head.repoRoot,
+      GIT_MEMORY_WINDOW,
+      head.headSha,
+    );
     if (history.kind !== 'ok') return undefined;
+    const dirs = await readRepoTree(this.process, head.repoRoot);
     const index = buildIndex(
       head.repoRoot,
       history.headSha,
       GIT_MEMORY_WINDOW,
       history.commits,
       new Date().toISOString(),
+      dirs ?? [],
     );
     const written = await writeIndex(path, index);
     if (!written) {
@@ -140,12 +157,16 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
       const index = await this.ensureIndex();
       if (index === undefined) return '';
       const commits = index.commits.slice(0, GIT_MEMORY_REPO_COMMITS);
-      const unscoped = await this.unscopedMemories();
-      const block = projectRepoBlock(commits);
-      if (unscoped.length === 0) return block;
-      const memories = unscoped.map((entry) => projectMemoryBlock(entry)).join('\n');
-      if (block.length === 0) return memories;
-      return `${block}\n${memories}`;
+      const unscoped = await this.safeMemories(() => this.unscopedMemories());
+      const parts: string[] = [];
+      const repo = projectRepoBlock(commits);
+      if (repo.length > 0) parts.push(repo);
+      const tree = projectRepoTree(index.dirs, GIT_MEMORY_TREE_DEPTH);
+      if (tree.length > 0) parts.push(tree);
+      if (unscoped.length > 0) {
+        parts.push(unscoped.map((entry) => projectMemoryBlock(entry)).join('\n'));
+      }
+      return parts.join('\n');
     } catch (error) {
       this.log.warn('git memory repo block failed', { error });
       return '';
@@ -160,15 +181,19 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
       const key = this.toRepoPath(path);
       if (this.renderedPaths.has(key)) return '';
       const commits = this.commitsForPath(index, key);
-      const memories = await this.memoriesForPath(key);
-      if (commits.length === 0 && memories.length === 0) return '';
+      const memories = await this.safeMemories(() => this.memoriesForPath(key));
+      const directory = directoryOf(key);
+      const dirCommits =
+        directory.length === 0 ? [] : this.commitsForDirectory(index, directory);
+      if (commits.length === 0 && dirCommits.length === 0 && memories.length === 0) return '';
       this.renderedPaths.add(key);
-      let block = projectFileBlock(key, commits, this.renderedCommits);
+      let block = projectFileBlock(key, commits, directory, dirCommits, this.renderedCommits);
+      for (const commit of commits) this.renderedCommits.add(commit.sha);
+      for (const commit of dirCommits) this.renderedCommits.add(commit.sha);
       if (memories.length > 0) {
         const rendered = memories.map((entry) => projectMemoryBlock(entry)).join('\n');
         block = block.length === 0 ? rendered : `${block}\n${rendered}`;
       }
-      for (const commit of commits) this.renderedCommits.add(commit.sha);
       return block;
     } catch (error) {
       this.log.warn('git memory file block failed', { error });
@@ -200,6 +225,43 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
     }
   }
 
+  async repoMap(path: string | undefined, depth: number): Promise<string> {
+    if (!this.enabled()) return '';
+    try {
+      const head = await this.ensureHead();
+      if (head === undefined) return '';
+      for (const candidate of this.repoPathCandidates(path)) {
+        const entries = await readRepoMap(this.process, head.repoRoot, candidate);
+        if (entries === undefined) return '';
+        const lines = entries.filter((entry) => isWithinDepth(entry, candidate, depth));
+        if (lines.length === 0) continue;
+        const shown = lines.slice(0, GIT_MEMORY_REPO_MAP_MAX_LINES);
+        if (shown.length < lines.length) {
+          shown.push(
+            `... and ${String(lines.length - shown.length)} more paths; narrow the path or raise the depth`,
+          );
+        }
+        return shown.join('\n');
+      }
+      return '';
+    } catch (error) {
+      this.log.warn('git memory repo map failed', { error });
+      return '';
+    }
+  }
+
+  private repoPathCandidates(path: string | undefined): (string | undefined)[] {
+    if (path === undefined || path.length === 0) return [undefined];
+    const normalized = path.replaceAll('\\', '/').replace(/^\.\//, '');
+    const candidates: (string | undefined)[] = [normalized];
+    if (this.pathPrefix.length === 0) return candidates;
+    const prefixed = normalized.startsWith(this.pathPrefix)
+      ? normalized
+      : `${this.pathPrefix}${normalized}`;
+    if (prefixed !== normalized) candidates.push(prefixed);
+    return candidates;
+  }
+
   private commitsForPath(index: GitMemoryIndex, path: string): CommitRecord[] {
     const positions = index.byPath[path] ?? [];
     const commits: CommitRecord[] = [];
@@ -208,6 +270,23 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
       if (commit !== undefined) commits.push(commit);
     }
     return commits.slice(0, GIT_MEMORY_FILE_COMMITS);
+  }
+
+  private commitsForDirectory(
+    index: GitMemoryIndex,
+    directory: string,
+  ): readonly CommitRecord[] {
+    const cached = this.directoryHistory.get(directory);
+    if (cached !== undefined) return cached;
+    const prefix = `${directory}/`;
+    const commits: CommitRecord[] = [];
+    for (const commit of index.commits) {
+      if (!commit.files.some((file) => file.startsWith(prefix))) continue;
+      commits.push(commit);
+      if (commits.length >= GIT_MEMORY_DIR_COMMITS) break;
+    }
+    this.directoryHistory.set(directory, commits);
+    return commits;
   }
 
   private async memoryEntries(): Promise<
@@ -226,6 +305,20 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
       });
     }
     return entries;
+  }
+
+  private async safeMemories(
+    load: () => Promise<MemoryEntryView[]>,
+  ): Promise<MemoryEntryView[]> {
+    try {
+      return await load();
+    } catch (error) {
+      if (!this.memoryStoreWarned) {
+        this.memoryStoreWarned = true;
+        this.log.warn('git memory entries unavailable; injecting git history only', { error });
+      }
+      return [];
+    }
   }
 
   private async memoriesForPath(path: string): Promise<MemoryEntryView[]> {
@@ -305,6 +398,34 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
     return this.index;
   }
 
+  protected async ensureHead(): Promise<RepoHead | undefined> {
+    if (this.headLoaded) return this.head;
+    if (this.headLoading === undefined) {
+      this.headLoading = this.loadHead()
+        .then((head) => {
+          this.head = head;
+          this.headLoaded = true;
+        })
+        .catch((error) => {
+          this.log.warn('git memory head lookup failed', { error });
+          this.headLoaded = true;
+        })
+        .finally(() => {
+          this.headLoading = undefined;
+        });
+    }
+    await this.headLoading;
+    return this.head;
+  }
+
+  protected async loadHead(): Promise<RepoHead | undefined> {
+    const head = await readRepoHead(this.process, this.bootstrap.cwd);
+    if (head === undefined) return undefined;
+    this.repoRoot = head.repoRoot;
+    this.pathPrefix = head.prefix;
+    return head;
+  }
+
   private toRepoPath(path: string): string {
     const normalized = path.replaceAll('\\', '/');
     if (this.repoRoot.length > 0) {
@@ -339,6 +460,22 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
     }
     return '';
   }
+}
+
+function directoryOf(path: string): string {
+  const separator = path.lastIndexOf('/');
+  if (separator <= 0) return '';
+  return path.slice(0, separator);
+}
+
+function isWithinDepth(entry: string, base: string | undefined, depth: number): boolean {
+  if (base === undefined || base.length === 0) {
+    return entry.split('/').length <= depth;
+  }
+  if (entry === base) return false;
+  const prefix = `${base}/`;
+  if (!entry.startsWith(prefix)) return false;
+  return entry.slice(prefix.length).split('/').length <= depth;
 }
 
 registerScopedService(

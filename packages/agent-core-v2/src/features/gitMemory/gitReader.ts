@@ -7,6 +7,7 @@ import type { CommitRecord } from './types';
 
 const GIT_TIMEOUT_MS = 5_000;
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
+const LOG_FORMAT = '%H%x09%ad%x09%an%x09%s%x00%b%x00';
 
 const SYSTEM_HOST_TIMERS: IHostTimers = {
   _serviceBrand: undefined,
@@ -95,19 +96,23 @@ interface CommitMeta {
   readonly date: string;
   readonly author: string;
   readonly subject: string;
+  readonly body: string;
 }
 
 function parseMeta(stdout: string): Map<string, CommitMeta> {
   const meta = new Map<string, CommitMeta>();
-  for (const line of stdout.split('\n')) {
-    if (line.trim().length === 0) continue;
-    const parts = line.split('\t');
+  const chunks = stdout.split('\0');
+  for (let index = 0; index < chunks.length; index += 2) {
+    const header = chunks[index];
+    if (header === undefined) continue;
+    const parts = header.trim().split('\t');
     const sha = parts[0]?.trim() ?? '';
     if (sha.length === 0) continue;
     meta.set(sha, {
       date: parts[1]?.trim() ?? '',
       author: parts[2]?.trim() ?? '',
       subject: parts.slice(3).join('\t').trim(),
+      body: (chunks[index + 1] ?? '').trim(),
     });
   }
   return meta;
@@ -130,6 +135,7 @@ function parseCommits(
         date: info?.date ?? '',
         author: info?.author ?? '',
         subject: info?.subject ?? '',
+        body: info?.body ?? '',
         files,
       });
     }
@@ -175,19 +181,9 @@ export async function readGitHistory(
   process: IHostProcessService,
   cwd: string,
   window: number,
+  headSha: string,
   timers?: IHostTimers,
 ): Promise<GitReadResult> {
-  const head = await runGit(
-    process,
-    cwd,
-    ['-C', cwd, 'rev-parse', 'HEAD'],
-    timers,
-  );
-  if (!head.ok) {
-    if (head.stderr.includes('not a git repository')) return { kind: 'unavailable' };
-    return { kind: 'failed', reason: head.stderr };
-  }
-
   const meta = await runGit(
     process,
     cwd,
@@ -199,7 +195,7 @@ export async function readGitHistory(
       'log',
       `-${window}`,
       '--date=short',
-      '--format=%H%x09%ad%x09%an%x09%s',
+      `--format=${LOG_FORMAT}`,
     ],
     timers,
   );
@@ -229,12 +225,66 @@ export async function readGitHistory(
     return { kind: 'failed', reason: files.stderr };
   }
 
-  const headSha = head.stdout.trim();
-  if (headSha.length === 0) return { kind: 'failed', reason: 'empty HEAD' };
-
   return {
     kind: 'ok',
     headSha,
     commits: parseCommits(files.stdout, parseMeta(meta.stdout)),
   };
+}
+
+export async function readRepoTree(
+  process: IHostProcessService,
+  cwd: string,
+  timers?: IHostTimers,
+): Promise<readonly string[] | undefined> {
+  const tree = await runGit(
+    process,
+    cwd,
+    [
+      '-c',
+      'core.quotePath=false',
+      '-C',
+      cwd,
+      'ls-tree',
+      '-d',
+      '-r',
+      '--name-only',
+      'HEAD',
+    ],
+    timers,
+  );
+  if (!tree.ok) return undefined;
+  return splitLines(tree.stdout);
+}
+
+export async function readRepoMap(
+  process: IHostProcessService,
+  cwd: string,
+  path: string | undefined,
+  timers?: IHostTimers,
+): Promise<readonly string[] | undefined> {
+  const args = [
+    '-c',
+    'core.quotePath=false',
+    '-C',
+    cwd,
+    'ls-tree',
+    '-r',
+    '-t',
+    '--name-only',
+    'HEAD',
+  ];
+  if (path !== undefined && path.length > 0) args.push('--', path);
+  const map = await runGit(process, cwd, args, timers);
+  if (!map.ok) return undefined;
+  return splitLines(map.stdout);
+}
+
+function splitLines(stdout: string): string[] {
+  const lines: string[] = [];
+  for (const line of stdout.split('\n')) {
+    const text = line.trim();
+    if (text.length > 0) lines.push(text);
+  }
+  return lines;
 }

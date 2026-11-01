@@ -15,6 +15,7 @@ File tools handle reading, writing, and searching the local filesystem — the f
 | `Edit` | Requires approval | Precise string replacement |
 | `Grep` | Auto-allow | Full-text search powered by ripgrep |
 | `Glob` | Auto-allow | Find files by glob pattern |
+| `RepoMap` | Auto-allow | List the paths tracked by git in a repository subtree |
 
 **`Read`** accepts a file path (`path`) plus optional `line_offset` (starting line number; negative values count from the end), `column_offset` (zero-based position within the first line of a forward read), `n_lines` (requested number of source lines), and `max_chars` (maximum characters in the result, including line numbers and status). Omitting `n_lines` reads toward the end of the file. The default is 100,000 characters, and calls can request up to 500,000; both values can be changed in the [`read` configuration](../configuration/config-files.md#read). Characters and column offsets use JavaScript string length in the displayed text, excluding the line-number prefix for column offsets: common letters and Chinese characters count as one, while many emoji count as two.
 
@@ -33,6 +34,8 @@ Image and video files are sent to the model as multimodal content instead of tex
 **`Glob`** matches files in a specified directory (`path`; defaults to the working directory) by glob pattern (`pattern`). Results are sorted by modification time in descending order, returning 100 entries by default. It respects `.gitignore`, `.ignore`, and `.rgignore` by default; set `include_ignored=true` to include ignored files such as build outputs, while sensitive files remain filtered. Brace patterns such as `*.{ts,tsx}` are supported, and broad wildcard patterns are allowed.
 
 Use `offset` (default 0) and `head_limit` (default 100) to page through matching paths; the result provides the next offset when more matches are available. Set `head_limit: 0` to remove the match-count limit. The character limit still applies: pages end at a complete path and provide the next offset when necessary. Large pages are saved to a file that the agent can read with `Read`. Each call searches the current filesystem again, so file changes can shift results between pages. Timeouts, unreadable directories, or the output capture limit can still leave the search incomplete; the result warns about these cases, and increasing the offset cannot recover uncollected paths.
+
+**`RepoMap`** lists the paths tracked by git in this repository, as recorded at HEAD. Parameters: `path` (optional path prefix, given relative to the repository root; when nothing matches there, it is also tried relative to the working directory) and `depth` (how deep to list below the prefix — depth 1 returns the direct children, depth 2 their children, and so on; defaults to 3). The output is the raw git path list, so it reflects the committed tree rather than untracked or ignored files in the working directory. It is capped, and the last line reports how many paths were left out. The tool is experimental and only available when the `git_memory` experimental flag is enabled.
 
 ## Shell
 

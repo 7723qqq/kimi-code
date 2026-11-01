@@ -1,14 +1,20 @@
 import { describe, expect, it } from 'bun:test';
 
-import { projectFileBlock, projectRepoBlock, projectSignalBlock } from '#/features/gitMemory/projection';
+import {
+  projectFileBlock,
+  projectRepoBlock,
+  projectRepoTree,
+  projectSignalBlock,
+} from '#/features/gitMemory/projection';
 import type { CommitRecord } from '#/features/gitMemory/types';
 
-function commit(sha: string, files: string[]): CommitRecord {
+function commit(sha: string, files: string[], body = ''): CommitRecord {
   return {
     sha,
     date: '2026-10-30',
     author: 'luozihao',
     subject: 'refactor(tui): move panel toggling out of the editor',
+    body,
     files,
   };
 }
@@ -53,16 +59,60 @@ describe('projection', () => {
 
   it('renders a file block and a signal block', () => {
     const records = [commit('a'.repeat(40), ['a.ts'])];
-    expect(projectFileBlock('a.ts', records, new Set())).toContain('<file-memory path="a.ts">');
+    expect(projectFileBlock('a.ts', records, '', [], new Set())).toContain(
+      '<file-memory path="a.ts">',
+    );
     expect(projectSignalBlock('a.ts', records, new Set())).toContain('<repo-memory signal="a.ts">');
   });
 
   it('points at an already rendered commit instead of repeating it', () => {
     const records = [commit('a'.repeat(40), ['a.ts'])];
     const seen = new Set([records[0]!.sha]);
-    const block = projectFileBlock('b.ts', records, seen);
+    const block = projectFileBlock('b.ts', records, '', [], seen);
     expect(block).toContain('see commit aaaaaaa above');
     expect(block).not.toContain('refactor(tui): move panel');
+  });
+
+  it('renders the commit body verbatim under the subject', () => {
+    const body = 'The dialog was removed.\n\nBoth trees drop the same block.';
+    const block = projectRepoBlock([commit('a'.repeat(40), ['a.ts'], body)]);
+    expect(block).toContain('  The dialog was removed.');
+    expect(block).toContain('  Both trees drop the same block.');
+  });
+
+  it('leaves an empty body out without leaving a blank line', () => {
+    const block = projectRepoBlock([commit('a'.repeat(40), ['a.ts'])]);
+    expect(block).not.toContain('\n\n');
+  });
+
+  it('renders the directory tree up to the given depth', () => {
+    const dirs = ['apps', 'apps/kimi-code', 'apps/kimi-code/src', 'packages/agent-core-v2'];
+    const block = projectRepoTree(dirs, 2);
+    expect(block.startsWith('<repo-tree depth="2">')).toBe(true);
+    expect(block).toContain('apps');
+    expect(block).toContain('apps/kimi-code');
+    expect(block).toContain('packages/agent-core-v2');
+    expect(block).not.toContain('apps/kimi-code/src');
+  });
+
+  it('omits the tree when no directory is within the depth', () => {
+    expect(projectRepoTree(['a/b/c/d'], 2)).toBe('');
+  });
+
+  it('renders the directory history beside the file history', () => {
+    const file = commit('a'.repeat(40), ['src/a.ts']);
+    const dir = commit('b'.repeat(40), ['src/b.ts']);
+    const block = projectFileBlock('src/a.ts', [file], 'src', [dir], new Set());
+    expect(block).toContain('<file-memory path="src/a.ts">');
+    expect(block).toContain('<dir-memory path="src">');
+    expect(block.indexOf('<file-memory')).toBeLessThan(block.indexOf('<dir-memory'));
+  });
+
+  it('points at the file commit when the directory repeats it', () => {
+    const shared = commit('a'.repeat(40), ['src/a.ts', 'src/b.ts']);
+    const block = projectFileBlock('src/a.ts', [shared], 'src', [shared], new Set());
+    expect(block).toContain('see commit aaaaaaa above');
+    expect(block.match(/see commit aaaaaaa above/g)).toHaveLength(1);
   });
 
   it('imports no provider, model client or agent runtime', async () => {

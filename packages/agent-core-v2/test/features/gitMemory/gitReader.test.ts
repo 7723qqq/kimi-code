@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'bun:test';
 import { Readable, Writable } from 'node:stream';
 
-import { readGitHistory, readRepoHead } from '#/features/gitMemory/gitReader';
+import {
+  readGitHistory,
+  readRepoHead,
+  readRepoMap,
+  readRepoTree,
+} from '#/features/gitMemory/gitReader';
 import type { IHostProcessService } from '#/os/interface/hostProcess';
 
 const SHA_A = 'a'.repeat(40);
@@ -44,25 +49,25 @@ function fakeProcess(handler: (args: readonly string[]) => FakeReply): {
 }
 
 function repoHandler(args: readonly string[]): FakeReply {
-  if (args.includes('rev-parse')) return { out: `${SHA_A}\n`, err: '', code: 0 };
   if (args.includes('--name-only')) {
     return { out: `${SHA_A}\n\na.ts\nb.ts\n\n${SHA_B}\n\nc.ts\n\n`, err: '', code: 0 };
   }
   return {
-    out: `${SHA_A}\t2026-01-02\tluozihao\tfix: one\n${SHA_B}\t2026-01-01\tsomeone\tfeat: two\n`,
+    out:
+      `${SHA_A}\t2026-01-02\tluozihao\tfix: one\0the body of one\0\n` +
+      `${SHA_B}\t2026-01-01\tsomeone\tfeat: two\0\0\n`,
     err: '',
     code: 0,
   };
 }
 
 describe('git reader', () => {
-  it('runs exactly three bounded commands', async () => {
+  it('runs exactly two bounded commands', async () => {
     const { service, calls } = fakeProcess(repoHandler);
-    const result = await readGitHistory(service, '/repo', 500);
+    const result = await readGitHistory(service, '/repo', 500, SHA_A);
     expect(result.kind).toBe('ok');
-    expect(calls).toHaveLength(3);
-    expect(calls[0]).toEqual(['-C', '/repo', 'rev-parse', 'HEAD']);
-    expect(calls[1]).toEqual([
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toEqual([
       '-c',
       'core.quotePath=false',
       '-C',
@@ -70,9 +75,9 @@ describe('git reader', () => {
       'log',
       '-500',
       '--date=short',
-      '--format=%H%x09%ad%x09%an%x09%s',
+      '--format=%H%x09%ad%x09%an%x09%s%x00%b%x00',
     ]);
-    expect(calls[2]).toEqual([
+    expect(calls[1]).toEqual([
       '-c',
       'core.quotePath=false',
       '-C',
@@ -85,9 +90,9 @@ describe('git reader', () => {
     ]);
   });
 
-  it('parses sha, date, author, subject and files per commit', async () => {
+  it('parses sha, date, author, subject, body and files per commit', async () => {
     const { service } = fakeProcess(repoHandler);
-    const result = await readGitHistory(service, '/repo', 500);
+    const result = await readGitHistory(service, '/repo', 500, SHA_A);
     if (result.kind !== 'ok') throw new Error('expected ok');
     expect(result.headSha).toBe(SHA_A);
     expect(result.commits).toEqual([
@@ -96,6 +101,7 @@ describe('git reader', () => {
         date: '2026-01-02',
         author: 'luozihao',
         subject: 'fix: one',
+        body: 'the body of one',
         files: ['a.ts', 'b.ts'],
       },
       {
@@ -103,9 +109,22 @@ describe('git reader', () => {
         date: '2026-01-01',
         author: 'someone',
         subject: 'feat: two',
+        body: '',
         files: ['c.ts'],
       },
     ]);
+  });
+
+  it('keeps a body that contains tabs and blank lines', async () => {
+    const body = 'first line\n\tindented\n\nlast line';
+    const { service } = fakeProcess((args) =>
+      args.includes('--name-only')
+        ? { out: `${SHA_A}\n\na.ts\n\n`, err: '', code: 0 }
+        : { out: `${SHA_A}\t2026-01-02\tluozihao\tfix: one\0${body}\0\n`, err: '', code: 0 },
+    );
+    const result = await readGitHistory(service, '/repo', 500, SHA_A);
+    if (result.kind !== 'ok') throw new Error('expected ok');
+    expect(result.commits[0]?.body).toBe(body);
   });
 
   it('reports a non-repository as unavailable without throwing', async () => {
@@ -114,12 +133,12 @@ describe('git reader', () => {
       err: 'fatal: not a git repository (or any of the parent directories): .git',
       code: 128,
     }));
-    expect((await readGitHistory(service, '/repo', 500)).kind).toBe('unavailable');
+    expect((await readGitHistory(service, '/repo', 500, SHA_A)).kind).toBe('unavailable');
   });
 
   it('reports a failed command as failed without throwing', async () => {
     const { service } = fakeProcess(() => ({ out: '', err: 'boom', code: 1 }));
-    expect((await readGitHistory(service, '/repo', 500)).kind).toBe('failed');
+    expect((await readGitHistory(service, '/repo', 500, SHA_A)).kind).toBe('failed');
   });
 
   it('reports a spawn failure as failed without throwing', async () => {
@@ -131,8 +150,62 @@ describe('git reader', () => {
       service as unknown as IHostProcessService,
       '/repo',
       500,
+      SHA_A,
     );
     expect(result.kind).toBe('failed');
+  });
+});
+
+describe('repo tree', () => {
+  it('reads the directories of HEAD with one command', async () => {
+    const { service, calls } = fakeProcess(() => ({
+      out: 'apps\npackages/agent-core-v2\npackages/agent-core-v2/src\n',
+      err: '',
+      code: 0,
+    }));
+    const dirs = await readRepoTree(service, '/repo');
+    expect(dirs).toEqual(['apps', 'packages/agent-core-v2', 'packages/agent-core-v2/src']);
+    expect(calls[0]).toEqual([
+      '-c',
+      'core.quotePath=false',
+      '-C',
+      '/repo',
+      'ls-tree',
+      '-d',
+      '-r',
+      '--name-only',
+      'HEAD',
+    ]);
+  });
+
+  it('returns undefined when the tree cannot be read', async () => {
+    const { service } = fakeProcess(() => ({ out: '', err: 'boom', code: 1 }));
+    expect(await readRepoTree(service, '/repo')).toBeUndefined();
+  });
+});
+
+describe('repo map', () => {
+  it('lists the whole repository when no path is given', async () => {
+    const { service, calls } = fakeProcess(() => ({
+      out: 'apps\napps/kimi-code\npackages\n',
+      err: '',
+      code: 0,
+    }));
+    const entries = await readRepoMap(service, '/repo', undefined);
+    expect(entries).toEqual(['apps', 'apps/kimi-code', 'packages']);
+    expect(calls[0]).not.toContain('--');
+  });
+
+  it('narrows the listing to a path prefix', async () => {
+    const { service, calls } = fakeProcess(() => ({
+      out: 'packages\npackages/agent-core-v2\n',
+      err: '',
+      code: 0,
+    }));
+    const entries = await readRepoMap(service, '/repo', 'packages');
+    expect(entries).toEqual(['packages', 'packages/agent-core-v2']);
+    expect(calls[0]).toContain('--');
+    expect(calls[0]).toContain('packages');
   });
 });
 

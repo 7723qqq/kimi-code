@@ -6,6 +6,7 @@ const DEFAULT_APPROVE_TOOLS = new Set([
   'Read',
   'Grep',
   'Glob',
+  'RepoMap',
   'SetTodoList',
   'TodoList',
   'TaskList',

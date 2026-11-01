@@ -12,6 +12,7 @@ function commit(sha: string, files: string[]): CommitRecord {
     date: '2026-10-30',
     author: 'luozihao',
     subject: 'fix: something',
+    body: '',
     files,
   };
 }
@@ -23,7 +24,9 @@ const commits: CommitRecord[] = [
   commit('d'.repeat(40), ['x.ts']),
 ];
 
-const index = buildIndex('/repo', 'abc', 1500, commits, '2026-10-31T00:00:00.000Z');
+const dirs = ['src', 'src/features'];
+
+const index = buildIndex('/repo', 'abc', 1500, commits, '2026-10-31T00:00:00.000Z', dirs);
 
 describe('git memory cache', () => {
   it('round-trips an index', async () => {
@@ -35,9 +38,13 @@ describe('git memory cache', () => {
     if (read.kind === 'hit') expect(read.index).toEqual(index);
   });
 
-  it('points each path at its most recent commits, newest first', () => {
-    expect(index.byPath['x.ts']).toEqual([0, 1, 2]);
+  it('points each path at every commit that touched it, newest first', () => {
+    expect(index.byPath['x.ts']).toEqual([0, 1, 2, 3]);
     expect(index.byPath['y.ts']).toEqual([0]);
+  });
+
+  it('keeps the directory tree in the index', () => {
+    expect(index.dirs).toEqual(['src', 'src/features']);
   });
 
   it('misses when the head or the window differs', async () => {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import { Readable, Writable } from 'node:stream';
 
 import { buildIndex } from '#/features/gitMemory/cache';
 import { GitMemoryService } from '#/features/gitMemory/gitMemoryService';
@@ -7,6 +8,7 @@ import type { CommitRecord, GitMemoryIndex } from '#/features/gitMemory/types';
 const SHA_A = 'a'.repeat(40);
 const SHA_B = 'b'.repeat(40);
 const SHA_C = 'c'.repeat(40);
+const SHA_D = 'd'.repeat(40);
 
 function commit(sha: string, files: string[], subject: string): CommitRecord {
   return {
@@ -14,6 +16,7 @@ function commit(sha: string, files: string[], subject: string): CommitRecord {
     date: '2026-10-30',
     author: 'luozihao',
     subject,
+    body: '',
     files,
   };
 }
@@ -22,9 +25,19 @@ const commits: CommitRecord[] = [
   commit(SHA_C, ['shared.ts', 'c.ts'], 'feat: newest'),
   commit(SHA_B, ['a.ts', 'shared.ts'], 'fix: middle'),
   commit(SHA_A, ['a.ts'], 'refactor: oldest'),
+  commit(SHA_D, ['src/a.ts'], 'feat: inside a directory'),
 ];
 
-const index: GitMemoryIndex = buildIndex('/repo', SHA_C, 1500, commits, '2026-10-31T00:00:00.000Z');
+const dirs = ['src', 'src/features'];
+
+const index: GitMemoryIndex = buildIndex(
+  '/repo',
+  SHA_C,
+  1500,
+  commits,
+  '2026-10-31T00:00:00.000Z',
+  dirs,
+);
 
 interface Harness {
   readonly service: GitMemoryService;
@@ -39,18 +52,55 @@ interface MemoryFixture {
   readonly updatedAt: number;
 }
 
+const TREE = [
+  'packages',
+  'packages/agent-core-v2',
+  'packages/agent-core-v2/src',
+  'packages/agent-core-v2/src/types.ts',
+  'apps/kimi-code',
+  'apps/kimi-code/src',
+  'apps/kimi-code/src/types.ts',
+] as const;
+
 function harness(options: {
   readonly flagOn?: boolean;
   readonly stub?: GitMemoryIndex | undefined;
   readonly messages?: unknown[];
   readonly memories?: readonly MemoryFixture[];
+  readonly head?: { readonly repoRoot: string; readonly prefix: string; readonly headSha: string };
+  readonly tree?: readonly string[];
+  readonly memoryStoreFails?: boolean;
 } = {}): Harness {
   const state = { spawns: 0, registered: [] as string[] };
   const process = {
     _serviceBrand: undefined as undefined,
-    spawn: () => {
+    spawn: async (_command: string, args?: readonly string[]) => {
       state.spawns += 1;
-      return Promise.reject(new Error('no git'));
+      if (options.tree === undefined) return Promise.reject(new Error('no git'));
+      const list = args ?? [];
+      const separator = list.indexOf('--');
+      const pathspec = separator === -1 ? undefined : list[separator + 1];
+      const entries =
+        pathspec === undefined
+          ? options.tree
+          : options.tree.filter(
+              (entry) => entry === pathspec || entry.startsWith(`${pathspec}/`),
+            );
+      return {
+        _serviceBrand: undefined as undefined,
+        pid: 1,
+        exitCode: 0,
+        stdin: new Writable({
+          write(_chunk, _encoding, callback) {
+            callback();
+          },
+        }),
+        stdout: Readable.from([entries.length > 0 ? `${entries.join('\n')}\n` : '']),
+        stderr: Readable.from(['']),
+        wait: async () => 0,
+        kill: async () => {},
+        dispose: () => {},
+      };
     },
   };
   const service = new (class extends GitMemoryService {
@@ -70,7 +120,10 @@ function harness(options: {
         } as never,
         { get: () => options.messages ?? [] } as never,
         {
-          list: async () => (options.memories ?? []).map((entry) => entry.path),
+          list: async () => {
+            if (options.memoryStoreFails === true) throw new Error('memory store is locked');
+            return (options.memories ?? []).map((entry) => entry.path);
+          },
           get: async (path: string) =>
             (options.memories ?? []).find((entry) => entry.path === path),
         } as never,
@@ -84,6 +137,16 @@ function harness(options: {
     protected override async loadIndex(): Promise<GitMemoryIndex | undefined> {
       if (this.stub !== undefined) return this.stub;
       return super.loadIndex();
+    }
+
+    protected override async loadHead(): Promise<
+      { readonly repoRoot: string; readonly prefix: string; readonly headSha: string } | undefined
+    > {
+      const head = options.head;
+      if (head === undefined) return undefined;
+      this.repoRoot = head.repoRoot;
+      this.pathPrefix = head.prefix;
+      return head;
     }
   })();
   return {
@@ -119,6 +182,27 @@ describe('git memory service', () => {
     expect(block.startsWith('<repo-memory>')).toBe(true);
     expect(block).toContain('feat: newest');
     expect(block).toContain('refactor: oldest');
+  });
+
+  it('renders the directory tree in the repo block', async () => {
+    const h = harness({ flagOn: true, stub: index });
+    const block = await h.service.repoBlock();
+    expect(block).toContain('<repo-tree depth="3">');
+    expect(block).toContain('src/features');
+  });
+
+  it('renders the directory history beside the file history', async () => {
+    const h = harness({ flagOn: true, stub: index });
+    const block = await h.service.fileBlock('src/a.ts');
+    expect(block).toContain('<file-memory path="src/a.ts">');
+    expect(block).toContain('<dir-memory path="src">');
+    expect(block).toContain('feat: inside a directory');
+  });
+
+  it('omits the directory history for a file at the repository root', async () => {
+    const h = harness({ flagOn: true, stub: index });
+    const block = await h.service.fileBlock('a.ts');
+    expect(block).not.toContain('<dir-memory');
   });
 
   it('renders the commits that touched a file', async () => {
@@ -202,5 +286,60 @@ describe('git memory written entries', () => {
     });
     const block = await h.service.repoBlock();
     expect(block).toContain('General note');
+  });
+});
+
+describe('git memory repo map', () => {
+  const head = { repoRoot: '/repo', prefix: 'apps/kimi-code/', headSha: SHA_C };
+
+  it('lists the tracked paths of the whole repository', async () => {
+    const h = harness({ flagOn: true, head, tree: TREE });
+    const output = await h.service.repoMap(undefined, 3);
+    expect(output).toContain('packages/agent-core-v2/src');
+    expect(output).toContain('apps/kimi-code/src');
+    expect(output).not.toContain('packages/agent-core-v2/src/types.ts');
+  });
+
+  it('resolves a repository-relative path from a subdirectory working directory', async () => {
+    const h = harness({ flagOn: true, head, tree: TREE });
+    const output = await h.service.repoMap('packages/agent-core-v2', 3);
+    expect(output).toContain('packages/agent-core-v2/src/types.ts');
+    expect(output).not.toContain('apps/kimi-code');
+  });
+
+  it('falls back to the working directory prefix when the root path does not match', async () => {
+    const h = harness({ flagOn: true, head, tree: TREE });
+    const output = await h.service.repoMap('src', 3);
+    expect(output).toContain('apps/kimi-code/src/types.ts');
+  });
+
+  it('keeps only the paths within the depth below the prefix', async () => {
+    const h = harness({ flagOn: true, head, tree: TREE });
+    const output = await h.service.repoMap('packages/agent-core-v2', 1);
+    expect(output).toContain('packages/agent-core-v2/src');
+    expect(output).not.toContain('packages/agent-core-v2/src/types.ts');
+  });
+
+  it('returns nothing when the flag is off', async () => {
+    const h = harness({ flagOn: false, head, tree: TREE });
+    expect(await h.service.repoMap('packages', 3)).toBe('');
+    expect(h.spawns).toBe(0);
+  });
+});
+
+describe('git memory with a broken memory store', () => {
+  it('still injects the repo history', async () => {
+    const h = harness({ flagOn: true, stub: index, memoryStoreFails: true });
+    const block = await h.service.repoBlock();
+    expect(block).toContain('<repo-memory>');
+    expect(block).toContain('feat: newest');
+    expect(block).toContain('<repo-tree depth="3">');
+  });
+
+  it('still injects the file history', async () => {
+    const h = harness({ flagOn: true, stub: index, memoryStoreFails: true });
+    const block = await h.service.fileBlock('a.ts');
+    expect(block).toContain('<file-memory path="a.ts">');
+    expect(block).toContain('fix: middle');
   });
 });

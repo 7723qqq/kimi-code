@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
-import { GIT_MEMORY_FILE_COMMITS, GIT_MEMORY_INDEX_VERSION } from './types';
+import { GIT_MEMORY_INDEX_VERSION } from './types';
 import type { CommitRecord, GitMemoryIndex } from './types';
 
 export type IndexReadResult =
@@ -19,6 +19,7 @@ export function buildIndex(
   window: number,
   commits: readonly CommitRecord[],
   computedAt: string,
+  dirs: readonly string[] = [],
 ): GitMemoryIndex {
   const byPath: Record<string, number[]> = {};
   commits.forEach((commit, index) => {
@@ -28,7 +29,6 @@ export function buildIndex(
         byPath[file] = [index];
         continue;
       }
-      if (list.length >= GIT_MEMORY_FILE_COMMITS) continue;
       list.push(index);
     }
   });
@@ -40,6 +40,7 @@ export function buildIndex(
     computedAt,
     commits,
     byPath,
+    dirs,
   };
 }
 

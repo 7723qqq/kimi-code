@@ -22,6 +22,7 @@ coverage/
 plugins/cdn/
 .worktrees/
 .kimi-code/local.toml
+.kimi-code/git-memory.json
 .kimi-sandbox/
 .vscode/
 !apps/vscode/.vscode/
@@ -39,6 +40,7 @@ reports/
 
 # Agent scratch / throwaway files - do not commit
 .tmp/
+.bun-migrate/
 *.tmp.txt
 HANDOVER*.md
 HANDOFF*.md
