@@ -110,7 +110,7 @@ export class WriteTool implements IWriteTool {
         await fs.writeText(safePath, args.content);
       }
       const bytesWritten = Buffer.byteLength(args.content, 'utf8');
-      return withFileMemory(
+      return await withFileMemory(
         {
           output: `${mode === 'append' ? 'Appended' : 'Wrote'} ${String(bytesWritten)} bytes to ${args.path}`,
         },

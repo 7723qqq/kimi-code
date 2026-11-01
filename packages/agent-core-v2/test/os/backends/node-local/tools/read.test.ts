@@ -11,8 +11,11 @@ import {
   TRANSCODE_MAX_BYTES,
 } from '#/agent/tools/os/read/read';
 import { ReadTool } from '#/agent/tools/os/read/readTool';
+import { READ_SECTION } from '#/agent/tools/os/read/configSection';
+import type { IConfigService } from '#/app/config/config';
 import type { IMediaReadContext } from '#/agent/media/mediaReadContext';
 import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender';
+import { estimateTokens } from '#/llm-adapter/contract/tokens';
 import { stubToolResultTruncationService } from '../../../../agent/toolResultTruncation/stubs';
 import { stubConfigService } from '../../../../app/config/stubs';
 import type { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
@@ -90,6 +93,7 @@ function createReadTool(
   toolPolicy: IAgentToolPolicyService = { isToolActive: () => true } as unknown as IAgentToolPolicyService,
   toolRegistry: IAgentToolRegistryService = { resolve: () => ({}) } as unknown as IAgentToolRegistryService,
   gitMemory?: unknown,
+  config: IConfigService = stubConfigService(),
 ): ReadTool {
   const runtime = Object.assign(
     new FakeRuntime(
@@ -111,7 +115,7 @@ function createReadTool(
     skillCatalog,
     { getMediaReadContext: () => undefined } as IMediaReadContext,
     truncation,
-    stubConfigService(),
+    config,
     profile,
     toolPolicy,
     toolRegistry,
@@ -177,6 +181,29 @@ function toolWithContent(content: string, workspace = PERMISSIVE_WORKSPACE) {
   return createReadTool(createSpiedFs(content).fs, createTestEnv(), workspace);
 }
 
+function readConfig(maxChars: number): IConfigService {
+  return stubConfigService({ [READ_SECTION]: { maxChars } });
+}
+
+function toolWithMaxChars(content: string, maxChars: number) {
+  return createReadTool(
+    createSpiedFs(content).fs,
+    createTestEnv(),
+    PERMISSIVE_WORKSPACE,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    readConfig(maxChars),
+  );
+}
+
+function nextReadArgs(result: ExecutableToolResult): ReadInput {
+  return ReadInputSchema.parse(JSON.parse(/Next Read: (\{[^\n]*\})/.exec(result.note ?? '')![1]!));
+}
+
 function isPromiseLike(value: ToolExecution | Promise<ToolExecution>): value is Promise<ToolExecution> {
   return typeof (value as Promise<ToolExecution>).then === 'function';
 }
@@ -205,11 +232,12 @@ async function execute(tool: ReadTool, args: ReadInput): Promise<ExecutableToolR
 }
 
 describe('ReadTool', () => {
-  it('reads a 4621-line document in full when the requested character budget fits', async () => {
-    const content = Array.from({ length: 4621 }, (_, index) =>
-      `section ${String(index + 1)} ${'x'.repeat(55)}`,
-    ).join('\n');
-    const tool = toolWithContent(content);
+  const paper = Array.from({ length: 4621 }, (_, index) =>
+    `section ${String(index + 1)} ${'x'.repeat(55)}`,
+  ).join('\n');
+
+  it('reads a 4621-line document in full when the configured maximum fits the requested budget', async () => {
+    const tool = toolWithMaxChars(paper, 500_000);
 
     const result = await execute(tool, ReadInputSchema.parse({
       path: '/tmp/paper.md',
@@ -219,8 +247,23 @@ describe('ReadTool', () => {
 
     expect(result.isError).not.toBe(true);
     expect(output.split('\n')).toHaveLength(4621);
-    expect(output.replaceAll(/^\d+\t/gm, '')).toBe(content);
+    expect(output.replaceAll(/^\d+\t/gm, '')).toBe(paper);
     expect(output.length + 1 + (result.note?.length ?? 0)).toBeLessThanOrEqual(500_000);
+  });
+
+  it('caps a requested budget at 100000 characters by default and continues with Next Read', async () => {
+    const tool = toolWithContent(paper);
+
+    const result = await execute(tool, ReadInputSchema.parse({
+      path: '/tmp/paper.md',
+      max_chars: 500_000,
+    }));
+    const output = toolContentString(result);
+
+    expect(result.isError).not.toBe(true);
+    expect(output.length + 1 + (result.note?.length ?? 0)).toBeLessThanOrEqual(100_000);
+    expect(result.note).toContain('Requested max_chars=500000 was capped at the configured maximum 100000.');
+    expect(result.note).toContain('Next Read');
   });
 
   it('recovers a line above the maximum request size through fixed-budget column continuations', async () => {
@@ -417,12 +460,22 @@ describe('ReadTool', () => {
 
     const result = await execute(tool, { path: '/tmp/a.txt' });
 
-    expect(result).toMatchObject({
-      output: '1\talpha\n2\tbeta',
-      note: readNote(
-        '2 lines read from file starting from line 1. Total lines in file: 2. Requested range complete. Effective max_chars: 100000. End of file reached.',
+    expect(result).toMatchObject({ output: '1\talpha\n2\tbeta' });
+  });
+
+  it('omits the status block when the whole file is returned with nothing to report', async () => {
+    const tool = toolWithContent('alpha\nbeta\n');
+
+    const whole = await execute(tool, { path: '/tmp/a.txt' });
+    const ranged = await execute(tool, { path: '/tmp/a.txt', n_lines: 1 });
+
+    expect(whole.note).toBeUndefined();
+    expect(renderToolResultForModel(whole)).toEqual([{ type: 'text', text: '1\talpha\n2\tbeta' }]);
+    expect(ranged.note).toBe(
+      readNote(
+        '1 line read from file starting from line 1. Total lines in file: 2. Requested range complete. Effective max_chars: 100000.',
       ),
-    });
+    );
   });
 
   it('appends the git memory block to the read result', async () => {
@@ -465,11 +518,7 @@ describe('ReadTool', () => {
     const result = await execute(tool, { path: '/tmp/a.txt' });
 
     expect(result.output).toBe(['1\talpha', '2\tbeta'].join('\n'));
-    expect(result.note).toBe(
-      readNote(
-        '2 lines read from file starting from line 1. Total lines in file: 2. Requested range complete. Effective max_chars: 100000. End of file reached.',
-      ),
-    );
+    expect(result.note).toBeUndefined();
   });
 
   it('makes mixed carriage returns visible instead of normalizing them', async () => {
@@ -669,11 +718,7 @@ describe('ReadTool', () => {
     const result = await execute(tool, { path: '/tmp/external.txt' });
 
     expect(result.output).toBe('1\texternal');
-    expect(result.note).toBe(
-      readNote(
-        '1 line read from file starting from line 1. Total lines in file: 1. Requested range complete. Effective max_chars: 100000. End of file reached.',
-      ),
-    );
+    expect(result.note).toBeUndefined();
     expect(readBytes).toHaveBeenCalledWith('/tmp/external.txt', MEDIA_SNIFF_BYTES);
     expect(readLines).toHaveBeenCalledWith('/tmp/external.txt', { errors: 'strict' });
   });
@@ -715,11 +760,7 @@ describe('ReadTool', () => {
     const result = await execute(tool, { path: '~/notes/today.txt' });
 
     expect(result.output).toBe('1\thome note');
-    expect(result.note).toBe(
-      readNote(
-        '1 line read from file starting from line 1. Total lines in file: 1. Requested range complete. Effective max_chars: 100000. End of file reached.',
-      ),
-    );
+    expect(result.note).toBeUndefined();
     expect(readBytes).toHaveBeenCalledWith('/home/test/notes/today.txt', MEDIA_SNIFF_BYTES);
     expect(readLines).toHaveBeenCalledWith('/home/test/notes/today.txt', { errors: 'strict' });
   });
@@ -899,7 +940,7 @@ describe('ReadTool', () => {
 
     expect(result.isError).not.toBe(true);
     expect(result.output).toBe(`1\t${content}`);
-    expect(result.note).not.toContain('Lossy');
+    expect(result.note ?? '').not.toContain('Lossy');
   });
 
   it.each([2, -2])('preserves the lossy warning and budget through Read continuation from offset %i', async (lineOffset) => {
@@ -1049,7 +1090,7 @@ describe('ReadTool', () => {
 
     expect(result.isError).not.toBe(true);
     expect(result.output).toBe(`1\t${long}\n2\tshort\n3\t${long}`);
-    expect(result.note).toContain('Requested range complete.');
+    expect(result.note).toBeUndefined();
     expect(result.truncated).toBeUndefined();
   });
 
@@ -1115,13 +1156,24 @@ describe('ReadTool', () => {
     expect(result.spillExempt).toBe(true);
   });
 
-  it('reads a whole long event log record with an explicit character budget', async () => {
+  it('reads a whole long event log record with an explicit character budget under a raised maximum', async () => {
     const huge = 'y'.repeat(150_100);
     const truncation: IAgentToolResultTruncationService = {
       ...stubToolResultTruncationService(),
       isWireJournalPath: (path) => path.endsWith('/wire.jsonl'),
     };
-    const tool = createReadTool(createSpiedFs(`${huge}\nshort`).fs, createTestEnv(), PERMISSIVE_WORKSPACE, undefined, truncation);
+    const tool = createReadTool(
+      createSpiedFs(`${huge}\nshort`).fs,
+      createTestEnv(),
+      PERMISSIVE_WORKSPACE,
+      undefined,
+      truncation,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      readConfig(500_000),
+    );
     const result = await execute(tool, {
       path: '/home/user/.kimi-code/sessions/ws/session/agents/main/wire.jsonl',
       line_offset: 1,
@@ -1135,9 +1187,9 @@ describe('ReadTool', () => {
     expect(result.spillExempt).toBe(true);
   });
 
-  it('returns a whole large final event log record within the requested character budget', async () => {
+  it('returns a whole large final event log record within a requested budget the raised maximum allows', async () => {
     const huge = 'z'.repeat(105_000);
-    const tool = toolWithContent(`first\n${huge}`);
+    const tool = toolWithMaxChars(`first\n${huge}`, 500_000);
     const result = await execute(tool, {
       path: '/tmp/wire.jsonl',
       line_offset: -1,
@@ -1159,9 +1211,110 @@ describe('ReadTool', () => {
     expect(result.spillExempt).toBe(true);
   });
 
-  it('fits complete lines and status within the default character budget', async () => {
+  it('fragments a single long non-ASCII line to stay within the estimated token limit', async () => {
+    const line = '文'.repeat(30_000);
+    const result = await execute(toolWithContent(line), { path: '/tmp/long.md' });
+    const output = toolContentString(result);
+
+    expect(result.isError).not.toBe(true);
+    expect(estimateTokens(`${output}\n${result.note ?? ''}`)).toBeLessThanOrEqual(25_000);
+    expect(output.length).toBeLessThan(line.length);
+    expect(result.note).toContain('Line 1 fragment');
+    expect(nextReadArgs(result)).toMatchObject({ line_offset: 1, max_chars: 100_000 });
+    expect(nextReadArgs(result).column_offset).toBeGreaterThan(0);
+  });
+
+  it('returns the bounded forward recovery when a tail read of a long non-ASCII line exceeds the token limit', async () => {
+    const result = await execute(toolWithContent('文'.repeat(60_000)), { path: '/tmp/long.md', line_offset: -1 });
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toBe('No complete line fits. Continue with the forward Next Read.');
+    expect(nextReadArgs(result)).toMatchObject({ line_offset: 1, n_lines: 1 });
+  });
+
+  it('rejects a named range that exceeds the estimated token limit and suggests one that fits', async () => {
+    const tool = toolWithContent(Array.from({ length: 600 }, () => '文'.repeat(100)).join('\n'));
+    const result = await execute(tool, { path: '/tmp/doc.md', line_offset: 1, n_lines: 400 });
+
+    expect(result.isError).toBe(true);
+    expect(toolContentString(result)).toContain('Lines 1-400 are more than one Read can return');
+    const suggestion = ReadInputSchema.parse(JSON.parse(/for example (\{[^}]*\})/.exec(toolContentString(result))![1]!));
+    expect(suggestion).toMatchObject({ path: '/tmp/doc.md', line_offset: 1 });
+    expect(suggestion.n_lines).toBeLessThan(400);
+
+    const page = await execute(tool, suggestion);
+    expect(page.isError).not.toBe(true);
+    expect(page.truncated).toBeUndefined();
+    expect(estimateTokens(`${toolContentString(page)}\n${page.note ?? ''}`)).toBeLessThanOrEqual(25_000);
+  });
+
+  it('rejects a tail range that exceeds the estimated token limit and suggests the newest lines that fit', async () => {
+    const tool = toolWithContent(Array.from({ length: 600 }, () => '文'.repeat(100)).join('\n'));
+    const result = await execute(tool, { path: '/tmp/doc.md', line_offset: -400 });
+
+    expect(result.isError).toBe(true);
+    expect(toolContentString(result)).toContain('Lines 201-600 are more than one Read can return');
+    const suggestion = ReadInputSchema.parse(JSON.parse(/for example (\{[^}]*\})/.exec(toolContentString(result))![1]!));
+    expect(suggestion.line_offset! + suggestion.n_lines! - 1).toBe(600);
+
+    const page = await execute(tool, suggestion);
+    expect(page.isError).not.toBe(true);
+    expect(page.truncated).toBeUndefined();
+  });
+
+  it('rejects a non-ASCII named range when the lines that fit max_chars still exceed the token limit', async () => {
+    const tool = toolWithContent(Array.from({ length: 2000 }, () => '文'.repeat(100)).join('\n'));
+    const result = await execute(tool, { path: '/tmp/doc.md', line_offset: 1, n_lines: 2000 });
+
+    expect(result.isError).toBe(true);
+    expect(toolContentString(result)).toContain('Lines 1-2000 are more than one Read can return');
+    const suggestion = ReadInputSchema.parse(JSON.parse(/for example (\{[^}]*\})/.exec(toolContentString(result))![1]!));
+    const page = await execute(tool, suggestion);
+    expect(page.isError).not.toBe(true);
+    expect(page.truncated).toBeUndefined();
+  });
+
+  it('keeps paging named ASCII ranges that exceed only the character limit', async () => {
+    const tool = toolWithContent(
+      Array.from({ length: 2000 }, (_, index) => `${String(index).padStart(6, '0')}${'a'.repeat(94)}`).join('\n'),
+    );
+    const forward = await execute(tool, { path: '/tmp/code.ts', line_offset: 1, n_lines: 2000 });
+    const forwardLines = toolContentString(forward).split('\n');
+    const lastLine = Number(forwardLines.at(-1)!.split('\t')[0]);
+
+    expect(forward.isError).not.toBe(true);
+    expect(forward.truncated).toBe(true);
+    expect(forwardLines[0]).toMatch(/^1\t/);
+    expect(nextReadArgs(forward)).toMatchObject({ line_offset: lastLine + 1, n_lines: 2000 - lastLine, max_chars: 100_000 });
+
+    const tail = await execute(tool, { path: '/tmp/code.ts', line_offset: -2000 });
+    const tailLines = toolContentString(tail).split('\n');
+    const firstLine = Number(tailLines[0]!.split('\t')[0]);
+
+    expect(tail.isError).not.toBe(true);
+    expect(tail.truncated).toBe(true);
+    expect(tailLines.at(-1)).toMatch(/^2000\t/);
+    expect(nextReadArgs(tail)).toMatchObject({ line_offset: 1, n_lines: firstLine - 1, max_chars: 100_000 });
+  });
+
+  it('shortens a page of non-ASCII text to the estimated token limit and keeps the budget for Next Read', async () => {
     const line = '文'.repeat(2_000);
     const tool = toolWithContent(Array.from({ length: 80 }, () => line).join('\n'));
+    const result = await execute(tool, { path: '/tmp/characters.txt' });
+    const output = toolContentString(result);
+
+    expect(result.isError).not.toBe(true);
+    expect(estimateTokens(`${output}\n${result.note ?? ''}`)).toBeLessThanOrEqual(25_000);
+    expect(output.split('\n').length).toBeGreaterThan(1);
+    expect(output.split('\n').every((entry) => entry.replace(/^\d+\t/, '') === line)).toBe(true);
+    expect(result.truncated).toBe(true);
+    expect(result.note).toContain('"max_chars":100000');
+    expect(result.note).toContain('find the section with Grep instead of answering from this page alone');
+  });
+
+  it('fits complete lines and status within a raised character budget', async () => {
+    const line = '文'.repeat(2_000);
+    const tool = toolWithMaxChars(Array.from({ length: 80 }, () => line).join('\n'), 500_000);
     const result = await execute(tool, { path: '/tmp/characters.txt' });
     const output = toolContentString(result);
 
@@ -1201,8 +1354,7 @@ describe('ReadTool', () => {
     expect(result.isError).toBeFalsy();
     expect(output).toContain('1\tline 1');
     expect(output).toContain(`${String(1_000)}\tline ${String(1_000)}`);
-    expect(result.note).toContain(`Total lines in file: ${String(1_000 + 5)}.`);
-    expect(result.note).toContain('Requested range complete.');
+    expect(result.note).toBeUndefined();
     expect(consumed).toBe(1_000 + 5);
     expect(readBytes).toHaveBeenCalledWith('/tmp/large.txt', MEDIA_SNIFF_BYTES);
     expect(readText).not.toHaveBeenCalled();
@@ -1214,7 +1366,7 @@ describe('ReadTool', () => {
 
     expect(result.isError).not.toBe(true);
     expect(result.output).toContain('1001\tline 1001');
-    expect(result.note).toContain('Requested range complete.');
+    expect(result.note).toBeUndefined();
     expect(result.truncated).toBeUndefined();
   });
 
@@ -1252,11 +1404,11 @@ describe('ReadTool', () => {
     expect(output).not.toContain('Max');
   });
 
-  it('interpolates the cap constants into the description and references the Grep tool', () => {
+  it('interpolates the cap constants into the description', () => {
     const tool = toolWithContent('');
     expect(tool.description).toContain('100000');
-    expect(tool.description).toContain('500000');
-    expect(tool.description).toContain('Grep');
+    expect(tool.description).not.toContain('${');
+    expect(toolWithMaxChars('', 250_000).description).toContain('250000');
   });
 
   it('reads files inside additional_dirs via absolute path', async () => {
@@ -1353,7 +1505,7 @@ describe('ReadTool', () => {
     expect(result.isError).toBeFalsy();
     expect(result.output).toContain('1\ta');
     expect(result.output).toContain('5\te');
-    expect(result.note).toContain('Total lines in file: 5. Requested range complete. Effective max_chars: 100000.');
+    expect(result.note).toBeUndefined();
   });
 
   it('tail mode on an empty file returns empty output without erroring', async () => {

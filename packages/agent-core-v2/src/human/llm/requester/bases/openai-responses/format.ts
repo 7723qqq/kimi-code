@@ -375,8 +375,9 @@ export function parseOpenAIResponsesUsage(
     inputTokens,
     cached,
   );
+  const missTokens = split.kind === 'split' ? split.miss : undefined;
   return {
-    inputOther: split.miss ?? Math.max(inputTokens - split.cached, 0),
+    inputOther: missTokens ?? Math.max(inputTokens - split.cached, 0),
     output: outputTokens,
     inputCacheRead: split.cached,
     inputCacheCreation: 0,

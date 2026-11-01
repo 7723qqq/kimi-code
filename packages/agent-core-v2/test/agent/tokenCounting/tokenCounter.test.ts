@@ -26,6 +26,7 @@ const EXPECTED_DEPENDENCIES = [
   '@moonshot-ai/kimi-code-oauth',
   '@moonshot-ai/kimi-i18n',
   '@moonshot-ai/minidb',
+  '@moonshot-ai/runtime-shared',
   '@moonshot-ai/tree-sitter-bash',
   '@mozilla/readability',
   'ajv',
