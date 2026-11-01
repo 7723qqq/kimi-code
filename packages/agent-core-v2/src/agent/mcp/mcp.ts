@@ -16,6 +16,7 @@ export interface McpResolvedServer {
 export interface IAgentMcpService {
   readonly _serviceBrand: undefined;
 
+  register(): void;
   readonly oauthService: McpOAuthService | undefined;
   waitForInitialLoad(signal?: AbortSignal): Promise<void>;
   initialLoadDurationMs(): number;

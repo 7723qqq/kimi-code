@@ -154,6 +154,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
   }
 
   private activeProfile: ResolvedAgentProfile | undefined;
+  private registered = false;
 
   private frozenSkillListing: string | undefined;
   private frozenPluginSections: string | undefined;
@@ -188,13 +189,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     @IGitMemoryService private readonly gitMemory: IGitMemoryService,
   ) {
     super();
-    this.states.contributeState(profileKey);
-    this.states.contributeState(profileActiveToolsKey);
-    this.states.contributeState(profileActiveToolNamesOverlayKey);
-    this.states.contributeState(profileAgentsMdWarningKey);
-    this.states.contributeState(profileEmittedThinkingEffortWarningsKey);
-    this.states.contributeState(profileEmittedToolPatternWarningsKey);
-    this.states.contributeState(profileEmittedPluginBudgetWarningsKey);
+    this.register();
     this.configure({});
     this._register(
       this.dispatcher.hooks.onDidRestore.register('profile', async (_ctx, next) => {
@@ -225,6 +220,18 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
         if (this.modelAlias === from) void this.setModel(to).catch(() => {});
       }),
     );
+  }
+
+  register(): void {
+    if (this.registered) return;
+    this.registered = true;
+    this.states.contributeState(profileKey);
+    this.states.contributeState(profileActiveToolsKey);
+    this.states.contributeState(profileActiveToolNamesOverlayKey);
+    this.states.contributeState(profileAgentsMdWarningKey);
+    this.states.contributeState(profileEmittedThinkingEffortWarningsKey);
+    this.states.contributeState(profileEmittedToolPatternWarningsKey);
+    this.states.contributeState(profileEmittedPluginBudgetWarningsKey);
   }
 
   private get activeToolNamesOverlay(): readonly string[] | undefined {

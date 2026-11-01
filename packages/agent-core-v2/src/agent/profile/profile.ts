@@ -112,6 +112,7 @@ export interface BindAgentInput {
 export interface IAgentProfileService {
   readonly _serviceBrand: undefined;
 
+  register(): void;
   configure(options: ProfileServiceOptions): void;
   update(changed: ProfileUpdateData): void;
   applyBindingSnapshot(snapshot: ProfileBindingSnapshot): void;

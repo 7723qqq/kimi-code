@@ -24,6 +24,7 @@ import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import { profileKey } from '#/agent/profile/profileOps';
 import { hasPinnedPermissionMode } from '#/features/tower/tower';
 import { IAgentTaskService } from '#/agent/task/task';
+import { IAgentMcpService } from '#/agent/mcp/mcp';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata, type AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
 import { withSubagentProfile } from '#/session/agentLifecycle/subagentMetadata';
@@ -346,6 +347,9 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       this.onDidCreateEmitter.fire(agent);
       didCreate = true;
       this.onDidCreateScopeEmitter.fire({ context: agent, handle, meta });
+      stage = 'contribute';
+      handle.accessor.get(IAgentProfileService).register();
+      handle.accessor.get(IAgentMcpService).register();
       stage = 'restore';
       await handle.accessor.get(IEventDispatcher).restore();
       attachInteractionAgent(agentId, this.ctx.sessionId, handle.accessor.get(IEventDispatcher));

@@ -52,6 +52,7 @@ export class AgentMcpService extends Service implements IAgentMcpService {
   private readonly mcpTools = new Map<string, McpToolRegistration>();
   private readonly pendingDiscoveries: Array<() => Promise<void> | void> = [];
   private readonly failedServerEpisodes = new Set<string>();
+  private registered = false;
   private failureWriteTail: Promise<void> = Promise.resolve();
 
   constructor(
@@ -67,10 +68,7 @@ export class AgentMcpService extends Service implements IAgentMcpService {
     @ISessionMediaStore private readonly attachmentStore: ISessionMediaStore,
   ) {
     super();
-    this.states.contributeState(mcpDiscoveryKey);
-    this.states.contributeState(mcpFailureKey);
-    this.states.contributeState(mcpMcpToolsByServerKey);
-    this.states.contributeState(mcpDiscoveryWritesReadyKey);
+    this.register();
     this.attachMcpTools();
     loop.hooks.onWillBeginStep.register('mcp', async (ctx, next) => {
       await this.waitForInitialLoad(ctx.signal);
@@ -157,6 +155,15 @@ export class AgentMcpService extends Service implements IAgentMcpService {
     return {
       dispose: unsubscribe,
     };
+  }
+
+  register(): void {
+    if (this.registered) return;
+    this.registered = true;
+    this.states.contributeState(mcpDiscoveryKey);
+    this.states.contributeState(mcpFailureKey);
+    this.states.contributeState(mcpMcpToolsByServerKey);
+    this.states.contributeState(mcpDiscoveryWritesReadyKey);
   }
 
   private attachMcpTools(): void {
