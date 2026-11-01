@@ -111,6 +111,10 @@ Plugins 也可以在 manifest 中声明 MCP servers。Plugin 声明的 servers �
 
 当 deferred 工具目录中至少有 20 个可加载工具时，模型收到的是当前请求最相关的最多十个工具的排序短名单，而不是完整清单。它可以调用 `select_tools` 并传入 `query` 按能力搜索其余工具；搜索结果只是候选，仍须按精确名称加载后才能调用。短名单每个轮次重新计算，旧短名单会从请求历史中移除。
 
+## 压缩工具 schema
+
+即使按需加载工具，冗长的参数描述仍会占用 prompt。可在 `config.toml` 的 `[mcp]` 下设 `compact_tool_schemas = true`：MCP 参数描述会截到首句，并移除 schema 的 `title` 与 `examples` 后再进入 prompt。参数类型、必填字段、枚举与其他约束保持不变，顶层工具描述也不变。该设置默认关闭；在生产环境启用前，请先测量你所用 server 的工具调用准确率。
+
 如果不想逐个 server 标记，而是默认让所有 server 按需加载，可以在 `config.toml` 的 `[mcp]` 下设 `default_deferred = true`，见 [配置文件](../configuration/config-files.md#mcp)。单个 server 仍可用 `deferred: false` 排除；server 字段始终优先于全局默认。该值在 server 连接时固化，之后修改不会改动运行中会话的工具形态——重连该 server 或重启进程后才会应用。
 
 ## 工具命名与权限

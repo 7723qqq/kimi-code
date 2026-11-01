@@ -111,6 +111,10 @@ Servers without `deferred` take the global default (`false` unless changed), exc
 
 When a deferred catalog contains at least 20 loadable tools, the model receives a ranked shortlist of up to ten relevant tools for the current request instead of the full manifest. It can call `select_tools` with a `query` to search the remaining tools by capability; search results are candidates only, and exact names must be loaded before use. The shortlist is recomputed for each turn, and older shortlists are dropped from the request history.
 
+## Compacting tool schemas
+
+Verbose tool descriptions can dominate the prompt even after loading tools on demand. Set `compact_tool_schemas = true` under `[mcp]` in `config.toml` to trim MCP parameter descriptions to their first sentence and drop schema `title` and `examples` fields before tools enter the prompt. Parameter types, required fields, enums, and other constraints are preserved, and top-level tool descriptions are unchanged. The setting is off by default; measure tool-call accuracy for your servers before enabling it in production.
+
 To defer every server by default instead of marking them one by one, set `default_deferred = true` under `[mcp]` in `config.toml` — see [Configuration files](../configuration/config-files.md#mcp). A server can still opt out with `deferred: false`; the per-server field always wins over the global default. The value is captured when a server connects, so changing it later does not reshape tools in a running session — reconnect the server or restart the process to apply it.
 
 ## Tool Naming and Permissions

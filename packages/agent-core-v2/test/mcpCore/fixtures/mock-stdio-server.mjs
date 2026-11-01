@@ -56,6 +56,22 @@ server.registerTool(
   }),
 );
 
+if (process.env['KIMI_TEST_MCP_VERBOSE_TOOL'] === '1') {
+  server.registerTool(
+    'verbose',
+    {
+      description: 'First sentence. Second sentence with extra detail.',
+      inputSchema: {
+        query: z.string().describe('Query the thing. Extra parameter detail.'),
+        mode: z.enum(['fast', 'slow']).describe('Execution mode. Choose carefully.'),
+      },
+    },
+    ({ query }) => ({
+      content: [{ type: 'text', text: query }],
+    }),
+  );
+}
+
 const extraToolCount = Number.parseInt(process.env['KIMI_TEST_MCP_EXTRA_TOOLS'] ?? '0', 10);
 for (let index = 0; index < extraToolCount; index += 1) {
   server.registerTool(

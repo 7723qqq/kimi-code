@@ -22,6 +22,7 @@ import {
 import { SseMcpClient } from './client-sse';
 import { StdioMcpClient } from './client-stdio';
 import type { McpServerConfig } from './config-schema';
+import { compactMcpInputSchema } from './schema-compaction';
 import { assertMcpInputSchema, type MCPClient, type MCPToolDefinition } from './types';
 
 export type McpServerStatus =
@@ -114,6 +115,7 @@ export interface McpDefaults {
   readonly toolTimeoutMs?: number;
   readonly defaultDeferred?: boolean;
   readonly autoDeferToolThreshold?: number;
+  readonly compactToolSchemas?: boolean;
   readonly reconnectInitialDelayMs?: number;
   readonly reconnectMaxDelayMs?: number;
 }
@@ -904,14 +906,18 @@ export class McpConnectionManager implements McpConnectionView {
         ? classifyRemoteDiscoveryError(config, error)
         : classifyMcpDiscoveryError(error);
     }
+    const compact = this.options.resolveDefaults?.().compactToolSchemas === true;
     try {
       return {
         rawTools: mcpTools,
-        tools: mcpTools.map((mcpTool) => ({
-          name: mcpTool.name,
-          description: mcpTool.description,
-          parameters: assertMcpInputSchema(mcpTool.name, mcpTool.inputSchema),
-        })),
+        tools: mcpTools.map((mcpTool) => {
+          const parameters = assertMcpInputSchema(mcpTool.name, mcpTool.inputSchema);
+          return {
+            name: mcpTool.name,
+            description: mcpTool.description,
+            parameters: compact ? compactMcpInputSchema(parameters) : parameters,
+          };
+        }),
       };
     } catch (error) {
       if (error instanceof Error2 && error.code === ErrorCodes.MCP_STARTUP_FAILED) {

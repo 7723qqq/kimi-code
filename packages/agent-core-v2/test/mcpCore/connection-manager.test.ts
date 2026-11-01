@@ -42,6 +42,18 @@ import {
   stdioFixture,
 } from './stubs';
 
+function parameter(
+  tool: { readonly parameters?: Record<string, unknown> } | undefined,
+  name: string,
+): Record<string, unknown> | undefined {
+  const properties = tool?.parameters?.['properties'];
+  if (typeof properties !== 'object' || properties === null) return undefined;
+  const value = (properties as Record<string, unknown>)[name];
+  return typeof value === 'object' && value !== null
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
 function stdioConfig(args: string[] = [stdioFixture]) {
   return {
     transport: 'stdio' as const,
@@ -143,6 +155,35 @@ describe('McpConnectionManager', () => {
       expect(cm.resolved('pinned')?.deferred).toBe(false);
     } finally {
       await cm.shutdown();
+    }
+  }, 20000);
+
+  it('compacts MCP parameter descriptions when enabled', async () => {
+    const env = { KIMI_TEST_MCP_VERBOSE_TOOL: '1' };
+    const compact = createManager({
+      resolveDefaults: () => ({ compactToolSchemas: true }),
+    });
+    const full = createManager();
+    try {
+      await compact.connectAll({ verbose: { ...stdioConfig(), env } });
+      await full.connectAll({ verbose: { ...stdioConfig(), env } });
+
+      const compactTool = compact
+        .resolved('verbose')
+        ?.tools.find((tool) => tool.name === 'verbose');
+      const fullTool = full.resolved('verbose')?.tools.find((tool) => tool.name === 'verbose');
+
+      expect(fullTool?.description).toBe('First sentence. Second sentence with extra detail.');
+      expect(compactTool?.description).toBe(fullTool?.description);
+      expect(parameter(fullTool, 'query')?.['description']).toBe(
+        'Query the thing. Extra parameter detail.',
+      );
+      expect(parameter(compactTool, 'query')?.['description']).toBe('Query the thing.');
+      expect(parameter(compactTool, 'query')?.['type']).toBe('string');
+      expect(parameter(compactTool, 'mode')?.['enum']).toEqual(['fast', 'slow']);
+    } finally {
+      await compact.shutdown();
+      await full.shutdown();
     }
   }, 20000);
 

@@ -11,6 +11,7 @@ export const McpSectionSchema = z.object({
   toolTimeoutMs: McpTimeoutMsSchema.optional(),
   defaultDeferred: z.boolean().optional(),
   autoDeferToolThreshold: z.number().int().min(0).max(1_000_000).optional(),
+  compactToolSchemas: z.boolean().optional(),
   reconnectInitialDelayMs: McpTimeoutMsSchema.optional(),
   reconnectMaxDelayMs: McpTimeoutMsSchema.optional(),
 });

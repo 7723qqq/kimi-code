@@ -245,6 +245,7 @@ function toMcpTunables(section: McpSection | undefined): McpTunables {
     toolTimeoutMs: section?.toolTimeoutMs,
     defaultDeferred: section?.defaultDeferred,
     autoDeferToolThreshold: section?.autoDeferToolThreshold,
+    compactToolSchemas: section?.compactToolSchemas,
     reconnectInitialDelayMs: section?.reconnectInitialDelayMs,
     reconnectMaxDelayMs: section?.reconnectMaxDelayMs,
   };

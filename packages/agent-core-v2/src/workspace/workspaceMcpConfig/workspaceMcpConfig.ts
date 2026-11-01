@@ -14,6 +14,7 @@ export interface McpTunables {
   readonly toolTimeoutMs?: number;
   readonly defaultDeferred?: boolean;
   readonly autoDeferToolThreshold?: number;
+  readonly compactToolSchemas?: boolean;
   readonly reconnectInitialDelayMs?: number;
   readonly reconnectMaxDelayMs?: number;
 }
