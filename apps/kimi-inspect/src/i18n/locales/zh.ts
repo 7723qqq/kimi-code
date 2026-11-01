@@ -108,4 +108,12 @@ export default {
     cancelTurn: '取消当前轮次',
     steps: '步数',
   },
+  diGraph: {
+    allScopes: '全部作用域',
+    noNodes: '没有节点',
+    noRoots: '没有根节点',
+    dependenciesOf: '依赖项来自',
+    alreadyInPath: '已在路径中',
+    directDependencyOf: '直接依赖于',
+  },
 } as const;

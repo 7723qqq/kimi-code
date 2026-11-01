@@ -110,4 +110,12 @@ export default {
     cancelTurn: 'cancel turn',
     steps: 'Steps',
   },
+  diGraph: {
+    allScopes: 'all scopes',
+    noNodes: 'no nodes',
+    noRoots: 'no roots',
+    dependenciesOf: 'dependencies of',
+    alreadyInPath: 'already in path',
+    directDependencyOf: 'direct dependency of',
+  },
 } as const;

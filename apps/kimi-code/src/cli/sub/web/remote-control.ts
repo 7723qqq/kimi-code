@@ -92,9 +92,9 @@ export function formatRemoteControlStatus(status: RemoteControlStatus): string {
     case 'relay_connected':
       return `  ${value('✓')} ${label(t('tui.statusMessages.rcStatusRelayConnected'))}\n`;
     case 'relay_disconnected':
-      return `  ${value('!')} ${label('Relay disconnected; reconnecting…')}\n`;
+      return `  ${value('!')} ${label(t('tui.statusMessages.rcStatusRelayDisconnected'))}\n`;
     case 'relay_terminated':
-      return `  ${value('✕')} ${label('Taken offline from the web; exiting…')}\n`;
+      return `  ${value('✕')} ${label(t('tui.statusMessages.rcStatusRelayTerminated'))}\n`;
     case 'device_connected':
       return `  ${value('✓')} ${label(t('tui.statusMessages.rcStatusDeviceConnected'))}\n`;
     case 'device_disconnected':

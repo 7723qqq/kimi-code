@@ -31,6 +31,8 @@ import type { UnitState } from '@moonshot-ai/agent-core-v2/_base/di/cascadeEngin
 import type { DebugGraph, DebugGraphNode } from '@moonshot-ai/agent-core-v2/debug/debugGraph';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { t } from '../../i18n';
+
 const STATE_COLORS: Record<UnitState | 'none', string> = {
   Pending: '#a3a3a3',
   Activating: '#38bdf8',
@@ -128,7 +130,7 @@ export function DiGraphPanel({ graph }: { graph: DebugGraph }) {
     const columns: DepsColumn[] = [];
     const usedPath: string[] = [];
     columns.push({
-      title: `roots · ${scopeFilter === '' ? 'all scopes' : scopeFilter}`,
+      title: `roots · ${scopeFilter === '' ? t('diGraph.allScopes') : scopeFilter}`,
       homeScope: scopeFilter,
       items: roots,
     });
@@ -192,7 +194,7 @@ export function DiGraphPanel({ graph }: { graph: DebugGraph }) {
             setScopeFilter(e.target.value);
           }}
         >
-          <option value="">all scopes</option>
+          <option value="">{t('diGraph.allScopes')}</option>
           {allScopes.map((scopePath) => (
             <option key={scopePath} value={scopePath}>
               {scopePath}
@@ -212,7 +214,7 @@ export function DiGraphPanel({ graph }: { graph: DebugGraph }) {
         </span>
       </div>
       {graph.nodes.length === 0 ? (
-        <div className="text-[11px] text-neutral-600 italic">no nodes</div>
+        <div className="text-[11px] text-neutral-600 italic">{t('diGraph.noNodes')}</div>
       ) : (
         <div
           ref={scrollRef}
@@ -265,7 +267,7 @@ function DepsColumnView({
           <span
             className="h-2.5 w-2.5 shrink-0 self-center rounded-sm"
             style={{ background: levelColor(columnIndex - 1) }}
-            title={`dependencies of ${column.title}`}
+            title={t('diGraph.dependenciesOf') + ` ${column.title}`}
           />
         ) : null}
         <span className="min-w-0 truncate font-mono text-[10px] font-semibold text-neutral-400">
@@ -276,7 +278,7 @@ function DepsColumnView({
       <div className="p-1">
         {column.items.length === 0 ? (
           <div className="px-2 py-1 text-[10px] text-neutral-600 italic">
-            {columnIndex === 0 ? 'no roots' : 'no nodes'}
+            {columnIndex === 0 ? t('diGraph.noRoots') : t('diGraph.noNodes')}
           </div>
         ) : (
           column.items.map((node) => {
@@ -305,9 +307,9 @@ function DepsColumnView({
             const details = [
               `state: ${node.state ?? 'unseen'}`,
               node.uid !== undefined ? `#${node.uid}` : undefined,
-              inPath ? 'already in path' : undefined,
+              inPath ? t('diGraph.alreadyInPath') : undefined,
               columnIndex > 0 && bars.length > 0
-                ? `direct dependency of: ${bars.map((b) => b.label).join(', ')}`
+                ? t('diGraph.directDependencyOf') + ': ' + bars.map((b) => b.label).join(', ')
                 : undefined,
             ]
               .filter((s) => s !== undefined)
@@ -356,7 +358,7 @@ function DepsColumnView({
                 {inPath ? (
                   <span
                     className="shrink-0 self-center text-[10px] text-amber-400"
-                    title="already in path"
+                    title={t('diGraph.alreadyInPath')}
                   >
                     ↩
                   </span>
