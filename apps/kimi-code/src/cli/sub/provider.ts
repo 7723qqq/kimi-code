@@ -1336,7 +1336,7 @@ function resolveDeps(overrides: Partial<ProviderDeps> = {}): ResolvedProviderDep
     getHarness:
       overrides.getHarness ??
       (() => {
-        harness ??= createKimiHarness({ identity });
+        harness ??= createKimiHarness({ identity, pluginNodeRunner: true });
         return harness;
       }),
     stdout: overrides.stdout ?? process.stdout,

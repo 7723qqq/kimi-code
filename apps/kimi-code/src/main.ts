@@ -129,6 +129,7 @@ export async function handleUpgradeCommand(version: string, yes: boolean): Promi
   const harness = createKimiHarness({
     homeDir: telemetryBootstrap.homeDir,
     identity: createKimiCodeHostIdentity(version),
+    pluginNodeRunner: true,
     telemetry: telemetryClient,
   });
   let exitCode = 1;

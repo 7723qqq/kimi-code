@@ -115,6 +115,7 @@ export interface ServerStartOptions {
   readonly rpcToken?: string;
   readonly seeds?: ScopeSeed;
   readonly hostIdentity: ServerHostIdentity;
+  readonly pluginNodeRunner?: boolean;
   readonly skillDirs?: readonly string[];
   readonly webAssetsDir?: string;
   readonly serverVersion?: string;
@@ -200,6 +201,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
         displayName: opts.hostIdentity.displayName,
         replyStyleGuide: opts.hostIdentity.replyStyleGuide,
         uiCapabilities: [NOTIFY_USER_UI_CAPABILITY],
+        pluginNodeRunner: opts.pluginNodeRunner ?? false,
       },
     },
     [...logSeed(logging), ...(opts.seeds ?? [])],

@@ -124,6 +124,7 @@ function createDefaultForkDeps(overrides: Partial<ForkDeps> = {}): ForkDeps & {
     harness ??= createKimiHarness({
       homeDir: currentTelemetryBootstrap.homeDir,
       identity,
+      pluginNodeRunner: true,
       telemetry: telemetryClient,
     });
     return harness;

@@ -36,6 +36,7 @@ export async function runImportSessionsCommand(): Promise<number> {
   const harness = createKimiHarness({
     homeDir: createCliTelemetryBootstrap().homeDir,
     identity: createKimiCodeHostIdentity(),
+    pluginNodeRunner: true,
     telemetry,
   });
   try {

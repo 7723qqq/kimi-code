@@ -38,6 +38,7 @@ export interface PluginManagerOptions {
   readonly kimiHomeDir: string;
   readonly discoverSkills?: (roots: readonly SkillRoot[]) => Promise<SkillDiscoveryResult>;
   readonly log?: ILogger;
+  readonly pluginNodeRunner?: boolean;
 }
 
 interface ManagedPluginCopy {
@@ -53,12 +54,14 @@ export class PluginManager {
   private readonly kimiHomeDir: string;
   private readonly discoverSkills: (roots: readonly SkillRoot[]) => Promise<SkillDiscoveryResult>;
   private readonly log: ILogger | undefined;
+  private readonly canRunPluginNodeEntry: boolean;
   private records = new Map<string, PluginRecord>();
 
   constructor(options: PluginManagerOptions) {
     this.kimiHomeDir = options.kimiHomeDir;
     this.discoverSkills = options.discoverSkills ?? discoverFileSkills;
     this.log = options.log;
+    this.canRunPluginNodeEntry = options.pluginNodeRunner ?? isKimiNativeBinary();
   }
 
   async load(): Promise<void> {
@@ -370,6 +373,7 @@ export class PluginManager {
           withMcpServerEnabled(config, true),
           record.root,
           this.kimiHomeDir,
+          this.canRunPluginNodeEntry,
         );
       }
     }
@@ -386,6 +390,7 @@ export class PluginManager {
           withMcpServerEnabled(config, enabled),
           record.root,
           this.kimiHomeDir,
+          this.canRunPluginNodeEntry,
         );
         out.push({
           name: pluginMcpRuntimeName(record.id, name),
@@ -742,6 +747,7 @@ function withPluginMcpRuntime(
   config: McpServerConfig,
   pluginRoot: string,
   kimiHomeDir: string,
+  canRunPluginNodeEntry: boolean,
 ): McpServerConfig {
   if (config.transport === 'http' || config.transport === 'sse') return config;
 
@@ -761,7 +767,7 @@ function withPluginMcpRuntime(
     };
   }
 
-  if (config.command === 'node' && isKimiNativeBinary()) {
+  if (config.command === 'node' && canRunPluginNodeEntry) {
     return {
       ...config,
       command: process.execPath,

@@ -390,6 +390,8 @@ export interface SDKRpcClientV2Options {
   readonly uiMode?: string;
   /** UI surfaces this host renders; forwarded as `BootstrapInput.args.uiCapabilities`. */
   readonly uiCapabilities?: readonly HostUiCapability[];
+  /** Whether this host implements `__plugin_run_node`; forwarded as `BootstrapInput.args.pluginNodeRunner`. */
+  readonly pluginNodeRunner?: boolean;
   /** Extra DI seeds merged into the engine bootstrap, for hosts and tests that override a service. */
   readonly serviceSeeds?: ScopeSeed;
 }
@@ -492,6 +494,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
           // user / project discovery for every session this client hosts.
           skillDirs: options.skillDirs,
           uiCapabilities: options.uiCapabilities,
+          pluginNodeRunner: options.pluginNodeRunner,
         },
       },
       [

@@ -115,6 +115,7 @@ function createDefaultSessionListDeps(
     harness ??= createKimiHarness({
       homeDir: createCliTelemetryBootstrap().homeDir,
       identity,
+      pluginNodeRunner: true,
       telemetry: telemetryClient,
     });
     return harness;

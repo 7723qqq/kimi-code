@@ -219,6 +219,13 @@ export interface KimiHarnessOptions {
    * offer the dependent tool.
    */
   readonly uiCapabilities?: readonly HostUiCapability[];
+  /**
+   * Whether this host implements the hidden `__plugin_run_node` entry that
+   * runs a plugin's `command: "node"` server under its own runtime. Forwarded
+   * as `BootstrapInput.args.pluginNodeRunner`; hosts that do not set it keep
+   * the existing detection (packaged CLI binary or Electron).
+   */
+  readonly pluginNodeRunner?: boolean;
   readonly telemetry?: TelemetryClient | undefined;
   readonly onOAuthRefresh?: ((outcome: OAuthRefreshOutcome) => void) | undefined;
   readonly sessionStartedProperties?: TelemetryProperties;

@@ -88,6 +88,7 @@ export class PluginService extends Service implements IPluginService {
       kimiHomeDir: this.homeDir,
       discoverSkills: (roots) => discovery.discover(roots),
       log: this.log,
+      pluginNodeRunner: bootstrap.args.pluginNodeRunner,
     });
   }
 

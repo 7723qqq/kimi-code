@@ -438,6 +438,7 @@ async function runServerInProcess(
       userAgentSuffix: WEB_USER_AGENT_SUFFIX,
     },
     logLevel: options.logLevel,
+    pluginNodeRunner: true,
     logger,
     debugEndpoints: options.debugEndpoints,
     insecureNoTls: options.insecureNoTls,

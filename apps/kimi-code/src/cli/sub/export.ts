@@ -159,6 +159,7 @@ function createDefaultExportDeps(overrides: Partial<ExportDeps> = {}): ExportDep
     harness ??= createKimiHarness({
       homeDir: currentTelemetryBootstrap.homeDir,
       identity,
+      pluginNodeRunner: true,
       telemetry: telemetryClient,
     });
     return harness;

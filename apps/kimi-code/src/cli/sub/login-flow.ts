@@ -66,6 +66,7 @@ export async function runLoginFlow(
   const harness = createKimiHarness({
     identity,
     uiMode: 'cli',
+    pluginNodeRunner: true,
   });
   const controller = new AbortController();
   process.once('SIGINT', () => {
@@ -125,6 +126,7 @@ export async function runGoogleLoginFlow(): Promise<never> {
   const harness = createKimiHarness({
     identity,
     uiMode: 'cli',
+    pluginNodeRunner: true,
   });
   const controller = new AbortController();
   process.once('SIGINT', () => {
@@ -191,6 +193,7 @@ export async function runAntigravitySyncFlow(): Promise<never> {
   const harness = createKimiHarness({
     identity,
     uiMode: 'cli',
+    pluginNodeRunner: true,
   });
 
   const detection = GoogleOAuthManager.detectAntigravityCredentials();

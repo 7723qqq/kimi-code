@@ -954,4 +954,48 @@ describe('PluginManager consumption plane', () => {
     );
     expect(JSON.stringify(server)).not.toContain('ELECTRON_RUN_AS_NODE');
   });
+
+  it('enabledMcpServers() runs stdio node plugins through the host runner when the host declares it', async () => {
+    const home = await makeKimiHome();
+    const root = await makePlugin('demo', {
+      mcpServers: { data: { command: 'node', args: ['./bin/data.mjs'] } },
+    });
+    const manager = new PluginManager({ kimiHomeDir: home, pluginNodeRunner: true });
+    await manager.load();
+    await manager.install(root);
+    const managedRoot = await managedPluginRoot(manager, 'demo');
+
+    const server = manager.enabledMcpServers()['plugin-demo:data'];
+    expect(server).toEqual(
+      expect.objectContaining({
+        command: process.execPath,
+        args: ['__plugin_run_node', './bin/data.mjs'],
+        cwd: managedRoot,
+        env: expect.objectContaining({
+          KIMI_CODE_HOME: home,
+          KIMI_PLUGIN_ROOT: managedRoot,
+        }),
+      }),
+    );
+  });
+
+  it('enabledMcpServers() keeps system node when the host declares no runner even if embedded assets exist', async () => {
+    const home = await makeKimiHome();
+    const root = await makePlugin('demo', {
+      mcpServers: { data: { command: 'node', args: ['./bin/data.mjs'] } },
+    });
+    const globals = globalThis as { __KIMI_BUN_ASSETS__?: unknown };
+    const originalAssets = globals.__KIMI_BUN_ASSETS__;
+    globals.__KIMI_BUN_ASSETS__ = { probe: 'present' };
+    try {
+      const manager = new PluginManager({ kimiHomeDir: home, pluginNodeRunner: false });
+      await manager.load();
+      await manager.install(root);
+      const server = manager.enabledMcpServers()['plugin-demo:data'];
+      expect(server).toEqual(expect.objectContaining({ command: 'node' }));
+    } finally {
+      if (originalAssets === undefined) delete globals.__KIMI_BUN_ASSETS__;
+      else globals.__KIMI_BUN_ASSETS__ = originalAssets;
+    }
+  });
 });
