@@ -1,10 +1,12 @@
-import { createServer, type IncomingMessage } from 'node:http';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { createServer, type IncomingMessage } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { IOAuthService, type ITelemetryService, type Scope } from '@moonshot-ai/agent-core-v2';
 import {
   createKimiDeviceId,
   FileTokenStorage,
@@ -20,9 +22,6 @@ import {
   type RemoteControlDeviceClient,
   type RemoteControlManager,
 } from '@moonshot-ai/remote-control';
-import { IOAuthService, type ITelemetryService, type Scope } from '@moonshot-ai/agent-core-v2';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
-import { setEnv, restoreEnvs } from './helpers/stubs';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 
 import { ErrorCode } from '../src/protocol/error-codes';
@@ -36,6 +35,7 @@ import { writeServerToken } from '../src/services/auth/persistentToken';
 import { type RunningServer, startServer } from '../src/start';
 import { authedFetch } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { setEnv, restoreEnvs } from './helpers/stubs';
 
 interface Envelope<T> {
   code: number;
@@ -147,8 +147,7 @@ describe('server-v2 /api/v1/remote-control', () => {
     expect(first.data.device_name).toBeTruthy();
     expect(relay.registrations).toHaveLength(1);
     expect(
-      (relay.registrations[0] as { payload?: { client_version?: string } }).payload
-        ?.client_version,
+      (relay.registrations[0] as { payload?: { client_version?: string } }).payload?.client_version,
     ).toBe(`${TEST_HOST_IDENTITY.productName}/${TEST_HOST_IDENTITY.version}`);
 
     const res = await authedFetch(server as RunningServer, base, '/api/v1/remote-control');
@@ -185,9 +184,9 @@ describe('server-v2 /api/v1/remote-control', () => {
     expect(rotatedResponse).toContain('HTTP/1.1 200');
     expect(rotatedResponse).toContain('"ok":true');
 
-    relay.managementSockets.at(-1)!.send(
-      JSON.stringify({ type: 'disconnect', payload: { reason: 'user_requested' } }),
-    );
+    relay.managementSockets
+      .at(-1)!
+      .send(JSON.stringify({ type: 'disconnect', payload: { reason: 'user_requested' } }));
     await waitFor(async () => {
       const after = await authedFetch(server as RunningServer, base, '/api/v1/remote-control');
       const body = (await after.json()) as Envelope<RemoteControlStatusWire>;
@@ -288,10 +287,7 @@ describe('server-v2 /api/v1/remote-control', () => {
 
   it('proxies device list and management operations through the Node-side cloud session', async () => {
     const cloud = await startDeviceCloud();
-    setEnv(
-      'KIMI_CODE_REMOTE_CONTROL_RELAY_URL',
-      `http://127.0.0.1:${cloud.port}/coding-relay/`,
-    );
+    setEnv('KIMI_CODE_REMOTE_CONTROL_RELAY_URL', `http://127.0.0.1:${cloud.port}/coding-relay/`);
 
     const listedRes = await authedFetch(
       server as RunningServer,
@@ -348,10 +344,7 @@ describe('server-v2 /api/v1/remote-control', () => {
   it('stops the local tunnel when the current device is deactivated', async () => {
     await rm(remoteControlLockPath(home as string), { force: true });
     const cloud = await startDeviceCloud({ tunnel: true });
-    setEnv(
-      'KIMI_CODE_REMOTE_CONTROL_RELAY_URL',
-      `http://127.0.0.1:${cloud.port}/coding-relay/`,
-    );
+    setEnv('KIMI_CODE_REMOTE_CONTROL_RELAY_URL', `http://127.0.0.1:${cloud.port}/coding-relay/`);
 
     const currentState = async (): Promise<string> => {
       const res = await authedFetch(server as RunningServer, base, '/api/v1/remote-control');
@@ -387,10 +380,7 @@ describe('server-v2 /api/v1/remote-control', () => {
   it('stops the local tunnel when the current device is deleted', async () => {
     await rm(remoteControlLockPath(home as string), { force: true });
     const cloud = await startDeviceCloud({ tunnel: true });
-    setEnv(
-      'KIMI_CODE_REMOTE_CONTROL_RELAY_URL',
-      `http://127.0.0.1:${cloud.port}/coding-relay/`,
-    );
+    setEnv('KIMI_CODE_REMOTE_CONTROL_RELAY_URL', `http://127.0.0.1:${cloud.port}/coding-relay/`);
 
     const currentState = async (): Promise<string> => {
       const res = await authedFetch(server as RunningServer, base, '/api/v1/remote-control');
@@ -429,10 +419,7 @@ describe('server-v2 /api/v1/remote-control', () => {
   it('waits for the lock holder to release before answering current-device deactivation', async () => {
     await rm(remoteControlLockPath(home as string), { force: true });
     const cloud = await startDeviceCloud();
-    setEnv(
-      'KIMI_CODE_REMOTE_CONTROL_RELAY_URL',
-      `http://127.0.0.1:${cloud.port}/coding-relay/`,
-    );
+    setEnv('KIMI_CODE_REMOTE_CONTROL_RELAY_URL', `http://127.0.0.1:${cloud.port}/coding-relay/`);
 
     const deviceId = createKimiDeviceId(home as string);
     await mkdir(join(home as string, 'server'), { recursive: true });
@@ -472,10 +459,7 @@ describe('server-v2 /api/v1/remote-control', () => {
   it('fails current-device deactivation when the lock holder never releases', async () => {
     await rm(remoteControlLockPath(home as string), { force: true });
     const cloud = await startDeviceCloud();
-    setEnv(
-      'KIMI_CODE_REMOTE_CONTROL_RELAY_URL',
-      `http://127.0.0.1:${cloud.port}/coding-relay/`,
-    );
+    setEnv('KIMI_CODE_REMOTE_CONTROL_RELAY_URL', `http://127.0.0.1:${cloud.port}/coding-relay/`);
 
     const deviceId = createKimiDeviceId(home as string);
     await mkdir(join(home as string, 'server'), { recursive: true });
@@ -730,12 +714,10 @@ describe('server-v2 /api/v1/remote-control', () => {
     await rm(homeDir, { recursive: true, force: true });
   });
 
-  it('cancels an in-flight start when the current device is deactivated', async () => {await rm(remoteControlLockPath(home as string), { force: true });
+  it('cancels an in-flight start when the current device is deactivated', async () => {
+    await rm(remoteControlLockPath(home as string), { force: true });
     const cloud = await startDeviceCloud({ tunnel: true, registerDelayMs: 1000 });
-    setEnv(
-      'KIMI_CODE_REMOTE_CONTROL_RELAY_URL',
-      `http://127.0.0.1:${cloud.port}/coding-relay/`,
-    );
+    setEnv('KIMI_CODE_REMOTE_CONTROL_RELAY_URL', `http://127.0.0.1:${cloud.port}/coding-relay/`);
 
     const currentState = async (): Promise<string> => {
       const res = await authedFetch(server as RunningServer, base, '/api/v1/remote-control');
@@ -770,10 +752,7 @@ describe('server-v2 /api/v1/remote-control', () => {
 
   it('rejects blank and overlong device aliases before reaching the cloud', async () => {
     const cloud = await startDeviceCloud();
-    setEnv(
-      'KIMI_CODE_REMOTE_CONTROL_RELAY_URL',
-      `http://127.0.0.1:${cloud.port}/coding-relay/`,
-    );
+    setEnv('KIMI_CODE_REMOTE_CONTROL_RELAY_URL', `http://127.0.0.1:${cloud.port}/coding-relay/`);
 
     for (const alias of ['', '   ', 'x'.repeat(51)]) {
       const res = await authedFetch(
@@ -795,16 +774,9 @@ describe('server-v2 /api/v1/remote-control', () => {
 
   it('maps cloud session failures to an internal API error instead of local auth', async () => {
     const cloud = await startDeviceCloud({ exchangeStatus: 401 });
-    setEnv(
-      'KIMI_CODE_REMOTE_CONTROL_RELAY_URL',
-      `http://127.0.0.1:${cloud.port}/coding-relay/`,
-    );
+    setEnv('KIMI_CODE_REMOTE_CONTROL_RELAY_URL', `http://127.0.0.1:${cloud.port}/coding-relay/`);
 
-    const res = await authedFetch(
-      server as RunningServer,
-      base,
-      '/api/v1/remote-control/devices',
-    );
+    const res = await authedFetch(server as RunningServer, base, '/api/v1/remote-control/devices');
     expect(res.status).toBe(200);
     const body = (await res.json()) as Envelope<null>;
     expect(body.code).toBe(ErrorCode.INTERNAL_ERROR);
@@ -873,7 +845,9 @@ describe('remote-control route telemetry', () => {
     startedAt: 0,
   };
 
-  function fakeService(behavior: 'ok' | 'already' | 'error' | 'disableError'): RemoteControlManager {
+  function fakeService(
+    behavior: 'ok' | 'already' | 'error' | 'disableError',
+  ): RemoteControlManager {
     return {
       enable: async () => {
         if (behavior === 'already') throw new RemoteControlAlreadyRunningError(HOLDER);
@@ -967,7 +941,10 @@ describe('oauth logout remote-control cleanup', () => {
     homeDir?: string,
   ): Promise<(body: { provider?: string }) => Promise<unknown>> {
     let handler:
-      | ((req: { id: string; body: { provider?: string } }, reply: { send(payload: unknown): unknown }) => Promise<void>)
+      | ((
+          req: { id: string; body: { provider?: string } },
+          reply: { send(payload: unknown): unknown },
+        ) => Promise<void>)
       | undefined;
     const app = {
       get: () => {},
@@ -1403,11 +1380,10 @@ describe('oauth logout remote-control cleanup', () => {
       clear: () => {},
       deactivateDevice: async () => {},
     };
-    const post = await logoutHandler(
-      remoteControl,
-      remoteControlDevices,
-      async (provider) => ({ logged_out: true, provider: provider ?? 'managed:kimi-code' }),
-    );
+    const post = await logoutHandler(remoteControl, remoteControlDevices, async (provider) => ({
+      logged_out: true,
+      provider: provider ?? 'managed:kimi-code',
+    }));
 
     const payload = (await post({ provider: 'managed:kimi-code' })) as Envelope<{
       logged_out: true;
@@ -1544,10 +1520,13 @@ async function startDeviceCloud(
         response.end(JSON.stringify({ devices: [device], max_devices: 3 }));
         return;
       }
-      const mutation = pathname.match(/^\/coding-relay\/v1\/remote\/devices\/[^/]+(\/deactivate)?$/);
+      const mutation = pathname.match(
+        /^\/coding-relay\/v1\/remote\/devices\/[^/]+(\/deactivate)?$/,
+      );
       if (
         mutation !== null &&
-        ((mutation[1] === undefined && (request.method === 'PATCH' || request.method === 'DELETE')) ||
+        ((mutation[1] === undefined &&
+          (request.method === 'PATCH' || request.method === 'DELETE')) ||
           (mutation[1] === '/deactivate' && request.method === 'POST'))
       ) {
         response.writeHead(204);

@@ -6,10 +6,10 @@
  * asserting on the status flags alone.
  */
 
+import { afterEach, describe, expect, it } from 'bun:test';
 import { writeFile } from 'node:fs/promises';
 
 import { join } from 'pathe';
-import { afterEach, describe, expect, it } from 'bun:test';
 
 import { createKimiHarness, type KimiHarness } from '#/index';
 

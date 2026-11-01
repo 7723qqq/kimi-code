@@ -1,5 +1,6 @@
-import { PRINT_WAIT_CEILING_S_DEFAULT } from '@moonshot-ai/agent-core-v2';
 import { describe, expect, it, mock } from 'bun:test';
+
+import { PRINT_WAIT_CEILING_S_DEFAULT } from '@moonshot-ai/agent-core-v2';
 
 import {
   applyPrintBackgroundPolicy,
@@ -424,7 +425,13 @@ describe('applyPrintBackgroundPolicy', () => {
       countPending: () => 0,
       drain: async () => {},
       turnEndings: scriptedTurnEndings([
-        { event: ending(2), apply: () => { consumed += 1; active = false; } },
+        {
+          event: ending(2),
+          apply: () => {
+            consumed += 1;
+            active = false;
+          },
+        },
       ]),
       skipTurnId: 1,
       warn,

@@ -79,7 +79,10 @@ describe('detectTextEncoding', () => {
 
 describe('classifyTextSample', () => {
   it('classifies UTF-8 multibyte text (CJK, emoji) as utf-8 text', () => {
-    const sample = Buffer.from('2026-08-16 INFO 启动完成 ✅\n处理请求 🚀 成功\n'.repeat(20), 'utf8');
+    const sample = Buffer.from(
+      '2026-08-16 INFO 启动完成 ✅\n处理请求 🚀 成功\n'.repeat(20),
+      'utf8',
+    );
     expect(classifyTextSample(sample)).toEqual({ isBinary: false, encoding: 'utf-8' });
   });
 
@@ -132,7 +135,10 @@ describe('classifyTextSample', () => {
   });
 
   it('rejects a tail lead byte not followed by continuation bytes', () => {
-    const sample = Buffer.concat([Buffer.from('plain ascii log line\n'), Buffer.from([0xe4, 0x41])]);
+    const sample = Buffer.concat([
+      Buffer.from('plain ascii log line\n'),
+      Buffer.from([0xe4, 0x41]),
+    ]);
     expect(classifyTextSample(sample).isBinary).toBe(true);
   });
 

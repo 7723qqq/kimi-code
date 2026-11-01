@@ -26,10 +26,7 @@ export const IAgentTestScopeGuardService = createDecorator<IAgentTestScopeGuardS
   'agentTestScopeGuardService',
 );
 
-export class AgentTestScopeGuardService
-  extends Disposable
-  implements IAgentTestScopeGuardService
-{
+export class AgentTestScopeGuardService extends Disposable implements IAgentTestScopeGuardService {
   declare readonly _serviceBrand: undefined;
 
   private readonly enabled: boolean;

@@ -7,17 +7,11 @@ import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext
 
 import { workspaceTrustRequired } from './configSection';
 import { IWorkspaceTrust, type WorkspaceTrustChange } from './workspaceTrust';
-import {
-  IWorkspaceTrustStore,
-  type IWorkspaceTrustEntry,
-} from './workspaceTrustStore';
+import { IWorkspaceTrustStore, type IWorkspaceTrustEntry } from './workspaceTrustStore';
 
 export { TRUST_WORKSPACE_ENV, trustWorkspaceEnvTrusted } from './trustEnv';
 
-export const workspaceTrustTrustedKey = defineState<boolean>(
-  'workspaceTrust.trusted',
-  () => false,
-);
+export const workspaceTrustTrustedKey = defineState<boolean>('workspaceTrust.trusted', () => false);
 
 export class WorkspaceTrustService extends Disposable implements IWorkspaceTrust {
   declare readonly _serviceBrand: undefined;
@@ -36,10 +30,12 @@ export class WorkspaceTrustService extends Disposable implements IWorkspaceTrust
     super();
     this.states.contributeState(workspaceTrustTrustedKey);
     this.inner = trustStore.forRoot(workspace.cwd);
-    this._register(this.inner.onDidChange((change) => {
-      this.trusted = change.trusted;
-      this.changeEmitter.fire(change);
-    }));
+    this._register(
+      this.inner.onDidChange((change) => {
+        this.trusted = change.trusted;
+        this.changeEmitter.fire(change);
+      }),
+    );
   }
 
   get ready(): Promise<void> {

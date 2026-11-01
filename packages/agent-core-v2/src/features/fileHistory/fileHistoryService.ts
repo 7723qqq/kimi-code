@@ -1,4 +1,3 @@
-
 import { isAbsolute, relative, resolve } from 'pathe';
 
 import { Service } from '#/_base/di/service';
@@ -482,7 +481,11 @@ export class AgentFileHistoryService extends Service implements IAgentFileHistor
   ): Promise<Uint8Array | 'missing' | 'unreadable' | { oversizeBytes: number; mtimeMs?: number }> {
     const absolute = isAbsolute(pathKey) ? pathKey : resolve(this.workspaceCtx.workDir, pathKey);
     let result = await this.readCurrentOnce(absolute);
-    for (let attempt = 1; attempt < FILE_HISTORY_READ_ATTEMPTS && result === 'unreadable'; attempt += 1) {
+    for (
+      let attempt = 1;
+      attempt < FILE_HISTORY_READ_ATTEMPTS && result === 'unreadable';
+      attempt += 1
+    ) {
       await new Promise((resolve) => setTimeout(resolve, 10));
       result = await this.readCurrentOnce(absolute);
     }

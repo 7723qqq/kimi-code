@@ -1,6 +1,7 @@
+import { afterEach, describe, expect, it } from 'bun:test';
+
 import { resetCapabilitiesCache, setCapabilities, visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
-import { afterEach, describe, expect, it } from 'bun:test';
 
 import {
   UserMessageComponent,
@@ -137,7 +138,6 @@ describe('UserMessageComponent', () => {
       expect(wrapped[0]?.startsWith('❯ ')).toBe(true);
       expect(wrapped[1]?.startsWith('  word')).toBe(true);
     });
-
   });
 
   describe('skillNames', () => {

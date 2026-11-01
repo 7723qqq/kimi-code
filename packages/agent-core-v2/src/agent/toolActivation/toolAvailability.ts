@@ -8,6 +8,7 @@ export function isToolAvailable(
   runtime: Pick<IAgentRuntimeService, 'isAvailable'>,
 ): boolean {
   const required = options.requiredRuntimeCapabilities;
-  return (required === undefined || runtime.isAvailable(required)) &&
-    (options.when?.(accessor) ?? true);
+  return (
+    (required === undefined || runtime.isAvailable(required)) && (options.when?.(accessor) ?? true)
+  );
 }

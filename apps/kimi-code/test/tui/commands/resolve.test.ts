@@ -6,7 +6,6 @@ import {
   slashBusyMessage,
   slashCommandBusyReason,
 } from '#/tui/commands/index';
-
 import { resolveUserInput } from '#/tui/commands/resolve';
 
 function resolve(
@@ -39,14 +38,20 @@ describe('resolveUserInput', () => {
   it.each([
     { input: '/skill:review src/app.ts', skills: [{ skillName: 'review', args: 'src/app.ts' }] },
     { input: '/review', skills: [{ skillName: 'review', args: '' }] },
-    { input: '/skill:team/review src/app.ts', skills: [{ skillName: 'team/review', args: 'src/app.ts' }] },
+    {
+      input: '/skill:team/review src/app.ts',
+      skills: [{ skillName: 'team/review', args: 'src/app.ts' }],
+    },
     { input: '/team/review src/app.ts', skills: [] },
     { input: 'check /skill:team/review src/app.ts', skills: [] },
     { input: '/quick\ncheck src/app.ts', skills: [] },
     { input: '/skill:review\nexplain this', skills: [] },
     { input: '/skill:review\n\nexplain this', skills: [] },
     { input: '/skill:review\texplain this', skills: [] },
-    { input: '/quick \ncheck src/app.ts', skills: [{ skillName: 'review', args: 'check src/app.ts' }] },
+    {
+      input: '/quick \ncheck src/app.ts',
+      skills: [{ skillName: 'review', args: 'check src/app.ts' }],
+    },
     { input: '/quick\n', skills: [{ skillName: 'review', args: '' }] },
     { input: 'please /skill:review src/app.ts', skills: [{ skillName: 'review' }] },
     { input: '/skill:review /review src/app.ts', skills: [{ skillName: 'review' }] },

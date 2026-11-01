@@ -1,4 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+
+import { SyncDescriptor } from '#/_base/di/descriptors';
+import { DisposableStore } from '#/_base/di/lifecycle';
+import { TestInstantiationService } from '#/_base/di/test';
+import { ILogService } from '#/_base/log/log';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { IFlagService } from '#/app/flag/flag';
+import {
+  ISessionPromptOptimizerService,
+  PROMPT_OPTIMIZER_FLAG_ID,
+  PROMPT_OPTIMIZER_SYSTEM_PROMPT,
+} from '#/features/promptOptimizer/promptOptimizer';
+import { SessionPromptOptimizerService } from '#/features/promptOptimizer/promptOptimizerService';
+import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
+import { ISessionSubagentService } from '#/session/subagent/subagent';
+import { type ToolCall } from '#human/llm/message';
+
 import {
   PROMPT_OPTIMIZER_COMPRESS_INSTRUCTION,
   PROMPT_OPTIMIZER_DRAFT_CLOSE,
@@ -12,23 +31,11 @@ import { PROMPT_OPTIMIZER_MAX_CONTEXT_LENGTH } from '../../../src/features/promp
 import { PROMPT_OPTIMIZER_MAX_CONTEXT_TURNS } from '../../../src/features/promptOptimizer/promptOptimizer';
 import { PROMPT_OPTIMIZER_MAX_CONTEXT_TURN_CHARS } from '../../../src/features/promptOptimizer/promptOptimizer';
 import { PROMPT_OPTIMIZER_PROFILE_NAME } from '../../../src/features/promptOptimizer/promptOptimizer';
-import { type ToolCall } from '#human/llm/message';
-
-import { SyncDescriptor } from '#/_base/di/descriptors';
-import { DisposableStore } from '#/_base/di/lifecycle';
-import { TestInstantiationService } from '#/_base/di/test';
-import { ILogService } from '#/_base/log/log';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { IFlagService } from '#/app/flag/flag';
-import { ISessionPromptOptimizerService, PROMPT_OPTIMIZER_FLAG_ID, PROMPT_OPTIMIZER_SYSTEM_PROMPT } from '#/features/promptOptimizer/promptOptimizer';
-import { SessionPromptOptimizerService } from '#/features/promptOptimizer/promptOptimizerService';
-import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
-import { ISessionSubagentService } from '#/session/subagent/subagent';
-
 import { stubAgentContext } from '../../agent/agentContext/stubs';
-import { stubToolExecutorEvents, type ToolExecutorEventStubs } from '../../agent/toolExecutor/stubs';
+import {
+  stubToolExecutorEvents,
+  type ToolExecutorEventStubs,
+} from '../../agent/toolExecutor/stubs';
 
 const CONTEXT = { cwd: 'C:/work/demo' };
 
@@ -191,7 +198,9 @@ describe('SessionPromptOptimizerService', () => {
     await svc.optimize('fix the thing', { ...CONTEXT, recentTurns: turns });
 
     const prompt = (run.mock.calls[0]?.[1] as { prompt: string }).prompt;
-    const rendered = prompt.split(String.fromCodePoint(10)).filter((line) => line.startsWith('- turn-'));
+    const rendered = prompt
+      .split(String.fromCodePoint(10))
+      .filter((line) => line.startsWith('- turn-'));
     expect(rendered).toHaveLength(PROMPT_OPTIMIZER_MAX_CONTEXT_TURNS);
     expect(prompt).not.toContain('- turn-0');
   });
@@ -442,9 +451,8 @@ ${PROMPT_OPTIMIZER_DRAFT_CLOSE}`);
     let call = 0;
     run = mock(() => {
       call += 1;
-      const summary = call === 1
-        ? 'x'.repeat(PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH + 500)
-        : 'Compressed rewrite.';
+      const summary =
+        call === 1 ? 'x'.repeat(PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH + 500) : 'Compressed rewrite.';
       return Promise.resolve({
         agentId: 'agent-opt-1',
         turn: {},

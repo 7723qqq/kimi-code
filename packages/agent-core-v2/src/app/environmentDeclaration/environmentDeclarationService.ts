@@ -1,12 +1,15 @@
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { DisposableStore } from '#/_base/di/lifecycle';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { AsyncEmitter, type IWaitUntil } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
 import { IConfigService } from '#/app/config/config';
 import { LifecycleScope } from '#/app/scopes';
-import { ENVIRONMENTS_SECTION, resolveWorkspaceEnvironmentDeclarations } from '#/remote/declaration/configSection';
-import type { EnvironmentDeclarationSet } from '#/remote/declaration/remoteEnvironmentDeclaration';
 import { Error2, ErrorCodes } from '#/errors';
+import {
+  ENVIRONMENTS_SECTION,
+  resolveWorkspaceEnvironmentDeclarations,
+} from '#/remote/declaration/configSection';
+import type { EnvironmentDeclarationSet } from '#/remote/declaration/remoteEnvironmentDeclaration';
 
 import { IEnvironmentDeclarationService } from './environmentDeclaration';
 
@@ -28,10 +31,14 @@ export class EnvironmentDeclarationService implements IEnvironmentDeclarationSer
     @ILogService private readonly log: ILogService,
   ) {
     if (config.onDidSectionChange !== undefined) {
-      this.subscriptions.add(config.onDidSectionChange((event) => {
-        if (event.domain !== ENVIRONMENTS_SECTION || this.disposed) return;
-        void this.reload().catch((error: unknown) => { this.log.warn('remote environment declaration reload failed', { error }); });
-      }));
+      this.subscriptions.add(
+        config.onDidSectionChange((event) => {
+          if (event.domain !== ENVIRONMENTS_SECTION || this.disposed) return;
+          void this.reload().catch((error: unknown) => {
+            this.log.warn('remote environment declaration reload failed', { error });
+          });
+        }),
+      );
     }
   }
 
@@ -49,22 +56,34 @@ export class EnvironmentDeclarationService implements IEnvironmentDeclarationSer
       this.registrationErrors.delete(environmentId);
       return;
     }
-    this.registrationErrors.set(environmentId, new Error2(ErrorCodes.CONFIG_INVALID, `environment "${environmentId}" could not be registered: ${error.message}`, { cause: error }));
+    this.registrationErrors.set(
+      environmentId,
+      new Error2(
+        ErrorCodes.CONFIG_INVALID,
+        `environment "${environmentId}" could not be registered: ${error.message}`,
+        { cause: error },
+      ),
+    );
     this.catalogKey = undefined;
   }
 
   private reload(): Promise<void> {
-    const run = (this.loading ?? Promise.resolve()).catch(() => undefined).then(async () => {
-      if (this.disposed) return;
-      this.current = await resolveWorkspaceEnvironmentDeclarations(this.config);
-      for (const id of this.registrationErrors.keys()) {
-        if (!this.current.entries.some((entry) => entry.id === id)) this.registrationErrors.delete(id);
-      }
-      const key = JSON.stringify(this.current.entries.toSorted((a, b) => a.id.localeCompare(b.id)));
-      if (key === this.catalogKey) return;
-      await this.changes.fireAsync({ entries: this.current.entries }, NO_ABORT);
-      this.catalogKey = this.registrationErrors.size === 0 ? key : undefined;
-    });
+    const run = (this.loading ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(async () => {
+        if (this.disposed) return;
+        this.current = await resolveWorkspaceEnvironmentDeclarations(this.config);
+        for (const id of this.registrationErrors.keys()) {
+          if (!this.current.entries.some((entry) => entry.id === id))
+            this.registrationErrors.delete(id);
+        }
+        const key = JSON.stringify(
+          this.current.entries.toSorted((a, b) => a.id.localeCompare(b.id)),
+        );
+        if (key === this.catalogKey) return;
+        await this.changes.fireAsync({ entries: this.current.entries }, NO_ABORT);
+        this.catalogKey = this.registrationErrors.size === 0 ? key : undefined;
+      });
     this.loading = run;
     return run;
   }
@@ -76,4 +95,10 @@ export class EnvironmentDeclarationService implements IEnvironmentDeclarationSer
   }
 }
 
-registerScopedService(LifecycleScope.App, IEnvironmentDeclarationService, EnvironmentDeclarationService, ScopeActivation.OnScopeCreated, 'environmentDeclaration');
+registerScopedService(
+  LifecycleScope.App,
+  IEnvironmentDeclarationService,
+  EnvironmentDeclarationService,
+  ScopeActivation.OnScopeCreated,
+  'environmentDeclaration',
+);

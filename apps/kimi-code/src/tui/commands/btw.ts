@@ -19,11 +19,7 @@ export async function handleBtwCommand(host: SlashCommandHost, args: string): Pr
     const activations = extractInlineSkillActivations(prompt, host.skillCommandMap, {
       includeLeading: true,
     });
-    host.btwPanelController.open(
-      agentId,
-      prompt,
-      activations.length > 0 ? activations : undefined,
-    );
+    host.btwPanelController.open(agentId, prompt, activations.length > 0 ? activations : undefined);
   } catch (error) {
     host.showError(t('tui.messages.btwStartFailed', { error: formatErrorMessage(error) }));
   }

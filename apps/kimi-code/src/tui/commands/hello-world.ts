@@ -255,7 +255,10 @@ function helloWorldModeSubcommand(input: string): boolean | undefined {
   return undefined;
 }
 
-function renderHelloWorldModeMarker(host: SlashCommandHost, state: HelloWorldModeMarkerState): void {
+function renderHelloWorldModeMarker(
+  host: SlashCommandHost,
+  state: HelloWorldModeMarkerState,
+): void {
   host.appendTranscriptEntry(
     {
       id: nextTranscriptId(),
@@ -373,13 +376,19 @@ async function waiveHelloWorldRunItem(
  * it degrades to no update rather than an error, like the toggle confirmation.
  */
 async function syncHelloWorldRunState(host: SlashCommandHost): Promise<void> {
-  const status = await host.requireSession().getStatus().catch(() => null);
+  const status = await host
+    .requireSession()
+    .getStatus()
+    .catch(() => null);
   if (status === null) return;
   host.setAppState({ helloWorldStage: status.helloWorldRun?.stage });
 }
 
 async function warnOpenHelloWorldItems(host: SlashCommandHost): Promise<void> {
-  const status = await host.requireSession().getStatus().catch(() => null);
+  const status = await host
+    .requireSession()
+    .getStatus()
+    .catch(() => null);
   const run = status?.helloWorldRun;
   if (run === undefined) return;
   const open = run.items.filter((item) => !item.done).map((item) => item.id);
@@ -431,9 +440,7 @@ function buildHelloWorldRunLines(run: HelloWorldRunStatus, wrapWidth: number): s
     row(t('tui.messages.helloWorldRunPanel.stageLabel'), value(run.stage)),
     row(
       t('tui.messages.helloWorldRunPanel.taskLabel'),
-      run.task === undefined
-        ? muted(t('tui.messages.helloWorldRunPanel.noTask'))
-        : value(run.task),
+      run.task === undefined ? muted(t('tui.messages.helloWorldRunPanel.noTask')) : value(run.task),
     ),
     '',
     muted(t('tui.messages.helloWorldRunPanel.itemsLabel')),

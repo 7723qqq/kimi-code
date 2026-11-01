@@ -103,7 +103,12 @@ export async function handleVis(deps: VisDeps, opts: VisOptions): Promise<void> 
 
 export function parsePortOption(value: string): number {
   const parsed = Number.parseInt(value, 10);
-  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 65535 || String(parsed) !== value.trim()) {
+  if (
+    !Number.isInteger(parsed) ||
+    parsed < 0 ||
+    parsed > 65535 ||
+    String(parsed) !== value.trim()
+  ) {
     throw new InvalidArgumentError(t('cli.optionDescriptions.visPortInvalid', { value }));
   }
   return parsed;
@@ -124,7 +129,9 @@ export function registerVisCommand(parent: Command, overrides?: Partial<VisDeps>
       ) => {
         await handleVis(createDefaultVisDeps(overrides), {
           open: options.open !== false,
-          ...(options.port === undefined || Number.isNaN(options.port) ? {} : { port: options.port }),
+          ...(options.port === undefined || Number.isNaN(options.port)
+            ? {}
+            : { port: options.port }),
           ...(options.host === undefined ? {} : { host: options.host }),
           ...(sessionId === undefined ? {} : { sessionId }),
         });

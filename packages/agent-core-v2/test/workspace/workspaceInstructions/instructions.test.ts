@@ -1,9 +1,9 @@
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'pathe';
 
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { join } from 'pathe';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
@@ -89,7 +89,10 @@ describe('WorkspaceInstructionsService', () => {
         reg.define(IWorkspaceInstructionsService, WorkspaceInstructionsService);
       },
     });
-    return { service: ix.get(IWorkspaceInstructionsService), states: ix.get(IWorkspaceStateService) };
+    return {
+      service: ix.get(IWorkspaceInstructionsService),
+      states: ix.get(IWorkspaceStateService),
+    };
   }
 
   it('loads the AGENTS.md snapshot at build and projects it through the session provider', async () => {

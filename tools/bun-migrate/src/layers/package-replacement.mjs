@@ -116,7 +116,10 @@ export function applyPackageReplacementLayer(project, journal) {
         const assessment = assessImport(binding.package, [binding.imported]);
         if (!assessment) continue;
         if (!assessment.safe) {
-          const missing = assessment.unverified.length > 0 ? assessment.unverified.join(', ') : 'the package as a whole';
+          const missing =
+            assessment.unverified.length > 0
+              ? assessment.unverified.join(', ')
+              : 'the package as a whole';
           journal.skip(
             file,
             'packages',
@@ -247,9 +250,10 @@ function removeImport(text, file, binding) {
   const { statement, importClause } = clause;
   const removed = binding.localNames ?? new Set([binding.localName]);
   const keepsDefault = importClause.name !== undefined && !removed.has(importClause.name.text);
-  const named = importClause.namedBindings && ts.isNamedImports(importClause.namedBindings)
-    ? importClause.namedBindings.elements.filter((element) => !removed.has(element.name.text))
-    : [];
+  const named =
+    importClause.namedBindings && ts.isNamedImports(importClause.namedBindings)
+      ? importClause.namedBindings.elements.filter((element) => !removed.has(element.name.text))
+      : [];
 
   if (!keepsDefault && named.length === 0) {
     let end = statement.getEnd();

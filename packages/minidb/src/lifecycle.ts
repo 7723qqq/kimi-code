@@ -30,6 +30,7 @@ import {
 import type { LifecycleTracker } from './lifecycle-status.js';
 import { LockFile, LockError } from './lockfile.js';
 import { MaintenanceScheduler } from './maintenance.js';
+import { parseMiniDbOptions } from './options.js';
 import { recover } from './recovery.js';
 import type { RecoveryMode, RecoveryInfo, ValueMode } from './recovery.js';
 import { Store } from './store.js';
@@ -40,7 +41,6 @@ import { ValueReader } from './value-reader.js';
 import { WAL } from './wal.js';
 import type { FsyncPolicy, WalStats } from './wal.js';
 import { wipeStoreDir } from './wipe.js';
-import { parseMiniDbOptions } from './options.js';
 
 /** The private methods the lifecycle flow calls, bound by the owner. */
 export interface LifecycleHooks {

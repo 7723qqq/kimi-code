@@ -632,7 +632,8 @@ export class AgentRunBatch<T> {
   }
 
   private clearRateLimitTimer(): void {
-    if (this.rateLimitLaunchTimer !== undefined) this.timers.clearTimeout(this.rateLimitLaunchTimer);
+    if (this.rateLimitLaunchTimer !== undefined)
+      this.timers.clearTimeout(this.rateLimitLaunchTimer);
     this.rateLimitLaunchTimer = undefined;
   }
 

@@ -1,15 +1,25 @@
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { bootstrap, type ITelemetryAppender, ITelemetryService, IOAuthToolkit, resolveConfigPath, resolveLoggingConfig, type Scope, type ScopeSeed, TelemetryService } from '@moonshot-ai/agent-core-v2';
-import { readKimiDeviceId } from '@moonshot-ai/kimi-code-oauth';
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import {
+  bootstrap,
+  type ITelemetryAppender,
+  ITelemetryService,
+  IOAuthToolkit,
+  resolveConfigPath,
+  resolveLoggingConfig,
+  type Scope,
+  type ScopeSeed,
+  TelemetryService,
+} from '@moonshot-ai/agent-core-v2';
 import { logSeed } from '@moonshot-ai/agent-core-v2';
-import { removeTempHome } from './helpers/tempHome';
+import { readKimiDeviceId } from '@moonshot-ai/kimi-code-oauth';
 
 import { initializeServerTelemetry, shutdownServerTelemetry } from '../src/services/telemetry';
 import { setGlobal, restoreGlobals } from './helpers/stubs';
+import { removeTempHome } from './helpers/tempHome';
 
 describe('server telemetry', () => {
   let home: string | undefined;

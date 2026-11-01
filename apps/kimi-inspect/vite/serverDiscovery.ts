@@ -204,7 +204,10 @@ export async function discoverLocalServers(
 
 /** Vite plugin exposing `GET /__inspect/servers` on dev and preview servers. */
 export function serverDiscoveryPlugin(options: { proxyTarget: string }): Plugin {
-  const handler = (_req: unknown, res: { setHeader(name: string, value: string): void; end(data: string): void }): void => {
+  const handler = (
+    _req: unknown,
+    res: { setHeader(name: string, value: string): void; end(data: string): void },
+  ): void => {
     void discoverLocalServers({ proxyTarget: options.proxyTarget })
       .then((payload) => {
         res.setHeader('content-type', 'application/json');

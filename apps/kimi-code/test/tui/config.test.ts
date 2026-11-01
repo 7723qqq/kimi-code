@@ -1,10 +1,7 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-
-import { restoreEnvs, setEnv } from '#test/helpers/stubs';
 
 import {
   DEFAULT_TUI_CONFIG,
@@ -15,6 +12,7 @@ import {
   saveTuiConfig,
   TuiConfigParseError,
 } from '#/tui/config';
+import { restoreEnvs, setEnv } from '#test/helpers/stubs';
 
 let dir: string;
 let filePath: string;
@@ -209,10 +207,15 @@ command = "   "
   it('preserves the legacy opt-out when an unrelated preference is saved', async () => {
     writeFileSync(filePath, 'disable_feedback_survey = true\nauto_session_title = false\n');
     const previous = await loadTuiConfig(filePath);
-    await saveTuiConfig({ ...previous, disableFeedbackSurvey: undefined, theme: 'light' }, filePath);
+    await saveTuiConfig(
+      { ...previous, disableFeedbackSurvey: undefined, theme: 'light' },
+      filePath,
+    );
 
     expect(await loadTuiConfig(filePath)).toMatchObject({
-      theme: 'light', disableFeedbackSurvey: true, autoSessionTitle: false,
+      theme: 'light',
+      disableFeedbackSurvey: true,
+      autoSessionTitle: false,
     });
   });
 
@@ -231,12 +234,18 @@ command = "   "
   });
 
   it('removes only the migrated survey setting and can repeat the cleanup', async () => {
-    writeFileSync(filePath, 'disable_feedback_survey = true\nauto_session_title = false\ntheme = "light"\n[custom]\nvalue = 42\n');
+    writeFileSync(
+      filePath,
+      'disable_feedback_survey = true\nauto_session_title = false\ntheme = "light"\n[custom]\nvalue = 42\n',
+    );
     await removeLegacySurveySetting(filePath);
     const cleaned = readFileSync(filePath, 'utf-8');
     expect(cleaned).not.toContain('disable_feedback_survey');
     expect(cleaned).toContain('value = 42');
-    expect(await loadTuiConfig(filePath)).toMatchObject({ theme: 'light', autoSessionTitle: false });
+    expect(await loadTuiConfig(filePath)).toMatchObject({
+      theme: 'light',
+      autoSessionTitle: false,
+    });
     await removeLegacySurveySetting(filePath);
     expect(readFileSync(filePath, 'utf-8')).toBe(cleaned);
     await saveTuiConfig({ ...DEFAULT_TUI_CONFIG, theme: 'dark' }, filePath);
@@ -244,34 +253,39 @@ command = "   "
   });
 
   it('removes the survey setting line without disturbing comments or tables', async () => {
-    writeFileSync(filePath, [
-      '# ~/.kimi-code/tui.toml',
-      '# Client preferences for kimi-code.',
-      'theme = "dark" # "auto" | "dark" | "light"',
-      '# my own note',
-      'disable_feedback_survey = true',
-      '# disable_feedback_survey = false',
-      '',
-      '[custom]',
-      'disable_feedback_survey = true',
-      'value = 42',
-      '',
-    ].join('\n'));
+    writeFileSync(
+      filePath,
+      [
+        '# ~/.kimi-code/tui.toml',
+        '# Client preferences for kimi-code.',
+        'theme = "dark" # "auto" | "dark" | "light"',
+        '# my own note',
+        'disable_feedback_survey = true',
+        '# disable_feedback_survey = false',
+        '',
+        '[custom]',
+        'disable_feedback_survey = true',
+        'value = 42',
+        '',
+      ].join('\n'),
+    );
 
     await removeLegacySurveySetting(filePath);
 
-    expect(readFileSync(filePath, 'utf-8')).toBe([
-      '# ~/.kimi-code/tui.toml',
-      '# Client preferences for kimi-code.',
-      'theme = "dark" # "auto" | "dark" | "light"',
-      '# my own note',
-      '# disable_feedback_survey = false',
-      '',
-      '[custom]',
-      'disable_feedback_survey = true',
-      'value = 42',
-      '',
-    ].join('\n'));
+    expect(readFileSync(filePath, 'utf-8')).toBe(
+      [
+        '# ~/.kimi-code/tui.toml',
+        '# Client preferences for kimi-code.',
+        'theme = "dark" # "auto" | "dark" | "light"',
+        '# my own note',
+        '# disable_feedback_survey = false',
+        '',
+        '[custom]',
+        'disable_feedback_survey = true',
+        'value = 42',
+        '',
+      ].join('\n'),
+    );
   });
 
   it('removes a quoted spelling of the survey setting key', async () => {
@@ -283,10 +297,7 @@ command = "   "
   });
 
   it('round-trips an auto_session_title opt-out', async () => {
-    await saveTuiConfig(
-      { ...DEFAULT_TUI_CONFIG, autoSessionTitle: false },
-      filePath,
-    );
+    await saveTuiConfig({ ...DEFAULT_TUI_CONFIG, autoSessionTitle: false }, filePath);
 
     expect(readFileSync(filePath, 'utf-8')).toContain('auto_session_title = false');
     expect((await loadTuiConfig(filePath)).autoSessionTitle).toBe(false);

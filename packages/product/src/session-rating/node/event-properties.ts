@@ -1,7 +1,7 @@
 import { defineTelemetryEvent } from '@moonshot-ai/agent-core-v2';
 
-import type { SurveyEventType, SurveyKind, SurveyResponse } from '../common/types';
 import type { SurveyPopupConfig } from '../common/survey-popup-config';
+import type { SurveyEventType, SurveyKind, SurveyResponse } from '../common/types';
 
 export const SURVEY_EVENT_NAMES = {
   session: 'feedback_survey',
@@ -73,7 +73,8 @@ const surveyEventPropertyDescriptions: {
   appearance_index: 'Ordinal of the appearance within the current session mount, starting at 1',
   response: 'Answer carried by responded events: bad, fine, good, or dismissed',
   current_model: 'Session model alias when the prompt appeared',
-  kfc_model_id: 'Managed Kimi Code model id, present when the session model uses the managed endpoint',
+  kfc_model_id:
+    'Managed Kimi Code model id, present when the session model uses the managed endpoint',
   kfc_trace_id: 'Trace id of the turn that triggered the prompt, present only with kfc_model_id',
   user_turn_count:
     'User turns in the session when the prompt appeared, absent when the history count is unknown',

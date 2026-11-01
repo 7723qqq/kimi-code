@@ -1,8 +1,7 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
@@ -10,10 +9,10 @@ import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/
 import type { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
 import { ToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncationService';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import type { ContentPart } from '#human/llm/message';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import type { ExecutableToolResult } from '#/tool/toolContract';
+import type { ContentPart } from '#human/llm/message';
 
 import { stubBootstrap } from '../../app/bootstrap/stubs';
 
@@ -43,18 +42,23 @@ describe('ToolResultTruncationService', () => {
     await rm(homeDir, { recursive: true, force: true });
   });
 
-  const spillDir = () =>
-    join(homeDir, 'sessions/workspace/session/agents/main/tool-results');
+  const spillDir = () => join(homeDir, 'sessions/workspace/session/agents/main/tool-results');
 
   it('recognizes agent event logs under the sessions directory', () => {
     expect(
-      truncation.isWireJournalPath(join(homeDir, 'sessions/workspace/session/agents/main/wire.jsonl')),
+      truncation.isWireJournalPath(
+        join(homeDir, 'sessions/workspace/session/agents/main/wire.jsonl'),
+      ),
     ).toBe(true);
     expect(
-      truncation.isWireJournalPath(join(homeDir, 'sessions/workspace/session/agents/sub-1/wire.jsonl')),
+      truncation.isWireJournalPath(
+        join(homeDir, 'sessions/workspace/session/agents/sub-1/wire.jsonl'),
+      ),
     ).toBe(true);
     expect(
-      truncation.isWireJournalPath(join(homeDir, 'sessions/workspace/session/agents/main/notes.jsonl')),
+      truncation.isWireJournalPath(
+        join(homeDir, 'sessions/workspace/session/agents/main/notes.jsonl'),
+      ),
     ).toBe(false);
     expect(truncation.isWireJournalPath(join(homeDir, 'blobs/wire.jsonl'))).toBe(false);
     expect(truncation.isWireJournalPath('/elsewhere/sessions/x/wire.jsonl')).toBe(false);
@@ -132,9 +136,7 @@ describe('ToolResultTruncationService', () => {
     const rendered = result.output;
     expect(typeof rendered).toBe('string');
     if (typeof rendered !== 'string') throw new Error('expected string output');
-    expect(rendered).toContain(
-      'the first 60000 characters (of 25000000) were saved to a file.',
-    );
+    expect(rendered).toContain('the first 60000 characters (of 25000000) were saved to a file.');
     expect(rendered).not.toContain('the full output was saved');
     expect(rendered).toContain(
       'output_size_chars: 25000000 (only the first 60000 characters were preserved)',
@@ -155,9 +157,7 @@ describe('ToolResultTruncationService', () => {
     const rendered = result.output;
     expect(typeof rendered).toBe('string');
     if (typeof rendered !== 'string') throw new Error('expected string output');
-    expect(rendered).toContain(
-      'the first 10000000 characters (of 11000000) were saved to a file.',
-    );
+    expect(rendered).toContain('the first 10000000 characters (of 11000000) were saved to a file.');
     await expect(readFile(renderedOutputPath(rendered), 'utf8')).resolves.toBe(retained);
   });
 
@@ -206,9 +206,7 @@ describe('ToolResultTruncationService', () => {
     expect(pointer.text).toContain('Tool output exceeded 50000 characters');
     expect(pointer.text).toContain('the full text output was saved to a file');
     expect(media).toEqual([image]);
-    await expect(readFile(renderedOutputPath(pointer.text), 'utf8')).resolves.toBe(
-      bulk('x', 600),
-    );
+    await expect(readFile(renderedOutputPath(pointer.text), 'utf8')).resolves.toBe(bulk('x', 600));
   });
 
   it('appends the pointer instead of replacing output when per-line shaping suffices', async () => {
@@ -228,7 +226,9 @@ describe('ToolResultTruncationService', () => {
     expect(rendered).toContain('first line\n');
     expect(rendered).toContain(`${'y'.repeat(1_984)}[...truncated]\n`);
     expect(rendered).toContain('last line');
-    expect(rendered).toContain('[Per-line truncation occurred; the complete output was saved to a file.');
+    expect(rendered).toContain(
+      '[Per-line truncation occurred; the complete output was saved to a file.',
+    );
     expect(rendered).toContain('next_step: Use Read with output_path');
     await expect(readFile(renderedOutputPath(rendered), 'utf8')).resolves.toBe(full);
   });
@@ -246,7 +246,9 @@ describe('ToolResultTruncationService', () => {
     const rendered = result.output;
     expect(typeof rendered).toBe('string');
     if (typeof rendered !== 'string') throw new Error('expected string output');
-    expect(rendered).toContain('[Per-line truncation occurred; the complete output was saved to a file.');
+    expect(rendered).toContain(
+      '[Per-line truncation occurred; the complete output was saved to a file.',
+    );
     expect(rendered.split(notice).length - 1).toBe(1);
   });
 
@@ -262,7 +264,9 @@ describe('ToolResultTruncationService', () => {
     const rendered = result.output;
     expect(typeof rendered).toBe('string');
     if (typeof rendered !== 'string') throw new Error('expected string output');
-    expect(rendered).toContain('[Per-line truncation occurred; the complete output was saved to a file.');
+    expect(rendered).toContain(
+      '[Per-line truncation occurred; the complete output was saved to a file.',
+    );
     expect(rendered).toContain('task_id: task-9');
   });
 

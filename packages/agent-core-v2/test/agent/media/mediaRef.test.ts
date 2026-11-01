@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'bun:test';
 
-import type { ContentPart } from '#human/llm/message';
 import {
   AUDIO_MIME_BY_SUFFIX,
   DOCUMENT_MIME_BY_SUFFIX,
@@ -17,6 +16,7 @@ import {
   mediaKindOfPart,
   parseDaemonFileUrl,
 } from '#/agent/media/mediaRef';
+import type { ContentPart } from '#human/llm/message';
 
 describe('media kind classification', () => {
   it('classifies paths by suffix, case-insensitively', () => {
@@ -92,12 +92,14 @@ describe('daemon file URL', () => {
 
   it('extracts references from media parts with the part-implied kind', () => {
     const url = buildDaemonFileUrl('file_1');
-    expect(
-      daemonFileRefFromPart({ type: 'image_url', imageUrl: { url } }),
-    ).toEqual({ kind: 'image', ref: { fileId: 'file_1' } });
-    expect(
-      daemonFileRefFromPart({ type: 'video_url', videoUrl: { url } }),
-    ).toEqual({ kind: 'video', ref: { fileId: 'file_1' } });
+    expect(daemonFileRefFromPart({ type: 'image_url', imageUrl: { url } })).toEqual({
+      kind: 'image',
+      ref: { fileId: 'file_1' },
+    });
+    expect(daemonFileRefFromPart({ type: 'video_url', videoUrl: { url } })).toEqual({
+      kind: 'video',
+      ref: { fileId: 'file_1' },
+    });
     expect(
       daemonFileRefFromPart({ type: 'image_url', imageUrl: { url: 'data:image/png;base64,AA' } }),
     ).toBeUndefined();
@@ -185,4 +187,3 @@ describe('matchSingleMediaPathTag', () => {
     expect(matchSingleMediaPathTag('plain text')).toBeUndefined();
   });
 });
-

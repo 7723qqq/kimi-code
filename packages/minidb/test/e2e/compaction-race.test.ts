@@ -4,7 +4,6 @@
 // compaction is triggered frequently (both auto and manual) must not lose any
 // write, must not throw, and must leave a recoverable database.
 
-
 import { expect, test } from 'bun:test';
 
 import { MiniDb } from '../../src/index.js';
@@ -118,7 +117,10 @@ test('compaction-race: snapshot phase does not block writes', { timeout: 30_000 
       cp.then(() => 'compact' as const),
       first.then(() => 'write' as const),
     ]);
-    expect(winner, 'a write issued during compaction completes before compaction finishes (non-blocking snapshot)').toBe('write');
+    expect(
+      winner,
+      'a write issued during compaction completes before compaction finishes (non-blocking snapshot)',
+    ).toBe('write');
     await first;
 
     const M = 500;
@@ -261,7 +263,10 @@ test(
       stop = true;
       await Promise.all(writers);
       expect(writeError, `write failed during compaction storm: ${String(writeError)}`).toBe(null);
-      expect(db.stats.compactions >= 2, `expected auto compactions to complete during the storm, got ${db.stats.compactions} (written=${written})`).toBeTruthy();
+      expect(
+        db.stats.compactions >= 2,
+        `expected auto compactions to complete during the storm, got ${db.stats.compactions} (written=${written})`,
+      ).toBeTruthy();
       await db.close();
 
       // every acknowledged write must survive compaction rotations + recovery

@@ -1,9 +1,8 @@
+// test/degrade.test.ts
+import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-
-// test/degrade.test.ts
-import { expect, test } from 'bun:test';
 
 import { encodeFrame, TYPE_SET, CorruptFrameError } from '../src/codec.js';
 import { MiniDb, classifyStorageError } from '../src/index.js';
@@ -45,7 +44,9 @@ test('openOrRebuild does NOT delete a live-locked db', async () => {
   const db1 = await MiniDb.open({ dir, valueCodec: 'string' });
   await db1.set('a', '1');
   try {
-    await expect((() => MiniDb.openOrRebuild({ dir, valueCodec: 'string' }))()).rejects.toThrow(LockError);
+    await expect((() => MiniDb.openOrRebuild({ dir, valueCodec: 'string' }))()).rejects.toThrow(
+      LockError,
+    );
     // data still there
     expect(await fs.stat(path.join(dir, 'db.wal'))).toBeTruthy();
   } finally {
@@ -64,12 +65,14 @@ test('openOrRebuild with onLockFail readonly must not mutate a live writer: corr
   // files.
   await fs.writeFile(path.join(dir, 'db.indexes.json'), '{broken-json');
   try {
-    await expect(MiniDb.openOrRebuild<string>({
+    await expect(
+      MiniDb.openOrRebuild<string>({
         dir,
         valueCodec: 'string',
         fsyncPolicy: 'no',
         onLockFail: 'readonly',
-      })).rejects.toThrow(SyntaxError);
+      }),
+    ).rejects.toThrow(SyntaxError);
     const sidecar = await fs.readFile(path.join(dir, 'db.indexes.json'), 'utf8');
     expect(sidecar, 'the live writer’s sidecar is untouched').toBe('{broken-json');
     expect(writer.get('kept'), 'the live writer is undisturbed').toBe('value');
@@ -136,7 +139,10 @@ test('openOrRebuild refuses to destructively rebuild by default when the data fi
   await expect(MiniDb.openOrRebuild({ dir, valueCodec: 'json' })).rejects.toThrow(
     /allowDestructiveRebuild/,
   );
-  expect((await fs.stat(walPath)).size > walLenBefore, 'WAL untouched by the refused rebuild').toBeTruthy();
+  expect(
+    (await fs.stat(walPath)).size > walLenBefore,
+    'WAL untouched by the refused rebuild',
+  ).toBeTruthy();
   // dropping the appended poison frame repairs the db: the data was never erased
   await fs.truncate(walPath, walLenBefore);
   const recovered = await MiniDb.open({ dir, valueCodec: 'json' });
@@ -181,10 +187,16 @@ test('classifyStorageError and retryEperm drive the rebuild/transient recovery p
   expect(classifyStorageError(walPoisoned)).toBe('rebuild');
   expect(classifyStorageError(new CorruptFrameError('bad frame', 0))).toBe('rebuild');
   expect(classifyStorageError(new SyntaxError('unexpected token'))).toBe('rebuild');
-  expect(classifyStorageError(new AggregateError([new Error('x'), walPoisoned], 'partial'))).toBe('rebuild');
-  expect(classifyStorageError(new AggregateError([new Error('x'), new LockError('locked')], 'partial'))).toBe('transient');
+  expect(classifyStorageError(new AggregateError([new Error('x'), walPoisoned], 'partial'))).toBe(
+    'rebuild',
+  );
+  expect(
+    classifyStorageError(new AggregateError([new Error('x'), new LockError('locked')], 'partial')),
+  ).toBe('transient');
   expect(classifyStorageError(new LockError('locked'))).toBe('transient');
-  expect(classifyStorageError(Object.assign(new Error('perm'), { code: 'EPERM' }))).toBe('transient');
+  expect(classifyStorageError(Object.assign(new Error('perm'), { code: 'EPERM' }))).toBe(
+    'transient',
+  );
   expect(classifyStorageError(new Error('unknown'))).toBe('transient');
 
   const eperm = () => Object.assign(new Error('operation not permitted'), { code: 'EPERM' });
@@ -201,19 +213,23 @@ test('classifyStorageError and retryEperm drive the rebuild/transient recovery p
   expect(attempts).toBe(3);
 
   attempts = 0;
-  await expect(retryEperm(async () => {
+  await expect(
+    retryEperm(async () => {
       attempts += 1;
       throw new Error('not eperm');
-    })).rejects.toThrow(/not eperm/);
+    }),
+  ).rejects.toThrow(/not eperm/);
   expect(attempts).toBe(1);
 
   attempts = 0;
-  await expect(retryEperm(
+  await expect(
+    retryEperm(
       async () => {
         attempts += 1;
         throw eperm();
       },
       { retries: 2, baseDelayMs: 1 },
-    )).rejects.toThrow(/operation not permitted/);
+    ),
+  ).rejects.toThrow(/operation not permitted/);
   expect(attempts).toBe(3);
 });

@@ -1,23 +1,30 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
-import { type ToolCall } from '#human/llm/message';
-import { compileToolArgsValidator, validateToolArgs } from '#/tool/args-validator';
 import { USER_PROMPT_ORIGIN } from '#/agent/contextMemory/types';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { TurnStarted } from '#/agent/loop/turnEvents';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import {
+  IAgentToolExecutorService,
+  type ToolExecutionResult,
+} from '#/agent/toolExecutor/toolExecutor';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { IEventBus } from '#/app/event/eventBus';
 import { IAgentGoalService } from '#/features/goal/goalService';
-
 import { SetGoalBudgetTool } from '#/features/goal/tools/set-goal-budget/setGoalBudgetTool';
 import { UpdateGoalToolInputSchema } from '#/features/goal/tools/update-goal/update-goal';
 import { UpdateGoalTool } from '#/features/goal/tools/update-goal/updateGoalTool';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
-import { IAgentToolExecutorService, type ToolExecutionResult } from '#/agent/toolExecutor/toolExecutor';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { IEventBus } from '#/app/event/eventBus';
-import { TurnStarted } from '#/agent/loop/turnEvents';
+import { compileToolArgsValidator, validateToolArgs } from '#/tool/args-validator';
+import { type ToolCall } from '#human/llm/message';
 
-import { agentService, createTestAgent, permissionModeServices, type TestAgentContext } from '../../../harness';
 import { stubLoopWithHooks } from '../../../agent/loop/stubs';
+import {
+  agentService,
+  createTestAgent,
+  permissionModeServices,
+  type TestAgentContext,
+} from '../../../harness';
 import { stubAgentSwarm } from '../stubs';
 
 const signal = new AbortController().signal;
@@ -409,4 +416,3 @@ describe('goal tools', () => {
     return { type: 'function', id, name, arguments: JSON.stringify(args) };
   }
 });
-

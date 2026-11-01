@@ -3,9 +3,8 @@
 // Cross-shard semantics: best-effort mset, 'none' mode rejection, per-shard
 // secondary/text indexes with global merge, and cluster-wide compaction.
 
-import path from 'node:path';
-
 import { expect, test } from 'bun:test';
+import path from 'node:path';
 
 import { ClusterDb, shardDirName } from '../../src/cluster/index.js';
 import { MiniDb } from '../../src/index.js';
@@ -23,11 +22,13 @@ test("crossShard 'none' rejects multi-shard writes but allows single-shard ones"
     });
     const a = keyOnShard('cs', 0, 4);
     const b = keyOnShard('cs', 1, 4);
-    await expect((() =>
+    await expect(
+      (() =>
         db.mset([
           [a, 1],
           [b, 2],
-        ]))()).rejects.toThrow(/spans 2 shards/);
+        ]))(),
+    ).rejects.toThrow(/spans 2 shards/);
 
     const sameShard = [keyOnShard('one', 0, 4), keyOnShard('one-x', 0, 4)];
     await db.mset(sameShard.map((k, i) => [k, i] as [string, number]));
@@ -71,7 +72,8 @@ test('secondary index: create, findEq/findRange merged across shards, maintained
     expect(ranged.length > 0).toBeTruthy();
     expect(ranged.every((r) => r.field >= 25 && r.field < 30)).toBeTruthy();
     // Sorted by field then key across shards.
-    for (let i = 1; i < ranged.length; i++) expect(ranged[i]!.field >= ranged[i - 1]!.field).toBeTruthy();
+    for (let i = 1; i < ranged.length; i++)
+      expect(ranged[i]!.field >= ranged[i - 1]!.field).toBeTruthy();
 
     // Writes after index creation are indexed too (same-shard and elsewhere).
     const late = keyOnShard('late', 5, 8);
@@ -211,11 +213,17 @@ test('findRange applies offset/count/reverse to the globally merged result', asy
     expect(await query({ offset: 12, count: 8 })).toStrictEqual(keys(rows.slice(12, 20)));
     // Reverse flips the merged order, including the key tie-break.
     expect(await query({ reverse: true })).toStrictEqual(keys([...rows].toReversed()));
-    expect(await query({ reverse: true, count: 7 })).toStrictEqual(keys([...rows].toReversed().slice(0, 7)));
+    expect(await query({ reverse: true, count: 7 })).toStrictEqual(
+      keys([...rows].toReversed().slice(0, 7)),
+    );
     // Bounds still apply globally on top of offset/count.
     const inBounds = rows.filter((r) => r.n >= 3 && r.n < 20);
-    expect(await query({ min: 3, max: 20, maxExclusive: true, count: 5 })).toStrictEqual(keys(inBounds.slice(0, 5)));
-    expect(await query({ min: 3, max: 20, maxExclusive: true, offset: 2, count: 5 })).toStrictEqual(keys(inBounds.slice(2, 7)));
+    expect(await query({ min: 3, max: 20, maxExclusive: true, count: 5 })).toStrictEqual(
+      keys(inBounds.slice(0, 5)),
+    );
+    expect(await query({ min: 3, max: 20, maxExclusive: true, offset: 2, count: 5 })).toStrictEqual(
+      keys(inBounds.slice(2, 7)),
+    );
     await db.close();
   } finally {
     await rmrf(dir);
@@ -270,7 +278,9 @@ test('a failed unique createIndex rolls back the shards it already created on', 
     for (let id = 0; id < shardCount; id++)
       await db.set(keyOnShard('rb', id, shardCount), { u: 9 });
     await db.set(keyOnShard('rb-dup', shardCount - 1, shardCount), { u: 9 });
-    await expect((() => db.createIndex('u-idx', { field: 'u', unique: true }))()).rejects.toThrow(/unique index "u-idx" violation/);
+    await expect((() => db.createIndex('u-idx', { field: 'u', unique: true }))()).rejects.toThrow(
+      /unique index "u-idx" violation/,
+    );
     await db.close();
 
     // Every shard sidecar must be clean (not just the registry).

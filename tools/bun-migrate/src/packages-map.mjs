@@ -12,13 +12,15 @@
  * a build error into a runtime one.
  */
 
-export const PACKAGE_REPLACEMENTS = [  {
+export const PACKAGE_REPLACEMENTS = [
+  {
     package: 'yaml',
     bun: 'Bun.YAML',
     effect: 'speed',
     verified: ['parse', 'stringify'],
     summary: 'yaml.parse/stringify -> Bun.YAML.parse/stringify, verified on a nested document',
-    caveats: 'Bun.YAML.parse does not accept the options object yaml.parse takes (custom schemas, revivers)',
+    caveats:
+      'Bun.YAML.parse does not accept the options object yaml.parse takes (custom schemas, revivers)',
   },
   {
     package: 'js-yaml',
@@ -26,8 +28,10 @@ export const PACKAGE_REPLACEMENTS = [  {
     effect: 'speed',
     verified: ['load', 'dump'],
     memberAliases: { load: 'parse', dump: 'stringify' },
-    summary: 'js-yaml load/dump -> Bun.YAML.parse/stringify, verified equal output for a nested document',
-    caveats: 'load maps to parse and dump to stringify; js-yaml schemas and type definitions have no equivalent',
+    summary:
+      'js-yaml load/dump -> Bun.YAML.parse/stringify, verified equal output for a nested document',
+    caveats:
+      'load maps to parse and dump to stringify; js-yaml schemas and type definitions have no equivalent',
   },
   {
     package: 'smol-toml',
@@ -42,7 +46,8 @@ export const PACKAGE_REPLACEMENTS = [  {
     bun: 'Bun.JSON5',
     effect: 'speed',
     verified: ['parse', 'stringify'],
-    summary: 'json5 parse/stringify -> Bun.JSON5.parse/stringify, verified equal output with comments and trailing commas',
+    summary:
+      'json5 parse/stringify -> Bun.JSON5.parse/stringify, verified equal output with comments and trailing commas',
     caveats: 'no options object on either side',
   },
   {
@@ -58,8 +63,10 @@ export const PACKAGE_REPLACEMENTS = [  {
     bun: 'Bun.stringWidth',
     effect: 'speed',
     verified: ['default'],
-    summary: 'string-width -> Bun.stringWidth, verified equal for ascii, CJK, emoji and combining marks',
-    caveats: 'string-width accepts an options object for ambiguous-width characters; Bun.stringWidth does not',
+    summary:
+      'string-width -> Bun.stringWidth, verified equal for ascii, CJK, emoji and combining marks',
+    caveats:
+      'string-width accepts an options object for ambiguous-width characters; Bun.stringWidth does not',
   },
   {
     package: 'semver',
@@ -86,14 +93,16 @@ export const PACKAGE_REPLACEMENTS = [  {
     verified: ['sync'],
     memberExpressions: { sync: 'Bun.which' },
     summary: 'which.sync -> Bun.which, verified to find the same binary',
-    caveats: 'which.sync with nothrow maps to Bun.which returning null; the path casing may differ on Windows',
+    caveats:
+      'which.sync with nothrow maps to Bun.which returning null; the path casing may differ on Windows',
   },
   {
     package: '@iarna/toml',
     bun: 'Bun.TOML',
     effect: 'report-only',
     verified: ['parse (non-date values)', 'stringify'],
-    summary: '@iarna/toml and Bun.TOML agree on strings, numbers and arrays but produce different date types',
+    summary:
+      '@iarna/toml and Bun.TOML agree on strings, numbers and arrays but produce different date types',
     caveats:
       'measured: a TOML datetime parses to a Date in @iarna/toml and to a Temporal.Instant or Temporal.PlainDate in Bun.TOML, so any caller comparing, formatting or serialising a date changes behaviour',
   },
@@ -102,7 +111,8 @@ export const PACKAGE_REPLACEMENTS = [  {
     bun: 'bun:sqlite',
     effect: 'report-only',
     verified: ['prepare', 'run', 'get', 'all', 'iterate', 'transaction'],
-    summary: 'better-sqlite3 matches bun:sqlite on the everyday path but not on empty rows or six helper methods',
+    summary:
+      'better-sqlite3 matches bun:sqlite on the everyday path but not on empty rows or six helper methods',
     caveats:
       'measured: .get() on an empty result is undefined on better-sqlite3 and null on bun:sqlite, and pluck()/raw()/expand()/columns()/pragma()/backup() have no counterpart, so a partial port breaks at run time',
   },
@@ -113,7 +123,7 @@ export const PACKAGE_REPLACEMENTS = [  {
     verified: ['escape'],
     summary: 'escape-html agrees with Bun.escapeHTML except for the single-quote entity',
     caveats:
-      "measured: escape-html emits &#39; for a single quote while Bun.escapeHTML emits &#x27;. Both render identically in HTML, but the bytes differ, so any caller comparing, hashing or snapshotting the escaped string changes output",
+      'measured: escape-html emits &#39; for a single quote while Bun.escapeHTML emits &#x27;. Both render identically in HTML, but the bytes differ, so any caller comparing, hashing or snapshotting the escaped string changes output',
   },
   {
     package: 'he',

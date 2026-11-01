@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, it } from 'bun:test';
 
+import { _clearScopedRegistryForTests, registerScopedService } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
-import { LifecycleScope } from '#/app/scopes';
-import {
-  _clearScopedRegistryForTests,
-  registerScopedService,
-} from '#/_base/di/scope';
 import { Emitter } from '#/_base/event';
+import { LifecycleScope } from '#/app/scopes';
 import { InMemorySkillCatalog } from '#/features/skill/catalog/registry';
 import type { SkillCatalog } from '#/features/skill/catalog/types';
-import { ISessionSkillCatalog, type ISkillCatalogSink } from '#/features/skill/session/skillCatalog';
+import {
+  ISessionSkillCatalog,
+  type ISkillCatalogSink,
+} from '#/features/skill/session/skillCatalog';
 import { ISessionSkillCatalogData } from '#/features/skill/session/skillCatalogData';
 import { SessionSkillCatalogService } from '#/features/skill/session/skillCatalogService';
 import { ISessionStateService } from '#/session/state/sessionState';
@@ -51,11 +51,7 @@ function catalogOf(...skills: readonly ReturnType<typeof stubSkill>[]): InMemory
 describe('SessionSkillCatalogService (seed view)', () => {
   beforeEach(() => {
     _clearScopedRegistryForTests();
-    registerScopedService(
-      LifecycleScope.Session,
-      ISessionStateService,
-      SessionStateService,
-    );
+    registerScopedService(LifecycleScope.Session, ISessionStateService, SessionStateService);
     registerScopedService(LifecycleScope.Session, ISessionSkillCatalog, SessionSkillCatalogService);
   });
 

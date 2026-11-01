@@ -141,7 +141,9 @@ describe('table invariants', () => {
   });
 
   it('every recorded gap is referenced by at least one case', () => {
-    const referenced = new Set(ERROR_CASES.map((entry) => entry.expect).filter((key) => key !== null));
+    const referenced = new Set(
+      ERROR_CASES.map((entry) => entry.expect).filter((key) => key !== null),
+    );
     const orphans = ERROR_GAP_KEYS.filter((key) => !referenced.has(key));
     expect(JSON.stringify(orphans)).toBe('[]');
   });
@@ -179,13 +181,19 @@ describe('error shapes agree across runtimes', () => {
     const key = `${entry.group}: ${entry.label}`;
     if (entry.expect === null) {
       it(key, () => {
-        if (!nodeAvailable) throw new Error('node must be on PATH: every differential case compares two runtimes, so skipping it would report a pass that proves nothing');
+        if (!nodeAvailable)
+          throw new Error(
+            'node must be on PATH: every differential case compares two runtimes, so skipping it would report a pass that proves nothing',
+          );
         assertAgrees(key, runCase('node', key), runCase('bun', key));
       });
       continue;
     }
     it(`${key} still diverges as recorded`, () => {
-      if (!nodeAvailable) throw new Error('node must be on PATH: every differential case compares two runtimes, so skipping it would report a pass that proves nothing');
+      if (!nodeAvailable)
+        throw new Error(
+          'node must be on PATH: every differential case compares two runtimes, so skipping it would report a pass that proves nothing',
+        );
       const nodeShape = runCase('node', key);
       const bunShape = runCase('bun', key);
       const difference = describeShapeDifference(nodeShape, bunShape);
@@ -274,7 +282,13 @@ describe('the comparison itself is trustworthy', () => {
 
   it('describeShapeDifference names the fields that moved', () => {
     const described = describeShapeDifference(
-      { thrown: true, constructor: 'Error', code: 'ENOTFOUND', errno: -3008, syscall: 'getaddrinfo' },
+      {
+        thrown: true,
+        constructor: 'Error',
+        code: 'ENOTFOUND',
+        errno: -3008,
+        syscall: 'getaddrinfo',
+      },
       { thrown: true, constructor: 'Error', code: 'ENOTFOUND', errno: 4, syscall: 'getaddrinfo' },
     );
     expect(described.includes('errno')).toBe(true);
@@ -282,8 +296,12 @@ describe('the comparison itself is trustworthy', () => {
   });
 
   it('comparedFields concept: a non-error value is compared on the value itself', () => {
-    expect(shapeDiffers({ thrown: false, value: 'a,b,c' }, { thrown: false, value: 'a,b,c' })).toBe(false);
-    expect(shapeDiffers({ thrown: false, value: 'a,b,c' }, { thrown: false, value: 'b,a,c' })).toBe(true);
+    expect(shapeDiffers({ thrown: false, value: 'a,b,c' }, { thrown: false, value: 'a,b,c' })).toBe(
+      false,
+    );
+    expect(shapeDiffers({ thrown: false, value: 'a,b,c' }, { thrown: false, value: 'b,a,c' })).toBe(
+      true,
+    );
   });
 
   it('shapeDiffers sees a relative path where the other side resolved it', () => {

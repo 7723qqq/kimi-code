@@ -1,4 +1,17 @@
-import { chmod, mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  open,
+  readFile,
+  readdir,
+  realpath,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, sep } from 'node:path';
 import { deflateSync } from 'node:zlib';
@@ -27,15 +40,14 @@ import {
   closeSessionById,
   getLiveSessionById,
 } from '@moonshot-ai/agent-core-v2';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { knowledgeClose } from '@moonshot-ai/agent-core-v2';
-import { waitForAssertion, waitUntil } from './helpers/waitFor';
-import { removeTempHome } from './helpers/tempHome';
 
-import { type RunningServer, startServer } from '../src/start';
 import { projectPromptSnapshot, watchPromptSettlements } from '../src/routes/prompts';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { type RunningServer, startServer } from '../src/start';
 import { authHeaders } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { removeTempHome } from './helpers/tempHome';
+import { waitForAssertion, waitUntil } from './helpers/waitFor';
 
 interface Envelope<T> {
   code: number;
@@ -236,7 +248,13 @@ describe('server-v2 /api/v1 prompts', () => {
   beforeAll(async () => {
     home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-prompts-'));
     await writeConfigToml(home, PROMPT_TOML);
-    server = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
+    server = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home,
+      logLevel: 'silent',
+    });
     base = `http://127.0.0.1:${server.port}`;
   });
 
@@ -457,7 +475,10 @@ describe('server-v2 /api/v1 prompts', () => {
     const id = await createSession(home as string);
     await createMainAgent(id);
     await setSessionModel(id, 'stub');
-    await writeConfigToml(home as string, PROMPT_TOML_OTHER_DEFAULT.replace('default_model = "other"\n\n', ''));
+    await writeConfigToml(
+      home as string,
+      PROMPT_TOML_OTHER_DEFAULT.replace('default_model = "other"\n\n', ''),
+    );
     await server!.core.accessor.get(IConfigService).reload();
 
     const session = getLiveSessionById(server!.core.accessor, id);
@@ -506,9 +527,7 @@ describe('server-v2 /api/v1 prompts', () => {
       kind: 'user',
       skillActivations: [{ skillName: 'update-config' }, { skillName: 'check-kimi-code-docs' }],
     });
-    const texts = bundled?.content
-      .filter((part) => part.type === 'text')
-      .map((part) => part.text);
+    const texts = bundled?.content.filter((part) => part.type === 'text').map((part) => part.text);
     expect(texts?.at(-1)).toBe('Review this change.');
 
     const projected = projectPromptSnapshot({
@@ -561,7 +580,13 @@ describe('server-v2 /api/v1 prompts', () => {
         role: 'user',
         content: [{ type: 'text', text: 'User activated the skill' }],
         toolCalls: [],
-        origin: { kind: 'skill_activation', activationId: 'act-1', skillName: 'update-config', trigger: 'user-slash', clientMetadata: [metadata] },
+        origin: {
+          kind: 'skill_activation',
+          activationId: 'act-1',
+          skillName: 'update-config',
+          trigger: 'user-slash',
+          clientMetadata: [metadata],
+        },
       },
     });
     expect(projected.metadata).toEqual(metadata);
@@ -578,14 +603,40 @@ describe('server-v2 /api/v1 prompts', () => {
       id: 'active-skill',
       userMessageId: 'active-skill',
       createdAt: '2026-01-01T00:00:00.000Z',
-      message: { role: 'user', content: [{ type: 'text', text: 'User activated the skill' }], toolCalls: [], origin: { kind: 'skill_activation', activationId: 'act-1', skillName: 'update-config', trigger: 'user-slash', clientMetadata: metadata } },
+      message: {
+        role: 'user',
+        content: [{ type: 'text', text: 'User activated the skill' }],
+        toolCalls: [],
+        origin: {
+          kind: 'skill_activation',
+          activationId: 'act-1',
+          skillName: 'update-config',
+          trigger: 'user-slash',
+          clientMetadata: metadata,
+        },
+      },
     };
-    const listing = spyOn(loop, 'snapshot').mockReturnValue({ ...loop.snapshot(), activePromptId: 'active-skill', queue: [] });
-    const lookup = spyOn(loop, 'promptHandle').mockImplementation((promptId) => (promptId === 'active-skill' ? handle : undefined) as never);
+    const listing = spyOn(loop, 'snapshot').mockReturnValue({
+      ...loop.snapshot(),
+      activePromptId: 'active-skill',
+      queue: [],
+    });
+    const lookup = spyOn(loop, 'promptHandle').mockImplementation(
+      (promptId) => (promptId === 'active-skill' ? handle : undefined) as never,
+    );
     try {
-      const result = await call<{ prompts: unknown[] }>('GET', `/api/v1/sessions/${id}/transcript?agent_id=main`);
+      const result = await call<{ prompts: unknown[] }>(
+        'GET',
+        `/api/v1/sessions/${id}/transcript?agent_id=main`,
+      );
       expect(result.body.code).toBe(0);
-      expect(result.body.data.prompts).toContainEqual(expect.objectContaining({ promptId: 'active-skill', status: 'running', clientMetadata: metadata }));
+      expect(result.body.data.prompts).toContainEqual(
+        expect.objectContaining({
+          promptId: 'active-skill',
+          status: 'running',
+          clientMetadata: metadata,
+        }),
+      );
     } finally {
       lookup.mockRestore();
       listing.mockRestore();
@@ -602,12 +653,32 @@ describe('server-v2 /api/v1 prompts', () => {
     const origin = { kind: 'user', clientMetadata: metadata };
     const listing = spyOn(loop, 'snapshot').mockReturnValue({
       ...loop.snapshot(),
-      queue: [{ message: { role: 'user', content: [{ type: 'text', text: 'browser wire' }] }, meta: { promptId: 'queued-example', userMessageId: 'queued-example', tracked: true, createdAt: '2026-01-01T00:00:00.000Z', origin } }],
+      queue: [
+        {
+          message: { role: 'user', content: [{ type: 'text', text: 'browser wire' }] },
+          meta: {
+            promptId: 'queued-example',
+            userMessageId: 'queued-example',
+            tracked: true,
+            createdAt: '2026-01-01T00:00:00.000Z',
+            origin,
+          },
+        },
+      ],
     });
     try {
-      const result = await call<{ prompts: unknown[] }>('GET', `/api/v1/sessions/${id}/transcript?agent_id=main`);
+      const result = await call<{ prompts: unknown[] }>(
+        'GET',
+        `/api/v1/sessions/${id}/transcript?agent_id=main`,
+      );
       expect(result.body.code).toBe(0);
-      expect(result.body.data.prompts).toContainEqual(expect.objectContaining({ promptId: 'queued-example', status: 'queued', clientMetadata: metadata }));
+      expect(result.body.data.prompts).toContainEqual(
+        expect.objectContaining({
+          promptId: 'queued-example',
+          status: 'queued',
+          clientMetadata: metadata,
+        }),
+      );
     } finally {
       listing.mockRestore();
     }
@@ -649,39 +720,54 @@ describe('server-v2 /api/v1 prompts', () => {
     expect(getLiveSessionById(server!.core.accessor, id)).not.toBe(handle);
   });
 
-  it.each([false, true])('preserves client metadata through submission and cold resume (skills=%s)', async (withSkills) => {
-    const id = await createSession(home as string);
-    await createMainAgent(id);
-    const metadata = {
-      display_text: 'Example browser element · Example comment',
-      kimi_code_composer: {
-        version: 1,
-        doc: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: '[literal](example.md)' }] }] },
-        browserReferences: [{ id: 'ref-example', captureId: 'capture-example', comment: 'Example comment' }],
-      },
-    };
-    const submitted = await call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, {
-      content: [{ type: 'text', text: 'Visible prompt' }],
-      metadata,
-      skills: withSkills ? [{ name: 'update-config' }] : undefined,
-    });
-    expect(submitted.body.code).toBe(0);
-    expect(submitted.body.data.metadata).toEqual(metadata);
-    await closeSessionById(server!.core.accessor, id);
-    const resumed = await call('GET', `/api/v1/sessions/${id}/prompts`);
-    expect(resumed.body.code).toBe(0);
-    const session = getLiveSessionById(server!.core.accessor, id);
-    const agent = session!.accessor.get(IAgentLifecycleService).handleOf('main');
-    const history = agent!.accessor.get(IAgentContextMemoryService).get();
-    const saved = history.find((message) => message.origin?.kind === 'user');
-    expect(saved?.origin).toMatchObject({ clientMetadata: [metadata] });
-    expect(await session!.accessor.get(ISessionMetadata).read()).toMatchObject({ title: metadata.display_text, lastPrompt: metadata.display_text });
-    expect(JSON.stringify(saved?.content)).not.toContain('ref-example');
-    const transcript = await call<{ items: { kind: string; origin?: { payload?: { clientMetadata?: unknown } } }[] }>('GET', `/api/v1/sessions/${id}/transcript?agent_id=main&page_size=20`);
-    expect(transcript.body.code).toBe(0);
-    const turn = transcript.body.data.items.find((item) => item.kind === 'turn');
-    expect(turn?.origin?.payload?.clientMetadata).toEqual([metadata]);
-  });
+  it.each([false, true])(
+    'preserves client metadata through submission and cold resume (skills=%s)',
+    async (withSkills) => {
+      const id = await createSession(home as string);
+      await createMainAgent(id);
+      const metadata = {
+        display_text: 'Example browser element · Example comment',
+        kimi_code_composer: {
+          version: 1,
+          doc: {
+            type: 'doc',
+            content: [
+              { type: 'paragraph', content: [{ type: 'text', text: '[literal](example.md)' }] },
+            ],
+          },
+          browserReferences: [
+            { id: 'ref-example', captureId: 'capture-example', comment: 'Example comment' },
+          ],
+        },
+      };
+      const submitted = await call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, {
+        content: [{ type: 'text', text: 'Visible prompt' }],
+        metadata,
+        skills: withSkills ? [{ name: 'update-config' }] : undefined,
+      });
+      expect(submitted.body.code).toBe(0);
+      expect(submitted.body.data.metadata).toEqual(metadata);
+      await closeSessionById(server!.core.accessor, id);
+      const resumed = await call('GET', `/api/v1/sessions/${id}/prompts`);
+      expect(resumed.body.code).toBe(0);
+      const session = getLiveSessionById(server!.core.accessor, id);
+      const agent = session!.accessor.get(IAgentLifecycleService).handleOf('main');
+      const history = agent!.accessor.get(IAgentContextMemoryService).get();
+      const saved = history.find((message) => message.origin?.kind === 'user');
+      expect(saved?.origin).toMatchObject({ clientMetadata: [metadata] });
+      expect(await session!.accessor.get(ISessionMetadata).read()).toMatchObject({
+        title: metadata.display_text,
+        lastPrompt: metadata.display_text,
+      });
+      expect(JSON.stringify(saved?.content)).not.toContain('ref-example');
+      const transcript = await call<{
+        items: { kind: string; origin?: { payload?: { clientMetadata?: unknown } } }[];
+      }>('GET', `/api/v1/sessions/${id}/transcript?agent_id=main&page_size=20`);
+      expect(transcript.body.code).toBe(0);
+      const turn = transcript.body.data.items.find((item) => item.kind === 'turn');
+      expect(turn?.origin?.payload?.clientMetadata).toEqual([metadata]);
+    },
+  );
 
   it('updates session metadata for a bundled prompt routed to a non-main agent', async () => {
     const id = await createSession(home as string);
@@ -800,10 +886,22 @@ describe('server-v2 /api/v1 prompts', () => {
   });
 
   it('cleans bundled staging through the settlement tracker', async () => {
-    const handlers: Array<(event: { type: string; promptId?: string; promptIds?: string[]; activePromptId?: string }) => void> = [];
+    const handlers: Array<
+      (event: {
+        type: string;
+        promptId?: string;
+        promptIds?: string[];
+        activePromptId?: string;
+      }) => void
+    > = [];
     const events = {
       subscribe(
-        handler: (event: { type: string; promptId?: string; promptIds?: string[]; activePromptId?: string }) => void,
+        handler: (event: {
+          type: string;
+          promptId?: string;
+          promptIds?: string[];
+          activePromptId?: string;
+        }) => void,
       ) {
         handlers.push(handler);
         return { dispose: mock() };
@@ -862,7 +960,10 @@ describe('server-v2 /api/v1 prompts', () => {
     }
 
     const session = getLiveSessionById(server!.core.accessor, id);
-    const agent = session === undefined ? undefined : session.accessor.get(IAgentLifecycleService).handleOf('main');
+    const agent =
+      session === undefined
+        ? undefined
+        : session.accessor.get(IAgentLifecycleService).handleOf('main');
     const source = agent?.accessor.get(IAgentTitlePromptSource);
     expect(source).toBeDefined();
     await expect(source!.firstUserPrompts(3)).resolves.toEqual(prompts);
@@ -889,7 +990,11 @@ describe('server-v2 /api/v1 prompts', () => {
     const session = getLiveSessionById(server!.core.accessor, id);
 
     const form = new FormData();
-    form.set('file', new Blob([Buffer.from('%PDF-1.4 fake')], { type: 'application/pdf' }), 'spec.pdf');
+    form.set(
+      'file',
+      new Blob([Buffer.from('%PDF-1.4 fake')], { type: 'application/pdf' }),
+      'spec.pdf',
+    );
     const uploadRes = await fetch(`${base}/api/v1/files`, {
       method: 'POST',
       headers: authHeaders(server as RunningServer),
@@ -973,7 +1078,10 @@ describe('server-v2 /api/v1 prompts', () => {
     expect(finalFileId).not.toBe(uploaded.id);
 
     const mediaPath = join(sessionMediaDir(server!, id), `${finalFileId}.png`);
-    expect(pngDimensions(await readFileEventually(mediaPath))).toEqual({ width: 2000, height: 1000 });
+    expect(pngDimensions(await readFileEventually(mediaPath))).toEqual({
+      width: 2000,
+      height: 1000,
+    });
     expect(JSON.stringify(content)).not.toContain(mediaPath);
 
     const original = await server!.core.accessor.get(IFileService).get(uploaded.id);
@@ -1348,7 +1456,13 @@ describe('server-v2 /api/v1 prompts', () => {
     expect(uploaded.code).toBe(0);
 
     const submitted = await call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, {
-      content: [{ type: 'image', source: { kind: 'file', file_id: uploaded.data.id }, name: 'renamed.avif' }],
+      content: [
+        {
+          type: 'image',
+          source: { kind: 'file', file_id: uploaded.data.id },
+          name: 'renamed.avif',
+        },
+      ],
     });
     expect(submitted.body.code).toBe(0);
 
@@ -1410,7 +1524,13 @@ describe('server-v2 /api/v1 prompts', () => {
     const submitted = await call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, {
       content: [
         { type: 'text', text: 'summarize this' },
-        { type: 'file', file_id: uploaded.id, name: 'report.pdf', media_type: 'application/pdf', size: pdfBytes.length },
+        {
+          type: 'file',
+          file_id: uploaded.id,
+          name: 'report.pdf',
+          media_type: 'application/pdf',
+          size: pdfBytes.length,
+        },
       ],
     });
     expect(submitted.body.code).toBe(0);
@@ -1433,7 +1553,9 @@ describe('server-v2 /api/v1 prompts', () => {
   it('materializes an uploaded SVG image as a path-referenced attachment', async () => {
     const id = await createSession(home as string);
     await createMainAgent(id);
-    const svgBytes = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"></svg>');
+    const svgBytes = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"></svg>',
+    );
     const uploaded = await uploadFile(svgBytes, 'image/svg+xml', 'vector.svg');
 
     const submitted = await call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, {
@@ -1495,7 +1617,13 @@ describe('server-v2 /api/v1 prompts', () => {
 
     const submitted = await call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, {
       content: [
-        { type: 'file', file_id: uploaded.id, name: '../../etc/evil.sh', media_type: 'text/plain', size: scriptBytes.length },
+        {
+          type: 'file',
+          file_id: uploaded.id,
+          name: '../../etc/evil.sh',
+          media_type: 'text/plain',
+          size: scriptBytes.length,
+        },
       ],
     });
     expect(submitted.body.code).toBe(0);
@@ -1587,19 +1715,22 @@ describe('server-v2 /api/v1 prompts', () => {
     expect(body.code).toBe(40407);
   });
 
-  it.skipIf(process.platform === 'win32')('rejects a symlink pointing at a sensitive file', async () => {
-    const id = await createSession(home as string);
-    await createMainAgent(id);
-    const secretPath = join(home as string, '.env');
-    await writeFile(secretPath, 'TOKEN=secret');
-    const linkPath = join(home as string, 'innocent.txt');
-    await symlink(secretPath, linkPath);
+  it.skipIf(process.platform === 'win32')(
+    'rejects a symlink pointing at a sensitive file',
+    async () => {
+      const id = await createSession(home as string);
+      await createMainAgent(id);
+      const secretPath = join(home as string, '.env');
+      await writeFile(secretPath, 'TOKEN=secret');
+      const linkPath = join(home as string, 'innocent.txt');
+      await symlink(secretPath, linkPath);
 
-    const { body } = await call<null>('POST', `/api/v1/sessions/${id}/prompts`, {
-      content: [{ type: 'file', path: linkPath }],
-    });
-    expect(body.code).toBe(40001);
-  });
+      const { body } = await call<null>('POST', `/api/v1/sessions/${id}/prompts`, {
+        content: [{ type: 'file', path: linkPath }],
+      });
+      expect(body.code).toBe(40001);
+    },
+  );
 
   it('rejects path attachments on a non-local runtime before touching the filesystem', async () => {
     const id = await createSession(home as string);
@@ -1724,10 +1855,16 @@ describe('server-v2 /api/v1 prompts', () => {
       expect(image.type).toBe('image');
       expect(image.source.kind).toBe('session_media');
       const mediaPath = join(sessionMediaDir(server!, id), `${image.source.file_id}.png`);
-      expect(pngDimensions(await readFileEventually(mediaPath))).toEqual({ width: 2000, height: 1000 });
+      expect(pngDimensions(await readFileEventually(mediaPath))).toEqual({
+        width: 2000,
+        height: 1000,
+      });
 
       const session = getLiveSessionById(server!.core.accessor, id);
-      const originalsDir = join(session!.accessor.get(ISessionContext).sessionDir, 'media-originals');
+      const originalsDir = join(
+        session!.accessor.get(ISessionContext).sessionDir,
+        'media-originals',
+      );
       await expect(readdir(originalsDir)).rejects.toMatchObject({ code: 'ENOENT' });
     } finally {
       await rm(outside, { recursive: true, force: true });
@@ -1859,9 +1996,7 @@ describe('server-v2 /api/v1 prompts', () => {
         .get(IAgentContextMemoryService)
         .get()
         .some(
-          (m) =>
-            m.role === 'user' &&
-            m.content.some((p) => p.type === 'text' && p.text === text),
+          (m) => m.role === 'user' && m.content.some((p) => p.type === 'text' && p.text === text),
         );
 
     expect(contextHasUserText(child, 'side question')).toBe(true);
@@ -2021,8 +2156,10 @@ describe('server-v2 /api/v1 prompts', () => {
 
     const session = getLiveSessionById(server!.core.accessor, id);
     if (session === undefined) throw new Error(`session ${id} not found`);
-    const toolPolicy = session.accessor.get(IAgentLifecycleService).handleOf('main')?.accessor
-      .get(IAgentToolPolicyService);
+    const toolPolicy = session.accessor
+      .get(IAgentLifecycleService)
+      .handleOf('main')
+      ?.accessor.get(IAgentToolPolicyService);
     expect(toolPolicy?.isToolActive('Bash')).toBe(false);
     expect(toolPolicy?.isToolActive('Read')).toBe(true);
 
@@ -2102,8 +2239,10 @@ describe('server-v2 /api/v1 prompts', () => {
 
     const session = getLiveSessionById(server!.core.accessor, id);
     if (session === undefined) throw new Error(`session ${id} not found`);
-    const toolPolicy = session.accessor.get(IAgentLifecycleService).handleOf('main')?.accessor
-      .get(IAgentToolPolicyService);
+    const toolPolicy = session.accessor
+      .get(IAgentLifecycleService)
+      .handleOf('main')
+      ?.accessor.get(IAgentToolPolicyService);
     expect(toolPolicy?.isToolActive('Bash')).toBe(false);
     expect(toolPolicy?.isToolActive('Read')).toBe(true);
   });

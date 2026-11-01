@@ -69,12 +69,14 @@ describe('ImageAttachmentStore', () => {
     const stale = att;
     s.clear();
     const fresh = s.addImage(new Uint8Array([9]), 'image/png', 2, 2);
-    expect(s.completeImage(stale, {
-      bytes: new Uint8Array([8]),
-      mime: 'image/png',
-      width: 3,
-      height: 3,
-    })).toBeUndefined();
+    expect(
+      s.completeImage(stale, {
+        bytes: new Uint8Array([8]),
+        mime: 'image/png',
+        width: 3,
+        height: 3,
+      }),
+    ).toBeUndefined();
     expect(fresh.bytes).toEqual(new Uint8Array([9]));
   });
 

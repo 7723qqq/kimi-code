@@ -1,7 +1,6 @@
+import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-
-import { expect, test } from 'bun:test';
 
 import { classifyStorageError, MiniDb } from '../src/index.js';
 import { rmrf, tmpDir } from './helpers.js';
@@ -23,7 +22,10 @@ async function expectRejected(label: string, open: () => Promise<unknown>): Prom
     threw = error;
   }
   expect(threw instanceof RangeError, `${label}: expected a RangeError`).toBeTruthy();
-  expect(String((threw as Error).message), `${label}: message was ${String((threw as Error).message)}`).toMatch(/unknown|must be/);
+  expect(
+    String((threw as Error).message),
+    `${label}: message was ${String((threw as Error).message)}`,
+  ).toMatch(/unknown|must be/);
 }
 
 test('H: unrecognized enum options are rejected at open', async () => {
@@ -107,13 +109,13 @@ test('H: valid options still open, and auto valueMode still resolves', async () 
 });
 
 test('F3: the default text-build memory budget is 128 MiB and is documented as such', async () => {
-  const dirs = await Promise.all([
-    tmpDir('minidb-f3-default-'),
-    tmpDir('minidb-f3-explicit-'),
-  ]);
+  const dirs = await Promise.all([tmpDir('minidb-f3-default-'), tmpDir('minidb-f3-explicit-')]);
   try {
     const defaulted = await MiniDb.open({ dir: dirs[0]!, valueCodec: 'string' });
-    expect(defaulted.textBuildMemoryBytes, 'an omitted textBuildMemoryBytes must resolve to the documented 128 MiB').toBe(128 * 1024 * 1024);
+    expect(
+      defaulted.textBuildMemoryBytes,
+      'an omitted textBuildMemoryBytes must resolve to the documented 128 MiB',
+    ).toBe(128 * 1024 * 1024);
     await defaulted.close();
 
     const explicit = await MiniDb.open({
@@ -121,7 +123,10 @@ test('F3: the default text-build memory budget is 128 MiB and is documented as s
       valueCodec: 'string',
       textBuildMemoryBytes: 32 * 1024 * 1024,
     });
-    expect(explicit.textBuildMemoryBytes, 'an explicit textBuildMemoryBytes must still win over the default').toBe(32 * 1024 * 1024);
+    expect(
+      explicit.textBuildMemoryBytes,
+      'an explicit textBuildMemoryBytes must still win over the default',
+    ).toBe(32 * 1024 * 1024);
     await explicit.close();
   } finally {
     for (const d of dirs) await rmrf(d);
@@ -185,8 +190,14 @@ test('a23/F3: a truncated db.textindexes.json makes open fail with a SyntaxError
     } catch (error) {
       threw = error;
     }
-    expect(threw instanceof SyntaxError, `expected a SyntaxError, got ${String(threw)}`).toBeTruthy();
-    expect(classifyStorageError(threw), 'the consumer policy for a torn definition file is a full rebuild').toBe('rebuild');
+    expect(
+      threw instanceof SyntaxError,
+      `expected a SyntaxError, got ${String(threw)}`,
+    ).toBeTruthy();
+    expect(
+      classifyStorageError(threw),
+      'the consumer policy for a torn definition file is a full rebuild',
+    ).toBe('rebuild');
     // The authoritative data itself is untouched — the damage is entirely the
     // definition file, so a durable-by-construction sidecar write is what
     // stands between one power loss and a wiped search index.

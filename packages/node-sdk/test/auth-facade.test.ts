@@ -1,14 +1,25 @@
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { FileTokenStorage, KIMI_CODE_OAUTH_KEY, KIMI_CODE_PROVIDER_NAME, KimiOAuthToolkit, OAuthConnectionError, OAuthError, RetryableRefreshError, resolveKimiCodeOAuthKey, resolveKimiTokenStorageName, type TokenInfo } from '@moonshot-ai/kimi-code-oauth';
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import {
+  FileTokenStorage,
+  KIMI_CODE_OAUTH_KEY,
+  KIMI_CODE_PROVIDER_NAME,
+  KimiOAuthToolkit,
+  OAuthConnectionError,
+  OAuthError,
+  RetryableRefreshError,
+  resolveKimiCodeOAuthKey,
+  resolveKimiTokenStorageName,
+  type TokenInfo,
+} from '@moonshot-ai/kimi-code-oauth';
 
 import { createKimiHarness, ErrorCodes, type KimiHarness } from '#/index';
 
-import { TEST_IDENTITY } from './test-identity';
 import { setEnv, setGlobal, restoreEnvs, restoreGlobals } from './stubs';
+import { TEST_IDENTITY } from './test-identity';
 
 let homeDir: string;
 
@@ -108,12 +119,11 @@ describe('KimiHarness.auth', () => {
     ];
 
     for (const tokenError of tokenErrors) {
-      const tokenProviderSpy = spyOn(KimiOAuthToolkit.prototype, 'tokenProvider')
-        .mockReturnValue({
-          async getAccessToken() {
-            throw tokenError;
-          },
-        });
+      const tokenProviderSpy = spyOn(KimiOAuthToolkit.prototype, 'tokenProvider').mockReturnValue({
+        async getAccessToken() {
+          throw tokenError;
+        },
+      });
       try {
         const harness = createHarness({ homeDir, identity: TEST_IDENTITY });
 
@@ -402,7 +412,9 @@ oauth = { storage = "file", key = "${oauthKey}", oauth_host = "${oauthHost}" }
         );
         return new Response(
           JSON.stringify({
-            data: [{ id: 'kimi-for-coding', limit: { context: 262144 }, reasoning: { type: 'both' } }],
+            data: [
+              { id: 'kimi-for-coding', limit: { context: 262144 }, reasoning: { type: 'both' } },
+            ],
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
@@ -475,7 +487,9 @@ oauth = { storage = "file", key = "${globalKey}", oauth_host = "${globalOauthHos
       if (url === 'https://api.kimi.com/coding/v1/models') {
         return new Response(
           JSON.stringify({
-            data: [{ id: 'kimi-for-coding', limit: { context: 262144 }, reasoning: { type: 'both' } }],
+            data: [
+              { id: 'kimi-for-coding', limit: { context: 262144 }, reasoning: { type: 'both' } },
+            ],
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         );

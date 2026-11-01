@@ -29,7 +29,11 @@ export const SILENT_GAPS = [
     detect() {
       let fired = false;
       const hooks = require('node:async_hooks');
-      const hook = hooks.createHook({ init() { fired = true; } });
+      const hook = hooks.createHook({
+        init() {
+          fired = true;
+        },
+      });
       hook.enable();
       hook.disable();
       return { callbacksFired: fired };
@@ -50,20 +54,25 @@ export const SILENT_GAPS = [
   {
     id: 'worker-resource-limits',
     api: 'node:worker_threads#resourceLimits',
-    summary: 'a Worker accepts resourceLimits and ignores them, so the memory cap is never enforced',
+    summary:
+      'a Worker accepts resourceLimits and ignores them, so the memory cap is never enforced',
     impact:
       'a runaway worker that was supposed to be capped at N megabytes keeps allocating until the host runs out, which looks like an unrelated OOM elsewhere',
     workaround: 'watch process.memoryUsage() inside the worker and exit yourself',
     severity: 'silent',
     detect() {
-      return { enforceable: false, note: 'Bun documents resourceLimits as ignored; the probe is a documentation cross-check, not a live spawn' };
+      return {
+        enforceable: false,
+        note: 'Bun documents resourceLimits as ignored; the probe is a documentation cross-check, not a live spawn',
+      };
     },
   },
   {
     id: 'perf-hooks-event-loop-utilization',
     api: 'node:perf_hooks#eventLoopUtilization',
     summary: 'eventLoopUtilization returns { idle: 0, active: 0, utilization: 0 } at all times',
-    impact: 'a saturation alarm built on it never fires, which reads as a perfectly healthy event loop',
+    impact:
+      'a saturation alarm built on it never fires, which reads as a perfectly healthy event loop',
     workaround: 'measure your own latency percentiles instead of loop utilization',
     severity: 'silent',
     detect() {
@@ -102,8 +111,10 @@ export const SILENT_GAPS = [
   {
     id: 'sqlite-large-integer-rounding',
     api: 'bun:sqlite#safeIntegers',
-    summary: 'an INTEGER above 2^53 reads back as a rounded number unless safeIntegers(true) is set first',
-    impact: 'ids above the safe range silently collide; nothing throws and the values look plausible',
+    summary:
+      'an INTEGER above 2^53 reads back as a rounded number unless safeIntegers(true) is set first',
+    impact:
+      'ids above the safe range silently collide; nothing throws and the values look plausible',
     workaround: 'call statement.safeIntegers(true) before reading any wide integer column',
     severity: 'silent',
     detect() {

@@ -17,7 +17,6 @@ import {
 } from '#/llm/errors';
 import { NO_FINISH, type FinishInfo, type FinishReason } from '#/llm/finish-reason';
 import { type Message, type StreamedMessagePart, type ToolDescription } from '#/llm/message';
-import type { LlmLogger } from '#/log/log';
 import { reasoningEffortForModel } from '#/llm/modelFamily';
 import type {
   FormatRequestInput,
@@ -29,12 +28,9 @@ import { toolResultToPlainText } from '#/llm/protocol/patterns';
 import { applyPatterns } from '#/llm/protocol/rewrite';
 import type { ToolMessageConversion } from '#/llm/requester/requester';
 import type { ResponseFormat } from '#/llm/response-format';
+import type { LlmLogger } from '#/log/log';
 
-import type {
-  OpenAIRawChunk,
-  OpenAIRawStreamToolCallDelta,
-  OpenAIWireMessage,
-} from './contract';
+import type { OpenAIRawChunk, OpenAIRawStreamToolCallDelta, OpenAIWireMessage } from './contract';
 import { lowerMessage } from './lower';
 import { extractToolMedia } from './patterns';
 import {

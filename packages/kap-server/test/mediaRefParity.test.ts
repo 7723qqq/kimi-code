@@ -1,3 +1,5 @@
+import { describe, expect, it } from 'bun:test';
+
 import {
   daemonFileRefFromPart as engineRefFromPart,
   matchSingleMediaPathTag as engineMatchTag,
@@ -10,7 +12,6 @@ import {
   parseDaemonFileRef as mirrorParse,
   type MediaRefPart,
 } from '@moonshot-ai/transcript';
-import { describe, expect, it } from 'bun:test';
 
 const URLS = [
   'kimi-file://f_1?path=%2Fcache%2Fshot.png',
@@ -50,9 +51,7 @@ describe('standalone media path tag matching parity', () => {
       const engine = engineMatchTag(text);
       const mirror = mirrorMatchTag(text);
       expect(
-        mirror === undefined
-          ? undefined
-          : { kind: mirror.kind as string, path: mirror.path },
+        mirror === undefined ? undefined : { kind: mirror.kind as string, path: mirror.path },
       ).toEqual(
         engine === undefined ? undefined : { kind: engine.kind as string, path: engine.path },
       );

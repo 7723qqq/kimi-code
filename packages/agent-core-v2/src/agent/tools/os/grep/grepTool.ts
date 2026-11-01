@@ -1,31 +1,11 @@
 import { normalize } from 'pathe';
 
-import { ToolOutputAccumulator } from '#/tool/output-accumulator';
-import {
-  ToolAccesses,
-  type ExecutableToolResult,
-  type ToolExecution,
-} from '#/tool/toolContract';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IOAuthService } from '#/app/auth/auth';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import type { IHostProcessService } from '#/os/interface/hostProcess';
-import { IAgentRuntimeService, inspectAgentRuntime } from '#/agent/runtimeBinding/agentRuntime';
-import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
 import { unwrapErrorCause } from '#/_base/errors/errors';
+import { IAgentRuntimeService, inspectAgentRuntime } from '#/agent/runtimeBinding/agentRuntime';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { IOAuthService } from '#/app/auth/auth';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
-import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import {
-  resolvePathAccessPath,
-  type PathClass,
-  isSensitiveFile,
-  SENSITIVE_DOT_VARIANT_SUFFIXES,
-  type WorkspaceConfig,
-} from '#/tool/path-access';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
 import {
   ensureRgPath,
   rgUnavailableMessage,
@@ -38,8 +18,25 @@ import {
   shouldRetryRipgrepEagain,
   type RunRgResult,
 } from '#/os/backends/host/tools/runRg';
-import GREP_DESCRIPTION from './grep.md?raw';
+import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import type { IHostProcessService } from '#/os/interface/hostProcess';
+import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import { ToolOutputAccumulator } from '#/tool/output-accumulator';
+import {
+  resolvePathAccessPath,
+  type PathClass,
+  isSensitiveFile,
+  SENSITIVE_DOT_VARIANT_SUFFIXES,
+  type WorkspaceConfig,
+} from '#/tool/path-access';
+import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
+import { ToolAccesses, type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
+
 import { type GrepInput, GrepInputSchema, IGrepTool } from './grep';
+import GREP_DESCRIPTION from './grep.md?raw';
 
 const RG_MAX_COLUMNS = 500;
 const RG_MAX_THREADS = 4;
@@ -113,9 +110,20 @@ export class GrepTool implements IGrepTool {
         const lease = this.runtime.acquire(['fs', 'process']);
         try {
           if (lease.runtime.identity.generation !== inspected.identity.generation) {
-            return { isError: true, output: 'Runtime changed before execution. Retry the tool call.' };
+            return {
+              isError: true,
+              output: 'Runtime changed before execution. Retry the tool call.',
+            };
           }
-          return await this.execution(lease.runtime.process!, lease.runtime.fs!, env, workspace, args, signal, searchPaths);
+          return await this.execution(
+            lease.runtime.process!,
+            lease.runtime.fs!,
+            env,
+            workspace,
+            args,
+            signal,
+            searchPaths,
+          );
         } finally {
           lease.dispose();
         }
@@ -273,13 +281,7 @@ export class GrepTool implements IGrepTool {
 
     const contentIncludesLineNumbers = mode === 'content' && args['-n'] !== false;
     const displayedLines = limited.map((line) =>
-      formatDisplayLine(
-        line,
-        mode,
-        workspace.workspaceDir,
-        pathClass,
-        contentIncludesLineNumbers,
-      ),
+      formatDisplayLine(line, mode, workspace.workspaceDir, pathClass, contentIncludesLineNumbers),
     );
     const contentBody = displayedLines.join('\n');
     const visibleBody =
@@ -307,15 +309,13 @@ export class GrepTool implements IGrepTool {
         const proc = await processService.spawn(command, rest);
         try {
           proc.stdin.end();
-        } catch {
-        }
+        } catch {}
         proc.stdout.resume();
         proc.stderr.resume();
         const exitCode = await proc.wait();
         try {
           void proc.dispose();
-        } catch {
-        }
+        } catch {}
         return { exitCode };
       },
     };
@@ -338,8 +338,7 @@ export class GrepTool implements IGrepTool {
           try {
             const mtimeMs = (await fs.stat(path)).mtimeMs ?? 0;
             mtime = Math.trunc(mtimeMs / 1000);
-          } catch {
-          }
+          } catch {}
         }
         return { line, mtime, index };
       },

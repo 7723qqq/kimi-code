@@ -1,5 +1,5 @@
-import { Emitter, type Event } from '#/_base/event';
 import { onUnexpectedError } from '#/_base/errors/unexpectedError';
+import { Emitter, type Event } from '#/_base/event';
 
 import type { Runtime, RuntimeBinding, RuntimeCapability, RuntimeLease } from './runtime';
 

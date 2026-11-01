@@ -1,3 +1,5 @@
+import { join } from 'node:path';
+
 import {
   builtinProductSkillsEnabled,
   visibleBuiltinSkills,
@@ -36,7 +38,6 @@ import {
   type MergeAllAvailableSkillsConfig,
   IAgentProfileService,
 } from '@moonshot-ai/agent-core-v2';
-import { join } from 'node:path';
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
@@ -53,7 +54,6 @@ import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
 import { sessionIdParamSchema } from '../protocol/common';
 import { ErrorCode } from '../protocol/error-codes';
-import { ensureMainAgent as ensureMainAgentHandle } from '../transport/mainAgent';
 import {
   activateSkillRequestSchema,
   activateSkillResultSchema,
@@ -61,6 +61,7 @@ import {
 } from '../protocol/rest-skill';
 import { workspaceIdParamSchema } from '../protocol/rest-workspace';
 import type { SkillDescriptor } from '../protocol/skill';
+import { ensureMainAgent as ensureMainAgentHandle } from '../transport/mainAgent';
 import { parseActionSuffix } from './action-suffix';
 import { sendMappedError, sessionConflictErrors } from './sessionErrors';
 
@@ -82,7 +83,6 @@ interface SkillsRouteHost {
     ) => Promise<void> | void,
   ): unknown;
 }
-
 
 const skillTailParamsSchema = z.object({
   session_id: z.string().min(1),
@@ -209,9 +209,7 @@ export function registerSkillsRoutes(app: SkillsRouteHost, core: Scope): void {
         return;
       }
       if (parsed.kind === 'bare') {
-        reply.send(
-          errEnvelope(ErrorCode.VALIDATION_FAILED, `unsupported action: ${tail}`, req.id),
-        );
+        reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, `unsupported action: ${tail}`, req.id));
         return;
       }
 
@@ -279,7 +277,8 @@ export function registerSkillsRoutes(app: SkillsRouteHost, core: Scope): void {
           await mainAgent.accessor.get(IAgentSkillService).activate({
             name: parsed.id,
             args: req.body.args,
-            clientMetadata: req.body.metadata === undefined ? undefined : [structuredClone(req.body.metadata)],
+            clientMetadata:
+              req.body.metadata === undefined ? undefined : [structuredClone(req.body.metadata)],
             content: attachmentParts,
             attachments: promptAttachments,
           });
@@ -323,15 +322,18 @@ async function listWorkspaceSkillsForRoot(
   const useExplicitDirs = explicitDirs.length > 0;
   const rootOptions = { mergeAllAvailableSkills };
 
-  const [userRootList, projectRootList, explicitRootList, extraRootList, pluginRootList] = await Promise.all([
-    useExplicitDirs ? Promise.resolve([]) : userRoots(bootstrap.homeDir, bootstrap.osHomeDir, rootOptions),
-    useExplicitDirs ? Promise.resolve([]) : projectRoots(workDir, rootOptions),
-    useExplicitDirs
-      ? configuredRoots(explicitDirs, workDir, bootstrap.osHomeDir, 'user')
-      : Promise.resolve([]),
-    configuredRoots(extraSkillDirs, workDir, bootstrap.osHomeDir, 'extra'),
-    plugins.pluginSkillRoots(),
-  ]);
+  const [userRootList, projectRootList, explicitRootList, extraRootList, pluginRootList] =
+    await Promise.all([
+      useExplicitDirs
+        ? Promise.resolve([])
+        : userRoots(bootstrap.homeDir, bootstrap.osHomeDir, rootOptions),
+      useExplicitDirs ? Promise.resolve([]) : projectRoots(workDir, rootOptions),
+      useExplicitDirs
+        ? configuredRoots(explicitDirs, workDir, bootstrap.osHomeDir, 'user')
+        : Promise.resolve([]),
+      configuredRoots(extraSkillDirs, workDir, bootstrap.osHomeDir, 'extra'),
+      plugins.pluginSkillRoots(),
+    ]);
   const [user, project, explicit, extra, plugin] = await Promise.all([
     discovery.discover(userRootList),
     discovery.discover(projectRootList),

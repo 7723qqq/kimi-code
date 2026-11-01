@@ -1,7 +1,7 @@
-import { isInstantiationServiceDisposedError } from '@moonshot-ai/agent-core-v2';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { isInstantiationServiceDisposedError } from '@moonshot-ai/agent-core-v2';
 import type { UserPromptOrigin } from '@moonshot-ai/agent-core-v2';
 import {
   IAgentLifecycleService,

@@ -1,3 +1,12 @@
+/**
+ * Fullscreen layout contract tests: the docked chrome must keep the editor's
+ * full height (top border / input / bottom border) even when the transcript
+ * far exceeds the screen. Regression: the dock used to participate in VStack
+ * shrink distribution with no minSize, so a tall transcript crushed it and
+ * the editor's bottom border row was clipped off screen.
+ */
+import { describe, expect, it, mock, spyOn } from 'bun:test';
+
 import {
   Spacer,
   Text,
@@ -9,14 +18,6 @@ import {
   TuiAltScreen,
   TuiMainScreen,
 } from '@moonshot-ai/pi-tui';
-/**
- * Fullscreen layout contract tests: the docked chrome must keep the editor's
- * full height (top border / input / bottom border) even when the transcript
- * far exceeds the screen. Regression: the dock used to participate in VStack
- * shrink distribution with no minSize, so a tall transcript crushed it and
- * the editor's bottom border row was clipped off screen.
- */
-import { describe, expect, it, mock, spyOn } from 'bun:test';
 
 import { GutterContainer } from '#/tui/components/chrome/gutter-container';
 import { MoonLoader } from '#/tui/components/chrome/moon-loader';
@@ -300,17 +301,15 @@ describe('fullscreen layout', () => {
     // Selection copy goes through the app's verified clipboard path, so the
     // text it receives — not an OSC 52 write — is what proves the selection
     // survived the pill toggling.
-    const copySelection = (
-      alt as unknown as { copySelection?: (text: string) => Promise<boolean> }
-    ).copySelection;
+    const copySelection = (alt as unknown as { copySelection?: (text: string) => Promise<boolean> })
+      .copySelection;
     expect(copySelection).toBeDefined();
     const copied: string[] = [];
-    (alt as unknown as { copySelection: (text: string) => Promise<boolean> }).copySelection = async (
-      text,
-    ) => {
-      copied.push(text);
-      return true;
-    };
+    (alt as unknown as { copySelection: (text: string) => Promise<boolean> }).copySelection =
+      async (text) => {
+        copied.push(text);
+        return true;
+      };
     await alt.copyActiveSelectionToClipboard();
     expect(copied).toEqual(['alpha']);
     alt.scrollBy(1);
@@ -958,16 +957,10 @@ describe('fullscreen layout', () => {
         { label: 'Reject', response: 'rejected' as const },
       ],
     };
-    const panel = new ApprovalPanelComponent(
-      { data },
-      onRespond,
-      undefined,
-      undefined,
-      {
-        layout: { maxBodyRows: 6 },
-        isTerminalFocused: () => true,
-      },
-    );
+    const panel = new ApprovalPanelComponent({ data }, onRespond, undefined, undefined, {
+      layout: { maxBodyRows: 6 },
+      isTerminalFocused: () => true,
+    });
     // The click guard ignores a click within CLICK_GUARD_MS of the panel
     // appearing; age the panel past it so this case tests selection.
     agePastClickGuard(panel);
@@ -998,9 +991,12 @@ describe('fullscreen layout', () => {
     alt.setFocus(state.editor);
     alt.renderNow();
     await vt.flush();
-    expect(vt.getViewport().map((line) => stripAnsi(line)).some((l) => l.includes('Run this command?'))).toBe(
-      false,
-    );
+    expect(
+      vt
+        .getViewport()
+        .map((line) => stripAnsi(line))
+        .some((l) => l.includes('Run this command?')),
+    ).toBe(false);
     alt.stop();
   });
 
@@ -1127,9 +1123,7 @@ describe('fullscreen layout', () => {
     // stayed where it was.
     expect(selectedOption(picker)).toBe('8');
     expect(alt.viewportTop).toBe(transcriptTop);
-    expect(
-      (picker as unknown as { ownsViewportKeys?: boolean }).ownsViewportKeys,
-    ).toBe(true);
+    expect((picker as unknown as { ownsViewportKeys?: boolean }).ownsViewportKeys).toBe(true);
 
     alt.stop();
   });

@@ -89,9 +89,7 @@ export type AgentProfileInput = Omit<AgentProfile, 'systemPrompt' | 'renderSyste
   (
     | {
         readonly systemPrompt: (context: AgentProfileContext) => string;
-        readonly renderSystemPrompt?: (
-          context: AgentProfileContext,
-        ) => SystemPromptRenderResult;
+        readonly renderSystemPrompt?: (context: AgentProfileContext) => SystemPromptRenderResult;
       }
     | {
         readonly systemPrompt?: (context: AgentProfileContext) => string;
@@ -119,7 +117,5 @@ export function normalizeAgentProfile(input: AgentProfileInput): AgentProfile {
       }),
     };
   }
-  throw new Error(
-    `Agent profile "${input.name}" must define systemPrompt or renderSystemPrompt.`,
-  );
+  throw new Error(`Agent profile "${input.name}" must define systemPrompt or renderSystemPrompt.`);
 }

@@ -9,10 +9,11 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { waitForAssertion } from '#test/helpers/waitFor';
 
 import * as kapServerModule from '@moonshot-ai/kap-server';
+
 import type { ForegroundIO } from '#/cli/sub/web/run';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 const mocks = (() => ({
   startServer: mock(),
@@ -125,15 +126,24 @@ describe('runShutdownSteps', () => {
   it('returns no failures when every step succeeds and runs them in order', async () => {
     const ran: string[] = [];
     const failures = await runShutdownSteps([
-      { name: 'onShutdown', run: () => {
+      {
+        name: 'onShutdown',
+        run: () => {
           ran.push('onShutdown');
-        } },
-      { name: 'close', run: () => {
+        },
+      },
+      {
+        name: 'close',
+        run: () => {
           ran.push('close');
-        } },
-      { name: 'telemetry', run: () => {
+        },
+      },
+      {
+        name: 'telemetry',
+        run: () => {
           ran.push('telemetry');
-        } },
+        },
+      },
     ]);
 
     expect(failures).toEqual([]);
@@ -144,9 +154,12 @@ describe('runShutdownSteps', () => {
   it('keeps running later steps after a failure and names the failed step', async () => {
     const ran: string[] = [];
     const failures = await runShutdownSteps([
-      { name: 'onShutdown', run: () => {
+      {
+        name: 'onShutdown',
+        run: () => {
           ran.push('onShutdown');
-        } },
+        },
+      },
       {
         name: 'close',
         run: () => {
@@ -154,9 +167,12 @@ describe('runShutdownSteps', () => {
           throw new Error('close failed');
         },
       },
-      { name: 'telemetry', run: () => {
+      {
+        name: 'telemetry',
+        run: () => {
           ran.push('telemetry');
-        } },
+        },
+      },
     ]);
 
     expect(failures).toEqual(['close']);
@@ -175,12 +191,18 @@ describe('runShutdownSteps', () => {
           throw new Error('hook failed');
         },
       },
-      { name: 'close', run: () => {
+      {
+        name: 'close',
+        run: () => {
           ran.push('close');
-        } },
-      { name: 'telemetry', run: () => {
+        },
+      },
+      {
+        name: 'telemetry',
+        run: () => {
           ran.push('telemetry');
-        } },
+        },
+      },
     ]);
 
     expect(failures).toEqual(['onShutdown']);

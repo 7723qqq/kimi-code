@@ -14,9 +14,9 @@ describe('shouldReanchorTail', () => {
   });
 
   it('stays quiet below the threshold even with a prior anchor', () => {
-    expect(
-      shouldReanchorTail({ estimatedTokens: 999, threshold: 1000, lastAnchorTokens: 0 }),
-    ).toBe(false);
+    expect(shouldReanchorTail({ estimatedTokens: 999, threshold: 1000, lastAnchorTokens: 0 })).toBe(
+      false,
+    );
   });
 
   it('measures growth since the last anchor', () => {

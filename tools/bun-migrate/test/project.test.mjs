@@ -1,3 +1,4 @@
+import { afterEach, describe, expect, it } from 'bun:test';
 /**
  * Whole-project behaviour: a legacy pnpm project goes in, an equivalent Bun
  * project comes out, and the journal can undo it.
@@ -5,11 +6,17 @@
  * Every fixture is created in a temp directory and removed afterwards; nothing
  * here writes into the repository.
  */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { afterEach, describe, expect, it } from 'bun:test';
 
 const CLI = join(import.meta.dir, '..', 'src', 'cli.mjs');
 const created = [];
@@ -26,7 +33,9 @@ function makeProject(files) {
 }
 
 function run(...args) {
-  const result = Bun.spawnSync(['bun', CLI, ...args], { cwd: join(import.meta.dir, '..', '..', '..') });
+  const result = Bun.spawnSync(['bun', CLI, ...args], {
+    cwd: join(import.meta.dir, '..', '..', '..'),
+  });
   return {
     code: result.exitCode,
     out: result.stdout.toString(),
@@ -50,8 +59,10 @@ const LEGACY = {
   '.npmrc': 'registry=https://example.test\n',
   '.nvmrc': '20.11.0\n',
   'vitest.config.ts': 'export default {};\n',
-  'src/hash.ts': "import { createHash } from 'node:crypto';\nexport const f = () => createHash('sha256').update('a').digest('hex');\n",
-  'src/hash.test.ts': "import { describe, it, expect } from 'vitest';\nimport { f } from './hash';\ndescribe('f', () => { it('works', () => { expect(f()).toBeTruthy(); }); });\n",
+  'src/hash.ts':
+    "import { createHash } from 'node:crypto';\nexport const f = () => createHash('sha256').update('a').digest('hex');\n",
+  'src/hash.test.ts':
+    "import { describe, it, expect } from 'vitest';\nimport { f } from './hash';\ndescribe('f', () => { it('works', () => { expect(f()).toBeTruthy(); }); });\n",
 };
 
 afterEach(() => {
@@ -112,7 +123,8 @@ describe('per-project exceptions', () => {
     const root = makeProject({
       ...LEGACY,
       '.bun-migrate.toml': 'deny = ["packages/browser"]\n',
-      'packages/browser/src/h.ts': "import { createHash } from 'node:crypto';\nexport const g = () => createHash('sha256');\n",
+      'packages/browser/src/h.ts':
+        "import { createHash } from 'node:crypto';\nexport const g = () => createHash('sha256');\n",
     });
     expect(run('apply', '--root', root, '--allow-dirty').code).toBe(0);
     expect(readFileSync(join(root, 'packages/browser/src/h.ts'), 'utf8')).toContain('createHash(');
@@ -141,8 +153,10 @@ describe('per-project exceptions', () => {
         null,
         2,
       )}\n`,
-      'packages/browser/src/a.ts': "import { parse } from 'yaml';\nexport const a = parse('a: 1');\n",
-      'packages/browser/test/a.test.ts': "import { describe, it, expect } from 'vitest';\ndescribe('a', () => { it('b', () => expect(1).toBe(1)); });\n",
+      'packages/browser/src/a.ts':
+        "import { parse } from 'yaml';\nexport const a = parse('a: 1');\n",
+      'packages/browser/test/a.test.ts':
+        "import { describe, it, expect } from 'vitest';\ndescribe('a', () => { it('b', () => expect(1).toBe(1)); });\n",
     });
     try {
       expect(run('apply', '--root', root, '--allow-dirty').code).toBe(0);
@@ -171,11 +185,14 @@ describe('per-project exceptions', () => {
         2,
       )}\n`,
       'src/yaml.ts': "import { parse } from 'yaml';\nexport const a = parse('a: 1');\n",
-      'src/yaml.test.ts': "import { describe, it, expect } from 'vitest';\ndescribe('a', () => { it('b', () => expect(1).toBe(1)); });\n",
+      'src/yaml.test.ts':
+        "import { describe, it, expect } from 'vitest';\ndescribe('a', () => { it('b', () => expect(1).toBe(1)); });\n",
     });
     try {
       expect(run('apply', '--root', root, '--allow-dirty').code).toBe(0);
-      expect(readFileSync(join(root, 'src/yaml.ts'), 'utf8')).toContain("import { parse } from 'yaml'");
+      expect(readFileSync(join(root, 'src/yaml.ts'), 'utf8')).toContain(
+        "import { parse } from 'yaml'",
+      );
       expect(readFileSync(join(root, 'src/yaml.test.ts'), 'utf8')).toContain("from 'vitest'");
       expect(readFileSync(join(root, 'src/hash.ts'), 'utf8')).toContain('createHash(');
       expect(existsSync(join(root, 'vitest.config.ts'))).toBe(true);
@@ -190,7 +207,8 @@ describe('project loading tolerates an unrelated broken manifest', () => {
     const root = makeProject({
       ...LEGACY,
       'packages/broken/package.json': '{ not json',
-      'packages/broken/src/x.ts': "import { createHash } from 'node:crypto';\nexport const x = createHash('sha256');\n",
+      'packages/broken/src/x.ts':
+        "import { createHash } from 'node:crypto';\nexport const x = createHash('sha256');\n",
     });
     try {
       const result = run('scan', '--root', root);
@@ -220,7 +238,8 @@ describe('safety rails', () => {
   it('reports a non-literal algorithm instead of rewriting it', () => {
     const root = makeProject({
       ...LEGACY,
-      'src/dyn.ts': "import { createHash } from 'node:crypto';\nexport const h = (alg: string) => createHash(alg);\n",
+      'src/dyn.ts':
+        "import { createHash } from 'node:crypto';\nexport const h = (alg: string) => createHash(alg);\n",
     });
     const result = run('scan', '--root', root);
     expect(result.out).toContain('not a string literal');
@@ -235,7 +254,8 @@ describe('safety rails', () => {
   it('refuses to apply in a directory that is not a git repository', () => {
     const root = makeProject({
       'package.json': '{"name":"n","version":"1.0.0"}\n',
-      'src/a.ts': "import { createHash } from 'node:crypto';\nexport const a = createHash('sha256').update('x').digest('hex');\n",
+      'src/a.ts':
+        "import { createHash } from 'node:crypto';\nexport const a = createHash('sha256').update('x').digest('hex');\n",
     });
     try {
       const refused = run('apply', '--root', root);
@@ -255,7 +275,8 @@ describe('safety rails', () => {
   it('reports writeFile as measured-slower rather than rewriting it', () => {
     const root = makeProject({
       ...LEGACY,
-      'src/raw.ts': "import { writeFile } from 'node:fs/promises';\nexport const w = (p: string, v: string) => writeFile(p, v);\n",
+      'src/raw.ts':
+        "import { writeFile } from 'node:fs/promises';\nexport const w = (p: string, v: string) => writeFile(p, v);\n",
     });
     const result = run('scan', '--root', root);
     expect(result.out).toContain('writeFile');

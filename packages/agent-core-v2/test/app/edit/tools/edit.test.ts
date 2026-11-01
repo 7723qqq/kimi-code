@@ -1,26 +1,30 @@
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as posixPath from 'node:path/posix';
 
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-
-import { PathSecurityError } from '#/tool/path-access';
-import { stubWorkspaceContext } from '../../../session/workspaceContext/stub-workspace-context';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
+import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import { type EditInput, EditInputSchema } from '#/agent/tools/edit/edit';
 import { EditTool } from '#/agent/tools/edit/editTool';
 import { IFileEditService } from '#/app/edit/fileEdit';
 import { FileEditService } from '#/app/edit/fileEditService';
-import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
-import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
 import type { Runtime } from '#/runtime/runtime';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
+import { PathSecurityError } from '#/tool/path-access';
+import type {
+  ExecutableToolContext,
+  ExecutableToolResult,
+  ToolExecution,
+} from '#/tool/toolContract';
+
+import { stubWorkspaceContext } from '../../../session/workspaceContext/stub-workspace-context';
 
 const signal = new AbortController().signal;
 const PERMISSIVE_WORKSPACE = stubWorkspaceContext('/');
@@ -74,7 +78,9 @@ function buildTool(
     capabilities: new Set(['fs'] as const),
     environment: env,
     path: posixPath,
-    workspace: { mapRoots: (roots: { workDir: string; additionalDirs?: readonly string[] }) => roots },
+    workspace: {
+      mapRoots: (roots: { workDir: string; additionalDirs?: readonly string[] }) => roots,
+    },
     fs,
     status: 'ready',
     onDidChangeStatus: () => ({ dispose: () => {} }),

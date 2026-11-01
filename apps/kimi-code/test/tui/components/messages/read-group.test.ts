@@ -1,6 +1,7 @@
+import { describe, expect, it, mock, spyOn } from 'bun:test';
+
 import type { TUI } from '@moonshot-ai/pi-tui';
 import { visibleWidth } from '@moonshot-ai/pi-tui';
-import { describe, expect, it, mock, spyOn } from 'bun:test';
 
 import { ReadGroupComponent } from '#/tui/components/messages/read-group';
 import { ToolCallComponent } from '#/tui/components/messages/tool-call';
@@ -28,7 +29,10 @@ function makeGroup(): ReadGroupComponent {
 }
 
 function rows(group: ReadGroupComponent, width: number): string[] {
-  return group.render(width).map(strip).filter((line) => line.trim().length > 0);
+  return group
+    .render(width)
+    .map(strip)
+    .filter((line) => line.trim().length > 0);
 }
 
 describe('ReadGroupComponent', () => {

@@ -53,7 +53,8 @@ export const KNOWN_NODE_GAPS = [
     module: 'node:inspector',
     member: 'Network',
     since: '1.4.4',
-    workaround: 'Bun implements the Profiler, Runtime and Debugger domains; the Network domain for request inspection has no counterpart',
+    workaround:
+      'Bun implements the Profiler, Runtime and Debugger domains; the Network domain for request inspection has no counterpart',
   },
   {
     module: 'node:inspector',
@@ -89,7 +90,8 @@ export const KNOWN_NODE_GAPS = [
     module: 'node:util',
     member: 'transferableAbortController',
     since: '1.4.4',
-    workaround: 'pass an AbortSignal across threads with postMessage; Bun does not mark controllers transferable',
+    workaround:
+      'pass an AbortSignal across threads with postMessage; Bun does not mark controllers transferable',
   },
   {
     module: 'node:util',
@@ -417,16 +419,19 @@ function legacyTextScan(text, relevant) {
       if (gap.member.includes('.')) {
         const leaf = escapeRegExp(gap.member.split('.').at(-1));
         const viaConstants = new RegExp(`\\bconstants\\s*\\.\\s*${leaf}\\b`).test(text);
-        const viaImport =
-          new RegExp(`\\b${leaf}\\b\\s*[,}]`).test(text) && text.includes(module);
+        const viaImport = new RegExp(`\\b${leaf}\\b\\s*[,}]`).test(text) && text.includes(module);
         if (viaConstants || (viaImport && /constants/.test(text))) hits.push(gap);
         continue;
       }
       const memberPattern = escapeRegExp(gap.member);
       if (
         new RegExp(`\\b${memberPattern}\\s*\\(`).test(text) ||
-        new RegExp(`\\{[^}]*\\b${memberPattern}\\b[^}]*\\}\\s*=\\s*require\\(['"]${modulePattern}['"]\\)`).test(text) ||
-        new RegExp(`import\\s*\\{[^}]*\\b${memberPattern}\\b[^}]*\\}\\s*from\\s*['"]${modulePattern}['"]`).test(text)
+        new RegExp(
+          `\\{[^}]*\\b${memberPattern}\\b[^}]*\\}\\s*=\\s*require\\(['"]${modulePattern}['"]\\)`,
+        ).test(text) ||
+        new RegExp(
+          `import\\s*\\{[^}]*\\b${memberPattern}\\b[^}]*\\}\\s*from\\s*['"]${modulePattern}['"]`,
+        ).test(text)
       ) {
         hits.push(gap);
       }

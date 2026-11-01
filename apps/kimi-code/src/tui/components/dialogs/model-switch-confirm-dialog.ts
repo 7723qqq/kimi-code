@@ -22,6 +22,7 @@ import {
   type TuiMouseDispatchResult,
   type TuiMouseEvent,
 } from '@moonshot-ai/pi-tui';
+
 import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';

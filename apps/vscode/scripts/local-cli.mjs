@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
 import { createRequire } from 'node:module';
+import { dirname, resolve } from 'node:path';
 
 const require = createRequire(import.meta.url);
 
@@ -17,7 +17,8 @@ export function resolveLocalCli(packageName, executableName) {
   }
 
   const manifest = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
-  const relativeBin = typeof manifest.bin === 'string' ? manifest.bin : manifest.bin?.[executableName];
+  const relativeBin =
+    typeof manifest.bin === 'string' ? manifest.bin : manifest.bin?.[executableName];
   if (typeof relativeBin !== 'string') {
     throw new Error(`${packageName} does not declare the expected "${executableName}" binary.`);
   }

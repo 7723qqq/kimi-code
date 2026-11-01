@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'bun:test';
 
+import type { ContextMessage } from '#/agent/contextMemory/types';
 import { foldWireRecords } from '#/agent/replayBuilder/fold';
 import type { AgentReplayRecord } from '#/agent/replayBuilder/types';
-import type { ContextMessage } from '#/agent/contextMemory/types';
 import type { WireRecord } from '#/wire/record';
 
 const METADATA: WireRecord = { type: 'metadata', protocol_version: '1.5', created_at: 0 };
@@ -48,7 +48,10 @@ describe('foldWireRecords', () => {
     const display = { kind: 'command', command: 'ls' } as const;
     const folded = fold([
       loopEvent({ type: 'step.begin', uuid: 's1' }, 10),
-      loopEvent({ type: 'content.part', stepUuid: 's1', part: { type: 'text', text: 'working' } }, 11),
+      loopEvent(
+        { type: 'content.part', stepUuid: 's1', part: { type: 'text', text: 'working' } },
+        11,
+      ),
       loopEvent(
         {
           type: 'tool.call',
@@ -74,7 +77,13 @@ describe('foldWireRecords', () => {
     expect(assistant.message.role).toBe('assistant');
     expect(assistant.message.content).toEqual([{ type: 'text', text: 'working' }]);
     expect(assistant.message.toolCalls).toEqual([
-      { type: 'function', id: 'tc1', name: 'Shell', arguments: '{"command":"ls"}', extras: undefined },
+      {
+        type: 'function',
+        id: 'tc1',
+        name: 'Shell',
+        arguments: '{"command":"ls"}',
+        extras: undefined,
+      },
     ]);
     expect(assistant.message.toolCallDisplays).toEqual({ tc1: display });
     if (tool?.type !== 'message') throw new Error('expected message record');
@@ -98,11 +107,9 @@ describe('foldWireRecords', () => {
       loopEvent({ type: 'tool.result', toolCallId: 'tc1', result: { output: 'done' } }, 4),
     ]);
     const messages = messageRecords(folded.replay);
-    expect(messages.map((record) => (record.type === 'message' ? record.message.role : ''))).toEqual([
-      'assistant',
-      'tool',
-      'user',
-    ]);
+    expect(
+      messages.map((record) => (record.type === 'message' ? record.message.role : '')),
+    ).toEqual(['assistant', 'tool', 'user']);
     const deferred = messages[2];
     if (deferred?.type !== 'message') throw new Error('expected message record');
     expect(deferred.time).toBe(4);

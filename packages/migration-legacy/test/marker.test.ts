@@ -1,7 +1,3 @@
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
 /**
  * Scenario: legacy migration marker persistence and prompt suppression.
  * Responsibilities: preserve run history and decide whether one target still needs migration.
@@ -9,6 +5,9 @@ import { join } from 'node:path';
  * Run: cd packages/migration-legacy && bun run test -- marker.test.ts
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { runMigration, shouldSuppressMigration } from '../src/index.js';
 import { readMarker, writeMarker, appendMarkerRun, type MarkerData } from '../src/marker.js';

@@ -57,7 +57,6 @@ export const PROMPT_OPTIMIZER_DRAFT_CLOSE = '</draft>';
 
 export const PROMPT_OPTIMIZER_AGENT_HELPER = 'prompt_optimizer';
 
-
 export interface PromptOptimizerContext {
   readonly cwd: string;
   readonly recentTurns?: readonly string[];

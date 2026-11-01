@@ -1,12 +1,12 @@
-import type { ExperimentalFeatureState } from '@moonshot-ai/kimi-code-sdk';
 import { describe, expect, it, mock } from 'bun:test';
+
+import type { ExperimentalFeatureState } from '@moonshot-ai/kimi-code-sdk';
 
 import {
   ExperimentsSelectorComponent,
   type ExperimentalFeatureDraftChange,
 } from '#/tui/components/dialogs/experiments-selector';
 import { mouse, pastSettlingWindow } from '#test/helpers/mouse';
-
 
 const ANSI = /\u001B\[[0-9;]*m/g;
 const ESC = String.fromCodePoint(27);
@@ -16,9 +16,7 @@ function strip(text: string): string {
   return text.replaceAll(ANSI, '');
 }
 
-function feature(
-  overrides: Partial<ExperimentalFeatureState> = {},
-): ExperimentalFeatureState {
+function feature(overrides: Partial<ExperimentalFeatureState> = {}): ExperimentalFeatureState {
   return {
     id: 'micro_compaction',
     title: 'Micro compaction',
@@ -39,9 +37,7 @@ function text(component: ExperimentsSelectorComponent, width = 120): string {
 describe('ExperimentsSelectorComponent', () => {
   it('renders searchable feature toggles with source details', () => {
     const selector = new ExperimentsSelectorComponent({
-      features: [
-        feature({ enabled: true, source: 'config', configValue: true }),
-      ],
+      features: [feature({ enabled: true, source: 'config', configValue: true })],
       onApply: mock(),
       onCancel: mock(),
     });
@@ -51,7 +47,9 @@ describe('ExperimentsSelectorComponent', () => {
     expect(out).toContain(' Experimental features  (type to search)');
     expect(out).toContain(' ↑↓ navigate · Space toggle · Enter apply · Esc cancel');
     expect(out).toContain('  ❯ Micro compaction (cache-miss tool-result truncation)  enabled');
-    expect(out).toContain('    id micro_compaction · config · KIMI_CODE_EXPERIMENTAL_MICRO_COMPACTION');
+    expect(out).toContain(
+      '    id micro_compaction · config · KIMI_CODE_EXPERIMENTAL_MICRO_COMPACTION',
+    );
     expect(out).toContain('    After a prompt-cache miss');
     expect(out).toContain(' [ Apply changes and reload ]  no changes');
   });
@@ -68,7 +66,9 @@ describe('ExperimentsSelectorComponent', () => {
     selector.handleInput(' ');
 
     expect(onApply).not.toHaveBeenCalled();
-    expect(text(selector)).toContain('  ❯ Micro compaction (cache-miss tool-result truncation)  disabled');
+    expect(text(selector)).toContain(
+      '  ❯ Micro compaction (cache-miss tool-result truncation)  disabled',
+    );
     expect(text(selector)).toContain(
       '    id micro_compaction · default · KIMI_CODE_EXPERIMENTAL_MICRO_COMPACTION · modified',
     );
@@ -76,9 +76,7 @@ describe('ExperimentsSelectorComponent', () => {
 
     selector.handleInput(ENTER);
 
-    expect(onApply).toHaveBeenCalledWith([
-      { id: 'micro_compaction', enabled: false },
-    ]);
+    expect(onApply).toHaveBeenCalledWith([{ id: 'micro_compaction', enabled: false }]);
   });
 
   it('does not draft changes for env-locked features', () => {
@@ -97,7 +95,9 @@ describe('ExperimentsSelectorComponent', () => {
     selector.handleInput(' ');
     selector.handleInput(ENTER);
 
-    expect(text(selector)).toContain('  ❯ Micro compaction (cache-miss tool-result truncation)  enabled');
+    expect(text(selector)).toContain(
+      '  ❯ Micro compaction (cache-miss tool-result truncation)  enabled',
+    );
     expect(text(selector)).toContain(' [ Apply changes and reload ]  no changes');
     expect(onApply).not.toHaveBeenCalled();
   });
@@ -132,7 +132,9 @@ describe('ExperimentsSelectorComponent', () => {
 
     selector.handleInput(' ');
 
-    expect(text(selector)).toContain('  ❯ Micro compaction (cache-miss tool-result truncation)  disabled');
+    expect(text(selector)).toContain(
+      '  ❯ Micro compaction (cache-miss tool-result truncation)  disabled',
+    );
   });
 
   it('filters by typing and clears the query before cancelling', () => {

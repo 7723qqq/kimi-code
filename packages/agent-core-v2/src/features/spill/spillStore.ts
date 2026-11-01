@@ -36,7 +36,6 @@ export function sessionDir(root: string, sessionId: string): string {
 }
 
 export interface SaveTextOptions {
-
   readonly root: string;
 
   readonly sessionId: string;

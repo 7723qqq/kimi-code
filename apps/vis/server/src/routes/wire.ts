@@ -1,9 +1,10 @@
-import { Hono } from 'hono';
 import { join } from 'node:path';
 
+import { Hono } from 'hono';
+
 import { KIMI_CODE_HOME } from '../config';
-import { isSafeAgentId, readSessionDetail } from '../lib/session-store';
 import { rehydrateWireEntries } from '../lib/blob-resolver';
+import { isSafeAgentId, readSessionDetail } from '../lib/session-store';
 import { readAgentWire } from '../lib/wire-reader';
 
 export function wireRoute(home: string = KIMI_CODE_HOME): Hono {
@@ -26,9 +27,7 @@ export function wireRoute(home: string = KIMI_CODE_HOME): Hono {
       return c.json({ error: 'wire missing', code: 'NOT_FOUND' }, 404);
     }
     try {
-      const result = await readAgentWire(
-        join(detail.sessionDir, 'agents', agentId, 'wire.jsonl'),
-      );
+      const result = await readAgentWire(join(detail.sessionDir, 'agents', agentId, 'wire.jsonl'));
       const baseUrl = new URL(c.req.url).origin;
       rehydrateWireEntries(result.records, id, agentId, baseUrl, result.warnings);
       return c.json({

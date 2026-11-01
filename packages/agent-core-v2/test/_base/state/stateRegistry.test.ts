@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+
 import { z } from 'zod';
-import { LifecycleScope } from '#/app/scopes';
+
 import {
   ScopeActivation,
   _clearScopedRegistryForTests,
@@ -9,15 +10,16 @@ import {
 import { createScopedTestHost, type ScopedTestHost } from '#/_base/di/test';
 import { BugIndicatingError } from '#/_base/errors/errors';
 import { StateRegistry, type StateChange } from '#/_base/state/stateRegistry';
-import { defineState } from '#/state/state';
-import { IAppStateService } from '#/app/state/appState';
-import { AppStateService } from '#/app/state/appStateService';
-import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
-import { WorkspaceStateService } from '#/workspace/state/workspaceStateService';
-import { ISessionStateService } from '#/session/state/sessionState';
-import { SessionStateService } from '#/session/state/sessionStateService';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
+import { LifecycleScope } from '#/app/scopes';
+import { IAppStateService } from '#/app/state/appState';
+import { AppStateService } from '#/app/state/appStateService';
+import { ISessionStateService } from '#/session/state/sessionState';
+import { SessionStateService } from '#/session/state/sessionStateService';
+import { defineState } from '#/state/state';
+import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
+import { WorkspaceStateService } from '#/workspace/state/workspaceStateService';
 
 describe('StateRegistry', () => {
   const countKey = defineState('test.count', () => 0);
@@ -290,7 +292,9 @@ describe('state services (scoped)', () => {
 
   it('resolves the same instance within one scope', () => {
     const { session } = createChain();
-    expect(session.accessor.get(ISessionStateService)).toBe(session.accessor.get(ISessionStateService));
+    expect(session.accessor.get(ISessionStateService)).toBe(
+      session.accessor.get(ISessionStateService),
+    );
   });
 
   it('omits the parent link when a registry has no cascade parent', () => {
@@ -330,7 +334,9 @@ describe('state services (scoped)', () => {
 
     it('rejects replayable keys on the base registry and non-agent scopes', () => {
       expect(() => new StateRegistry().contributeState(replayableKey)).toThrow(BugIndicatingError);
-      expect(() => new AppStateService().contributeState(replayableKey)).toThrow(BugIndicatingError);
+      expect(() => new AppStateService().contributeState(replayableKey)).toThrow(
+        BugIndicatingError,
+      );
       expect(() => new WorkspaceStateService().contributeState(replayableKey)).toThrow(
         BugIndicatingError,
       );

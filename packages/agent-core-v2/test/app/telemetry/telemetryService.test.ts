@@ -1,11 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { LifecycleScope } from '#/app/scopes';
-import { ScopeActivation, _clearScopedRegistryForTests, registerScopedService } from '#/_base/di/scope';
+
+import {
+  ScopeActivation,
+  _clearScopedRegistryForTests,
+  registerScopedService,
+} from '#/_base/di/scope';
 import { createScopedTestHost } from '#/_base/di/test';
 import {
   resetUnexpectedErrorHandler,
   setUnexpectedErrorHandler,
 } from '#/_base/errors/unexpectedError';
+import { LifecycleScope } from '#/app/scopes';
 import type { TelemetryProperties } from '#/app/telemetry/context';
 import type { TurnStartedEvent as TurnStartedTelemetryEvent } from '#/app/telemetry/events';
 import {
@@ -232,8 +237,9 @@ describe('TelemetryService (layered ambient)', () => {
     root.setContext({ session_id: 'app-level', model: 'm1' });
 
     const session = root.createScopeBinding({ session_id: 's1' });
-    const agent = (session.telemetry as ITelemetryService & ITelemetryScopeBindingHost)
-      .createScopeBinding({ agent_id: 'a1', mode: 'agent' });
+    const agent = (
+      session.telemetry as ITelemetryService & ITelemetryScopeBindingHost
+    ).createScopeBinding({ agent_id: 'a1', mode: 'agent' });
 
     agent.telemetry.track2('session_ended', { reason: 'exit' });
     expect(appender.records[0]?.properties).toEqual({
@@ -267,8 +273,9 @@ describe('TelemetryService (layered ambient)', () => {
     const appender = new CapturingAppender();
     const root = serviceWithAppenders(appender);
     const session = root.createScopeBinding({ session_id: 's1' });
-    const agent = (session.telemetry as ITelemetryService & ITelemetryScopeBindingHost)
-      .createScopeBinding({ agent_id: 'a1', mode: 'agent' });
+    const agent = (
+      session.telemetry as ITelemetryService & ITelemetryScopeBindingHost
+    ).createScopeBinding({ agent_id: 'a1', mode: 'agent' });
     agent.telemetry.setContext({ turn_id: 3 });
     agent.telemetry.track2('tool_call_dedup_detected', {
       step_no: 1,
@@ -439,8 +446,9 @@ describe('TelemetryService (layered ambient)', () => {
     const appender = new CapturingAppender();
     const root = serviceWithAppenders(appender);
     const session = root.createScopeBinding({ session_id: 's1' });
-    const agent = (session.telemetry as ITelemetryService & ITelemetryScopeBindingHost)
-      .createScopeBinding({ agent_id: 'a1' });
+    const agent = (
+      session.telemetry as ITelemetryService & ITelemetryScopeBindingHost
+    ).createScopeBinding({ agent_id: 'a1' });
 
     agent.dispose();
     agent.telemetry.track2('session_ended', { reason: 'exit' });

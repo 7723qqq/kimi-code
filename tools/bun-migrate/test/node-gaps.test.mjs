@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'bun:test';
 /**
  * The migration risk that runs the other way: code that works on Node but must
  * not be moved to Bun unchanged, because Bun's `node:` layer lacks the member.
@@ -9,8 +10,6 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { describe, expect, it } from 'bun:test';
 
 import { createJournal } from '../src/journal.mjs';
 import { applyNodeGapLayer } from '../src/layers/node-gaps.mjs';
@@ -69,7 +68,10 @@ describe('the gaps match Node, verified by running both', () => {
 
   for (const [module, member] of CASES) {
     it(`${module}#${member} exists on Node`, () => {
-      if (!nodeAvailable) throw new Error('node must be on PATH: this case asserts what Node provides, so skipping it would report a pass that proves nothing');
+      if (!nodeAvailable)
+        throw new Error(
+          'node must be on PATH: this case asserts what Node provides, so skipping it would report a pass that proves nothing',
+        );
       const output = runUnderNode(
         `try { const m = require('${module}'); process.stdout.write(m['${member}'] === undefined ? 'MISSING' : 'PRESENT'); } catch (e) { process.stdout.write('THREW'); }`,
       );
@@ -77,24 +79,40 @@ describe('the gaps match Node, verified by running both', () => {
     });
 
     it(`${module}#${member} is recorded as a gap on this Bun`, () => {
-      if (!nodeAvailable) throw new Error('node must be on PATH: this case asserts what Node provides, so skipping it would report a pass that proves nothing');
+      if (!nodeAvailable)
+        throw new Error(
+          'node must be on PATH: this case asserts what Node provides, so skipping it would report a pass that proves nothing',
+        );
       if (memberExists(module, member)) {
-        process.stdout.write(`NOTE: this Bun now provides ${module}#${member}; the gap entry can be removed\n`);
+        process.stdout.write(
+          `NOTE: this Bun now provides ${module}#${member}; the gap entry can be removed\n`,
+        );
         return;
       }
-      const recorded = KNOWN_NODE_GAPS.some((gap) => gap.module === module && gap.member === member);
+      const recorded = KNOWN_NODE_GAPS.some(
+        (gap) => gap.module === module && gap.member === member,
+      );
       expect(recorded).toBe(true);
     });
   }
 
   it('node:crypto.hash and util.parseEnv exist on both sides', () => {
-    if (!nodeAvailable) throw new Error('node must be on PATH: this case asserts what Node provides, so skipping it would report a pass that proves nothing');
-    for (const [module, member] of [['node:crypto', 'hash'], ['node:util', 'parseEnv'], ['node:path', 'matchesGlob']]) {
+    if (!nodeAvailable)
+      throw new Error(
+        'node must be on PATH: this case asserts what Node provides, so skipping it would report a pass that proves nothing',
+      );
+    for (const [module, member] of [
+      ['node:crypto', 'hash'],
+      ['node:util', 'parseEnv'],
+      ['node:path', 'matchesGlob'],
+    ]) {
       const output = runUnderNode(
         `process.stdout.write(require('${module}')['${member}'] === undefined ? 'MISSING' : 'PRESENT');`,
       );
       expect(`${module}#${member} node=${output}`).toBe(`${module}#${member} node=PRESENT`);
-      expect(`${module}#${member} bun=${memberExists(module, member)}`).toBe(`${module}#${member} bun=true`);
+      expect(`${module}#${member} bun=${memberExists(module, member)}`).toBe(
+        `${module}#${member} bun=true`,
+      );
     }
   });
 });
@@ -142,7 +160,8 @@ describe('the layer reports without editing', () => {
   it('skips the file with a workaround, and changes nothing', () => {
     const root = project({
       'package.json': '{"name":"g","version":"1.0.0"}\n',
-      'src/a.ts': "import { registerHooks } from 'node:module';\nexport const a = registerHooks({});\n",
+      'src/a.ts':
+        "import { registerHooks } from 'node:module';\nexport const a = registerHooks({});\n",
     });
     try {
       const loaded = loadProject(root);
@@ -161,7 +180,8 @@ describe('the layer reports without editing', () => {
   it('says nothing about a project that does not touch the gap', () => {
     const root = project({
       'package.json': '{"name":"g","version":"1.0.0"}\n',
-      'src/a.ts': "import { readFileSync } from 'node:fs';\nexport const a = () => readFileSync('x', 'utf8');\n",
+      'src/a.ts':
+        "import { readFileSync } from 'node:fs';\nexport const a = () => readFileSync('x', 'utf8');\n",
     });
     try {
       const loaded = loadProject(root);
@@ -183,7 +203,8 @@ describe('the layer reports without editing', () => {
   it('reports gaps even when the source layer is not requested', () => {
     const root = project({
       'package.json': '{"name":"g","version":"1.0.0"}\n',
-      'src/a.ts': "import { registerHooks } from 'node:module';\nexport const a = registerHooks({});\n",
+      'src/a.ts':
+        "import { registerHooks } from 'node:module';\nexport const a = registerHooks({});\n",
     });
     try {
       const loaded = loadProject(root);

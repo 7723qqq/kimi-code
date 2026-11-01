@@ -3,7 +3,6 @@ import { truncateToWidth, type Component } from '@moonshot-ai/pi-tui';
 import { t } from '#/i18n';
 
 import { currentTheme } from '../../theme';
-
 import type { MoonLoader } from './moon-loader';
 
 export type PromptOptimizerPhase =
@@ -21,7 +20,8 @@ function phaseText(phase: PromptOptimizerPhase): string {
     case 'writing':
       return t('tui.messages.promptOptimizePhases.writing');
     case 'tool': {
-      const detail = phase.detail === undefined || phase.detail.length === 0 ? '' : ` ${phase.detail}`;
+      const detail =
+        phase.detail === undefined || phase.detail.length === 0 ? '' : ` ${phase.detail}`;
       return t('tui.messages.promptOptimizePhases.tool', { tool: `${phase.toolName}${detail}` });
     }
   }

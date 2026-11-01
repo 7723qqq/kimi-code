@@ -45,7 +45,9 @@ describe('RuntimeRegistry', () => {
     });
     registry.register(current);
     current.setStatus('disconnected');
-    expect(() => registry.acquire({ workspaceId: 'workspace', runtimeId: 'local' })).toThrow('disconnected');
+    expect(() => registry.acquire({ workspaceId: 'workspace', runtimeId: 'local' })).toThrow(
+      'disconnected',
+    );
     current.setStatus('ready');
     const lease = registry.acquire({ workspaceId: 'workspace', runtimeId: 'local' });
     expect(lease.runtime).toBe(current);
@@ -69,10 +71,9 @@ describe('RuntimeRegistry', () => {
     const lease = registry.acquire({ workspaceId: 'workspace', runtimeId: 'local' }, ['fs']);
     expect(lease.runtime).toBe(current);
     lease.dispose();
-    expect(() => registry.acquire(
-      { workspaceId: 'workspace', runtimeId: 'local' },
-      ['process'],
-    )).toThrowError(expect.objectContaining({ code: 'runtime.unavailable' }));
+    expect(() =>
+      registry.acquire({ workspaceId: 'workspace', runtimeId: 'local' }, ['process']),
+    ).toThrowError(expect.objectContaining({ code: 'runtime.unavailable' }));
   });
 
   it('keeps the current generation when replacement preparation fails', async () => {
@@ -134,7 +135,11 @@ describe('RuntimeRegistry', () => {
     const lease = registry.acquire({ workspaceId: 'workspace', runtimeId: 'local' });
     const order: string[] = [];
     for (const name of ['terminal', 'watch', 'mcp', 'background']) {
-      lease.track({ dispose: async () => { order.push(name); } });
+      lease.track({
+        dispose: async () => {
+          order.push(name);
+        },
+      });
     }
     const replacement = registration.replace(runtime('two'));
     await Promise.resolve();
@@ -183,12 +188,14 @@ describe('RuntimeRegistry', () => {
 
     expect(registry.snapshot()).toEqual({
       workspaceId: 'workspace',
-      runtimes: [{
-        runtimeId: 'local',
-        generation: 'one',
-        status: 'ready',
-        capabilities: ['fs', 'process'],
-      }],
+      runtimes: [
+        {
+          runtimeId: 'local',
+          generation: 'one',
+          status: 'ready',
+          capabilities: ['fs', 'process'],
+        },
+      ],
     });
 
     first.setStatus('disconnected');

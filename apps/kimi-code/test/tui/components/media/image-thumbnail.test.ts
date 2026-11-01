@@ -1,12 +1,13 @@
-import { resetCapabilitiesCache, setCapabilities, visibleWidth } from '@moonshot-ai/pi-tui';
 import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
-import { decodeImagePixels } from '#/tui/utils/image-pixels';
-import { waitForAssertion } from '#test/helpers/waitFor';
+
+import { resetCapabilitiesCache, setCapabilities, visibleWidth } from '@moonshot-ai/pi-tui';
 
 import { ImageThumbnail } from '#/tui/components/media/image-thumbnail';
 import { InlineImage } from '#/tui/components/media/inline-image';
 import { type ImageAttachment } from '#/tui/utils/image-attachment-store';
+import { decodeImagePixels } from '#/tui/utils/image-pixels';
 import * as imagePixelsModule from '#/tui/utils/image-pixels';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 const image: ImageAttachment = {
   id: 1,
@@ -142,8 +143,14 @@ describe('InlineImage', () => {
       label: 'image #1',
     });
 
-    const wideColumns = component.render(120).map(kittyColumns).find((c) => c !== undefined);
-    const narrowColumns = component.render(30).map(kittyColumns).find((c) => c !== undefined);
+    const wideColumns = component
+      .render(120)
+      .map(kittyColumns)
+      .find((c) => c !== undefined);
+    const narrowColumns = component
+      .render(30)
+      .map(kittyColumns)
+      .find((c) => c !== undefined);
 
     // Wide terminals get a wider picture; both stay within the 60-col cap.
     expect(wideColumns).toBeGreaterThan(narrowColumns ?? 0);

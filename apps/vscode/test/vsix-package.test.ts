@@ -1,3 +1,4 @@
+import { afterEach, describe, expect, it } from 'bun:test';
 /**
  * Scenario: maintainers package and inspect the VS Code extension on any host OS.
  * Responsibilities: six-target argument handling, actionable failures, isolated
@@ -10,8 +11,6 @@ import { spawnSync } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-
-import { afterEach, describe, expect, it } from 'bun:test';
 
 const appRoot = resolve(import.meta.dirname, '..');
 const packageScript = join(appRoot, 'scripts', 'vsix-package.mjs');
@@ -70,12 +69,7 @@ describe('VSIX verifier CLI (package contract and failure details)', () => {
   it('passes an unpacked Windows package when the entry is self-contained', async () => {
     const fixture = await makeVsixFixture('win32-x64');
 
-    const result = runNode(verifierScript, [
-      '--target',
-      'win32-x64',
-      '--directory',
-      fixture,
-    ]);
+    const result = runNode(verifierScript, ['--target', 'win32-x64', '--directory', fixture]);
 
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('static audit and entry import smoke passed (package-only)');
@@ -84,12 +78,7 @@ describe('VSIX verifier CLI (package contract and failure details)', () => {
   it('reports the expected target when the VSIX manifest has a different target', async () => {
     const fixture = await makeVsixFixture('darwin-arm64');
 
-    const result = runNode(verifierScript, [
-      '--target',
-      'linux-x64',
-      '--directory',
-      fixture,
-    ]);
+    const result = runNode(verifierScript, ['--target', 'linux-x64', '--directory', fixture]);
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('VSIX manifest target is darwin-arm64, expected linux-x64');
@@ -99,12 +88,7 @@ describe('VSIX verifier CLI (package contract and failure details)', () => {
     const fixture = await makeVsixFixture('darwin-x64');
     await rm(join(fixture, 'extension', 'dist', 'webview.js'));
 
-    const result = runNode(verifierScript, [
-      '--target',
-      'darwin-x64',
-      '--directory',
-      fixture,
-    ]);
+    const result = runNode(verifierScript, ['--target', 'darwin-x64', '--directory', fixture]);
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('Required VSIX resource is missing: extension/dist/webview.js');
@@ -117,12 +101,7 @@ describe('VSIX verifier CLI (package contract and failure details)', () => {
       "import leftPad from 'left-pad';\nexport function activate() { return leftPad; }\n",
     );
 
-    const result = runNode(verifierScript, [
-      '--target',
-      'linux-arm64',
-      '--directory',
-      fixture,
-    ]);
+    const result = runNode(verifierScript, ['--target', 'linux-arm64', '--directory', fixture]);
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('Bare runtime dependency "left-pad"');
@@ -139,12 +118,7 @@ describe('VSIX verifier CLI (package contract and failure details)', () => {
         'export function activate() { return new HostEnvironment(); }\n',
     );
 
-    const result = runNode(verifierScript, [
-      '--target',
-      'darwin-arm64',
-      '--directory',
-      fixture,
-    ]);
+    const result = runNode(verifierScript, ['--target', 'darwin-arm64', '--directory', fixture]);
 
     expect(result.status).toBe(0);
   });
@@ -155,12 +129,7 @@ describe('VSIX verifier CLI (package contract and failure details)', () => {
     await mkdir(stateDir, { recursive: true });
     await writeFile(join(stateDir, 'session.json'), '{}');
 
-    const result = runNode(verifierScript, [
-      '--target',
-      'win32-arm64',
-      '--directory',
-      fixture,
-    ]);
+    const result = runNode(verifierScript, ['--target', 'win32-arm64', '--directory', fixture]);
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('Forbidden package path segment "runtime"');
@@ -172,12 +141,7 @@ describe('VSIX verifier CLI (package contract and failure details)', () => {
     await mkdir(stateDir, { recursive: true });
     await writeFile(join(stateDir, 'extension.json'), '{}');
 
-    const result = runNode(verifierScript, [
-      '--target',
-      'win32-x64',
-      '--directory',
-      fixture,
-    ]);
+    const result = runNode(verifierScript, ['--target', 'win32-x64', '--directory', fixture]);
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('Forbidden package path segment "state"');

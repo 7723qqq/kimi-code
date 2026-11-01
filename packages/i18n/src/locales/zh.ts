@@ -578,8 +578,7 @@ export const zh: DeepPartial<typeof import('./en').default> = {
       deleted: '已删除: {{path}}',
       noFilesFound: '未找到 memory 文件。',
       listHeader: 'Memory 文件 ({{count}}):\n',
-      writtenCommitted:
-        'Memory 已写入 {{path}}\ntitle: {{title}}\ntype: {{type}}\ncommit: {{sha}}',
+      writtenCommitted: 'Memory 已写入 {{path}}\ntitle: {{title}}\ntype: {{type}}\ncommit: {{sha}}',
       writtenNotCommitted:
         'Memory 已写入 {{path}}，但未提交到 memory 仓库。\ntitle: {{title}}\ntype: {{type}}',
       logHeader: 'Memory 提交记录 ({{count}}):\n',

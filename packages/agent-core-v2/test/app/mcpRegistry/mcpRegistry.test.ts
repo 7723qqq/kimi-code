@@ -1,10 +1,9 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, relative } from 'pathe';
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { setEnv, restoreEnvs } from '#test/helpers/stubs';
+import { join, relative } from 'pathe';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
@@ -16,10 +15,10 @@ import {
   McpConfigStore,
   type GlobalMcpServerConfig,
 } from '#/app/mcpConfig/configStore';
-import { IPluginService } from '#/app/plugin/plugin';
-import type { PluginMcpServerEntry } from '#/app/plugin/types';
 import { IMcpRegistryService, mcpServerConfigsEqual } from '#/app/mcpRegistry/mcpRegistry';
 import { McpRegistryService } from '#/app/mcpRegistry/mcpRegistryService';
+import { IPluginService } from '#/app/plugin/plugin';
+import type { PluginMcpServerEntry } from '#/app/plugin/types';
 import { ErrorCodes } from '#/errors';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
@@ -31,6 +30,7 @@ import {
   trustWorkspaceEnvTrusted,
 } from '#/workspace/workspaceTrust/workspaceTrustService';
 import { IWorkspaceTrustStore } from '#/workspace/workspaceTrust/workspaceTrustStore';
+import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 
 function stdioServer(name: string, command = 'npx'): GlobalMcpServerConfig {
   return { name, transport: 'stdio', command };
@@ -100,7 +100,8 @@ describe('McpRegistryService', () => {
           get: async <T>(_scope: string, key: string) => {
             if (
               !trusted ||
-              (trustedKey !== undefined && key !== encodeWorkDirKey(canonicalWorkspaceRoot(trustedKey)))
+              (trustedKey !== undefined &&
+                key !== encodeWorkDirKey(canonicalWorkspaceRoot(trustedKey)))
             ) {
               return undefined;
             }
@@ -219,9 +220,7 @@ describe('McpRegistryService', () => {
       await writeJson(join(sub, '.kimi-code', 'mcp.json'), {
         mcpServers: { localOnly: { command: 'local-only' } },
       });
-      pluginEntries = [
-        pluginEntry('demo', 'api', { transport: 'stdio', command: 'plugin-only' }),
-      ];
+      pluginEntries = [pluginEntry('demo', 'api', { transport: 'stdio', command: 'plugin-only' })];
       trusted = false;
 
       const entries = await registry.list({ cwd: sub });

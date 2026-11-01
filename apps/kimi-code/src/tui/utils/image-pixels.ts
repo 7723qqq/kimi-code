@@ -13,7 +13,6 @@
  * Failed decodes are not cached, so a later attempt can retry.
  */
 
-
 export interface DecodedImagePixels {
   readonly pixels: Uint8Array;
   readonly width: number;

@@ -1,9 +1,9 @@
-import type { ToolCall } from '#human/llm/message';
 import { describe, expect, it } from 'bun:test';
 
-import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 import { DefaultToolApprovePermissionPolicyService } from '#/agent/permissionPolicy/policies/default-tool-approve';
+import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 import { ToolAccesses } from '#/tool/toolContract';
+import type { ToolCall } from '#human/llm/message';
 
 const signal = new AbortController().signal;
 
@@ -79,9 +79,7 @@ describe('DefaultToolApprovePermissionPolicyService', () => {
     ['CronCreate', { cron: '*/5 * * * *', prompt: 'ping' }],
     ['CronDelete', { id: 'job_1' }],
   ] as const)('does not approve %s', (toolName, args) => {
-    expect(
-      policy.evaluate(policyContext(toolName, args)),
-    ).toBeUndefined();
+    expect(policy.evaluate(policyContext(toolName, args))).toBeUndefined();
   });
 
   it('does not approve an unknown tool name', () => {

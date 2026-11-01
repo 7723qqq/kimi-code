@@ -1,11 +1,10 @@
 import { existsSync } from 'node:fs';
 
 const POSIX_PERMS = process.platform !== 'win32';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { chmod, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { migratePlansStep } from '../../src/steps/plans.js';
 
@@ -41,26 +40,29 @@ describe('migratePlansStep', () => {
     expect(r).toEqual({ copied: 0, skippedExisting: 0, failures: [] });
   });
 
-  it.skipIf(!POSIX_PERMS)('records a per-entry failure instead of aborting when one entry cannot be read', async () => {
-    await writeFile(join(src, 'good.md'), 'GOOD');
-    const broken = join(src, 'broken.md');
-    await writeFile(broken, 'SECRET');
-    await chmod(broken, 0o000);
-    try {
-      const r = await migratePlansStep({ targetHome: tgt, plansSourceDir: src });
+  it.skipIf(!POSIX_PERMS)(
+    'records a per-entry failure instead of aborting when one entry cannot be read',
+    async () => {
+      await writeFile(join(src, 'good.md'), 'GOOD');
+      const broken = join(src, 'broken.md');
+      await writeFile(broken, 'SECRET');
+      await chmod(broken, 0o000);
+      try {
+        const r = await migratePlansStep({ targetHome: tgt, plansSourceDir: src });
 
-      expect(r.copied).toBe(1);
-      expect(r.failures).toHaveLength(1);
-      expect(r.failures[0]?.sourcePath).toBe(broken);
-      expect(r.failures[0]?.reason.length).toBeGreaterThan(0);
-      await expect(readFile(join(tgt, 'plans', 'good.md'), 'utf-8')).resolves.toBe('GOOD');
-      expect(existsSync(join(tgt, 'plans', 'broken.md'))).toBe(false);
-      const leftovers = (await readdir(join(tgt, 'plans'))).filter((e) => e.endsWith('.tmp'));
-      expect(leftovers).toEqual([]);
-    } finally {
-      await chmod(broken, 0o600);
-    }
-  });
+        expect(r.copied).toBe(1);
+        expect(r.failures).toHaveLength(1);
+        expect(r.failures[0]?.sourcePath).toBe(broken);
+        expect(r.failures[0]?.reason.length).toBeGreaterThan(0);
+        await expect(readFile(join(tgt, 'plans', 'good.md'), 'utf-8')).resolves.toBe('GOOD');
+        expect(existsSync(join(tgt, 'plans', 'broken.md'))).toBe(false);
+        const leftovers = (await readdir(join(tgt, 'plans'))).filter((e) => e.endsWith('.tmp'));
+        expect(leftovers).toEqual([]);
+      } finally {
+        await chmod(broken, 0o600);
+      }
+    },
+  );
 
   it('throws only when EVERY entry fails', async () => {
     await writeFile(join(src, 'a.md'), 'A');

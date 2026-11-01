@@ -1,5 +1,6 @@
-import type { TuiMouseEvent } from '@moonshot-ai/pi-tui';
 import { describe, expect, it } from 'bun:test';
+
+import type { TuiMouseEvent } from '@moonshot-ai/pi-tui';
 
 import {
   MAX_VISIBLE_ROWS,

@@ -39,13 +39,8 @@ export class TowerMergeTool implements ITowerMergeTool {
           const result = await this.tower.withBranchLease(args.branch, () =>
             store.merge(args.branch, { activeAgentIds: () => this.activeAgentIds() }),
           );
-          const {
-            status,
-            mergeCommit,
-            conflictsWith,
-            evaluatedBranchTip,
-            currentBranchTip,
-          } = result;
+          const { status, mergeCommit, conflictsWith, evaluatedBranchTip, currentBranchTip } =
+            result;
           if (status === 'advanced') {
             if (result.noop === true) {
               return {

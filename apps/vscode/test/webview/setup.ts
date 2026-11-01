@@ -1,4 +1,5 @@
 import { afterAll, afterEach } from 'bun:test';
+
 import { JSDOM } from 'jsdom';
 
 // Bun has no `environment` option, so a suite that needs a document imports this module
@@ -21,7 +22,10 @@ let installed: { keys: string[]; replaced: Map<string, unknown>; dom: JSDOM } | 
 function installDom(): void {
   if (installed) return;
 
-  const dom = new JSDOM('<!DOCTYPE html>', { url: 'http://localhost:3000', pretendToBeVisual: true });
+  const dom = new JSDOM('<!DOCTYPE html>', {
+    url: 'http://localhost:3000',
+    pretendToBeVisual: true,
+  });
   const source = dom.window as unknown as Record<string, unknown>;
   const target = globalThis as Record<string, unknown>;
 

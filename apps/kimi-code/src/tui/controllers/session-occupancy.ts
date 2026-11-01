@@ -2,10 +2,9 @@ import type { KimiHarness, Session } from '@moonshot-ai/kimi-code-sdk';
 
 import { t } from '#/i18n';
 
+import { ChoicePickerComponent } from '../components/dialogs/choice-picker';
 import { formatErrorMessage } from '../utils/event-payload';
 import { occupiedHolderClientId } from '../utils/session-lock-errors';
-
-import { ChoicePickerComponent } from '../components/dialogs/choice-picker';
 
 type TrackProperties = Parameters<KimiHarness['track']>[1];
 

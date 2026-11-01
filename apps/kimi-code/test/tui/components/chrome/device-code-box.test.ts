@@ -1,5 +1,6 @@
-import { visibleWidth } from '@moonshot-ai/pi-tui';
 import { describe, expect, it } from 'bun:test';
+
+import { visibleWidth } from '@moonshot-ai/pi-tui';
 
 import { DeviceCodeBoxComponent } from '#/tui/components/chrome/device-code-box';
 

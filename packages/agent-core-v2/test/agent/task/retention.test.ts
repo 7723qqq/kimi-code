@@ -1,14 +1,15 @@
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { Readable } from 'node:stream';
 import type { Writable } from 'node:stream';
-import { join } from 'pathe';
 
-import type { IHostProcess } from '#/os/interface/hostProcess';
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { join } from 'pathe';
 
 import { IAgentTaskService, type AgentTask } from '#/agent/task/task';
 import { ProcessTask } from '#/agent/tools/os/bash/process-task';
+import type { IHostProcess } from '#/os/interface/hostProcess';
+
 import {
   configServices,
   createTestAgent,
@@ -27,11 +28,7 @@ interface RetentionFixture {
   readonly persistence: ReturnType<typeof createAgentTaskPersistence>;
 }
 
-function outputtingTask(
-  output: string,
-  description = 'retention',
-  stopReason?: string,
-): AgentTask {
+function outputtingTask(output: string, description = 'retention', stopReason?: string): AgentTask {
   return {
     idPrefix: 'test',
     kind: 'process',
@@ -95,9 +92,7 @@ describe('AgentTaskService — terminal task retention', () => {
     const manager = fixture.manager;
     const taskIds: string[] = [];
 
-    const oldestId = manager.registerTask(
-      outputtingTask('first\n', 'task 0', 'handoff complete'),
-    );
+    const oldestId = manager.registerTask(outputtingTask('first\n', 'task 0', 'handoff complete'));
     taskIds.push(oldestId);
     for (let i = 1; i < 300; i++) {
       taskIds.push(
@@ -160,7 +155,9 @@ describe('AgentTaskService — terminal task retention', () => {
     await manager.wait(taskId, 5_000);
     const retained = (
       manager as unknown as { tasks: Map<string, { outputChunks: string[] }> }
-    ).tasks.get(taskId)!.outputChunks.join('');
+    ).tasks
+      .get(taskId)!
+      .outputChunks.join('');
 
     expect(Buffer.byteLength(retained, 'utf-8')).toBeLessThanOrEqual(
       TERMINAL_RETAINED_OUTPUT_BYTES * 2,

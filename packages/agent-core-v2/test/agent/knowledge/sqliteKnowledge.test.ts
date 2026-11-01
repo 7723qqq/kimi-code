@@ -1,8 +1,7 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import type { KnowledgeEntry, KnowledgeSearchResult } from '#/agent/knowledge/knowledge';
 import * as knowledge from '#/agent/knowledge/sqliteKnowledge';
@@ -45,7 +44,12 @@ function search(
   ) as KnowledgeSearchResult[];
 }
 
-function stats(): { total: number; by_category: Record<string, number>; by_source: Record<string, number>; avg_confidence: number } {
+function stats(): {
+  total: number;
+  by_category: Record<string, number>;
+  by_source: Record<string, number>;
+  avg_confidence: number;
+} {
   return JSON.parse(knowledge.knowledgeStats()) as {
     total: number;
     by_category: Record<string, number>;
@@ -215,9 +219,9 @@ describe('knowledge store', () => {
   });
 
   it('rejects an unknown category', () => {
-    expect(() => knowledge.knowledgeAdd('Bad', 'not-a-category', 'Content.', '', null, 'human', 1)).toThrow(
-      /CHECK/i,
-    );
+    expect(() =>
+      knowledge.knowledgeAdd('Bad', 'not-a-category', 'Content.', '', null, 'human', 1),
+    ).toThrow(/CHECK/i);
   });
 
   it('reports operations before open', () => {

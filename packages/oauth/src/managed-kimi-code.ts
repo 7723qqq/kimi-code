@@ -1,10 +1,10 @@
-import type { FetchLike } from './types';
 import { readApiErrorMessage } from './api-error';
 import { DEFAULT_KIMI_CODE_OAUTH_HOST } from './constants';
 import { OAuthUnauthorizedError } from './errors';
 import { parseKimiCodeCustomHeaders } from './identity';
 import { DEFAULT_KIMI_CODE_BASE_URL, kimiCodeBaseUrl } from './managed-usage';
 import { MANAGED_KIMI_MODEL_FIELDS, mergeRefreshedModelAlias } from './model-alias-merge';
+import type { FetchLike } from './types';
 import { isRecord, MAX_HTTP_RESPONSE_BYTES, readResponseBodyWithLimit } from './utils';
 
 export const KIMI_CODE_PLATFORM_ID = 'kimi-code';
@@ -498,11 +498,7 @@ function parseModelReasoning(value: unknown): {
   // three-state keeps the legacy 'no'.
   const rawType = value['type'];
   const supportsThinkingType: SupportsThinkingType | undefined =
-    rawType === 'only' || rawType === 'both'
-      ? rawType
-      : rawType === 'none'
-        ? 'no'
-        : undefined;
+    rawType === 'only' || rawType === 'both' ? rawType : rawType === 'none' ? 'no' : undefined;
   const rawEffort = value['effort'];
   const effort = isRecord(rawEffort) ? rawEffort : undefined;
   const supportEfforts = effort !== undefined ? parseStringArray(effort['valid']) : undefined;

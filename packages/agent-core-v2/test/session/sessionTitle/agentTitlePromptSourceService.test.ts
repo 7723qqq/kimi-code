@@ -5,9 +5,9 @@ import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService, type PromptHandle } from '#/agent/loop/loop';
-import type { ContentPart } from '#human/llm/message';
 import { IAgentTitlePromptSource } from '#/session/sessionTitle/agentTitlePromptSource';
 import { AgentTitlePromptSourceService } from '#/session/sessionTitle/agentTitlePromptSourceService';
+import type { ContentPart } from '#human/llm/message';
 
 const USER_ORIGIN: ContextMessage['origin'] = { kind: 'user' };
 
@@ -89,11 +89,24 @@ describe('AgentTitlePromptSource', () => {
   });
 
   it('uses client display text consistently for titles, first turns and digests', async () => {
-    liveMessages = [userMessage('annotated', '<browser_ref id="internal">Save</browser_ref>', { kind: 'user', clientMetadata: [{ display_text: 'Save button · Rename to Save changes' }] }), assistantMessage('reply', [{ type: 'text', text: 'Done' }])];
+    liveMessages = [
+      userMessage('annotated', '<browser_ref id="internal">Save</browser_ref>', {
+        kind: 'user',
+        clientMetadata: [{ display_text: 'Save button · Rename to Save changes' }],
+      }),
+      assistantMessage('reply', [{ type: 'text', text: 'Done' }]),
+    ];
     const source = ix.get(IAgentTitlePromptSource);
-    await expect(source.firstUserPrompts(3)).resolves.toEqual(['Save button · Rename to Save changes']);
-    await expect(source.firstTurnExcerpt()).resolves.toEqual({ user: 'Save button · Rename to Save changes', assistant: 'Done' });
-    await expect(source.digestExcerpt()).resolves.toEqual({ turns: [{ user: 'Save button · Rename to Save changes', assistant: 'Done' }] });
+    await expect(source.firstUserPrompts(3)).resolves.toEqual([
+      'Save button · Rename to Save changes',
+    ]);
+    await expect(source.firstTurnExcerpt()).resolves.toEqual({
+      user: 'Save button · Rename to Save changes',
+      assistant: 'Done',
+    });
+    await expect(source.digestExcerpt()).resolves.toEqual({
+      turns: [{ user: 'Save button · Rename to Save changes', assistant: 'Done' }],
+    });
   });
 
   it('returns the first three prompts from the live context and queue in order', async () => {
@@ -128,7 +141,10 @@ describe('AgentTitlePromptSource', () => {
   it('keeps the head user messages of a compacted window, skipping elision and summary', async () => {
     liveMessages = [
       userMessage('head', '开场提问'),
-      userMessage('elision', '... omitted ...', { kind: 'injection', variant: 'compaction_elision' }),
+      userMessage('elision', '... omitted ...', {
+        kind: 'injection',
+        variant: 'compaction_elision',
+      }),
       userMessage('tail', '最近的追问'),
       userMessage('summary', ' compaction summary ', { kind: 'compaction_summary' }),
     ];

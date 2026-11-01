@@ -11,7 +11,11 @@ export function describe(name: string, fn: () => void): void {
 export function bench(
   name: string,
   fn: () => void,
-  options: { readonly iterations?: number; readonly time?: number; readonly warmupTime?: number } = {},
+  options: {
+    readonly iterations?: number;
+    readonly time?: number;
+    readonly warmupTime?: number;
+  } = {},
 ): void {
   const iterations = options.iterations ?? 50;
   for (let i = 0; i < 5; i += 1) fn();

@@ -1,10 +1,9 @@
+import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { resetCapabilitiesCache, setCapabilities } from '@moonshot-ai/pi-tui';
-import { afterEach, describe, expect, it } from 'bun:test';
-
 import * as QRCode from 'qrcode';
 
 import { generateRemoteControlQr, renderTerminalQr } from '#/utils/remote-control-qr';

@@ -1,13 +1,15 @@
-import type { ToolCall } from '#human/llm/message';
 import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IAgentPlanService, type PlanData } from '#/features/plan/plan';
 import { ExitPlanModeTool } from '#/features/plan/tools/exit-plan-mode/exitPlanModeTool';
 import type { ToolResult } from '#/tool/toolContract';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import type { ToolCall } from '#human/llm/message';
 
-import { executeTool } from '../../../tools/fixtures/execute-tool';
-import { createFakeHostFs } from '../../../tools/fixtures/fake-exec';
+import {
+  recordingTelemetry as captureTelemetry,
+  type TelemetryRecord,
+} from '../../../app/telemetry/stubs';
 import {
   createTestAgent,
   execEnvServices,
@@ -15,10 +17,8 @@ import {
   telemetryServices,
   type TestAgentContext,
 } from '../../../harness/agent';
-import {
-  recordingTelemetry as captureTelemetry,
-  type TelemetryRecord,
-} from '../../../app/telemetry/stubs';
+import { executeTool } from '../../../tools/fixtures/execute-tool';
+import { createFakeHostFs } from '../../../tools/fixtures/fake-exec';
 
 const ACTIVE_PLAN: NonNullable<PlanData> = {
   id: 'test-plan',
@@ -121,15 +121,12 @@ describe('ExitPlanModeTool', () => {
       path: undefined,
     } as unknown as NonNullable<PlanData>;
 
-    const result = await executeTool(
-      new ExitPlanModeTool(planService({ status })),
-      {
-        turnId: 7,
-        toolCallId: 'call_exit_plan',
-        args: {},
-        signal: new AbortController().signal,
-      },
-    );
+    const result = await executeTool(new ExitPlanModeTool(planService({ status })), {
+      turnId: 7,
+      toolCallId: 'call_exit_plan',
+      args: {},
+      signal: new AbortController().signal,
+    });
 
     expect(result).toMatchObject({
       isError: true,

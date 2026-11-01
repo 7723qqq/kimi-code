@@ -1,10 +1,10 @@
 import { describe, expect, it, mock } from 'bun:test';
 
-import { mouse, pastSettlingWindow } from '#test/helpers/mouse';
 import { GoalStartPermissionPromptComponent } from '#/tui/components/dialogs/goal-start-permission-prompt';
-import { SwarmStartPermissionPromptComponent } from '#/tui/components/dialogs/swarm-start-permission-prompt';
 import type { GoalStartPermissionChoice } from '#/tui/components/dialogs/goal-start-permission-prompt';
+import { SwarmStartPermissionPromptComponent } from '#/tui/components/dialogs/swarm-start-permission-prompt';
 import type { SwarmStartPermissionChoice } from '#/tui/components/dialogs/swarm-start-permission-prompt';
+import { mouse, pastSettlingWindow } from '#test/helpers/mouse';
 
 const ENTER = '\r';
 
@@ -65,7 +65,9 @@ describe('start permission prompt initial highlight', () => {
     expect(highlightedIndex).toBeGreaterThan(-1);
     expect(lines[highlightedIndex]).toContain('Always Ask');
     // Never Ask stays the first row — the highlight moved, the order did not.
-    const firstOptionIndex = lines.findIndex((line) => line.trim().length > 0 && line.includes('Never Ask'));
+    const firstOptionIndex = lines.findIndex(
+      (line) => line.trim().length > 0 && line.includes('Never Ask'),
+    );
     expect(firstOptionIndex).toBeLessThan(highlightedIndex);
   });
 

@@ -1,7 +1,7 @@
-import type { Component, Focusable } from '@moonshot-ai/pi-tui';
 import { describe, expect, it, mock, type Mock } from 'bun:test';
 
-import { mouse, pastSettlingWindow } from '#test/helpers/mouse';
+import type { Component, Focusable } from '@moonshot-ai/pi-tui';
+
 import type { SlashCommandHost } from '#/tui/commands';
 import { saveAstronSettings, showAstronSettingsPanel } from '#/tui/commands/config';
 import {
@@ -9,6 +9,7 @@ import {
   AstronSettingsComponent,
 } from '#/tui/components/dialogs/astron-settings';
 import { darkColors } from '#/tui/theme/colors';
+import { mouse, pastSettlingWindow } from '#test/helpers/mouse';
 
 void mock.module('#/i18n', () => ({
   t: (key: string) => {
@@ -157,9 +158,7 @@ describe('saveAstronSettings', () => {
 
     expect(host.harness.getConfig).toHaveBeenCalledWith({ reload: true });
     expect(host.harness.setConfig).not.toHaveBeenCalled();
-    expect(host.showStatus).toHaveBeenCalledWith(
-      'No [providers.astron] section in config.toml.',
-    );
+    expect(host.showStatus).toHaveBeenCalledWith('No [providers.astron] section in config.toml.');
   });
 
   it('rejects out-of-range values before touching the config', async () => {

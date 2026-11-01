@@ -1,3 +1,4 @@
+import { afterEach, describe, expect, it } from 'bun:test';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
@@ -15,7 +16,6 @@ import { pipeline } from 'node:stream/promises';
 import { promisify } from 'node:util';
 import { inflateRawSync } from 'node:zlib';
 
-import { afterEach, describe, expect, it } from 'bun:test';
 import { ZipFile } from 'yazl';
 
 import { SUPPORTED_TARGETS } from '../../../scripts/native/native-deps.mjs';
@@ -200,69 +200,73 @@ describe('native release artifacts', () => {
     }
   });
 
-  it('emits tar.gz and zst forms of each executable beside the manifest', { timeout: 60_000 }, async () => {
-    const releaseDir = await mkdtemp(join(tmpdir(), 'kimi-manifest-extra-'));
-    try {
-      await writeFullArtifactSet(releaseDir);
+  it(
+    'emits tar.gz and zst forms of each executable beside the manifest',
+    { timeout: 60_000 },
+    async () => {
+      const releaseDir = await mkdtemp(join(tmpdir(), 'kimi-manifest-extra-'));
+      try {
+        await writeFullArtifactSet(releaseDir);
 
-      await execFileAsync(process.execPath, [
-        manifestScript,
-        releaseDir,
-        '@moonshot-ai/kimi-code@0.5.0',
-      ]);
+        await execFileAsync(process.execPath, [
+          manifestScript,
+          releaseDir,
+          '@moonshot-ai/kimi-code@0.5.0',
+        ]);
 
-      for (const target of SUPPORTED_TARGETS) {
-        const exeName = target.startsWith('win32') ? 'kimi.exe' : 'kimi';
-        const binary = Buffer.from(`fake bun zip bytes for ${target}`);
-        for (const ext of ['tar.gz', 'zst']) {
-          const name = `kimi-code-${target}.${ext}`;
-          const artifactPath = join(releaseDir, name);
-          expect(existsSync(artifactPath)).toBe(true);
+        for (const target of SUPPORTED_TARGETS) {
+          const exeName = target.startsWith('win32') ? 'kimi.exe' : 'kimi';
+          const binary = Buffer.from(`fake bun zip bytes for ${target}`);
+          for (const ext of ['tar.gz', 'zst']) {
+            const name = `kimi-code-${target}.${ext}`;
+            const artifactPath = join(releaseDir, name);
+            expect(existsSync(artifactPath)).toBe(true);
 
-          // The sidecar must describe the artifact that shipped next to it.
-          const sidecar = await readFile(`${artifactPath}.sha256`, 'utf-8');
-          expect(sidecar).toBe(`${sha256(readFileSync(artifactPath))}  ${name}\n`);
+            // The sidecar must describe the artifact that shipped next to it.
+            const sidecar = await readFile(`${artifactPath}.sha256`, 'utf-8');
+            expect(sidecar).toBe(`${sha256(readFileSync(artifactPath))}  ${name}\n`);
+          }
+
+          // Both forms must inflate back to the same executable the zip holds.
+          const extracted = join(releaseDir, `extract-${target}`);
+          mkdirSync(extracted, { recursive: true });
+          // GNU tar reads `C:\...` as `host:path`, so both paths stay relative to a cwd.
+          await execFileAsync(
+            'tar',
+            ['-xzf', `kimi-code-${target}.tar.gz`, '-C', `extract-${target}`],
+            { cwd: releaseDir },
+          );
+          expect(readFileSync(join(extracted, exeName))).toEqual(binary);
+
+          const zstOut = join(extracted, `${exeName}.zst-out`);
+          await execFileAsync('zstd', [
+            '-d',
+            '-q',
+            '-f',
+            join(releaseDir, `kimi-code-${target}.zst`),
+            '-o',
+            zstOut,
+          ]);
+          expect(readFileSync(zstOut)).toEqual(binary);
         }
 
-        // Both forms must inflate back to the same executable the zip holds.
-        const extracted = join(releaseDir, `extract-${target}`);
-        mkdirSync(extracted, { recursive: true });
-        // GNU tar reads `C:\...` as `host:path`, so both paths stay relative to a cwd.
-        await execFileAsync(
-          'tar',
-          ['-xzf', `kimi-code-${target}.tar.gz`, '-C', `extract-${target}`],
-          { cwd: releaseDir },
-        );
-        expect(readFileSync(join(extracted, exeName))).toEqual(binary);
-
-        const zstOut = join(extracted, `${exeName}.zst-out`);
-        await execFileAsync('zstd', [
-          '-d',
-          '-q',
-          '-f',
-          join(releaseDir, `kimi-code-${target}.zst`),
-          '-o',
-          zstOut,
-        ]);
-        expect(readFileSync(zstOut)).toEqual(binary);
+        // The extra forms are release assets only: the manifest must keep
+        // pointing at the zip, or clients would stage a bare binary.
+        const manifest = JSON.parse(await readFile(join(releaseDir, 'manifest.json'), 'utf-8')) as {
+          bun: Record<string, Record<string, unknown>>;
+        };
+        for (const target of SUPPORTED_TARGETS) {
+          const entry = manifest.bun[target];
+          expect(entry).toBeDefined();
+          expect(entry?.['filename']).toBe(`kimi-code-bun-${target}.zip`);
+          expect(entry).not.toHaveProperty('compressed');
+          expect(entry).not.toHaveProperty('zstd');
+        }
+      } finally {
+        rmSync(releaseDir, { recursive: true, force: true });
       }
-
-      // The extra forms are release assets only: the manifest must keep
-      // pointing at the zip, or clients would stage a bare binary.
-      const manifest = JSON.parse(await readFile(join(releaseDir, 'manifest.json'), 'utf-8')) as {
-        bun: Record<string, Record<string, unknown>>;
-      };
-      for (const target of SUPPORTED_TARGETS) {
-        const entry = manifest.bun[target];
-        expect(entry).toBeDefined();
-        expect(entry?.['filename']).toBe(`kimi-code-bun-${target}.zip`);
-        expect(entry).not.toHaveProperty('compressed');
-        expect(entry).not.toHaveProperty('zstd');
-      }
-    } finally {
-      rmSync(releaseDir, { recursive: true, force: true });
-    }
-  });
+    },
+  );
 
   it('fails when the bun section is incomplete', { timeout: 60_000 }, async () => {
     const releaseDir = await mkdtemp(join(tmpdir(), 'kimi-manifest-partialbun-'));

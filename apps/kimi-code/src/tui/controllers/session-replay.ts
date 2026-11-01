@@ -452,7 +452,10 @@ export class SessionReplayRenderer {
       this.renderHookResult(context, hookResult);
     }
     this.renderHookParts(context, message);
-    const callerMessage = { ...message, content: withoutUserPromptSubmitHookParts(message.content) };
+    const callerMessage = {
+      ...message,
+      content: withoutUserPromptSubmitHookParts(message.content),
+    };
     this.host.appendTranscriptEntry({
       ...replayEntry(
         context,

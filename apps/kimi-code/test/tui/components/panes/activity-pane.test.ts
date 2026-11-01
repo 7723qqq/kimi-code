@@ -1,5 +1,6 @@
-import { Text, visibleWidth } from '@moonshot-ai/pi-tui';
 import { describe, expect, it } from 'bun:test';
+
+import { Text, visibleWidth } from '@moonshot-ai/pi-tui';
 
 import { ActivityPaneComponent } from '#/tui/components/panes/activity-pane';
 
@@ -9,7 +10,9 @@ function createMockSpinner(initialText = 'working') {
   let availableWidth = 0;
   const update = () => {
     const fullText = initialText + tip;
-    spinner.setText(availableWidth > 0 && visibleWidth(fullText) > availableWidth ? initialText : fullText);
+    spinner.setText(
+      availableWidth > 0 && visibleWidth(fullText) > availableWidth ? initialText : fullText,
+    );
   };
   return {
     spinner: Object.assign(spinner, {

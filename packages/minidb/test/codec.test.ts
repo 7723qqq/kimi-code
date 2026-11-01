@@ -1,4 +1,3 @@
-
 // test/codec.test.ts
 import { expect, test } from 'bun:test';
 
@@ -185,5 +184,7 @@ test('batch decoders reject a body shorter than the count field', () => {
 });
 
 test('encodeBatchOps refuses to emit a non-SET/DEL sub-op (encode-side assertion)', () => {
-  expect(() => encodeBatchOps([{ type: 99, key: B('x'), value: B('y'), meta: null, expireAt: 0 }])).toThrow(/batch op type must be SET or DEL, got 99/);
+  expect(() =>
+    encodeBatchOps([{ type: 99, key: B('x'), value: B('y'), meta: null, expireAt: 0 }]),
+  ).toThrow(/batch op type must be SET or DEL, got 99/);
 });

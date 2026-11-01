@@ -141,9 +141,7 @@ export class AgentSpecService extends Service implements IAgentSpecService {
     for (const name of SPEC_ALL_FILES) {
       try {
         await this.hostFs.remove(join(dir, name));
-      } catch {
-
-      }
+      } catch {}
     }
   }
 
@@ -237,7 +235,6 @@ export class AgentSpecService extends Service implements IAgentSpecService {
     const accesses = event.execution.accesses ?? [];
     const unidentified = accesses.filter((access) => access.kind !== 'file');
     if (unidentified.length > 0) {
-
       event.veto(denyToolExecution(this.toolApproval.formatDenyMessage(this.writeDenied)));
       return;
     }

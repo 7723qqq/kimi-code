@@ -27,9 +27,7 @@ describe('proxy utilities', () => {
     expect(resolveNoProxy({ NO_PROXY: 'example.com, 127.0.0.1' })).toBe(
       'example.com,127.0.0.1,localhost,::1,[::1]',
     );
-    expect(resolveNoProxy({ no_proxy: 'internal' })).toBe(
-      'internal,localhost,127.0.0.1,::1,[::1]',
-    );
+    expect(resolveNoProxy({ no_proxy: 'internal' })).toBe('internal,localhost,127.0.0.1,::1,[::1]');
     expect(resolveNoProxy({ NO_PROXY: '*' })).toBe('*');
   });
 

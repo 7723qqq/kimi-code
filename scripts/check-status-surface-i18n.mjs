@@ -63,9 +63,7 @@ function stripNonStrings(source) {
     .replace(/\/\*[\s\S]*?\*\//g, (match) => match.replace(/[^\n]/g, ' '))
     .replace(/\/\/[^\n]*/g, '')
     // Import/export specifiers and dynamic imports.
-    .replace(/\bfrom\s*(['"])(?:\\.|(?!\1)[^\\\n])*\1/g, (match) =>
-      match.replace(/[^\n]/g, ' '),
-    )
+    .replace(/\bfrom\s*(['"])(?:\\.|(?!\1)[^\\\n])*\1/g, (match) => match.replace(/[^\n]/g, ' '))
     .replace(/\bimport\s*\(\s*(['"])(?:\\.|(?!\1)[^\\\n])*\1\s*\)/g, (match) =>
       match.replace(/[^\n]/g, ' '),
     );

@@ -410,26 +410,26 @@ export function logMigrationIncomplete(input, pm) {
   const isWindows = process.platform === 'win32';
   const reinstallCmd = pmGlobalInstallCommand(pm, '@moonshot-ai/kimi-code');
 
-  const lines = [warningHeading('Couldn\'t finish switching to the new kimi'), ''];
+  const lines = [warningHeading("Couldn't finish switching to the new kimi"), ''];
 
   if (verify.kind === 'blocked-legacy') {
     lines.push(
       pad('   Typing `kimi` still runs the old version. This file is in'),
-      pad('   the way and we couldn\'t change it:'),
+      pad("   the way and we couldn't change it:"),
       pathInBox(verify.shim),
       '',
     );
   } else if (verify.kind === 'foreign') {
     lines.push(
-      pad('   Typing `kimi` runs a file we don\'t recognize (not the new'),
-      pad('   CLI, not the old one). It\'s still in the way:'),
+      pad("   Typing `kimi` runs a file we don't recognize (not the new"),
+      pad("   CLI, not the old one). It's still in the way:"),
       pathInBox(verify.path),
       '',
     );
   } else {
     lines.push(
       pad('   Typing `kimi` currently finds nothing at all — the old'),
-      pad('   shim was removed but the new one isn\'t reachable yet.'),
+      pad("   shim was removed but the new one isn't reachable yet."),
       '',
     );
   }
@@ -447,7 +447,7 @@ export function logMigrationIncomplete(input, pm) {
   }
 
   if (errors.length > 0) {
-    lines.push(pad('   Changes that didn\'t go through:'));
+    lines.push(pad("   Changes that didn't go through:"));
     for (const e of errors) {
       lines.push(pathInBox(e.shimPath + '  (' + (e.message ?? e.code ?? 'error') + ')'));
     }
@@ -461,7 +461,7 @@ export function logMigrationIncomplete(input, pm) {
       lines.push(pathInBox('Remove-Item ' + quotePowerShellPath(c.shim)));
     } else {
       lines.push(pathInBox('rm ' + quotePosixPath(c.shim)));
-      lines.push(pad('   (use sudo if it\'s in a system directory)'));
+      lines.push(pad("   (use sudo if it's in a system directory)"));
     }
     lines.push(pathInBox(reinstallCmd), '');
   } else if (verify.kind === 'foreign') {
@@ -480,9 +480,7 @@ export function logMigrationIncomplete(input, pm) {
   }
 
   if (renames.length > 0 || consolidates.length > 0) {
-    lines.push(
-      pad('   The old version is still available as `kimi-legacy`.'),
-    );
+    lines.push(pad('   The old version is still available as `kimi-legacy`.'));
   }
 
   emit(renderBox(lines));

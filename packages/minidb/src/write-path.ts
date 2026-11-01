@@ -31,6 +31,7 @@ import type { GenerationBuilder } from './generation-builder.js';
 import type { IndexManager } from './index-manager.js';
 import type { MemoryGuard } from './memory-guard.js';
 import type { OpTracker } from './op-tracker.js';
+import { parseTtlMs } from './options.js';
 import { frameToOps } from './recovery.js';
 import type { ValueMode, RecoveredOp } from './recovery.js';
 import type { Store, StoreRecord, ValueLoc } from './store.js';
@@ -41,7 +42,6 @@ import type { SetOptions, BatchInputOp, PreparedOp, ValueCodecName } from './typ
 import { toBuf, toKStr, normDt, MAX_KEY_LEN } from './value-codec.js';
 import type { WalGroupTracker } from './wal-group.js';
 import type { WAL } from './wal.js';
-import { parseTtlMs } from './options.js';
 
 /** The stats counters the write path touches (a structural view of MiniDb's
  *  stats object). */

@@ -4,8 +4,7 @@ export const TEST_SCOPE_GUARD_ENV = 'KIMI_CODE_TEST_SCOPE_GUARD';
 
 export const TEST_SCOPE_REMINDER_VARIANT = 'test-scope-guard';
 
-export const TEST_SCOPE_NARROWING_HINT =
-  'cd packages/<package> && bun test --isolate <test-file…>';
+export const TEST_SCOPE_NARROWING_HINT = 'cd packages/<package> && bun test --isolate <test-file…>';
 
 const WHOLE_SUITE_COMMANDS: readonly RegExp[] = [
   /^bun\s+test(?=\s|$)/,
@@ -16,7 +15,8 @@ const WHOLE_SUITE_COMMANDS: readonly RegExp[] = [
   /^(?:bunx\s+)?vitest\s+(?:run|watch)(?=\s|$)/,
 ];
 
-const NARROWING_FLAGS = /(?:^|\s)(?:--project|--test-name-pattern|--filter|--shard|--dir)(?=[\s=]|$)/;
+const NARROWING_FLAGS =
+  /(?:^|\s)(?:--project|--test-name-pattern|--filter|--shard|--dir)(?=[\s=]|$)/;
 
 const COMMAND_SEPARATOR = /\s*(?:&&|\|\||[;&|\n])\s*/;
 

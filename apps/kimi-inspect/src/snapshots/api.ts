@@ -8,7 +8,9 @@ import type {
 import { DEBUG_RPC_BASE, type InspectClient } from '../channel';
 import { RPCError } from '../channel/errors';
 
-export function fetchWorkspaceSnapshots(client: InspectClient): Promise<WorkspaceInstancesSnapshot> {
+export function fetchWorkspaceSnapshots(
+  client: InspectClient,
+): Promise<WorkspaceInstancesSnapshot> {
   return fetchSnapshot(client, '/workspaces');
 }
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
-import SYSTEM_PROMPT_TEMPLATE from '../../../src/app/agentProfileCatalog/system.md?raw';
 import PROJECT_INFORMATION_SECTION from '../../../src/app/agentProfileCatalog/project-information.md?raw';
+import SYSTEM_PROMPT_TEMPLATE from '../../../src/app/agentProfileCatalog/system.md?raw';
 
 const PROMPT_VARIABLE = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
 

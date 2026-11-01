@@ -1,9 +1,10 @@
-import { resetCapabilitiesCache, setCapabilities } from '@moonshot-ai/pi-tui';
 import { afterEach, describe, expect, it, mock } from 'bun:test';
-import { waitForAssertion } from '#test/helpers/waitFor';
+
+import { resetCapabilitiesCache, setCapabilities } from '@moonshot-ai/pi-tui';
 
 import { UserMessageComponent } from '#/tui/components/messages/user-message';
 import type { ImageAttachment } from '#/tui/utils/image-attachment-store';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 const image: ImageAttachment = {
   id: 1,

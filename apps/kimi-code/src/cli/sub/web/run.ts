@@ -16,7 +16,12 @@ import { shutdownTelemetry, track } from '@moonshot-ai/kimi-telemetry';
 import chalk from 'chalk';
 import { type Command, Option } from 'commander';
 
-import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_USER_AGENT_PRODUCT, WEB_USER_AGENT_SUFFIX, CLI_MSH_PLATFORM } from '#/constant/app';
+import {
+  CLI_SHUTDOWN_TIMEOUT_MS,
+  CLI_USER_AGENT_PRODUCT,
+  WEB_USER_AGENT_SUFFIX,
+  CLI_MSH_PLATFORM,
+} from '#/constant/app';
 import { t } from '#/i18n';
 import { getNativeWebAssetsDir } from '#/native/web-assets';
 import { darkColors } from '#/tui/theme/colors';
@@ -110,9 +115,7 @@ export interface ShutdownStep {
  * pre-fix code shared one `try` between `close()` and `shutdownTelemetry()`, so
  * a rejecting `close()` skipped the telemetry flush entirely.
  */
-export async function runShutdownSteps(
-  steps: readonly ShutdownStep[],
-): Promise<readonly string[]> {
+export async function runShutdownSteps(steps: readonly ShutdownStep[]): Promise<readonly string[]> {
   const failures: string[] = [];
   for (const step of steps) {
     try {
@@ -405,9 +408,7 @@ async function runServerInProcess(
     // errors) and make the exit code carry it for scripts.
     for (const name of failures) {
       running?.logger.error({ reason, step: name }, 'server shutdown step failed');
-      stderr.write(
-        t('tui.statusMessages.serverShutdownStepFailed', { step: name }) + '\n',
-      );
+      stderr.write(t('tui.statusMessages.serverShutdownStepFailed', { step: name }) + '\n');
     }
     foregroundProcess.exit(shutdownExitCode(failures));
   }

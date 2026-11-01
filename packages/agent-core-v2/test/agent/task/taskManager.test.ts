@@ -1,25 +1,20 @@
+import { afterEach, describe, expect, it, jest } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { PassThrough, Readable } from 'node:stream';
 import type { Writable } from 'node:stream';
+
 import { join } from 'pathe';
 
+import { isUserCancellation, userCancellationReason } from '#/_base/utils/abort';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentTaskService, type AgentTaskInfo } from '#/agent/task/task';
+import { SubagentTask, type SubagentHandle } from '#/agent/tools/agent/subagent-task';
+import { ProcessTask } from '#/agent/tools/os/bash/process-task';
 import type { IHostProcess } from '#/os/interface/hostProcess';
-import { afterEach, describe, expect, it, jest } from 'bun:test';
+import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { advanceTimersByTimeAsync, waitForAssertion, waitUntil } from '#test/helpers/waitFor';
 
-import {
-  IAgentTaskService,
-  type AgentTaskInfo,
-} from '#/agent/task/task';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import {
-  SubagentTask,
-  type SubagentHandle,
-} from '#/agent/tools/agent/subagent-task';
-import { ProcessTask } from '#/agent/tools/os/bash/process-task';
-import { isUserCancellation, userCancellationReason } from '#/_base/utils/abort';
-import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import {
   configServices,
   createTestAgent,
@@ -27,10 +22,7 @@ import {
   type TestAgentContext,
   type TestAgentServiceOverride,
 } from '../../harness';
-import {
-  createAgentTaskPersistence,
-  type TaskServiceTestManager,
-} from './stubs';
+import { createAgentTaskPersistence, type TaskServiceTestManager } from './stubs';
 
 const MiB = 1024 * 1024;
 const LIMIT_BYTES = 16 * MiB;
@@ -41,24 +33,26 @@ interface TaskServiceFixture {
   persistence?: ReturnType<typeof createAgentTaskPersistence>;
 }
 
-function createAgentTaskService(options: {
-  sessionDir?: string;
-  maxRunningTasks?: number;
-} = {}): TaskServiceFixture {
+function createAgentTaskService(
+  options: {
+    sessionDir?: string;
+    maxRunningTasks?: number;
+  } = {},
+): TaskServiceFixture {
   const persistence =
-    options.sessionDir === undefined
-      ? undefined
-      : createAgentTaskPersistence(options.sessionDir);
+    options.sessionDir === undefined ? undefined : createAgentTaskPersistence(options.sessionDir);
   const overrides: TestAgentServiceOverride[] = [];
   if (options.sessionDir !== undefined) {
     overrides.push(homeDirServices(options.sessionDir));
   }
   const maxRunningTasks = options.maxRunningTasks;
   if (maxRunningTasks !== undefined) {
-    overrides.push(configServices(() => ({
-      providers: {},
-      task: { maxRunningTasks },
-    })));
+    overrides.push(
+      configServices(() => ({
+        providers: {},
+        task: { maxRunningTasks },
+      })),
+    );
   }
   const ctx = createTestAgent(...overrides);
   return {
@@ -436,10 +430,9 @@ describe('AgentTaskService', () => {
 
   it('tracks foreground tasks and releases their waiter when detached', async () => {
     const { manager } = createAgentTaskService();
-    const taskId = manager.registerTask(
-      agentTask(new Promise(() => {}), 'foreground agent'),
-      { detached: false },
-    );
+    const taskId = manager.registerTask(agentTask(new Promise(() => {}), 'foreground agent'), {
+      detached: false,
+    });
 
     expect(manager.getTask(taskId)).toMatchObject({
       detached: false,
@@ -473,13 +466,10 @@ describe('AgentTaskService', () => {
     const { manager } = createAgentTaskService();
     const { proc, killSpy } = pendingProcess();
     const controller = new AbortController();
-    const taskId = manager.registerTask(
-      new ProcessTask(proc, 'sleep 10', 'foreground process'),
-      {
-        detached: false,
-        signal: controller.signal,
-      },
-    );
+    const taskId = manager.registerTask(new ProcessTask(proc, 'sleep 10', 'foreground process'), {
+      detached: false,
+      signal: controller.signal,
+    });
 
     const waiting = manager.waitForForegroundRelease(taskId);
     controller.abort();
@@ -496,13 +486,10 @@ describe('AgentTaskService', () => {
     const { manager } = createAgentTaskService();
     const { proc, killSpy } = pendingProcess();
     const controller = new AbortController();
-    const taskId = manager.registerTask(
-      new ProcessTask(proc, 'sleep 10', 'foreground process'),
-      {
-        detached: false,
-        signal: controller.signal,
-      },
-    );
+    const taskId = manager.registerTask(new ProcessTask(proc, 'sleep 10', 'foreground process'), {
+      detached: false,
+      signal: controller.signal,
+    });
 
     const waiting = manager.waitForForegroundRelease(taskId);
     expect(manager.detach(taskId)).toMatchObject({ detached: true });
@@ -586,10 +573,9 @@ describe('AgentTaskService', () => {
 
   it('does not count foreground tasks detached later against the detached task limit', () => {
     const { manager } = createAgentTaskService({ maxRunningTasks: 1 });
-    const taskId = manager.registerTask(
-      agentTask(new Promise(() => {}), 'foreground agent'),
-      { detached: false },
-    );
+    const taskId = manager.registerTask(agentTask(new Promise(() => {}), 'foreground agent'), {
+      detached: false,
+    });
 
     manager.detach(taskId);
 
@@ -630,12 +616,8 @@ describe('AgentTaskService', () => {
     const first = registerProcess(manager, pendingProcess().proc, 'sleep 1', 'one');
     const second = registerProcess(manager, pendingProcess().proc, 'sleep 2', 'two');
 
-    expect(manager.list(true, 1)).toEqual([
-      expect.objectContaining({ taskId: first }),
-    ]);
-    expect(manager.list(true, 1)).not.toEqual([
-      expect.objectContaining({ taskId: second }),
-    ]);
+    expect(manager.list(true, 1)).toEqual([expect.objectContaining({ taskId: first })]);
+    expect(manager.list(true, 1)).not.toEqual([expect.objectContaining({ taskId: second })]);
   });
 
   it('lists running tasks synchronously without waiting for task completion', () => {
@@ -691,12 +673,7 @@ describe('AgentTaskService', () => {
     });
 
     const taskId = manager.registerTask(
-      new ProcessTask(
-        proc,
-        'b3sum --length 18446744073709551615',
-        'hash',
-        onOutput,
-      ),
+      new ProcessTask(proc, 'b3sum --length 18446744073709551615', 'hash', onOutput),
       {
         detached: false,
         signal: new AbortController().signal,
@@ -736,14 +713,11 @@ describe('AgentTaskService', () => {
       const chunks = Array.from({ length: 20 }, () => 'x'.repeat(MiB));
       const { proc } = sigtermIgnoringProcess(chunks);
 
-      const taskId = manager.registerTask(
-        new ProcessTask(proc, 'runaway', 'hash', () => {}),
-        {
-          detached: false,
-          signal: new AbortController().signal,
-          timeoutMs: 60_000,
-        },
-      );
+      const taskId = manager.registerTask(new ProcessTask(proc, 'runaway', 'hash', () => {}), {
+        detached: false,
+        signal: new AbortController().signal,
+        timeoutMs: 60_000,
+      });
 
       const info = await waitForTerminal(manager, taskId);
       const output = await manager.getOutputSnapshot(taskId, 1);
@@ -1038,11 +1012,15 @@ describe('AgentTaskService', () => {
     });
 
     const terminal = manager.wait(taskId);
-    await advanceTimersByTimeAsync((ms) => { jest.advanceTimersByTime(ms); }, 1);
+    await advanceTimersByTimeAsync((ms) => {
+      jest.advanceTimersByTime(ms);
+    }, 1);
     expect(killSpy).toHaveBeenCalledWith('SIGTERM');
     expect(killSpy).not.toHaveBeenCalledWith('SIGKILL');
 
-    await advanceTimersByTimeAsync((ms) => { jest.advanceTimersByTime(ms); }, 5_000);
+    await advanceTimersByTimeAsync((ms) => {
+      jest.advanceTimersByTime(ms);
+    }, 5_000);
     const info = await terminal;
 
     expect(info?.status).toBe('timed_out');
@@ -1058,7 +1036,9 @@ describe('AgentTaskService', () => {
     });
 
     const terminal = manager.wait(taskId);
-    await advanceTimersByTimeAsync((ms) => { jest.advanceTimersByTime(ms); }, 1);
+    await advanceTimersByTimeAsync((ms) => {
+      jest.advanceTimersByTime(ms);
+    }, 1);
     const info = await terminal;
 
     expect(info?.status).toBe('timed_out');
@@ -1077,8 +1057,12 @@ describe('AgentTaskService', () => {
     manager.detach(taskId);
 
     const terminal = manager.wait(taskId);
-    await advanceTimersByTimeAsync((ms) => { jest.advanceTimersByTime(ms); }, 1);
-    await advanceTimersByTimeAsync((ms) => { jest.advanceTimersByTime(ms); }, 5_000);
+    await advanceTimersByTimeAsync((ms) => {
+      jest.advanceTimersByTime(ms);
+    }, 1);
+    await advanceTimersByTimeAsync((ms) => {
+      jest.advanceTimersByTime(ms);
+    }, 5_000);
     const info = await terminal;
 
     expect(info?.status).toBe('timed_out');
@@ -1098,15 +1082,21 @@ describe('AgentTaskService', () => {
     });
     const waiting = manager.waitForForegroundRelease(taskId);
 
-    await advanceTimersByTimeAsync((ms) => { jest.advanceTimersByTime(ms); }, 1_000);
+    await advanceTimersByTimeAsync((ms) => {
+      jest.advanceTimersByTime(ms);
+    }, 1_000);
     await expect(waiting).resolves.toBe('timeout_detached');
     expect(killSpy).not.toHaveBeenCalled();
     expect(manager.getTask(taskId)).toMatchObject({ status: 'running', detached: true });
 
-    await advanceTimersByTimeAsync((ms) => { jest.advanceTimersByTime(ms); }, 1_000);
+    await advanceTimersByTimeAsync((ms) => {
+      jest.advanceTimersByTime(ms);
+    }, 1_000);
     expect(manager.getTask(taskId)?.status).toBe('running');
     const terminal = manager.wait(taskId);
-    await advanceTimersByTimeAsync((ms) => { jest.advanceTimersByTime(ms); }, 4_000);
+    await advanceTimersByTimeAsync((ms) => {
+      jest.advanceTimersByTime(ms);
+    }, 4_000);
     const info = await terminal;
 
     expect(info?.status).toBe('timed_out');
@@ -1124,7 +1114,9 @@ describe('AgentTaskService', () => {
     });
     const waiting = manager.waitForForegroundRelease(taskId);
 
-    await advanceTimersByTimeAsync((ms) => { jest.advanceTimersByTime(ms); }, 1_000);
+    await advanceTimersByTimeAsync((ms) => {
+      jest.advanceTimersByTime(ms);
+    }, 1_000);
     await expect(waiting).resolves.toBe('terminal');
     expect(killSpy).toHaveBeenCalled();
     expect(manager.getTask(taskId)?.status).toBe('timed_out');
@@ -1237,7 +1229,9 @@ describe('AgentTaskService', () => {
 
     const stopPromise = manager.stop(taskId, 'user requested');
     await Promise.resolve();
-    await advanceTimersByTimeAsync((ms) => { jest.advanceTimersByTime(ms); }, 5_000);
+    await advanceTimersByTimeAsync((ms) => {
+      jest.advanceTimersByTime(ms);
+    }, 5_000);
     const stopped = await stopPromise;
 
     expect(stopped).toMatchObject({
@@ -1259,12 +1253,7 @@ describe('AgentTaskService', () => {
 
   it('rejects a cancelled wait without stopping the running task', async () => {
     const { ctx, manager } = createAgentTaskService();
-    const taskId = registerProcess(
-      manager,
-      pendingProcess().proc,
-      'sleep 60',
-      'cancelled wait',
-    );
+    const taskId = registerProcess(manager, pendingProcess().proc, 'sleep 60', 'cancelled wait');
     const controller = new AbortController();
     const waiting = manager.wait(taskId, 60_000, controller.signal);
     const reason = userCancellationReason();
@@ -1280,12 +1269,7 @@ describe('AgentTaskService', () => {
   it('wait with a zero timeout returns the immediate snapshot before next-tick completion', async () => {
     const { manager } = createAgentTaskService();
     const proc = manuallyResolvedProcess();
-    const taskId = registerProcess(
-      manager,
-      proc.proc,
-      'sleep 0',
-      'next-tick completion',
-    );
+    const taskId = registerProcess(manager, proc.proc, 'sleep 0', 'next-tick completion');
 
     await Promise.resolve();
     setTimeout(() => {
@@ -1322,7 +1306,9 @@ describe('AgentTaskService', () => {
     const loop = ctx.get(IAgentLoopService);
     for (let i = 0; i < 10 && loop.snapshot().state === 'running'; i += 1) {
       loop.cancel();
-      await advanceTimersByTimeAsync((ms) => { jest.advanceTimersByTime(ms); }, 0);
+      await advanceTimersByTimeAsync((ms) => {
+        jest.advanceTimersByTime(ms);
+      }, 0);
     }
     expect(jest.getTimerCount()).toBeLessThanOrEqual(baselineTimerCount);
   });
@@ -1364,11 +1350,9 @@ describe('AgentTaskService', () => {
   it('launches a real process and waits to completion', async () => {
     const { spawn } = await import('node:child_process');
     const { manager } = createAgentTaskService();
-    const child = spawn(
-      process.execPath,
-      ['-e', "process.stdout.write('bg-ok\\n')"],
-      { stdio: 'pipe' },
-    );
+    const child = spawn(process.execPath, ['-e', "process.stdout.write('bg-ok\\n')"], {
+      stdio: 'pipe',
+    });
     const proc: IHostProcess = {
       _serviceBrand: undefined,
       stdin: { write: jest.fn(), end: jest.fn() } as unknown as Writable,
@@ -1383,7 +1367,7 @@ describe('AgentTaskService', () => {
           child.on('exit', (code) => {
             resolve(code ?? 0);
           });
-      }),
+        }),
       kill: jest.fn(async (signal?: NodeJS.Signals) => {
         child.kill(signal ?? 'SIGTERM');
       }) as unknown as IHostProcess['kill'],

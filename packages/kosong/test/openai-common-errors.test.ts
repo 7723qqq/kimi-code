@@ -1,10 +1,11 @@
+import { describe, expect, it } from 'bun:test';
+
 import {
   APIError as OpenAIAPIError,
   APIConnectionError as OpenAIConnectionError,
   APIConnectionTimeoutError as OpenAITimeoutError,
   APIUserAbortError as OpenAIUserAbortError,
 } from 'openai';
-import { describe, expect, it } from 'bun:test';
 
 import {
   APIConnectionError,
@@ -254,27 +255,31 @@ describe('OpenAI streaming error propagation', () => {
       new ReasoningKeyDialect(),
     );
 
-    await expect((async () => {
-      for await (const _ of msg) {
-        void _;
-      }
-    })()).rejects.toThrow(APIConnectionError);
+    await expect(
+      (async () => {
+        for await (const _ of msg) {
+          void _;
+        }
+      })(),
+    ).rejects.toThrow(APIConnectionError);
 
     // Verify the message is preserved
-    await expect((async () => {
-      async function* failingStream2(): AsyncGenerator<never> {
-        throw new OpenAIAPIError(undefined, undefined, 'Network connection lost.', undefined);
-        yield undefined as never;
-      }
-      const msg2 = new OpenAILegacyStreamedMessage(
-        failingStream2() as AsyncIterable<never>,
-        true,
-        new ReasoningKeyDialect(),
-      );
-      for await (const _ of msg2) {
-        void _;
-      }
-    })()).rejects.toThrow(/Network connection lost/);
+    await expect(
+      (async () => {
+        async function* failingStream2(): AsyncGenerator<never> {
+          throw new OpenAIAPIError(undefined, undefined, 'Network connection lost.', undefined);
+          yield undefined as never;
+        }
+        const msg2 = new OpenAILegacyStreamedMessage(
+          failingStream2() as AsyncIterable<never>,
+          true,
+          new ReasoningKeyDialect(),
+        );
+        for await (const _ of msg2) {
+          void _;
+        }
+      })(),
+    ).rejects.toThrow(/Network connection lost/);
   });
 });
 describe('convertOpenAIError: raw transport-layer stream errors', () => {

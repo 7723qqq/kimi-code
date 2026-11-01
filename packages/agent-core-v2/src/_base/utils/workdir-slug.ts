@@ -1,4 +1,3 @@
-
 const MAX_WORKDIR_SLUG_LENGTH = 40;
 const WORKDIR_KEY_PREFIX = 'wd_';
 const HASH_LENGTH = 12;
@@ -17,7 +16,10 @@ export function encodeWorkDirKey(workDir: string): string {
   const normalized = workDir.replaceAll(/\\/g, '/').replace(/\/+$/, '');
   const base = normalized.split('/').pop() ?? normalized;
   const slug = slugifyWorkDirName(base);
-  const hash = new Bun.CryptoHasher('sha256').update(normalized).digest('hex').slice(0, HASH_LENGTH);
+  const hash = new Bun.CryptoHasher('sha256')
+    .update(normalized)
+    .digest('hex')
+    .slice(0, HASH_LENGTH);
   return `${WORKDIR_KEY_PREFIX}${slug}_${hash}`;
 }
 

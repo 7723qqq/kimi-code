@@ -1,4 +1,3 @@
-
 export interface ToolReceipt {
   readonly toolName: string;
   readonly command?: string | undefined;

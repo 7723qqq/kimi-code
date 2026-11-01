@@ -1,6 +1,10 @@
 import { z } from 'zod';
 
-import { LOCAL_ENVIRONMENT_ID, type EnvironmentCapability, type EnvironmentStatus } from '#/environment/environment';
+import {
+  LOCAL_ENVIRONMENT_ID,
+  type EnvironmentCapability,
+  type EnvironmentStatus,
+} from '#/environment/environment';
 import type { EnvironmentGenerationSnapshot } from '#/environment/environmentRegistry';
 
 export const ENVIRONMENT_ID_MAX_LENGTH = 64;
@@ -46,7 +50,8 @@ export type RemoteEnvironmentEntry = z.infer<typeof RemoteEnvironmentEntrySchema
 export function environmentIdProblem(id: string): string | undefined {
   if (id.length === 0) return 'must not be empty';
   if (id !== id.trim()) return 'must not have leading or trailing whitespace';
-  if (id.length > ENVIRONMENT_ID_MAX_LENGTH) return `must be at most ${ENVIRONMENT_ID_MAX_LENGTH} characters`;
+  if (id.length > ENVIRONMENT_ID_MAX_LENGTH)
+    return `must be at most ${ENVIRONMENT_ID_MAX_LENGTH} characters`;
   if ((RESERVED_ENVIRONMENT_IDS as readonly string[]).includes(id)) {
     return `is reserved (${RESERVED_ENVIRONMENT_IDS.join(', ')})`;
   }
@@ -130,8 +135,10 @@ export function environmentEntryInfo(
   return {
     environmentId: environment.environmentId,
     type:
-      environment.environmentId === LOCAL_ENVIRONMENT_ID ? 'local'
-        : entry === undefined || 'command' in entry ? 'command'
+      environment.environmentId === LOCAL_ENVIRONMENT_ID
+        ? 'local'
+        : entry === undefined || 'command' in entry
+          ? 'command'
           : entry.type,
     status: environment.status,
     generation: environment.generation,

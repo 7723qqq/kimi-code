@@ -17,7 +17,9 @@ function remember(key, compute) {
 
 /** The Bun version as numbers, for rules that need a floor rather than a probe. */
 export function bunVersion() {
-  const [major = 0, minor = 0, patch = 0] = Bun.version.split('.').map((part) => Number.parseInt(part, 10) || 0);
+  const [major = 0, minor = 0, patch = 0] = Bun.version
+    .split('.')
+    .map((part) => Number.parseInt(part, 10) || 0);
   return { major, minor, patch, text: Bun.version };
 }
 
@@ -125,10 +127,7 @@ function booleanSetting(text, key) {
  * array written across several lines is still read.
  */
 function arraySetting(text, key) {
-  const withoutComments = text
-    .split('\n')
-    .map(stripTomlComment)
-    .join('\n');
+  const withoutComments = text.split('\n').map(stripTomlComment).join('\n');
   const start = new RegExp(`^${key}\\s*=\\s*\\[`, 'm').exec(withoutComments);
   if (!start) return;
   const openIndex = withoutComments.indexOf('[', start.index);

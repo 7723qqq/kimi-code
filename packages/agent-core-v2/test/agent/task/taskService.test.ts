@@ -1,70 +1,61 @@
-import { Readable, type Writable } from 'node:stream';
-
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { Readable, type Writable } from 'node:stream';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
-import { ILogService } from '#/_base/log/log';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentConversationUndoParticipantRegistry } from '#/agent/contextMemory/conversationUndoParticipants';
-import type {
-  ContextInjectionContext,
-  ContextInjectionProvider,
-} from '#/features/reminder/types';
-import { IAgentReminderService } from '#/features/reminder/reminderService';
-import { stubFlag } from '../../app/flag/stubs';
-import { createReminderStub } from '../../features/reminder/stubs';
-import {
-  IAgentTaskService,
-  type AgentTask,
-  type AgentTaskInfo,
-} from '#/agent/task/task';
-import { renderNotificationXml } from '#/agent/task/notificationXml';
-import { AgentTaskService, taskNotificationDeliveryKey } from '#/agent/task/taskService';
-import { TaskOutput } from '#/agent/task/taskOps';
-import { ProcessTask } from '#/agent/tools/os/bash/process-task';
-import type { IHostProcess } from '#/os/interface/hostProcess';
-import { IHostClock } from '#/os/interface/hostClock';
-import { IHostTimers } from '#/os/interface/hostTimers';
-import { IConfigRegistry, IConfigService } from '#/app/config/config';
-import { IFlagService } from '#/app/flag/flag';
+import { ILogService } from '#/_base/log/log';
+import { IAgentBlobService } from '#/agent/blob/agentBlobService';
+import { ContextSpliced } from '#/agent/contextMemory/contextEvents';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentConversationUndoParticipantRegistry } from '#/agent/contextMemory/conversationUndoParticipants';
 import type { ContextMessage, TaskOrigin } from '#/agent/contextMemory/types';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
-import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
-import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
-import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { renderNotificationXml } from '#/agent/task/notificationXml';
+import { IAgentTaskService, type AgentTask, type AgentTaskInfo } from '#/agent/task/task';
+import { TaskOutput } from '#/agent/task/taskOps';
+import { AgentTaskService, taskNotificationDeliveryKey } from '#/agent/task/taskService';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { SubagentTask } from '#/agent/tools/agent/subagent-task';
+import { ProcessTask } from '#/agent/tools/os/bash/process-task';
 import { type WaitForInput } from '#/agent/tools/task/task-wait/task-wait';
 import { WaitForTool } from '#/agent/tools/task/task-wait/taskWaitTool';
-import { IWireService } from '#/wire/wire';
-import { WireService } from '#/wire/wireService';
+import { IConfigRegistry, IConfigService } from '#/app/config/config';
 import { IEventBus, ISessionEventBus } from '#/app/event/eventBus';
 import { AgentEventBusView, EventBusService } from '#/app/event/eventBusService';
-import { IAgentBlobService } from '#/agent/blob/agentBlobService';
-import { ContextSpliced } from '#/agent/contextMemory/contextEvents';
-import { IEventDispatcher } from '#/state/eventDispatcher';
-import { EventDispatcherService } from '#/state/eventDispatcherService';
+import { IFlagService } from '#/app/flag/flag';
 import { ITaskService } from '#/app/task/task';
-import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
-import { ISessionLockService } from '#/persistence/interface/sessionLock';
-import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
+import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
+import type { ContextInjectionContext, ContextInjectionProvider } from '#/features/reminder/types';
+import { IHostClock } from '#/os/interface/hostClock';
+import type { IHostProcess } from '#/os/interface/hostProcess';
+import { IHostTimers } from '#/os/interface/hostTimers';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { InMemorySessionLockService } from '#/persistence/backends/memory/sessionLockService';
-
+import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
+import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
+import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { ISessionLockService } from '#/persistence/interface/sessionLock';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
+import { IEventDispatcher } from '#/state/eventDispatcher';
+import { EventDispatcherService } from '#/state/eventDispatcherService';
+import { IWireService } from '#/wire/wire';
+import { WireService } from '#/wire/wireService';
 
 import { stubLog } from '../../_base/log/stubs';
+import { stubFlag } from '../../app/flag/stubs';
+import { stubGoal } from '../../features/goal/stubs';
+import { createReminderStub } from '../../features/reminder/stubs';
+import { executeTool } from '../../tools/fixtures/execute-tool';
 import { stubAgentWire } from '../../wire/stubs';
 import { stubContextMemory, type StubContextMemory } from '../contextMemory/stubs';
 import { stubLoopWithHooks, type StubLoop } from '../loop/stubs';
-import { stubGoal } from '../../features/goal/stubs';
-import { executeTool } from '../../tools/fixtures/execute-tool';
 import type { TaskServiceTestManager } from './stubs';
 
 function fakeProcessTask(): AgentTask {
@@ -216,9 +207,11 @@ describe('AgentTaskService', () => {
     const waited = svc.wait(taskId, 10 * 365 * 24 * 3600 * 1000);
     const early = await Promise.race([
       waited.then(() => 'returned' as const),
-      new Promise<'waiting'>((resolve) => setTimeout(() => {
-        resolve('waiting');
-      }, 50)),
+      new Promise<'waiting'>((resolve) =>
+        setTimeout(() => {
+          resolve('waiting');
+        }, 50),
+      ),
     ]);
     expect(early).toBe('waiting');
     await svc.stop(taskId);
@@ -451,7 +444,10 @@ describe('AgentTaskService', () => {
     return result.output as string;
   }
 
-  function pendingSubagentTask(agentId: string, description: string): {
+  function pendingSubagentTask(
+    agentId: string,
+    description: string,
+  ): {
     task: SubagentTask;
     settle: (value: { result: string }) => void;
   } {
@@ -474,8 +470,20 @@ describe('AgentTaskService', () => {
     const bytes = new InMemoryStorageService();
     const mainSvc = buildAgentIx('main', docs, bytes).get(IAgentTaskService);
     const childSvc = buildAgentIx('child-1', docs, bytes).get(IAgentTaskService);
-    const mainTool = new WaitForTool(mainSvc, noopTelemetryService, stubFlag(true), stubGoal(), makeAgentScopeContext({ agentId: 'main', agentScope: 'main' }));
-    const childTool = new WaitForTool(childSvc, noopTelemetryService, stubFlag(true), stubGoal(), makeAgentScopeContext({ agentId: 'child-1', agentScope: 'child-1' }));
+    const mainTool = new WaitForTool(
+      mainSvc,
+      noopTelemetryService,
+      stubFlag(true),
+      stubGoal(),
+      makeAgentScopeContext({ agentId: 'main', agentScope: 'main' }),
+    );
+    const childTool = new WaitForTool(
+      childSvc,
+      noopTelemetryService,
+      stubFlag(true),
+      stubGoal(),
+      makeAgentScopeContext({ agentId: 'child-1', agentScope: 'child-1' }),
+    );
 
     const leaf = pendingSubagentTask('agent-grandchild', 'leaf work');
     const taskC = childSvc.registerTask(leaf.task);
@@ -524,8 +532,20 @@ describe('AgentTaskService', () => {
     const bytes = new InMemoryStorageService();
     const mainSvc = buildAgentIx('main', docs, bytes).get(IAgentTaskService);
     const childSvc = buildAgentIx('child-1', docs, bytes).get(IAgentTaskService);
-    const mainTool = new WaitForTool(mainSvc, noopTelemetryService, stubFlag(true), stubGoal(), makeAgentScopeContext({ agentId: 'main', agentScope: 'main' }));
-    const childTool = new WaitForTool(childSvc, noopTelemetryService, stubFlag(true), stubGoal(), makeAgentScopeContext({ agentId: 'child-1', agentScope: 'child-1' }));
+    const mainTool = new WaitForTool(
+      mainSvc,
+      noopTelemetryService,
+      stubFlag(true),
+      stubGoal(),
+      makeAgentScopeContext({ agentId: 'main', agentScope: 'main' }),
+    );
+    const childTool = new WaitForTool(
+      childSvc,
+      noopTelemetryService,
+      stubFlag(true),
+      stubGoal(),
+      makeAgentScopeContext({ agentId: 'child-1', agentScope: 'child-1' }),
+    );
 
     const parent = pendingSubagentTask('agent-parent', 'parent work');
     const taskM = mainSvc.registerTask(parent.task);
@@ -560,7 +580,7 @@ describe('AgentTaskService', () => {
     const writes: AgentTaskInfo[] = [];
     ix.stub(IAtomicDocumentStore, {
       get: async () => undefined,
-      set: async <T,>(_scope: string, _key: string, value: T) => {
+      set: async <T>(_scope: string, _key: string, value: T) => {
         writes.push(value as AgentTaskInfo);
       },
       delete: async () => {},
@@ -666,9 +686,12 @@ describe('AgentTaskService', () => {
   it('dispose aborts live tasks as a last resort', async () => {
     const svc = ix.get(IAgentTaskService);
     let abortReason: unknown;
-    svc.registerTask(abortObservingTask((reason) => (abortReason = reason)), {
-      timeoutMs: 60_000,
-    });
+    svc.registerTask(
+      abortObservingTask((reason) => (abortReason = reason)),
+      {
+        timeoutMs: 60_000,
+      },
+    );
 
     disposables.dispose();
     await Promise.resolve();
@@ -795,9 +818,9 @@ describe('AgentTaskService', () => {
     const map = new Map<string, unknown>();
     return {
       _serviceBrand: undefined,
-      get: async <T,>(scope: string, key: string): Promise<T | undefined> =>
+      get: async <T>(scope: string, key: string): Promise<T | undefined> =>
         map.get(`${scope}/${key}`) as T | undefined,
-      set: async <T,>(scope: string, key: string, value: T): Promise<void> => {
+      set: async <T>(scope: string, key: string, value: T): Promise<void> => {
         map.set(`${scope}/${key}`, value);
       },
       delete: async (scope: string, key: string): Promise<void> => {
@@ -985,18 +1008,13 @@ describe('AgentTaskService', () => {
       detached: true,
     });
 
-    const main = buildAgentIx('main', docs, bytes).get(
-      IAgentTaskService,
-    ) as TaskServiceTestManager;
+    const main = buildAgentIx('main', docs, bytes).get(IAgentTaskService) as TaskServiceTestManager;
     await main.loadFromDisk();
     const lost = await main.reconcile();
 
     expect(lost).toEqual([]);
     expect(main.list(false)).toEqual([]);
-    const untouched = await docs.get<{ status: string }>(
-      `${subScope}/tasks`,
-      'bash-abcdef01.json',
-    );
+    const untouched = await docs.get<{ status: string }>(`${subScope}/tasks`, 'bash-abcdef01.json');
     expect(untouched?.status).toBe('running');
 
     const sub = buildAgentIx('agent-1', docs, bytes).get(

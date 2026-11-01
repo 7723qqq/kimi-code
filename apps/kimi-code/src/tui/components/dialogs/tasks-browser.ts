@@ -394,9 +394,10 @@ export class TasksPanelComponent extends Container implements Focusable {
     const bodyHeight = Math.max(1, height - CHROME_ROWS - 1);
     if (this.detailOpen) {
       const task = this.selectedTask();
-      const detailLines = task === undefined
-        ? [currentTheme.fg('textMuted', t('tui.dialogs.tasksBrowser.noTaskSelected'))]
-        : this.renderDetail(width, bodyHeight);
+      const detailLines =
+        task === undefined
+          ? [currentTheme.fg('textMuted', t('tui.dialogs.tasksBrowser.noTaskSelected'))]
+          : this.renderDetail(width, bodyHeight);
       const out: string[] = [
         currentTheme.fg('primary', '─'.repeat(width)),
         ...this.renderDetailChrome(width),
@@ -427,7 +428,10 @@ export class TasksPanelComponent extends Container implements Focusable {
 
   private renderDetailChrome(_width: number): string[] {
     const title = currentTheme.boldFg('primary', t('tui.dialogs.tasksBrowser.detailTitle'));
-    const hint = currentTheme.fg('textMuted', ` Esc ${t('tui.dialogs.tasksBrowser.hintBack')} · Ctrl+O ${t('tui.dialogs.tasksBrowser.hintRaw')}`);
+    const hint = currentTheme.fg(
+      'textMuted',
+      ` Esc ${t('tui.dialogs.tasksBrowser.hintBack')} · Ctrl+O ${t('tui.dialogs.tasksBrowser.hintRaw')}`,
+    );
     return [title, hint, ''];
   }
 
@@ -476,10 +480,7 @@ export class TasksPanelComponent extends Container implements Focusable {
     if (width < NARROW_WIDTH) {
       // Stacked: the list keeps at most 40% of the rows but never more than
       // what the detail can spare, so the narrative still has room to breathe.
-      const listHeight = Math.max(
-        3,
-        Math.min(Math.floor(height * 0.4), Math.max(3, height - 6)),
-      );
+      const listHeight = Math.max(3, Math.min(Math.floor(height * 0.4), Math.max(3, height - 6)));
       const detailHeight = Math.max(1, height - listHeight);
       this.detailWidth = width;
       const list = this.renderList(width, listHeight);
@@ -565,7 +566,13 @@ export class TasksPanelComponent extends Container implements Focusable {
 
   private ensureList(items: readonly BackgroundTaskInfo[]): void {
     const current = this.list;
-    const currentIds = current === undefined ? '' : current.filtered().map((t) => t.taskId).join(',');
+    const currentIds =
+      current === undefined
+        ? ''
+        : current
+            .filtered()
+            .map((t) => t.taskId)
+            .join(',');
     const nextIds = items.map((t) => t.taskId).join(',');
     const selectedId = this.props.selectedTaskId;
     const listSelectedId = current?.selected()?.taskId;
@@ -606,11 +613,17 @@ export class TasksPanelComponent extends Container implements Focusable {
       ? '⏸'
       : task.status === 'completed'
         ? '✓'
-        : task.status === 'failed' || task.status === 'timed_out' || task.status === 'killed' || task.status === 'lost'
+        : task.status === 'failed' ||
+            task.status === 'timed_out' ||
+            task.status === 'killed' ||
+            task.status === 'lost'
           ? '✗'
           : '●';
     const statusText = pending
-      ? currentTheme.boldFg('warning', `${statusIcon} ${t('tui.dialogs.tasksBrowser.stopConfirmHint')}`)
+      ? currentTheme.boldFg(
+          'warning',
+          `${statusIcon} ${t('tui.dialogs.tasksBrowser.stopConfirmHint')}`,
+        )
       : `${currentTheme.fg(taskStatusToken(task.status), statusIcon)} ${currentTheme.fg(taskStatusToken(task.status), taskStatusLabel(task.status))}`;
     const statusWidth = visibleWidth(statusText);
     const budget = Math.max(0, width - visibleWidth(pointerStyled) - statusWidth - 1);
@@ -618,7 +631,10 @@ export class TasksPanelComponent extends Container implements Focusable {
     const name = selected
       ? currentTheme.boldFg('primary', clipped)
       : currentTheme.fg('text', clipped);
-    const gap = Math.max(1, width - visibleWidth(pointerStyled) - visibleWidth(clipped) - statusWidth);
+    const gap = Math.max(
+      1,
+      width - visibleWidth(pointerStyled) - visibleWidth(clipped) - statusWidth,
+    );
     return fitExactly(`${pointerStyled}${name}${' '.repeat(gap)}${statusText}`, width);
   }
 
@@ -675,9 +691,7 @@ export class TasksPanelComponent extends Container implements Focusable {
     lines.push(indent(taskIdLine(task)));
 
     while (lines.length < height) lines.push('');
-    return lines
-      .slice(0, height)
-      .map((line) => truncateToWidth(line, width, ELLIPSIS));
+    return lines.slice(0, height).map((line) => truncateToWidth(line, width, ELLIPSIS));
   }
 
   /** Which streams the detail shows, and in which order. */
@@ -691,10 +705,7 @@ export class TasksPanelComponent extends Container implements Focusable {
    * one the user always expects to see, so it claims a label row before the
    * activity section does.
    */
-  private streamBudgets(
-    blocks: readonly ('activity' | 'output')[],
-    remaining: number,
-  ): number[] {
+  private streamBudgets(blocks: readonly ('activity' | 'output')[], remaining: number): number[] {
     const budgets = blocks.map(() => 0);
     if (blocks.length === 0 || remaining <= 0) return budgets;
     const per = Math.floor(remaining / blocks.length);

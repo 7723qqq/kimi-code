@@ -14,6 +14,8 @@ import {
 import { parseImageMeta } from '#/utils/image/image-mime';
 import { editInExternalEditor, resolveEditorCommand } from '#/utils/process/external-editor';
 
+import { resolveUserInput } from '../commands/resolve';
+import type { StatusSurfaceKey } from '../components/chrome/status-surface/region';
 import {
   DOUBLE_ESC_WINDOW_MS,
   EXIT_CONFIRM_WINDOW_MS,
@@ -22,22 +24,28 @@ import {
   getLlmNotSetMessage,
 } from '../constant/kimi-tui';
 import { MEDIA_STAGING_TTL_SECONDS } from '../constant/media';
-import type { StatusSurfaceKey } from '../components/chrome/status-surface/region';
 import type { TUIState } from '../tui-state';
 import type { QueuedMessage } from '../types';
-import { SYSTEM_RENDER_CLOCK, type RenderClock, type RenderTimerHandle } from '../utils/render-clock';
 import { formatErrorMessage } from '../utils/event-payload';
 import type {
   ImageAttachment,
   ImageAttachmentStore,
   VideoAttachment,
 } from '../utils/image-attachment-store';
-import { extractMediaAttachments, imageExtensionForMime, type ExtractionResult } from '../utils/image-placeholder';
-import { resolveUserInput } from '../commands/resolve';
+import {
+  extractMediaAttachments,
+  imageExtensionForMime,
+  type ExtractionResult,
+} from '../utils/image-placeholder';
+import {
+  SYSTEM_RENDER_CLOCK,
+  type RenderClock,
+  type RenderTimerHandle,
+} from '../utils/render-clock';
 import type { BtwPanelController } from './btw-panel';
+import type { ModelMigrationController } from './model-migration';
 import type { PromptOptimizerController } from './prompt-optimizer';
 import type { SurveyController } from './survey-controller';
-import type { ModelMigrationController } from './model-migration';
 
 export interface EditorKeyboardHost {
   state: TUIState;
@@ -409,9 +417,7 @@ export class EditorKeyboardController {
     };
 
     editor.onAutocompleteError = (error: unknown) => {
-      host.showError(
-        t('tui.messages.autocompleteFailed', { error: formatErrorMessage(error) }),
-      );
+      host.showError(t('tui.messages.autocompleteFailed', { error: formatErrorMessage(error) }));
     };
 
     editor.onTextPaste = () => {
@@ -508,11 +514,17 @@ export class EditorKeyboardController {
     const { host } = this;
     const editor = host.state.editor;
     if (!host.validateMediaCapabilities(extraction)) {
-      host.releaseStagingMedia([...extraction.imageAttachmentIds, ...extraction.videoAttachmentIds]);
+      host.releaseStagingMedia([
+        ...extraction.imageAttachmentIds,
+        ...extraction.videoAttachmentIds,
+      ]);
       return;
     }
     if (host.state.appState.model.trim().length === 0 || host.session === undefined) {
-      host.releaseStagingMedia([...extraction.imageAttachmentIds, ...extraction.videoAttachmentIds]);
+      host.releaseStagingMedia([
+        ...extraction.imageAttachmentIds,
+        ...extraction.videoAttachmentIds,
+      ]);
       host.showError(getLlmNotSetMessage());
       return;
     }

@@ -15,7 +15,6 @@ import {
   helloWorldKey,
   helloWorldRunKey,
 } from '../helloWorldOps';
-import { HelloWorldInjection } from './injection/helloWorldInjection';
 import {
   HELLO_WORLD_STAGES,
   type IAgentHelloWorldService,
@@ -25,6 +24,7 @@ import {
   type HelloWorldRunState,
   type HelloWorldStage,
 } from './helloWorld';
+import { HelloWorldInjection } from './injection/helloWorldInjection';
 
 interface ToolSignal {
   readonly kind: 'write' | 'command';

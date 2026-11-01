@@ -71,8 +71,8 @@ async function captureRequestBody(
     stream: false,
   });
   let capturedBody: Record<string, unknown> | undefined;
-  (provider as any)._client.chat.completions.create = mock()
-    .mockImplementation((params: unknown) => {
+  (provider as any)._client.chat.completions.create = mock().mockImplementation(
+    (params: unknown) => {
       capturedBody = params as Record<string, unknown>;
       // The Kimi provider consumes `APIPromise.withResponse()` to read the
       // `x-trace-id` header, so the mock must expose that method.
@@ -83,7 +83,8 @@ async function captureRequestBody(
             response: new Response(null),
           }),
       };
-    });
+    },
+  );
   const stream = await provider.generate('system prompt', tools, history);
   for await (const part of stream) {
     void part;
@@ -271,8 +272,8 @@ describe('providers without message-level tool declarations', () => {
       stream: false,
     });
     let captured: Record<string, unknown> | undefined;
-    (provider as any)._client.chat.completions.create = mock()
-      .mockImplementation((params: unknown) => {
+    (provider as any)._client.chat.completions.create = mock().mockImplementation(
+      (params: unknown) => {
         captured = params as Record<string, unknown>;
         return Promise.resolve({
           id: 'chatcmpl-test123',
@@ -288,7 +289,8 @@ describe('providers without message-level tool declarations', () => {
           ],
           usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
         });
-      });
+      },
+    );
     const stream = await provider.generate('sys', [], HISTORY);
     for await (const part of stream) void part;
     const messages = captured!['messages'] as Array<Record<string, unknown>>;
@@ -303,8 +305,8 @@ describe('providers without message-level tool declarations', () => {
     const provider = new OpenAIResponsesChatProvider({ model: 'gpt-4.1', apiKey: 'test-key' });
     (provider as any)._stream = false;
     let captured: Record<string, unknown> | undefined;
-    ((provider as any)._client.responses as Record<string, unknown>)['create'] = mock()
-      .mockImplementation((params: unknown) => {
+    ((provider as any)._client.responses as Record<string, unknown>)['create'] =
+      mock().mockImplementation((params: unknown) => {
         captured = params as Record<string, unknown>;
         return Promise.resolve({
           id: 'resp_test123',

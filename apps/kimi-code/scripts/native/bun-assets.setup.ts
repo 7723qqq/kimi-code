@@ -10,6 +10,5 @@ for (const [key, path] of bunAssets) {
   }
   assets[key] = path;
 }
-(
-  globalThis as unknown as { __KIMI_BUN_ASSETS__?: Record<string, string> }
-).__KIMI_BUN_ASSETS__ = assets;
+(globalThis as unknown as { __KIMI_BUN_ASSETS__?: Record<string, string> }).__KIMI_BUN_ASSETS__ =
+  assets;

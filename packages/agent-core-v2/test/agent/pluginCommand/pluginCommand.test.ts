@@ -1,15 +1,14 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 
+import {
+  IAgentPluginCommandService,
+  PluginCommandActivated,
+} from '#/agent/pluginCommand/pluginCommand';
 import { IEventBus } from '#/app/event/eventBus';
 import { IPluginService } from '#/app/plugin/plugin';
 import type { PluginCommandDef } from '#/app/plugin/types';
 import { ErrorCodes } from '#/errors';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
-
-import {
-  IAgentPluginCommandService,
-  PluginCommandActivated,
-} from '#/agent/pluginCommand/pluginCommand';
 
 import { appService, createTestAgent, type TestAgentContext } from '../../harness';
 
@@ -61,9 +60,7 @@ describe('AgentPluginCommandService', () => {
   });
 
   function agentWithDeployCommand(): TestAgentContext {
-    return createTestAgent(
-      appService(IPluginService, pluginServiceStub([DEPLOY_COMMAND])),
-    );
+    return createTestAgent(appService(IPluginService, pluginServiceStub([DEPLOY_COMMAND])));
   }
 
   it('publishes the activation event, enqueues the expanded body, and updates metadata', async () => {
@@ -71,9 +68,7 @@ describe('AgentPluginCommandService', () => {
     ctx.mockNextResponse({ type: 'text', text: 'deployed' });
 
     const events: PluginCommandActivated[] = [];
-    const sub = ctx
-      .get(IEventBus)
-      .subscribe(PluginCommandActivated, (event) => events.push(event));
+    const sub = ctx.get(IEventBus).subscribe(PluginCommandActivated, (event) => events.push(event));
 
     await ctx
       .get(IAgentPluginCommandService)
@@ -103,9 +98,7 @@ describe('AgentPluginCommandService', () => {
     ctx = agentWithDeployCommand();
 
     await expect(
-      ctx
-        .get(IAgentPluginCommandService)
-        .activate({ pluginId: 'demo', commandName: 'missing' }),
+      ctx.get(IAgentPluginCommandService).activate({ pluginId: 'demo', commandName: 'missing' }),
     ).rejects.toMatchObject({ code: ErrorCodes.REQUEST_INVALID });
   });
 });

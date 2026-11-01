@@ -1,10 +1,10 @@
+import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { IModelCatalog } from '@moonshot-ai/agent-core-v2';
 import { createActor, setup } from '@moonshot-ai/agent-core-v2/human/xstate2';
-import { afterEach, describe, expect, it } from 'bun:test';
 import { WebSocket, type RawData } from 'ws';
 
 import { startServer } from '../src/start';

@@ -1,12 +1,17 @@
 import { describe, expect, it } from 'bun:test';
 
-import { renderPromptTemplateResult, systemPromptVars } from '#/app/agentProfileCatalog/profile-shared';
+import {
+  renderPromptTemplateResult,
+  systemPromptVars,
+} from '#/app/agentProfileCatalog/profile-shared';
 
 const TEMPLATE = 'BODY\n${model_adaptation_section}END';
 
 describe('model_adaptation_section in the prompt vars', () => {
   it('is empty when the context carries no adaptation', () => {
-    expect(systemPromptVars({ cwd: '/tmp' }, { skillActive: false })['model_adaptation_section']).toBe('');
+    expect(
+      systemPromptVars({ cwd: '/tmp' }, { skillActive: false })['model_adaptation_section'],
+    ).toBe('');
   });
 
   it('wraps a supplied adaptation with the reference-data prose', () => {

@@ -1,11 +1,11 @@
-import type { GoalSnapshot } from '@moonshot-ai/kimi-code-sdk';
 import { describe, expect, it, mock } from 'bun:test';
 
-import { createFakeClock } from '#test/helpers/fake-clock';
+import type { GoalSnapshot } from '@moonshot-ai/kimi-code-sdk';
 
 import { FooterComponent } from '#/tui/components/chrome/footer';
 import type { AppState } from '#/tui/types';
 import { createEmptySessionStats } from '#/tui/utils/session-stats';
+import { createFakeClock } from '#test/helpers/fake-clock';
 
 const ANSI_SGR = /\[[0-9;]*m/g;
 function strip(text: string): string {

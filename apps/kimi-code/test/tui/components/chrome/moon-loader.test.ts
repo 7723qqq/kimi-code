@@ -1,10 +1,10 @@
-import type { TUI } from '@moonshot-ai/pi-tui';
 import { afterEach, describe, expect, it, mock, type Mock } from 'bun:test';
 
-import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
+import type { TUI } from '@moonshot-ai/pi-tui';
 
 import { MoonLoader, type SpinnerStyle } from '#/tui/components/chrome/moon-loader';
 import { MOON_SPINNER_INTERVAL_MS } from '#/tui/constant/rendering';
+import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
 
 // Ownership contract: a MoonLoader arms no timer in its constructor, so a loader
 // a test never starts is inert. Every loader a test does start must be stopped

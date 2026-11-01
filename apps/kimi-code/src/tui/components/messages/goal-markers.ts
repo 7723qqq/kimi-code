@@ -199,7 +199,9 @@ function pausedHeadline(reason: string | undefined, actor: GoalMarkerActor | und
     return t('tui.messages.goalMarkers.pausedInterruption');
   if (actor === 'user') return t('tui.messages.goalMarkers.pausedByUser');
   if (reason !== undefined && isGoalPauseReason(reason)) {
-    return t('tui.messages.goalMarkers.pausedWithLowerReason', { reason: pauseReasonLabel(reason) });
+    return t('tui.messages.goalMarkers.pausedWithLowerReason', {
+      reason: pauseReasonLabel(reason),
+    });
   }
   if (reason !== undefined && reason.length > 0) {
     return t('tui.messages.goalMarkers.pausedWithReason', { reason });

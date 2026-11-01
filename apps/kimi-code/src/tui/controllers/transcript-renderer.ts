@@ -227,11 +227,7 @@ export class TranscriptRendererController {
    * final status row) so ordering survives. The container's ref-checked render
    * cache picks up the identity change; no tree-wide invalidate is needed.
    */
-  replaceTranscriptChild(
-    previous: Component,
-    next: Component,
-    entry?: TranscriptEntry,
-  ): boolean {
+  replaceTranscriptChild(previous: Component, next: Component, entry?: TranscriptEntry): boolean {
     const children = this.host.state.transcriptContainer.children;
     const index = children.indexOf(previous);
     if (index < 0) return false;
@@ -275,9 +271,7 @@ export class TranscriptRendererController {
     entries.splice(entryIndex, 1);
     entries.push(entry);
     const children = this.host.state.transcriptContainer.children;
-    const childIndex = children.findIndex(
-      (child) => getTranscriptComponentEntry(child) === entry,
-    );
+    const childIndex = children.findIndex((child) => getTranscriptComponentEntry(child) === entry);
     if (childIndex >= 0) {
       const [component] = children.splice(childIndex, 1);
       children.push(component!);

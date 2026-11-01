@@ -535,9 +535,10 @@ export function rewriteMediaPlaceholders(
       if (kind !== 'image' && kind !== 'video') continue;
       if (idStr === undefined) continue;
       const id = Number.parseInt(idStr, 10);
-      const attachment = mediaSnapshots === undefined
-        ? store.get(id)
-        : mediaSnapshots.find((snapshot) => snapshot.id === id);
+      const attachment =
+        mediaSnapshots === undefined
+          ? store.get(id)
+          : mediaSnapshots.find((snapshot) => snapshot.id === id);
       if (attachment === undefined) continue;
       if (attachment.kind !== kind) continue;
       out += text.slice(cursor, match.index);

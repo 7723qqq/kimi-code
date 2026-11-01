@@ -111,8 +111,7 @@ async function loadLocaleKeys(localeFile) {
     // A tree may export one module per domain under a `messages` map keyed by
     // locale rather than a flat `{key: value}` object. Unwrap the English side
     // so the same leaf-key walk applies.
-    const nested =
-      data.messages && typeof data.messages === 'object' ? data.messages : data;
+    const nested = data.messages && typeof data.messages === 'object' ? data.messages : data;
     const unwrapped =
       nested.en !== undefined && typeof nested.en === 'object' && nested.zh !== undefined
         ? nested.en
@@ -176,7 +175,9 @@ async function checkErrorCodeTranslation() {
     `\n${untranslated.length === 0 ? '✓' : '✗'} error-code copy: ${errorCodeKeys.length} keys, ${untranslated.length} still identical to English`,
   );
   if (untranslated.length > 0) {
-    console.error(`  ${untranslated.length} errorCodes.* value(s) are the English sentence in zh:\n`);
+    console.error(
+      `  ${untranslated.length} errorCodes.* value(s) are the English sentence in zh:\n`,
+    );
     for (const key of untranslated.slice(0, 40)) console.error(`  - ${key}`);
     if (untranslated.length > 40) console.error(`  ... and ${untranslated.length - 40} more`);
     console.error('  Translate the zh value; do not leave the English sentence in place.');

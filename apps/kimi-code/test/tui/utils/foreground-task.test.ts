@@ -1,5 +1,6 @@
-import type { BackgroundTaskInfo } from '@moonshot-ai/kimi-code-sdk';
 import { describe, expect, it } from 'bun:test';
+
+import type { BackgroundTaskInfo } from '@moonshot-ai/kimi-code-sdk';
 
 import { pickForegroundTask, pickForegroundTasks } from '@/tui/utils/foreground-task';
 

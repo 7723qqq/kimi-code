@@ -1,4 +1,3 @@
-
 export const JUDGE_SYSTEM_PROMPT = `You are an independent judge evaluating whether a goal has been completed.
 
 Your role is to verify — with concrete evidence — that the stated goal and its

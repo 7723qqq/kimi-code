@@ -1,4 +1,3 @@
-
 import { existsSync } from 'node:fs';
 import * as nodePath from 'node:path';
 

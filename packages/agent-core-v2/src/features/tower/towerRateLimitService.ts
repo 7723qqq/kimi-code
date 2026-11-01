@@ -1,10 +1,8 @@
 import { Disposable } from '#/_base/di/lifecycle';
 import { resolveAgentTaskConfig } from '#/agent/task/configSection';
 import { IConfigService } from '#/app/config/config';
-import {
-  ITowerRateLimitService,
-  type TowerRateLimitSnapshot,
-} from './towerRateLimit';
+
+import { ITowerRateLimitService, type TowerRateLimitSnapshot } from './towerRateLimit';
 
 export const RATE_LIMIT_CAPACITY_SHRINK_INTERVAL_MS = 2_000;
 export const RATE_LIMIT_CAPACITY_RECOVERY_INTERVAL_MS = 180_000;

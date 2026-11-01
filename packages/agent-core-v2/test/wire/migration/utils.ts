@@ -1,20 +1,12 @@
-import {
-  type WireMigration,
-  type WireMigrationRecord,
-} from '#/wire/migration/migration';
+import { type WireMigration, type WireMigrationRecord } from '#/wire/migration/migration';
+
 import { eventSnapshot } from '../../harness/snapshots';
 
-export function runMigration(
-  migration: WireMigration,
-  records: readonly WireMigrationRecord[],
-) {
+export function runMigration(migration: WireMigration, records: readonly WireMigrationRecord[]) {
   return wireSnapshot(records.map((record) => migrateRecord(migration, record)));
 }
 
-function migrateRecord(
-  migration: WireMigration,
-  record: WireMigrationRecord,
-): WireMigrationRecord {
+function migrateRecord(migration: WireMigration, record: WireMigrationRecord): WireMigrationRecord {
   if (migration.migrateRecord === undefined) {
     throw new Error(`Migration ${migration.sourceVersion} requires batch migration`);
   }

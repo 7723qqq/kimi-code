@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
-import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -10,22 +9,23 @@ import { ILogService } from '#/_base/log/log';
 import { IEventService } from '#/app/event/event';
 import type { Event2 } from '#/app/event/event2';
 import { ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { InMemorySessionLockService } from '#/persistence/backends/memory/sessionLockService';
+import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
+import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { ISessionLockService } from '#/persistence/interface/sessionLock';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
+import { applyPromptMetadataUpdate } from '#/session/sessionMetadata/promptMetadata';
 import { ISessionMetadata, type SessionMeta } from '#/session/sessionMetadata/sessionMetadata';
 import { SessionMetadata } from '#/session/sessionMetadata/sessionMetadataService';
-import { applyPromptMetadataUpdate } from '#/session/sessionMetadata/promptMetadata';
 import { SessionMetaUpdated } from '#/session/sessionMetadata/sessionMetaEvents';
 import { ISessionStateService } from '#/session/state/sessionState';
 import { SessionStateService } from '#/session/state/sessionStateService';
-import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
-import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
-import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
-import { InMemorySessionLockService } from '#/persistence/backends/memory/sessionLockService';
-import { ISessionLockService } from '#/persistence/interface/sessionLock';
+import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
 
-import { stubSessionIndexMirror } from '../../app/sessionIndex/stubs';
 import { stubLog } from '../../_base/log/stubs';
+import { stubSessionIndexMirror } from '../../app/sessionIndex/stubs';
 
 const META_SCOPE = 'sessions/wd_test/s1/session-meta';
 
@@ -405,14 +405,14 @@ describe('SessionMetadata', () => {
     const meta = ix.get(ISessionMetadata);
 
     await meta.setGeneratedTitleIfUncustomized('generated title');
-    await expect(store.get<Record<string, unknown>>(META_SCOPE, 'state.json')).resolves.toMatchObject(
-      { titleKind: 'generated', isCustomTitle: false },
-    );
+    await expect(
+      store.get<Record<string, unknown>>(META_SCOPE, 'state.json'),
+    ).resolves.toMatchObject({ titleKind: 'generated', isCustomTitle: false });
 
     await meta.setTitle('user title');
-    await expect(store.get<Record<string, unknown>>(META_SCOPE, 'state.json')).resolves.toMatchObject(
-      { titleKind: 'custom', isCustomTitle: true },
-    );
+    await expect(
+      store.get<Record<string, unknown>>(META_SCOPE, 'state.json'),
+    ).resolves.toMatchObject({ titleKind: 'custom', isCustomTitle: true });
   });
 
   it('does not downgrade a modern titleKind on a legacy false marker', async () => {

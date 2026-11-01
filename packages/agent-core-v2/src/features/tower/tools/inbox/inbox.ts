@@ -14,7 +14,9 @@ export const TowerInboxToolInputSchema = z
     include_read: z
       .boolean()
       .optional()
-      .describe('Include previously acknowledged messages for history lookup; only returned messages are acknowledged'),
+      .describe(
+        'Include previously acknowledged messages for history lookup; only returned messages are acknowledged',
+      ),
   })
   .strict();
 

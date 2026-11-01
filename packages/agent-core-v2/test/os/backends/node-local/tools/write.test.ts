@@ -1,14 +1,19 @@
 import { describe, expect, it, mock } from 'bun:test';
 
-import { PathSecurityError } from '#/tool/path-access';
-import type { HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
+import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import { type WriteInput, WriteInputSchema } from '#/agent/tools/os/write/write';
 import { WriteTool } from '#/agent/tools/os/write/writeTool';
-import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
-import { FakeRuntime } from '#/runtime/fakeRuntime';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
+import type { HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { FakeRuntime } from '#/runtime/fakeRuntime';
+import { PathSecurityError } from '#/tool/path-access';
+import type {
+  ExecutableToolContext,
+  ExecutableToolResult,
+  ToolExecution,
+} from '#/tool/toolContract';
+
+import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
 
 const signal = new AbortController().signal;
 const PERMISSIVE_WORKSPACE = stubWorkspaceContext('/');
@@ -53,9 +58,7 @@ function createWriteFs(options: WriteFsOptions = {}) {
   );
   const writeText = mock(options.writeText ?? (async () => {}));
   const appendText = mock(options.appendText ?? (async () => {}));
-  const stat = mock(
-    options.stat ?? (async () => ({ isFile: false, isDirectory: true, size: 0 })),
-  );
+  const stat = mock(options.stat ?? (async () => ({ isFile: false, isDirectory: true, size: 0 })));
   const mkdir = mock(options.mkdir ?? (async () => {}));
   const realpath = mock(options.realpath ?? (async (path: string) => path));
   const fs = {
@@ -90,7 +93,9 @@ function makeTool(options: WriteFsOptions = {}, workspace = PERMISSIVE_WORKSPACE
   return { tool, ...fakes };
 }
 
-function isPromiseLike(value: ToolExecution | Promise<ToolExecution>): value is Promise<ToolExecution> {
+function isPromiseLike(
+  value: ToolExecution | Promise<ToolExecution>,
+): value is Promise<ToolExecution> {
   return typeof (value as Promise<ToolExecution>).then === 'function';
 }
 
@@ -333,10 +338,7 @@ describe('WriteTool', () => {
   });
 
   it('rejects relative traversal writes before fs I/O', async () => {
-    const { tool, writeText } = makeTool(
-      {},
-      stubWorkspaceContext('/workspace/project'),
-    );
+    const { tool, writeText } = makeTool({}, stubWorkspaceContext('/workspace/project'));
 
     const result = await execute(tool, { path: '../outside.txt', content: 'x' });
 
@@ -392,10 +394,9 @@ describe('WriteTool', () => {
 
   it('still reports parent-directory ENOENT surfaced by writeText itself', async () => {
     const { tool } = makeTool({
-      writeText: mock()
-        .mockRejectedValue(
-          Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' }),
-        ),
+      writeText: mock().mockRejectedValue(
+        Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' }),
+      ),
     });
 
     const result = await execute(tool, { path: '/tmp/missing-dir/file.txt', content: 'data' });

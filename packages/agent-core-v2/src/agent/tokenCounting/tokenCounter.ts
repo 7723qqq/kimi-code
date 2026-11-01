@@ -119,9 +119,7 @@ export interface SidecarTokenizerTransport {
   request(text: string): Promise<number>;
 }
 
-export function createSidecarTokenCounter(
-  transport: SidecarTokenizerTransport,
-): AsyncTokenCounter {
+export function createSidecarTokenCounter(transport: SidecarTokenizerTransport): AsyncTokenCounter {
   return createAsyncTokenCounter('sidecar', { countAsync: (text) => transport.request(text) });
 }
 

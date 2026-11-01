@@ -21,12 +21,11 @@
 // and closed, the rename must publish it, the finally removes the (already
 // renamed) tmp, and the destination directory is fsynced strictly last.
 
+import { expect, afterEach, test } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-
-import { expect, afterEach, test } from 'bun:test';
 
 import { ClusterDb } from '../../src/cluster/index.js';
 import { rmrf, tmpDir } from '../e2e/helpers/tmp.js';
@@ -65,57 +64,45 @@ function recordRealFs(clusterDir: string): void {
   const realOpen = fs.open;
   const realRename = fs.rename;
   const realRm = fs.rm;
-  patch(
-    fs,
-    'open',
-    (async (p: string, flags?: string, mode?: number) => {
-      const s = String(p);
-      const real = await realOpen(p, flags as never, mode as never);
-      if (s === clusterDir && flags === 'r') {
-        return {
-          sync: async () => {
-            seq.push(`dsync:${s}`);
-            await real.sync();
-          },
-          close: async () => real.close(),
-        };
-      }
-      if (s.startsWith(tmpPrefix)) {
-        seq.push(`open:${s}`);
-        return {
-          writeFile: async (data: string, enc?: string) => {
-            seq.push(`writeFile:${s}`);
-            await real.writeFile(data, enc as never);
-          },
-          sync: async () => {
-            seq.push(`sync:${s}`);
-            await real.sync();
-          },
-          close: async () => {
-            seq.push(`close:${s}`);
-            await real.close();
-          },
-        };
-      }
-      return real;
-    }) as typeof fs.open,
-  );
-  patch(
-    fs,
-    'rename',
-    (async (src: string, dst: string) => {
-      if (String(dst) === registryFile) seq.push(`rename:${String(src)}->${String(dst)}`);
-      await realRename(src, dst);
-    }) as typeof fs.rename,
-  );
-  patch(
-    fs,
-    'rm',
-    (async (p: string, opts?: { force?: boolean }) => {
-      if (String(p).startsWith(tmpPrefix)) seq.push(`rm:${String(p)}`);
-      await realRm(p, opts as never);
-    }) as typeof fs.rm,
-  );
+  patch(fs, 'open', (async (p: string, flags?: string, mode?: number) => {
+    const s = String(p);
+    const real = await realOpen(p, flags as never, mode as never);
+    if (s === clusterDir && flags === 'r') {
+      return {
+        sync: async () => {
+          seq.push(`dsync:${s}`);
+          await real.sync();
+        },
+        close: async () => real.close(),
+      };
+    }
+    if (s.startsWith(tmpPrefix)) {
+      seq.push(`open:${s}`);
+      return {
+        writeFile: async (data: string, enc?: string) => {
+          seq.push(`writeFile:${s}`);
+          await real.writeFile(data, enc as never);
+        },
+        sync: async () => {
+          seq.push(`sync:${s}`);
+          await real.sync();
+        },
+        close: async () => {
+          seq.push(`close:${s}`);
+          await real.close();
+        },
+      };
+    }
+    return real;
+  }) as typeof fs.open);
+  patch(fs, 'rename', (async (src: string, dst: string) => {
+    if (String(dst) === registryFile) seq.push(`rename:${String(src)}->${String(dst)}`);
+    await realRename(src, dst);
+  }) as typeof fs.rename);
+  patch(fs, 'rm', (async (p: string, opts?: { force?: boolean }) => {
+    if (String(p).startsWith(tmpPrefix)) seq.push(`rm:${String(p)}`);
+    await realRm(p, opts as never);
+  }) as typeof fs.rm);
 }
 
 /** Record the same syscalls, but make the registry tmp's write FAIL after
@@ -131,54 +118,42 @@ function recordRealFsWithFailingTmpWrite(clusterDir: string): void {
   const realOpen = fs.open;
   const realWriteFile = fs.writeFile;
   const realRm = fs.rm;
-  patch(
-    fs,
-    'open',
-    (async (p: string, flags?: string, mode?: number) => {
-      const s = String(p);
-      const real = await realOpen(p, flags as never, mode as never);
-      if (s.startsWith(tmpPrefix)) {
-        seq.push(`open:${s}`);
-        return {
-          writeFile: async () => {
-            seq.push(`writeFile-throws:${s}`);
-            await real.writeFile(partial, 'utf8');
-            await real.close();
-            throw new Error('simulated crash mid registry write');
-          },
-          sync: async () => {
-            seq.push(`sync:${s}`);
-            await real.sync();
-          },
-          close: async () => {
-            seq.push(`close:${s}`);
-            await real.close().catch(() => {});
-          },
-        };
-      }
-      return real;
-    }) as typeof fs.open,
-  );
-  patch(
-    fs,
-    'writeFile',
-    (async (p: string, data: unknown, enc?: unknown) => {
-      if (String(p).startsWith(tmpPrefix)) {
-        seq.push(`writeFile-unsynced-throws:${String(p)}`);
-        await realWriteFile(p, partial, enc as never);
-        throw new Error('simulated crash mid registry write (unsynced tmp)');
-      }
-      await realWriteFile(p, data as never, enc as never);
-    }) as typeof fs.writeFile,
-  );
-  patch(
-    fs,
-    'rm',
-    (async (p: string, opts?: { force?: boolean }) => {
-      if (String(p).startsWith(tmpPrefix)) seq.push(`rm:${String(p)}`);
-      await realRm(p, opts as never);
-    }) as typeof fs.rm,
-  );
+  patch(fs, 'open', (async (p: string, flags?: string, mode?: number) => {
+    const s = String(p);
+    const real = await realOpen(p, flags as never, mode as never);
+    if (s.startsWith(tmpPrefix)) {
+      seq.push(`open:${s}`);
+      return {
+        writeFile: async () => {
+          seq.push(`writeFile-throws:${s}`);
+          await real.writeFile(partial, 'utf8');
+          await real.close();
+          throw new Error('simulated crash mid registry write');
+        },
+        sync: async () => {
+          seq.push(`sync:${s}`);
+          await real.sync();
+        },
+        close: async () => {
+          seq.push(`close:${s}`);
+          await real.close().catch(() => {});
+        },
+      };
+    }
+    return real;
+  }) as typeof fs.open);
+  patch(fs, 'writeFile', (async (p: string, data: unknown, enc?: unknown) => {
+    if (String(p).startsWith(tmpPrefix)) {
+      seq.push(`writeFile-unsynced-throws:${String(p)}`);
+      await realWriteFile(p, partial, enc as never);
+      throw new Error('simulated crash mid registry write (unsynced tmp)');
+    }
+    await realWriteFile(p, data as never, enc as never);
+  }) as typeof fs.writeFile);
+  patch(fs, 'rm', (async (p: string, opts?: { force?: boolean }) => {
+    if (String(p).startsWith(tmpPrefix)) seq.push(`rm:${String(p)}`);
+    await realRm(p, opts as never);
+  }) as typeof fs.rm);
 }
 
 function registryTemps(entries: string[]): string[] {
@@ -203,16 +178,22 @@ test('createIndex fsyncs the registry tmp before the rename and fsyncs the dir l
     expect(openAt >= 0, `no registry tmp was written: ${seq.join(' | ')}`).toBeTruthy();
     const tmp = seq[openAt]!.slice('open:'.length);
     const dirSyncAt = seq.findIndex((e, i) => i > openAt && e === `dsync:${dir}`);
-    expect(dirSyncAt > openAt, `no directory fsync followed the registry rename: ${seq.join(' | ')}`).toBeTruthy();
-    expect(seq.slice(openAt, dirSyncAt + 1), 'wrong syscall order for the registry write').toStrictEqual([
-        `open:${tmp}`,
-        `writeFile:${tmp}`,
-        `sync:${tmp}`,
-        `close:${tmp}`,
-        `rename:${tmp}->${path.join(dir, REGISTRY)}`,
-        `rm:${tmp}`,
-        `dsync:${dir}`,
-      ]);
+    expect(
+      dirSyncAt > openAt,
+      `no directory fsync followed the registry rename: ${seq.join(' | ')}`,
+    ).toBeTruthy();
+    expect(
+      seq.slice(openAt, dirSyncAt + 1),
+      'wrong syscall order for the registry write',
+    ).toStrictEqual([
+      `open:${tmp}`,
+      `writeFile:${tmp}`,
+      `sync:${tmp}`,
+      `close:${tmp}`,
+      `rename:${tmp}->${path.join(dir, REGISTRY)}`,
+      `rm:${tmp}`,
+      `dsync:${dir}`,
+    ]);
 
     // The published registry is complete and no tmp is left behind.
     const raw = JSON.parse(await fs.readFile(path.join(dir, REGISTRY), 'utf8')) as {
@@ -230,16 +211,26 @@ test('a registry write that fails mid-way leaves no tmp behind', async () => {
   recordRealFsWithFailingTmpWrite(dir);
   try {
     const db = await ClusterDb.open({ dir, shardCount: 4, valueCodec: 'json' });
-    await expect((() => db.createIndex('byCity', { field: 'city' }))()).rejects.toThrow(/simulated crash mid registry write/);
+    await expect((() => db.createIndex('byCity', { field: 'city' }))()).rejects.toThrow(
+      /simulated crash mid registry write/,
+    );
     const failedWrite = seq.find((e) => e.startsWith('writeFile-throws:'));
-    expect(failedWrite !== undefined, `the handle-based tmp write (the fixed path) was the one injected: ${seq.join(' | ')}`).toBeTruthy();
-    expect(registryTemps(await fs.readdir(dir)), 'the failed write cleans up its own tmp').toStrictEqual([]);
+    expect(
+      failedWrite !== undefined,
+      `the handle-based tmp write (the fixed path) was the one injected: ${seq.join(' | ')}`,
+    ).toBeTruthy();
+    expect(
+      registryTemps(await fs.readdir(dir)),
+      'the failed write cleans up its own tmp',
+    ).toStrictEqual([]);
     // The registry itself was never published: the failed create left no
     // half-written definition file behind.
-    expect(await fs.stat(path.join(dir, REGISTRY)).then(
+    expect(
+      await fs.stat(path.join(dir, REGISTRY)).then(
         () => true,
         () => false,
-      )).toBe(false);
+      ),
+    ).toBe(false);
     await db.close();
   } finally {
     await rmrf(dir);
@@ -262,7 +253,10 @@ test('open sweeps a dead owner’s stranded registry tmp and leaves a live owner
     await fs.writeFile(deadTmp, '{"indexes":');
 
     const db = await ClusterDb.open({ dir, shardCount: 4, valueCodec: 'json' });
-    expect(registryTemps(await fs.readdir(dir)), 'only the dead owner’s tmp is swept').toStrictEqual([`${REGISTRY}.tmp-${peer.pid}-1`]);
+    expect(
+      registryTemps(await fs.readdir(dir)),
+      'only the dead owner’s tmp is swept',
+    ).toStrictEqual([`${REGISTRY}.tmp-${peer.pid}-1`]);
     await db.close();
 
     // Once the peer is gone, its tmp is stranded too and the next open takes it.

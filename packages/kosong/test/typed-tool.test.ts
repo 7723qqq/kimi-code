@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import { z } from 'zod';
 
 import { SimpleToolset, toolError, toolOk } from './fixtures/simple-toolset';

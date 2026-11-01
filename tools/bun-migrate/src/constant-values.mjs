@@ -28,7 +28,8 @@ export const CONSTANT_VALUE_DIFFERENCES = [
     path: 'constants.MAX_STRING_LENGTH',
     node: '536870888',
     bun: '2147483647',
-    impact: 'a string-length guard changes threshold between runtimes without either one reporting it',
+    impact:
+      'a string-length guard changes threshold between runtimes without either one reporting it',
     workaround: 'state your own maximum string length',
     severity: 'silent',
   },

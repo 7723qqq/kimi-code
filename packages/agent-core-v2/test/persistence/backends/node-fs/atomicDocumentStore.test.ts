@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { expectRejection } from '#test/helpers/assertions';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -14,6 +13,7 @@ import {
   IAtomicTomlDocumentStore,
 } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { expectRejection } from '#test/helpers/assertions';
 
 interface State {
   readonly title?: string;

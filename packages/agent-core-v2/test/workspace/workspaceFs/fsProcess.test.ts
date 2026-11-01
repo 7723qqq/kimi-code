@@ -1,10 +1,8 @@
+import { describe, expect, it } from 'bun:test';
 import { listenerCount, type EventEmitter } from 'node:events';
 import { Readable, Writable } from 'node:stream';
 
-import { describe, expect, it } from 'bun:test';
-
 import { type IHostProcess, type IHostProcessService } from '#/os/interface/hostProcess';
-
 import { runCommand, type RunCommandOptions } from '#/workspace/workspaceFs/internal/fsProcess';
 
 interface FakeProcessOptions {
@@ -17,7 +15,11 @@ interface FakeProcessOptions {
 function fakeProcess(opts: FakeProcessOptions = {}): IHostProcess {
   return {
     _serviceBrand: undefined,
-    stdin: new Writable({ write(_c, _e, cb) { cb(); } }),
+    stdin: new Writable({
+      write(_c, _e, cb) {
+        cb();
+      },
+    }),
     stdout: Readable.from([opts.stdout ?? '']),
     stderr: Readable.from([opts.stderr ?? '']),
     pid: 1,
@@ -46,7 +48,9 @@ describe('runCommand', () => {
   });
 
   it('passes cwd and env to the runner', async () => {
-    let received: { args: readonly string[]; cwd?: string; env?: Record<string, string> } | undefined;
+    let received:
+      | { args: readonly string[]; cwd?: string; env?: Record<string, string> }
+      | undefined;
     const runner: IHostProcessService = {
       _serviceBrand: undefined,
       spawn: (command, args, options) => {
@@ -60,7 +64,11 @@ describe('runCommand', () => {
 
   it('kills the process when the signal is already aborted', async () => {
     let killed = false;
-    const proc = fakeProcess({ onKill: () => { killed = true; } });
+    const proc = fakeProcess({
+      onKill: () => {
+        killed = true;
+      },
+    });
     const controller = new AbortController();
     controller.abort();
     await runCommand(fakeRunner(proc), ['sleep'], { signal: controller.signal });
@@ -69,7 +77,11 @@ describe('runCommand', () => {
 
   it('kills the process when the signal aborts later', async () => {
     let killed = false;
-    const proc = fakeProcess({ onKill: () => { killed = true; } });
+    const proc = fakeProcess({
+      onKill: () => {
+        killed = true;
+      },
+    });
     const controller = new AbortController();
     const options: RunCommandOptions = { signal: controller.signal };
     const promise = runCommand(fakeRunner(proc), ['sleep'], options);

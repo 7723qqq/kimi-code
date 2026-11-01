@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
-import { waitForAssertion } from '#test/helpers/waitFor';
 
 import {
   PromptOptimizerController,
   type PromptOptimizerHost,
 } from '#/tui/controllers/prompt-optimizer';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 void mock.module('#/i18n', () => ({
   t: (key: string, params?: Record<string, string | number>): string => {
@@ -36,7 +36,10 @@ void mock.module('#/i18n', () => ({
 interface Harness {
   readonly controller: PromptOptimizerController;
   readonly host: PromptOptimizerHost;
-  readonly editor: { getText: Mock<(...args: any[]) => any>; setText: Mock<(...args: any[]) => any> };
+  readonly editor: {
+    getText: Mock<(...args: any[]) => any>;
+    setText: Mock<(...args: any[]) => any>;
+  };
   readonly optimizePrompt: Mock<(...args: any[]) => any>;
   readonly showError: Mock<(...args: any[]) => any>;
   readonly showInfo: Mock<(...args: any[]) => any>;
@@ -192,10 +195,9 @@ describe('PromptOptimizerController', () => {
     h.lastPanel().handleInput(ENTER);
     await pending;
 
-    expect(h.editor.setText).toHaveBeenCalledWith(
-      'Rewrite the parser to reject trailing input.',
-      { preservePasteRegistry: true },
-    );
+    expect(h.editor.setText).toHaveBeenCalledWith('Rewrite the parser to reject trailing input.', {
+      preservePasteRegistry: true,
+    });
     expect(h.restoreEditor).toHaveBeenCalled();
     expect(h.track).toHaveBeenCalledWith(
       'prompt_optimize_accepted',
@@ -312,9 +314,7 @@ describe('PromptOptimizerController', () => {
 
     expect(h.mount).not.toHaveBeenCalled();
     expect(h.track).toHaveBeenCalledWith('prompt_optimize_unchanged', { reason: 'identical' });
-    expect(h.showInfo).toHaveBeenCalledWith(
-      'The draft already says this; nothing to rewrite.',
-    );
+    expect(h.showInfo).toHaveBeenCalledWith('The draft already says this; nothing to rewrite.');
   });
 
   it('settles the rewrite and clears busy when another panel displaces the panel', async () => {

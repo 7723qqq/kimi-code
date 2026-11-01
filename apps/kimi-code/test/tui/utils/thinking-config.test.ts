@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-import {
-  thinkingEffortFromConfig,
-  thinkingEffortToConfig,
-} from '@/tui/utils/thinking-config';
+import { thinkingEffortFromConfig, thinkingEffortToConfig } from '@/tui/utils/thinking-config';
 
 describe('thinkingEffortToConfig', () => {
   it.each([

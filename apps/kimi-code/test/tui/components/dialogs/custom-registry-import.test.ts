@@ -1,8 +1,12 @@
-import { visibleWidth } from '@moonshot-ai/pi-tui';
 import { describe, expect, it, mock, type Mock } from 'bun:test';
 
+import { visibleWidth } from '@moonshot-ai/pi-tui';
+
+import {
+  CustomRegistryImportDialogComponent,
+  type CustomRegistryImportResult,
+} from '#/tui/components/dialogs/custom-registry-import';
 import { mouse } from '#test/helpers/mouse';
-import { CustomRegistryImportDialogComponent, type CustomRegistryImportResult } from '#/tui/components/dialogs/custom-registry-import';
 
 const ANSI = /\[[0-9;]*m/g;
 const strip = (s: string): string => s.replaceAll(ANSI, '');

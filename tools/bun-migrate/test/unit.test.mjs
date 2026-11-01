@@ -1,6 +1,5 @@
-import { createHash } from 'node:crypto';
-
 import { describe, expect, it } from 'bun:test';
+import { createHash } from 'node:crypto';
 
 import { collectNodeBindings, parse, resolveBuiltinCall, ts, walkCalls } from '../src/ast.mjs';
 import {
@@ -73,12 +72,16 @@ describe('crypto pairing', () => {
   }
 
   it('accepts a digest with a pinned text encoding', () => {
-    const { reason } = check("import { createHash } from 'node:crypto';\ncreateHash('sha256').update('a').digest('hex');\n");
+    const { reason } = check(
+      "import { createHash } from 'node:crypto';\ncreateHash('sha256').update('a').digest('hex');\n",
+    );
     expect(reason).toBeUndefined();
   });
 
   it('rejects a non-literal algorithm', () => {
-    const { reason } = check("import { createHash } from 'node:crypto';\ncreateHash(alg).update('a').digest('hex');\n");
+    const { reason } = check(
+      "import { createHash } from 'node:crypto';\ncreateHash(alg).update('a').digest('hex');\n",
+    );
     expect(reason).toContain('not a string literal');
   });
 
@@ -104,7 +107,9 @@ describe('crypto pairing', () => {
   });
 
   it('builds the Bun form from the original arguments', () => {
-    const { site } = check("import { createHash } from 'node:crypto';\ncreateHash('sha256').update('a').digest('hex');\n");
+    const { site } = check(
+      "import { createHash } from 'node:crypto';\ncreateHash('sha256').update('a').digest('hex');\n",
+    );
     expect(pairing.build(site, helpers)).toBe("new Bun.CryptoHasher('sha256')");
   });
 
@@ -316,7 +321,9 @@ describe('parsePnpmWorkspace', () => {
   });
 
   it('reads the catalog so it can be moved into package.json', () => {
-    const parsed = parsePnpmWorkspace('catalog:\n  zod: 4.3.6\n  pathe: ^2.0.3\npackages:\n  - src\n');
+    const parsed = parsePnpmWorkspace(
+      'catalog:\n  zod: 4.3.6\n  pathe: ^2.0.3\npackages:\n  - src\n',
+    );
     expect(parsed.catalog).toEqual({ zod: '4.3.6', pathe: '^2.0.3' });
     expect(parsed.unsupported).toEqual([]);
   });
@@ -332,7 +339,9 @@ describe('parsePnpmWorkspace', () => {
   });
 
   it('reports overrides and patchedDependencies instead of guessing', () => {
-    const parsed = parsePnpmWorkspace('overrides:\n  "a>@b": "1.0.0"\npatchedDependencies:\n  left-pad: x.patch\n');
+    const parsed = parsePnpmWorkspace(
+      'overrides:\n  "a>@b": "1.0.0"\npatchedDependencies:\n  left-pad: x.patch\n',
+    );
     expect(parsed.unsupported).toContain('overrides');
     expect(parsed.unsupported).toContain('patchedDependencies');
   });
@@ -344,7 +353,9 @@ describe('parsePnpmWorkspace', () => {
   });
 
   it('reports every top-level key it does not translate', () => {
-    const parsed = parsePnpmWorkspace('packages:\n  - packages/*\nonlyBuiltDependencies:\n  - esbuild\n');
+    const parsed = parsePnpmWorkspace(
+      'packages:\n  - packages/*\nonlyBuiltDependencies:\n  - esbuild\n',
+    );
     expect(parsed.ok).toBe(true);
     expect(parsed.unsupported.some((item) => item.includes('onlyBuiltDependencies'))).toBe(true);
   });

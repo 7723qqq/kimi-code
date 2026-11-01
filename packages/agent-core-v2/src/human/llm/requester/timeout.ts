@@ -40,7 +40,8 @@ function httpSchemeValue(value: string | undefined): string | undefined {
 function resolveHttpProxyUrls(env: Env): { httpProxy?: string; httpsProxy?: string } | undefined {
   const allProxy = httpSchemeValue(firstNonBlank(env, ['all_proxy', 'ALL_PROXY']));
   const httpProxy = httpSchemeValue(firstNonBlank(env, ['http_proxy', 'HTTP_PROXY'])) ?? allProxy;
-  const httpsProxy = httpSchemeValue(firstNonBlank(env, ['https_proxy', 'HTTPS_PROXY'])) ?? allProxy;
+  const httpsProxy =
+    httpSchemeValue(firstNonBlank(env, ['https_proxy', 'HTTPS_PROXY'])) ?? allProxy;
   if (httpProxy === undefined && httpsProxy === undefined) return undefined;
   return { httpProxy, httpsProxy };
 }

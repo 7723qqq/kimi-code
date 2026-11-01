@@ -1,11 +1,10 @@
-import fs from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
-
 // Regression tests for the third deep-review round:
 //   A) Non-ASCII (multi-byte UTF-8) string keys must work on every surface.
 //   B) readOnly open must never mutate the database files (no WAL truncation).
 import { expect, test } from 'bun:test';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 
 import { MiniDb } from '../src/index.js';
 
@@ -172,7 +171,9 @@ test('non-ASCII key: range index, dt index, compound index, text index', async (
     await db.set('用户B', { age: 40, ws: 'W1', bio: 'hello there' }, { dt: { created: 200 } });
 
     expect(db.findRange('byAge', { min: 25, max: 35 }).map((r) => r.key)).toStrictEqual(['用户A']);
-    expect(db.dtRange('created', { gte: 100, lte: 100 }).map((r) => r.key)).toStrictEqual(['用户A']);
+    expect(db.dtRange('created', { gte: 100, lte: 100 }).map((r) => r.key)).toStrictEqual([
+      '用户A',
+    ]);
     expect(db.compoundRange('byWs', 'W1').map((r) => r.key)).toStrictEqual(['用户A', '用户B']);
     expect(db.search('body', 'world').map((r) => r.key)).toStrictEqual(['用户A']);
     // values resolve too

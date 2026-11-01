@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test';
-
 import { basename } from 'node:path';
 
 import { loadConfig } from '../src/config';
@@ -36,7 +35,9 @@ describe('the prunable prompt covers the split sections', () => {
 
   test('attributes each split section to the file it is written in', () => {
     const bundle = loadPromptBundle(config.systemPromptPath);
-    const byHeading = new Map(bundle.sections.map((s) => [s.heading, basename(s.sourceFile ?? '')]));
+    const byHeading = new Map(
+      bundle.sections.map((s) => [s.heading, basename(s.sourceFile ?? '')]),
+    );
     expect(byHeading.get('Coding')).toBe('coding.md');
     expect(byHeading.get('Delivering work')).toBe('delivering-work.md');
     expect(byHeading.get('Project information')).toBe('project-information.md');

@@ -1,5 +1,6 @@
-import { visibleWidth } from '@moonshot-ai/pi-tui';
 import { describe, expect, it } from 'bun:test';
+
+import { visibleWidth } from '@moonshot-ai/pi-tui';
 
 import { BackgroundAgentStatusComponent } from '#/tui/components/messages/background-agent-status';
 import { STATUS_BULLET } from '#/tui/constant/symbols';

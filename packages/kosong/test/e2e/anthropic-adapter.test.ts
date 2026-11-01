@@ -11,7 +11,6 @@ import { AnthropicChatProvider } from '#/providers/anthropic';
 import type { Tool } from '#/tool';
 import type { TokenUsage } from '#/usage';
 
-
 import { createFakeProviderHarness } from './fake-provider-harness';
 
 function anthropicSseFrame(event: string, payload: unknown): string {

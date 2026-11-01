@@ -315,7 +315,8 @@ export const PAIRINGS = [
     exportName: 'readFile',
     bunExpression: 'Bun.file',
     effect: REPORT_ONLY,
-    summary: 'Bun.file().text() measured 0.57x-0.86x of readFile from 16 B to 2 MB, slower at every size',
+    summary:
+      'Bun.file().text() measured 0.57x-0.86x of readFile from 16 B to 2 MB, slower at every size',
     condition:
       'never applied by default: measured 0.57x-0.86x of readFile at 16 B, 1 KB, 100 KB and 2 MB, and 0.81x under 50 parallel reads',
     check() {
@@ -357,11 +358,13 @@ export const PAIRINGS = [
     exportName: 'zstdCompressSync',
     bunExpression: 'Bun.zstdCompressSync',
     effect: SPEED,
-    summary: 'zstdCompressSync(data) -> Bun.zstdCompressSync(data), measured 1.4x-8.3x faster from 100 KB down to 16 B, and the frames are byte-identical',
+    summary:
+      'zstdCompressSync(data) -> Bun.zstdCompressSync(data), measured 1.4x-8.3x faster from 100 KB down to 16 B, and the frames are byte-identical',
     condition:
       'no options argument. Verified across 25 payloads from 1 B to 32 MB (random, repetitive, text, JSON) that node and Bun emit the same frame bytes, and that each runtime decodes the other output',
     check(site) {
-      if (argCount(site.call) !== 1) return 'zstd options are passed, and Bun.zstdCompressSync takes its own options shape';
+      if (argCount(site.call) !== 1)
+        return 'zstd options are passed, and Bun.zstdCompressSync takes its own options shape';
       return;
     },
     build(site, helpers) {
@@ -374,11 +377,13 @@ export const PAIRINGS = [
     exportName: 'zstdDecompressSync',
     bunExpression: 'Bun.zstdDecompressSync',
     effect: SPEED,
-    summary: 'zstdDecompressSync(data) -> Bun.zstdDecompressSync(data), measured 1.6x-81x faster and it decodes node frames',
+    summary:
+      'zstdDecompressSync(data) -> Bun.zstdDecompressSync(data), measured 1.6x-81x faster and it decodes node frames',
     condition:
       'no options argument. Verified: Bun decodes node output and node decodes Bun output, in both directions at every measured size',
     check(site) {
-      if (argCount(site.call) !== 1) return 'zstd options are passed, and Bun.zstdDecompressSync takes its own options shape';
+      if (argCount(site.call) !== 1)
+        return 'zstd options are passed, and Bun.zstdDecompressSync takes its own options shape';
       return;
     },
     build(site, helpers) {
@@ -396,7 +401,8 @@ export const PAIRINGS = [
     condition:
       'no options argument. Verified: both produce the same 1f8b-prefixed stream that the other runtime can gunzip; the result is wrapped in Buffer so .toString(encoding), .equals and other Buffer methods keep working',
     check(site) {
-      if (argCount(site.call) !== 1) return 'gzip options are passed, and Bun.gzipSync takes its own options shape';
+      if (argCount(site.call) !== 1)
+        return 'gzip options are passed, and Bun.gzipSync takes its own options shape';
       return;
     },
     build(site, helpers) {
@@ -414,7 +420,8 @@ export const PAIRINGS = [
     condition:
       'no options argument. Verified: both decode the same gzip stream, in both directions; the result is wrapped in Buffer so Buffer methods keep working',
     check(site) {
-      if (argCount(site.call) !== 1) return 'gunzip options are passed, which Bun.gunzipSync does not take';
+      if (argCount(site.call) !== 1)
+        return 'gunzip options are passed, which Bun.gunzipSync does not take';
       return;
     },
     build(site, helpers) {
@@ -455,7 +462,8 @@ export const PAIRINGS = [
     exportName: 'deflateRawSync',
     bunExpression: 'Bun.deflateSync',
     effect: REPORT_ONLY,
-    summary: 'Bun.deflateSync is raw deflate, but its bytes diverge from deflateRawSync above a few hundred bytes',
+    summary:
+      'Bun.deflateSync is raw deflate, but its bytes diverge from deflateRawSync above a few hundred bytes',
     condition:
       'never applied: format matches, output bytes do not. Verified identical at 13 bytes, different at 1800 and 10000 bytes because the two pick different block boundaries and match strategies',
     check() {
@@ -474,7 +482,8 @@ export const PAIRINGS = [
     condition:
       'no options argument. Verified: Bun.inflateSync decodes node deflateRawSync output and vice versa; the result is wrapped in Buffer so Buffer methods keep working',
     check(site) {
-      if (argCount(site.call) !== 1) return 'inflateRaw options are passed, which Bun.inflateSync does not take';
+      if (argCount(site.call) !== 1)
+        return 'inflateRaw options are passed, which Bun.inflateSync does not take';
       return;
     },
     build(site, helpers) {
@@ -490,7 +499,7 @@ export const PAIRINGS = [
     summary: 'brotli has no Bun-native equivalent',
     condition: 'never applied: Bun exposes no brotli compressing API',
     check() {
-      return "Bun ships no brotli helper; node:zlib resolves to Bun native code, so leaving the call alone already runs on Bun";
+      return 'Bun ships no brotli helper; node:zlib resolves to Bun native code, so leaving the call alone already runs on Bun';
     },
     build() {},
   },
@@ -526,7 +535,8 @@ export const PAIRINGS = [
     exportName: 'globSync',
     bunExpression: 'Bun.Glob',
     effect: SPEED,
-    summary: 'globSync(pattern, {cwd}) -> [...new Bun.Glob(pattern).scanSync({cwd})], 2.0x-5.3x faster, the gap widening with directory size',
+    summary:
+      'globSync(pattern, {cwd}) -> [...new Bun.Glob(pattern).scanSync({cwd})], 2.0x-5.3x faster, the gap widening with directory size',
     condition: 'the pattern is a string literal and options are omitted or limited to cwd',
     check(site) {
       const pattern = staticString(firstArg(site.call));
@@ -534,9 +544,7 @@ export const PAIRINGS = [
       const options = secondArg(site.call);
       if (options && ts.isObjectLiteralExpression(options)) {
         const allowed = new Set(['cwd']);
-        const keys = options.properties
-          .map((property) => property.name?.text)
-          .filter(Boolean);
+        const keys = options.properties.map((property) => property.name?.text).filter(Boolean);
         const extra = keys.filter((key) => !allowed.has(key));
         if (extra.length > 0) {
           return `options ${extra.join(', ')} are not reproduced by Bun.Glob.scanSync`;
@@ -607,7 +615,8 @@ export const PAIRINGS = [
     exportName: 'stripVTControlCharacters',
     bunExpression: 'Bun.stripANSI',
     effect: SPEED,
-    summary: 'stripVTControlCharacters(a) -> Bun.stripANSI(a), 15x-16x faster and flat across 13 B to 26 KB',
+    summary:
+      'stripVTControlCharacters(a) -> Bun.stripANSI(a), 15x-16x faster and flat across 13 B to 26 KB',
     condition: 'single string argument; both strip the same escape sequences',
     check(site) {
       if (argCount(site.call) !== 1) return 'stripVTControlCharacters takes exactly one argument';
@@ -640,14 +649,16 @@ export const PAIRINGS = [
     summary: 'util.format has no Bun-native equivalent',
     condition: 'never applied: Bun ships no printf-style formatter',
     check() {
-      return "Bun has no equivalent for util.format; node:util resolves to Bun native code, so leaving the call alone already runs on Bun";
+      return 'Bun has no equivalent for util.format; node:util resolves to Bun native code, so leaving the call alone already runs on Bun';
     },
     build() {},
   },
 ];
 
 export function pairingFor(moduleName, exportName) {
-  return PAIRINGS.find((pairing) => pairing.from === moduleName && pairing.exportName === exportName);
+  return PAIRINGS.find(
+    (pairing) => pairing.from === moduleName && pairing.exportName === exportName,
+  );
 }
 
 export { SPEED, REPORT_ONLY };

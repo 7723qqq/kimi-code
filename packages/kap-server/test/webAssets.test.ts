@@ -1,3 +1,4 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,7 +8,6 @@ import {
   REMOTE_CONTROL_ORIGIN_FIX_SCRIPT,
 } from '@moonshot-ai/remote-control';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { registerWebAssetRoutes } from '../src/routes/webAssets';
 

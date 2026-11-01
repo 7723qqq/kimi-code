@@ -16,7 +16,15 @@ export interface FindSessionsOptions {
   since: number;
 }
 
-export type StepKind = 'assistant' | 'thinking' | 'tool_call' | 'tool_result' | 'user_event' | 'event' | 'error' | 'source_context';
+export type StepKind =
+  | 'assistant'
+  | 'thinking'
+  | 'tool_call'
+  | 'tool_result'
+  | 'user_event'
+  | 'event'
+  | 'error'
+  | 'source_context';
 
 export interface HistoryStep {
   kind: StepKind;
@@ -107,22 +115,24 @@ export interface ConversionStats {
   truncatedCharacters: number;
 }
 
-export type ConversionResult = {
-  status: 'complete' | 'partial';
-  source: SessionSource;
-  sourceId: string;
-  title?: string;
-  cwd?: string;
-  lastPrompt?: string;
-  messages: ImportMessage[];
-  historyPath: string;
-  sourceCopyDirectory: string;
-  imageReferenceIndexPath?: string;
-  imageReferences: ImageReference[];
-  stats: ConversionStats;
-  issues: ConversionIssue[];
-} | {
-  status: 'unreliable';
-  issues: ConversionIssue[];
-  error: { code: string; message: string };
-};
+export type ConversionResult =
+  | {
+      status: 'complete' | 'partial';
+      source: SessionSource;
+      sourceId: string;
+      title?: string;
+      cwd?: string;
+      lastPrompt?: string;
+      messages: ImportMessage[];
+      historyPath: string;
+      sourceCopyDirectory: string;
+      imageReferenceIndexPath?: string;
+      imageReferences: ImageReference[];
+      stats: ConversionStats;
+      issues: ConversionIssue[];
+    }
+  | {
+      status: 'unreliable';
+      issues: ConversionIssue[];
+      error: { code: string; message: string };
+    };

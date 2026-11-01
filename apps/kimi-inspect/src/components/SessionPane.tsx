@@ -71,12 +71,18 @@ export function SessionPane({ sessionId, ready }: { sessionId: string | null; re
         ) : (
           <>
             <div className="mb-3 rounded border border-neutral-800 bg-neutral-950/40 p-2 text-[11px]">
-              <div className="mb-1 font-semibold uppercase tracking-wider text-neutral-500">Workspace association</div>
+              <div className="mb-1 font-semibold uppercase tracking-wider text-neutral-500">
+                Workspace association
+              </div>
               <div className="grid grid-cols-[80px_minmax(0,1fr)] gap-1 font-mono">
                 <span className="text-neutral-600">workspace</span>
-                <span className="break-all text-neutral-300">{association.data?.workspaceId ?? 'loading…'}</span>
+                <span className="break-all text-neutral-300">
+                  {association.data?.workspaceId ?? 'loading…'}
+                </span>
                 <span className="text-neutral-600">cwd</span>
-                <span className="break-all text-neutral-300">{association.data?.cwd ?? 'loading…'}</span>
+                <span className="break-all text-neutral-300">
+                  {association.data?.cwd ?? 'loading…'}
+                </span>
               </div>
             </div>
             {tab === 'services' ? (
@@ -90,7 +96,9 @@ export function SessionPane({ sessionId, ready }: { sessionId: string | null; re
                 queryKey={['sessionState', sessionId]}
                 title="Session state"
                 label="sessionStateService"
-                fetchSnapshot={() => klient.session(sessionId).service(ISessionStateService).snapshot()}
+                fetchSnapshot={() =>
+                  klient.session(sessionId).service(ISessionStateService).snapshot()
+                }
               />
             )}
           </>

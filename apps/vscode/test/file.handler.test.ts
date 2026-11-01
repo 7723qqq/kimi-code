@@ -1,3 +1,4 @@
+import { afterEach, beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
 /**
  * Scenario: `@` file completion and inline image previews in the Webview.
  * Responsibilities: folder browsing reads the real directory, engine suggest failures fall back to the
@@ -5,21 +6,18 @@
  * Wiring: real temporary files plus the public handler surface; VS Code host APIs and the engine harness are stubbed.
  * Run: cd apps/vscode && bun test --isolate test/file.handler.test.ts
  */
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
+import type { KimiHarness } from '@moonshot-ai/kimi-code-sdk';
 
-import type { KimiHarness } from "@moonshot-ai/kimi-code-sdk";
-
-import { installVscode } from './vscode-host';
+import { Methods } from '../shared/bridge';
+import { fileHandlers } from '../src/handlers/file.handler';
+import type { HandlerContext } from '../src/handlers/types';
+import { FileManager } from '../src/managers/file.manager';
 import { SYMLINKS } from './helpers';
-
-import { Methods } from "../shared/bridge";
-import { fileHandlers } from "../src/handlers/file.handler";
-import type { HandlerContext } from "../src/handlers/types";
-import { FileManager } from "../src/managers/file.manager";
+import { installVscode } from './vscode-host';
 
 // Bun runs mock factories while the test file's imports are still being linked,
 // before this module's own top-level statements. The host object therefore lives
@@ -28,12 +26,12 @@ import { FileManager } from "../src/managers/file.manager";
 function createVscodeHost() {
   function normalizeUriPath(value: string): string {
     const segments: string[] = [];
-    for (const segment of value.replaceAll("\\", "/").split("/")) {
-      if (!segment || segment === ".") continue;
-      if (segment === "..") segments.pop();
+    for (const segment of value.replaceAll('\\', '/').split('/')) {
+      if (!segment || segment === '.') continue;
+      if (segment === '..') segments.pop();
       else segments.push(segment);
     }
-    return `/${segments.join("/")}`;
+    return `/${segments.join('/')}`;
   }
 
   class Uri {
@@ -45,13 +43,13 @@ function createVscodeHost() {
     ) {}
 
     static file(fsPath: string): Uri {
-      return new Uri("file", "", normalizeUriPath(fsPath), fsPath);
+      return new Uri('file', '', normalizeUriPath(fsPath), fsPath);
     }
 
     static joinPath(base: Uri, ...segments: string[]): Uri {
-      const path = normalizeUriPath(`${base.path}/${segments.join("/")}`);
-      const suffix = segments.join("/");
-      const separator = base.fsPath.endsWith("/") ? "" : "/";
+      const path = normalizeUriPath(`${base.path}/${segments.join('/')}`);
+      const suffix = segments.join('/');
+      const separator = base.fsPath.endsWith('/') ? '' : '/';
       return new Uri(base.scheme, base.authority, path, `${base.fsPath}${separator}${suffix}`);
     }
 
@@ -64,7 +62,10 @@ function createVscodeHost() {
     readonly baseUri: Uri;
     readonly base: string;
 
-    constructor(base: Uri, readonly pattern: string) {
+    constructor(
+      base: Uri,
+      readonly pattern: string,
+    ) {
       this.baseUri = base;
       this.base = base.fsPath;
     }
@@ -111,13 +112,13 @@ let workDirUri: InstanceType<typeof vscodeHost.Uri>;
 let fileManager: FileManager;
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), "vscode-file-handler-"));
-  workDir = join(root, "workspace");
-  await mkdir(join(workDir, "shots", "nested"), { recursive: true });
-  await writeFile(join(workDir, "src.ts"), "root file");
-  await writeFile(join(workDir, "shots", "50%-done.png"), Buffer.from([1, 2, 3]));
-  await writeFile(join(workDir, "shots", "a%20b.png"), Buffer.from([7, 8, 9]));
-  await writeFile(join(workDir, "shots", "nested", "deep.ts"), "deep");
+  root = await mkdtemp(join(tmpdir(), 'vscode-file-handler-'));
+  workDir = join(root, 'workspace');
+  await mkdir(join(workDir, 'shots', 'nested'), { recursive: true });
+  await writeFile(join(workDir, 'src.ts'), 'root file');
+  await writeFile(join(workDir, 'shots', '50%-done.png'), Buffer.from([1, 2, 3]));
+  await writeFile(join(workDir, 'shots', 'a%20b.png'), Buffer.from([7, 8, 9]));
+  await writeFile(join(workDir, 'shots', 'nested', 'deep.ts'), 'deep');
   workDirUri = vscodeHost.Uri.file(workDir);
   vscodeHost.stat.mockImplementation(async (uri: { fsPath: string }) => {
     const info = await stat(uri.fsPath);
@@ -141,118 +142,126 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-describe("getProjectFiles (folder mode and engine suggest fallback)", () => {
-  it("lists the direct children of the requested directory", async () => {
+describe('getProjectFiles (folder mode and engine suggest fallback)', () => {
+  it('lists the direct children of the requested directory', async () => {
     const ctx = createContext();
     const suggested = ctx.harness.suggestFiles;
 
-    const files = await fileHandlers[Methods.GetProjectFiles]!({ directory: "shots" }, ctx);
+    const files = await fileHandlers[Methods.GetProjectFiles]!({ directory: 'shots' }, ctx);
 
-    expect(files!.every((file: { path: string }) => file.path.startsWith("shots/"))).toBe(true);
+    expect(files!.every((file: { path: string }) => file.path.startsWith('shots/'))).toBe(true);
     expect(
-      files!.map((file: { path: string; isDirectory: boolean }) => [file.path, file.isDirectory]).sort(),
+      files!
+        .map((file: { path: string; isDirectory: boolean }) => [file.path, file.isDirectory])
+        .sort(),
     ).toEqual(
       [
-        ["shots/50%-done.png", false],
-        ["shots/a%20b.png", false],
-        ["shots/nested", true],
+        ['shots/50%-done.png', false],
+        ['shots/a%20b.png', false],
+        ['shots/nested', true],
       ].sort(),
     );
     expect(suggested).not.toHaveBeenCalled();
     expect(vscodeHost.findFiles).not.toHaveBeenCalled();
   });
 
-  it("falls back to the workspace search when the directory cannot be read", async () => {
+  it('falls back to the workspace search when the directory cannot be read', async () => {
     const ctx = createContext();
-    vscodeHost.findFiles.mockResolvedValue([vscodeHost.Uri.file(join(workDir, "src.ts"))]);
+    vscodeHost.findFiles.mockResolvedValue([vscodeHost.Uri.file(join(workDir, 'src.ts'))]);
 
-    const files = await fileHandlers[Methods.GetProjectFiles]!({ directory: "missing" }, ctx);
+    const files = await fileHandlers[Methods.GetProjectFiles]!({ directory: 'missing' }, ctx);
 
     expect(vscodeHost.findFiles).toHaveBeenCalledTimes(1);
-    expect(files).toEqual([{ path: "src.ts", name: "src.ts", isDirectory: false }]);
+    expect(files).toEqual([{ path: 'src.ts', name: 'src.ts', isDirectory: false }]);
   });
 
-  it("falls back to the workspace search when the engine cannot suggest", async () => {
+  it('falls back to the workspace search when the engine cannot suggest', async () => {
     const ctx = createContext();
-    ctx.harness.suggestFiles.mockRejectedValue(new Error("engine down"));
-    vscodeHost.findFiles.mockResolvedValue([vscodeHost.Uri.file(join(workDir, "src.ts"))]);
+    ctx.harness.suggestFiles.mockRejectedValue(new Error('engine down'));
+    vscodeHost.findFiles.mockResolvedValue([vscodeHost.Uri.file(join(workDir, 'src.ts'))]);
 
-    const files = await fileHandlers[Methods.GetProjectFiles]!({ query: "a" }, ctx);
+    const files = await fileHandlers[Methods.GetProjectFiles]!({ query: 'a' }, ctx);
 
     expect(ctx.logError).toHaveBeenCalledTimes(1);
-    expect(files).toEqual([{ path: "src.ts", name: "src.ts", isDirectory: false }]);
+    expect(files).toEqual([{ path: 'src.ts', name: 'src.ts', isDirectory: false }]);
   });
 
-  it("falls back to the workspace search on a v1 engine that cannot suggest", async () => {
+  it('falls back to the workspace search on a v1 engine that cannot suggest', async () => {
     const ctx = createContext();
     ctx.harness.suggestFiles.mockResolvedValue(undefined);
-    vscodeHost.findFiles.mockResolvedValue([vscodeHost.Uri.file(join(workDir, "src.ts"))]);
+    vscodeHost.findFiles.mockResolvedValue([vscodeHost.Uri.file(join(workDir, 'src.ts'))]);
 
-    const files = await fileHandlers[Methods.GetProjectFiles]!({ query: "a" }, ctx);
+    const files = await fileHandlers[Methods.GetProjectFiles]!({ query: 'a' }, ctx);
 
     expect(vscodeHost.findFiles).toHaveBeenCalledTimes(1);
-    expect(files).toEqual([{ path: "src.ts", name: "src.ts", isDirectory: false }]);
+    expect(files).toEqual([{ path: 'src.ts', name: 'src.ts', isDirectory: false }]);
   });
 });
 
-describe("getImageDataUri (literal-first path resolution)", () => {
-  it("returns a data URI for a real path whose name contains a stray percent", async () => {
+describe('getImageDataUri (literal-first path resolution)', () => {
+  it('returns a data URI for a real path whose name contains a stray percent', async () => {
     const ctx = createContext();
 
     const dataUri = await fileHandlers[Methods.GetImageDataUri]!(
-      { filePath: "shots/50%-done.png" },
+      { filePath: 'shots/50%-done.png' },
       ctx,
     );
 
-    expect(dataUri).toBe(`data:image/png;base64,${Buffer.from([1, 2, 3]).toString("base64")}`);
+    expect(dataUri).toBe(`data:image/png;base64,${Buffer.from([1, 2, 3]).toString('base64')}`);
   });
 
-  it("returns a data URI for a real file named a%20b.png", async () => {
+  it('returns a data URI for a real file named a%20b.png', async () => {
     const ctx = createContext();
 
     const dataUri = await fileHandlers[Methods.GetImageDataUri]!(
-      { filePath: "shots/a%20b.png" },
+      { filePath: 'shots/a%20b.png' },
       ctx,
     );
 
-    expect(dataUri).toBe(`data:image/png;base64,${Buffer.from([7, 8, 9]).toString("base64")}`);
+    expect(dataUri).toBe(`data:image/png;base64,${Buffer.from([7, 8, 9]).toString('base64')}`);
   });
 
-  it("decodes an encoded path when only the decoded file exists", async () => {
+  it('decodes an encoded path when only the decoded file exists', async () => {
     const ctx = createContext();
-    await writeFile(join(workDir, "shots", "c d.png"), Buffer.from([10]));
+    await writeFile(join(workDir, 'shots', 'c d.png'), Buffer.from([10]));
 
     const dataUri = await fileHandlers[Methods.GetImageDataUri]!(
-      { filePath: "shots/c%20d.png" },
+      { filePath: 'shots/c%20d.png' },
       ctx,
     );
 
-    expect(dataUri).toBe(`data:image/png;base64,${Buffer.from([10]).toString("base64")}`);
+    expect(dataUri).toBe(`data:image/png;base64,${Buffer.from([10]).toString('base64')}`);
   });
 
-  it("returns null for a missing image path", async () => {
+  it('returns null for a missing image path', async () => {
     const ctx = createContext();
 
     const dataUri = await fileHandlers[Methods.GetImageDataUri]!(
-      { filePath: "shots/missing.png" },
+      { filePath: 'shots/missing.png' },
       ctx,
     );
 
     expect(dataUri).toBeNull();
   });
 
-  it.skipIf(!SYMLINKS)("reads through a symlink whose target stays inside the workspace", async () => {
-    const ctx = createContext();
-    await writeFile(join(workDir, "shots", "target.png"), Buffer.from([11]));
-    await symlink(join(workDir, "shots", "target.png"), join(workDir, "shots", "alias.png"));
+  it.skipIf(!SYMLINKS)(
+    'reads through a symlink whose target stays inside the workspace',
+    async () => {
+      const ctx = createContext();
+      await writeFile(join(workDir, 'shots', 'target.png'), Buffer.from([11]));
+      await symlink(join(workDir, 'shots', 'target.png'), join(workDir, 'shots', 'alias.png'));
 
-    const dataUri = await fileHandlers[Methods.GetImageDataUri]!({ filePath: "shots/alias.png" }, ctx);
+      const dataUri = await fileHandlers[Methods.GetImageDataUri]!(
+        { filePath: 'shots/alias.png' },
+        ctx,
+      );
 
-    expect(dataUri).toBe(`data:image/png;base64,${Buffer.from([11]).toString("base64")}`);
-  });
+      expect(dataUri).toBe(`data:image/png;base64,${Buffer.from([11]).toString('base64')}`);
+    },
+  );
 });
 
-type SuggestFilesMock = Mock<KimiHarness["suggestFiles"]>;
+type SuggestFilesMock = Mock<KimiHarness['suggestFiles']>;
 type TestContext = HandlerContext & { harness: { suggestFiles: SuggestFilesMock } };
 
 function createContext(): TestContext {
@@ -260,7 +269,7 @@ function createContext(): TestContext {
     suggestFiles: mock(async () => undefined),
   };
   return {
-    webviewId: "view-1",
+    webviewId: 'view-1',
     workDir,
     workDirUri,
     requireWorkDir: () => workDir,

@@ -28,12 +28,7 @@ import {
   killSpawnedProcess,
   normalizeTimeoutMs,
 } from '../shell/shellToolResults';
-import {
-  type BashInput,
-  BashInputSchema,
-  DEFAULT_BACKGROUND_TIMEOUT_S,
-  IBashTool,
-} from './bash';
+import { type BashInput, BashInputSchema, DEFAULT_BACKGROUND_TIMEOUT_S, IBashTool } from './bash';
 import bashDescriptionTemplate from './bash.md?raw';
 import { ProcessTask } from './process-task';
 

@@ -1,6 +1,5 @@
-import { Buffer } from 'node:buffer';
-
 import { describe, expect, it } from 'bun:test';
+import { Buffer } from 'node:buffer';
 
 import {
   LspFramingError,

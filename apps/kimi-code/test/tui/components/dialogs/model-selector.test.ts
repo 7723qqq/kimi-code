@@ -1,6 +1,7 @@
+import { describe, expect, it, mock } from 'bun:test';
+
 import { type ModelAlias } from '@moonshot-ai/kimi-code-sdk';
 import { visibleWidth } from '@moonshot-ai/pi-tui';
-import { describe, expect, it, mock } from 'bun:test';
 
 import { ModelSelectorComponent } from '#/tui/components/dialogs/model-selector';
 import { currentTheme } from '#/tui/theme';

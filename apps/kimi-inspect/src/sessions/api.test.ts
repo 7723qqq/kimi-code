@@ -234,8 +234,8 @@ describe('fetchV2SessionGroups', () => {
     expect(new URL(calls[0]!.url).searchParams.get('group.page_size')).toBeNull();
 
     const { fetchImpl: broken } = fakeFetch(200, okBody({ has_more: false }));
-    await expect(fetchV2SessionGroups({ baseUrl: 'http://h:1', fetchImpl: broken })).rejects.toThrow(
-      /unexpected response shape/,
-    );
+    await expect(
+      fetchV2SessionGroups({ baseUrl: 'http://h:1', fetchImpl: broken }),
+    ).rejects.toThrow(/unexpected response shape/);
   });
 });

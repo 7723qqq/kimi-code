@@ -1,13 +1,12 @@
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, chmod } from 'node:fs/promises';
 
 const POSIX_PERMS = process.platform !== 'win32';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-
-import { migrateUserHistoryStep } from '../../src/steps/user-history.js';
 import { migratePlansStep } from '../../src/steps/plans.js';
+import { migrateUserHistoryStep } from '../../src/steps/user-history.js';
 
 let src: string;
 let tgt: string;
@@ -55,25 +54,28 @@ describe('migrateUserHistoryStep', () => {
     expect(r).toEqual({ copied: 0, skippedExisting: 0, failures: [] });
   });
 
-  it.skipIf(!POSIX_PERMS)('records a per-entry failure instead of aborting when one file is unreadable', async () => {
-    await mkdir(join(src, 'user-history'), { recursive: true });
-    const brokenPath = join(src, 'user-history', 'broken.jsonl');
-    await writeFile(brokenPath, '{"content":"x"}\n');
-    await writeFile(join(src, 'user-history', 'good.jsonl'), '{"content":"good"}\n');
-    // Non-root cannot open this file, so copyFile fails for this entry only.
-    await chmod(brokenPath, 0o000);
-    try {
-      const r = await migrateUserHistoryStep({ sourceHome: src, targetHome: tgt });
+  it.skipIf(!POSIX_PERMS)(
+    'records a per-entry failure instead of aborting when one file is unreadable',
+    async () => {
+      await mkdir(join(src, 'user-history'), { recursive: true });
+      const brokenPath = join(src, 'user-history', 'broken.jsonl');
+      await writeFile(brokenPath, '{"content":"x"}\n');
+      await writeFile(join(src, 'user-history', 'good.jsonl'), '{"content":"good"}\n');
+      // Non-root cannot open this file, so copyFile fails for this entry only.
+      await chmod(brokenPath, 0o000);
+      try {
+        const r = await migrateUserHistoryStep({ sourceHome: src, targetHome: tgt });
 
-      expect(r.copied).toBe(1);
-      expect(r.failures).toHaveLength(1);
-      expect(r.failures[0]?.sourcePath).toBe(brokenPath);
-      expect(r.failures[0]?.reason.length).toBeGreaterThan(0);
-      expect(await readFile(join(tgt, 'user-history', 'good.jsonl'), 'utf-8')).toContain('good');
-    } finally {
-      await chmod(brokenPath, 0o600);
-    }
-  });
+        expect(r.copied).toBe(1);
+        expect(r.failures).toHaveLength(1);
+        expect(r.failures[0]?.sourcePath).toBe(brokenPath);
+        expect(r.failures[0]?.reason.length).toBeGreaterThan(0);
+        expect(await readFile(join(tgt, 'user-history', 'good.jsonl'), 'utf-8')).toContain('good');
+      } finally {
+        await chmod(brokenPath, 0o600);
+      }
+    },
+  );
 
   it.skipIf(!POSIX_PERMS)('throws only when EVERY entry fails', async () => {
     await mkdir(join(src, 'user-history'), { recursive: true });

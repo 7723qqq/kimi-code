@@ -6,9 +6,6 @@ import { LifecycleScope } from '#/app/scopes';
 import { Feature } from '#/features/feature';
 import { registerFeature } from '#/features/featureRegistry';
 
-import { TOWER_FLAG_ID } from './tower';
-import { ITowerRateLimitService } from './towerRateLimit';
-import { TowerRateLimitService } from './towerRateLimitService';
 import { ITowerCompleteTool } from './tools/complete/complete';
 import { TowerCompleteTool } from './tools/complete/completeTool';
 import { ITowerFindingTool } from './tools/finding/finding';
@@ -35,6 +32,9 @@ import { ITowerStatusTool } from './tools/status/status';
 import { TowerStatusTool } from './tools/status/statusTool';
 import { ITowerTeardownTool } from './tools/teardown/teardown';
 import { TowerTeardownTool } from './tools/teardown/teardownTool';
+import { TOWER_FLAG_ID } from './tower';
+import { ITowerRateLimitService } from './towerRateLimit';
+import { TowerRateLimitService } from './towerRateLimitService';
 import { TOWER_WORKER_PROFILE_DEF } from './workerProfile';
 
 interface TowerToolContribution {

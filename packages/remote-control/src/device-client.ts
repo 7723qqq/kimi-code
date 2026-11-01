@@ -106,10 +106,9 @@ export class RemoteControlDeviceClient {
   }
 
   async deactivateDevice(deviceId: string): Promise<void> {
-    await this.request(
-      `/v1/remote/devices/${encodeURIComponent(deviceId)}/deactivate`,
-      { method: 'POST' },
-    );
+    await this.request(`/v1/remote/devices/${encodeURIComponent(deviceId)}/deactivate`, {
+      method: 'POST',
+    });
   }
 
   async deleteDevice(deviceId: string): Promise<void> {
@@ -125,13 +124,10 @@ export class RemoteControlDeviceClient {
       homeDir: this.options.homeDir,
     });
     const relayOrigin = (
-      this.options.relayOrigin ??
-      resolveRemoteControlRelayOrigin(process.env, auth.relayOrigin)
+      this.options.relayOrigin ?? resolveRemoteControlRelayOrigin(process.env, auth.relayOrigin)
     ).replace(/\/+$/, '');
     const storage = new FileTokenStorage(join(this.options.homeDir, 'credentials'));
-    const token = await storage.load(
-      resolveKimiTokenStorageName({ oauthKey: auth.oauthKey }),
-    );
+    const token = await storage.load(resolveKimiTokenStorageName({ oauthKey: auth.oauthKey }));
     if (token?.refreshToken === undefined || token.refreshToken.length === 0) {
       throw new RemoteControlDeviceClientError('Remote Control requires a Kimi login.');
     }
@@ -139,15 +135,15 @@ export class RemoteControlDeviceClient {
       auth,
       relayOrigin,
       cacheKey: `${this.sessionGeneration}\0${relayOrigin}\0${auth.oauthKey}\0${token.refreshToken}`,
-      signal: AbortSignal.any([AbortSignal.timeout(REQUEST_TIMEOUT_MS), this.abortController.signal]),
+      signal: AbortSignal.any([
+        AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        this.abortController.signal,
+      ]),
       token,
     };
   }
 
-  private async request(
-    path: string,
-    init: { method: string; body?: string },
-  ): Promise<Response> {
+  private async request(path: string, init: { method: string; body?: string }): Promise<Response> {
     try {
       const context = await this.context();
       let cookie = await this.sessionCookie(context, false);
@@ -185,10 +181,7 @@ export class RemoteControlDeviceClient {
     });
   }
 
-  private sessionCookie(
-    context: RemoteControlDeviceContext,
-    refresh: boolean,
-  ): Promise<string> {
+  private sessionCookie(context: RemoteControlDeviceContext, refresh: boolean): Promise<string> {
     if (!refresh) {
       const cached = this.cookies.get(context.cacheKey);
       if (cached !== undefined) return Promise.resolve(cached);
@@ -286,7 +279,10 @@ function relayHttpUrl(origin: string, path: string): string {
   return url.toString();
 }
 
-async function responseError(action: string, response: Response): Promise<RemoteControlDeviceClientError> {
+async function responseError(
+  action: string,
+  response: Response,
+): Promise<RemoteControlDeviceClientError> {
   let detail: string | undefined;
   try {
     detail = cloudErrorMessage(await response.json());
@@ -310,4 +306,3 @@ function cloudErrorMessage(value: unknown): string | undefined {
   const message = raw.replaceAll(/\s+/g, ' ').trim().slice(0, 300);
   return message.length === 0 ? undefined : message;
 }
-

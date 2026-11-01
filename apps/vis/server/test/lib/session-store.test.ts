@@ -1,11 +1,15 @@
 // apps/vis/server/test/lib/session-store.test.ts
 import { afterEach, describe, expect, it } from 'bun:test';
-import { buildSessionFixture } from '../fixtures/build';
+
 import { isSafeAgentId, listSessions, readSessionDetail } from '../../src/lib/session-store';
+import { buildSessionFixture } from '../fixtures/build';
 
 describe('session-store', () => {
   let cleanup: (() => Promise<void>) | null = null;
-  afterEach(async () => { if (cleanup) await cleanup(); cleanup = null; });
+  afterEach(async () => {
+    if (cleanup) await cleanup();
+    cleanup = null;
+  });
 
   it('lists native session with correct timestamps and counts', async () => {
     const { home, cleanup: c } = await buildSessionFixture('sample-main');
@@ -18,7 +22,7 @@ describe('session-store', () => {
     expect(s.lastPrompt).toBe('say hi');
     expect(s.agentCount).toBe(2);
     expect(s.mainAgentExists).toBe(true);
-    expect(s.mainWireRecordCount).toBe(10);  // 10 lines in main wire incl. metadata
+    expect(s.mainWireRecordCount).toBe(10); // 10 lines in main wire incl. metadata
     expect(s.wireProtocolVersion).toBe('1.1');
     expect(s.health).toBe('ok');
     expect(s.workDir).toBe('/tmp/work');
@@ -100,10 +104,7 @@ describe('session-store', () => {
     const { writeFile } = await import('node:fs/promises');
     const { join } = await import('node:path');
     const wirePath = join(sessionDir, 'agents', 'main', 'wire.jsonl');
-    await writeFile(
-      wirePath,
-      '{"type":"config.update","cwd":"/x","time":1}\n',
-    );
+    await writeFile(wirePath, '{"type":"config.update","cwd":"/x","time":1}\n');
     const sessions = await listSessions(home);
     expect(sessions).toHaveLength(1);
     expect(sessions[0]!.health).toBe('ok');
@@ -223,10 +224,7 @@ describe('session-store', () => {
     const { join } = await import('node:path');
     // Break the SUBAGENT's wire metadata; main wire stays intact so the
     // session itself remains healthy.
-    await writeFile(
-      join(sessionDir, 'agents', 'agent-0', 'wire.jsonl'),
-      'not even json\n',
-    );
+    await writeFile(join(sessionDir, 'agents', 'agent-0', 'wire.jsonl'), 'not even json\n');
     const d = await readSessionDetail(home, 'session_fixture');
     expect(d).not.toBeNull();
     const sub = d!.agents.find((a) => a.agentId === 'agent-0')!;
@@ -435,10 +433,7 @@ describe('session-store', () => {
     const { mkdir, rename } = await import('node:fs/promises');
     const { join } = await import('node:path');
     await mkdir(join(sessionDir, 'session-meta'), { recursive: true });
-    await rename(
-      join(sessionDir, 'state.json'),
-      join(sessionDir, 'session-meta', 'state.json'),
-    );
+    await rename(join(sessionDir, 'state.json'), join(sessionDir, 'session-meta', 'state.json'));
 
     const sessions = await listSessions(home);
 

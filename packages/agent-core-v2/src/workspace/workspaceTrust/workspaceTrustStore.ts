@@ -1,5 +1,5 @@
-import { Disposable } from '#/_base/di/lifecycle';
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
+import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Emitter } from '#/_base/event';
 import { canonicalWorkspaceRoot } from '#/_base/utils/paths';
@@ -55,11 +55,13 @@ class WorkspaceTrustEntry extends Disposable implements IWorkspaceTrustEntry {
   get ready(): Promise<void> {
     if (this.initialization !== undefined) return this.initialization;
     const recovering = this.initializationFailed;
-    const initialization = readWorkspaceTrust(this.docs, this.root, this.telemetry).then((trusted) => {
-      this.trusted = trusted;
-      this.initializationFailed = false;
-      if (recovering) this.changeEmitter.fire({ trusted });
-    });
+    const initialization = readWorkspaceTrust(this.docs, this.root, this.telemetry).then(
+      (trusted) => {
+        this.trusted = trusted;
+        this.initializationFailed = false;
+        if (recovering) this.changeEmitter.fire({ trusted });
+      },
+    );
     this.initialization = initialization;
     void initialization.catch(() => {
       this.initializationFailed = true;
@@ -82,12 +84,14 @@ class WorkspaceTrustEntry extends Disposable implements IWorkspaceTrustEntry {
   }
 
   async refresh(): Promise<boolean> {
-    const refresh = this.mutationTail.catch(() => {}).then(async () => {
-      const trusted = await readWorkspaceTrust(this.docs, this.root, this.telemetry);
-      if (this.trusted === trusted) return;
-      this.trusted = trusted;
-      this.changeEmitter.fire({ trusted });
-    });
+    const refresh = this.mutationTail
+      .catch(() => {})
+      .then(async () => {
+        const trusted = await readWorkspaceTrust(this.docs, this.root, this.telemetry);
+        if (this.trusted === trusted) return;
+        this.trusted = trusted;
+        this.changeEmitter.fire({ trusted });
+      });
     this.mutationTail = refresh;
     await refresh;
     return this.isTrusted();
@@ -116,18 +120,20 @@ class WorkspaceTrustEntry extends Disposable implements IWorkspaceTrustEntry {
   }
 
   private mutate(trusted: boolean): Promise<void> {
-    const mutation = this.mutationTail.catch(() => {}).then(async () => {
-      await this.ready;
-      if (this.trusted === trusted) return;
-      if (trusted) {
-        await writeWorkspaceTrust(this.docs, this.root, Date.now());
-      } else {
-        await deleteWorkspaceTrust(this.docs, this.root);
-      }
-      this.trusted = trusted;
-      this.changeEmitter.fire({ trusted });
-      this.telemetry.track2('workspace_trust_changed', { trusted });
-    });
+    const mutation = this.mutationTail
+      .catch(() => {})
+      .then(async () => {
+        await this.ready;
+        if (this.trusted === trusted) return;
+        if (trusted) {
+          await writeWorkspaceTrust(this.docs, this.root, Date.now());
+        } else {
+          await deleteWorkspaceTrust(this.docs, this.root);
+        }
+        this.trusted = trusted;
+        this.changeEmitter.fire({ trusted });
+        this.telemetry.track2('workspace_trust_changed', { trusted });
+      });
     this.mutationTail = mutation;
     return mutation;
   }

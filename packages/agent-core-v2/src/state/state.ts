@@ -169,7 +169,9 @@ export function expandedStateFolds(
 ): ReadonlyMap<Event2Class<any, any>, StateFold<any, any>> {
   const meta = key.replayable;
   if (meta.mutableReplay && meta.undoable?.onUndo === undefined) {
-    throw new BugIndicatingError(`State key '${key.name}' requires custom onUndo for mutable replay`);
+    throw new BugIndicatingError(
+      `State key '${key.name}' requires custom onUndo for mutable replay`,
+    );
   }
   if (meta.undoable === undefined) return meta.folds;
   if (undoableProtocol === undefined) {

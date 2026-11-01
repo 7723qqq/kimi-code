@@ -1,8 +1,8 @@
+import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'pathe';
 
-import { afterEach, describe, expect, it } from 'bun:test';
+import { join } from 'pathe';
 
 import {
   normalizeDirectory,
@@ -103,9 +103,7 @@ describe('wholeSuiteRunWarning', () => {
 
   it('applies narrowing flags only to the segment that carries them', () => {
     expect(warn('bun run test && bun test --filter usage')).toContain('All-suites is the CI bar');
-    expect(warn('bun test --filter usage && bun run verify')).toContain(
-      'All-suites is the CI bar',
-    );
+    expect(warn('bun test --filter usage && bun run verify')).toContain('All-suites is the CI bar');
   });
 
   it('stays quiet when an env-prefixed command cds into a package', () => {
@@ -163,8 +161,8 @@ describe('repositoryRootOf', () => {
   it('resolves the checkout root itself when the session runs there', async () => {
     const { root } = await makeCheckout();
     const workspaceRoot = await repositoryRootOf({ workDir: root, exists: markerExists });
-    expect(
-      wholeSuiteRunWarning({ command: 'bun test', cwd: root, workspaceRoot }),
-    ).toContain('All-suites is the CI bar');
+    expect(wholeSuiteRunWarning({ command: 'bun test', cwd: root, workspaceRoot })).toContain(
+      'All-suites is the CI bar',
+    );
   });
 });

@@ -3,30 +3,33 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { resetUnexpectedErrorHandler, setUnexpectedErrorHandler } from '#/_base/errors/unexpectedError';
+import {
+  resetUnexpectedErrorHandler,
+  setUnexpectedErrorHandler,
+} from '#/_base/errors/unexpectedError';
 import { Event } from '#/_base/event';
-import { IEventBus, ISessionEventBus } from '#/app/event/eventBus';
-import { EventBusService } from '#/app/event/eventBusService';
-import { IConfigService } from '#/app/config/config';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import { IAgentReminderService } from '#/features/reminder/reminderService';
-import { createReminderStub } from '../reminder/stubs';
-import { type IAgentGoalService } from '#/features/goal/goalService';
-import { IGoalDeadlineScheduler } from '#/features/goal/goalDeadlineScheduler';
-import { GoalDeadlineSchedulerService } from '#/features/goal/goalDeadlineSchedulerService';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { ISessionUsageService } from '#/session/usage/sessionUsage';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { IConfigService } from '#/app/config/config';
+import { IEventBus, ISessionEventBus } from '#/app/event/eventBus';
+import { EventBusService } from '#/app/event/eventBusService';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
+import { IGoalDeadlineScheduler } from '#/features/goal/goalDeadlineScheduler';
+import { GoalDeadlineSchedulerService } from '#/features/goal/goalDeadlineSchedulerService';
+import { type IAgentGoalService } from '#/features/goal/goalService';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { ISessionUsageService } from '#/session/usage/sessionUsage';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
 
+import { stubAgentContext } from '../../agent/agentContext/stubs';
 import {
   attachGoalService,
   registerTestAgentWire,
@@ -34,7 +37,7 @@ import {
   restoreTestEventDispatcher as restoreDispatcher,
   testWireScope,
 } from '../../wire/stubs';
-import { stubAgentContext } from '../../agent/agentContext/stubs';
+import { createReminderStub } from '../reminder/stubs';
 
 const SCOPE = 'wire';
 const KEY = 'goal-test';
@@ -163,7 +166,10 @@ afterEach(() => disposables.dispose());
 async function readRecords(key = KEY): Promise<WireRecord[]> {
   await dispatcher.flush();
   const out: WireRecord[] = [];
-  for await (const record of log.read<WireRecord>(testWireScope(SCOPE, key), AGENT_WIRE_RECORD_KEY)) {
+  for await (const record of log.read<WireRecord>(
+    testWireScope(SCOPE, key),
+    AGENT_WIRE_RECORD_KEY,
+  )) {
     out.push(record);
   }
   return out;
@@ -344,7 +350,10 @@ describe('goal runtime (wire-backed)', () => {
 
       expect(inspectGoal(svc)).toMatchObject({ status: 'paused' });
       expect(unexpected).toContainEqual(
-        expect.objectContaining({ code: 'wire.unknown_record', details: { type: 'goal.update', index: 1 } }),
+        expect.objectContaining({
+          code: 'wire.unknown_record',
+          details: { type: 'goal.update', index: 1 },
+        }),
       );
     } finally {
       resetUnexpectedErrorHandler();
@@ -362,7 +371,10 @@ describe('goal runtime (wire-backed)', () => {
 
       expect(inspectGoal(svc)).toMatchObject({ status: 'paused' });
       expect(unexpected).toContainEqual(
-        expect.objectContaining({ code: 'wire.unknown_record', details: { type: 'goal.update', index: 1 } }),
+        expect.objectContaining({
+          code: 'wire.unknown_record',
+          details: { type: 'goal.update', index: 1 },
+        }),
       );
     } finally {
       resetUnexpectedErrorHandler();
@@ -404,21 +416,16 @@ describe('goal runtime (wire-backed)', () => {
     const unexpected: unknown[] = [];
     setUnexpectedErrorHandler((error) => unexpected.push(error));
     try {
-      await restoreGoalDispatcher(
-        dispatcher,
-        log,
-        testWireScope(SCOPE, KEY),
-        [
-          null,
-          [],
-          {
-            type: 'goal.create',
-            goalId: 'goal-1',
-            objective: 'work',
-            budgetLimits: { unexpected: true },
-          },
-        ] as unknown as WireRecord[],
-      );
+      await restoreGoalDispatcher(dispatcher, log, testWireScope(SCOPE, KEY), [
+        null,
+        [],
+        {
+          type: 'goal.create',
+          goalId: 'goal-1',
+          objective: 'work',
+          budgetLimits: { unexpected: true },
+        },
+      ] as unknown as WireRecord[]);
 
       expect(inspectGoal(svc)).toBeNull();
       expect(unexpected).toHaveLength(3);

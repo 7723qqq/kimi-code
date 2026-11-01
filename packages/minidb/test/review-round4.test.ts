@@ -1,7 +1,3 @@
-import fs from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
-
 // Regression tests for the fourth deep-review round:
 //   A) Text AND search must be empty when any query term is absent.
 //   B) Query $regex must not be fooled by stateful (global/sticky) RegExp.
@@ -9,6 +5,9 @@ import path from 'node:path';
 //   D) Equality index must match objects regardless of property order.
 //   E) Index query methods must exclude expired keys (no ghost entries).
 import { expect, test } from 'bun:test';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 
 import { MiniDb } from '../src/index.js';
 

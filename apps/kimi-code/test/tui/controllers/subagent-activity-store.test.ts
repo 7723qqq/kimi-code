@@ -1,5 +1,6 @@
-import type { Event } from '@moonshot-ai/kimi-code-sdk';
 import { describe, expect, it } from 'bun:test';
+
+import type { Event } from '@moonshot-ai/kimi-code-sdk';
 
 import {
   MAX_SUBAGENT_ACTIVITY_STEPS,
@@ -78,14 +79,24 @@ describe('SubagentActivityStore', () => {
     const store = new SubagentActivityStore();
     store.ensureRecord(spawn());
     store.applyEvent(
-      ev({ type: 'tool.call.started', turnId: 1, toolCallId: 't1', name: 'WaitFor', args: { timeout: 600 } }),
+      ev({
+        type: 'tool.call.started',
+        turnId: 1,
+        toolCallId: 't1',
+        name: 'WaitFor',
+        args: { timeout: 600 },
+      }),
     );
     store.applyEvent(
       ev({
         type: 'tool.progress',
         turnId: 1,
         toolCallId: 't1',
-        update: { kind: 'status', text: 'Waiting 10s / 600s · 1 background task still running', replace: true },
+        update: {
+          kind: 'status',
+          text: 'Waiting 10s / 600s · 1 background task still running',
+          replace: true,
+        },
       }),
     );
 

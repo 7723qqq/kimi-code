@@ -1,4 +1,3 @@
-import { ErrorCode } from '@moonshot-ai/kap-server/protocol/error-codes';
 /**
  * Live-server invariant for uploaded image files in prompt content (v1 REST
  * surface only — the facade has no file-upload method):
@@ -11,6 +10,8 @@ import { ErrorCode } from '@moonshot-ai/kap-server/protocol/error-codes';
  * no server is reachable at `KIMI_SERVER_URL`.
  */
 import { describe, expect, it } from 'bun:test';
+
+import { ErrorCode } from '@moonshot-ai/kap-server/protocol/error-codes';
 
 import { DaemonClient, EnvelopeError } from '../harness/index.js';
 import { fetchWithReport } from '../harness/report.js';

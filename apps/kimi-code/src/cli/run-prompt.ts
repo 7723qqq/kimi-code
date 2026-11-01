@@ -13,7 +13,11 @@
 import os from 'node:os';
 
 import { t } from '#/i18n';
-import { SYSTEM_RENDER_CLOCK, type RenderClock, type RenderTimerHandle } from '#/tui/utils/render-clock';
+import {
+  SYSTEM_RENDER_CLOCK,
+  type RenderClock,
+  type RenderTimerHandle,
+} from '#/tui/utils/render-clock';
 
 import type { CLIOptions } from './options';
 

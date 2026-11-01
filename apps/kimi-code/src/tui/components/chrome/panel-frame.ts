@@ -111,10 +111,7 @@ export function renderPanelFrame(options: PanelFrameOptions): string[] {
   const contentWidth =
     options.stretch === true
       ? Math.max(1, availableInterior)
-      : Math.max(
-          1,
-          Math.min(availableInterior, Math.max(longestLine, visibleWidth(title))),
-        );
+      : Math.max(1, Math.min(availableInterior, Math.max(longestLine, visibleWidth(title))));
   const horzLen = contentWidth + 2 * sidePadding;
   const clippedTitle = truncateToWidth(title, horzLen, '…');
   const trailingDashLen = Math.max(0, horzLen - visibleWidth(clippedTitle));

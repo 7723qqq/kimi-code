@@ -1,10 +1,10 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+
 import { visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { WelcomeComponent } from '#/tui/components/chrome/welcome';
 import { setRainbowDance, type RainbowDanceController } from '#/tui/easter-eggs/dance';
-
 import { type AppState } from '#/tui/types';
 import { createEmptySessionStats } from '#/tui/utils/session-stats';
 
@@ -36,7 +36,7 @@ const appState: AppState = {
   locale: 'en',
   stepRetry: null,
   planMode: false,
-    specMode: false,
+  specMode: false,
   inputMode: 'prompt',
   swarmMode: false,
   helloWorldMode: false,

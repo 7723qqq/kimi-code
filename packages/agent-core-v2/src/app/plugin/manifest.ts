@@ -185,10 +185,7 @@ function recordUnsupportedRuntimeFields(
   recordUnknownFields(raw, diagnostics);
 }
 
-function recordUnknownFields(
-  raw: Record<string, unknown>,
-  diagnostics: PluginDiagnostic[],
-): void {
+function recordUnknownFields(raw: Record<string, unknown>, diagnostics: PluginDiagnostic[]): void {
   const known: ReadonlySet<string> = new Set(KNOWN_TOP_LEVEL_FIELDS);
   const unsupported: ReadonlySet<string> = new Set(UNSUPPORTED_RUNTIME_FIELDS);
   for (const key of Object.keys(raw)) {
@@ -204,10 +201,7 @@ function recordUnknownFields(
   }
 }
 
-function nearestField(
-  key: string,
-  candidates: readonly string[],
-): string | undefined {
+function nearestField(key: string, candidates: readonly string[]): string | undefined {
   const normalized = normalizeFieldName(key);
   let best: string | undefined;
   let bestDistance = Number.POSITIVE_INFINITY;
@@ -398,7 +392,7 @@ async function readSystemPrompt(
           });
         } else {
           try {
-            const content = ((await Bun.file(resolved).text())).replace(/^\uFEFF/, '').trim();
+            const content = (await Bun.file(resolved).text()).replace(/^\uFEFF/, '').trim();
             if (content.length > 0) parts.push(content);
           } catch (error) {
             diagnostics.push({

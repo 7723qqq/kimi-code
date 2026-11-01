@@ -1,10 +1,9 @@
+// test/server.test.ts
+import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-
-// test/server.test.ts
-import { expect, test } from 'bun:test';
 
 import { startServer } from '../src/server.js';
 
@@ -60,7 +59,9 @@ test('RESP server: MGET / DEL / DBSIZE', async () => {
     const sock = await connect(srv.port);
     await send(sock, encode('SET', 'a', '1'));
     await send(sock, encode('SET', 'b', '2'));
-    expect(await send(sock, encode('MGET', 'a', 'b', 'z'))).toBe('*3\r\n$1\r\n1\r\n$1\r\n2\r\n$-1\r\n');
+    expect(await send(sock, encode('MGET', 'a', 'b', 'z'))).toBe(
+      '*3\r\n$1\r\n1\r\n$1\r\n2\r\n$-1\r\n',
+    );
     expect(await send(sock, encode('DBSIZE'))).toBe(':2\r\n');
     expect(await send(sock, encode('DEL', 'a'))).toBe(':1\r\n');
     expect(await send(sock, encode('DBSIZE'))).toBe(':1\r\n');
@@ -92,9 +93,13 @@ test('RESP server: SET rejects a non-finite or negative EX/PX', async () => {
   const srv = await startServer({ dir, port: 0, fsyncPolicy: 'no' });
   try {
     const sock = await connect(srv.port);
-    expect((await send(sock, encode('SET', 'k', 'v', 'EX', 'abc'))).startsWith('-ERR')).toBeTruthy();
+    expect(
+      (await send(sock, encode('SET', 'k', 'v', 'EX', 'abc'))).startsWith('-ERR'),
+    ).toBeTruthy();
     expect((await send(sock, encode('SET', 'k', 'v', 'PX', '-1'))).startsWith('-ERR')).toBeTruthy();
-    expect((await send(sock, encode('SET', 'k', 'v', 'EX', 'NaN'))).startsWith('-ERR')).toBeTruthy();
+    expect(
+      (await send(sock, encode('SET', 'k', 'v', 'EX', 'NaN'))).startsWith('-ERR'),
+    ).toBeTruthy();
     sock.end();
   } finally {
     await srv.close();
@@ -120,25 +125,33 @@ test('RESP server: SET rejects unsupported or unknown options without writing', 
     expect(String(await send(sock, encode('SET', 'fresh', 'v', 'XX')))).toMatch(/^-ERR .*xx/);
     expect(await send(sock, encode('EXISTS', 'fresh'))).toBe(':0\r\n');
 
-    expect(String(await send(sock, encode('SET', 'k', 'v3', 'KEEPTTL')))).toMatch(/^-ERR .*keepttl/);
+    expect(String(await send(sock, encode('SET', 'k', 'v3', 'KEEPTTL')))).toMatch(
+      /^-ERR .*keepttl/,
+    );
     expect(String(await send(sock, encode('SET', 'k', 'v4', 'GET')))).toMatch(/^-ERR .*get/);
     expect(await send(sock, encode('GET', 'k'))).toBe('$2\r\nv1\r\n');
 
     // A rejected KEEPTTL must not have been applied as "clear the TTL": the
     // rejected request leaves both the value and the existing expiry alone.
     expect(await send(sock, encode('SET', 'ttlkey', 'v', 'EX', '100'))).toBe('+OK\r\n');
-    expect(String(await send(sock, encode('SET', 'ttlkey', 'v2', 'KEEPTTL')))).toMatch(/^-ERR .*keepttl/);
+    expect(String(await send(sock, encode('SET', 'ttlkey', 'v2', 'KEEPTTL')))).toMatch(
+      /^-ERR .*keepttl/,
+    );
     const kept = Number((await send(sock, encode('TTL', 'ttlkey'))).slice(1));
     expect(kept > 0 && kept <= 100, `TTL after a rejected KEEPTTL = ${kept}`).toBeTruthy();
     expect(await send(sock, encode('GET', 'ttlkey'))).toBe('$1\r\nv\r\n');
 
-    expect(String(await send(sock, encode('SET', 'k', 'v5', 'BOGUS')))).toMatch(/^-ERR syntax error/);
+    expect(String(await send(sock, encode('SET', 'k', 'v5', 'BOGUS')))).toMatch(
+      /^-ERR syntax error/,
+    );
     expect(await send(sock, encode('GET', 'k'))).toBe('$2\r\nv1\r\n');
 
     // A dangling EX/PX still goes through the same validation, and a rejected
     // trailing option means the whole command wrote nothing.
     expect((await send(sock, encode('SET', 'k', 'v6', 'EX'))).startsWith('-ERR')).toBeTruthy();
-    expect((await send(sock, encode('SET', 'k', 'v7', 'EX', '10', 'BOGUS'))).startsWith('-ERR')).toBeTruthy();
+    expect(
+      (await send(sock, encode('SET', 'k', 'v7', 'EX', '10', 'BOGUS'))).startsWith('-ERR'),
+    ).toBeTruthy();
     expect(await send(sock, encode('GET', 'k'))).toBe('$2\r\nv1\r\n');
     expect(await send(sock, encode('TTL', 'k'))).toBe(':-1\r\n');
     sock.end();
@@ -156,11 +169,15 @@ test('RESP server: SET rejects a zero EX/PX instead of storing forever', async (
   const srv = await startServer({ dir, port: 0, fsyncPolicy: 'no' });
   try {
     const sock = await connect(srv.port);
-    expect(String(await send(sock, encode('SET', 'px0', 'v', 'PX', '0')))).toMatch(/^-ERR invalid expire time/);
+    expect(String(await send(sock, encode('SET', 'px0', 'v', 'PX', '0')))).toMatch(
+      /^-ERR invalid expire time/,
+    );
     expect(await send(sock, encode('GET', 'px0'))).toBe('$-1\r\n');
     expect(await send(sock, encode('TTL', 'px0'))).toBe(':-2\r\n');
 
-    expect(String(await send(sock, encode('SET', 'ex0', 'v', 'EX', '0')))).toMatch(/^-ERR invalid expire time/);
+    expect(String(await send(sock, encode('SET', 'ex0', 'v', 'EX', '0')))).toMatch(
+      /^-ERR invalid expire time/,
+    );
     expect(await send(sock, encode('GET', 'ex0'))).toBe('$-1\r\n');
 
     // The valid cases keep working and still expire. `PX 1600` (not 1000)

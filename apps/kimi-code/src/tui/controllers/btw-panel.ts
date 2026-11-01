@@ -5,12 +5,12 @@ import { t } from '#/i18n';
 
 import { BtwPanelComponent } from '../components/panes/btw-panel';
 import { getNoActiveSessionMessage } from '../constant/kimi-tui';
+import { MEDIA_INGESTION_SUBMIT_WAIT_MS } from '../constant/media';
 import { createMarkdownTheme } from '../theme/pi-tui-theme';
 import type { TUIState } from '../tui-state';
+import type { InlineSkillActivation, PreparedSkillActivations } from '../types';
 import { formatErrorMessage } from '../utils/event-payload';
 import { formatHookResultPlain } from '../utils/hook-result-format';
-import type { InlineSkillActivation, PreparedSkillActivations } from '../types';
-import { MEDIA_INGESTION_SUBMIT_WAIT_MS } from '../constant/media';
 import type { ImageAttachmentStore } from '../utils/image-attachment-store';
 import {
   extractMediaAttachments,
@@ -224,7 +224,9 @@ export class BtwPanelController {
     let lease: StagingLease | undefined;
     try {
       const ingestionWait = pendingMediaIngestions(
-        prompt, this.imageStore, MEDIA_INGESTION_SUBMIT_WAIT_MS,
+        prompt,
+        this.imageStore,
+        MEDIA_INGESTION_SUBMIT_WAIT_MS,
       );
       if (ingestionWait !== undefined) await ingestionWait;
       // Ctrl-C during the media wait: no child turn existed for cancel() to
@@ -237,17 +239,18 @@ export class BtwPanelController {
         this.host.session !== session ||
         this.panelsByAgentId.get(agentId) !== panel ||
         !panel.isRunning()
-      ) return;
-      extraction = await Promise.resolve(
-        extractMediaAttachments(prompt, this.imageStore),
-      );
+      )
+        return;
+      extraction = await Promise.resolve(extractMediaAttachments(prompt, this.imageStore));
       if (!this.host.validateMediaCapabilities(extraction)) {
         throw new Error(t('tui.statusMessages.btwMediaUnsupported'));
       }
       prepared = this.host.prepareSkillActivations(activations);
       const input = extraction.hasMedia
         ? resolveOriginalCaptions(
-            extraction.parts, extraction.imageAttachmentIds, this.imageStore,
+            extraction.parts,
+            extraction.imageAttachmentIds,
+            this.imageStore,
             originalsDirForSession(session),
           )
         : prompt;
@@ -268,7 +271,10 @@ export class BtwPanelController {
       if (lease === undefined) {
         if (prepared !== undefined) this.host.releaseSkillArgumentMedia(prepared);
         if (extraction !== undefined) {
-          this.staging.releaseMedia([...extraction.imageAttachmentIds, ...extraction.videoAttachmentIds], []);
+          this.staging.releaseMedia(
+            [...extraction.imageAttachmentIds, ...extraction.videoAttachmentIds],
+            [],
+          );
         }
       }
       throw error;

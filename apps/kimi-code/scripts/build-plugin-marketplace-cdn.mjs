@@ -17,7 +17,8 @@ const SKIP_DIRS = new Set(['.git', 'node_modules']);
 const SKIP_FILES = new Set(['.DS_Store']);
 const EXTRA_CDN_PLUGIN_SOURCES = ['./official/kimi-webbridge'];
 
-const isMain = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+const isMain =
+  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
   try {
     const options = parseArgs(process.argv.slice(2));
@@ -259,6 +260,8 @@ function printHelp() {
   process.stdout.write(`Build CDN-ready plugin marketplace artifacts.\n`);
   process.stdout.write(`\n`);
   process.stdout.write(`Options:\n`);
-  process.stdout.write(`  --plugins-root <dir>  Source plugins root. Default: ${DEFAULT_PLUGINS_ROOT}\n`);
+  process.stdout.write(
+    `  --plugins-root <dir>  Source plugins root. Default: ${DEFAULT_PLUGINS_ROOT}\n`,
+  );
   process.stdout.write(`  --out-dir <dir>       Output directory. Default: ${DEFAULT_OUT_DIR}\n`);
 }

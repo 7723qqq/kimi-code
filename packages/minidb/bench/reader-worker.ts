@@ -99,6 +99,10 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
-  out({ ok: 0, mode, error: String(error && (error as Error).stack ? (error as Error).stack : error) });
+  out({
+    ok: 0,
+    mode,
+    error: String(error && (error as Error).stack ? (error as Error).stack : error),
+  });
   process.exit(1);
 });

@@ -101,10 +101,7 @@ for (const section of SECTIONS) {
       `profile-shared.ts must reference ${section.readOnlyFile} for read-only profiles`,
     );
   }
-  check(
-    develop.includes(section.file),
-    `DEVELOP.md's ownership table must name ${section.file}`,
-  );
+  check(develop.includes(section.file), `DEVELOP.md's ownership table must name ${section.file}`);
 }
 
 // `system.md` is a skeleton; a table describing it as the whole prompt is stale.

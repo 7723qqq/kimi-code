@@ -11,11 +11,7 @@ import {
 import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
-import {
-  ListMouseRouter,
-  type ListCursor,
-  type ListRowRegion,
-} from '#/tui/utils/mouse';
+import { ListMouseRouter, type ListCursor, type ListRowRegion } from '#/tui/utils/mouse';
 import { wrapText as wrapPlain } from '#/tui/utils/wrap-text';
 
 export type StartPermissionChoice = 'auto' | 'yolo' | 'manual' | 'cancel';
@@ -60,11 +56,9 @@ export class StartPermissionPromptComponent<
         ? -1
         : opts.options.findIndex((option) => option.value === opts.initialValue);
     this.selectedIndex = initialIndex >= 0 ? initialIndex : 0;
-    this.mouse = new ListMouseRouter(
-      this.cursor(),
-      (option) => this.opts.onSelect(option.value),
-      { isFocused: () => this.focused },
-    );
+    this.mouse = new ListMouseRouter(this.cursor(), (option) => this.opts.onSelect(option.value), {
+      isFocused: () => this.focused,
+    });
   }
 
   /** The cursor the mouse router drives over the prompt's options. */
@@ -150,13 +144,19 @@ function styleLabel(label: string, selected: boolean): string {
 }
 
 function styleModeNames(text: string, baseToken: 'text' | 'textMuted'): string {
-  const modeNames = [t('tui.permissionMode.manual'), t('tui.permissionMode.yolo'), t('tui.permissionMode.auto')];
+  const modeNames = [
+    t('tui.permissionMode.manual'),
+    t('tui.permissionMode.yolo'),
+    t('tui.permissionMode.auto'),
+  ];
   const escaped = modeNames.map((name) => name.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&'));
   const pattern = new RegExp(`(${escaped.join('|')})`, 'g');
   return text
     .split(pattern)
     .map((part) =>
-      modeNames.includes(part) ? currentTheme.boldFg('textStrong', part) : currentTheme.fg(baseToken, part),
+      modeNames.includes(part)
+        ? currentTheme.boldFg('textStrong', part)
+        : currentTheme.fg(baseToken, part),
     )
     .join('');
 }

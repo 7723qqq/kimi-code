@@ -21,5 +21,13 @@
     "../protocol/src/**/*.ts",
     "../runtime-shared/src/**/*.ts"
   ],
-  "exclude": ["dist", ".tmp-api-extractor", "examples", "test", "../*/dist", "../*/test", "../agent-core-v2/src/human/test"]
+  "exclude": [
+    "dist",
+    ".tmp-api-extractor",
+    "examples",
+    "test",
+    "../*/dist",
+    "../*/test",
+    "../agent-core-v2/src/human/test"
+  ]
 }

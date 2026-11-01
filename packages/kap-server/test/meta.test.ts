@@ -1,3 +1,4 @@
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -5,13 +6,12 @@ import { join } from 'node:path';
 import { IConfigService } from '@moonshot-ai/agent-core-v2';
 import { IFeatureManager } from '@moonshot-ai/agent-core-v2/app/feature/featureManager';
 import { getFeatureRecipes } from '@moonshot-ai/agent-core-v2/features/featureRegistry';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { removeTempHome } from './helpers/tempHome';
 
 import { type RunningServer, startServer } from '../src/start';
 import { authedFetch } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { setEnv, restoreEnvs } from './helpers/stubs';
+import { removeTempHome } from './helpers/tempHome';
 
 interface MetaBody {
   code: number;

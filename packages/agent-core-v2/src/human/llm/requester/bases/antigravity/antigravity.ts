@@ -1,8 +1,8 @@
 import { closeSync, existsSync, openSync, readSync, statSync } from 'node:fs';
-import { Readable } from 'node:stream';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
+import { Readable } from 'node:stream';
 
 import type { ModelCapability } from '#/llm/capability';
 import type { FinishReason } from '#/llm/finish-reason';
@@ -178,7 +178,6 @@ export class AntigravityStreamedMessage implements StreamedMessage {
 }
 
 export interface AntigravityPromptPlan {
-
   readonly promptText: string;
 
   readonly useConversationId: string | undefined;
@@ -388,7 +387,13 @@ export class AntigravityChatProvider {
             const buffer = Buffer.allocUnsafe(size - transcriptOffset);
             let read = 0;
             while (read < buffer.length) {
-              const step = readSync(fd, buffer, read, buffer.length - read, transcriptOffset + read);
+              const step = readSync(
+                fd,
+                buffer,
+                read,
+                buffer.length - read,
+                transcriptOffset + read,
+              );
               if (step <= 0) break;
               read += step;
             }
@@ -404,9 +409,7 @@ export class AntigravityChatProvider {
         return;
       }
       const combined =
-        chunk === undefined
-          ? transcriptPending
-          : Buffer.concat([transcriptPending, chunk]);
+        chunk === undefined ? transcriptPending : Buffer.concat([transcriptPending, chunk]);
       const boundary = flushPending ? combined.length : combined.lastIndexOf(0x0a);
       if (boundary < 0) {
         transcriptPending = combined;
@@ -454,7 +457,8 @@ export class AntigravityChatProvider {
             awaitingToolResult = false;
             if (typeof entry.content === 'string') {
               const firstLine =
-                (entry.content as string).split('\n').find((l: string) => l.trim().length > 0) ?? '';
+                (entry.content as string).split('\n').find((l: string) => l.trim().length > 0) ??
+                '';
               const snippet = firstLine.slice(0, 160);
               if (snippet) {
                 queue.push({ type: 'think', think: `\n   ↳ ${snippet}` });

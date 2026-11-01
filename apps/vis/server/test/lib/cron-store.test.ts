@@ -1,10 +1,9 @@
+import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it } from 'bun:test';
-
-import { buildSessionFixture } from '../fixtures/build';
 import { isSafeCronId, listCronTasks } from '../../src/lib/cron-store';
+import { buildSessionFixture } from '../fixtures/build';
 
 async function writeCron(sessionDir: string, fileName: string, body: unknown): Promise<void> {
   const dir = join(sessionDir, 'cron');
@@ -14,7 +13,10 @@ async function writeCron(sessionDir: string, fileName: string, body: unknown): P
 
 describe('cron-store', () => {
   let cleanup: (() => Promise<void>) | null = null;
-  afterEach(async () => { if (cleanup) await cleanup(); cleanup = null; });
+  afterEach(async () => {
+    if (cleanup) await cleanup();
+    cleanup = null;
+  });
 
   it('lists valid cron tasks sorted by creation time', async () => {
     const { sessionDir, cleanup: c } = await buildSessionFixture('sample-main');
@@ -22,25 +24,40 @@ describe('cron-store', () => {
     // Written in the real on-disk shape — this doubles as a drift guard for
     // the local CronTask mirror in agent-record-types.ts.
     await writeCron(sessionDir, 'a1b2c3d4.json', {
-      id: 'a1b2c3d4', cron: '0 9 * * *', prompt: 'daily standup',
-      createdAt: 2000, recurring: true, lastFiredAt: 5000,
+      id: 'a1b2c3d4',
+      cron: '0 9 * * *',
+      prompt: 'daily standup',
+      createdAt: 2000,
+      recurring: true,
+      lastFiredAt: 5000,
     });
     await writeCron(sessionDir, 'beefbeef.json', {
-      id: 'beefbeef', cron: '*/5 * * * *', prompt: 'poll ci',
-      createdAt: 1000, recurring: false,
+      id: 'beefbeef',
+      cron: '*/5 * * * *',
+      prompt: 'poll ci',
+      createdAt: 1000,
+      recurring: false,
     });
 
     const cron = await listCronTasks(sessionDir);
     expect(cron.map((t) => t.id)).toEqual(['beefbeef', 'a1b2c3d4']); // createdAt asc
     expect(cron[1]).toMatchObject({
-      cron: '0 9 * * *', prompt: 'daily standup', recurring: true, lastFiredAt: 5000,
+      cron: '0 9 * * *',
+      prompt: 'daily standup',
+      recurring: true,
+      lastFiredAt: 5000,
     });
   });
 
   it('skips bad ids, corrupt json, and records missing required fields', async () => {
     const { sessionDir, cleanup: c } = await buildSessionFixture('sample-main');
     cleanup = c;
-    await writeCron(sessionDir, 'NOTHEX12.json', { id: 'NOTHEX12', cron: 'x', prompt: 'p', createdAt: 1 });
+    await writeCron(sessionDir, 'NOTHEX12.json', {
+      id: 'NOTHEX12',
+      cron: 'x',
+      prompt: 'p',
+      createdAt: 1,
+    });
     await mkdir(join(sessionDir, 'cron'), { recursive: true });
     await writeFile(join(sessionDir, 'cron', 'deadbeef.json'), '{ broken');
     await writeCron(sessionDir, 'cafecafe.json', { id: 'cafecafe', cron: '* * * * *' }); // no prompt/createdAt
@@ -83,7 +100,13 @@ describe('cron-store', () => {
       JSON.stringify({ type: 'metadata', protocol_version: '1.5', created_at: 1 }),
       JSON.stringify({ type: 'cron.add', agentId: 'main', task: taskA, time: 10 }),
       JSON.stringify({ type: 'cron.add', agentId: 'main', task: taskB, time: 11 }),
-      JSON.stringify({ type: 'cron.cursor', agentId: 'main', id: taskA.id, lastFiredAt: 9000, time: 12 }),
+      JSON.stringify({
+        type: 'cron.cursor',
+        agentId: 'main',
+        id: taskA.id,
+        lastFiredAt: 9000,
+        time: 12,
+      }),
       JSON.stringify({ type: 'cron.delete', agentId: 'main', ids: [taskB.id], time: 13 }),
     ];
     await writeFile(join(sessionDir, 'wire.jsonl'), lines.join('\n') + '\n');
@@ -97,7 +120,10 @@ describe('cron-store', () => {
     const { sessionDir, cleanup: c } = await buildSessionFixture('sample-main');
     cleanup = c;
     await writeCron(sessionDir, 'a1b2c3d4.json', {
-      id: 'a1b2c3d4', cron: '0 9 * * *', prompt: 'file version', createdAt: 1000,
+      id: 'a1b2c3d4',
+      cron: '0 9 * * *',
+      prompt: 'file version',
+      createdAt: 1000,
     });
     const lines = [
       JSON.stringify({ type: 'metadata', protocol_version: '1.5', created_at: 1 }),
@@ -119,7 +145,10 @@ describe('cron-store', () => {
     const { sessionDir, cleanup: c } = await buildSessionFixture('sample-main');
     cleanup = c;
     await writeCron(sessionDir, 'a1b2c3d4.json', {
-      id: 'a1b2c3d4', cron: '0 9 * * *', prompt: 'only files', createdAt: 1000,
+      id: 'a1b2c3d4',
+      cron: '0 9 * * *',
+      prompt: 'only files',
+      createdAt: 1000,
     });
     // No wire.jsonl at all — legacy sessions still list their files.
     expect((await listCronTasks(sessionDir)).map((t) => t.id)).toEqual(['a1b2c3d4']);

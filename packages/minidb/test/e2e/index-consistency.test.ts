@@ -4,7 +4,6 @@
 // stay consistent with the primary store under random operations, including
 // after an index rebuild on reopen.
 
-
 import { expect, test } from 'bun:test';
 
 import { UniqueViolationError } from '../../src/index-manager.js';
@@ -68,7 +67,10 @@ test(
       const expectedKeys = [...live.keys()].toSorted();
 
       // 1) key order index
-      expect(db.scan().map((r) => r.key), 'key order scan').toStrictEqual(expectedKeys);
+      expect(
+        db.scan().map((r) => r.key),
+        'key order scan',
+      ).toStrictEqual(expectedKeys);
 
       // 2) equality index
       for (const city of CITIES) {
@@ -96,10 +98,13 @@ test(
       expect(fromRange, 'byAge range').toStrictEqual(expectedRange);
 
       // 4) dt index
-      expect(db
+      expect(
+        db
           .dtRange('created', { gte: 0 })
           .map((r) => r.key)
-          .toSorted(), 'dt created all').toStrictEqual(expectedKeys);
+          .toSorted(),
+        'dt created all',
+      ).toStrictEqual(expectedKeys);
 
       // 5) text index: search results == docs whose bio contains the term
       const term = '北京';
@@ -144,22 +149,37 @@ test(
         .map(([k]) => k)
         .toSorted();
       expect(fromIdx2, 'byCity Paris after rebuild').toStrictEqual(expected2);
-      expect(db.scan().map((r) => r.key), 'key order after rebuild').toStrictEqual(expectedKeys);
+      expect(
+        db.scan().map((r) => r.key),
+        'key order after rebuild',
+      ).toStrictEqual(expectedKeys);
       // The shared rebuild walk fanned out to every staged builder: all derived
       // index families match the reference model again after reopen.
-      expect(db
+      expect(
+        db
           .search('cityText', 'Paris', { limit: 1000 })
           .map((r) => r.key)
-          .toSorted(), 'cityText Paris after rebuild').toStrictEqual(expectedCityHits);
-      expect(db
+          .toSorted(),
+        'cityText Paris after rebuild',
+      ).toStrictEqual(expectedCityHits);
+      expect(
+        db
           .search('body', term, { limit: 1000 })
           .map((r) => r.key)
-          .toSorted(), 'text search 北京 after rebuild').toStrictEqual(expectedHits);
-      expect(db.compoundRange('byCityAge', 'Paris').map((r) => r.key), 'compound Paris after rebuild').toStrictEqual(expectedParis);
-      expect(db
+          .toSorted(),
+        'text search 北京 after rebuild',
+      ).toStrictEqual(expectedHits);
+      expect(
+        db.compoundRange('byCityAge', 'Paris').map((r) => r.key),
+        'compound Paris after rebuild',
+      ).toStrictEqual(expectedParis);
+      expect(
+        db
           .dtRange('created', { gte: 0 })
           .map((r) => r.key)
-          .toSorted(), 'dt after rebuild').toStrictEqual(expectedKeys);
+          .toSorted(),
+        'dt after rebuild',
+      ).toStrictEqual(expectedKeys);
     } finally {
       await db.close().catch(() => {});
       await rmrf(dir);

@@ -39,9 +39,11 @@ function isUnsafeDocumentMime(lower: string): boolean {
 
 function sanitizeMime(raw: string): { mimeType: string; attachment: boolean } {
   const lower = raw.toLowerCase().trim();
-  if (isUnsafeDocumentMime(lower)) return { mimeType: 'application/octet-stream', attachment: true };
+  if (isUnsafeDocumentMime(lower))
+    return { mimeType: 'application/octet-stream', attachment: true };
   if (SAFE_MIME_EXACT.has(lower)) return { mimeType: lower, attachment: false };
-  if (SAFE_MIME_PREFIXES.some((p) => lower.startsWith(p))) return { mimeType: lower, attachment: false };
+  if (SAFE_MIME_PREFIXES.some((p) => lower.startsWith(p)))
+    return { mimeType: lower, attachment: false };
   return { mimeType: 'application/octet-stream', attachment: false };
 }
 
@@ -84,9 +86,7 @@ export function blobsRoute(home: string = KIMI_CODE_HOME): Hono {
         // `sandbox` drops the origin, so even a slipped-through document type
         // cannot call the same-origin API. Inline images are unaffected.
         'content-security-policy': 'sandbox',
-        ...(attachment
-          ? { 'content-disposition': `attachment; filename="${hash}"` }
-          : {}),
+        ...(attachment ? { 'content-disposition': `attachment; filename="${hash}"` } : {}),
       },
     });
   });

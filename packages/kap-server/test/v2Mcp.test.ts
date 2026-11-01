@@ -1,15 +1,24 @@
+import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { Error2, ErrorCodes, IMcpManagementService, type GlobalMcpServerConfig, type McpManagedServer, type McpServerInspection, type McpServerLocator, type McpServerTestTarget } from '@moonshot-ai/agent-core-v2';
-import { afterEach, describe, expect, it } from 'bun:test';
-import { removeTempHome } from './helpers/tempHome';
+import {
+  Error2,
+  ErrorCodes,
+  IMcpManagementService,
+  type GlobalMcpServerConfig,
+  type McpManagedServer,
+  type McpServerInspection,
+  type McpServerLocator,
+  type McpServerTestTarget,
+} from '@moonshot-ai/agent-core-v2';
 
 import { type RunningServer, startServer } from '../src/start';
 import { authedFetch } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { restoreEnvs } from './helpers/stubs';
+import { removeTempHome } from './helpers/tempHome';
 import { waitForAssertion } from './helpers/waitFor';
 
 interface EnvelopeWire<T = unknown> {

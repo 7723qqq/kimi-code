@@ -25,15 +25,7 @@ import type { AgentTool, ToolExecution } from '#/tool/toolContract';
 
 import DESCRIPTION from './memory.md?raw';
 
-const MemoryActionSchema = z.enum([
-  'search',
-  'read',
-  'write',
-  'list',
-  'delete',
-  'log',
-  'revert',
-]);
+const MemoryActionSchema = z.enum(['search', 'read', 'write', 'list', 'delete', 'log', 'revert']);
 
 export const MemoryToolInputSchema = z
   .object({
@@ -50,10 +42,7 @@ export const MemoryToolInputSchema = z
       .optional()
       .describe('Memory scope (for `write`, `list`). Defaults to `project`.'),
     content: z.string().optional().describe('Markdown content (for `write` action).'),
-    sha: z
-      .string()
-      .optional()
-      .describe('Memory repository commit sha (for `revert` action).'),
+    sha: z.string().optional().describe('Memory repository commit sha (for `revert` action).'),
   })
   .strict();
 
@@ -206,7 +195,11 @@ export class MemoryTool implements IMemoryTool {
 
     if (!this.gitMemoryEnabled()) {
       return {
-        output: t('toolsV2.memory.written', { path: relPath, title: entry.title, type: entry.type }),
+        output: t('toolsV2.memory.written', {
+          path: relPath,
+          title: entry.title,
+          type: entry.type,
+        }),
       };
     }
 

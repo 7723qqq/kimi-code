@@ -1,3 +1,5 @@
+import { describe, expect, it, jest } from 'bun:test';
+
 /**
  * Scenario: /provider post-add default-model selection, and the
  * `/provider refresh [providerId]` subcommand.
@@ -11,7 +13,6 @@
  * Run: pnpm -C apps/kimi-code exec vitest run test/tui/commands/provider.test.ts
  */
 import type { ModelAlias, RefreshProviderModelsResponse } from '@moonshot-ai/kimi-code-sdk';
-import { describe, expect, it, jest } from 'bun:test';
 
 import type { SlashCommandHost } from '#/tui/commands';
 import { handleProviderCommand, setDefaultModel } from '#/tui/commands/provider';
@@ -73,9 +74,9 @@ describe('setDefaultModel', () => {
     expect(host.authFlow.activateModelAfterLogin).toHaveBeenCalledWith('opus', 'xhigh');
     // The application must come after the refresh, or the persisted value
     // reactivated by refreshConfigAfterLogin would clobber the pick.
-    expect(
-      host.authFlow.activateModelAfterLogin.mock.invocationCallOrder[0]!,
-    ).toBeGreaterThan(host.authFlow.refreshConfigAfterLogin.mock.invocationCallOrder[0]!);
+    expect(host.authFlow.activateModelAfterLogin.mock.invocationCallOrder[0]!).toBeGreaterThan(
+      host.authFlow.refreshConfigAfterLogin.mock.invocationCallOrder[0]!,
+    );
     // Without a session the engine never sees the pick, so the TUI stays the
     // sole model_switch producer.
     expect(host.track).toHaveBeenCalledWith('model_switch', { model: 'opus' });
@@ -151,9 +152,9 @@ describe('setDefaultModel', () => {
     await setDefaultModel(host, 'opus', 'high');
 
     expect(host.waitForSessionAssembly).toHaveBeenCalled();
-    expect(
-      host.waitForSessionAssembly.mock.invocationCallOrder[0]!,
-    ).toBeLessThan(host.harness.setConfig.mock.invocationCallOrder[0]!);
+    expect(host.waitForSessionAssembly.mock.invocationCallOrder[0]!).toBeLessThan(
+      host.harness.setConfig.mock.invocationCallOrder[0]!,
+    );
   });
 
   it('skips the follow-up activation and forwards the picked effort when the gate owns the switch', async () => {
@@ -206,10 +207,7 @@ describe('handleProviderCommand refresh', () => {
     expect(host.authFlow.refreshProviderModels).toHaveBeenCalledWith(undefined);
     expect(spinner.stop).toHaveBeenCalledWith({ ok: true, label: 'Refresh finished.' });
     expect(host.showStatus).toHaveBeenCalledWith('Kimi Code: +2 / -1 models.', 'warning');
-    expect(host.showStatus).toHaveBeenCalledWith(
-      'Skipped refreshing broken: HTTP 500',
-      'warning',
-    );
+    expect(host.showStatus).toHaveBeenCalledWith('Skipped refreshing broken: HTTP 500', 'warning');
     expect(host.modelMigration.retire).toHaveBeenCalledWith(retired);
   });
 
@@ -241,9 +239,7 @@ describe('handleProviderCommand refresh', () => {
 
     await handleProviderCommand(host, 'refresh');
 
-    expect(host.showStatus).toHaveBeenCalledWith(
-      'No model changes (2 providers up to date).',
-    );
+    expect(host.showStatus).toHaveBeenCalledWith('No model changes (2 providers up to date).');
   });
 
   it('surfaces a thrown refresh without routing a retirement', async () => {

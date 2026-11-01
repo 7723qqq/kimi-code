@@ -9,10 +9,10 @@
  * Run: cd packages/node-sdk && bun test test/session-spec.test.ts
  */
 
+import { afterEach, describe, expect, it } from 'bun:test';
 import { writeFile } from 'node:fs/promises';
 
 import { join } from 'pathe';
-import { afterEach, describe, expect, it } from 'bun:test';
 
 import { createKimiHarness, type KimiHarness } from '#/index';
 

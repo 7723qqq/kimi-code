@@ -1,15 +1,16 @@
 /* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
+
 import { z } from 'zod';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
+import { BugIndicatingError } from '#/_base/errors/errors';
 import {
   resetUnexpectedErrorHandler,
   setUnexpectedErrorHandler,
 } from '#/_base/errors/unexpectedError';
-import { BugIndicatingError } from '#/_base/errors/errors';
 import { ILogService } from '#/_base/log/log';
 import { AgentSpaceImpl } from '#/agent/agentContext/agentSpace';
 import '#/agent/contextMemory/conversationTime';
@@ -17,15 +18,21 @@ import { IAgentBlobService } from '#/agent/blob/agentBlobService';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
+import { Event2, event2FromRecord } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
-import { Event2, event2FromRecord } from '#/app/event/event2';
+import {
+  SubagentSpawned,
+  SubagentStarted,
+  SubagentCompleted,
+  SubagentFailed,
+  SubagentCancelled,
+} from '#/session/subagent/mirrorAgentRun';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { CycleError, EventDispatcherService } from '#/state/eventDispatcherService';
-import { SubagentSpawned, SubagentStarted, SubagentCompleted, SubagentFailed, SubagentCancelled } from '#/session/subagent/mirrorAgentRun';
 import { defineState } from '#/state/state';
-import { IWireService } from '#/wire/wire';
 import type { WireRecord } from '#/wire/record';
+import { IWireService } from '#/wire/wire';
 
 const noopBlob: IAgentBlobService = {
   _serviceBrand: undefined,
@@ -65,7 +72,8 @@ function stubWireJournal(journal: WireRecord[]): IWireService {
     branches: () => ['main'],
     nextSeq: () => journal.length + 1,
     settled: async () => {},
-    flush: async () => {}, drainPersisted: async () => {},
+    flush: async () => {},
+    drainPersisted: async () => {},
     lineCount: () => journal.length,
     lastContextClearLine: () => undefined,
     journalPath: () => undefined,
@@ -109,9 +117,10 @@ class PingEvent extends Event2<Record<string, never>> {
   static override readonly type = 'state.test.ping';
 }
 
-const counterKey = defineState('state.test.counter', () => ({ value: 0 })).replayable({
-  schema: z.object({ value: z.number() }),
-})
+const counterKey = defineState('state.test.counter', () => ({ value: 0 }))
+  .replayable({
+    schema: z.object({ value: z.number() }),
+  })
   .on(CounterAdd, (s, e, ctx) => {
     s.value += e.by;
     ctx.emit(new CounterChanged({ value: s.value }));
@@ -123,9 +132,10 @@ const counterKey = defineState('state.test.counter', () => ({ value: 0 })).repla
     s.value = 999;
   });
 
-const otherKey = defineState('state.test.other', () => ({ seen: [] as string[] })).replayable({
-  schema: z.object({ seen: z.array(z.string()) }),
-})
+const otherKey = defineState('state.test.other', () => ({ seen: [] as string[] }))
+  .replayable({
+    schema: z.object({ seen: z.array(z.string()) }),
+  })
   .on(CounterAdd, (s) => {
     s.seen.push('add');
   })
@@ -165,10 +175,10 @@ class ClearEvent extends Event2<Record<string, never>> {
 }
 interface ClearEvent extends z.infer<typeof ClearEvent.schema> {}
 
-const checkpointedKey = defineState(
-  'state.test.checkpointed',
-  (): CheckpointedState => ({ items: [] }),
-).replayable({ schema: z.object({ items: z.array(z.string()) }) })
+const checkpointedKey = defineState('state.test.checkpointed', (): CheckpointedState => ({
+  items: [],
+}))
+  .replayable({ schema: z.object({ items: z.array(z.string()) }) })
   .on(ItemAdd, (s, e) => {
     s.items.push(e.item);
   })
@@ -228,7 +238,18 @@ describe('EventDispatcherService', () => {
     const seen: string[] = [];
     disposables.add(bus.subscribe((event) => seen.push(event.type)));
     const events = [
-      new SubagentSpawned({ subagentId: 'child', subagentName: 'explore', parentAgentId: 'main', callerAgentId: 'main', parentToolCallId: 'swarm-a', swarmIndex: 2, runInBackground: false }, 1000),
+      new SubagentSpawned(
+        {
+          subagentId: 'child',
+          subagentName: 'explore',
+          parentAgentId: 'main',
+          callerAgentId: 'main',
+          parentToolCallId: 'swarm-a',
+          swarmIndex: 2,
+          runInBackground: false,
+        },
+        1000,
+      ),
       new SubagentStarted({ subagentId: 'child' }, 1100),
       new SubagentCompleted({ subagentId: 'child', resultSummary: 'done' }, 1200),
       new SubagentFailed({ subagentId: 'other', error: 'failed' }, 1300),
@@ -636,7 +657,9 @@ describe('EventDispatcherService', () => {
     expect(parsed).toBeInstanceOf(CounterAdd);
     expect(parsed!.time).toBe(1234);
     expect((parsed as CounterAdd).by).toBe(9);
-    expect(event2FromRecord(CounterAdd, { type: 'state.test.counter.add', by: 'nan' })).toBeUndefined();
+    expect(
+      event2FromRecord(CounterAdd, { type: 'state.test.counter.add', by: 'nan' }),
+    ).toBeUndefined();
   });
 
   it('freezes committed state against mutation', async () => {
@@ -712,7 +735,9 @@ describe('EventDispatcherService', () => {
         if (event instanceof UndoEvent) ctx.undoToCheckpoint(event.count);
       },
       getState: () => state,
-      commit: (next) => { state = next; },
+      commit: (next) => {
+        state = next;
+      },
     });
 
     await dispatcher.restore();
@@ -740,7 +765,9 @@ describe('EventDispatcherService', () => {
         if (event instanceof UndoEvent) ctx.undoToCheckpoint(event.count);
       },
       getState: () => state,
-      commit: (next) => { state = next; },
+      commit: (next) => {
+        state = next;
+      },
     });
 
     expect(state.items).toEqual(['a', 'b']);
@@ -765,7 +792,9 @@ describe('EventDispatcherService', () => {
         if (event instanceof ItemAdd) draft.items.push(event.item);
       },
       getState: () => state,
-      commit: (next: CheckpointedState) => { state = next; },
+      commit: (next: CheckpointedState) => {
+        state = next;
+      },
     };
     const late = dispatcher.attachLate(participant);
     const live = dispatcher.dispatch(new ItemAdd({ item: 'live' }));
@@ -791,9 +820,7 @@ describe('EventDispatcherService', () => {
 
     await dispatcher.restore();
 
-    expect(() => dispatcher.attach({ ...participant })).toThrow(
-      /must attach before restore/,
-    );
+    expect(() => dispatcher.attach({ ...participant })).toThrow(/must attach before restore/);
     await expect(dispatcher.attachLate({ ...participant })).resolves.toBeDefined();
 
     const wire = ix.get(IWireService);

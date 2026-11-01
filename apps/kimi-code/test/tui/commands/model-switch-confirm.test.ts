@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, jest } from 'bun:test';
-import { waitForAssertion, waitUntil } from '../../helpers/waitFor';
 
 import type { Session } from '@moonshot-ai/kimi-code-sdk';
 
@@ -10,6 +9,8 @@ import {
   resetModelSwitchConfirmConfigCache,
   type ModelSwitchAction,
 } from '#/utils/model-switch-confirm-config';
+
+import { waitForAssertion, waitUntil } from '../../helpers/waitFor';
 
 type TestEvent = { type: string; code?: string };
 
@@ -113,7 +114,9 @@ describe('compactForModelSwitch', () => {
     await jest.advanceTimersByTime(10 * 60 * 1000);
 
     await expect(pending).resolves.toBe(false);
-    expect(host.showError).toHaveBeenCalledWith('Timed out waiting for compaction — model unchanged.');
+    expect(host.showError).toHaveBeenCalledWith(
+      'Timed out waiting for compaction — model unchanged.',
+    );
   });
 });
 
@@ -161,7 +164,15 @@ function makeSwitchHost() {
     showStatus: jest.fn(),
     track: jest.fn(),
   } as unknown as SlashCommandHost;
-  return { host, session, appState, mountEditorReplacement, restoreEditor, createNewSession, activateModelAfterLogin };
+  return {
+    host,
+    session,
+    appState,
+    mountEditorReplacement,
+    restoreEditor,
+    createNewSession,
+    activateModelAfterLogin,
+  };
 }
 
 function mountedDialog(mountEditorReplacement: ReturnType<typeof jest.fn>): MountedDialog {
@@ -270,7 +281,7 @@ describe('confirmThenPerformModelSwitch new-session action', () => {
 
     releaseCreation();
     await waitForAssertion(() => expect(restoreEditor).toHaveBeenCalled());
-    });
+  });
 
   it('does not dismiss a panel that displaced the dialog when creation settles', async () => {
     const { host, mountEditorReplacement, restoreEditor } = makeSwitchHost();

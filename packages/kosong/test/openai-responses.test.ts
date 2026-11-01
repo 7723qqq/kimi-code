@@ -1,10 +1,19 @@
 import { describe, expect, it, mock } from 'bun:test';
 
-import { APIContextOverflowError, APIProviderQuotaExhaustedError, APIProviderRateLimitError, ChatProviderError, isRetryableGenerateError } from '#/errors';
+import {
+  APIContextOverflowError,
+  APIProviderQuotaExhaustedError,
+  APIProviderRateLimitError,
+  ChatProviderError,
+  isRetryableGenerateError,
+} from '#/errors';
 import { generate } from '#/generate';
 import type { ContentPart, Message, StreamedMessagePart, ToolCall } from '#/message';
 import type { GenerateOptions } from '#/provider';
-import { OpenAIResponsesChatProvider, OpenAIResponsesStreamedMessage } from '#/providers/openai-responses';
+import {
+  OpenAIResponsesChatProvider,
+  OpenAIResponsesStreamedMessage,
+} from '#/providers/openai-responses';
 import type { Tool } from '#/tool';
 
 function makeResponsesAPIResponse() {
@@ -45,8 +54,8 @@ async function captureRequestBody(
 
   (provider as any)._stream = false;
 
-  ((provider as any)._client.responses as unknown as Record<string, unknown>)['create'] = mock()
-    .mockImplementation((params: unknown) => {
+  ((provider as any)._client.responses as unknown as Record<string, unknown>)['create'] =
+    mock().mockImplementation((params: unknown) => {
       capturedBody = params as Record<string, unknown>;
       return Promise.resolve(makeResponsesAPIResponse());
     });
@@ -1168,8 +1177,8 @@ describe('OpenAIResponsesChatProvider', () => {
     it('yields text from non-stream response', async () => {
       const provider = createProvider();
       (provider as any)._stream = false;
-      ((provider as any)._client.responses as unknown as Record<string, unknown>)['create'] = mock()
-        .mockResolvedValue(makeResponsesAPIResponse());
+      ((provider as any)._client.responses as unknown as Record<string, unknown>)['create'] =
+        mock().mockResolvedValue(makeResponsesAPIResponse());
 
       const stream = await provider.generate(
         '',
@@ -1195,8 +1204,8 @@ describe('OpenAIResponsesChatProvider', () => {
     it('yields ToolCall from non-stream response with function_call output item', async () => {
       const provider = createProvider();
       (provider as any)._stream = false;
-      ((provider as any)._client.responses as unknown as Record<string, unknown>)['create'] = mock()
-        .mockResolvedValue({
+      ((provider as any)._client.responses as unknown as Record<string, unknown>)['create'] =
+        mock().mockResolvedValue({
           id: 'resp_fn',
           object: 'response',
           status: 'completed',
@@ -1232,8 +1241,8 @@ describe('OpenAIResponsesChatProvider', () => {
     it('non-stream function_call generates UUID when call_id is missing', async () => {
       const provider = createProvider();
       (provider as any)._stream = false;
-      ((provider as any)._client.responses as unknown as Record<string, unknown>)['create'] = mock()
-        .mockResolvedValue({
+      ((provider as any)._client.responses as unknown as Record<string, unknown>)['create'] =
+        mock().mockResolvedValue({
           id: 'resp_no_call_id',
           output: [
             {
@@ -1263,8 +1272,8 @@ describe('OpenAIResponsesChatProvider', () => {
     it('yields ThinkPart from non-stream response with reasoning output item (with encrypted_content)', async () => {
       const provider = createProvider();
       (provider as any)._stream = false;
-      ((provider as any)._client.responses as unknown as Record<string, unknown>)['create'] = mock()
-        .mockResolvedValue({
+      ((provider as any)._client.responses as unknown as Record<string, unknown>)['create'] =
+        mock().mockResolvedValue({
           id: 'resp_reason',
           object: 'response',
           status: 'completed',
@@ -1304,8 +1313,8 @@ describe('OpenAIResponsesChatProvider', () => {
     it('yields an empty ThinkPart from a non-stream reasoning item with no summaries', async () => {
       const provider = createProvider();
       (provider as any)._stream = false;
-      ((provider as any)._client.responses as unknown as Record<string, unknown>)['create'] = mock()
-        .mockResolvedValue({
+      ((provider as any)._client.responses as unknown as Record<string, unknown>)['create'] =
+        mock().mockResolvedValue({
           id: 'resp_empty_reasoning',
           output: [
             {
@@ -1327,8 +1336,8 @@ describe('OpenAIResponsesChatProvider', () => {
     it('non-stream reasoning without encrypted_content yields ThinkPart without encrypted field', async () => {
       const provider = createProvider();
       (provider as any)._stream = false;
-      ((provider as any)._client.responses as unknown as Record<string, unknown>)['create'] = mock()
-        .mockResolvedValue({
+      ((provider as any)._client.responses as unknown as Record<string, unknown>)['create'] =
+        mock().mockResolvedValue({
           id: 'resp_reason2',
           output: [
             {
@@ -1539,8 +1548,8 @@ describe('OpenAIResponsesChatProvider', () => {
       ];
 
       let capturedParams: Record<string, unknown> | undefined;
-      ((provider as any)._client.responses as unknown as Record<string, unknown>)['create'] = mock()
-        .mockImplementation((params: unknown) => {
+      ((provider as any)._client.responses as unknown as Record<string, unknown>)['create'] =
+        mock().mockImplementation((params: unknown) => {
           capturedParams = params as Record<string, unknown>;
           return Promise.resolve(makeAsyncIterable(events));
         });
@@ -1590,8 +1599,8 @@ describe('OpenAIResponsesChatProvider', () => {
         },
       ];
 
-      ((provider as any)._client.responses as unknown as Record<string, unknown>)['create'] = mock()
-        .mockImplementation(() => Promise.resolve(makeAsyncIterable(events)));
+      ((provider as any)._client.responses as unknown as Record<string, unknown>)['create'] =
+        mock().mockImplementation(() => Promise.resolve(makeAsyncIterable(events)));
 
       const stream = await provider.generate(
         '',
@@ -1696,8 +1705,8 @@ describe('OpenAIResponsesChatProvider', () => {
         },
       ];
 
-      ((provider as any)._client.responses as unknown as Record<string, unknown>)['create'] = mock()
-        .mockResolvedValue(makeAsyncIterable(events));
+      ((provider as any)._client.responses as unknown as Record<string, unknown>)['create'] =
+        mock().mockResolvedValue(makeAsyncIterable(events));
 
       const result = await generate(
         provider,

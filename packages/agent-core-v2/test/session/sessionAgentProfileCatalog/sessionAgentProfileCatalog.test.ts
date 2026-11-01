@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
-import { createDecorator } from '#/_base/di/instantiation';
 import { SyncDescriptor } from '#/_base/di/descriptors';
+import { createDecorator } from '#/_base/di/instantiation';
 import { InstantiationService } from '#/_base/di/instantiationService';
 import type { IDisposable } from '#/_base/di/lifecycle';
 import { Service } from '#/_base/di/service';
@@ -11,14 +11,14 @@ import {
   normalizeAgentProfile,
   type AgentProfile,
 } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import { BUILTIN_AGENT_PROFILE_SOURCE_ID } from '#/app/agentProfileCatalog/builtinAgentProfileLoader';
-import { AgentProfileRegistryService } from '#/app/agentProfileCatalog/agentProfileRegistryService';
-import { SessionAgentProfileCatalogService } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalogService';
 import {
   AGENT_PROFILE_SOURCE_PRIORITY,
   AgentProfileContribution,
   type AgentProfileContributionRecord,
 } from '#/app/agentProfileCatalog/agentProfileContribution';
+import { AgentProfileRegistryService } from '#/app/agentProfileCatalog/agentProfileRegistryService';
+import { BUILTIN_AGENT_PROFILE_SOURCE_ID } from '#/app/agentProfileCatalog/builtinAgentProfileLoader';
+import { SessionAgentProfileCatalogService } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalogService';
 
 import { stubLog } from '../../_base/log/stubs';
 
@@ -213,7 +213,11 @@ describe('SessionAgentProfileCatalogService (registry projection)', () => {
       workspaceKey: 'wd_a',
     });
 
-    expect(catalog.get(DEFAULT_AGENT_PROFILE_NAME)?.subagents).toEqual(['coder', 'explore', 'plan']);
+    expect(catalog.get(DEFAULT_AGENT_PROFILE_NAME)?.subagents).toEqual([
+      'coder',
+      'explore',
+      'plan',
+    ]);
     catalog.dispose();
     container.dispose();
   });

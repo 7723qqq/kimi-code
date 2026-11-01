@@ -1,6 +1,5 @@
-import { tmpdir } from 'node:os';
-
 import { describe, expect, it } from 'bun:test';
+import { tmpdir } from 'node:os';
 
 import type { ILogService } from '#/_base/log/log';
 import { WorkflowTool, WorkflowToolInputSchema } from '#/app/workflow/tools/workflow';
@@ -444,22 +443,26 @@ describe('workflow run deadline and cancellation', () => {
     expect(WORKFLOW_SYNC_PREFIX_LIMIT_MS).toBe(30_000);
   });
 
-  it('aborts a synchronous infinite loop at the sync prefix limit', { timeout: 5_000 }, async () => {
-    const entry = makeEntry();
-    const started = Date.now();
+  it(
+    'aborts a synchronous infinite loop at the sync prefix limit',
+    { timeout: 5_000 },
+    async () => {
+      const entry = makeEntry();
+      const started = Date.now();
 
-    await expect(
-      executeWorkflow({
-        script: 'while (true) {}',
-        deps: makeRuntimeDeps(tmpdir()),
-        entry,
-        deadlineMs: 3_000,
-        syncPrefixLimitMs: 300,
-      }),
-    ).rejects.toThrow(/timed out/);
+      await expect(
+        executeWorkflow({
+          script: 'while (true) {}',
+          deps: makeRuntimeDeps(tmpdir()),
+          entry,
+          deadlineMs: 3_000,
+          syncPrefixLimitMs: 300,
+        }),
+      ).rejects.toThrow(/timed out/);
 
-    expect(Date.now() - started).toBeLessThan(2_000);
-  });
+      expect(Date.now() - started).toBeLessThan(2_000);
+    },
+  );
 
   it('aborts a run that is stuck on a pending promise', { timeout: 5_000 }, async () => {
     const entry = makeEntry();
@@ -524,22 +527,26 @@ describe('workflow run deadline and cancellation', () => {
     expect(result.error).toContain('deadline exceeded');
   });
 
-  it('reports a cancelled run as cancelled once the script stops', { timeout: 10_000 }, async () => {
-    const svc = makeService();
-    const { runId } = await svc.start({
-      script: 'await new Promise(() => {});\nreturn "unreachable";',
-      callerAgentId: 'main',
-      sessionContext: { cwd: tmpdir() } as never,
-      lifecycle: {} as never,
-      subagents: {} as never,
-    });
+  it(
+    'reports a cancelled run as cancelled once the script stops',
+    { timeout: 10_000 },
+    async () => {
+      const svc = makeService();
+      const { runId } = await svc.start({
+        script: 'await new Promise(() => {});\nreturn "unreachable";',
+        callerAgentId: 'main',
+        sessionContext: { cwd: tmpdir() } as never,
+        lifecycle: {} as never,
+        subagents: {} as never,
+      });
 
-    await svc.cancel(runId);
+      await svc.cancel(runId);
 
-    const result = await svc.wait(runId, 1_000);
-    expect(result.status).toBe('cancelled');
-    expect(result.finishedAt).toBeDefined();
-  });
+      const result = await svc.wait(runId, 1_000);
+      expect(result.status).toBe('cancelled');
+      expect(result.finishedAt).toBeDefined();
+    },
+  );
 
   it('honours a deadline_ms passed through the Workflow tool', { timeout: 10_000 }, async () => {
     const svc = makeService();
@@ -551,9 +558,9 @@ describe('workflow run deadline and cancellation', () => {
     });
     if ('isError' in execution && execution.isError) throw new Error('unexpected tool error');
 
-    const output = await (execution as { execute: (ctx: never) => Promise<{ output: unknown }> }).execute(
-      {} as never,
-    );
+    const output = await (
+      execution as { execute: (ctx: never) => Promise<{ output: unknown }> }
+    ).execute({} as never);
     const match = /run_id: (wf_\d+)/.exec(String(output.output));
     expect(match).not.toBeNull();
 

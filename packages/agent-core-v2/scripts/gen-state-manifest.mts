@@ -238,7 +238,10 @@ function collectRegistrations(
       if (args.length !== 1 || arg === undefined || !Node.isIdentifier(arg)) continue;
       const def = resolveKeyDef(arg, defs);
       if (def === undefined) continue;
-      const scope = receiverScope(expression, checker) ?? fileScope ?? featuresRegisterScope(expression, checker, sf);
+      const scope =
+        receiverScope(expression, checker) ??
+        fileScope ??
+        featuresRegisterScope(expression, checker, sf);
       if (!def.exported) {
         throw new Error(
           `[gen-state-manifest] state key '${def.keyName}' (${srcRelative(def.file)}) is ` +
@@ -348,11 +351,7 @@ class TypeRenderer {
     return this.fallback(type, location, 'unhandled type kind');
   }
 
-  private renderUnionMembers(
-    members: readonly MorphType[],
-    location: Node,
-    depth: number,
-  ): string {
+  private renderUnionMembers(members: readonly MorphType[], location: Node, depth: number): string {
     const booleanLiterals = members.filter((m) => m.isBooleanLiteral());
     const collapseBoolean =
       booleanLiterals.length === 2 &&
@@ -500,9 +499,7 @@ class TypeRenderer {
   private renderNamed(sym: MorphSymbol, expand: () => string): string {
     const decl = sym.getDeclarations()[0];
     const origin =
-      decl !== undefined
-        ? repoRelative(decl.getSourceFile().getFilePath())
-        : '(unknown source)';
+      decl !== undefined ? repoRelative(decl.getSourceFile().getFilePath()) : '(unknown source)';
     const name = sym.getName();
     if (this.expandingNamed.includes(sym.compilerSymbol)) {
       return `/* ${name} — recursive (${origin}) */ unknown`;
@@ -703,7 +700,8 @@ function renderManifest(
   const renderer = new TypeRenderer(project);
   const byScope = new Map<ScopeDir, Registration[]>();
   for (const scope of SCOPES) byScope.set(scope.dir, []);
-  for (const registration of model.registrations) byScope.get(registration.scope)?.push(registration);
+  for (const registration of model.registrations)
+    byScope.get(registration.scope)?.push(registration);
   for (const [dir, regs] of byScope) {
     byScope.set(
       dir,
@@ -739,7 +737,10 @@ function renderManifest(
         }
         const rendered = renderer.renderKeyType(r.def).split('\n');
         rendered[rendered.length - 1] += ';';
-        lines.push(`  '${r.def.keyName}': ${rendered[0]}`, ...rendered.slice(1).map((l) => `  ${l}`));
+        lines.push(
+          `  '${r.def.keyName}': ${rendered[0]}`,
+          ...rendered.slice(1).map((l) => `  ${l}`),
+        );
       }
     }
     lines.push('}');

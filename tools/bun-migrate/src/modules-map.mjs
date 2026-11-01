@@ -40,7 +40,8 @@ export const MODULE_REPLACEMENTS = [
         behaviour: 'integers above Number.MAX_SAFE_INTEGER',
         node: 'throws ERR_OUT_OF_RANGE until setReadBigInts(true)',
         bun: 'returns a number and silently rounds it unless statement.safeIntegers(true)',
-        impact: 'the Bun default produces wrong data instead of an error, which is worse than throwing',
+        impact:
+          'the Bun default produces wrong data instead of an error, which is worse than throwing',
       },
       {
         behaviour: 'error code shape',
@@ -111,13 +112,7 @@ export const MODULE_REPLACEMENTS = [
         impact: 'the listen callback disappears and port selection moves to a return value',
       },
     ],
-    missing: [
-      'res.writeHead',
-      'res.write',
-      'res.setHeader',
-      'req.pipe',
-      'server.on(upgrade)',
-    ],
+    missing: ['res.writeHead', 'res.write', 'res.setHeader', 'req.pipe', 'server.on(upgrade)'],
     extra: ['WebSocket upgrade built in', 'automatic TLS', 'Bun.serve development mode'],
     summary: 'Bun.serve is a different programming model, not a faster node:http',
     requiredPrologue: [
@@ -159,7 +154,18 @@ export const CAPABILITY_REPLACEMENTS = [
       'metadata',
       'toBuffer',
     ],
-    bunMissing: ['grayscale', 'blur', 'sharpen', 'composite', 'tint', 'extend', 'stats', 'raw', 'toFile', 'clone'],
+    bunMissing: [
+      'grayscale',
+      'blur',
+      'sharpen',
+      'composite',
+      'tint',
+      'extend',
+      'stats',
+      'raw',
+      'toFile',
+      'clone',
+    ],
     shapeDifferences: [
       {
         behaviour: 'pipeline entry',

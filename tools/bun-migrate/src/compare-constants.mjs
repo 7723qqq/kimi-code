@@ -19,7 +19,8 @@ const extra = [];
 for (const [path, nodeEntry] of Object.entries(node.values)) {
   const bunEntry = bun.values[path];
   if (!bunEntry || bunEntry.load !== 'ok') {
-    if (nodeEntry.load === 'ok') missing.push({ path, key: '(whole object)', note: bunEntry?.load ?? 'absent' });
+    if (nodeEntry.load === 'ok')
+      missing.push({ path, key: '(whole object)', note: bunEntry?.load ?? 'absent' });
     continue;
   }
   if (nodeEntry.load !== 'ok') continue;
@@ -50,13 +51,17 @@ const lines = [
   `## value differs (${valueDiffers.length})`,
 ];
 for (const item of valueDiffers) {
-  lines.push(`  ${item.path.replace('#', ' ')}.${item.key}: node ${JSON.stringify(item.nodeValue)} vs bun ${JSON.stringify(item.bunValue)}`);
+  lines.push(
+    `  ${item.path.replace('#', ' ')}.${item.key}: node ${JSON.stringify(item.nodeValue)} vs bun ${JSON.stringify(item.bunValue)}`,
+  );
 }
 
 lines.push('');
 lines.push(`## kind differs (${kindDiffers.length})`);
 for (const item of kindDiffers) {
-  lines.push(`  ${item.path.replace('#', ' ')}.${item.key}: node ${item.nodeKind} vs bun ${item.bunKind}`);
+  lines.push(
+    `  ${item.path.replace('#', ' ')}.${item.key}: node ${item.nodeKind} vs bun ${item.bunKind}`,
+  );
 }
 
 lines.push('');

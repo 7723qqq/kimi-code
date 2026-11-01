@@ -1,5 +1,6 @@
-import type { ApprovalRequest } from '@moonshot-ai/kimi-code-sdk';
 import { describe, expect, it, spyOn } from 'bun:test';
+
+import type { ApprovalRequest } from '@moonshot-ai/kimi-code-sdk';
 
 import { ApprovalController } from '#/tui/reverse-rpc/approval/controller';
 import { createApprovalRequestHandler } from '#/tui/reverse-rpc/approval/handler';

@@ -9,7 +9,6 @@ import {
   type ContextMessage as V2ContextMessage,
   type WireRecord,
 } from '@moonshot-ai/agent-core-v2';
-
 import { SurveyTurnCounter } from '@moonshot-ai/kimi-code-product/session-rating/node';
 
 import type { ContextMessage } from '#/context';
@@ -305,10 +304,7 @@ class WireReplayScan {
 
   private processLine(start: number, joined: Buffer, tolerate: boolean): void {
     const sniffed = sniffWireTypeBytes(joined);
-    if (
-      sniffed === 'turn.prompt' ||
-      (sniffed === undefined && !hasRelevantMarkerBytes(joined))
-    ) {
+    if (sniffed === 'turn.prompt' || (sniffed === undefined && !hasRelevantMarkerBytes(joined))) {
       observeSurveyLine(this.userTurns, joined, start);
       return;
     }
@@ -468,11 +464,7 @@ class WireReplayScan {
         if (typeof recordType === 'string' && FOLD_CARRYOVER_WIRE_TYPES.has(recordType)) {
           this.seeds.push({ start: dataFileStart + lineStart, record });
         }
-      } else if (
-        lastLine &&
-        tailFragment.length > 0 &&
-        lineEnd - lineStart < HEAD_HEADER_BYTES
-      ) {
+      } else if (lastLine && tailFragment.length > 0 && lineEnd - lineStart < HEAD_HEADER_BYTES) {
         observeSurveyLine(
           this.userTurns,
           Buffer.concat([view.subarray(lineStart, lineEnd), tailFragment]),

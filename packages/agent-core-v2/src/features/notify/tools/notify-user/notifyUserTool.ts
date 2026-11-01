@@ -4,9 +4,9 @@ import { IFlagService } from '#/app/flag/flag';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { ToolAccesses, type ToolExecution } from '#/tool/toolContract';
+
 import { notifyUserAvailable } from '../../notifyUserAvailability';
 import { notifyStreakBefore } from '../../notifyUserNudge';
-
 import {
   INotifyUserTool,
   NOTIFY_USER_TOOL_NAME,
@@ -14,15 +14,9 @@ import {
   type NotifyUserInput,
 } from './notify-user';
 import DESCRIPTION from './notify-user.md?raw';
-import {
-  NOTIFY_USER_DELIVERED_OUTPUT,
-  NOTIFY_USER_SUPPRESSED_OUTPUT,
-} from './notifyOutput';
+import { NOTIFY_USER_DELIVERED_OUTPUT, NOTIFY_USER_SUPPRESSED_OUTPUT } from './notifyOutput';
 
-export {
-  NOTIFY_USER_DELIVERED_OUTPUT,
-  NOTIFY_USER_SUPPRESSED_OUTPUT,
-} from './notifyOutput';
+export { NOTIFY_USER_DELIVERED_OUTPUT, NOTIFY_USER_SUPPRESSED_OUTPUT } from './notifyOutput';
 export const NOTIFY_USER_EMPTY_TITLE = 'title must not be empty.';
 export const NOTIFY_USER_MULTILINE_TITLE = 'title must be a single line.';
 export const NOTIFY_USER_INVALID_TITLE = 'title must be a string.';

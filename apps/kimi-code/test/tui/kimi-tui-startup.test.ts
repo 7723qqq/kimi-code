@@ -1,13 +1,17 @@
+import { beforeEach, describe, expect, it, mock, spyOn, type Mock } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { log, type GoalSnapshot } from '@moonshot-ai/kimi-code-sdk';
 import type { MigrationPlan } from '@moonshot-ai/migration-legacy';
-import { beforeEach, describe, expect, it, mock, spyOn, type Mock } from 'bun:test';
-import { setEnv, setGlobal, restoreEnvs, restoreGlobals } from '#test/helpers/stubs';
-import { waitForAssertion } from '#test/helpers/waitFor';
 
+import {
+  installMsys2,
+  markPrompted,
+  setUserShellPath,
+  shouldPromptMsys2,
+} from '#/cli/msys2-prompt';
 import { BannerProvider } from '#/tui/banner/banner-provider';
 import { readBannerDisplayState } from '#/tui/banner/state';
 import { handleLoginCommand, handleLogoutCommand } from '#/tui/commands/auth';
@@ -26,12 +30,8 @@ import {
 } from '#/tui/utils/terminal-theme';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 import { quoteShellArg } from '#/utils/shell-quote';
-import {
-  installMsys2,
-  markPrompted,
-  setUserShellPath,
-  shouldPromptMsys2,
-} from '#/cli/msys2-prompt';
+import { setEnv, setGlobal, restoreEnvs, restoreGlobals } from '#test/helpers/stubs';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 void mock.module('#/tui/commands/prompts', () => ({
   ...promptsModule,
@@ -50,9 +50,7 @@ void mock.module('#/cli/msys2-prompt', () => ({
 }));
 
 const copyTextToClipboardMock = copyTextToClipboard as Mock<typeof copyTextToClipboard>;
-const promptPlatformSelectionMock = promptPlatformSelection as Mock<
-  typeof promptPlatformSelection
->;
+const promptPlatformSelectionMock = promptPlatformSelection as Mock<typeof promptPlatformSelection>;
 const promptLogoutProviderSelectionMock = promptLogoutProviderSelection as Mock<
   typeof promptLogoutProviderSelection
 >;
@@ -245,7 +243,14 @@ function makeHarness(session = makeSession(), overrides: Record<string, unknown>
     track: mock(),
     setTelemetryContext: mock(),
     getExperimentalFeatures: mock(async () => []),
-    getWorkspaceTrustInfo: mock(async () => ({ trusted: true, gatedMcpServers: [], gatedAdditionalDirs: [], additionalDirSources: [], warnings: [], instructionSources: { agentsMdPaths: [], skills: [], agentProfiles: [], paths: [] } })),
+    getWorkspaceTrustInfo: mock(async () => ({
+      trusted: true,
+      gatedMcpServers: [],
+      gatedAdditionalDirs: [],
+      additionalDirSources: [],
+      warnings: [],
+      instructionSources: { agentsMdPaths: [], skills: [], agentProfiles: [], paths: [] },
+    })),
     getWorkspaceAdditionalDirs: mock(async () => []),
     supportsAtomicSectionReplace: mock(() => false),
     auth: {
@@ -287,11 +292,12 @@ function captureInputListeners(driver: StartupDriver) {
   const listeners: InputListener[] = [];
   const removeInputListener = mock<() => void>();
   const write = spyOn(driver.state.terminal, 'write').mockImplementation(() => {});
-  const addInputListener = spyOn(driver.state.ui, 'addInputListener')
-    .mockImplementation((listener: InputListener) => {
+  const addInputListener = spyOn(driver.state.ui, 'addInputListener').mockImplementation(
+    (listener: InputListener) => {
       listeners.push(listener);
       return removeInputListener;
-    });
+    },
+  );
 
   return { listeners, removeInputListener, write, addInputListener };
 }
@@ -830,13 +836,13 @@ describe('KimiTUI startup', () => {
     const driver = makeDriver(harness, makeStartupInput()) as unknown as RuntimeStateDriver;
 
     await expect(driver.init()).resolves.toBe(false);
-await driver.setSession(session);
-await driver.syncRuntimeState(session);
+    await driver.setSession(session);
+    await driver.syncRuntimeState(session);
 
-// Materialize the startup session through the lazy-creation path (fresh
-// startup no longer creates one during init).
-if (driver.state.appState.model.length === 0) driver.state.appState.model = 'k2';
-await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession();
+    // Materialize the startup session through the lazy-creation path (fresh
+    // startup no longer creates one during init).
+    if (driver.state.appState.model.length === 0) driver.state.appState.model = 'k2';
+    await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession();
     expect(driver.state.appState.goal).toEqual(goal);
 
     await driver.closeSession('test close');
@@ -1268,7 +1274,10 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     const deleteSession = mock(async () => {
       deleted = true;
     });
-    const harness = makeHarness(makeSession({ id: 'ses-current' }), { listSessions, deleteSession });
+    const harness = makeHarness(makeSession({ id: 'ses-current' }), {
+      listSessions,
+      deleteSession,
+    });
     const driver = makeDriver(harness, makeStartupInput());
     await expect(driver.init()).resolves.toBe(false);
 
@@ -1318,8 +1327,10 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     await (driver as unknown as { createNewSession(): Promise<void> }).createNewSession();
     expect(driver.state.appState.sessionId).toBe('ses-current');
     // Contentless current sessions are filtered out of picker rows; fake content so the row exists.
-    spyOn(driver as unknown as { hasSessionContent(): boolean }, 'hasSessionContent')
-      .mockReturnValue(true);
+    spyOn(
+      driver as unknown as { hasSessionContent(): boolean },
+      'hasSessionContent',
+    ).mockReturnValue(true);
 
     await (driver as unknown as { showSessionPicker(): Promise<void> }).showSessionPicker();
     const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
@@ -1360,8 +1371,10 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     await expect(driver.init()).resolves.toBe(false);
 
     await (driver as unknown as { createNewSession(): Promise<void> }).createNewSession();
-    spyOn(driver as unknown as { hasSessionContent(): boolean }, 'hasSessionContent')
-      .mockReturnValue(true);
+    spyOn(
+      driver as unknown as { hasSessionContent(): boolean },
+      'hasSessionContent',
+    ).mockReturnValue(true);
 
     await (driver as unknown as { showSessionPicker(): Promise<void> }).showSessionPicker();
     const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
@@ -1404,8 +1417,10 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     await expect(driver.init()).resolves.toBe(false);
 
     await (driver as unknown as { createNewSession(): Promise<void> }).createNewSession();
-    spyOn(driver as unknown as { hasSessionContent(): boolean }, 'hasSessionContent')
-      .mockReturnValue(true);
+    spyOn(
+      driver as unknown as { hasSessionContent(): boolean },
+      'hasSessionContent',
+    ).mockReturnValue(true);
 
     await (driver as unknown as { showSessionPicker(): Promise<void> }).showSessionPicker();
     const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
@@ -1441,7 +1456,10 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
       return [sesA, sesB];
     });
     const deleteSession = mock(async () => {});
-    const harness = makeHarness(makeSession({ id: 'ses-current' }), { listSessions, deleteSession });
+    const harness = makeHarness(makeSession({ id: 'ses-current' }), {
+      listSessions,
+      deleteSession,
+    });
     const driver = makeDriver(harness, makeStartupInput());
     await expect(driver.init()).resolves.toBe(false);
 
@@ -1555,7 +1573,10 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
           resolveDelete = resolve;
         }),
     );
-    const harness = makeHarness(makeSession({ id: 'ses-current' }), { listSessions, deleteSession });
+    const harness = makeHarness(makeSession({ id: 'ses-current' }), {
+      listSessions,
+      deleteSession,
+    });
     const driver = makeDriver(harness, makeStartupInput());
     const mountSessionPicker = spyOn(
       (
@@ -1592,7 +1613,12 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
 
   it('does not remount the picker while a selection is in flight and a scope toggle is pending', async () => {
     const picked = makeSession({ id: 'ses-2' });
-    const ses2 = { id: 'ses-2', title: 'Other session', workDir: '/tmp/proj-a', updatedAt: Date.now() };
+    const ses2 = {
+      id: 'ses-2',
+      title: 'Other session',
+      workDir: '/tmp/proj-a',
+      updatedAt: Date.now(),
+    };
     let resolveAllSessions: ((value: unknown[]) => void) | undefined;
     let resolveResume: ((value: unknown) => void) | undefined;
     const listSessions = mock((input: { workDir?: string } = {}) => {
@@ -1607,7 +1633,10 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
           resolveResume = resolve;
         }),
     );
-    const harness = makeHarness(makeSession({ id: 'ses-current' }), { listSessions, resumeSession });
+    const harness = makeHarness(makeSession({ id: 'ses-current' }), {
+      listSessions,
+      resumeSession,
+    });
     const driver = makeDriver(harness, makeStartupInput());
     const mountSessionPicker = spyOn(
       (
@@ -1660,8 +1689,10 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     await (driver as unknown as { createNewSession(): Promise<void> }).createNewSession();
     expect(driver.state.appState.sessionId).toBe('ses-current');
     // Contentless current sessions are filtered out of picker rows; fake content so the row exists.
-    spyOn(driver as unknown as { hasSessionContent(): boolean }, 'hasSessionContent')
-      .mockReturnValue(true);
+    spyOn(
+      driver as unknown as { hasSessionContent(): boolean },
+      'hasSessionContent',
+    ).mockReturnValue(true);
     harness.createSession.mockRejectedValueOnce(new Error('create boom'));
 
     await (driver as unknown as { showSessionPicker(): Promise<void> }).showSessionPicker();
@@ -1704,8 +1735,10 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     await (driver as unknown as { createNewSession(): Promise<void> }).createNewSession();
     expect(driver.state.appState.sessionId).toBe('ses-current');
     // Contentless current sessions are filtered out of picker rows; fake content so the row exists.
-    spyOn(driver as unknown as { hasSessionContent(): boolean }, 'hasSessionContent')
-      .mockReturnValue(true);
+    spyOn(
+      driver as unknown as { hasSessionContent(): boolean },
+      'hasSessionContent',
+    ).mockReturnValue(true);
     harness.createSession.mockRejectedValueOnce(new Error('create boom'));
 
     await (driver as unknown as { showSessionPicker(): Promise<void> }).showSessionPicker();
@@ -2025,13 +2058,13 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     const driver = makeDriver(harness, makeStartupInput());
 
     await expect(driver.init()).resolves.toBe(false);
-await driver.setSession(session);
-await driver.syncRuntimeState(session);
+    await driver.setSession(session);
+    await driver.syncRuntimeState(session);
 
-// Materialize the startup session through the lazy-creation path (fresh
-// startup no longer creates one during init).
-if (driver.state.appState.model.length === 0) driver.state.appState.model = 'k2';
-await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession();
+    // Materialize the startup session through the lazy-creation path (fresh
+    // startup no longer creates one during init).
+    if (driver.state.appState.model.length === 0) driver.state.appState.model = 'k2';
+    await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession();
     expect(driver.state.appState.thinkingEffort).toBe('off');
 
     promptPlatformSelectionMock.mockResolvedValue('kimi-code');
@@ -2181,13 +2214,13 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     const driver = makeDriver(harness, makeStartupInput());
 
     await expect(driver.init()).resolves.toBe(false);
-await driver.setSession(session);
-await driver.syncRuntimeState(session);
+    await driver.setSession(session);
+    await driver.syncRuntimeState(session);
 
-// Materialize the startup session through the lazy-creation path (fresh
-// startup no longer creates one during init).
-if (driver.state.appState.model.length === 0) driver.state.appState.model = 'k2';
-await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession();
+    // Materialize the startup session through the lazy-creation path (fresh
+    // startup no longer creates one during init).
+    if (driver.state.appState.model.length === 0) driver.state.appState.model = 'k2';
+    await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession();
     harness.track.mockClear();
 
     promptLogoutProviderSelectionMock.mockResolvedValue('managed:kimi-code');
@@ -2282,13 +2315,13 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     const driver = makeDriver(harness, makeStartupInput());
 
     await expect(driver.init()).resolves.toBe(false);
-await driver.setSession(session);
-await driver.syncRuntimeState(session);
+    await driver.setSession(session);
+    await driver.syncRuntimeState(session);
 
-// Materialize the startup session through the lazy-creation path (fresh
-// startup no longer creates one during init).
-if (driver.state.appState.model.length === 0) driver.state.appState.model = 'k2';
-await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession();
+    // Materialize the startup session through the lazy-creation path (fresh
+    // startup no longer creates one during init).
+    if (driver.state.appState.model.length === 0) driver.state.appState.model = 'k2';
+    await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession();
     harness.track.mockClear();
 
     promptLogoutProviderSelectionMock.mockResolvedValue('openai');
@@ -2428,9 +2461,11 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     const getWorkspaceTrustInfo = mock(async () => ({
       trusted: true,
       gatedMcpServers: [],
-      gatedAdditionalDirs: [], additionalDirSources: [], warnings: [],
+      gatedAdditionalDirs: [],
+      additionalDirSources: [],
+      warnings: [],
       instructionSources: { agentsMdPaths: [], skills: [], agentProfiles: [], paths: [] },
-      }));
+    }));
     const harness = makeHarness(makeSession(), { getWorkspaceTrustInfo });
     const driver = makeDriver(harness, {
       ...makeStartupInput(),
@@ -2440,8 +2475,9 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     spyOn(driver.state.ui, 'start').mockImplementation(() => {});
     spyOn(driver.state.ui, 'stop').mockImplementation(() => {});
     spyOn(driver.state.terminal, 'write').mockImplementation(() => {});
-    const migrationSpy = spyOn(driver, 'runMigrationScreen')
-      .mockResolvedValue({ decision: 'later' });
+    const migrationSpy = spyOn(driver, 'runMigrationScreen').mockResolvedValue({
+      decision: 'later',
+    });
     const onExit = mock(async () => {});
     driver.onExit = onExit;
 
@@ -2458,9 +2494,11 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     const getWorkspaceTrustInfo = mock(async () => ({
       trusted: false,
       gatedMcpServers: [],
-      gatedAdditionalDirs: [], additionalDirSources: [], warnings: [],
+      gatedAdditionalDirs: [],
+      additionalDirSources: [],
+      warnings: [],
       instructionSources: { agentsMdPaths: [], skills: [], agentProfiles: [], paths: [] },
-      }));
+    }));
     const trustWorkspace = mock(async () => {});
     const harness = makeHarness(makeSession(), { getWorkspaceTrustInfo, trustWorkspace });
     const driver = makeDriver(harness, {
@@ -2473,8 +2511,9 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     spyOn(driver.state.ui, 'start').mockImplementation(() => {});
     spyOn(driver.state.ui, 'stop').mockImplementation(() => {});
     spyOn(driver.state.terminal, 'write').mockImplementation(() => {});
-    const migrationSpy = spyOn(driver, 'runMigrationScreen')
-      .mockResolvedValue({ decision: 'later' });
+    const migrationSpy = spyOn(driver, 'runMigrationScreen').mockResolvedValue({
+      decision: 'later',
+    });
     const mountSpy = spyOn(driver, 'mountEditorReplacement');
     const onExit = mock(async () => {});
     driver.onExit = onExit;
@@ -2531,9 +2570,11 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     const getWorkspaceTrustInfo = mock(async () => ({
       trusted: false,
       gatedMcpServers: [],
-      gatedAdditionalDirs: [], additionalDirSources: [], warnings: [],
+      gatedAdditionalDirs: [],
+      additionalDirSources: [],
+      warnings: [],
       instructionSources: { agentsMdPaths: [], skills: [], agentProfiles: [], paths: [] },
-      }));
+    }));
     const trustWorkspace = mock(async (): Promise<void> => {
       throw new Error('disk full');
     });
@@ -2548,8 +2589,9 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     spyOn(driver.state.ui, 'start').mockImplementation(() => {});
     spyOn(driver.state.ui, 'stop').mockImplementation(() => {});
     spyOn(driver.state.terminal, 'write').mockImplementation(() => {});
-    const migrationSpy = spyOn(driver, 'runMigrationScreen')
-      .mockResolvedValue({ decision: 'later' });
+    const migrationSpy = spyOn(driver, 'runMigrationScreen').mockResolvedValue({
+      decision: 'later',
+    });
     const mountSpy = spyOn(driver, 'mountEditorReplacement');
     const onExit = mock(async () => {});
     driver.onExit = onExit;
@@ -2950,9 +2992,9 @@ describe('survey telemetry gate wiring', () => {
   it('treats the runtime config opt-out as telemetry-disabled', () => {
     setEnv('KIMI_DISABLE_TELEMETRY', '');
     try {
-      expect(
-        surveyGateTelemetryDisabled({ ...makeStartupInput(), telemetryDisabled: true }),
-      ).toBe(true);
+      expect(surveyGateTelemetryDisabled({ ...makeStartupInput(), telemetryDisabled: true })).toBe(
+        true,
+      );
       expect(surveyGateTelemetryDisabled(makeStartupInput())).toBe(false);
     } finally {
       restoreEnvs();

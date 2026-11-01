@@ -99,7 +99,10 @@ describe('the report schema', () => {
   });
 
   test('a dry-run verdict of "available" is refused by the checker', () => {
-    const report = { ...buildEvaluationReport(input({ dryRun: true })), effectivenessVerdict: 'available' };
+    const report = {
+      ...buildEvaluationReport(input({ dryRun: true })),
+      effectivenessVerdict: 'available',
+    };
     expect(reportCompletenessErrors(report)).toContain(
       'a dry run cannot be an available effectiveness verdict',
     );
@@ -120,7 +123,9 @@ describe('effectiveness is only claimed when something was measured', () => {
       input({
         dryRun: true,
         cases,
-        results: [resultOf('case-1', { rawOutput: '[DRY RUN] Would respond to: "<system-reminder>' })],
+        results: [
+          resultOf('case-1', { rawOutput: '[DRY RUN] Would respond to: "<system-reminder>' }),
+        ],
       }),
     );
     expect(report.cases[0]!.rawOutput).toBeUndefined();
@@ -136,7 +141,11 @@ describe('effectiveness is only claimed when something was measured', () => {
     const report = buildEvaluationReport(
       input({
         warnings: [
-          { code: 'unresolved_variable', name: 'cwd', message: 'unresolved template variable ${cwd}' },
+          {
+            code: 'unresolved_variable',
+            name: 'cwd',
+            message: 'unresolved template variable ${cwd}',
+          },
         ],
       }),
     );
@@ -149,7 +158,11 @@ describe('effectiveness is only claimed when something was measured', () => {
       { caseId: 'case-2', category: 'provider_failure', message: 'API 503: upstream unavailable' },
     ];
     const report = buildEvaluationReport(
-      input({ cases: [benchCase('case-1'), benchCase('case-2')], results: [resultOf('case-1')], apiErrors }),
+      input({
+        cases: [benchCase('case-1'), benchCase('case-2')],
+        results: [resultOf('case-1')],
+        apiErrors,
+      }),
     );
     expect(report.apiErrors[0]!.category).toBe('provider_failure');
     expect(report.effectivenessVerdict).toBe('unavailable');
@@ -162,7 +175,11 @@ describe('effectiveness is only claimed when something was measured', () => {
       { caseId: 'case-2', category: 'model_failure', message: 'empty response' },
     ];
     const report = buildEvaluationReport(
-      input({ cases: [benchCase('case-1'), benchCase('case-2')], results: [resultOf('case-1')], apiErrors }),
+      input({
+        cases: [benchCase('case-1'), benchCase('case-2')],
+        results: [resultOf('case-1')],
+        apiErrors,
+      }),
     );
     expect(report.apiErrors[0]!.category).toBe('model_failure');
     // The suite was not measured in full, so it is still unavailable — but the
@@ -240,7 +257,9 @@ describe('nothing secret reaches a report', () => {
           {
             caseId: 'case-1',
             category: 'provider_failure',
-            message: redactSecrets('upstream said: x-api-key=abcd1234efgh and sk-live-abcdef123456'),
+            message: redactSecrets(
+              'upstream said: x-api-key=abcd1234efgh and sk-live-abcdef123456',
+            ),
           },
         ],
       }),

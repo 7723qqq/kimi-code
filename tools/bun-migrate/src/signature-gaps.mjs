@@ -34,7 +34,8 @@ export const SIGNATURE_GAPS = [
     member: 'scryptSync',
     node: { length: 3, name: 'scryptSync' },
     bun: { length: 4, name: 'scryptSync' },
-    impact: 'an arity check or a curry helper wrapping scryptSync binds the wrong number of arguments',
+    impact:
+      'an arity check or a curry helper wrapping scryptSync binds the wrong number of arguments',
     workaround: 'pass all four arguments explicitly rather than relying on partial application',
     severity: 'silent',
   },
@@ -63,7 +64,8 @@ export const SIGNATURE_GAPS = [
     member: 'verify',
     node: { length: 5, name: 'verify' },
     bun: { length: 4, name: 'verify' },
-    impact: 'one fewer declared parameter, so positional forwarding by arity drops the last argument',
+    impact:
+      'one fewer declared parameter, so positional forwarding by arity drops the last argument',
     workaround: 'pass every argument explicitly',
     severity: 'silent',
   },

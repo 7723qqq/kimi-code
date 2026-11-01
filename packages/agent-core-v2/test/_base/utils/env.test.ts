@@ -20,7 +20,10 @@ describe('parseBooleanEnv', () => {
     expect(parseBooleanEnv(value)).toBeUndefined();
   });
 
-  it.each(['flase', 'maybe', '2', 'true false'])('returns undefined for unparseable %j', (value) => {
-    expect(parseBooleanEnv(value)).toBeUndefined();
-  });
+  it.each(['flase', 'maybe', '2', 'true false'])(
+    'returns undefined for unparseable %j',
+    (value) => {
+      expect(parseBooleanEnv(value)).toBeUndefined();
+    },
+  );
 });

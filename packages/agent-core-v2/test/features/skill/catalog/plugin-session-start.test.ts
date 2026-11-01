@@ -1,15 +1,16 @@
 import { describe, expect, it } from 'bun:test';
 
+import type { LogContext, LogPayload } from '#/_base/log/log';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService } from '#/agent/loop/loop';
-import { runWillBeginStepHooks, type StubLoop } from '../../../agent/loop/stubs';
-import type { LogContext, LogPayload } from '#/_base/log/log';
 import { IPluginService } from '#/app/plugin/plugin';
 import type { EnabledPluginSessionStart } from '#/app/plugin/types';
 import { InMemorySkillCatalog } from '#/features/skill/catalog/registry';
 import type { SkillDefinition } from '#/features/skill/catalog/types';
-import { appService, logServices, skillServices, testAgent } from '../../../harness';
+
+import { runWillBeginStepHooks, type StubLoop } from '../../../agent/loop/stubs';
 import { stubPluginService } from '../../../app/plugin/stubs';
+import { appService, logServices, skillServices, testAgent } from '../../../harness';
 import { stubSkill } from './stubs';
 
 interface CapturedWarn {
@@ -31,11 +32,7 @@ body
 </plugin_session_start>
 </system-reminder>`;
 
-function skill(
-  name: string,
-  body: string,
-  plugin?: SkillDefinition['plugin'],
-): SkillDefinition {
+function skill(name: string, body: string, plugin?: SkillDefinition['plugin']): SkillDefinition {
   return stubSkill(name, {
     description: '',
     path: `/fake/${name}/SKILL.md`,
@@ -96,10 +93,12 @@ function lastReminder(ctx: ReturnType<typeof testAgent>): string {
 }
 
 function pluginSessionStartMessages(ctx: ReturnType<typeof testAgent>) {
-  return ctx.context.get().filter(
-    (message) =>
-      message.origin?.kind === 'injection' && message.origin.variant === 'plugin_session_start',
-  );
+  return ctx.context
+    .get()
+    .filter(
+      (message) =>
+        message.origin?.kind === 'injection' && message.origin.variant === 'plugin_session_start',
+    );
 }
 
 describe('plugin session-start dynamic injection', () => {
@@ -182,16 +181,18 @@ describe('plugin session-start dynamic injection', () => {
       skipRestore: true,
     });
 
-    await ctx.restore([{
-      type: 'context.append_message',
-      time: 1,
-      message: {
-        role: 'user',
-        content: [{ type: 'text', text: CURRENT_PLUGIN_SESSION_START_REMINDER }],
-        toolCalls: [],
-        origin: { kind: 'injection', variant: 'plugin_session_start' },
+    await ctx.restore([
+      {
+        type: 'context.append_message',
+        time: 1,
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: CURRENT_PLUGIN_SESSION_START_REMINDER }],
+          toolCalls: [],
+          origin: { kind: 'injection', variant: 'plugin_session_start' },
+        },
       },
-    }]);
+    ]);
 
     await injectDynamic(ctx);
 

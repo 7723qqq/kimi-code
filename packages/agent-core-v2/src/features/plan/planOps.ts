@@ -114,7 +114,6 @@ function deactivate(
   transition: 'cancel' | 'exit',
   ctx: { emit(event: AgentStatusUpdated): void },
 ): void {
-
   if (s.active) {
     s.active = false;
     delete s.id;

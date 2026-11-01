@@ -1,11 +1,17 @@
+import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-import { afterEach, describe, expect, it } from 'bun:test';
 import { ZipFile } from 'yazl';
 
-import { importSessionZip, isImportId, listImportedIds, readImportMeta, deleteImported } from '../../src/lib/import-store';
+import {
+  importSessionZip,
+  isImportId,
+  listImportedIds,
+  readImportMeta,
+  deleteImported,
+} from '../../src/lib/import-store';
 import { resolveSafeTarget } from '../../src/lib/zip-import';
 
 /** Build an in-memory zip from a {path: contents} map (yazl refuses to emit

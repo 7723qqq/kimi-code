@@ -144,7 +144,12 @@ describe('runRenderedCase', () => {
   });
 
   test('a run without a reminder records no reminder position', async () => {
-    const result = await runRenderedCase(benchCase({ id: 'c' }), renderedInput(), okCaller(), runner);
+    const result = await runRenderedCase(
+      benchCase({ id: 'c' }),
+      renderedInput(),
+      okCaller(),
+      runner,
+    );
     expect(result.reminderRole).toBeUndefined();
   });
 });

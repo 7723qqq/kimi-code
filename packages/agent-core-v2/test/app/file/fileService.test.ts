@@ -1,19 +1,18 @@
-import { Readable } from 'node:stream';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { Readable } from 'node:stream';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { FileErrors, IFileService } from '#/app/file/fileService';
 import { FileServiceImpl } from '#/app/file/fileServiceImpl';
-import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { BlobStoreService } from '#/persistence/backends/node-fs/blobStoreService';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { IBlobStore } from '#/persistence/interface/blobStore';
-import { BlobStoreService } from '#/persistence/backends/node-fs/blobStoreService';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
 function readable(data: string | Buffer): Readable {
   return Readable.from([typeof data === 'string' ? Buffer.from(data) : data]);
@@ -175,10 +174,12 @@ describe('FileServiceImpl', () => {
   });
 
   it('cleans up the blob when the source stream fails mid-upload', async () => {
-    const failing = Readable.from((async function* () {
-      yield Buffer.from('partial');
-      throw new Error('source exploded');
-    })());
+    const failing = Readable.from(
+      (async function* () {
+        yield Buffer.from('partial');
+        throw new Error('source exploded');
+      })(),
+    );
 
     await expect(store().save(failing, 'broken.bin')).rejects.toThrow('source exploded');
     expect(await backend.list('files')).toHaveLength(0);

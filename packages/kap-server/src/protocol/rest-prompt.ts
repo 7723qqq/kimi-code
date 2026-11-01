@@ -19,22 +19,24 @@ export const promptSkillActivationSchema = z.object({
 });
 export type PromptSkillActivation = z.infer<typeof promptSkillActivationSchema>;
 
-export const promptSubmissionSchema = z.object({
-  content: z.array(messageContentSchema).min(1),
-  metadata: z.record(z.string(), z.unknown()).optional(),
-  agent_id: z.string().min(1).optional(),
-  profile: z.string().min(1).optional(),
-  model: z.string().min(1).optional(),
-  thinking: promptThinkingSchema.optional(),
-  permission_mode: promptPermissionModeSchema.optional(),
-  plan_mode: z.boolean().optional(),
-  swarm_mode: z.boolean().optional(),
-  goal_objective: z.string().optional(),
-  goal_control: z.enum(['pause', 'resume', 'cancel']).optional(),
-  disabled_tools: z.array(z.string()).optional(),
-  prompt_id: z.string().min(1).optional(),
-  skills: z.array(promptSkillActivationSchema).min(1).optional(),
-}).strict();
+export const promptSubmissionSchema = z
+  .object({
+    content: z.array(messageContentSchema).min(1),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+    agent_id: z.string().min(1).optional(),
+    profile: z.string().min(1).optional(),
+    model: z.string().min(1).optional(),
+    thinking: promptThinkingSchema.optional(),
+    permission_mode: promptPermissionModeSchema.optional(),
+    plan_mode: z.boolean().optional(),
+    swarm_mode: z.boolean().optional(),
+    goal_objective: z.string().optional(),
+    goal_control: z.enum(['pause', 'resume', 'cancel']).optional(),
+    disabled_tools: z.array(z.string()).optional(),
+    prompt_id: z.string().min(1).optional(),
+    skills: z.array(promptSkillActivationSchema).min(1).optional(),
+  })
+  .strict();
 export type PromptSubmission = z.infer<typeof promptSubmissionSchema>;
 
 export const promptStatusSchema = z.enum(['running', 'queued', 'blocked']);
@@ -59,9 +61,11 @@ export type PromptListResponse = z.infer<typeof promptListResponseSchema>;
 export const promptSubmitResultSchema = promptItemSchema;
 export type PromptSubmitResult = z.infer<typeof promptSubmitResultSchema>;
 
-export const promptSteerRequestSchema = z.object({
-  prompt_ids: z.array(z.string().min(1)).min(1),
-}).strict();
+export const promptSteerRequestSchema = z
+  .object({
+    prompt_ids: z.array(z.string().min(1)).min(1),
+  })
+  .strict();
 export type PromptSteerRequest = z.infer<typeof promptSteerRequestSchema>;
 
 export const promptSteerResultSchema = z.object({

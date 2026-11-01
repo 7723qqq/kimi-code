@@ -1,18 +1,19 @@
-import { Container, Text, VStack } from '@moonshot-ai/pi-tui';
 import { describe, expect, it, mock, type Mock } from 'bun:test';
+
+import { Container, Text, VStack } from '@moonshot-ai/pi-tui';
 
 import {
   StatusSurfaceComponent,
   SURFACE_INSET,
   SURFACE_SIDE_PADDING,
 } from '#/tui/components/chrome/status-surface/index';
-import { ApprovalRegion } from '#/tui/components/chrome/status-surface/regions/approval-region';
-import { StatsRegion } from '#/tui/components/chrome/status-surface/regions/stats-region';
 import type {
   RegionId,
   RegionPlacement,
   StatusRegion,
 } from '#/tui/components/chrome/status-surface/region';
+import { ApprovalRegion } from '#/tui/components/chrome/status-surface/regions/approval-region';
+import { StatsRegion } from '#/tui/components/chrome/status-surface/regions/stats-region';
 import { ApprovalPanelComponent } from '#/tui/components/dialogs/approval-panel';
 import type { ApprovalPanelData } from '#/tui/reverse-rpc/types';
 

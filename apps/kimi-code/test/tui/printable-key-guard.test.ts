@@ -11,10 +11,9 @@
  * those are exempted by the guard's regex.
  */
 
+import { describe, expect, it } from 'bun:test';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-
-import { describe, expect, it } from 'bun:test';
 
 const COMPONENTS_ROOT = join(__dirname, '..', '..', 'src', 'tui', 'components');
 

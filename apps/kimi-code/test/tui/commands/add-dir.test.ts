@@ -1,8 +1,8 @@
 import { describe, expect, it, mock, type Mock } from 'bun:test';
-import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { handleAddDirCommand } from '#/tui/commands/add-dir';
 import { dispatchInput, type SlashCommandHost } from '#/tui/commands/dispatch';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 type MountedPanel = {
   handleInput: (data: string) => void;
@@ -170,7 +170,9 @@ describe('handleAddDirCommand', () => {
 
   it('routes /add-dir errors through the slash-command dispatcher error handler', async () => {
     const { host, session, getMountedPanel } = makeHost();
-    session.addAdditionalDir.mockRejectedValueOnce(new Error('workspace.additional_dir must exist and be a directory'));
+    session.addAdditionalDir.mockRejectedValueOnce(
+      new Error('workspace.additional_dir must exist and be a directory'),
+    );
 
     dispatchInput(host, '/add-dir ../other');
     await waitForAssertion(() => {

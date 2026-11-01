@@ -60,7 +60,10 @@ export function runStatusLineCommand(
       if (pid === undefined) return;
       if (isWin) {
         try {
-          Bun.spawn({ cmd: ['taskkill', '/pid', String(pid), '/T', '/F'], stdio: ['ignore', 'ignore', 'ignore'] });
+          Bun.spawn({
+            cmd: ['taskkill', '/pid', String(pid), '/T', '/F'],
+            stdio: ['ignore', 'ignore', 'ignore'],
+          });
         } catch {
           // best effort
         }

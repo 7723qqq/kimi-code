@@ -1,3 +1,4 @@
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 /**
  * Scenario: maintainers run the installed-VSIX smoke from a developer machine or CI.
  * Responsibilities: stable downloads cannot reuse stale caches, and the Extension
@@ -9,8 +10,6 @@
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 const vscodeTest = {
   runTests: mock(),
@@ -86,11 +85,13 @@ describe('installed VSIX Extension Host smoke', () => {
       );
     });
 
-    await expect(runExtensionHostSmoke({
-      version: '1.100.0',
-      vsixPath: fixture.vsixPath,
-      cachePath: fixture.cachePath,
-    })).rejects.toThrow('Extension Host ran VS Code 1.99.3, expected requested version 1.100.0');
+    await expect(
+      runExtensionHostSmoke({
+        version: '1.100.0',
+        vsixPath: fixture.vsixPath,
+        cachePath: fixture.cachePath,
+      }),
+    ).rejects.toThrow('Extension Host ran VS Code 1.99.3, expected requested version 1.100.0');
   });
 });
 

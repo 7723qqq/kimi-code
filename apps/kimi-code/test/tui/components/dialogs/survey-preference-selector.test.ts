@@ -7,14 +7,14 @@ import { SurveyPreferenceSelectorComponent } from '#/tui/components/dialogs/surv
 void mock.module('#/i18n', () => ({
   t: (key: string) =>
     (
-      {
+      ({
         'tui.dialogs.surveyPreferenceSelector.title': 'Feedback survey',
         'tui.dialogs.surveyPreferenceSelector.on': 'On',
         'tui.dialogs.surveyPreferenceSelector.off': 'Off',
         'tui.dialogs.surveyPreferenceSelector.onDescription':
           'Show the occasional rating prompt above the editor.',
         'tui.dialogs.surveyPreferenceSelector.offDescription': 'Never show the rating prompt.',
-      } as Record<string, string>
+      }) as Record<string, string>
     )[key] ?? key,
   setLocale: mock(),
   getLocale: () => 'en',

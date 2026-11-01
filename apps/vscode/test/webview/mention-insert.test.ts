@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+
 import { computeMentionInsert } from '@/components/inputarea/utils';
 
 describe('computeMentionInsert', () => {

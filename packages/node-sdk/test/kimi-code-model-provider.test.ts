@@ -1,9 +1,15 @@
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { KimiOAuthToolkit, OAuthConnectionError, OAuthError, OAuthUnauthorizedError, RetryableRefreshError } from '@moonshot-ai/kimi-code-oauth';
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import {
+  KimiOAuthToolkit,
+  OAuthConnectionError,
+  OAuthError,
+  OAuthUnauthorizedError,
+  RetryableRefreshError,
+} from '@moonshot-ai/kimi-code-oauth';
 
 import { ErrorCodes, KimiError, KimiForCodingProvider } from '#/index';
 

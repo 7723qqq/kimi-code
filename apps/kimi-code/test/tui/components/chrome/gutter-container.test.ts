@@ -1,5 +1,6 @@
-import type { Component, TuiMouseEvent } from '@moonshot-ai/pi-tui';
 import { describe, expect, it, mock } from 'bun:test';
+
+import type { Component, TuiMouseEvent } from '@moonshot-ai/pi-tui';
 
 import { GutterContainer } from '#/tui/components/chrome/gutter-container';
 import { isRenderCacheEnabled, setRenderCacheEnabled } from '#/tui/utils/render-cache';

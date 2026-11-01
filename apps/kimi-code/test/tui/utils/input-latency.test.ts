@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import { LatencyStats } from '#/tui/utils/input-latency';
 
 describe('LatencyStats (input→render probe)', () => {

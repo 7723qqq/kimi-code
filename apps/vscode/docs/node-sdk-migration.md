@@ -101,19 +101,19 @@ into runtime code or packaging scripts.
 
 ## Main components
 
-| Area | Primary implementation |
-|---|---|
-| Activation and VS Code commands | `apps/vscode/src/extension.ts` |
-| Webview lifecycle | `apps/vscode/src/KimiWebviewProvider.ts` |
-| Webview RPC boundary | `apps/vscode/src/bridge-handler.ts`, `apps/vscode/src/handlers` |
-| SDK host | `apps/vscode/src/runtime/kimi-runtime.ts` |
-| Session lifecycle and event routing | `apps/vscode/src/runtime/session-runtime.ts` |
-| SDK-to-Webview event conversion | `apps/vscode/src/runtime/event-adapter.ts` |
-| Session replay | `apps/vscode/src/runtime/replay-adapter.ts` |
-| File changes and baselines | `apps/vscode/src/managers` |
-| Legacy migration coordination | `apps/vscode/src/migration` |
-| React UI | `apps/vscode/webview-ui` |
-| Packaging and smoke tests | `apps/vscode/scripts` (`.github/workflows/vscode-publish.yml` runs them; `.github/workflows/ci.yml` only typechecks) |
+| Area                                | Primary implementation                                                                                               |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Activation and VS Code commands     | `apps/vscode/src/extension.ts`                                                                                       |
+| Webview lifecycle                   | `apps/vscode/src/KimiWebviewProvider.ts`                                                                             |
+| Webview RPC boundary                | `apps/vscode/src/bridge-handler.ts`, `apps/vscode/src/handlers`                                                      |
+| SDK host                            | `apps/vscode/src/runtime/kimi-runtime.ts`                                                                            |
+| Session lifecycle and event routing | `apps/vscode/src/runtime/session-runtime.ts`                                                                         |
+| SDK-to-Webview event conversion     | `apps/vscode/src/runtime/event-adapter.ts`                                                                           |
+| Session replay                      | `apps/vscode/src/runtime/replay-adapter.ts`                                                                          |
+| File changes and baselines          | `apps/vscode/src/managers`                                                                                           |
+| Legacy migration coordination       | `apps/vscode/src/migration`                                                                                          |
+| React UI                            | `apps/vscode/webview-ui`                                                                                             |
+| Packaging and smoke tests           | `apps/vscode/scripts` (`.github/workflows/vscode-publish.yml` runs them; `.github/workflows/ci.yml` only typechecks) |
 
 ## Data ownership
 
@@ -366,7 +366,7 @@ was finalized.
 ## Known limitations and release gates
 
 - Remote SSH, WSL, and Dev Container behavior follows `extensionKind:
-  ["workspace"]` and remote home resolution, but still needs representative
+["workspace"]` and remote home resolution, but still needs representative
   release-candidate smoke in a real remote environment.
 - Cursor installation, activation, Webview, and basic chat require a usable
   Cursor environment; VS Code smoke is not a substitute.

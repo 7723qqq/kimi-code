@@ -1,5 +1,6 @@
-import { visibleWidth } from '@moonshot-ai/pi-tui';
 import { afterEach, describe, expect, it } from 'bun:test';
+
+import { visibleWidth } from '@moonshot-ai/pi-tui';
 
 import { setLocale } from '#/i18n';
 import { buildUsageReportLines, UsagePanelComponent } from '#/tui/components/messages/usage-panel';
@@ -255,10 +256,7 @@ describe('UsagePanelComponent', () => {
         },
         ui: { requestRender: () => {} },
       },
-      appendTranscriptEntry: (
-        _entry: unknown,
-        component?: { render(width: number): string[] },
-      ) => {
+      appendTranscriptEntry: (_entry: unknown, component?: { render(width: number): string[] }) => {
         if (component !== undefined) added.push(...component.render(80).map(strip));
       },
     };

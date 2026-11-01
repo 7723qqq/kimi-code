@@ -4,7 +4,6 @@
 // reference model, and assert they always agree. Seeded so any failure is
 // reproducible by re-running with the same seed.
 
-
 import { expect, test } from 'bun:test';
 
 import { MiniDb } from '../../src/index.js';
@@ -59,7 +58,8 @@ async function runSeed(seed, steps) {
       }
     }
     // final full compare
-    for (const k of KEYS) expect(db.get(k), `final get(${k}) seed=${seed}`).toStrictEqual(model.get(k));
+    for (const k of KEYS)
+      expect(db.get(k), `final get(${k}) seed=${seed}`).toStrictEqual(model.get(k));
   } finally {
     await db.close().catch(() => {});
     await rmrf(dir);

@@ -584,7 +584,8 @@ export class AgentTranscriptProjector {
       ops.push({ op: 'step.upsert', turnId: step.turnId, step });
     }
     if (this.currentStep === undefined && this.pendingSteers.length > 0) {
-      const ordinal = (this.stepOrdinals.get(turnId) ?? this.lookups?.stepOrdinal?.(turnId) ?? 0) + 1;
+      const ordinal =
+        (this.stepOrdinals.get(turnId) ?? this.lookups?.stepOrdinal?.(turnId) ?? 0) + 1;
       const step: StepHeader = {
         kind: 'step',
         stepId: `${turnId}.${ordinal}`,

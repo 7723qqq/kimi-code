@@ -1,9 +1,8 @@
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import * as fsModule from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import { tryAcquireUpdateInstallLock } from '#/cli/update/install-lock';
 import { getUpdateInstallLockFile } from '#/utils/paths';
@@ -32,10 +31,7 @@ const realLink = fsModule.link;
 void mock.module('node:fs/promises', () => {
   return {
     ...fsModule,
-    link: async (
-      src: Parameters<typeof realLink>[0],
-      dst: Parameters<typeof realLink>[1],
-    ) => {
+    link: async (src: Parameters<typeof realLink>[0], dst: Parameters<typeof realLink>[1]) => {
       if (fsMocks.linkError !== null) {
         throw Object.assign(new Error('link() is not supported (mocked)'), {
           code: fsMocks.linkError,

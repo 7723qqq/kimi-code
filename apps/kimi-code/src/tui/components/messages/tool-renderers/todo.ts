@@ -5,12 +5,11 @@
  * ctrl+o (or a click) shows every item.
  */
 
+import { TODO_LIST_HEADER } from '@moonshot-ai/agent-core-v2';
 import { truncateToWidth, type Component } from '@moonshot-ai/pi-tui';
 
-import { OUTCOME_ROW_INDENT, TRUNCATION_ELLIPSIS } from '#/tui/constant/rendering';
-import { TODO_LIST_HEADER } from '@moonshot-ai/agent-core-v2';
-
 import { t } from '#/i18n';
+import { OUTCOME_ROW_INDENT, TRUNCATION_ELLIPSIS } from '#/tui/constant/rendering';
 import { currentTheme } from '#/tui/theme';
 
 export type TodoStatus = 'pending' | 'in_progress' | 'done';

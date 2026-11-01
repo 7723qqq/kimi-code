@@ -46,9 +46,10 @@ export async function editInExternalEditor(
 ): Promise<string | undefined> {
   const spawnChild =
     deps.spawn ??
-    ((argv: string[],
-      options: { stdio: ['inherit', 'inherit', 'inherit']; windowsVerbatimArguments: boolean }) =>
-      Bun.spawn({ cmd: argv, ...options }));
+    ((
+      argv: string[],
+      options: { stdio: ['inherit', 'inherit', 'inherit']; windowsVerbatimArguments: boolean },
+    ) => Bun.spawn({ cmd: argv, ...options }));
   const dir = await mkdtemp(join(tmpdir(), 'kimi-edit-'));
   const file = join(dir, 'prompt.md');
   await Bun.write(file, initialText, { createPath: false });

@@ -1,10 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { release } from 'node:os';
 
-import {
-  kimiRegionProfile,
-  type KimiRegionResolution,
-} from '@moonshot-ai/kimi-code-oauth';
+import { kimiRegionProfile, type KimiRegionResolution } from '@moonshot-ai/kimi-code-oauth';
 
 import type { ServicesAccessor } from '#/_base/di/instantiation';
 import { onUnexpectedError } from '#/_base/errors/unexpectedError';

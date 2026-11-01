@@ -1,3 +1,4 @@
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -24,13 +25,12 @@ import {
   type FsPullRequest,
   IGitService,
 } from '@moonshot-ai/agent-core-v2/app/git/git';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { removeTempHome } from './helpers/tempHome';
 
 import { mapActivityStatus, registerV2SessionsRoutes } from '../src/routes/v2/sessions';
 import { type RunningServer, startServer } from '../src/start';
 import { authHeaders, authedFetch } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { removeTempHome } from './helpers/tempHome';
 
 interface SessionWireV2 {
   id: string;

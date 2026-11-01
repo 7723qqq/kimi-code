@@ -3690,8 +3690,7 @@ command = "vim"
       },
     });
 
-    const approvalPanel = () =>
-      driver.state.approvalRegion.panelComponent();
+    const approvalPanel = () => driver.state.approvalRegion.panelComponent();
     await waitForAssertion(() => {
       expect(approvalPanel()).toBeInstanceOf(ApprovalPanelComponent);
     });
@@ -10844,8 +10843,7 @@ capabilities = ["image_in", "video_in"]
       },
     });
 
-    const mountedApproval = () =>
-      driver.state.approvalRegion.panelComponent();
+    const mountedApproval = () => driver.state.approvalRegion.panelComponent();
     await waitForAssertion(() => {
       expect(mountedApproval()).toBeInstanceOf(ApprovalPanelComponent);
     });

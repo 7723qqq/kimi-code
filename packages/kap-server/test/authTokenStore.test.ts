@@ -1,3 +1,4 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import {
   chmodSync,
   existsSync,
@@ -9,8 +10,6 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { createAuthTokenService } from '../src/services/auth/authTokenService';
 import { resolvePasswordHash, verifyPassword } from '../src/services/auth/password';

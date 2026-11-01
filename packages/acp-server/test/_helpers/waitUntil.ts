@@ -30,9 +30,7 @@ export async function waitUntil<T>(
     }
     if (Date.now() >= deadline) {
       if (lastError !== undefined) {
-        throw new Error(
-          `waitUntil timed out after ${timeout}ms: ${describeThrown(lastError)}`,
-        );
+        throw new Error(`waitUntil timed out after ${timeout}ms: ${describeThrown(lastError)}`);
       }
       throw new Error(`waitUntil timed out after ${timeout}ms (last value: ${String(last)})`);
     }

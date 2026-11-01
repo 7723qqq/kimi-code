@@ -2,8 +2,8 @@ import { describe, expect, it } from 'bun:test';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { IAgentCronService } from '#/features/cron/cronService';
 import { CronCursor } from '#/features/cron/cronOps';
+import { IAgentCronService } from '#/features/cron/cronService';
 import type { WireRecord } from '#/wire/record';
 
 import {
@@ -87,7 +87,9 @@ describe('session cron wire persistence', () => {
       expect(reminder?.origin).toEqual({ kind: 'injection', variant: 'cron_fork_cleared' });
       const text = JSON.stringify(reminder?.content);
       expect(text).toContain('This fork does not have any scheduled cron tasks.');
-      expect(text).toContain('Tasks from the source session continue to run in the source session.');
+      expect(text).toContain(
+        'Tasks from the source session continue to run in the source session.',
+      );
     } finally {
       await withInherited.dispose();
     }
@@ -106,9 +108,12 @@ describe('session cron wire persistence', () => {
       addRecord('seed-recreated', 'recreated'),
     ]);
     try {
-      expect(recreated.get(IAgentCronService).list().map((task) => task.prompt)).toEqual([
-        'recreated',
-      ]);
+      expect(
+        recreated
+          .get(IAgentCronService)
+          .list()
+          .map((task) => task.prompt),
+      ).toEqual(['recreated']);
     } finally {
       await recreated.dispose();
     }

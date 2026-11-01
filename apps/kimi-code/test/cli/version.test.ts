@@ -1,7 +1,6 @@
+import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-
-import { describe, expect, it } from 'bun:test';
 
 import {
   createKimiCodeUserAgent,

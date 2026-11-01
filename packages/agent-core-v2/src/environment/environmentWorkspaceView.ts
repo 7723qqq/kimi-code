@@ -1,9 +1,18 @@
-import { ErrorCodes, Error2 } from '#/errors';
 import { getShellPathBridge } from '#/_base/execEnv/shellPathBridge';
+import { ErrorCodes, Error2 } from '#/errors';
 import type { HostEnvironmentInfo } from '#/os/interface/hostEnvironment';
 
-import type { Environment, EnvironmentBinding, EnvironmentPath, EnvironmentWorkspaceRoots } from './environment';
-import { DEFAULT_ENVIRONMENT_HOST, POSIX_ENVIRONMENT_PATH, POSIX_ENVIRONMENT_WORKSPACE } from './environmentDefaults';
+import type {
+  Environment,
+  EnvironmentBinding,
+  EnvironmentPath,
+  EnvironmentWorkspaceRoots,
+} from './environment';
+import {
+  DEFAULT_ENVIRONMENT_HOST,
+  POSIX_ENVIRONMENT_PATH,
+  POSIX_ENVIRONMENT_WORKSPACE,
+} from './environmentDefaults';
 
 export class EnvironmentWorkspaceView {
   readonly binding: EnvironmentBinding;
@@ -25,12 +34,15 @@ export class EnvironmentWorkspaceView {
     const workspace = environment.workspace ?? POSIX_ENVIRONMENT_WORKSPACE;
     const mapped = workspace.mapRoots(roots);
     this.workDir = this.path.resolve(mapped.workDir);
-    this.additionalDirs = [...new Set((mapped.additionalDirs ?? []).map((root) => this.path.resolve(root)))];
+    this.additionalDirs = [
+      ...new Set((mapped.additionalDirs ?? []).map((root) => this.path.resolve(root))),
+    ];
     this.roots = [this.workDir, ...this.additionalDirs];
   }
 
   resolve(path: string, cwd = this.workDir): string {
-    const bridged = this.host.pathClass === 'win32' ? getShellPathBridge(this.host).fromShellPath(path) : path;
+    const bridged =
+      this.host.pathClass === 'win32' ? getShellPathBridge(this.host).fromShellPath(path) : path;
     return this.path.isAbsolute(bridged)
       ? this.path.resolve(bridged)
       : this.path.resolve(cwd, bridged);
@@ -50,5 +62,7 @@ export class EnvironmentWorkspaceView {
 function contains(path: EnvironmentPath, root: string, candidate: string): boolean {
   const relative = path.relative(root, candidate);
   if (relative === '') return true;
-  return relative !== '..' && !relative.startsWith(`..${path.separator}`) && !path.isAbsolute(relative);
+  return (
+    relative !== '..' && !relative.startsWith(`..${path.separator}`) && !path.isAbsolute(relative)
+  );
 }

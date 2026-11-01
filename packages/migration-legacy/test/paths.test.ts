@@ -1,6 +1,5 @@
-import { join } from 'node:path';
-
 import { describe, expect, it } from 'bun:test';
+import { join } from 'node:path';
 
 import * as paths from '../src/paths.js';
 

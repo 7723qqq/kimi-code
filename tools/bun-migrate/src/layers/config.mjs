@@ -93,22 +93,128 @@ const NPMRC_MAPPINGS = [
  * aliases, so `npm test` must become `bun run test`.
  */
 const PNPM_NON_SCRIPT_SUBCOMMANDS = new Set([
-  'add', 'install', 'i', 'update', 'up', 'upgrade', 'remove', 'rm', 'uninstall', 'un',
-  'link', 'unlink', 'import', 'rebuild', 'prune', 'fetch', 'patch', 'patch-commit',
-  'patch-remove', 'audit', 'list', 'ls', 'll', 'la', 'why', 'outdated', 'licenses',
-  'publish', 'pack', 'deploy', 'dedupe', 'doctor', 'server', 'store', 'config', 'set',
-  'get', 'init', 'create', 'dlx', 'exec', 'run', 'root', 'bin', 'env', 'help', 'version',
+  'add',
+  'install',
+  'i',
+  'update',
+  'up',
+  'upgrade',
+  'remove',
+  'rm',
+  'uninstall',
+  'un',
+  'link',
+  'unlink',
+  'import',
+  'rebuild',
+  'prune',
+  'fetch',
+  'patch',
+  'patch-commit',
+  'patch-remove',
+  'audit',
+  'list',
+  'ls',
+  'll',
+  'la',
+  'why',
+  'outdated',
+  'licenses',
+  'publish',
+  'pack',
+  'deploy',
+  'dedupe',
+  'doctor',
+  'server',
+  'store',
+  'config',
+  'set',
+  'get',
+  'init',
+  'create',
+  'dlx',
+  'exec',
+  'run',
+  'root',
+  'bin',
+  'env',
+  'help',
+  'version',
 ]);
 
 const NPM_NON_SCRIPT_SUBCOMMANDS = new Set([
-  'add', 'install', 'i', 'ci', 'update', 'up', 'upgrade', 'remove', 'rm', 'uninstall',
-  'un', 'link', 'unlink', 'rebuild', 'prune', 'audit', 'list', 'ls', 'll', 'la', 'why',
-  'outdated', 'publish', 'pack', 'view', 'info', 'show', 'search', 's', 'find', 'config',
-  'set', 'get', 'init', 'create', 'exec', 'run', 'root', 'bin', 'prefix', 'help',
-  'version', 'whoami', 'login', 'logout', 'adduser', 'token', 'owner', 'access', 'team',
-  'org', 'deprecate', 'dist-tag', 'star', 'unstar', 'fund', 'doctor', 'dedupe', 'diff',
-  'explain', 'repo', 'bugs', 'docs', 'homepage', 'query', 'sbom', 'pkg', 'pkg-fix',
-  'cache', 'install-ci-test', 'install-test', 'it',
+  'add',
+  'install',
+  'i',
+  'ci',
+  'update',
+  'up',
+  'upgrade',
+  'remove',
+  'rm',
+  'uninstall',
+  'un',
+  'link',
+  'unlink',
+  'rebuild',
+  'prune',
+  'audit',
+  'list',
+  'ls',
+  'll',
+  'la',
+  'why',
+  'outdated',
+  'publish',
+  'pack',
+  'view',
+  'info',
+  'show',
+  'search',
+  's',
+  'find',
+  'config',
+  'set',
+  'get',
+  'init',
+  'create',
+  'exec',
+  'run',
+  'root',
+  'bin',
+  'prefix',
+  'help',
+  'version',
+  'whoami',
+  'login',
+  'logout',
+  'adduser',
+  'token',
+  'owner',
+  'access',
+  'team',
+  'org',
+  'deprecate',
+  'dist-tag',
+  'star',
+  'unstar',
+  'fund',
+  'doctor',
+  'dedupe',
+  'diff',
+  'explain',
+  'repo',
+  'bugs',
+  'docs',
+  'homepage',
+  'query',
+  'sbom',
+  'pkg',
+  'pkg-fix',
+  'cache',
+  'install-ci-test',
+  'install-test',
+  'it',
 ]);
 
 const SCRIPT_REWRITES = [
@@ -203,7 +309,8 @@ const RUNNER_SCRIPT_REWRITES = [
   {
     pattern: /^(npx|bunx)\s+(vitest|jest)(?:\s+run)?(?=\s|$)/,
     replacement: () => 'bun test',
-  },  {
+  },
+  {
     pattern: /^([A-Za-z_][A-Za-z0-9_]*=\S*\s+)+(vitest|jest)(?:\s+run)?(?=\s|$)/,
     replacement: (match) => `${match.slice(0, match.search(/(vitest|jest)/))}bun test`,
   },
@@ -502,7 +609,10 @@ function rewriteWorkflow(text) {
     for (let index = block.anchor + 1; index < block.end; index += 1) {
       if (removed.has(index)) continue;
       const line = lines[index];
-      const match = /^(\s*)-?\s*uses:\s*(pnpm\/action-setup|actions\/setup-node|oven-sh\/setup-bun)@/.exec(line);
+      const match =
+        /^(\s*)-?\s*uses:\s*(pnpm\/action-setup|actions\/setup-node|oven-sh\/setup-bun)@/.exec(
+          line,
+        );
       if (!match) continue;
       if (match[2] === 'oven-sh/setup-bun') {
         hasBun = true;
@@ -635,7 +745,11 @@ export function applyConfigLayer(project, journal) {
         );
         continue;
       }
-      journal.skip('.npmrc', 'config', `${key}: not a setting this migration maps; carry it over by hand`);
+      journal.skip(
+        '.npmrc',
+        'config',
+        `${key}: not a setting this migration maps; carry it over by hand`,
+      );
     }
     let npmrcRemovable = true;
     if (settings.length > 0) {
@@ -678,7 +792,12 @@ export function applyConfigLayer(project, journal) {
   }
 
   if (readText(project, '.nvmrc') !== undefined) {
-    journal.remove('.nvmrc', 'config', 'Bun is the runtime; version pinned in packageManager', readText(project, '.nvmrc'));
+    journal.remove(
+      '.nvmrc',
+      'config',
+      'Bun is the runtime; version pinned in packageManager',
+      readText(project, '.nvmrc'),
+    );
   }
 
   const manifest = readManifest(project, journal);
@@ -714,9 +833,13 @@ export function applyConfigLayer(project, journal) {
         nextManifest.scripts = rewritten.scripts;
         changed = true;
         const parts = [];
-        if (rewritten.scriptChanges - rewritten.runnerChanges > 0) parts.push('pnpm/npm/npx to bun');
+        if (rewritten.scriptChanges - rewritten.runnerChanges > 0)
+          parts.push('pnpm/npm/npx to bun');
         if (rewritten.runnerChanges > 0) parts.push('test runner to bun test');
-        journal.note('config', `rewrote ${rewritten.scriptChanges} package script(s): ${parts.join(', ')}`);
+        journal.note(
+          'config',
+          `rewrote ${rewritten.scriptChanges} package script(s): ${parts.join(', ')}`,
+        );
       }
     }
     if (changed) {
@@ -739,7 +862,9 @@ export function applyConfigLayer(project, journal) {
    * same tables as the root.
    */
   const workspaceMembership = workspaceGlobs(project, manifest);
-  for (const directory of workspaceMembership.length === 0 ? [] : project.manifestDirectories ?? []) {
+  for (const directory of workspaceMembership.length === 0
+    ? []
+    : (project.manifestDirectories ?? [])) {
     if (directory === '' || !isWorkspaceDirectory(directory, workspaceMembership)) continue;
     const manifestPath = `${directory}/package.json`;
     const text = journal.readFile(manifestPath) ?? readText(project, manifestPath);
@@ -748,7 +873,11 @@ export function applyConfigLayer(project, journal) {
     try {
       manifest = JSON.parse(text);
     } catch {
-      journal.skip(manifestPath, 'config', 'package.json could not be parsed; scripts were not rewritten');
+      journal.skip(
+        manifestPath,
+        'config',
+        'package.json could not be parsed; scripts were not rewritten',
+      );
       continue;
     }
     if (manifest.scripts === null || typeof manifest.scripts !== 'object') continue;

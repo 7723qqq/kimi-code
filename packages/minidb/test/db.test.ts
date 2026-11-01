@@ -1,9 +1,8 @@
+// test/db.test.ts
+import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-
-// test/db.test.ts
-import { expect, test } from 'bun:test';
 
 import { encodeFrame, TYPE_SET } from '../src/codec.js';
 import { MiniDb } from '../src/index.js';
@@ -177,10 +176,12 @@ test('backup + restore preserves data, indexes, and text search', async () => {
     const restored = await MiniDb.restore(backupDir, restoreDir, { valueCodec: 'json' });
     expect(restored.get('a')).toStrictEqual({ city: 'Paris', body: 'hello world' });
     expect(restored.findEq('byCity', 'London').map((r) => r.key)).toStrictEqual(['b']);
-    expect(restored
+    expect(
+      restored
         .search('body', 'hello')
         .map((r) => r.key)
-        .toSorted()).toStrictEqual(['a', 'b']);
+        .toSorted(),
+    ).toStrictEqual(['a', 'b']);
     await restored.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -225,10 +226,14 @@ test('backup fences writes at a linearization point: every pre-fence ack is in, 
       (error: unknown) => error as { code?: string },
     );
     expect(fencedWrite?.code).toBe('BACKUP_IN_PROGRESS');
-    await expect(db.batch([{ op: 'set', key: 'late2', value: 'd' }])).rejects.toThrow(/backup is in progress/i);
+    await expect(db.batch([{ op: 'set', key: 'late2', value: 'd' }])).rejects.toThrow(
+      /backup is in progress/i,
+    );
     // The backup cannot complete while the fenced-in write is still parked.
     for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
-    expect(backupDone, 'backup waits for the in-flight write (its linearization point)').toBe(false);
+    expect(backupDone, 'backup waits for the in-flight write (its linearization point)').toBe(
+      false,
+    );
 
     gate.release();
     gate.restore();
@@ -281,17 +286,22 @@ test('backup copy failure leaves no partial backup behind and reopens the write 
     const origCopy = fs.copyFile;
     (fs as unknown as { copyFile: unknown }).copyFile = () => Promise.reject(boom);
     try {
-      await expect(db.backup(backupDir, { compact: false })).rejects.toThrow(/injected copy failure/);
+      await expect(db.backup(backupDir, { compact: false })).rejects.toThrow(
+        /injected copy failure/,
+      );
     } finally {
       (fs as unknown as { copyFile: unknown }).copyFile = origCopy;
     }
 
     // No half backup: the destination was never created, and no temp/aside
     // dir is stranded next to it.
-    expect(await fs.stat(backupDir).then(
+    expect(
+      await fs.stat(backupDir).then(
         () => true,
         () => false,
-      ), 'destination untouched').toBe(false);
+      ),
+      'destination untouched',
+    ).toBe(false);
     const leftovers = (await fs.readdir(parent)).filter((n) => n.includes('.backup-'));
     expect(leftovers, `stranded temp dirs: ${leftovers.join(', ')}`).toStrictEqual([]);
 
@@ -314,10 +324,13 @@ test('readOnly open of a non-existent directory fails with ENOENT and creates no
       (error: unknown) => error as NodeJS.ErrnoException,
     );
     expect(enoent?.code).toBe('ENOENT');
-    expect(await fs.stat(dir).then(
+    expect(
+      await fs.stat(dir).then(
         () => true,
         () => false,
-      ), 'no directory was created').toBe(false);
+      ),
+      'no directory was created',
+    ).toBe(false);
   } finally {
     await fs.rm(parent, { recursive: true, force: true });
   }
@@ -542,7 +555,9 @@ test('query with skip/limit returns the same rows as slicing the unbounded resul
     const eq = db.query({ filter: { grp: 2 } }); // indexed equality path
     expect(db.query({ filter: { grp: 2 }, limit: 7 })).toStrictEqual(eq.slice(0, 7));
     const scan = db.query({ filter: { n: { $gte: 100 } } }); // unindexed full scan path
-    expect(db.query({ filter: { n: { $gte: 100 } }, skip: 10, limit: 5 })).toStrictEqual(scan.slice(10, 15));
+    expect(db.query({ filter: { n: { $gte: 100 } }, skip: 10, limit: 5 })).toStrictEqual(
+      scan.slice(10, 15),
+    );
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -612,7 +627,9 @@ for (const valueMode of ['memory', 'disk'] as const) {
         const syncRes = db.searchBounded('ft', q, { limit: 20 });
         const asyncRes = await db.searchBoundedAsync('ft', q, { limit: 20 });
         expect(asyncRes, `searchBoundedAsync(${q})`).toStrictEqual(syncRes);
-        expect(await db.searchAsync('ft', q, { limit: 20 })).toStrictEqual(db.search('ft', q, { limit: 20 }));
+        expect(await db.searchAsync('ft', q, { limit: 20 })).toStrictEqual(
+          db.search('ft', q, { limit: 20 }),
+        );
       }
 
       // queryAsync vs query across the planner's shapes
@@ -626,7 +643,9 @@ for (const valueMode of ['memory', 'disk'] as const) {
         { filter: { kind: 't2' }, sort: { score: 1 as const }, skip: 3, limit: 6 },
       ];
       for (const q of shapes) {
-        expect(await db.queryAsync(q), `queryAsync(${JSON.stringify(q)})`).toStrictEqual(db.query(q));
+        expect(await db.queryAsync(q), `queryAsync(${JSON.stringify(q)})`).toStrictEqual(
+          db.query(q),
+        );
       }
       await db.close();
     } finally {

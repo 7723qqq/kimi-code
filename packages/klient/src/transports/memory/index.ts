@@ -6,7 +6,13 @@
  * transports, so behavior is indistinguishable.
  */
 
-import type { CallOptions, EventSourceRef, IDisposable, KlientChannel, ScopeRef } from '../../core/channel.js';
+import type {
+  CallOptions,
+  EventSourceRef,
+  IDisposable,
+  KlientChannel,
+  ScopeRef,
+} from '../../core/channel.js';
 import { createKlientFromChannel, type Klient, type KlientOptions } from '../../core/klient.js';
 import { createMemoryDispatcher, type ScopeLike } from './dispatcher.js';
 

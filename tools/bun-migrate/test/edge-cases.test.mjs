@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'bun:test';
 /**
  * Edge cases and failure paths.
  *
@@ -8,8 +9,6 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { describe, expect, it } from 'bun:test';
 
 import { collectNodeBindings, parse, resolveBuiltinCall, ts, walkCalls } from '../src/ast.mjs';
 import { createJournal } from '../src/journal.mjs';
@@ -107,10 +106,7 @@ describe('shadowing and name resolution', () => {
   });
 
   it('resolves a namespace call through the real namespace only', () => {
-    const sourceFile = parse(
-      'a.ts',
-      "import * as fs from 'node:fs';\nfs.globSync('*.ts');\n",
-    );
+    const sourceFile = parse('a.ts', "import * as fs from 'node:fs';\nfs.globSync('*.ts');\n");
     const bindings = collectNodeBindings(sourceFile);
     const found = [];
     walkCalls(sourceFile, (call) => {
@@ -147,7 +143,9 @@ describe('shadowing and name resolution', () => {
     // The file has no edit entry at all: every call site of the shadowed name
     // was refused, so the layer wrote nothing and only the skip speaks.
     expect(output['src/a.ts']).toBeUndefined();
-    const reason = Object.entries(output).find(([key, value]) => key.startsWith('skip:') && value.includes('shadow'));
+    const reason = Object.entries(output).find(
+      ([key, value]) => key.startsWith('skip:') && value.includes('shadow'),
+    );
     expect(reason).toBeDefined();
     expect(reason[1]).toContain('gzipSync');
   });
@@ -161,7 +159,9 @@ describe('shadowing and name resolution', () => {
       ].join('\n'),
     });
     expect(output['src/a.ts']).toBeUndefined();
-    const reason = Object.entries(output).find(([key, value]) => key.startsWith('skip:') && value.includes('shadow'));
+    const reason = Object.entries(output).find(
+      ([key, value]) => key.startsWith('skip:') && value.includes('shadow'),
+    );
     expect(reason).toBeDefined();
     expect(reason[1]).toContain('createHash');
   });
@@ -198,7 +198,7 @@ describe('shadowing and name resolution', () => {
         '}',
         '',
         "export const a = createHash('sha256').update('x').digest('hex');",
-        "export const b = gzipSync(Buffer.alloc(4));",
+        'export const b = gzipSync(Buffer.alloc(4));',
         '',
       ].join('\n'),
     });
@@ -230,7 +230,9 @@ describe('shadowing and name resolution', () => {
       ].join('\n'),
     });
     expect(output['src/a.ts']).toBeUndefined();
-    const reason = Object.entries(output).find(([key, value]) => key.startsWith('skip:') && value.includes('shadow'));
+    const reason = Object.entries(output).find(
+      ([key, value]) => key.startsWith('skip:') && value.includes('shadow'),
+    );
     expect(reason).toBeDefined();
   });
 
@@ -245,21 +247,26 @@ describe('shadowing and name resolution', () => {
         '  });',
         '}',
         '',
-        "export const p = () => wait();",
+        'export const p = () => wait();',
         '',
       ].join('\n'),
     });
     // node:path resolve has no pairing, so the shadow is ordinary code, not a
     // finding: the file is untouched and the skip list says nothing.
     expect(output['src/a.ts']).toBeUndefined();
-    expect(Object.entries(output).find(([key, value]) => key.startsWith('skip:') && value.includes('shadow'))).toBeUndefined();
+    expect(
+      Object.entries(output).find(
+        ([key, value]) => key.startsWith('skip:') && value.includes('shadow'),
+      ),
+    ).toBeUndefined();
   });
 });
 
 describe('import shapes', () => {
   it('rewrites an aliased import while keeping the alias', () => {
     const output = migrateSource({
-      'src/a.ts': "import { createHash as ch } from 'node:crypto';\nexport const a = ch('sha256').update('x').digest('hex');\n",
+      'src/a.ts':
+        "import { createHash as ch } from 'node:crypto';\nexport const a = ch('sha256').update('x').digest('hex');\n",
     });
     expect(output['src/a.ts']).toContain('new Bun.CryptoHasher');
   });
@@ -287,7 +294,8 @@ describe('import shapes', () => {
 describe('argument shapes the rewrite must refuse', () => {
   it('refuses a computed algorithm', () => {
     const output = migrateSource({
-      'src/a.ts': "import { createHash } from 'node:crypto';\nexport const a = (alg: string) => createHash(alg);\n",
+      'src/a.ts':
+        "import { createHash } from 'node:crypto';\nexport const a = (alg: string) => createHash(alg);\n",
     });
     expect(output['src/a.ts']).toBeUndefined();
     expect(output['skip:src/a.ts']).toContain('not a string literal');
@@ -295,7 +303,8 @@ describe('argument shapes the rewrite must refuse', () => {
 
   it('refuses an algorithm this Bun does not implement', () => {
     const output = migrateSource({
-      'src/a.ts': "import { createHash } from 'node:crypto';\nexport const a = createHash('not-a-real-hash');\n",
+      'src/a.ts':
+        "import { createHash } from 'node:crypto';\nexport const a = createHash('not-a-real-hash');\n",
     });
     expect(output['src/a.ts']).toBeUndefined();
     expect(output['skip:src/a.ts']).toContain('no CryptoHasher support');
@@ -305,7 +314,7 @@ describe('argument shapes the rewrite must refuse', () => {
     const output = migrateSource({
       'src/a.ts': [
         "import { createHash } from 'node:crypto';",
-        'export const a = (enc: string) => createHash(\'sha256\').update(\'x\').digest(enc as never);',
+        "export const a = (enc: string) => createHash('sha256').update('x').digest(enc as never);",
         '',
       ].join('\n'),
     });
@@ -314,7 +323,8 @@ describe('argument shapes the rewrite must refuse', () => {
 
   it('refuses gzip with an options argument', () => {
     const output = migrateSource({
-      'src/a.ts': "import { gzipSync } from 'node:zlib';\nexport const a = gzipSync('x', { level: 9 });\n",
+      'src/a.ts':
+        "import { gzipSync } from 'node:zlib';\nexport const a = gzipSync('x', { level: 9 });\n",
     });
     expect(output['src/a.ts']).toBeUndefined();
     expect(output['skip:src/a.ts']).toContain('options');
@@ -322,7 +332,8 @@ describe('argument shapes the rewrite must refuse', () => {
 
   it('refuses glob with an option Bun.Glob cannot reproduce', () => {
     const output = migrateSource({
-      'src/a.ts': "import { globSync } from 'node:fs';\nexport const a = globSync('*.ts', { cwd: '.', withFileTypes: true });\n",
+      'src/a.ts':
+        "import { globSync } from 'node:fs';\nexport const a = globSync('*.ts', { cwd: '.', withFileTypes: true });\n",
     });
     expect(output['src/a.ts']).toBeUndefined();
     expect(output['skip:src/a.ts']).toContain('withFileTypes');
@@ -330,7 +341,8 @@ describe('argument shapes the rewrite must refuse', () => {
 
   it('accepts glob with only cwd', () => {
     const output = migrateSource({
-      'src/a.ts': "import { globSync } from 'node:fs';\nexport const a = globSync('*.ts', { cwd: '.' });\n",
+      'src/a.ts':
+        "import { globSync } from 'node:fs';\nexport const a = globSync('*.ts', { cwd: '.' });\n",
     });
     expect(output['src/a.ts']).toContain('new Bun.Glob');
   });
@@ -376,7 +388,7 @@ describe('snapshots that mean something different under bun:test', () => {
       'expect.addSnapshotSerializer',
       [
         "import { expect } from 'vitest';",
-        "expect.addSnapshotSerializer({ test: () => true, serialize: String });",
+        'expect.addSnapshotSerializer({ test: () => true, serialize: String });',
         '',
       ].join('\n'),
       'addSnapshotSerializer',
@@ -415,7 +427,7 @@ describe('snapshots that mean something different under bun:test', () => {
     const output = migrateTests({
       'src/a.test.ts': [
         "import { it, expect } from 'vitest';",
-        'it(\'inline\', () => { expect({ a: 1 }).toMatchInlineSnapshot(`',
+        "it('inline', () => { expect({ a: 1 }).toMatchInlineSnapshot(`",
         '  {',
         '    "a": 1,',
         '  }',
@@ -448,35 +460,40 @@ describe('CommonJS require bindings', () => {
    */
   it('rewrites a call behind a destructured require', () => {
     const output = migrateSource({
-      'src/a.cjs': "const { gzipSync } = require('node:zlib');\nmodule.exports = (b) => gzipSync(b);\n",
+      'src/a.cjs':
+        "const { gzipSync } = require('node:zlib');\nmodule.exports = (b) => gzipSync(b);\n",
     });
     expect(output['src/a.cjs']).toContain('Bun.gzipSync');
   });
 
   it('rewrites a call behind a namespace require', () => {
     const output = migrateSource({
-      'src/a.cjs': "const zlib = require('node:zlib');\nmodule.exports = (b) => zlib.gzipSync(b);\n",
+      'src/a.cjs':
+        "const zlib = require('node:zlib');\nmodule.exports = (b) => zlib.gzipSync(b);\n",
     });
     expect(output['src/a.cjs']).toContain('Bun.gzipSync');
   });
 
   it('resolves an aliased destructured require', () => {
     const output = migrateSource({
-      'src/a.cjs': "const { gzipSync: gz } = require('node:zlib');\nmodule.exports = (b) => gz(b);\n",
+      'src/a.cjs':
+        "const { gzipSync: gz } = require('node:zlib');\nmodule.exports = (b) => gz(b);\n",
     });
     expect(output['src/a.cjs']).toContain('Bun.gzipSync');
   });
 
   it('rewrites crypto through require', () => {
     const output = migrateSource({
-      'src/a.cjs': "const { createHash } = require('node:crypto');\nmodule.exports = (t) => createHash('sha256').update(t).digest('hex');\n",
+      'src/a.cjs':
+        "const { createHash } = require('node:crypto');\nmodule.exports = (t) => createHash('sha256').update(t).digest('hex');\n",
     });
     expect(output['src/a.cjs']).toContain('new Bun.CryptoHasher');
   });
 
   it('removes the require binding the rewrite made dead', () => {
     const output = migrateSource({
-      'src/a.cjs': "const { gzipSync } = require('node:zlib');\nmodule.exports = (b) => gzipSync(b);\n",
+      'src/a.cjs':
+        "const { gzipSync } = require('node:zlib');\nmodule.exports = (b) => gzipSync(b);\n",
     });
     expect(output['src/a.cjs'].includes('require(')).toBe(false);
   });
@@ -509,7 +526,8 @@ describe('CommonJS require bindings', () => {
 
   it('leaves a require behind a variable alone, because the module is not provable', () => {
     const output = migrateSource({
-      'src/a.cjs': "const name = 'node:zlib';\nconst z = require(name);\nmodule.exports = (b) => z.gzipSync(b);\n",
+      'src/a.cjs':
+        "const name = 'node:zlib';\nconst z = require(name);\nmodule.exports = (b) => z.gzipSync(b);\n",
     });
     expect(output['src/a.cjs']).toBeUndefined();
   });
@@ -535,7 +553,8 @@ describe('CommonJS require bindings', () => {
 describe('test layer edge cases', () => {
   it('keeps expect when it was imported', () => {
     const output = migrateTests({
-      'src/a.test.ts': "import { describe, it, expect } from 'vitest';\nit('x', () => { expect(1).toBe(1); });\n",
+      'src/a.test.ts':
+        "import { describe, it, expect } from 'vitest';\nit('x', () => { expect(1).toBe(1); });\n",
     });
     expect(output['src/a.test.ts']).toContain('expect');
     expect(output['src/a.test.ts']).toContain("from 'bun:test'");
@@ -543,7 +562,8 @@ describe('test layer edge cases', () => {
 
   it('keeps a renamed import intact', () => {
     const output = migrateTests({
-      'src/a.test.ts': "import { it as test, expect as assert } from 'vitest';\ntest('x', () => { assert(1).toBe(1); });\n",
+      'src/a.test.ts':
+        "import { it as test, expect as assert } from 'vitest';\ntest('x', () => { assert(1).toBe(1); });\n",
     });
     expect(output['src/a.test.ts']).toContain('it as test');
     expect(output['src/a.test.ts']).toContain('expect as assert');
@@ -551,7 +571,8 @@ describe('test layer edge cases', () => {
 
   it('leaves a file that already imports bun:test alone', () => {
     const output = migrateTests({
-      'src/a.test.ts': "import { describe, it, expect } from 'bun:test';\nit('x', () => { expect(1).toBe(1); });\n",
+      'src/a.test.ts':
+        "import { describe, it, expect } from 'bun:test';\nit('x', () => { expect(1).toBe(1); });\n",
     });
     expect(output['src/a.test.ts']).toBeUndefined();
   });
@@ -582,7 +603,8 @@ describe('test layer edge cases', () => {
 describe('journal integrity', () => {
   it('records before and after for every edit', () => {
     const root = makeProject({
-      'src/a.ts': "import { createHash } from 'node:crypto';\nexport const a = createHash('sha256').update('x').digest('hex');\n",
+      'src/a.ts':
+        "import { createHash } from 'node:crypto';\nexport const a = createHash('sha256').update('x').digest('hex');\n",
     });
     try {
       const project = loadProject(root);
@@ -601,7 +623,8 @@ describe('journal integrity', () => {
 
   it('is a no-op when a layer is disabled', () => {
     const root = makeProject({
-      'src/a.ts': "import { createHash } from 'node:crypto';\nexport const a = createHash('sha256');\n",
+      'src/a.ts':
+        "import { createHash } from 'node:crypto';\nexport const a = createHash('sha256');\n",
     });
     try {
       const project = loadProject(root);
@@ -614,7 +637,8 @@ describe('journal integrity', () => {
   });
 
   it('keeps the file byte identical when nothing applies', () => {
-    const original = "import { readFileSync } from 'node:fs';\nexport const a = () => readFileSync('x', 'utf8');\n";
+    const original =
+      "import { readFileSync } from 'node:fs';\nexport const a = () => readFileSync('x', 'utf8');\n";
     const root = makeProject({ 'src/a.ts': original });
     try {
       const project = loadProject(root);
@@ -634,7 +658,7 @@ describe('source parsing tolerates real-world syntax', () => {
     ['generics', 'function f<T extends object>(x: T): T { return x; }'],
     ['optional chaining', 'const a = b?.c?.();'],
     ['nullish', 'const a = b ?? c;'],
-    ['satisfies', "const a = { x: 1 } satisfies Record<string, number>;"],
+    ['satisfies', 'const a = { x: 1 } satisfies Record<string, number>;'],
     ['import attributes', "import data from './d.json' with { type: 'json' };"],
     ['top-level await', 'await Promise.resolve();'],
     ['jsx-free arrow generics', 'const f = <T,>(x: T) => x;'],
@@ -656,11 +680,13 @@ describe('source parsing tolerates real-world syntax', () => {
  * needed. CommonJS require was skipped before it could even be reported.
  */
 describe('tests layer import shapes', () => {
-  const VITEST_FILE = "import { describe, it, expect } from 'vitest';\ndescribe('a', () => { it('b', () => expect(1).toBe(1)); });\n";
+  const VITEST_FILE =
+    "import { describe, it, expect } from 'vitest';\ndescribe('a', () => { it('b', () => expect(1).toBe(1)); });\n";
 
   it('leaves a namespace import alone instead of deleting it', () => {
     const output = migrateTests({
-      'test/a.test.ts': "import * as vitest from 'vitest';\nvitest.describe('a', () => { vitest.it('b', () => {}); });\n",
+      'test/a.test.ts':
+        "import * as vitest from 'vitest';\nvitest.describe('a', () => { vitest.it('b', () => {}); });\n",
     });
     expect(output['test/a.test.ts']).toBeUndefined();
     expect(output['skip:test/a.test.ts']).toContain('namespace import');

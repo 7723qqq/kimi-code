@@ -1,10 +1,8 @@
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type Readable } from 'node:stream';
-
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
-import { expectRejection } from '#test/helpers/assertions';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
@@ -15,6 +13,7 @@ import {
   IHostProcessService,
 } from '#/os/interface/hostProcess';
 import type { IHostTimerHandle, IHostTimers } from '#/os/interface/hostTimers';
+import { expectRejection } from '#test/helpers/assertions';
 
 interface FakeTimerHandle extends IHostTimerHandle {
   readonly id: number;
@@ -133,17 +132,17 @@ describe('HostProcessService', () => {
   it('throws a coded error when the command does not exist', async () => {
     const svc = ix.get(IHostProcessService);
     await expectRejection(svc.spawn('definitely-not-a-real-command-42'), (err: unknown) => {
-        expect(err).toBeInstanceOf(HostProcessError);
-        const error = err as HostProcessError;
-        expect(error.code).toBe(HostProcessErrorCode.SpawnFailed);
-        expect(error.code).toBe('os.process.spawn_failed');
-        expect(error.details).toMatchObject({
-          command: 'definitely-not-a-real-command-42',
-          errno: 'ENOENT',
-        });
-        expect(error.cause).toBeInstanceOf(Error);
-        return true;
+      expect(err).toBeInstanceOf(HostProcessError);
+      const error = err as HostProcessError;
+      expect(error.code).toBe(HostProcessErrorCode.SpawnFailed);
+      expect(error.code).toBe('os.process.spawn_failed');
+      expect(error.details).toMatchObject({
+        command: 'definitely-not-a-real-command-42',
+        errno: 'ENOENT',
       });
+      expect(error.cause).toBeInstanceOf(Error);
+      return true;
+    });
   });
 
   it('terminates a running process with kill()', async () => {
@@ -250,9 +249,7 @@ describe('HostProcessService on Windows', () => {
     Object.defineProperty(process, 'platform', { value: 'win32' });
     spawnedCommands = [];
     taskkills = [];
-    spawnSpy = spyOn(Bun, 'spawn').mockImplementation(((options: {
-      cmd: readonly string[];
-    }) => {
+    spawnSpy = spyOn(Bun, 'spawn').mockImplementation(((options: { cmd: readonly string[] }) => {
       const [command, ...args] = options.cmd;
       spawnedCommands.push([command, ...args].join(' '));
       const killed = mock(() => true);
@@ -287,11 +284,13 @@ describe('HostProcessService on Windows', () => {
   });
 
   it('stops waiting for a taskkill that never exits and terminates it', async () => {
-    const { HostProcessService: WindowsHostProcessService } = await import(
-      '#/os/backends/host/hostProcessService'
-    );
+    const { HostProcessService: WindowsHostProcessService } =
+      await import('#/os/backends/host/hostProcessService');
     const timers = createFakeTimers();
-    const proc = await new WindowsHostProcessService(timers).spawn('node', ['-e', 'setTimeout(() => {}, 30000)']);
+    const proc = await new WindowsHostProcessService(timers).spawn('node', [
+      '-e',
+      'setTimeout(() => {}, 30000)',
+    ]);
     let killed = false;
     const kill = proc.kill('SIGTERM').then(() => {
       killed = true;

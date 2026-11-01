@@ -1,13 +1,14 @@
-import chalk from 'chalk';
 import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 
-import * as actualGitStatus from '#/utils/git/git-status';
+import type { ModelAlias } from '@moonshot-ai/kimi-code-sdk';
+import chalk from 'chalk';
+
 import { FooterComponent } from '#/tui/components/chrome/footer';
 import { setRainbowDance, type RainbowDanceController } from '#/tui/easter-eggs/dance';
 import { currentTheme, darkColors, lightColors } from '#/tui/theme';
-import type { ModelAlias } from '@moonshot-ai/kimi-code-sdk';
 import type { AppState } from '#/tui/types';
 import { createEmptySessionStats } from '#/tui/utils/session-stats';
+import * as actualGitStatus from '#/utils/git/git-status';
 
 const gitStatusMocks = (() => ({
   createGitStatusCache: jest.fn(),

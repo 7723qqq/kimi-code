@@ -2,10 +2,7 @@ import { describe, expect, it } from 'bun:test';
 
 import { ConfigRegistry } from '#/app/config/configService';
 import { transformTomlData } from '#/app/config/toml';
-import {
-  MODEL_OVERRIDES_SECTION,
-  ModelOverridesSchema,
-} from '#/app/kosongConfig/configSection';
+import { MODEL_OVERRIDES_SECTION, ModelOverridesSchema } from '#/app/kosongConfig/configSection';
 
 describe('modelOverrides config section', () => {
   it('registers the modelOverrides section with an empty default', () => {

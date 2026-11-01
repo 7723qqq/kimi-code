@@ -1,5 +1,6 @@
-import type { PluginInfo } from '@moonshot-ai/kimi-code-sdk';
 import { describe, expect, it } from 'bun:test';
+
+import type { PluginInfo } from '@moonshot-ai/kimi-code-sdk';
 
 import { buildPluginsInfoLines } from '#/tui/components/messages/plugins-status-panel';
 

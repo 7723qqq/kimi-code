@@ -1,8 +1,9 @@
-import { visibleWidth } from '@moonshot-ai/pi-tui';
 import { describe, expect, it } from 'bun:test';
 
-import { mouse } from '#test/helpers/mouse';
+import { visibleWidth } from '@moonshot-ai/pi-tui';
+
 import { ApiKeyInputDialogComponent } from '#/tui/components/dialogs/api-key-input-dialog';
+import { mouse } from '#test/helpers/mouse';
 
 const ANSI = /\u001B\[[0-9;]*m/g;
 const strip = (text: string): string => text.replaceAll(ANSI, '');

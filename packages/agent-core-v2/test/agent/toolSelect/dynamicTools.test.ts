@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'bun:test';
-import { collectLoadedDynamicToolNames } from '#/agent/toolSelect/dynamicTools';
 
-import { foldAnnouncedToolNames, isDynamicToolSchemaMessage, isLoadableToolsAnnouncement, LOADABLE_TOOLS_VARIANT, renderLoadableToolsAnnouncement, stripDynamicToolContext } from '#/agent/toolSelect/dynamicTools';
 import { type ContextMessage } from '#/agent/contextMemory/types';
+import { collectLoadedDynamicToolNames } from '#/agent/toolSelect/dynamicTools';
+import {
+  foldAnnouncedToolNames,
+  isDynamicToolSchemaMessage,
+  isLoadableToolsAnnouncement,
+  LOADABLE_TOOLS_VARIANT,
+  renderLoadableToolsAnnouncement,
+  stripDynamicToolContext,
+} from '#/agent/toolSelect/dynamicTools';
 
 function announcement(added: readonly string[], removed: readonly string[]): ContextMessage {
   const text = `<system-reminder>\n${renderLoadableToolsAnnouncement(added, removed).trim()}\n</system-reminder>`;
@@ -76,7 +83,9 @@ describe('foldAnnouncedToolNames', () => {
 describe('renderLoadableToolsAnnouncement', () => {
   it('states the empty current set without announcing placeholder tool names', () => {
     const empty = renderLoadableToolsAnnouncement([], [], false);
-    expect(empty).toContain('No tools are currently available for dynamic loading in this session.');
+    expect(empty).toContain(
+      'No tools are currently available for dynamic loading in this session.',
+    );
     expect(empty).toContain('Do not call select_tools or guess tool names');
     expect(empty).toContain('Only a later <tools_added> announcement');
     expect(empty).not.toContain('<tools_added>\n');

@@ -1,5 +1,3 @@
-
-
 import { join } from 'pathe';
 
 import ARCHITECTURE_REVIEW_SCRIPT from './builtin/architecture-review.js?raw';

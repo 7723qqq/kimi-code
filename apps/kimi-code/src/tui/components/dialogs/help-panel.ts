@@ -89,7 +89,9 @@ export class HelpPanelComponent extends Container implements Focusable {
   private scrollTop = 0;
   /** How far the view may scroll; the render pass clamps the scroll to it. */
   private maxScrollTop = 0;
-  private readonly mouse = new ScrollMouseRouter((direction) => this.scrollBy(direction * WHEEL_LINES));
+  private readonly mouse = new ScrollMouseRouter((direction) =>
+    this.scrollBy(direction * WHEEL_LINES),
+  );
 
   constructor(opts: HelpPanelOptions) {
     super();

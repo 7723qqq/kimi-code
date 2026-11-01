@@ -1,5 +1,6 @@
-import type { QuestionRequest } from '@moonshot-ai/kimi-code-sdk';
 import { describe, expect, it, spyOn } from 'bun:test';
+
+import type { QuestionRequest } from '@moonshot-ai/kimi-code-sdk';
 
 import { QuestionController } from '#/tui/reverse-rpc/question/controller';
 import { createQuestionAskHandler } from '#/tui/reverse-rpc/question/handler';
@@ -33,8 +34,10 @@ describe('question reverse-rpc', () => {
 
   it('normalizes question payloads and returns the selected answer', async () => {
     const controller = new QuestionController();
-    const show = spyOn(controller, 'show')
-      .mockResolvedValue({ answers: ['Alpha'], method: 'number_key' });
+    const show = spyOn(controller, 'show').mockResolvedValue({
+      answers: ['Alpha'],
+      method: 'number_key',
+    });
     const handler = createQuestionAskHandler(controller);
     const event = questionEvent({
       questions: [
@@ -79,8 +82,10 @@ describe('question reverse-rpc', () => {
 
   it('maps multiple question answers by question text', async () => {
     const controller = new QuestionController();
-    const show = spyOn(controller, 'show')
-      .mockResolvedValue({ answers: ['Alpha', 'SQLite'], method: 'enter' });
+    const show = spyOn(controller, 'show').mockResolvedValue({
+      answers: ['Alpha', 'SQLite'],
+      method: 'enter',
+    });
     const handler = createQuestionAskHandler(controller);
     const event = questionEvent({
       toolCallId: 'call_question',

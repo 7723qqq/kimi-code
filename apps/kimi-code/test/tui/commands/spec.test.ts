@@ -33,7 +33,9 @@ function makeHost(
       },
     },
     session: hasSession ? session : undefined,
-    setAppState: mock((patch: Record<string, unknown>) => Object.assign(host.state.appState, patch)),
+    setAppState: mock((patch: Record<string, unknown>) =>
+      Object.assign(host.state.appState, patch),
+    ),
     showError: mock(),
     showNotice: mock(),
     showStatus: mock(),

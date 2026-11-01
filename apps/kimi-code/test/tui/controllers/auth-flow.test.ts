@@ -1,14 +1,12 @@
 import { afterEach, describe, expect, it, jest } from 'bun:test';
-import { waitForAssertion, waitUntil } from '../../helpers/waitFor';
 
-import {
-  AuthFlowController,
-  type AuthFlowHost,
-} from '#/tui/controllers/auth-flow';
+import { AuthFlowController, type AuthFlowHost } from '#/tui/controllers/auth-flow';
 import {
   refreshModelSwitchConfirmConfig,
   resetModelSwitchConfirmConfigCache,
 } from '#/utils/model-switch-confirm-config';
+
+import { waitForAssertion, waitUntil } from '../../helpers/waitFor';
 
 function makeHost(
   options: {
@@ -40,7 +38,9 @@ function makeHost(
       createSession: jest.fn(async () => ({ id: 'ses-new', summary: { title: null } })),
       getConfig: jest.fn(async () => ({
         defaultModel: options.defaultModel,
-        models: { k2: { provider: 'managed:kimi-code', model: 'kimi-k2', maxContextSize: 200_000 } },
+        models: {
+          k2: { provider: 'managed:kimi-code', model: 'kimi-k2', maxContextSize: 200_000 },
+        },
         providers: {},
       })),
     },
@@ -143,7 +143,11 @@ describe('refreshConfigAfterLogin with a matching cloud rule', () => {
     host.harness.getConfig = jest.fn(async () => ({
       defaultModel: 'k2',
       models: {
-        'old-model': { provider: 'managed:kimi-code', model: 'upstream-old', maxContextSize: 200_000 },
+        'old-model': {
+          provider: 'managed:kimi-code',
+          model: 'upstream-old',
+          maxContextSize: 200_000,
+        },
         k2: { provider: 'managed:kimi-code', model: 'upstream-new', maxContextSize: 200_000 },
       },
       providers: {},
@@ -213,30 +217,30 @@ describe('refreshConfigAfterLogin with a matching cloud rule', () => {
     await waitForAssertion(() => expect(session!.setThinking).toHaveBeenCalledWith('max'));
   });
 
-describe('refreshProviderModels', () => {
-  it('reloads app-state providers and models even when the engine reports no model change', async () => {
-    // A config-only registry change (type, baseUrl, …) is persisted by the
-    // engine while the provider lands in `unchanged` — the TUI must still
-    // reload, or appState keeps the stale provider record.
-    const { host } = makeHost();
-    const refreshProviderModels = jest.fn(async () => ({
-      changed: [],
-      unchanged: ['custom'],
-      failed: [],
-    }));
-    (host.harness as unknown as { refreshProviderModels: unknown }).refreshProviderModels =
-      refreshProviderModels;
+  describe('refreshProviderModels', () => {
+    it('reloads app-state providers and models even when the engine reports no model change', async () => {
+      // A config-only registry change (type, baseUrl, …) is persisted by the
+      // engine while the provider lands in `unchanged` — the TUI must still
+      // reload, or appState keeps the stale provider record.
+      const { host } = makeHost();
+      const refreshProviderModels = jest.fn(async () => ({
+        changed: [],
+        unchanged: ['custom'],
+        failed: [],
+      }));
+      (host.harness as unknown as { refreshProviderModels: unknown }).refreshProviderModels =
+        refreshProviderModels;
 
-    const result = await new AuthFlowController(host).refreshProviderModels({
-      providerId: 'custom',
-    });
+      const result = await new AuthFlowController(host).refreshProviderModels({
+        providerId: 'custom',
+      });
 
-    expect(refreshProviderModels).toHaveBeenCalledWith({ providerId: 'custom' });
-    expect(result.unchanged).toEqual(['custom']);
-    expect(host.setAppState).toHaveBeenCalledWith({
-      availableModels: expect.anything(),
-      availableProviders: expect.anything(),
+      expect(refreshProviderModels).toHaveBeenCalledWith({ providerId: 'custom' });
+      expect(result.unchanged).toEqual(['custom']);
+      expect(host.setAppState).toHaveBeenCalledWith({
+        availableModels: expect.anything(),
+        availableProviders: expect.anything(),
+      });
     });
   });
-});
 });

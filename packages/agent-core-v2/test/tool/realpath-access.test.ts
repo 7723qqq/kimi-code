@@ -57,9 +57,9 @@ describe('realpath access guard', () => {
       links: { [`${WS}/alias.txt`]: `${WS}/real.txt` },
     });
 
-    await expect(assertRealPathWriteTarget(fs, `${WS}/alias.txt`, workspace, 'posix')).resolves.toBe(
-      `${WS}/real.txt`,
-    );
+    await expect(
+      assertRealPathWriteTarget(fs, `${WS}/alias.txt`, workspace, 'posix'),
+    ).resolves.toBe(`${WS}/real.txt`);
   });
 
   it('rejects a symlink that points outside the workspace', async () => {
@@ -175,7 +175,9 @@ describe('realpath access guard', () => {
   it('compares resolved config paths with Windows semantics', async () => {
     const realpath = (path: string): Promise<string> =>
       Promise.resolve(
-        path === 'C:/ws/alias/local.toml' ? 'C:\\ws\\.kimi-code\\local.toml' : path.replaceAll('/', '\\'),
+        path === 'C:/ws/alias/local.toml'
+          ? 'C:\\ws\\.kimi-code\\local.toml'
+          : path.replaceAll('/', '\\'),
       );
     const winFs = { realpath } as unknown as IHostFileSystem;
     const winWorkspace: WorkspaceConfig = { workspaceDir: 'C:/ws', additionalDirs: [] };

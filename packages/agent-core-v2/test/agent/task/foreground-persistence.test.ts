@@ -1,27 +1,25 @@
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { Readable } from 'node:stream';
 import type { Writable } from 'node:stream';
+
 import { join } from 'pathe';
 
-import type { IHostProcess } from '#/os/interface/hostProcess';
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { waitForAssertion } from '#test/helpers/waitFor';
-
-import { IAgentTaskService } from '#/agent/task/task';
 import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentTaskService } from '#/agent/task/task';
 import { TERMINAL_STATUSES } from '#/agent/task/types';
 import { ProcessTask } from '#/agent/tools/os/bash/process-task';
+import type { IHostProcess } from '#/os/interface/hostProcess';
+import { waitForAssertion } from '#test/helpers/waitFor';
+
 import {
   taskServices,
   createTestAgent,
   homeDirServices,
   type TestAgentContext,
 } from '../../harness';
-import {
-  TASK_TEST_AGENT_SCOPE,
-  createAgentTaskPersistence,
-} from './stubs';
+import { TASK_TEST_AGENT_SCOPE, createAgentTaskPersistence } from './stubs';
 
 const MAX_OUTPUT_BYTES = 1024 * 1024;
 

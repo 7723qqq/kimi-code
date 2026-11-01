@@ -96,7 +96,8 @@ export const createProviderRequestSchema = z
         path: ['default_model'],
       });
     }
-  }).strict();
+  })
+  .strict();
 export type CreateProviderRequest = z.infer<typeof createProviderRequestSchema>;
 
 export const createProviderResponseSchema = providerCatalogItemSchema;
@@ -124,7 +125,8 @@ export const replaceProviderRequestSchema = z
         path: ['default_model'],
       });
     }
-  }).strict();
+  })
+  .strict();
 export type ReplaceProviderRequest = z.infer<typeof replaceProviderRequestSchema>;
 
 export const replaceProviderResponseSchema = z.object({
@@ -163,13 +165,15 @@ export type ListCatalogProvidersResponse = z.infer<typeof listCatalogProvidersRe
 export const getCatalogProviderResponseSchema = catalogProviderItemSchema;
 export type GetCatalogProviderResponse = z.infer<typeof getCatalogProviderResponseSchema>;
 
-export const providerCollectionActionBodySchema = z.object({
-  catalog_id: z.string().min(1).optional(),
-  api_key: z.string().optional(),
-  base_url: z.string().optional(),
-  id: providerIdSchema.optional(),
-  url: z.string().min(1).optional(),
-}).strict();
+export const providerCollectionActionBodySchema = z
+  .object({
+    catalog_id: z.string().min(1).optional(),
+    api_key: z.string().optional(),
+    base_url: z.string().optional(),
+    id: providerIdSchema.optional(),
+    url: z.string().min(1).optional(),
+  })
+  .strict();
 export type ProviderCollectionActionBody = z.infer<typeof providerCollectionActionBodySchema>;
 
 export const importCatalogProviderResponseSchema = z.object({

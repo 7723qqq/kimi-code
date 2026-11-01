@@ -152,7 +152,11 @@ export function evaluateMissionGate(input: TowerMissionGateInput): TowerMissionG
 
   const unmergedDeps = mission.deps.filter((dep) => {
     const dependency = state.missions.find((candidate) => candidate.id === dep);
-    return dependency !== undefined && dependency.status !== 'merged' && dependency.status !== 'abandoned';
+    return (
+      dependency !== undefined &&
+      dependency.status !== 'merged' &&
+      dependency.status !== 'abandoned'
+    );
   });
   if (unmergedDeps.length > 0) {
     return block(
@@ -250,7 +254,9 @@ function reviewBindingFor(
   if (review === undefined || tip === undefined) return undefined;
   if (review.reviewedCommit === tip) return 'exact-tip';
   const waiver = mission.lastRebase;
-  return waiver !== undefined && waiver.fromCommit === review.reviewedCommit && waiver.toCommit === tip
+  return waiver !== undefined &&
+    waiver.fromCommit === review.reviewedCommit &&
+    waiver.toCommit === tip
     ? 'clean-rebase-waived'
     : 'stale-tip';
 }

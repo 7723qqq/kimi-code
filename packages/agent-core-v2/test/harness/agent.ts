@@ -1,68 +1,68 @@
+import { expect, mock } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { Readable, type Writable } from 'node:stream';
 
 import { createControlledPromise } from '@antfu/utils';
-import { expect, mock } from 'bun:test';
 
-import { toDisposable } from '#/_base/di/lifecycle';
 import type { IInstantiationService } from '#/_base/di/instantiation';
+import { toDisposable } from '#/_base/di/lifecycle';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
-import type { AgentContext } from '#/agent/agentContext/agentContext';
-import { IFeatureManager } from '#/app/feature/featureManager';
-import { IFlagService } from '#/app/flag/flag';
-import { ISessionNotify } from '#/features/notify/sessionNotify';
-import { notifyUserAvailable } from '#/features/notify/notifyUserAvailability';
-import { getConfigSectionContributions } from '#/app/config/configSectionContributions';
-import { applySectionEnv } from '#/app/config/configService';
 import { Emitter, Event, type IWaitUntil } from '#/_base/event';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import type { Promisable, PromisifyMethods } from '#/_base/utils/types';
-import type { AgentTaskInfo } from '#/agent/task/task';
+import type { AgentContext } from '#/agent/agentContext/agentContext';
 import { IAgentBlobService } from '#/agent/blob/agentBlobService';
 import { AgentBlobServiceImpl } from '#/agent/blob/agentBlobServiceImpl';
-import { WorkspaceStateService } from '#/workspace/state/workspaceStateService';
-import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { HostFileSystem } from '#/os/backends/host/hostFsService';
-import '#/features/reminder/reminderFeature';
-import { BUILTIN_REPLAYABLE_STATE_KEYS } from '../state/builtinReplayableKeys';
-import type { ContextMessage } from '#/agent/contextMemory/types';
-import { IAgentCronService } from '#/features/cron/cronService';
-import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
-import { IAgentGoalService } from '#/features/goal/goalService';
-import { IGoalDeadlineScheduler } from '#/features/goal/goalDeadlineScheduler';
-import { GoalDeadlineSchedulerService } from '#/features/goal/goalDeadlineSchedulerService';
-import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
-import { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
-import { McpConnectionManager } from '#/mcpCore/connection-manager';
-import { loadAgentsMdForRoots, type LoadedAgentsMd } from '#/agent/profile/context';
-import { InMemorySkillCatalog } from '#/features/skill/catalog/registry';
-import { ISessionAgentProfileCatalogSeed } from '#/session/sessionAgentProfileCatalog/agentProfileCatalogSeed';
-import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
-import { ISessionSkillCatalogData } from '#/features/skill/session/skillCatalogData';
-import type { PermissionData, PermissionMode } from '#/agent/permissionPolicy/types';
-import type { PermissionRule } from '#/agent/permissionRules/permissionRules';
-import { IAgentPlanService, type PlanData } from '#/features/plan/plan';
-import { IAgentProfileService, type AgentConfigData } from '#/agent/profile/profile';
-import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
-import type {
-  PromptLaunchResult,
-  PromptPayload,
-  SteerPayload,
-} from '#/agent/loop/loop';
 import type { AgentCommandInfo } from '#/agent/command/agentCommand';
 import { IAgentCommandService } from '#/agent/command/agentCommand';
+import type { ContextMessage } from '#/agent/contextMemory/types';
 import type { AgentContextData } from '#/agent/contextMemory/types';
-import type { CreateGoalInput, GoalSnapshot, GoalToolResult } from '#/features/goal/types';
-import { IAgentConversationUndoService } from '#/agent/undo/undo';
+import type { PromptLaunchResult, PromptPayload, SteerPayload } from '#/agent/loop/loop';
 import { IAgentLoopService } from '#/agent/loop/loop';
-import type { RunShellCommandInput, RunShellCommandResult } from '#/agent/shellCommand/shellCommand';
-import type { ProfileSetModelResult } from '#/agent/profile/profile';
-import type { SwarmModeTrigger } from '#/features/swarm/agent/swarm';
-import type { UserToolRegistration } from '#/agent/userTool/userTool';
+import type { PermissionData, PermissionMode } from '#/agent/permissionPolicy/types';
+import type { PermissionRule } from '#/agent/permissionRules/permissionRules';
 import type { ActivatePluginCommandPayload } from '#/agent/pluginCommand/pluginCommand';
 import { IAgentPluginCommandService } from '#/agent/pluginCommand/pluginCommand';
+import { loadAgentsMdForRoots, type LoadedAgentsMd } from '#/agent/profile/context';
+import '#/features/reminder/reminderFeature';
+import { IAgentProfileService, type AgentConfigData } from '#/agent/profile/profile';
+import type { ProfileSetModelResult } from '#/agent/profile/profile';
+import type {
+  RunShellCommandInput,
+  RunShellCommandResult,
+} from '#/agent/shellCommand/shellCommand';
+import type { AgentTaskInfo } from '#/agent/task/task';
+import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
+import { IAgentConversationUndoService } from '#/agent/undo/undo';
+import type { UserToolRegistration } from '#/agent/userTool/userTool';
+import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
+import { getConfigSectionContributions } from '#/app/config/configSectionContributions';
+import { applySectionEnv } from '#/app/config/configService';
+import { IFeatureManager } from '#/app/feature/featureManager';
+import { IFlagService } from '#/app/flag/flag';
+import { IAgentCronService } from '#/features/cron/cronService';
+import { IGoalDeadlineScheduler } from '#/features/goal/goalDeadlineScheduler';
+import { GoalDeadlineSchedulerService } from '#/features/goal/goalDeadlineSchedulerService';
+import { IAgentGoalService } from '#/features/goal/goalService';
+import type { CreateGoalInput, GoalSnapshot, GoalToolResult } from '#/features/goal/types';
+import { notifyUserAvailable } from '#/features/notify/notifyUserAvailability';
+import { ISessionNotify } from '#/features/notify/sessionNotify';
+import { IAgentPlanService, type PlanData } from '#/features/plan/plan';
+import { InMemorySkillCatalog } from '#/features/skill/catalog/registry';
+import { ISessionSkillCatalogData } from '#/features/skill/session/skillCatalogData';
+import type { SwarmModeTrigger } from '#/features/swarm/agent/swarm';
+import { McpConnectionManager } from '#/mcpCore/connection-manager';
+import { HostFileSystem } from '#/os/backends/host/hostFsService';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
+import { ISessionAgentProfileCatalogSeed } from '#/session/sessionAgentProfileCatalog/agentProfileCatalogSeed';
+import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
+import { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
 import type { ToolInfo } from '#/tool/toolContract';
+import { WorkspaceStateService } from '#/workspace/state/workspaceStateService';
+
+import { BUILTIN_REPLAYABLE_STATE_KEYS } from '../state/builtinReplayableKeys';
 
 type EmptyPayload = {};
 type CreateGoalPayload = CreateGoalInput;
@@ -70,58 +70,100 @@ type RegisterToolPayload = UserToolRegistration;
 type RunShellCommandPayload = RunShellCommandInput;
 type ShellCommandResult = RunShellCommandResult;
 type SetModelResult = ProfileSetModelResult;
-interface BeginCompactionPayload { readonly instruction?: string }
-interface CancelPayload { readonly turnId?: number }
-interface CancelPlanPayload { readonly id?: string }
-interface CancelShellCommandPayload { readonly commandId: string }
-interface DetachTaskPayload { readonly taskId: string }
-interface EnterSwarmPayload { readonly trigger: SwarmModeTrigger }
-interface GetTaskOutputPayload { readonly taskId: string; readonly tail?: number }
-interface GetTasksPayload { readonly activeOnly?: boolean; readonly limit?: number }
-interface RunCommandPayload { readonly name: string; readonly args?: string }
-interface SetActiveToolsPayload { readonly names: readonly string[] }
-interface SetModelPayload { readonly model: string }
-interface SetPermissionPayload { readonly mode: PermissionMode }
-interface SetThinkingPayload { readonly level: string }
-interface StopTaskPayload { readonly taskId: string; readonly reason?: string }
-interface UndoHistoryPayload { readonly count: number }
-interface UnregisterToolPayload { readonly name: string }
-import { type UsageStatus } from '#/agent/usage/usage';
-import { type PromptWithSkillsInput, type PromptWithSkillsResult, type SkillActivationInput } from '#/features/skill/skill';
-import { IAgentSkillService } from '#/features/skill/skillService';
-import { IAgentRuntimeBindingSeed } from '#/agent/runtimeBinding/runtimeBinding';
-import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
-import type { RuntimeLease } from '#/runtime/runtime';
-import { LocalRuntime } from '#/runtime/localRuntime';
-import { IAgentToolDedupeService } from '#/agent/toolDedupe/toolDedupe';
-import type {
-  ExecutableToolOutput as ToolOutput,
-  ExecutableToolResult,
-} from '#/tool/toolContract';
-import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
-import { IAgentStateService } from '#/agent/state/agentState';
-import { AgentStateService } from '#/agent/state/agentStateService';
-import { ISessionStateService } from '#/session/state/sessionState';
-import type { StateKey } from '#/state/state';
-import { IEventDispatcher } from '#/state/eventDispatcher';
-import { EventDispatcherService } from '#/state/eventDispatcherService';
-import { EVENT2_REGISTRY, event2FromRecord } from '#/app/event/event2';
-import { IProtocolAdapterRegistry } from '#/llm-adapter/protocol/protocol';
-import { ProtocolAdapterRegistry } from '#/llm-adapter/protocol/protocolAdapterRegistry';
-import { summarizeSkill, type SkillCatalog } from '#/features/skill/catalog/types';
-import { type ModelCapability } from '#/llm-adapter/contract/capability';
-import { isToolCall, isToolCallPart, type ContentPart, type Message as KosongMessage, type StreamedMessagePart } from '#/llm-adapter/contract/message';
-import { type ThinkingEffort } from '#human/llm/thinking';
-import { type Tool as KosongTool } from '#/llm-adapter/contract/message';
-import { type TokenUsage } from '#human/llm/usage';
-import type { AgentLLMRequestSource } from '#/agent/llmRequester/llmRequester';
-import { type AgentModelDefinition } from '#/state/agentModel';
-import { type AgentModelInstanceOf } from '#/agent/agentContext/agentSpace';
-import { IAgentTodoService } from '#/features/todo/todoService';
-import { type TodoItem } from '#/features/todo/todoItem';
-import type { LlmRequester } from '#human/llm/requester/requester';
+interface BeginCompactionPayload {
+  readonly instruction?: string;
+}
+interface CancelPayload {
+  readonly turnId?: number;
+}
+interface CancelPlanPayload {
+  readonly id?: string;
+}
+interface CancelShellCommandPayload {
+  readonly commandId: string;
+}
+interface DetachTaskPayload {
+  readonly taskId: string;
+}
+interface EnterSwarmPayload {
+  readonly trigger: SwarmModeTrigger;
+}
+interface GetTaskOutputPayload {
+  readonly taskId: string;
+  readonly tail?: number;
+}
+interface GetTasksPayload {
+  readonly activeOnly?: boolean;
+  readonly limit?: number;
+}
+interface RunCommandPayload {
+  readonly name: string;
+  readonly args?: string;
+}
+interface SetActiveToolsPayload {
+  readonly names: readonly string[];
+}
+interface SetModelPayload {
+  readonly model: string;
+}
+interface SetPermissionPayload {
+  readonly mode: PermissionMode;
+}
+interface SetThinkingPayload {
+  readonly level: string;
+}
+interface StopTaskPayload {
+  readonly taskId: string;
+  readonly reason?: string;
+}
+interface UndoHistoryPayload {
+  readonly count: number;
+}
+interface UnregisterToolPayload {
+  readonly name: string;
+}
 import type { ILogger, LogContext, LogLevel } from '#/_base/log/log';
 import { ILogOptions } from '#/_base/log/logConfig';
+import { type AgentModelInstanceOf } from '#/agent/agentContext/agentSpace';
+import type { ApprovalRequest, ApprovalResponse } from '#/agent/interaction/approval';
+import type { QuestionRequest, QuestionResult } from '#/agent/interaction/question';
+import type { AgentLLMRequestSource } from '#/agent/llmRequester/llmRequester';
+import { TurnPrompt } from '#/agent/loop/turnOps';
+import { promptMetadataTextFromContentParts } from '#/agent/prompt/promptMetadataText';
+import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import { IAgentRuntimeBindingSeed } from '#/agent/runtimeBinding/runtimeBinding';
+import { IAgentStateService } from '#/agent/state/agentState';
+import { AgentStateService } from '#/agent/state/agentStateService';
+import { IAgentToolDedupeService } from '#/agent/toolDedupe/toolDedupe';
+import { type UsageStatus } from '#/agent/usage/usage';
+import type { EnvironmentDisclosureSnapshot } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import { IEventService } from '#/app/event/event';
+import { EVENT2_REGISTRY, event2FromRecord } from '#/app/event/event2';
+import { IEventBus, ISessionEventBus } from '#/app/event/eventBus';
+import {
+  DEFAULT_MODEL_SECTION,
+  DEFAULT_PROVIDER_SECTION,
+  MODELS_SECTION,
+  PROVIDERS_SECTION,
+} from '#/app/kosongConfig/configSection';
+import { ISessionManager } from '#/app/sessionManager/sessionManager';
+import { summarizeSkill, type SkillCatalog } from '#/features/skill/catalog/types';
+import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
+import {
+  type PromptWithSkillsInput,
+  type PromptWithSkillsResult,
+  type SkillActivationInput,
+} from '#/features/skill/skill';
+import { IAgentSkillService } from '#/features/skill/skillService';
+import { ISessionSwarmService } from '#/features/swarm/session/sessionSwarm';
+import { type TodoItem } from '#/features/todo/todoItem';
+import { IAgentTodoService } from '#/features/todo/todoService';
+import { interactions } from '#/human/interaction/facade';
+import {
+  INTERACTION_TAG_SESSION_ID,
+  type Interaction,
+  type InteractionKind,
+} from '#/human/interaction/interaction';
 import {
   WIRE_PROTOCOL_VERSION,
   AgentTaskService,
@@ -186,55 +228,56 @@ import {
   type ScopeSeed,
   type ServiceIdentifier,
 } from '#/index';
+import { type ModelCapability } from '#/llm-adapter/contract/capability';
 import {
-  type SessionCreatedEvent,
-  type SessionWillCloseEvent,
-} from '#/workspace/sessionLifecycle/sessionLifecycle';
-import { stubSessionRunGate } from '../stubs';
-import { IEventService } from '#/app/event/event';
-import { IEventBus, ISessionEventBus } from '#/app/event/eventBus';
-import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
-import { applyPromptMetadataUpdate } from '#/session/sessionMetadata/promptMetadata';
-import { promptMetadataTextFromContentParts } from '#/agent/prompt/promptMetadataText';
-import { ISessionManager } from '#/app/sessionManager/sessionManager';
-import { IWireService } from '#/wire/wire';
-import { WireService } from '#/wire/wireService';
-import { TurnPrompt } from '#/agent/loop/turnOps';
-import { IModelService, type ModelsSection } from '#/llm-adapter/model/model';
-import {
-  DEFAULT_MODEL_SECTION,
-  DEFAULT_PROVIDER_SECTION,
-  MODELS_SECTION,
-  PROVIDERS_SECTION,
-} from '#/app/kosongConfig/configSection';
+  isToolCall,
+  isToolCallPart,
+  type ContentPart,
+  type Message as KosongMessage,
+  type StreamedMessagePart,
+} from '#/llm-adapter/contract/message';
+import { type Tool as KosongTool } from '#/llm-adapter/contract/message';
 import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
-import { ModelCatalog } from '#/llm-adapter/model/catalog-service';
 import { IProviderCatalogRuntime } from '#/llm-adapter/model/catalog-runtime';
+import { ModelCatalog } from '#/llm-adapter/model/catalog-service';
+import { IHostRequestHeaders } from '#/llm-adapter/model/host-request-headers';
+import { IModelService, type ModelsSection } from '#/llm-adapter/model/model';
 import { IModelOAuthTokens } from '#/llm-adapter/model/model-oauth';
 import type { ModelRequestParams, ModelRequester } from '#/llm-adapter/model/model-requester';
-import { IHostRequestHeaders } from '#/llm-adapter/model/host-request-headers';
+import { IProtocolAdapterRegistry } from '#/llm-adapter/protocol/protocol';
+import { ProtocolAdapterRegistry } from '#/llm-adapter/protocol/protocolAdapterRegistry';
 import {
   IProviderService,
   type ProviderConfig,
   type ProvidersSection,
 } from '#/llm-adapter/provider/provider';
-import type { ApprovalRequest, ApprovalResponse } from '#/agent/interaction/approval';
-import type { QuestionRequest, QuestionResult } from '#/agent/interaction/question';
-import {
-  INTERACTION_TAG_SESSION_ID,
-  type Interaction,
-  type InteractionKind,
-} from '#/human/interaction/interaction';
-import { interactions } from '#/human/interaction/facade';
 import type { IHostProcess } from '#/os/interface/hostProcess';
-import type { EnvironmentDisclosureSnapshot } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
-import { ISessionSwarmService } from '#/features/swarm/session/sessionSwarm';
+import { LocalRuntime } from '#/runtime/localRuntime';
+import type { RuntimeLease } from '#/runtime/runtime';
+import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
+import { applyPromptMetadataUpdate } from '#/session/sessionMetadata/promptMetadata';
+import { ISessionStateService } from '#/session/state/sessionState';
 import type { PathAccessOperation } from '#/session/workspaceContext/workspaceContext';
+import { type AgentModelDefinition } from '#/state/agentModel';
+import { IEventDispatcher } from '#/state/eventDispatcher';
+import { EventDispatcherService } from '#/state/eventDispatcherService';
+import type { StateKey } from '#/state/state';
+import type { ExecutableToolOutput as ToolOutput, ExecutableToolResult } from '#/tool/toolContract';
+import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
+import { IWireService } from '#/wire/wire';
+import { WireService } from '#/wire/wireService';
+import {
+  type SessionCreatedEvent,
+  type SessionWillCloseEvent,
+} from '#/workspace/sessionLifecycle/sessionLifecycle';
+import type { LlmRequester } from '#human/llm/requester/requester';
+import { type ThinkingEffort } from '#human/llm/thinking';
+import { type TokenUsage } from '#human/llm/usage';
 
 import { stubAgentIdentity } from '../app/agentIdentity/stubs';
 import { stubClientIdentity } from '../app/bootstrap/stubs';
 import { recordAgentEvents, type RecordedEventEntry } from '../snapshot/events';
+import { stubSessionRunGate } from '../stubs';
 import { createFakeHostFs, createFakeProcessRunner } from '../tools/fixtures/fake-exec';
 import { createScriptedGenerate } from './scripted-generate';
 import {
@@ -411,7 +454,9 @@ interface UserToolInteractionPayload {
   readonly args: unknown;
 }
 
-function interactionRpcMethod(kind: InteractionKind): 'requestApproval' | 'requestQuestion' | 'toolCall' {
+function interactionRpcMethod(
+  kind: InteractionKind,
+): 'requestApproval' | 'requestQuestion' | 'toolCall' {
   switch (kind) {
     case 'approval':
       return 'requestApproval';
@@ -453,8 +498,8 @@ export interface TestAgentOptions {
   readonly telemetry?: ITelemetryService | undefined;
   readonly persistence?: WireRecordPersistence | undefined;
   readonly hookEngine?:
-  | Pick<IExternalHooksRunnerService, 'trigger' | 'triggerBlock' | 'fireAndForgetTrigger'>
-  | undefined;
+    | Pick<IExternalHooksRunnerService, 'trigger' | 'triggerBlock' | 'fireAndForgetTrigger'>
+    | undefined;
   readonly initialConfig?: Partial<KimiConfig> | undefined;
   readonly autoConfigure?: boolean | undefined;
   readonly cwd?: string | undefined;
@@ -552,10 +597,7 @@ export function execEnvServices(override: ExecEnvOverride = {}): TestAgentServic
   });
   const app = appServices((reg) => {
     if (override.processRunner !== undefined) {
-      reg.defineInstance(
-        IHostProcessService,
-        resolveProcessRunnerOverride(override.processRunner),
-      );
+      reg.defineInstance(IHostProcessService, resolveProcessRunnerOverride(override.processRunner));
     }
     if (override.hostFs !== undefined) {
       reg.defineInstance(IHostFileSystem, resolveHostFsOverride(override.hostFs));
@@ -622,20 +664,17 @@ export function homeDirServices(homeDir: string | undefined): TestAgentServiceOv
 
 export function hostEnvironmentServices(homeDir: string): TestAgentServiceOverride {
   return appServices((reg) => {
-    reg.defineInstance(
-      IHostEnvironment,
-      {
-        _serviceBrand: undefined,
-        osKind: 'Linux',
-        osArch: 'x64',
-        osVersion: 'test',
-        shellName: 'bash',
-        shellPath: '/bin/bash',
-        pathClass: 'posix',
-        homeDir,
-        ready: Promise.resolve(),
-      } satisfies IHostEnvironment,
-    );
+    reg.defineInstance(IHostEnvironment, {
+      _serviceBrand: undefined,
+      osKind: 'Linux',
+      osArch: 'x64',
+      osVersion: 'test',
+      shellName: 'bash',
+      shellPath: '/bin/bash',
+      pathClass: 'posix',
+      homeDir,
+      ready: Promise.resolve(),
+    } satisfies IHostEnvironment);
   });
 }
 
@@ -648,19 +687,14 @@ export function additionalDirServices(additionalDirs: readonly string[]): TestAg
   });
 }
 
-export function modelProviderServices(
-  modelResolver: IModelCatalog,
-): TestAgentServiceOverride {
+export function modelProviderServices(modelResolver: IModelCatalog): TestAgentServiceOverride {
   return appService(IModelCatalog, modelResolver);
 }
 
 export function modelProviderOptionServices(
   options: TestModelProviderOptions,
 ): TestAgentServiceOverride {
-  return appService(
-    IModelCatalog,
-    new SyncDescriptor(ConfigBackedModelCatalog, [options]),
-  );
+  return appService(IModelCatalog, new SyncDescriptor(ConfigBackedModelCatalog, [options]));
 }
 
 export function configServices(readConfig: () => KimiConfig): TestAgentServiceOverride {
@@ -669,9 +703,9 @@ export function configServices(readConfig: () => KimiConfig): TestAgentServiceOv
 
 export function wireRecordPersistenceServices(
   persistence: WireRecordPersistence,
-  onRead: (event: WireRecord) => void = () => { },
+  onRead: (event: WireRecord) => void = () => {},
 ): TestAgentServiceOverride {
-  return appService(IAppendLogStore, new PersistenceAppendLogStore(persistence, () => { }, onRead));
+  return appService(IAppendLogStore, new PersistenceAppendLogStore(persistence, () => {}, onRead));
 }
 
 export function logServices(logger: Logger): TestAgentServiceOverride {
@@ -690,7 +724,9 @@ export function telemetryServices(telemetry: ITelemetryService): TestAgentServic
 }
 
 export function externalHookServices(
-  hookRunner: Pick<IExternalHooksRunnerService, 'trigger' | 'triggerBlock' | 'fireAndForgetTrigger'> | undefined,
+  hookRunner:
+    | Pick<IExternalHooksRunnerService, 'trigger' | 'triggerBlock' | 'fireAndForgetTrigger'>
+    | undefined,
 ): TestAgentServiceOverride {
   return [
     appService(IExternalHooksRunnerService, resolveExternalHooksRunner(hookRunner)),
@@ -699,7 +735,9 @@ export function externalHookServices(
 }
 
 function resolveExternalHooksRunner(
-  hookRunner: Pick<IExternalHooksRunnerService, 'trigger' | 'triggerBlock' | 'fireAndForgetTrigger'> | undefined,
+  hookRunner:
+    | Pick<IExternalHooksRunnerService, 'trigger' | 'triggerBlock' | 'fireAndForgetTrigger'>
+    | undefined,
 ): IExternalHooksRunnerService {
   return hookRunner === undefined
     ? noopHookRunner
@@ -775,8 +813,8 @@ function createSessionSkillCatalog(catalog: SkillCatalog): ISessionSkillCatalog 
     catalog,
     ready: Promise.resolve(),
     onDidChange: Event.None as Event<string>,
-    load: async () => { },
-    reload: async () => { },
+    load: async () => {},
+    reload: async () => {},
     list: async () => catalog.listSkills().map(summarizeSkill),
   };
 }
@@ -786,12 +824,12 @@ export function swarmServices(
 ): TestAgentServiceOverride {
   const service =
     typeof swarmService === 'function'
-      ? {
+      ? ({
           _serviceBrand: undefined,
           getSwarmItem: async () => undefined,
           run: swarmService,
           cancel: () => {},
-        } satisfies ISessionSwarmService
+        } satisfies ISessionSwarmService)
       : swarmService;
   return [
     sessionService(ISessionSwarmService, service),
@@ -976,7 +1014,7 @@ class PersistenceAppendLogStore implements IAppendLogStore {
     private readonly persistence: WireRecordPersistence,
     private readonly onAppend: (event: WireRecord) => void,
     private readonly onRead: (event: WireRecord) => void,
-  ) { }
+  ) {}
 
   private seedHistory(): void {
     if (this.historySeeded) return;
@@ -1018,7 +1056,7 @@ class PersistenceAppendLogStore implements IAppendLogStore {
   }
 
   acquire(_scope: string, _key: string): IDisposable {
-    return toDisposable(() => { });
+    return toDisposable(() => {});
   }
 
   drainRetirements(): Promise<void> {
@@ -1134,7 +1172,7 @@ export class AgentTestContext {
     this.options = options;
     if (options.cwd !== undefined) this.cwd = options.cwd;
     this.serviceOverrides = flattenServiceOverrides(overrides);
-    this.emitter.on('error', () => { });
+    this.emitter.on('error', () => {});
     this.kimiConfig = applyTestAgentOptionsToConfig(emptyConfig(), options);
 
     const sessionId = 'test-session';
@@ -1170,45 +1208,35 @@ export class AgentTestContext {
             new PersistenceAppendLogStore(
               persistence,
               (event) => this.captureRecord(event),
-              () => { },
+              () => {},
             ),
           );
           reg.defineInstance(ILogService, createLogService(undefined));
-          reg.defineInstance(
-            ILogOptions,
-            {
-              level: 'off',
-              globalLogPath: '/tmp/kimi-code-agent-app-v2-test/logs/kimi-code.log',
-              globalMaxBytes: 6 * 1024 * 1024,
-              globalFiles: 1,
-              sessionMaxBytes: 5 * 1024 * 1024,
-              sessionFiles: 1,
-            } satisfies ILogOptions,
-          );
+          reg.defineInstance(ILogOptions, {
+            level: 'off',
+            globalLogPath: '/tmp/kimi-code-agent-app-v2-test/logs/kimi-code.log',
+            globalMaxBytes: 6 * 1024 * 1024,
+            globalFiles: 1,
+            sessionMaxBytes: 5 * 1024 * 1024,
+            sessionFiles: 1,
+          } satisfies ILogOptions);
           reg.defineInstance(
             IProtocolAdapterRegistry,
-            createGenerateBackedGateway(
-              options.generate ?? this.scriptedGenerate.requester,
-            ),
+            createGenerateBackedGateway(options.generate ?? this.scriptedGenerate.requester),
           );
-          reg.defineInstance(
-            IModelOAuthTokens,
-            {
-              _serviceBrand: undefined,
-              hasCachedAccessToken: () => Promise.resolve(false),
-              getAccessToken: () =>
-                Promise.reject(
-                  new Error(
-                    'IModelOAuthTokens.getAccessToken is not supported in the test harness',
-                  ),
-                ),
-            } satisfies IModelOAuthTokens,
-          );
+          reg.defineInstance(IModelOAuthTokens, {
+            _serviceBrand: undefined,
+            hasCachedAccessToken: () => Promise.resolve(false),
+            getAccessToken: () =>
+              Promise.reject(
+                new Error('IModelOAuthTokens.getAccessToken is not supported in the test harness'),
+              ),
+          } satisfies IModelOAuthTokens);
+          reg.defineDescriptor(IModelCatalog, new SyncDescriptor(ConfigBackedModelCatalog, [{}]));
           reg.defineDescriptor(
-            IModelCatalog,
-            new SyncDescriptor(ConfigBackedModelCatalog, [{}]),
+            IGoalDeadlineScheduler,
+            new SyncDescriptor(GoalDeadlineSchedulerService),
           );
-          reg.defineDescriptor(IGoalDeadlineScheduler, new SyncDescriptor(GoalDeadlineSchedulerService));
           if (options.telemetry !== undefined) {
             reg.defineInstance(ITelemetryService, options.telemetry);
           }
@@ -1219,20 +1247,17 @@ export class AgentTestContext {
             );
           }
           reg.defineInstance(IHostFileSystem, new HostFileSystem());
-          reg.defineInstance(
-            IHostEnvironment,
-            {
-              _serviceBrand: undefined,
-              osKind: 'Linux',
-              osArch: 'x64',
-              osVersion: 'test',
-              shellName: 'bash',
-              shellPath: '/bin/bash',
-              pathClass: 'posix',
-              homeDir: TEST_HOME_DIR,
-              ready: Promise.resolve(),
-            } satisfies IHostEnvironment,
-          );
+          reg.defineInstance(IHostEnvironment, {
+            _serviceBrand: undefined,
+            osKind: 'Linux',
+            osArch: 'x64',
+            osVersion: 'test',
+            shellName: 'bash',
+            shellPath: '/bin/bash',
+            pathClass: 'posix',
+            homeDir: TEST_HOME_DIR,
+            ready: Promise.resolve(),
+          } satisfies IHostEnvironment);
         },
       ],
       this.serviceOverrides,
@@ -1348,7 +1373,9 @@ export class AgentTestContext {
             accessor: {
               get: (id) => container.invokeFunction((accessor) => accessor.get(id)),
             },
-            dispose: () => { container.dispose(); },
+            dispose: () => {
+              container.dispose();
+            },
           });
         };
       },
@@ -1368,24 +1395,21 @@ export class AgentTestContext {
             reg.defineInstance<IAgentRuntimeService>(IAgentRuntimeService, {
               _serviceBrand: undefined,
               onDidChange: () => ({ dispose: () => {} }),
-              isAvailable: (required = []) => required.every((capability) => runtime.capabilities.has(capability)),
+              isAvailable: (required = []) =>
+                required.every((capability) => runtime.capabilities.has(capability)),
               inspect: () => runtime,
               acquire: (required = []): RuntimeLease => {
-                const missing = required.filter((capability) => !runtime.capabilities.has(capability));
+                const missing = required.filter(
+                  (capability) => !runtime.capabilities.has(capability),
+                );
                 if (missing.length > 0) {
                   throw new Error(`test runtime missing capabilities: ${missing.join(', ')}`);
                 }
                 return { runtime, track: (resource) => resource, dispose: () => {} };
               },
             });
-            reg.defineDescriptor(
-              IWireService,
-              new SyncDescriptor(WireService),
-            );
-            reg.defineDescriptor(
-              IEventDispatcher,
-              new SyncDescriptor(EventDispatcherService),
-            );
+            reg.defineDescriptor(IWireService, new SyncDescriptor(WireService));
+            reg.defineDescriptor(IEventDispatcher, new SyncDescriptor(EventDispatcherService));
             reg.defineDescriptor(IAgentBlobService, new SyncDescriptor(AgentBlobServiceImpl));
             reg.defineDescriptor(IAgentProfileService, new SyncDescriptor(AgentProfileService));
             reg.defineDescriptor(
@@ -1404,14 +1428,8 @@ export class AgentTestContext {
               IAgentPermissionRulesService,
               new SyncDescriptor(AgentPermissionRulesService),
             );
-            reg.defineDescriptor(
-              IAgentPermissionGate,
-              new SyncDescriptor(AgentPermissionGate),
-            );
-            reg.defineDescriptor(
-              IAgentTaskService,
-              new SyncDescriptor(AgentTaskService),
-            );
+            reg.defineDescriptor(IAgentPermissionGate, new SyncDescriptor(AgentPermissionGate));
+            reg.defineDescriptor(IAgentTaskService, new SyncDescriptor(AgentTaskService));
             reg.defineDescriptor(IAgentUserToolService, new SyncDescriptor(AgentUserToolService));
             const agentStateService = new TestAgentStateService(
               this.session.accessor.get(ISessionStateService),
@@ -1430,9 +1448,7 @@ export class AgentTestContext {
     });
     this.agentLifecycleScope = this.agent;
     const harnessAgentContext = this.agent.accessor.get(IAgentScopeContext).agentContext;
-    this.session.accessor
-      .get(ISessionEventBus)
-      .activateAgent(harnessAgentContext);
+    this.session.accessor.get(ISessionEventBus).activateAgent(harnessAgentContext);
     adoptAgent!();
     this.installInteractionBridge();
     reassertServiceOverrides(this.serviceOverrides, 'agent', this.agent.instantiation);
@@ -1488,8 +1504,7 @@ export class AgentTestContext {
         service.requestSize(request),
       estimateText: (text: string) => service.estimateText(text),
       estimateMessage: (message: KosongMessage) => service.estimateMessage(message),
-      estimateMessages: (messages: readonly KosongMessage[]) =>
-        service.estimateMessages(messages),
+      estimateMessages: (messages: readonly KosongMessage[]) => service.estimateMessages(messages),
       estimateTools: (tools: readonly KosongTool[]) => service.estimateTools(tools),
     };
   }
@@ -1598,8 +1613,11 @@ export class AgentTestContext {
   private bridgeInteraction(interaction: Interaction): void {
     switch (interaction.kind) {
       case 'approval': {
-        const { sessionId: _sessionId, agentId: _agentId, ...payload } =
-          interaction.payload as ApprovalRequest;
+        const {
+          sessionId: _sessionId,
+          agentId: _agentId,
+          ...payload
+        } = interaction.payload as ApprovalRequest;
         const response = this.createRpcPromise<ApprovalResponse>();
         void response.then((result) => {
           interactions.respond(interaction.id, result);
@@ -2019,9 +2037,7 @@ export class AgentTestContext {
       ...this.serviceOverrides,
       configServices(() => configSnapshot),
       llmGenerateServices(failOnResumeRequester),
-      wireRecordPersistenceServices(
-        new InMemoryWireRecordPersistence(withMetadata(wireHistory)),
-      ),
+      wireRecordPersistenceServices(new InMemoryWireRecordPersistence(withMetadata(wireHistory))),
     );
 
     try {
@@ -2214,8 +2230,7 @@ export class AgentTestContext {
         this.get(IAgentPermissionModeService).setModeAndBroadcast(payload.mode),
       cancelCompaction: () => this.get(IAgentFullCompactionService).cancel(),
       activateSkill: (payload) => this.get(IAgentSkillService).activate(payload),
-      activatePluginCommand: (payload) =>
-        this.get(IAgentPluginCommandService).activate(payload),
+      activatePluginCommand: (payload) => this.get(IAgentPluginCommandService).activate(payload),
       listCommands: () => this.get(IAgentCommandService).list(),
       runCommand: (payload) => this.get(IAgentCommandService).run(payload.name, payload.args),
       getContext: () => ({
@@ -2388,7 +2403,7 @@ function createPermissionRulesStub(
     addRules: (nextRules) => {
       rules = [...rules, ...nextRules];
     },
-    recordApprovalResult: () => { },
+    recordApprovalResult: () => {},
   };
 }
 
@@ -2453,7 +2468,11 @@ function pendingTaskNotificationKeys(records: readonly WireRecord[]): readonly s
   for (const record of records) {
     if (record.type === 'task.terminated') {
       const info = record['info'];
-      if (isTaskInfoLike(info) && info.detached !== false && info.terminalNotificationSuppressed !== true) {
+      if (
+        isTaskInfoLike(info) &&
+        info.detached !== false &&
+        info.terminalNotificationSuppressed !== true
+      ) {
         terminal.add(taskNotificationKey(info.taskId, info.status));
       }
       continue;
@@ -2498,10 +2517,12 @@ function isTaskOriginLike(value: unknown): value is {
 } {
   if (typeof value !== 'object' || value === null) return false;
   const origin = value as Record<string, unknown>;
-  return origin['kind'] === 'task' &&
+  return (
+    origin['kind'] === 'task' &&
     typeof origin['taskId'] === 'string' &&
     typeof origin['status'] === 'string' &&
-    typeof origin['notificationId'] === 'string';
+    typeof origin['notificationId'] === 'string'
+  );
 }
 
 function taskNotificationKey(taskId: string, status: string): string {
@@ -2578,7 +2599,7 @@ function configService(readConfig: () => KimiConfig): IConfigService {
   return {
     _serviceBrand: undefined,
     ready: Promise.resolve(),
-    onDidChangeConfiguration: () => ({ dispose: () => { } }),
+    onDidChangeConfiguration: () => ({ dispose: () => {} }),
     onDidSectionChange: sectionEmitter.event,
     get: <T>(domain: string) => valueFor(domain) as T,
     inspect: (domain: string) => {
@@ -2594,7 +2615,10 @@ function configService(readConfig: () => KimiConfig): IConfigService {
     set: (domain: string, patch: unknown) => {
       const current = valueFor(domain);
       const value =
-        typeof current === 'object' && current !== null && typeof patch === 'object' && patch !== null
+        typeof current === 'object' &&
+        current !== null &&
+        typeof patch === 'object' &&
+        patch !== null
           ? { ...current, ...patch }
           : patch;
       return replace(domain, value);
@@ -2641,8 +2665,7 @@ function configWithEnvOverrides(config: KimiConfig): KimiConfig {
     ...config,
     cron: cron ?? config['cron'],
     modelOverrides,
-    thinking:
-      forcedEffort !== undefined && forcedEffort.length > 0 ? thinking : config['thinking'],
+    thinking: forcedEffort !== undefined && forcedEffort.length > 0 ? thinking : config['thinking'],
   };
 }
 

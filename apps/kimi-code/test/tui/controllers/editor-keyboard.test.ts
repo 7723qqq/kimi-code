@@ -1,8 +1,5 @@
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import type { Mock as BunMock } from 'bun:test';
-import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
-import { setEnv, restoreEnvs } from '#test/helpers/stubs';
-import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { DOUBLE_ESC_WINDOW_MS, getCtrlCHint } from '#/tui/constant/kimi-tui';
 import {
@@ -11,8 +8,11 @@ import {
   reviewCycleState,
   type EditorKeyboardHost,
 } from '#/tui/controllers/editor-keyboard';
-import { ImageAttachmentStore } from '#/tui/utils/image-attachment-store';
 import type { QueuedMessage } from '#/tui/types';
+import { ImageAttachmentStore } from '#/tui/utils/image-attachment-store';
+import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
+import { setEnv, restoreEnvs } from '#test/helpers/stubs';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 type Mock<T extends (...args: any[]) => any = (...args: any[]) => any> = BunMock<T>;
 
@@ -149,7 +149,6 @@ function pressNonEscape(editor: Harness['editor']): void {
 }
 
 describe('EditorKeyboardController double-Esc undo', () => {
-
   it('opens the undo selector when Esc is pressed twice within the window while idle', () => {
     const { editor, openUndoSelector } = createHarness();
 
@@ -376,7 +375,9 @@ describe('EditorKeyboardController Shift-Tab plan/spec cycle', () => {
     const handleExclusiveModeSwitch = mock();
     const track = mock();
     const showError = mock();
-    const ensureSession = mock(async (): Promise<{ id: string } | undefined> => ({ id: 'ses-lazy' }));
+    const ensureSession = mock(async (): Promise<{ id: string } | undefined> => ({
+      id: 'ses-lazy',
+    }));
     const host = {
       state: {
         editor,
@@ -403,7 +404,11 @@ describe('EditorKeyboardController Shift-Tab plan/spec cycle', () => {
       btwPanelController: { cancelRunning: mock(), closeOrCancel: mock() },
     } as unknown as EditorKeyboardHost;
 
-    new EditorKeyboardController(host, undefined as unknown as ImageAttachmentStore, clock).install();
+    new EditorKeyboardController(
+      host,
+      undefined as unknown as ImageAttachmentStore,
+      clock,
+    ).install();
     const onShiftTab = editor['onShiftTab'] as unknown as () => void;
     return {
       onShiftTab,
@@ -486,8 +491,13 @@ describe('EditorKeyboardController Shift-Tab plan/spec cycle', () => {
   });
 
   it('never leaves swarm mode', () => {
-    const { onShiftTab, handlePlanToggle, handleExclusiveModeLeave, handleExclusiveModeSwitch, track } =
-      createShiftTabHarness({ appState: { swarmMode: true } });
+    const {
+      onShiftTab,
+      handlePlanToggle,
+      handleExclusiveModeLeave,
+      handleExclusiveModeSwitch,
+      track,
+    } = createShiftTabHarness({ appState: { swarmMode: true } });
 
     onShiftTab();
 
@@ -500,8 +510,13 @@ describe('EditorKeyboardController Shift-Tab plan/spec cycle', () => {
   });
 
   it('never leaves tower mode', () => {
-    const { onShiftTab, handlePlanToggle, handleExclusiveModeLeave, handleExclusiveModeSwitch, track } =
-      createShiftTabHarness({ appState: { towerMode: true } });
+    const {
+      onShiftTab,
+      handlePlanToggle,
+      handleExclusiveModeLeave,
+      handleExclusiveModeSwitch,
+      track,
+    } = createShiftTabHarness({ appState: { towerMode: true } });
 
     onShiftTab();
 
@@ -705,9 +720,7 @@ describe('EditorKeyboardController Ctrl-S steering', () => {
     onCtrlS();
 
     expect(steerQueuedMessagesIntoRunningTurn).toHaveBeenCalledWith(true);
-    expect(host.state.queuedMessages).toEqual([
-      { text, inlineSkillActivations: activations },
-    ]);
+    expect(host.state.queuedMessages).toEqual([{ text, inlineSkillActivations: activations }]);
     expect(setText).toHaveBeenCalledWith('');
   });
 });

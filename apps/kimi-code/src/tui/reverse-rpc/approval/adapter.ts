@@ -1,9 +1,9 @@
+import { ReviewDecision } from '@moonshot-ai/agent-core-v2';
 import type {
   ApprovalRequest,
   ApprovalResponse,
   ToolInputDisplay,
 } from '@moonshot-ai/kimi-code-sdk';
-import { ReviewDecision } from '@moonshot-ai/agent-core-v2';
 
 import { t } from '#/i18n';
 import type { ApprovalPanelResponse } from '#/tui/components/dialogs/approval-panel';

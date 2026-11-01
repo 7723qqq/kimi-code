@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'bun:test';
-import { waitForAssertion } from '../../../../test/helpers/waitFor';
 
 import { messageAppended, turnEnded } from '#/agent/events';
 import { createAgentMachine, type AgentInput } from '#/agent/machine';
@@ -24,6 +23,8 @@ import type { Tree } from '#/store/tree';
 import type { BranchRef } from '#/store/types';
 import { testScopeFactory } from '#/test/agent/scope-factory';
 import { createActor, waitFor, type ActorRefFrom } from '#/xstate2';
+
+import { waitForAssertion } from '../../../../test/helpers/waitFor';
 
 const model: LlmModel = { provider: 'test', model: 'test-model', capability: UNKNOWN_CAPABILITY };
 

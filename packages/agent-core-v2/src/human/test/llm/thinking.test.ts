@@ -188,7 +188,6 @@ describe('kimiOpenAITrait thinking', () => {
   });
 
   it('is not affected by the deepseek full-echo rule, which keys off the request shape', () => {
-
     expect(fullReasoningEchoRequired(model.model, true)).toBe(false);
     expect(fullReasoningEchoRequired('kimi-k3-1', true)).toBe(false);
     expect(thinkingHistoryForModel('kimi-k3-1')).toBeUndefined();

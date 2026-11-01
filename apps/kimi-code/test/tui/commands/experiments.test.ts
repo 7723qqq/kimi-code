@@ -1,5 +1,6 @@
-import type { ExperimentalFeatureState } from '@moonshot-ai/kimi-code-sdk';
 import { afterEach, describe, expect, it, mock, type Mock } from 'bun:test';
+
+import type { ExperimentalFeatureState } from '@moonshot-ai/kimi-code-sdk';
 
 import type { SlashCommandHost } from '#/tui/commands';
 import { applyExperimentalFeatureChanges } from '#/tui/commands/config';

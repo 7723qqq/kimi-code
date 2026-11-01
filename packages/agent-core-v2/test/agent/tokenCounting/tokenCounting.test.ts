@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
-import { IAgentContextMemoryService, IAgentProfileService } from '#/index';
 import { TurnEnded } from '#/agent/loop/turnOps';
 import {
   anchorsEqual,
@@ -12,12 +11,17 @@ import {
   type TokenAnchor,
   type TokenCountingState,
 } from '#/agent/tokenCounting/tokenCountingOps';
-import { TokenCountingAgentModelDefinition } from '#/session/tokenCounting/tokenCountingAgentModel';
+import { IAgentContextMemoryService, IAgentProfileService } from '#/index';
 import { estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
-import type { TokenUsage } from '#human/llm/usage';
+import { TokenCountingAgentModelDefinition } from '#/session/tokenCounting/tokenCountingAgentModel';
 import { IWireService } from '#/wire/wire';
+import type { TokenUsage } from '#human/llm/usage';
 
-import { createTestAgent, InMemoryWireRecordPersistence, type TestAgentContext } from '../../harness';
+import {
+  createTestAgent,
+  InMemoryWireRecordPersistence,
+  type TestAgentContext,
+} from '../../harness';
 
 function totalOf(usage: TokenUsage | undefined): number {
   if (usage === undefined) return 0;
@@ -59,9 +63,9 @@ function referenceFold(events: readonly ReferenceEvent[]): TokenCountingState {
         next = anchors.some((anchor) => anchor.length === length)
           ? anchors
           : [
-            ...anchors.filter((anchor) => anchor.length < length),
-            { length, tokens: clamped, measured: false },
-          ];
+              ...anchors.filter((anchor) => anchor.length < length),
+              { length, tokens: clamped, measured: false },
+            ];
         break;
     }
     if (!(tokens === clamped && anchorsEqual(anchors, next))) {
@@ -191,7 +195,9 @@ describe('Agent token counting', () => {
   it('ignores a stored anchor that overshoots the live context', async () => {
     ctx.appendUserMessage([{ type: 'text', text: 'only one message' }]);
 
-    await ctx.dispatcher.dispatch(new TokenCountingMeasured({ agentId: 'main', length: 5, tokens: 1234 }));
+    await ctx.dispatcher.dispatch(
+      new TokenCountingMeasured({ agentId: 'main', length: 5, tokens: 1234 }),
+    );
     const size = tokenCounting.get();
     expect(size.measured).toBe(0);
     expect(size.size).toBe(estimateTokensForMessages(context.get()));
@@ -220,7 +226,9 @@ describe('Agent token counting', () => {
     });
 
     const history = context.get();
-    const kept = estimateTokensForMessages(history.filter((m) => m.origin?.kind !== 'compaction_summary'));
+    const kept = estimateTokensForMessages(
+      history.filter((m) => m.origin?.kind !== 'compaction_summary'),
+    );
     const expected = 500 + kept;
     expect(tokenCountingState(ctx).anchors).toEqual([
       { length: history.length, tokens: expected, measured: false },
@@ -235,13 +243,13 @@ describe('Agent token counting', () => {
     context.clear();
 
     expect(tokenCounting.get()).toEqual({ size: 0, measured: 0, estimated: 0 });
-    expect(tokenCountingState(ctx).anchors).toEqual([
-      { length: 0, tokens: 0, measured: true },
-    ]);
+    expect(tokenCountingState(ctx).anchors).toEqual([{ length: 0, tokens: 0, measured: true }]);
   });
 
   it('keeps estimates and anchors live for internal reads under the measured strategy', () => {
-    const measured = createTestAgent({ initialConfig: { tokenCounting: { strategy: 'measured' } } });
+    const measured = createTestAgent({
+      initialConfig: { tokenCounting: { strategy: 'measured' } },
+    });
     try {
       const counting = measured.tokenCounting;
       expect(counting.strategy).toBe('measured');
@@ -304,7 +312,9 @@ describe('Agent token counting', () => {
   });
 
   it('statusSize reports the strategy-selected reading', () => {
-    const measured = createTestAgent({ initialConfig: { tokenCounting: { strategy: 'measured' } } });
+    const measured = createTestAgent({
+      initialConfig: { tokenCounting: { strategy: 'measured' } },
+    });
     try {
       const counting = measured.tokenCounting;
       expect(counting.statusSize()).toBe(0);

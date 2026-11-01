@@ -400,7 +400,9 @@ if (swapped.length > 0) {
     `check-no-hardcoded-prose: ${swapped.length} file(s) replaced an accepted literal with a different one.`,
   );
   for (const entry of swapped) {
-    console.error(`  ${entry.path}: ${entry.count} literal(s), same count as the ledger but different text`);
+    console.error(
+      `  ${entry.path}: ${entry.count} literal(s), same count as the ledger but different text`,
+    );
     for (const finding of details.get(entry.path) ?? []) {
       console.error(`      :${finding.line}  ${JSON.stringify(finding.text)}`);
     }

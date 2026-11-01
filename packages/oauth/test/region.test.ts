@@ -1,19 +1,10 @@
+import { afterEach, describe, expect, it } from 'bun:test';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-
-import { afterEach, describe, expect, it } from 'bun:test';
 
 import { DEFAULT_KIMI_CODE_OAUTH_HOST } from '#/constants';
 import { KIMI_CODE_OAUTH_KEY } from '#/managed-kimi-code';
 import { DEFAULT_KIMI_CODE_BASE_URL } from '#/managed-usage';
-import { KIMI_REGION_CACHE_FILENAME, type KimiRegionCacheRecord } from '#/region-cache';
-import { detectKimiRegionFromLocalSignals } from '#/region-local';
-import {
-  createKimiRegionResolver,
-  decideKimiRegion,
-  type KimiRegionAuthRead,
-  type KimiRegionAuthSnapshot,
-} from '#/region-resolver';
 import {
   KIMI_REGION_MARKER_FILENAME,
   KIMI_REGION_PROFILES,
@@ -23,6 +14,14 @@ import {
   resolveKimiRegion,
   resolveKimiRemoteControlAuth,
 } from '#/region';
+import { KIMI_REGION_CACHE_FILENAME, type KimiRegionCacheRecord } from '#/region-cache';
+import { detectKimiRegionFromLocalSignals } from '#/region-local';
+import {
+  createKimiRegionResolver,
+  decideKimiRegion,
+  type KimiRegionAuthRead,
+  type KimiRegionAuthSnapshot,
+} from '#/region-resolver';
 
 import { createTempWorkDir, type TempDirHandle } from './helpers';
 
@@ -67,7 +66,9 @@ describe('resolveKimiRegion', () => {
     expect(
       detectKimiRegionFromLocalSignals({ timeZone: 'America/New_York', locale: 'en-US' }),
     ).toEqual({ region: 'global', confident: true });
-    expect(detectKimiRegionFromLocalSignals({ timeZone: 'Asia/Taipei', locale: 'zh-Hant-TW' })).toEqual({
+    expect(
+      detectKimiRegionFromLocalSignals({ timeZone: 'Asia/Taipei', locale: 'zh-Hant-TW' }),
+    ).toEqual({
       region: 'global',
       confident: true,
     });

@@ -1,14 +1,13 @@
+// Runs the real bench script in --quick mode and pins the machine-readable
+// JSON report's shape: later phases diff before/after numbers, so the field
+// names below are a stable contract.
+import { expect, test } from 'bun:test';
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-
-// Runs the real bench script in --quick mode and pins the machine-readable
-// JSON report's shape: later phases diff before/after numbers, so the field
-// names below are a stable contract.
-import { expect, test } from 'bun:test';
 
 const pkgDir = fileURLToPath(new URL('..', import.meta.url));
 
@@ -19,12 +18,7 @@ test('bench --quick emits a JSON report with a stable schema', async () => {
     await promisify(execFile)(
       process.execPath,
       // Bun executes .ts benches natively; Node needs the tsx loader hook.
-      [
-        path.join(pkgDir, 'bench', 'bench.ts'),
-        '--quick',
-        '--json',
-        reportPath,
-      ],
+      [path.join(pkgDir, 'bench', 'bench.ts'), '--quick', '--json', reportPath],
       { cwd: pkgDir, timeout: 240_000, maxBuffer: 16 * 1024 * 1024 },
     );
     const report = JSON.parse(await fs.readFile(reportPath, 'utf8'));
@@ -33,7 +27,10 @@ test('bench --quick emits a JSON report with a stable schema', async () => {
     expect(report.schemaVersion).toBe(1);
     expect(report.tool).toBe('minidb/bench');
     expect(typeof report.startedAt).toBe('string');
-    expect(!Number.isNaN(Date.parse(report.startedAt)), 'startedAt is an ISO timestamp').toBeTruthy();
+    expect(
+      !Number.isNaN(Date.parse(report.startedAt)),
+      'startedAt is an ISO timestamp',
+    ).toBeTruthy();
     expect(typeof report.node).toBe('string');
     expect(typeof report.platform).toBe('string');
     expect(typeof report.arch).toBe('string');
@@ -126,12 +123,7 @@ test('open-lifecycle bench --quick emits the phase-1 baseline report', async () 
     const reportPath = path.join(dir, 'report.json');
     await promisify(execFile)(
       process.execPath,
-      [
-        path.join(pkgDir, 'bench', 'open-lifecycle.ts'),
-        '--quick',
-        '--json',
-        reportPath,
-      ],
+      [path.join(pkgDir, 'bench', 'open-lifecycle.ts'), '--quick', '--json', reportPath],
       { cwd: pkgDir, timeout: 240_000, maxBuffer: 16 * 1024 * 1024 },
     );
     const report = JSON.parse(await fs.readFile(reportPath, 'utf8'));
@@ -182,7 +174,12 @@ test('open-lifecycle bench --quick emits the phase-1 baseline report', async () 
     // Healthy generation opens: no full recovery, no corpus tokenization.
     for (const [name, s] of Object.entries({ small, wal, large })) {
       expect(s.extra.state, name).toBe('ready');
-      expect(s.extra.path, name).toStrictEqual(['no-generation', 'generation-load', 'wal-catch-up', 'ready']);
+      expect(s.extra.path, name).toStrictEqual([
+        'no-generation',
+        'generation-load',
+        'wal-catch-up',
+        'ready',
+      ]);
       expect(s.extra.phases.fullRecoveryMs, name).toBe(0);
       expect(s.extra.phases.textRebuildMs, name).toBe(0);
       expect(s.extra.generationLoads, name).toBe(1);

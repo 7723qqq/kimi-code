@@ -44,8 +44,8 @@ import {
 } from '../components/dialogs/provider-manager';
 import { TabbedModelSelectorComponent } from '../components/dialogs/tabbed-model-selector';
 import { formatErrorMessage } from '../utils/event-payload';
-import { thinkingEffortToConfig } from '../utils/thinking-config';
 import { effectiveModelForHost } from '../utils/model-switch';
+import { thinkingEffortToConfig } from '../utils/thinking-config';
 import type { SlashCommandHost } from './dispatch';
 import { promptApiKey, promptBaseUrl, promptCatalogProviderSelection } from './prompts';
 
@@ -54,7 +54,10 @@ import { promptApiKey, promptBaseUrl, promptCatalogProviderSelection } from './p
 // ---------------------------------------------------------------------------
 
 export async function handleProviderCommand(host: SlashCommandHost, rawArgs = ''): Promise<void> {
-  const args = rawArgs.trim().split(/\s+/).filter((part) => part.length > 0);
+  const args = rawArgs
+    .trim()
+    .split(/\s+/)
+    .filter((part) => part.length > 0);
   if (args[0] === 'refresh') {
     if (args.length > 2) {
       host.showError('Usage: /provider [refresh [providerId]]');
@@ -88,7 +91,9 @@ async function handleProviderRefresh(
     );
   } catch (error) {
     spinner.stop({ ok: false, label: t('tui.messages.providerRefreshFailed') });
-    host.showError(t('tui.messages.providerRefreshFailedDetail', { error: formatErrorMessage(error) }));
+    host.showError(
+      t('tui.messages.providerRefreshFailedDetail', { error: formatErrorMessage(error) }),
+    );
     return;
   }
   spinner.stop({ ok: true, label: t('tui.messages.providerRefreshFinished') });
@@ -120,7 +125,13 @@ function reportProviderRefresh(
     );
   }
   for (const failure of result.failed) {
-    host.showStatus(t('tui.messages.providerRefreshSkipped', { provider: failure.provider, reason: failure.reason }), 'warning');
+    host.showStatus(
+      t('tui.messages.providerRefreshSkipped', {
+        provider: failure.provider,
+        reason: failure.reason,
+      }),
+      'warning',
+    );
   }
   if (result.changed.length === 0 && result.failed.length === 0) {
     const count = result.unchanged.length;

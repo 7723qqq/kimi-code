@@ -1,5 +1,5 @@
-import type { SurveyKind } from './types';
 import type { SurveyPopupConfig } from './survey-popup-config';
+import type { SurveyKind } from './types';
 
 export type SurveyGateSkipReason =
   | 'mount-roll-consumed'

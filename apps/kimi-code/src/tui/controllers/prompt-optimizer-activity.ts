@@ -1,10 +1,10 @@
 import type { Event } from '@moonshot-ai/kimi-code-sdk';
 
+import { MoonLoader } from '../components/chrome/moon-loader';
 import {
   PromptOptimizerActivityLine,
   type PromptOptimizerPhase,
 } from '../components/chrome/prompt-optimizer-activity-line';
-import { MoonLoader } from '../components/chrome/moon-loader';
 import { currentTheme } from '../theme';
 import type { TUIState } from '../tui-state';
 

@@ -41,12 +41,12 @@ import { UsagePanelComponent } from '../components/messages/usage-panel';
 import { createMarkdownTheme } from '../theme/pi-tui-theme';
 import { formatErrorMessage } from '../utils/event-payload';
 import { createMarkdownOptions } from '../utils/markdown-options';
-import { nextTranscriptId } from '../utils/transcript-id';
 import {
   formatPluginSourceLabel,
   isOfficialPluginInstall,
   isOfficialPluginSource,
 } from '../utils/plugin-source-label';
+import { nextTranscriptId } from '../utils/transcript-id';
 import type { SlashCommandHost } from './dispatch';
 
 interface ShowPluginsPickerOptions {

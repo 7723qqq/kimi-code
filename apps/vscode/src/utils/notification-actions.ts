@@ -10,10 +10,9 @@
  * threaded through if the extension ever ships translations.
  */
 export const NotificationAction = {
-  SHOW_LOGS: "Show Logs",
-  MIGRATE_NOW: "Migrate Now",
-  OPEN_FILE: "Open File",
+  SHOW_LOGS: 'Show Logs',
+  MIGRATE_NOW: 'Migrate Now',
+  OPEN_FILE: 'Open File',
 } as const;
 
-export type NotificationAction =
-  (typeof NotificationAction)[keyof typeof NotificationAction];
+export type NotificationAction = (typeof NotificationAction)[keyof typeof NotificationAction];

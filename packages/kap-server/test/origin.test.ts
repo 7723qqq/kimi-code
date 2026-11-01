@@ -1,5 +1,6 @@
-import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+
+import Fastify, { type FastifyInstance } from 'fastify';
 
 import {
   createOriginHook,

@@ -12,7 +12,6 @@ import { executeTool } from '../../../tools/fixtures/execute-tool';
 
 const signal = new AbortController().signal;
 
-
 const options = [
   { label: 'Approach A', description: 'Small change.' },
   { label: 'Approach B', description: 'Larger change.' },
@@ -31,7 +30,7 @@ function planService(): IAgentPlanService {
         id: 'test-plan',
         content: '# Plan',
         path: '/tmp/kimi-plan.md',
-      } satisfies NonNullable<PlanData>),
+      }) satisfies NonNullable<PlanData>,
   };
 }
 

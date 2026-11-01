@@ -1,9 +1,9 @@
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { APIError as OpenAIAPIError } from 'openai';
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import { APIProviderQuotaExhaustedError, isRetryableGenerateError } from '#/errors';
 import { KimiChatProvider } from '#/providers/kimi';
@@ -214,8 +214,7 @@ describe('KimiFiles', () => {
       );
       const files = new KimiFiles({
         baseUrl: 'https://api.example/v1',
-        clientFactory: () =>
-          ({ files: { create: mock().mockRejectedValue(quotaError) } }) as never,
+        clientFactory: () => ({ files: { create: mock().mockRejectedValue(quotaError) } }) as never,
       });
 
       const caught = await files

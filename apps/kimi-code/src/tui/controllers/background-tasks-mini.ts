@@ -3,11 +3,11 @@ import type { Container, ProcessTerminal, TUI, VStack } from '@moonshot-ai/pi-tu
 
 import { t } from '#/i18n';
 import type { Theme } from '#/tui/theme';
+
 import { BackgroundTasksMiniPanel } from '../components/dialogs/background-tasks-mini';
 import type { TasksTab } from '../components/dialogs/tasks-browser';
 import type { CustomEditor } from '../components/editor/custom-editor';
 import type { AppState } from '../types';
-
 import type { SessionEventHandler } from './session-event-handler';
 import { TasksBrowserController } from './tasks-browser';
 

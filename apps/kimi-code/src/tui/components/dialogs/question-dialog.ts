@@ -319,8 +319,7 @@ export class QuestionDialogComponent extends Container implements Focusable {
       if (direction === 0 || this.isEditingOther()) return { handled: true };
       if (this.isSubmitTab()) {
         const actions = getSubmitActions();
-        this.submitActionIdx =
-          (this.submitActionIdx + direction + actions.length) % actions.length;
+        this.submitActionIdx = (this.submitActionIdx + direction + actions.length) % actions.length;
       } else {
         this.moveQuestionCursor(direction);
       }

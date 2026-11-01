@@ -88,10 +88,7 @@ function createHelloWorldRun(task: string | undefined): HelloWorldRunState {
   };
 }
 
-export const helloWorldKey = defineState(
-  'helloWorld',
-  (): HelloWorldModeTrigger | null => null,
-)
+export const helloWorldKey = defineState('helloWorld', (): HelloWorldModeTrigger | null => null)
   .replayable({
     schema: z.custom<HelloWorldModeTrigger | null>(),
   })
@@ -110,10 +107,7 @@ export const helloWorldKey = defineState(
     return null;
   });
 
-export const helloWorldRunKey = defineState(
-  'helloWorldRun',
-  (): HelloWorldRunState | null => null,
-)
+export const helloWorldRunKey = defineState('helloWorldRun', (): HelloWorldRunState | null => null)
   .replayable({
     schema: z.custom<HelloWorldRunState | null>(),
   })

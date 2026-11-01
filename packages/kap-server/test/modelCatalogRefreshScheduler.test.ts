@@ -1,9 +1,10 @@
+import { afterEach, describe, expect, it, mock } from 'bun:test';
+
 import type {
   IConfigService,
   IProviderDiscoveryService,
   ModelCatalogConfig,
 } from '@moonshot-ai/agent-core-v2';
-import { afterEach, describe, expect, it, mock } from 'bun:test';
 
 import { ModelCatalogRefreshScheduler } from '../src/services/modelCatalog/modelCatalogRefreshScheduler';
 import type { ServerLogger } from '../src/services/pinoLoggerService';

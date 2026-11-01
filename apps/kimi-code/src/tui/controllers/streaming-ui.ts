@@ -20,10 +20,7 @@ import type {
   ToolResultBlockData,
   TranscriptEntry,
 } from '../types';
-import {
-  appendStreamingArgsPreview,
-  parseStreamingArgs,
-} from '../utils/event-payload';
+import { appendStreamingArgsPreview, parseStreamingArgs } from '../utils/event-payload';
 import {
   SYSTEM_RENDER_CLOCK,
   type RenderClock,
@@ -824,7 +821,6 @@ export class StreamingUIController {
     }
     this.host.mergeCurrentTurnSteps();
   }
-
 
   beginCompaction(instruction?: string): void {
     const { state } = this.host;

@@ -1,9 +1,8 @@
+// test/lock.test.ts
+import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-
-// test/lock.test.ts
-import { expect, test } from 'bun:test';
 
 import { MiniDb } from '../src/index.js';
 import { LockError, LockFile } from '../src/lockfile.js';
@@ -93,10 +92,13 @@ test(
         await a.release();
         await b.release();
         // The winner's release unlinked its own lock; nothing may be left.
-        expect(await fs.stat(lockPath).then(
+        expect(
+          await fs.stat(lockPath).then(
             () => true,
             () => false,
-          ), `iteration ${i}: lock released`).toBe(false);
+          ),
+          `iteration ${i}: lock released`,
+        ).toBe(false);
       }
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
@@ -116,10 +118,13 @@ test(
         expect(await lock.acquire()).toBe(true);
         await Promise.all([lock.renew(), lock.release()]);
         expect(lock.held).toBe(false);
-        expect(await fs.stat(lockPath).then(
+        expect(
+          await fs.stat(lockPath).then(
             () => true,
             () => false,
-          ), `iteration ${i}: no ghost lock`).toBe(false);
+          ),
+          `iteration ${i}: no ghost lock`,
+        ).toBe(false);
       }
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
@@ -138,10 +143,12 @@ test('renew() keeps the owner token, so release() still recognizes the lock', as
     const after = JSON.parse(await fs.readFile(lockPath, 'utf8')) as { token?: string };
     expect(after.token, 'renew preserves the owner token').toBe(before.token);
     await lock.release();
-    expect(await fs.stat(lockPath).then(
+    expect(
+      await fs.stat(lockPath).then(
         () => true,
         () => false,
-      )).toBe(false);
+      ),
+    ).toBe(false);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -158,10 +165,13 @@ test('acquire() on an already-held lock is an idempotent true and does not re-mi
     const after = JSON.parse(await fs.readFile(lockPath, 'utf8')) as { token?: string };
     expect(after.token, 'token is not re-minted').toBe(before.token);
     await lock.release();
-    expect(await fs.stat(lockPath).then(
+    expect(
+      await fs.stat(lockPath).then(
         () => true,
         () => false,
-      ), 'release still recognizes and unlinks its own lock').toBe(false);
+      ),
+      'release still recognizes and unlinks its own lock',
+    ).toBe(false);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -190,7 +200,10 @@ test('a legacy tokenless lock file is respected while alive and taken over when 
       token?: string;
     };
     expect(taken.pid).toBe(process.pid);
-    expect(typeof taken.token === 'string' && taken.token.startsWith(`${process.pid}:`), 'taken-over lock line carries the owner token').toBeTruthy();
+    expect(
+      typeof taken.token === 'string' && taken.token.startsWith(`${process.pid}:`),
+      'taken-over lock line carries the owner token',
+    ).toBeTruthy();
     await taker.release();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -219,10 +232,13 @@ test('close() still releases the lock when the WAL close fails; a retry finishes
     expect(err.errors.length).toBe(1);
     expect(String(String(err.errors[0]))).toMatch(/injected close failure/);
     // The lock release was NOT skipped by the WAL failure.
-    expect(await fs.stat(path.join(dir, 'db.lock')).then(
+    expect(
+      await fs.stat(path.join(dir, 'db.lock')).then(
         () => true,
         () => false,
-      ), 'lock released despite the WAL close failure').toBe(false);
+      ),
+      'lock released despite the WAL close failure',
+    ).toBe(false);
     // Idempotent continuation: the second pass completes the cleanup.
     await db.close();
     await db.close(); // fully closed now: a no-op
@@ -264,13 +280,19 @@ test('close() aggregates every cleanup error instead of stopping at the first', 
     };
     const err = await db.close().catch((error: unknown) => error);
     expect(err instanceof AggregateError, 'close failure is aggregated').toBeTruthy();
-    expect(err.errors.map((e) => (e instanceof Error ? e.message : String(e))), 'AggregateError carries every cleanup error').toStrictEqual(['injected wal close failure', 'injected lock release failure']);
+    expect(
+      err.errors.map((e) => (e instanceof Error ? e.message : String(e))),
+      'AggregateError carries every cleanup error',
+    ).toStrictEqual(['injected wal close failure', 'injected lock release failure']);
     // Retry: the WAL close is now a no-op, the lock release runs for real.
     await db.close();
-    expect(await fs.stat(path.join(dir, 'db.lock')).then(
+    expect(
+      await fs.stat(path.join(dir, 'db.lock')).then(
         () => true,
         () => false,
-      ), 'lock released on the retry').toBe(false);
+      ),
+      'lock released on the retry',
+    ).toBe(false);
     // The instance refused use from the first 'closing' transition on.
     await expect((() => db.set('b', '2'))()).rejects.toThrow(/MiniDb is closed/);
     await expect((() => db.compact())()).rejects.toThrow(/MiniDb is closed/);
@@ -303,10 +325,13 @@ test('close() waits out a failing in-flight compaction and still cleans up every
     // not reject with it and must not skip the cleanup.
     await closing;
     expect(String(String(db.lastCompactError))).toMatch(/injected compaction failure/);
-    expect(await fs.stat(path.join(dir, 'db.lock')).then(
+    expect(
+      await fs.stat(path.join(dir, 'db.lock')).then(
         () => true,
         () => false,
-      ), 'lock released despite the failed compaction').toBe(false);
+      ),
+      'lock released despite the failed compaction',
+    ).toBe(false);
     await db.close(); // fully closed now: a no-op
     const reopened = await MiniDb.open({ dir, valueCodec: 'string', fsyncPolicy: 'no' });
     await reopened.close();

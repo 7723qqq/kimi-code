@@ -11,6 +11,7 @@ import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionStateService } from '#/session/state/sessionState';
 import { defineState } from '#/state/state';
 
+import { isUntitled } from './promptMetadata';
 import {
   ISessionMetadata,
   SESSION_META_VERSION,
@@ -20,7 +21,6 @@ import {
   type SessionMetaPatch,
   type SessionTitleKind,
 } from './sessionMetadata';
-import { isUntitled } from './promptMetadata';
 
 const META_KEY = 'state.json';
 

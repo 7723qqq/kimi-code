@@ -1,5 +1,6 @@
-import type { Terminal } from '@moonshot-ai/pi-tui';
 import { describe, expect, it } from 'bun:test';
+
+import type { Terminal } from '@moonshot-ai/pi-tui';
 
 import {
   ApprovalPreviewViewer,

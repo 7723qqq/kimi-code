@@ -3,12 +3,9 @@ import { beforeEach, describe, expect, it } from 'bun:test';
 import { ScopeActivation } from '#/_base/di/instantiation';
 import { _clearScopedRegistryForTests, registerScopedService } from '#/_base/di/scope';
 import { createScopedTestHost } from '#/_base/di/test';
-
 import { IFeatureManager } from '#/app/feature/featureManager';
 import { FeatureManagerService } from '#/app/feature/featureManagerService';
-
 import { LifecycleScope } from '#/app/scopes';
-
 import { IFeatureAssemblyService } from '#/features/featureAssembly';
 import { FeatureAssemblyService } from '#/features/featureAssemblyService';
 import { _clearFeatureRecipesForTests, registerFeature } from '#/features/featureRegistry';

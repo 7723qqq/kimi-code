@@ -44,14 +44,13 @@ const messagesListQueryCoercion = z
         params: { code: ErrorCode.VALIDATION_FAILED },
       });
     }
-  }).strict();
-
+  })
+  .strict();
 
 const messageIdParamSchema = z.object({
   session_id: z.string().min(1),
   message_id: z.string().min(1),
 });
-
 
 export function registerMessagesRoutes(app: MessageRouteHost, core: Scope): void {
   const listRoute = defineRoute(
@@ -143,6 +142,11 @@ function sendMappedError(
   }
   log?.error({ err }, 'message request failed');
   reply.send(
-    errEnvelope(ErrorCode.INTERNAL_ERROR, err instanceof Error ? err.message : String(err), requestId, err instanceof Error ? err.stack : undefined),
+    errEnvelope(
+      ErrorCode.INTERNAL_ERROR,
+      err instanceof Error ? err.message : String(err),
+      requestId,
+      err instanceof Error ? err.stack : undefined,
+    ),
   );
 }

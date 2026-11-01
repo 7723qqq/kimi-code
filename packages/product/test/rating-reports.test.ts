@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'bun:test';
 
+import { DEFAULT_SURVEY_POPUP_PAYLOAD } from '#/session-rating/common/survey-popup-config';
+import type { RatingReport } from '#/session-rating/common/types';
 import { mountSessionRating, type RatingEnvironment } from '#/session-rating/node/engine';
 import type { SurveyEventProperties } from '#/session-rating/node/event-properties';
 import { RATING_REPORT_RETENTION_MS, SessionRatingLedger } from '#/session-rating/node/ledger';
-import { DEFAULT_SURVEY_POPUP_PAYLOAD } from '#/session-rating/common/survey-popup-config';
-import type { RatingReport } from '#/session-rating/common/types';
 
 function fixture() {
   let now = 0;
@@ -14,40 +14,71 @@ function fixture() {
   const events: { sessionId: string; properties: SurveyEventProperties }[] = [];
   const ledger = new SessionRatingLedger({ telemetryDisabled: () => disabled, now: () => now });
   const environment: RatingEnvironment = {
-    sessionId: 'session-a', currentModel: 'example-model',
+    sessionId: 'session-a',
+    currentModel: 'example-model',
     model: { modelId: undefined, baseUrl: undefined },
-    cumulativeTokens: 100, contextTokens: 50, permissionMode: 'manual', thinkingEffort: 'high',
-    busy: false, telemetryDisabled: false, ratingDisabled: false, historyUserTurnCount: 4,
+    cumulativeTokens: 100,
+    contextTokens: 50,
+    permissionMode: 'manual',
+    thinkingEffort: 'high',
+    busy: false,
+    telemetryDisabled: false,
+    ratingDisabled: false,
+    historyUserTurnCount: 4,
   };
-  const mount = () => mountSessionRating({
-    ledger,
-    environment: () => environment,
-    config: {
-      readyForEvaluation: () => true,
-      payload: () => ({
-        ...DEFAULT_SURVEY_POPUP_PAYLOAD,
-        probability: 1, min_time_before_feedback_ms: 0, min_user_turns_before_feedback: 0,
-        min_time_between_feedback_ms: 0, min_user_turns_between_feedback: 0,
-        min_time_between_global_feedback_ms: 0,
-      }),
-    },
-    cooldown: { read: () => cooldown, write: (value) => { cooldown = value; } },
-    track: (_event, properties, context) => { events.push({ ...context, properties }); },
-    now: () => now, wallNow: () => now, random: () => 0,
-    appearanceId: () => `appearance-${++id}`,
-  });
+  const mount = () =>
+    mountSessionRating({
+      ledger,
+      environment: () => environment,
+      config: {
+        readyForEvaluation: () => true,
+        payload: () => ({
+          ...DEFAULT_SURVEY_POPUP_PAYLOAD,
+          probability: 1,
+          min_time_before_feedback_ms: 0,
+          min_user_turns_before_feedback: 0,
+          min_time_between_feedback_ms: 0,
+          min_user_turns_between_feedback: 0,
+          min_time_between_global_feedback_ms: 0,
+        }),
+      },
+      cooldown: {
+        read: () => cooldown,
+        write: (value) => {
+          cooldown = value;
+        },
+      },
+      track: (_event, properties, context) => {
+        events.push({ ...context, properties });
+      },
+      now: () => now,
+      wallNow: () => now,
+      random: () => 0,
+      appearanceId: () => `appearance-${++id}`,
+    });
   const first = mount();
   first.observe({ kind: 'turn-started', origin: { kind: 'user' } });
   first.observe({ kind: 'turn-ended', traceId: 'trace-a' });
   expect(first.evaluate()).toEqual({ appearanceId: 'appearance-1', survey: 'session' });
   return {
-    first, mount, ledger, events,
-    disable: () => { disabled = true; },
-    advance: (ms: number) => { now += ms; },
+    first,
+    mount,
+    ledger,
+    events,
+    disable: () => {
+      disabled = true;
+    },
+    advance: (ms: number) => {
+      now += ms;
+    },
     report: (report: RatingReport, sessionId = 'session-a') => ledger.report(sessionId, report),
-    summary: () => events.map(({ sessionId, properties }) => [
-      sessionId, properties.event_type, properties.response, properties.user_turn_count,
-    ]),
+    summary: () =>
+      events.map(({ sessionId, properties }) => [
+        sessionId,
+        properties.event_type,
+        properties.response,
+        properties.user_turn_count,
+      ]),
   };
 }
 
@@ -64,7 +95,8 @@ function permutations<T>(items: readonly T[]): T[][] {
 
 describe('session rating report ordering', () => {
   it.each(permutations([SHOWN, SHOWN, ANSWER, ANSWER]).map((order) => [order]))(
-    'records one display and answer for request order %j', (order) => {
+    'records one display and answer for request order %j',
+    (order) => {
       const h = fixture();
       for (const report of order) h.report(report);
       expect(h.summary()).toEqual([
@@ -73,12 +105,17 @@ describe('session rating report ordering', () => {
       ]);
       const [appeared, responded] = h.events;
       expect(responded?.properties).toEqual({
-        ...appeared!.properties, event_type: 'responded', response: 'good',
+        ...appeared!.properties,
+        event_type: 'responded',
+        response: 'good',
       });
     },
   );
 
-  it.each([[SHOWN, ABANDON], [ABANDON, SHOWN]])('accepts abandonment in order %j then %j', (a, b) => {
+  it.each([
+    [SHOWN, ABANDON],
+    [ABANDON, SHOWN],
+  ])('accepts abandonment in order %j then %j', (a, b) => {
     const h = fixture();
     h.report(a);
     h.report(b);
@@ -110,8 +147,10 @@ describe('session rating report ordering', () => {
     h.report(ANSWER);
     h.report({ type: 'respond', appearanceId: 'appearance-2', response: 'fine' });
     expect(h.summary()).toEqual([
-      ['session-a', 'appeared', undefined, 5], ['session-a', 'responded', 'good', 5],
-      ['session-a', 'appeared', undefined, 6], ['session-a', 'responded', 'fine', 6],
+      ['session-a', 'appeared', undefined, 5],
+      ['session-a', 'responded', 'good', 5],
+      ['session-a', 'appeared', undefined, 6],
+      ['session-a', 'responded', 'fine', 6],
     ]);
   });
 
@@ -122,7 +161,8 @@ describe('session rating report ordering', () => {
     expect(h.events).toEqual([]);
     h.report(ANSWER);
     expect(h.summary()).toEqual([
-      ['session-a', 'appeared', undefined, 5], ['session-a', 'responded', 'good', 5],
+      ['session-a', 'appeared', undefined, 5],
+      ['session-a', 'responded', 'good', 5],
     ]);
   });
 
@@ -130,7 +170,8 @@ describe('session rating report ordering', () => {
     const h = fixture();
     h.report({ ...ANSWER, response: 'dismissed' });
     expect(h.summary()).toEqual([
-      ['session-a', 'appeared', undefined, 5], ['session-a', 'responded', 'dismissed', 5],
+      ['session-a', 'appeared', undefined, 5],
+      ['session-a', 'responded', 'dismissed', 5],
     ]);
   });
 
@@ -153,7 +194,8 @@ describe('session rating report ordering', () => {
     h.advance(RATING_REPORT_RETENTION_MS * 2);
     h.report(ANSWER);
     expect(h.summary()).toEqual([
-      ['session-a', 'appeared', undefined, 5], ['session-a', 'responded', 'good', 5],
+      ['session-a', 'appeared', undefined, 5],
+      ['session-a', 'responded', 'good', 5],
     ]);
   });
 

@@ -125,8 +125,7 @@ function hasTodoListWrite(message: ContextMessage): boolean {
 
 function isTodoListReminder(message: ContextMessage): boolean {
   return (
-    message.origin?.kind === 'injection' &&
-    message.origin.variant === TODO_LIST_REMINDER_VARIANT
+    message.origin?.kind === 'injection' && message.origin.variant === TODO_LIST_REMINDER_VARIANT
   );
 }
 

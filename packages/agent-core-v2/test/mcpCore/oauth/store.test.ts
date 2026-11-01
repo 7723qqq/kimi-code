@@ -1,5 +1,6 @@
-import type { OAuthClientInformationFull, OAuthTokens } from '@modelcontextprotocol/client';
 import { describe, expect, it } from 'bun:test';
+
+import type { OAuthClientInformationFull, OAuthTokens } from '@modelcontextprotocol/client';
 
 import { McpOAuthClientProvider } from '#/mcpCore/oauth/provider';
 import { McpOAuthService } from '#/mcpCore/oauth/service';

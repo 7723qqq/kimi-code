@@ -1,13 +1,18 @@
+import { afterEach, describe, expect, it, jest } from 'bun:test';
 import { spawn } from 'node:child_process';
-import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-
-import { afterEach, describe, expect, it, jest } from 'bun:test';
-import { setGlobal } from './helpers/stubs';
-import { waitForAssertion, waitUntil } from './helpers/waitFor';
 
 import {
   flushTelemetrySync,
@@ -43,6 +48,8 @@ import type {
   TelemetryTransport,
   TelemetryRegionResolution,
 } from '../src/types';
+import { setGlobal } from './helpers/stubs';
+import { waitForAssertion, waitUntil } from './helpers/waitFor';
 
 const tempDirs: string[] = [];
 
@@ -206,7 +213,11 @@ describe('TelemetryClient', () => {
     const onUnexpectedError = jest.fn();
     client.setUnexpectedErrorHandler(onUnexpectedError);
 
-    const properties = { nested: { a: 1 }, list: [1, 2], keep: 1 } as unknown as TelemetryProperties;
+    const properties = {
+      nested: { a: 1 },
+      list: [1, 2],
+      keep: 1,
+    } as unknown as TelemetryProperties;
     client.track('bad_props', properties);
     client.withContext({ sessionId: 'scoped' }).track('bad_props_scoped', properties);
     await client.flush();
@@ -726,8 +737,9 @@ describe('AsyncTransport', () => {
   });
 
   it('resolves a function endpoint per send, so an in-process switch needs no rebuild', async () => {
-    const fetchImpl = jest.fn(async (_url: string | URL | Request, _init?: RequestInit) =>
-      new Response('', { status: 200 }),
+    const fetchImpl = jest.fn(
+      async (_url: string | URL | Request, _init?: RequestInit) =>
+        new Response('', { status: 200 }),
     );
     let endpoint: string | undefined = 'https://cn.test/events';
     const homeDir = await tempHome();
@@ -1597,10 +1609,7 @@ describe('crash handler', () => {
     emitCrash(new DOMException('The operation was aborted.', 'AbortError'));
     emitCrash(Object.assign(new Error('aborted'), { name: 'AbortError' }));
     emitCrash(new DOMException('The operation was aborted.', 'AbortError'), 'unhandledRejection');
-    emitCrash(
-      Object.assign(new Error('aborted'), { name: 'AbortError' }),
-      'unhandledRejection',
-    );
+    emitCrash(Object.assign(new Error('aborted'), { name: 'AbortError' }), 'unhandledRejection');
 
     expect(transport.saved).toHaveLength(0);
   });

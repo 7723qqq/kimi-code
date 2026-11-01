@@ -1,4 +1,3 @@
-import type { FetchLike } from './types';
 import { readApiErrorMessage } from './api-error';
 import {
   KIMI_CODE_PLATFORM_ID,
@@ -9,6 +8,7 @@ import {
 import { CUSTOM_REGISTRY_MODEL_FIELDS, mergeRefreshedModelAlias } from './model-alias-merge';
 import { OPEN_PLATFORMS } from './open-platform';
 import { nonEmptyString } from './provider-credential';
+import type { FetchLike } from './types';
 import { isRecord, MAX_HTTP_RESPONSE_BYTES, readResponseBodyWithLimit } from './utils';
 
 export type { ManagedKimiConfigShape };
@@ -254,11 +254,15 @@ function toModelEntry(value: unknown): CustomRegistryModelEntry | undefined {
     }
     const migrationMarkdown = rawUpgrade['migration_markdown'];
     if (typeof migrationMarkdown !== 'string') {
-      throw new TypeError(`Invalid upgrade for model "${id}": migration_markdown must be a string.`);
+      throw new TypeError(
+        `Invalid upgrade for model "${id}": migration_markdown must be a string.`,
+      );
     }
     const retirementAt = rawUpgrade['retirement_at'];
     if (!isValidRetirementAt(retirementAt)) {
-      throw new Error(`Invalid upgrade for model "${id}": retirement_at must be an RFC3339 timestamp or null.`);
+      throw new Error(
+        `Invalid upgrade for model "${id}": retirement_at must be an RFC3339 timestamp or null.`,
+      );
     }
     entry.upgrade = {
       model: targetModel,

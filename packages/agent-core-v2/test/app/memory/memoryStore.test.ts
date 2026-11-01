@@ -1,10 +1,8 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { promises as fsp } from 'node:fs';
 import os from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-
-import { LifecycleScope } from '#/app/scopes';
 import {
   ScopeActivation,
   _clearScopedRegistryForTests,
@@ -13,11 +11,12 @@ import {
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { IMemoryStore, MemoryStore } from '#/app/memory/memoryStore';
 import type { MemoryEntry } from '#/app/memory/memoryPaths';
+import { IMemoryStore, MemoryStore } from '#/app/memory/memoryStore';
+import { LifecycleScope } from '#/app/scopes';
 
-import { stubBootstrap } from '../bootstrap/stubs';
 import { stubLog } from '../../_base/log/stubs';
+import { stubBootstrap } from '../bootstrap/stubs';
 
 function entry(path: string, body: string): MemoryEntry {
   return {

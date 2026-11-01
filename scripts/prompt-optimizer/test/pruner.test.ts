@@ -7,7 +7,10 @@ import type { BenchmarkCase, PromptSection } from '../src/types';
 
 const runner = { model: 'test-model', apiBaseUrl: '', apiKey: '', concurrency: 4 };
 
-function section(heading: string, content = `# ${heading}\n\nThe ${heading} rules.`): PromptSection {
+function section(
+  heading: string,
+  content = `# ${heading}\n\nThe ${heading} rules.`,
+): PromptSection {
   return { heading, content, tokens: 10, startLine: 1, endLine: 2 };
 }
 
@@ -38,7 +41,9 @@ function markerCaller(marker: string, improves = false): LLMCaller {
     const has = system.includes(marker);
     const good = improves ? !has : has;
     return {
-      content: good ? '`src/a.ts` Done.' : 'Sure! Would you like an explanation? ' + 'y'.repeat(300),
+      content: good
+        ? '`src/a.ts` Done.'
+        : 'Sure! Would you like an explanation? ' + 'y'.repeat(300),
       toolCalls: [],
       usage: { input: 100, output: good ? 20 : 350 },
       latencyMs: 1,

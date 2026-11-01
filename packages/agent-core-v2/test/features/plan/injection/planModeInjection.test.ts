@@ -1,21 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
-import { createFakeHostFs } from '../../../tools/fixtures/fake-exec';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import { runWillBeginStepHooks, type StubLoop } from '../../../agent/loop/stubs';
 import type { ContextMessage } from '#/agent/contextMemory/types';
+import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentPlanService } from '#/features/plan/plan';
-import {
-  createTestAgent,
-  execEnvServices,
-  type TestAgentContext,
-} from '../../../harness';
 
-async function enterPlan(
-  plan: IAgentPlanService,
-  id = 'test-plan',
-): Promise<string> {
+import { runWillBeginStepHooks, type StubLoop } from '../../../agent/loop/stubs';
+import { createTestAgent, execEnvServices, type TestAgentContext } from '../../../harness';
+import { createFakeHostFs } from '../../../tools/fixtures/fake-exec';
+
+async function enterPlan(plan: IAgentPlanService, id = 'test-plan'): Promise<string> {
   await plan.enter(id, false);
   const status = await plan.status();
   if (status === null) {
@@ -45,9 +39,7 @@ function planReminderMessages(context: IAgentContextMemoryService): readonly Con
 function lastPlanReminder(context: IAgentContextMemoryService): string {
   const message = planReminderMessages(context).at(-1);
   if (message === undefined) return '';
-  return message.content
-    .map((part) => (part.type === 'text' ? part.text : ''))
-    .join('');
+  return message.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
 }
 
 describe('PlanModeService dynamic injection content', () => {
@@ -58,13 +50,15 @@ describe('PlanModeService dynamic injection content', () => {
 
   beforeEach(async () => {
     readText = async () => '';
-    ctx = createTestAgent(execEnvServices({
-      hostFs: createFakeHostFs({
-        mkdir: mock().mockResolvedValue(undefined),
-        readText: (path: string) => readText(path),
-        writeText: mock(async () => undefined),
+    ctx = createTestAgent(
+      execEnvServices({
+        hostFs: createFakeHostFs({
+          mkdir: mock().mockResolvedValue(undefined),
+          readText: (path: string) => readText(path),
+          writeText: mock(async () => undefined),
+        }),
       }),
-    }));
+    );
     context = ctx.get(IAgentContextMemoryService);
     plan = ctx.get(IAgentPlanService);
     await ctx.restorePersisted();
@@ -149,13 +143,15 @@ describe('PlanModeService dynamic injection cadence', () => {
   let plan: IAgentPlanService;
 
   beforeEach(async () => {
-    ctx = createTestAgent(execEnvServices({
-      hostFs: createFakeHostFs({
-        mkdir: mock().mockResolvedValue(undefined),
-        readText: async () => '',
-        writeText: mock(async () => undefined),
+    ctx = createTestAgent(
+      execEnvServices({
+        hostFs: createFakeHostFs({
+          mkdir: mock().mockResolvedValue(undefined),
+          readText: async () => '',
+          writeText: mock(async () => undefined),
+        }),
       }),
-    }));
+    );
     context = ctx.get(IAgentContextMemoryService);
     plan = ctx.get(IAgentPlanService);
     await ctx.restorePersisted();

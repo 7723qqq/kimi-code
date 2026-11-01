@@ -8,7 +8,6 @@
  * contract; in-process types use camelCase per TS convention.
  */
 
-
 /**
  * The part of `fetch` this package calls. Narrower than `typeof fetch` on
  * purpose: under Bun that type also carries `preconnect`, so a test double or

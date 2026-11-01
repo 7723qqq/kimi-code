@@ -1,9 +1,8 @@
+import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import { FileMentionProvider } from '#/tui/components/editor/file-mention-provider';
 
@@ -871,14 +870,7 @@ describe('FileMentionProvider', () => {
         HELP_COMMAND,
       ],
     ) {
-      return new FileMentionProvider(
-        commands,
-        workDir,
-        NO_FD,
-        [],
-        () => 'prompt',
-        SKILL_NAMES,
-      );
+      return new FileMentionProvider(commands, workDir, NO_FD, [], () => 'prompt', SKILL_NAMES);
     }
 
     it('offers skill-only suggestions for a `/` after whitespace mid-input', async () => {

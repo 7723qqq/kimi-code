@@ -1,11 +1,15 @@
+import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
+
 import { type ProviderConfig } from '@moonshot-ai/kimi-code-sdk';
 import chalk from 'chalk';
-import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
-import { darkColors } from '#/tui/theme/colors';
 
 import { DEFAULT_OAUTH_PROVIDER_NAME } from '#/constant/app';
 import { t } from '#/i18n';
-import { ProviderManagerComponent, type ProviderManagerOptions } from '#/tui/components/dialogs/provider-manager';
+import {
+  ProviderManagerComponent,
+  type ProviderManagerOptions,
+} from '#/tui/components/dialogs/provider-manager';
+import { darkColors } from '#/tui/theme/colors';
 import { mouse, pastSettlingWindow } from '#test/helpers/mouse';
 
 // Truecolor SGR fragments for the darkColors tokens we assert on

@@ -1,4 +1,3 @@
-
 // test/store.test.ts
 import { expect, test } from 'bun:test';
 
@@ -75,13 +74,21 @@ test('entries() yields only live entries', () => {
 test('ordered scan over keys (range)', () => {
   const s = new Store({ activeExpireIntervalMs: 0 });
   ['c', 'a', 'd', 'b'].forEach((k) => s.set(k, B(k)));
-  expect([...s.scan({ gte: 'b', lte: 'd' })].map((r) => r.key.toString())).toStrictEqual(['b', 'c', 'd']);
+  expect([...s.scan({ gte: 'b', lte: 'd' })].map((r) => r.key.toString())).toStrictEqual([
+    'b',
+    'c',
+    'd',
+  ]);
 });
 
 test('prefix scan over keys', () => {
   const s = new Store({ activeExpireIntervalMs: 0 });
   ['user:1', 'user:2', 'user:10', 'order:1'].forEach((k) => s.set(k, B(k)));
-  expect([...s.prefix('user:')].map((r) => r.key.toString())).toStrictEqual(['user:1', 'user:10', 'user:2']);
+  expect([...s.prefix('user:')].map((r) => r.key.toString())).toStrictEqual([
+    'user:1',
+    'user:10',
+    'user:2',
+  ]);
 });
 
 test('stores dt per record and exposes via getRecord', () => {

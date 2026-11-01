@@ -1,22 +1,30 @@
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { PassThrough, Readable } from 'node:stream';
 import type { Writable } from 'node:stream';
+
 import { join } from 'pathe';
-import type { IHostProcess } from '#/os/interface/hostProcess';
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { waitForAssertion } from '#test/helpers/waitFor';
-import { AgentTaskPersistence, IAgentTaskService } from '#/agent/task/task';
+
 import { IAgentLoopService } from '#/agent/loop/loop';
+import { AgentTaskPersistence, IAgentTaskService } from '#/agent/task/task';
 import { TERMINAL_STATUSES } from '#/agent/task/types';
-import { TaskOutputTool } from '#/agent/tools/task/task-output/taskOutputTool';
 import { ProcessTask } from '#/agent/tools/os/bash/process-task';
+import { TaskOutputTool } from '#/agent/tools/task/task-output/taskOutputTool';
+import type { IHostProcess } from '#/os/interface/hostProcess';
 import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import type { StorageReadRange } from '#/persistence/interface/storage';
-import { createAgentTaskPersistence, type TaskServiceTestManager } from './stubs';
-import { taskServices, createTestAgent, homeDirServices, type TestAgentContext } from '../../harness';
+import { waitForAssertion } from '#test/helpers/waitFor';
+
+import {
+  taskServices,
+  createTestAgent,
+  homeDirServices,
+  type TestAgentContext,
+} from '../../harness';
 import { executeTool, type TestExecutableToolContext } from '../../tools/fixtures/execute-tool';
+import { createAgentTaskPersistence, type TaskServiceTestManager } from './stubs';
 
 interface TaskServiceFixture {
   readonly ctx: TestAgentContext;
@@ -44,10 +52,7 @@ function registerProcess(
   return manager.registerTask(new ProcessTask(proc, command, description));
 }
 
-function toolContext<Input>(
-  toolCallId: string,
-  args: Input,
-): TestExecutableToolContext<Input> {
+function toolContext<Input>(toolCallId: string, args: Input): TestExecutableToolContext<Input> {
   return {
     turnId: 0,
     toolCallId,
@@ -77,12 +82,14 @@ async function waitForTaskNotifications(
   ctx: TestAgentContext,
   manager: TaskServiceTestManager,
 ): Promise<void> {
-  const tasks = manager.list(false).filter(
-    (task) =>
-      TERMINAL_STATUSES.has(task.status) &&
-      task.detached !== false &&
-      task.terminalNotificationSuppressed !== true,
-  );
+  const tasks = manager
+    .list(false)
+    .filter(
+      (task) =>
+        TERMINAL_STATUSES.has(task.status) &&
+        task.detached !== false &&
+        task.terminalNotificationSuppressed !== true,
+    );
   if (tasks.length === 0) return;
 
   ctx.mockNextResponse({ type: 'text', text: 'notification drain ack' });
@@ -199,20 +206,17 @@ describe('AgentTaskService — readOutput / getOutputSnapshot', () => {
 
   it('reports a failed output write instead of claiming the log is complete', async () => {
     const stdout = new PassThrough();
-    const taskId = registerProcess(
-      manager,
-      { ...immediateProcess(0), stdout },
-      'echo',
-      'failing',
-    );
+    const taskId = registerProcess(manager, { ...immediateProcess(0), stdout }, 'echo', 'failing');
     stdout.write('live\n');
     await waitForOutput(manager, taskId, 'live');
 
     await persistence.appendTaskOutput(taskId, 'live\n');
 
-    const owned = (manager as unknown as {
-      persistence: { appendTaskOutput(id: string, chunk: string): Promise<void> };
-    }).persistence;
+    const owned = (
+      manager as unknown as {
+        persistence: { appendTaskOutput(id: string, chunk: string): Promise<void> };
+      }
+    ).persistence;
     const original = owned.appendTaskOutput.bind(owned);
     owned.appendTaskOutput = async () => {
       throw new Error('disk full');
@@ -235,12 +239,7 @@ describe('AgentTaskService — readOutput / getOutputSnapshot', () => {
   });
 
   it('readOutput returns live ring-buffer content while task is in memory', async () => {
-    const taskId = registerProcess(
-      manager,
-      immediateProcess(0, 'live content\n'),
-      'echo',
-      'demo',
-    );
+    const taskId = registerProcess(manager, immediateProcess(0, 'live content\n'), 'echo', 'demo');
 
     await waitForOutput(manager, taskId, 'live content');
 
@@ -361,13 +360,10 @@ describe('AgentTaskPersistence — ranged tail read', () => {
     rootDir = mkdtempSync(join(tmpdir(), 'bpm-range-'));
     storage = new RecordingFileStorageService(rootDir);
     const docs = new JsonAtomicDocumentStore(storage);
-    primary = new AgentTaskPersistence(
-      join(rootDir, PRIMARY_SCOPE),
-      PRIMARY_SCOPE,
-      docs,
-      storage,
-      { dir: join(rootDir, FALLBACK_SCOPE), scope: FALLBACK_SCOPE },
-    );
+    primary = new AgentTaskPersistence(join(rootDir, PRIMARY_SCOPE), PRIMARY_SCOPE, docs, storage, {
+      dir: join(rootDir, FALLBACK_SCOPE),
+      scope: FALLBACK_SCOPE,
+    });
     fallback = new AgentTaskPersistence(
       join(rootDir, FALLBACK_SCOPE),
       FALLBACK_SCOPE,
@@ -437,9 +433,7 @@ describe('AgentTaskPersistence — ranged tail read', () => {
 
     const snapshot = await primary.readTaskOutputSnapshot(TASK_ID, 100);
 
-    expect(snapshot?.outputPath).toBe(
-      join(rootDir, PRIMARY_SCOPE, 'tasks', TASK_ID, 'output.log'),
-    );
+    expect(snapshot?.outputPath).toBe(join(rootDir, PRIMARY_SCOPE, 'tasks', TASK_ID, 'output.log'));
     expect(snapshot?.preview).toBe('local output');
   });
 

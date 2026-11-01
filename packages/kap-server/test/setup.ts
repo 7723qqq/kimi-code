@@ -1,3 +1,4 @@
+import { afterAll, afterEach } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,7 +8,6 @@ import {
   drainSessionIndexMirror,
   IModelCatalog,
 } from '@moonshot-ai/agent-core-v2';
-import { afterAll, afterEach } from 'bun:test';
 
 import { startServer } from '../src/start';
 import { fakeModelCatalog } from './helpers/fakeModelCatalog';
@@ -51,5 +51,7 @@ afterEach(async () => {
 
 afterAll(async () => {
   await sharedServerHandle.close();
-  await rm(sharedHome, { recursive: true, force: true, maxRetries: 25, retryDelay: 100 }).catch(() => undefined);
+  await rm(sharedHome, { recursive: true, force: true, maxRetries: 25, retryDelay: 100 }).catch(
+    () => undefined,
+  );
 });

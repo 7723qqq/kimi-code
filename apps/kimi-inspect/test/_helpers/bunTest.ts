@@ -50,7 +50,8 @@ export async function waitUntil<T>(
       observed = false;
     }
     if (Date.now() >= deadline) {
-      if (observed) throw new Error(`waitUntil timed out after ${timeoutMs}ms with ${String(last)}`);
+      if (observed)
+        throw new Error(`waitUntil timed out after ${timeoutMs}ms with ${String(last)}`);
       throw lastError;
     }
     await new Promise((resolve) => setTimeout(resolve, intervalMs));

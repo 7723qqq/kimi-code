@@ -110,8 +110,7 @@ export class AgentModeMutexService extends Disposable implements IAgentModeMutex
       if (previous !== null) {
         try {
           await this.enter(previous);
-        } catch {
-        }
+        } catch {}
       }
       throw error;
     }

@@ -1,8 +1,7 @@
+import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { afterEach, describe, expect, it } from 'bun:test';
 
 import { classify, rotateServerToken, serverTokenPath } from '../src/index';
 

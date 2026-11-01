@@ -1,15 +1,15 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Writable } from 'node:stream';
 
 import { pino, type Logger } from 'pino';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { removeTempHome } from './helpers/tempHome';
 
 import { extractEnvelopeCode } from '../src/requestLogging';
 import { type RunningServer, startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { removeTempHome } from './helpers/tempHome';
 
 function captureLogger(): { logger: Logger; lines: string[] } {
   const lines: string[] = [];

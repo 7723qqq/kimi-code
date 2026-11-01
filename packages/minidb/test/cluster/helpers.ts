@@ -46,11 +46,7 @@ export function runWorker(
   opts: { timeoutMs?: number } = {},
 ): Promise<WorkerResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(
-      process.execPath,
-      [WORKER, ...args],
-      { stdio: ['ignore', 'pipe', 'pipe'] },
-    );
+    const child = spawn(process.execPath, [WORKER, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (d) => (stdout += d));

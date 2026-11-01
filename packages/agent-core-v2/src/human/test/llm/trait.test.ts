@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
-import { setEnv, restoreEnvs } from '../../../../test/helpers/stubs';
 
 import { classifyKimiQuotaError } from '#/llm-kimi/errors';
 import { KimiFiles, kimiFilesBaseUrl } from '#/llm-kimi/files';
@@ -46,6 +45,8 @@ import {
 } from '#/llm/requester/bases/tool-call-id';
 import type { LlmClientContext, LlmRequester, LlmRequestEvent } from '#/llm/requester/requester';
 import type { TokenUsage } from '#/llm/usage';
+
+import { setEnv, restoreEnvs } from '../../../../test/helpers/stubs';
 
 const model: LlmModel = {
   provider: 'test',
@@ -1950,7 +1951,12 @@ describe('google genai base', () => {
     );
 
     expect(usages).toEqual([
-      expect.objectContaining({ inputOther: 6, output: 5, inputCacheRead: 4, inputCacheCreation: 0 }),
+      expect.objectContaining({
+        inputOther: 6,
+        output: 5,
+        inputCacheRead: 4,
+        inputCacheCreation: 0,
+      }),
     ]);
   });
 

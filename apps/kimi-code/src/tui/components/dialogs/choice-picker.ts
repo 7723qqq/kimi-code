@@ -19,17 +19,13 @@ import {
 } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
+import { Markdown } from '#/tui/components/markdown/markdown';
 import { getCurrentMark, SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme, type ColorToken } from '#/tui/theme';
 import { createMarkdownTheme } from '#/tui/theme/pi-tui-theme';
 import { createMarkdownOptions } from '#/tui/utils/markdown-options';
-import { Markdown } from '#/tui/components/markdown/markdown';
+import { ListMouseRouter, type ListRowRegion, searchableListCursor } from '#/tui/utils/mouse';
 import { printableChar } from '#/tui/utils/printable-key';
-import {
-  ListMouseRouter,
-  type ListRowRegion,
-  searchableListCursor,
-} from '#/tui/utils/mouse';
 import { SearchableList } from '#/tui/utils/searchable-list';
 import { wrapText as wrapDescription } from '#/tui/utils/wrap-text';
 

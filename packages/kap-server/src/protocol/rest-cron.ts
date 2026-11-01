@@ -17,11 +17,13 @@ export const listCronTasksResponseSchema = z.object({
 });
 export type ListCronTasksResponse = z.infer<typeof listCronTasksResponseSchema>;
 
-export const createCronTaskRequestSchema = z.object({
-  cron: z.string().min(1),
-  prompt: z.string().min(1),
-  recurring: z.boolean().optional(),
-}).strict();
+export const createCronTaskRequestSchema = z
+  .object({
+    cron: z.string().min(1),
+    prompt: z.string().min(1),
+    recurring: z.boolean().optional(),
+  })
+  .strict();
 export type CreateCronTaskRequest = z.infer<typeof createCronTaskRequestSchema>;
 
 export const createCronTaskResponseSchema = cronTaskSchema;

@@ -3,11 +3,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 
 import { toPosixPath, listFiles, sha256 } from './fs-utils.mjs';
-import {
-  WEB_ASSET_MANIFEST_VERSION,
-  buildWebAssetKey,
-  buildWebManifestKey,
-} from './manifest.mjs';
+import { WEB_ASSET_MANIFEST_VERSION, buildWebAssetKey, buildWebManifestKey } from './manifest.mjs';
 
 export { WEB_ASSET_MANIFEST_VERSION };
 
@@ -35,14 +31,7 @@ function webAssetKey(target, relativePath) {
   return buildWebAssetKey(target, relativePath);
 }
 
-async function collectAssetRoot({
-  appRoot,
-  target,
-  root,
-  requiredFile,
-  missingMessage,
-  assetKey,
-}) {
+async function collectAssetRoot({ appRoot, target, root, requiredFile, missingMessage, assetKey }) {
   const assetRoot = resolve(appRoot, ...root.split('/'));
   await assertBuiltAssetRoot({ assetRoot, requiredFile, message: missingMessage });
 

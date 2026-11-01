@@ -1,19 +1,15 @@
-import type { TowerMission, TowerRosterEntry } from '#/features/tower/protocol/index';
 import { userCancellationReason } from '#/_base/utils/abort';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentTaskService } from '#/agent/task/task';
+import type { TowerMission, TowerRosterEntry } from '#/features/tower/protocol/index';
 import { ITowerRateLimitService } from '#/features/tower/towerRateLimit';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import type { ToolExecution } from '#/tool/toolContract';
 
 import { runTowerTool } from '../support';
+import { ITowerStatusTool, TowerStatusToolInputSchema, type TowerStatusToolInput } from './status';
 import DESCRIPTION from './status.md?raw';
-import {
-  ITowerStatusTool,
-  TowerStatusToolInputSchema,
-  type TowerStatusToolInput,
-} from './status';
 import {
   readTowerStatus,
   type TowerStatusConcurrency,
@@ -146,10 +142,7 @@ function renderRecoveredAtWarning(state: TowerStatusState): string[] {
   ];
 }
 
-function renderReviewGate(
-  state: TowerStatusState,
-  gate: readonly TowerStatusGate[],
-): string[] {
+function renderReviewGate(state: TowerStatusState, gate: readonly TowerStatusGate[]): string[] {
   const pending = state.missions.filter(
     (mission) => mission.status !== 'merged' && mission.status !== 'abandoned',
   );

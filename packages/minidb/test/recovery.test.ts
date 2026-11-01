@@ -1,10 +1,9 @@
+// test/recovery.test.ts
+import { expect, afterEach, test } from 'bun:test';
 import type { PathLike } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-
-// test/recovery.test.ts
-import { expect, afterEach, test } from 'bun:test';
 
 import { HEADER_SIZE, CRC_SIZE, encodeFrame, TYPE_SET } from '../src/codec.js';
 import { MiniDb } from '../src/index.js';
@@ -97,9 +96,11 @@ test('resync: multiple corrupt frames are each skipped', async () => {
 
     const db = await MiniDb.open({ dir, valueCodec: 'string' });
     expect(db.recoveryInfo.corruptRanges.length).toBe(2);
-    expect([
+    expect(
+      [
         ...new Set(['k0', 'k1', 'k2', 'k3', 'k4'].filter((k) => db.get(k) !== undefined)),
-      ].toSorted()).toStrictEqual(['k0', 'k2', 'k4']);
+      ].toSorted(),
+    ).toStrictEqual(['k0', 'k2', 'k4']);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -226,11 +227,19 @@ for (const valueMode of ['memory', 'disk'] as const) {
         expect(reader.size).toBe(ref.size);
         expect(reader.scan()).toStrictEqual(ref.scan());
         expect(reader.dtColumns()).toStrictEqual(ref.dtColumns());
-        expect(reader.findEq('c', 'c3').toSorted(sortByKey)).toStrictEqual(ref.findEq('c', 'c3').toSorted(sortByKey));
+        expect(reader.findEq('c', 'c3').toSorted(sortByKey)).toStrictEqual(
+          ref.findEq('c', 'c3').toSorted(sortByKey),
+        );
         expect(reader.findEq('u', 'u1700')).toStrictEqual(ref.findEq('u', 'u1700'));
-        expect(reader.findRange('n', { min: 100, max: 500 }).toSorted(sortByKey)).toStrictEqual(ref.findRange('n', { min: 100, max: 500 }).toSorted(sortByKey));
-        expect(reader.dtRange('created', { gte: 1700000009000, limit: 20 })).toStrictEqual(ref.dtRange('created', { gte: 1700000009000, limit: 20 }));
-        expect(reader.compoundRange('cg', 'c2', { limit: 25 })).toStrictEqual(ref.compoundRange('cg', 'c2', { limit: 25 }));
+        expect(reader.findRange('n', { min: 100, max: 500 }).toSorted(sortByKey)).toStrictEqual(
+          ref.findRange('n', { min: 100, max: 500 }).toSorted(sortByKey),
+        );
+        expect(reader.dtRange('created', { gte: 1700000009000, limit: 20 })).toStrictEqual(
+          ref.dtRange('created', { gte: 1700000009000, limit: 20 }),
+        );
+        expect(reader.compoundRange('cg', 'c2', { limit: 25 })).toStrictEqual(
+          ref.compoundRange('cg', 'c2', { limit: 25 }),
+        );
         expect(reader.search('t', 'alpha')).toStrictEqual(ref.search('t', 'alpha'));
         expect(reader.search('t', 'changed')).toStrictEqual(ref.search('t', 'changed'));
         expect(reader.search('t', 'batch')).toStrictEqual(ref.search('t', 'batch'));
@@ -312,8 +321,14 @@ test('catchUpFromWal: an in-place truncate + rewrite below the watermark is decl
     const reader = await MiniDb.open({ dir, valueCodec: 'json', readOnly: true });
     const ri = reader.recoveryInfo!;
     const walPath = path.join(dir, 'db.wal');
-    expect(ri.walScanEnd > 4096, 'the scanned WAL is longer than the fingerprint window').toBeTruthy();
-    expect(ri.walScanTail, 'recovery anchors the replica on a WAL content fingerprint').toBeTruthy();
+    expect(
+      ri.walScanEnd > 4096,
+      'the scanned WAL is longer than the fingerprint window',
+    ).toBeTruthy();
+    expect(
+      ri.walScanTail,
+      'recovery anchors the replica on a WAL content fingerprint',
+    ).toBeTruthy();
 
     // The writer's WAL is poisoned (e.g. ENOSPC mid-batch): recoverWalInPlace
     // truncates db.wal to the poison's failedAtOffset ON THE SAME INODE, and the
@@ -472,7 +487,10 @@ test(
       await probe;
 
       expect(res && res.appliedFrames === 8000).toBeTruthy();
-      expect(loopTurns >= 3, `expected the sliced apply to yield repeatedly, observed ${loopTurns} loop turn(s)`).toBeTruthy();
+      expect(
+        loopTurns >= 3,
+        `expected the sliced apply to yield repeatedly, observed ${loopTurns} loop turn(s)`,
+      ).toBeTruthy();
       expect(reader.size).toBe(8100);
       expect(reader.search('t', 'beta').length > 0).toBeTruthy();
 
@@ -510,22 +528,14 @@ function mockFsSyncForWal(
   const realOpenSync = fsSync.openSync;
   let statCalls = 0;
   let openCalls = 0;
-  patch(
-    fsSync,
-    'statSync',
-    ((p: unknown, ...args: unknown[]) => {
-      if (String(p) === walPath) hooks.onStatSync?.(++statCalls, real);
-      return (realStatSync as (...a: unknown[]) => unknown)(p, ...args);
-    }) as typeof fsSync.statSync,
-  );
-  patch(
-    fsSync,
-    'openSync',
-    ((p: unknown, ...args: unknown[]) => {
-      if (String(p) === walPath) hooks.onOpenSync?.(++openCalls, real);
-      return (realOpenSync as (...a: unknown[]) => unknown)(p, ...args);
-    }) as typeof fsSync.openSync,
-  );
+  patch(fsSync, 'statSync', ((p: unknown, ...args: unknown[]) => {
+    if (String(p) === walPath) hooks.onStatSync?.(++statCalls, real);
+    return (realStatSync as (...a: unknown[]) => unknown)(p, ...args);
+  }) as typeof fsSync.statSync);
+  patch(fsSync, 'openSync', ((p: unknown, ...args: unknown[]) => {
+    if (String(p) === walPath) hooks.onOpenSync?.(++openCalls, real);
+    return (realOpenSync as (...a: unknown[]) => unknown)(p, ...args);
+  }) as typeof fsSync.openSync);
 }
 
 /** Atomically replace db.wal with an identical-content copy on a NEW inode —
@@ -572,7 +582,10 @@ test.skipIf(process.platform === 'win32')(
         indexGenerations: false,
       });
       expect(swaps).toBe(1);
-      expect(reader.recoveryInfo!.generationRetries, 'the swapped inode forced exactly one retry').toBe(1);
+      expect(
+        reader.recoveryInfo!.generationRetries,
+        'the swapped inode forced exactly one retry',
+      ).toBe(1);
       expect(reader.size).toBe(50);
       expect(reader.get('k0')).toBe('v0');
       expect(reader.get('k49')).toBe('v49');
@@ -667,7 +680,9 @@ test('generation pairing: append-only WAL growth between the forensic rounds doe
       readOnly: true,
       indexGenerations: false,
     });
-    expect(reader.recoveryInfo!.generationRetries, 'append-only growth must not be retried').toBe(0);
+    expect(reader.recoveryInfo!.generationRetries, 'append-only growth must not be retried').toBe(
+      0,
+    );
     expect(reader.size).toBe(50);
     // The late frame landed after the scan: outside the recovered view, to be
     // picked up by a later catch-up instead.
@@ -714,7 +729,10 @@ test('generation pairing (disk mode): a ValueReader attach to the wrong inode re
       indexGenerations: false,
     });
     expect(swaps).toBe(1);
-    expect(reader.recoveryInfo!.generationRetries, 'the mismatched attach forced exactly one retry').toBe(1);
+    expect(
+      reader.recoveryInfo!.generationRetries,
+      'the mismatched attach forced exactly one retry',
+    ).toBe(1);
     // Every pointer reads back the right bytes through the correctly-attached
     // reader.
     expect(reader.size).toBe(50);
@@ -773,7 +791,10 @@ test('generation pairing (disk mode): a failing ValueReader open() closes the pa
     } finally {
       ValueReader.prototype.close = origClose;
     }
-    expect(closes, 'the partially attached ValueReader was closed instead of leaking its snapshot fd').toBe(1);
+    expect(
+      closes,
+      'the partially attached ValueReader was closed instead of leaking its snapshot fd',
+    ).toBe(1);
 
     // The injected failure was transient: a clean open recovers everything
     // (with the real node:fs restored, so no further openSync throws).
@@ -931,21 +952,25 @@ test('async scanner: results match the sync scanner on clean and corrupt files',
       } finally {
         fsSync.closeSync(fd2);
       }
-      expect(asyncRes.frames.map((f) => [
+      expect(
+        asyncRes.frames.map((f) => [
           f.type,
           f.frameOff,
           f.valueOff,
           f.valLen,
           f.frameLen,
           f.key.toString('binary'),
-        ])).toStrictEqual(syncRes.frames.map((f) => [
+        ]),
+      ).toStrictEqual(
+        syncRes.frames.map((f) => [
           f.type,
           f.frameOff,
           f.valueOff,
           f.valLen,
           f.frameLen,
           f.key.toString('binary'),
-        ]));
+        ]),
+      );
       expect(asyncRes.corruptRanges).toStrictEqual(syncRes.corruptRanges);
       expect(asyncRes.eofOffset).toBe(syncRes.eofOffset);
     }
@@ -980,7 +1005,9 @@ test('async scanner: frames larger than the read window scan identically (chunke
       fsSync.closeSync(fd2);
     }
     expect(asyncRes.frames.length).toBe(3);
-    expect(asyncRes.frames.map((f) => [f.frameOff, f.valLen, f.frameLen])).toStrictEqual(syncRes.frames.map((f) => [f.frameOff, f.valLen, f.frameLen]));
+    expect(asyncRes.frames.map((f) => [f.frameOff, f.valLen, f.frameLen])).toStrictEqual(
+      syncRes.frames.map((f) => [f.frameOff, f.valLen, f.frameLen]),
+    );
     expect(asyncRes.eofOffset).toBe(syncRes.eofOffset);
     expect(asyncRes.corruptRanges).toStrictEqual([]);
   } finally {
@@ -1119,7 +1146,12 @@ test('a generation WAL delta of large batch frames replays every op through the 
       expect(db.get('b1999')).toStrictEqual({ n: 1999 });
       const status = db.lifecycleStatus();
       expect(status.state).toBe('ready');
-      expect(status.path).toStrictEqual(['no-generation', 'generation-load', 'wal-catch-up', 'ready']);
+      expect(status.path).toStrictEqual([
+        'no-generation',
+        'generation-load',
+        'wal-catch-up',
+        'ready',
+      ]);
       expect(status.phases.walApplyMs > 0).toBeTruthy();
     } finally {
       await db.close();

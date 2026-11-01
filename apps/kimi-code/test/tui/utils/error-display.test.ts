@@ -20,7 +20,9 @@ describe('localized error display', () => {
   });
 
   it('renders the localized title, action, and the raw message as detail', () => {
-    expect(formatLocalizedError({ code: 'goal.not_found', message: 'Goal not found: no goal' })).toBe(
+    expect(
+      formatLocalizedError({ code: 'goal.not_found', message: 'Goal not found: no goal' }),
+    ).toBe(
       '[goal.not_found] No goal found\n' +
         'Start a goal with "/goal <objective>" first.\n' +
         'Goal not found: no goal',

@@ -59,10 +59,9 @@ export async function fetchTranscriptAttachment(
     headers['authorization'] = `Bearer ${opts.token}`;
   }
   const doFetch = opts.fetchImpl ?? fetch;
-  const res = await doFetch(
-    transcriptAttachmentUrl(opts.baseUrl, opts.sessionId, opts.source),
-    { headers },
-  );
+  const res = await doFetch(transcriptAttachmentUrl(opts.baseUrl, opts.sessionId, opts.source), {
+    headers,
+  });
   if (!res.ok) throw new Error(`attachment download failed (${res.status})`);
   return res.blob();
 }

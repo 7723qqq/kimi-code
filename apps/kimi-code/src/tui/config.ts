@@ -250,13 +250,19 @@ export async function saveTuiConfig(
     }
   }
   await mkdir(dirname(filePath), { recursive: true });
-  await writeFile(filePath, renderTuiConfig({
-    ...config,
-    disableFeedbackSurvey: legacyValue,
-  }), 'utf-8');
+  await writeFile(
+    filePath,
+    renderTuiConfig({
+      ...config,
+      disableFeedbackSurvey: legacyValue,
+    }),
+    'utf-8',
+  );
 }
 
-export async function removeLegacySurveySetting(filePath: string = getTuiConfigPath()): Promise<void> {
+export async function removeLegacySurveySetting(
+  filePath: string = getTuiConfigPath(),
+): Promise<void> {
   const lines = (await readFile(filePath, 'utf-8')).split('\n');
   let inTable = false;
   let removed = false;

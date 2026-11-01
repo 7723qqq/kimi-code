@@ -22,9 +22,8 @@
 import type { PathLike } from 'node:fs';
 import fs from 'node:fs/promises';
 const realFs: typeof fs = { ...fs };
-import path from 'node:path';
-
 import { expect, afterEach, test } from 'bun:test';
+import path from 'node:path';
 
 import { rmrf, tmpDir } from './helpers.js';
 
@@ -122,17 +121,20 @@ function assertAtomicOrder(file: string, dir: string): void {
   expect(openAt >= 0, `no tmp open was recorded for ${file}: ${seq.join(' | ')}`).toBeTruthy();
   const tmp = seq[openAt]!.slice('open:'.length);
   const dirSyncAt = seq.findIndex((e, i) => i > openAt && e === `dsync:${dir}`);
-  expect(dirSyncAt > openAt, `no directory fsync followed the ${file} rename: ${seq.join(' | ')}`).toBeTruthy();
+  expect(
+    dirSyncAt > openAt,
+    `no directory fsync followed the ${file} rename: ${seq.join(' | ')}`,
+  ).toBeTruthy();
   expect(seq.slice(openAt, dirSyncAt + 1), `wrong syscall order for ${file}`).toStrictEqual([
-      `open:${tmp}`,
-      `writeFile:${tmp}`,
-      `sync:${tmp}`,
-      `close:${tmp}`,
-      `rename:${tmp}->${path.join(dir, file)}`,
-      `rm:${tmp}`,
-      `dopen:${dir}`,
-      `dsync:${dir}`,
-    ]);
+    `open:${tmp}`,
+    `writeFile:${tmp}`,
+    `sync:${tmp}`,
+    `close:${tmp}`,
+    `rename:${tmp}->${path.join(dir, file)}`,
+    `rm:${tmp}`,
+    `dopen:${dir}`,
+    `dsync:${dir}`,
+  ]);
 }
 
 test('writeFileAtomic fsyncs the tmp content before renaming and fsyncs the dir last', async () => {
@@ -148,10 +150,16 @@ test('writeFileAtomic fsyncs the tmp content before renaming and fsyncs the dir 
 
   assertAtomicOrder('db.indexes.json', dir);
   expect(writes.length).toBe(1);
-  expect(writes[0]!.file.startsWith(`${file}.tmp-`), `unexpected tmp name ${writes[0]!.file}`).toBeTruthy();
+  expect(
+    writes[0]!.file.startsWith(`${file}.tmp-`),
+    `unexpected tmp name ${writes[0]!.file}`,
+  ).toBeTruthy();
   expect(writes[0]!.data, 'the payload reaches the tmp file byte-for-byte').toBe(payload);
   expect(tmpEncodings[0], 'the tmp content is written as explicit utf8').toBe('utf8');
-  expect(seq.some((e) => e.startsWith('writeFile-unsynced:')), 'fs.writeFile(tmp) would bypass the content fsync').toBe(false);
+  expect(
+    seq.some((e) => e.startsWith('writeFile-unsynced:')),
+    'fs.writeFile(tmp) would bypass the content fsync',
+  ).toBe(false);
 });
 
 test('every definition sidecar write is fsynced before its rename (real filesystem)', async () => {

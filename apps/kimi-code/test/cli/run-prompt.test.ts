@@ -9,7 +9,6 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { createFakeClock } from '#test/helpers/fake-clock';
 
 import { runPrompt } from '#/cli/run-prompt';
 import {
@@ -19,6 +18,7 @@ import {
   signalExitCode,
   raceWithTimeout,
 } from '#/cli/run-prompt';
+import { createFakeClock } from '#test/helpers/fake-clock';
 
 const mocks = (() => ({
   runV2Print: mock(async () => {}),

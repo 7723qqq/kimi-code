@@ -1,9 +1,9 @@
-import { visibleWidth } from '@moonshot-ai/pi-tui';
-import chalk from 'chalk';
 import { afterAll, beforeAll, describe, expect, it, mock, type Mock } from 'bun:test';
 
+import { visibleWidth } from '@moonshot-ai/pi-tui';
+import chalk from 'chalk';
+
 import { t } from '#/i18n';
-import { mouse } from '#test/helpers/mouse';
 import {
   ProviderFormDialogComponent,
   type ProviderFormDialogOptions,
@@ -16,6 +16,7 @@ import {
   type ProviderFormModelRow,
   type ProviderFormValue,
 } from '#/utils/provider-form';
+import { mouse } from '#test/helpers/mouse';
 
 // CSI color/reset sequences plus pi-tui's IME cursor marker.
 const ANSI = /\u001B\[[0-9;]*m|\u001B_pi:c\u0007/g;

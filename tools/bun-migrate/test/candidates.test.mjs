@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'bun:test';
 /**
  * Candidates added after probing what was still uncovered.
  *
@@ -8,10 +9,8 @@
 import { createHash } from 'node:crypto';
 import { zstdCompressSync, zstdDecompressSync } from 'node:zlib';
 
-import { describe, expect, it } from 'bun:test';
-
-import { pairingFor } from '../src/pairings.mjs';
 import { replacementFor } from '../src/packages-map.mjs';
+import { pairingFor } from '../src/pairings.mjs';
 
 describe('zstd', () => {
   const SIZES = [0, 1, 100, 5_000, 100_000];

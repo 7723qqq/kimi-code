@@ -1,6 +1,7 @@
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+
 import { ErrorCodes, KimiError } from '@moonshot-ai/kimi-code-sdk';
 import * as sdkModule from '@moonshot-ai/kimi-code-sdk';
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 
 import * as optionsModule from '#/cli/options';
 import { validateOptions } from '#/cli/options';
@@ -327,11 +328,9 @@ describe('main entry command handling', () => {
     mocks.runUpdatePreflight.mockResolvedValue('continue');
     mocks.runPrompt.mockRejectedValue(new Error('provider failed'));
     mocks.flushDiagnosticLogs.mockImplementation(() => new Promise(() => {}));
-    const exitSpy = spyOn(process, 'exit').mockImplementation(
-      (code?: string | number | null) => {
-        throw new ExitCalled(Number(code ?? 0));
-      },
-    );
+    const exitSpy = spyOn(process, 'exit').mockImplementation((code?: string | number | null) => {
+      throw new ExitCalled(Number(code ?? 0));
+    });
 
     try {
       main();

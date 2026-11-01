@@ -96,8 +96,14 @@ export const contextMemoryKey = defineState('contextMemory', (): ContextMessage[
       return resetFold(s.slice(0, cut.cutIndex)) as ContextMessage[];
     },
   })
-  .on(ContextAppendMessage, (s, e, ctx) => foldAppendMessage(s, e.message, ctx.silent) as ContextMessage[])
-  .on(ContextAppendLoopEvent, (s, e, ctx) => foldLoopEvent(s, e.event, ctx.silent) as ContextMessage[])
+  .on(
+    ContextAppendMessage,
+    (s, e, ctx) => foldAppendMessage(s, e.message, ctx.silent) as ContextMessage[],
+  )
+  .on(
+    ContextAppendLoopEvent,
+    (s, e, ctx) => foldLoopEvent(s, e.event, ctx.silent) as ContextMessage[],
+  )
   .on(ContextClear, (s) => (s.length === 0 ? undefined : (resetFold([]) as ContextMessage[])))
   .on(ContextApplyCompaction, (s, e) => {
     const result = buildContextCompactionShape(

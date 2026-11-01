@@ -2,6 +2,7 @@ import { constants } from 'node:fs';
 import { chmod, copyFile, link, lstat, mkdir, open, unlink } from 'node:fs/promises';
 import { isAbsolute, join, resolve, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
 import type { ImageReference } from '#/types';
 
 const imageTypes = new Set(['image', 'input_image', 'local_image', 'image_url']);
@@ -46,11 +47,15 @@ function failure(code: string, message: string): Error & { code: string } {
 }
 
 function errorCode(error: unknown): string | undefined {
-  return error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : undefined;
+  return error instanceof Error && 'code' in error && typeof error.code === 'string'
+    ? error.code
+    : undefined;
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
 }
 
 function hash(bytes: Uint8Array): string {
@@ -69,7 +74,12 @@ async function verifyExisting(path: string, expectedHash: string): Promise<void>
   const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
     const existing = await handle.stat();
-    if (!existing.isFile() || existing.nlink !== 1 || existing.ino !== before.ino || existing.dev !== before.dev) {
+    if (
+      !existing.isFile() ||
+      existing.nlink !== 1 ||
+      existing.ino !== before.ino ||
+      existing.dev !== before.dev
+    ) {
       throw failure('IMAGE_FILE_UNSAFE', 'Existing attachment changed while opening it.');
     }
     const digest = new Bun.CryptoHasher('sha256');
@@ -80,7 +90,10 @@ async function verifyExisting(path: string, expectedHash: string): Promise<void>
       digest.update(buffer.subarray(0, bytesRead));
     }
     if (digest.digest('hex') !== expectedHash) {
-      throw failure('IMAGE_FILE_MISMATCH', 'Existing attachment bytes do not match the imported content.');
+      throw failure(
+        'IMAGE_FILE_MISMATCH',
+        'Existing attachment bytes do not match the imported content.',
+      );
     }
     await handle.chmod(0o600);
   } finally {
@@ -101,14 +114,19 @@ export async function writeAttachmentFile(
   const path = join(destination, filename);
   const previous = pendingWrites.get(path);
   let release: () => void = () => {};
-  const pending = new Promise<void>((done) => { release = done; });
+  const pending = new Promise<void>((done) => {
+    release = done;
+  });
   pendingWrites.set(path, pending);
   await previous;
   try {
     try {
       await mkdir(destination, { recursive: true, mode: 0o700 });
     } catch (error) {
-      throw failure('IMAGE_DIRECTORY_UNSAFE', `Cannot create attachment directory (${errorCode(error) ?? 'unknown error'}).`);
+      throw failure(
+        'IMAGE_DIRECTORY_UNSAFE',
+        `Cannot create attachment directory (${errorCode(error) ?? 'unknown error'}).`,
+      );
     }
     const directoryStat = await lstat(destination);
     if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) {
@@ -118,7 +136,11 @@ export async function writeAttachmentFile(
     const digest = new Bun.CryptoHasher('sha256');
     const chunks = bytes instanceof Uint8Array ? [bytes] : bytes;
     const temporaryPath = join(destination, `.import-${crypto.randomUUID()}.tmp`);
-    const handle = await open(temporaryPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+    const handle = await open(
+      temporaryPath,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+      0o600,
+    );
     try {
       try {
         for await (const chunk of chunks) {
@@ -152,38 +174,71 @@ export async function writeAttachmentFile(
 }
 
 function detectMime(bytes: Buffer): string {
-  if (bytes.length >= 24 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) && bytes.toString('ascii', 12, 16) === 'IHDR') return 'image/png';
-  if (bytes.length >= 4 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255) return 'image/jpeg';
-  if (bytes.length >= 13 && ['GIF87a', 'GIF89a'].includes(bytes.toString('ascii', 0, 6))) return 'image/gif';
-  if (bytes.length >= 20 && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP' && ['VP8 ', 'VP8L', 'VP8X'].includes(bytes.toString('ascii', 12, 16))) return 'image/webp';
-  throw failure('INVALID_IMAGE_SIGNATURE', 'Embedded image has no supported PNG, JPEG, GIF, or WebP signature.');
+  if (
+    bytes.length >= 24 &&
+    bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) &&
+    bytes.toString('ascii', 12, 16) === 'IHDR'
+  )
+    return 'image/png';
+  if (bytes.length >= 4 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255)
+    return 'image/jpeg';
+  if (bytes.length >= 13 && ['GIF87a', 'GIF89a'].includes(bytes.toString('ascii', 0, 6)))
+    return 'image/gif';
+  if (
+    bytes.length >= 20 &&
+    bytes.toString('ascii', 0, 4) === 'RIFF' &&
+    bytes.toString('ascii', 8, 12) === 'WEBP' &&
+    ['VP8 ', 'VP8L', 'VP8X'].includes(bytes.toString('ascii', 12, 16))
+  )
+    return 'image/webp';
+  throw failure(
+    'INVALID_IMAGE_SIGNATURE',
+    'Embedded image has no supported PNG, JPEG, GIF, or WebP signature.',
+  );
 }
 
-function decodeImage(payload: unknown, declaredMime: unknown): { bytes: Buffer; mimeType: string; sha256: string } {
-  if (typeof payload !== 'string' || payload.length === 0) throw failure('INVALID_IMAGE_BASE64', 'Embedded image payload is missing.');
-  if (declaredMime !== undefined && typeof declaredMime !== 'string') throw failure('INVALID_IMAGE_TYPE', 'Embedded image MIME type must be a string.');
+function decodeImage(
+  payload: unknown,
+  declaredMime: unknown,
+): { bytes: Buffer; mimeType: string; sha256: string } {
+  if (typeof payload !== 'string' || payload.length === 0)
+    throw failure('INVALID_IMAGE_BASE64', 'Embedded image payload is missing.');
+  if (declaredMime !== undefined && typeof declaredMime !== 'string')
+    throw failure('INVALID_IMAGE_TYPE', 'Embedded image MIME type must be a string.');
   let encoded = payload;
   let mimeType = declaredMime?.toLowerCase();
   if (/^data:/i.test(payload)) {
     const match = /^data:([^;,]+);base64,([\s\S]*)$/i.exec(payload);
-    if (!match?.[1] || match[2] === undefined) throw failure('INVALID_IMAGE_DATA_URL', 'Embedded image data URL must contain a MIME type and base64 data.');
-    if (mimeType && mimeType !== match[1].toLowerCase()) throw failure('INVALID_IMAGE_TYPE', 'Embedded image MIME declarations disagree.');
+    if (!match?.[1] || match[2] === undefined)
+      throw failure(
+        'INVALID_IMAGE_DATA_URL',
+        'Embedded image data URL must contain a MIME type and base64 data.',
+      );
+    if (mimeType && mimeType !== match[1].toLowerCase())
+      throw failure('INVALID_IMAGE_TYPE', 'Embedded image MIME declarations disagree.');
     mimeType = match[1].toLowerCase();
     encoded = match[2];
   }
-  if (mimeType && !formats.has(mimeType)) throw failure('INVALID_IMAGE_TYPE', `Unsupported embedded image MIME type: ${mimeType}.`);
+  if (mimeType && !formats.has(mimeType))
+    throw failure('INVALID_IMAGE_TYPE', `Unsupported embedded image MIME type: ${mimeType}.`);
   const compact = encoded.replaceAll(/[\t\n\r\f\v ]/g, '');
-  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(compact)) throw failure('INVALID_IMAGE_BASE64', 'Embedded image contains invalid base64 characters.');
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(compact))
+    throw failure('INVALID_IMAGE_BASE64', 'Embedded image contains invalid base64 characters.');
   const unpadded = compact.replace(/=+$/, '');
   const padding = compact.length - unpadded.length;
-  const expectedPadding = (4 - unpadded.length % 4) % 4;
-  if (unpadded.length % 4 === 1 || (padding && (compact.length % 4 !== 0 || padding !== expectedPadding))) {
+  const expectedPadding = (4 - (unpadded.length % 4)) % 4;
+  if (
+    unpadded.length % 4 === 1 ||
+    (padding && (compact.length % 4 !== 0 || padding !== expectedPadding))
+  ) {
     throw failure('INVALID_IMAGE_BASE64', 'Embedded image contains invalid base64 padding.');
   }
   const bytes = Buffer.from(compact, 'base64');
-  if (bytes.toString('base64').replace(/=+$/, '') !== unpadded) throw failure('INVALID_IMAGE_BASE64', 'Embedded image contains non-canonical base64 bits.');
+  if (bytes.toString('base64').replace(/=+$/, '') !== unpadded)
+    throw failure('INVALID_IMAGE_BASE64', 'Embedded image contains non-canonical base64 bits.');
   const detected = detectMime(bytes);
-  if (mimeType && mimeType !== detected) throw failure('INVALID_IMAGE_TYPE', 'Embedded image MIME type does not match its bytes.');
+  if (mimeType && mimeType !== detected)
+    throw failure('INVALID_IMAGE_TYPE', 'Embedded image MIME type does not match its bytes.');
   return { bytes, mimeType: detected, sha256: hash(bytes) };
 }
 
@@ -199,29 +254,54 @@ function imageSource(node: Record<string, unknown>): ImageSource {
   }
   const source = record(node['source']);
   if (source?.['type'] === 'base64') {
-    return { location: 'content', payload: source['data'], mimeType: source['media_type'] ?? source['mime_type'] ?? source['mimeType'], embedded: true };
+    return {
+      location: 'content',
+      payload: source['data'],
+      mimeType: source['media_type'] ?? source['mime_type'] ?? source['mimeType'],
+      embedded: true,
+    };
   }
   return {
     location: 'content',
-    reference: source?.['url'] ?? source?.['path'] ?? source?.['filePath'] ?? record(node['image_url'])?.['url'] ?? node['image_url'] ?? node['path'] ?? node['url'],
+    reference:
+      source?.['url'] ??
+      source?.['path'] ??
+      source?.['filePath'] ??
+      record(node['image_url'])?.['url'] ??
+      node['image_url'] ??
+      node['path'] ??
+      node['url'],
   };
 }
 
 function localReference(reference: string, cwd?: string): { path: string; unresolved?: boolean } {
   if (/^file:/i.test(reference)) {
-    try { return { path: fileURLToPath(reference) }; }
-    catch { return { path: reference, unresolved: true }; }
+    try {
+      return { path: fileURLToPath(reference) };
+    } catch {
+      return { path: reference, unresolved: true };
+    }
   }
   if (isAbsolute(reference) || win32.isAbsolute(reference)) return { path: reference };
   if (reference.startsWith('~')) return { path: reference, unresolved: true };
-  if (!cwd || (!isAbsolute(cwd) && !win32.isAbsolute(cwd))) return { path: reference, unresolved: true };
-  return { path: win32.isAbsolute(cwd) && !isAbsolute(cwd) ? win32.resolve(cwd, reference) : resolve(cwd, reference) };
+  if (!cwd || (!isAbsolute(cwd) && !win32.isAbsolute(cwd)))
+    return { path: reference, unresolved: true };
+  return {
+    path:
+      win32.isAbsolute(cwd) && !isAbsolute(cwd)
+        ? win32.resolve(cwd, reference)
+        : resolve(cwd, reference),
+  };
 }
 
 function referenceText(reference: ImageTarget): string {
-  const target = JSON.stringify(reference.path ?? reference.url).replaceAll('\u2028', '\\u2028').replaceAll('\u2029', '\\u2029');
-  if (reference.unresolved) return `[Imported image reference: ${target}; unresolved source reference; image has not been read]`;
-  if (reference.kind === 'url') return `[Imported image reference: ${target}; open this URL to view the image]`;
+  const target = JSON.stringify(reference.path ?? reference.url)
+    .replaceAll('\u2028', '\\u2028')
+    .replaceAll('\u2029', '\\u2029');
+  if (reference.unresolved)
+    return `[Imported image reference: ${target}; unresolved source reference; image has not been read]`;
+  if (reference.kind === 'url')
+    return `[Imported image reference: ${target}; open this URL to view the image]`;
   return `[Imported image reference: ${target}; read this file to view the image]`;
 }
 
@@ -241,11 +321,21 @@ export async function createImageStore({ directory, cwd }: { directory: string; 
 
   async function saveImage(payload: unknown, mimeType: unknown): Promise<ImageTarget> {
     const decoded = decodeImage(payload, mimeType);
-    const { path, reused } = await writeAttachmentFile(directory, `${decoded.sha256}.${formats.get(decoded.mimeType)}`, decoded.bytes);
+    const { path, reused } = await writeAttachmentFile(
+      directory,
+      `${decoded.sha256}.${formats.get(decoded.mimeType)}`,
+      decoded.bytes,
+    );
     counters.embeddedReferences++;
     counters.decodedBytes += decoded.bytes.length;
     counters[reused ? 'reusedFiles' : 'savedFiles']++;
-    return { kind: 'embedded', path, sha256: decoded.sha256, bytes: decoded.bytes.length, mimeType: decoded.mimeType };
+    return {
+      kind: 'embedded',
+      path,
+      sha256: decoded.sha256,
+      bytes: decoded.bytes.length,
+      mimeType: decoded.mimeType,
+    };
   }
 
   async function rewrite<T>(value: T, context: ImageContext = {}): Promise<T> {
@@ -253,7 +343,8 @@ export async function createImageStore({ directory, cwd }: { directory: string; 
       if (node === null || typeof node !== 'object') return node;
       if (Array.isArray(node)) {
         const result: unknown[] = [];
-        for (let index = 0; index < node.length; index++) result.push(await visit(node[index], `${location}[${index}]`, metadataContext));
+        for (let index = 0; index < node.length; index++)
+          result.push(await visit(node[index], `${location}[${index}]`, metadataContext));
         return result;
       }
       const object = node as Record<string, unknown>;
@@ -263,13 +354,20 @@ export async function createImageStore({ directory, cwd }: { directory: string; 
         if (source.embedded || source.payload !== undefined) {
           target = await saveImage(source.payload, source.mimeType);
         } else if (typeof source.reference !== 'string' || !source.reference) {
-          throw failure('INVALID_IMAGE_REFERENCE', 'Image node contains neither embedded image bytes nor a nonempty path or URL.');
+          throw failure(
+            'INVALID_IMAGE_REFERENCE',
+            'Image node contains neither embedded image bytes nor a nonempty path or URL.',
+          );
         } else if (/^data:/i.test(source.reference)) {
           target = await saveImage(source.reference, source.mimeType);
         } else if (/^https?:\/\//i.test(source.reference)) {
           target = { kind: 'url', url: source.reference };
           counters.urlReferences++;
-        } else if (/^[a-z][a-z0-9+.-]*:/i.test(source.reference) && !/^file:/i.test(source.reference) && !win32.isAbsolute(source.reference)) {
+        } else if (
+          /^[a-z][a-z0-9+.-]*:/i.test(source.reference) &&
+          !/^file:/i.test(source.reference) &&
+          !win32.isAbsolute(source.reference)
+        ) {
           target = { kind: 'url', url: source.reference, unresolved: true };
           counters.urlReferences++;
         } else {
@@ -291,38 +389,79 @@ export async function createImageStore({ directory, cwd }: { directory: string; 
           delete file['base64'];
           const result: Record<string, unknown> = {};
           for (const [key, child] of Object.entries(object)) {
-            if (key !== 'file') Object.defineProperty(result, key, { value: await visit(child, `${location}.${key}`, true), enumerable: true, writable: true, configurable: true });
+            if (key !== 'file')
+              Object.defineProperty(result, key, {
+                value: await visit(child, `${location}.${key}`, true),
+                enumerable: true,
+                writable: true,
+                configurable: true,
+              });
           }
-          result['file'] = { ...record(await visit(file, `${location}.file`, true)), path: reference.path, url: reference.url };
+          result['file'] = {
+            ...record(await visit(file, `${location}.file`, true)),
+            path: reference.path,
+            url: reference.url,
+          };
           result['importedImage'] = { ...reference };
           return result;
         }
-        return { type: object['type'] === 'input_image' ? 'input_text' : 'text', text: reference.text, importedImage: { ...reference } };
+        return {
+          type: object['type'] === 'input_image' ? 'input_text' : 'text',
+          text: reference.text,
+          importedImage: { ...reference },
+        };
       }
       const result: Record<string, unknown> = {};
       for (const [key, child] of Object.entries(object)) {
-        const childLocation = /^[a-z_$][a-z0-9_$]*$/i.test(key) ? `${location}.${key}` : `${location}[${JSON.stringify(key)}]`;
+        const childLocation = /^[a-z_$][a-z0-9_$]*$/i.test(key)
+          ? `${location}.${key}`
+          : `${location}[${JSON.stringify(key)}]`;
         const childMetadata = metadataContext || /metadata/i.test(key) || key === 'toolUseResult';
         let transformed: unknown;
-        if (object['type'] === 'user_message' && (key === 'images' || key === 'local_images') && Array.isArray(child)) {
+        if (
+          object['type'] === 'user_message' &&
+          (key === 'images' || key === 'local_images') &&
+          Array.isArray(child)
+        ) {
           const items: unknown[] = [];
           for (let index = 0; index < child.length; index++) {
             const image: unknown = child[index];
             const imageObject = record(image);
-            const imageNode = typeof imageObject?.['type'] === 'string' && imageTypes.has(imageObject['type']) ? image : key === 'images'
-              ? { type: 'input_image', image_url: typeof image === 'string' ? image : imageObject?.['url'] ?? imageObject?.['image_url'] }
-              : { type: 'local_image', path: typeof image === 'string' ? image : imageObject?.['path'] };
+            const imageNode =
+              typeof imageObject?.['type'] === 'string' && imageTypes.has(imageObject['type'])
+                ? image
+                : key === 'images'
+                  ? {
+                      type: 'input_image',
+                      image_url:
+                        typeof image === 'string'
+                          ? image
+                          : (imageObject?.['url'] ?? imageObject?.['image_url']),
+                    }
+                  : {
+                      type: 'local_image',
+                      path: typeof image === 'string' ? image : imageObject?.['path'],
+                    };
             items.push(await visit(imageNode, `${childLocation}[${index}]`, childMetadata));
           }
           transformed = items;
-        } else if (key === 'arguments' || (key === 'input' && (object['type'] === 'tool_use' || object['type'] === 'server_tool_use'))) {
+        } else if (
+          key === 'arguments' ||
+          (key === 'input' &&
+            (object['type'] === 'tool_use' || object['type'] === 'server_tool_use'))
+        ) {
           transformed = child;
         } else transformed = await visit(child, childLocation, childMetadata);
-        Object.defineProperty(result, key, { value: transformed, enumerable: true, writable: true, configurable: true });
+        Object.defineProperty(result, key, {
+          value: transformed,
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        });
       }
       return result;
     }
-    return await visit(value) as T;
+    return (await visit(value)) as T;
   }
 
   async function saveManifest(): Promise<string | undefined> {
@@ -331,5 +470,10 @@ export async function createImageStore({ directory, cwd }: { directory: string; 
     return (await writeAttachmentFile(directory, `references-${hash(bytes)}.json`, bytes)).path;
   }
 
-  return { rewrite, saveManifest, report: () => ({ ...counters }), manifest: () => references.map((reference) => ({ ...reference })) };
+  return {
+    rewrite,
+    saveManifest,
+    report: () => ({ ...counters }),
+    manifest: () => references.map((reference) => ({ ...reference })),
+  };
 }

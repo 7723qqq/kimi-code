@@ -143,9 +143,9 @@ function spawnWorker(
 /// Omitting it makes the absence explicit instead of misleading. The workers
 /// this package spawns are bounded by the item budget they are given, so the
 /// cap was never the mechanism holding memory in check.
-function WORKER_LIMITS_OPTION(
-  limits: { maxOldGenerationSizeMb: number },
-): { resourceLimits?: { maxOldGenerationSizeMb: number } } {
+function WORKER_LIMITS_OPTION(limits: { maxOldGenerationSizeMb: number }): {
+  resourceLimits?: { maxOldGenerationSizeMb: number };
+} {
   return typeof (globalThis as { Bun?: unknown }).Bun === 'undefined'
     ? { resourceLimits: limits }
     : {};

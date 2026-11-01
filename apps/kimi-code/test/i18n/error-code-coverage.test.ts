@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'bun:test';
 
+import { ErrorCodes } from '@moonshot-ai/agent-core-v2';
+
 import en from '#/i18n/locales/en';
 import zh from '#/i18n/locales/zh';
-
-import { ErrorCodes } from '@moonshot-ai/agent-core-v2';
 
 const camelCaseCode = (code: string): string =>
   code

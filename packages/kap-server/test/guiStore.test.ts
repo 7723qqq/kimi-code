@@ -1,12 +1,11 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { removeTempHome } from './helpers/tempHome';
-
 import { type RunningServer, startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { removeTempHome } from './helpers/tempHome';
 
 interface InjectResponse {
   statusCode: number;
@@ -269,8 +268,8 @@ describe('server-v2 gui store routes', () => {
 
     const setRes = await setItem(api, 'a', '1');
     expect(envelopeOf<null>(setRes.json()).code).toBe(0);
-    expect(
-      envelopeOf<{ value: string | null }>((await getItem(api, 'a')).json()).data?.value,
-    ).toBe('1');
+    expect(envelopeOf<{ value: string | null }>((await getItem(api, 'a')).json()).data?.value).toBe(
+      '1',
+    );
   });
 });

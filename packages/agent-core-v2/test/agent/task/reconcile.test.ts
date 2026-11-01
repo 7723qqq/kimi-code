@@ -1,24 +1,19 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+
 import { join } from 'pathe';
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-
-import {
-  IAgentTaskService,
-  type AgentTaskInfo,
-} from '#/agent/task/task';
+import { IAgentTaskService, type AgentTaskInfo } from '#/agent/task/task';
 import { IEventBus } from '#/app/event/eventBus';
+
 import {
   taskServices,
   createTestAgent,
   homeDirServices,
   type TestAgentContext,
 } from '../../harness';
-import {
-  createAgentTaskPersistence,
-  type TaskServiceTestManager,
-} from './stubs';
+import { createAgentTaskPersistence, type TaskServiceTestManager } from './stubs';
 
 let sessionDir: string;
 let persistence: ReturnType<typeof createAgentTaskPersistence>;
@@ -257,9 +252,7 @@ describe('AgentTaskService — loadFromDisk + reconcile', () => {
       await background.reconcile();
 
       expect(
-        emittedEvents.filter(
-          (event) => (event as { type?: string }).type === 'task.terminated',
-        ),
+        emittedEvents.filter((event) => (event as { type?: string }).type === 'task.terminated'),
       ).toHaveLength(1);
     });
 
@@ -284,9 +277,7 @@ describe('AgentTaskService — loadFromDisk + reconcile', () => {
         status: 'completed',
       });
       expect(
-        emittedEvents.filter(
-          (event) => (event as { type?: string }).type === 'task.terminated',
-        ),
+        emittedEvents.filter((event) => (event as { type?: string }).type === 'task.terminated'),
       ).toEqual([]);
     });
   });

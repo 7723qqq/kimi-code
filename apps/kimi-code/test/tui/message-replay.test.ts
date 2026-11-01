@@ -1,3 +1,4 @@
+import { describe, expect, it, mock, spyOn } from 'bun:test';
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 import type {
@@ -12,7 +13,6 @@ import type {
   Session,
   ToolCall,
 } from '@moonshot-ai/kimi-code-sdk';
-import { describe, expect, it, mock, spyOn } from 'bun:test';
 
 import { AgentGroupComponent } from '#/tui/components/messages/agent-group';
 import { AssistantMessageComponent } from '#/tui/components/messages/assistant-message';
@@ -355,9 +355,10 @@ describe('KimiTUI resume message replay', () => {
   });
 
   it('collapses long replayed shell output to its first 10 rows', async () => {
-    const stdout = Array.from({ length: 30 }, (_, i) => `row-${String(i + 1).padStart(2, '0')}`).join(
-      '\n',
-    );
+    const stdout = Array.from(
+      { length: 30 },
+      (_, i) => `row-${String(i + 1).padStart(2, '0')}`,
+    ).join('\n');
     const driver = await replayIntoDriver([
       message(
         'user',
@@ -373,9 +374,10 @@ describe('KimiTUI resume message replay', () => {
   });
 
   it('replayed shell output inherits an already-on ctrl+o expand state', async () => {
-    const stdout = Array.from({ length: 30 }, (_, i) => `row-${String(i + 1).padStart(2, '0')}`).join(
-      '\n',
-    );
+    const stdout = Array.from(
+      { length: 30 },
+      (_, i) => `row-${String(i + 1).padStart(2, '0')}`,
+    ).join('\n');
     const initial = makeSession([]);
     const resumed = makeSession([
       message(
@@ -915,8 +917,10 @@ describe('KimiTUI resume message replay', () => {
       timeoutMs: 1000,
     };
     const driver = await replayIntoDriver([], { background: [info] });
-    const applyTerminalStatus = spyOn(driver.streamingUI, 'applyBackgroundTaskTerminalStatus')
-      .mockReturnValue(true);
+    const applyTerminalStatus = spyOn(
+      driver.streamingUI,
+      'applyBackgroundTaskTerminalStatus',
+    ).mockReturnValue(true);
 
     driver.sessionEventHandler.handleEvent(
       {
@@ -1193,8 +1197,18 @@ describe('KimiTUI resume message replay', () => {
           origin: {
             kind: 'user',
             skillActivations: [
-              { kind: 'skill_activation', trigger: 'user-slash', activationId: 'act-1', skillName: 'review' },
-              { kind: 'skill_activation', trigger: 'user-slash', activationId: 'act-2', skillName: 'security' },
+              {
+                kind: 'skill_activation',
+                trigger: 'user-slash',
+                activationId: 'act-1',
+                skillName: 'review',
+              },
+              {
+                kind: 'skill_activation',
+                trigger: 'user-slash',
+                activationId: 'act-2',
+                skillName: 'security',
+              },
             ],
           } as PromptOrigin,
         },
@@ -1225,7 +1239,12 @@ describe('KimiTUI resume message replay', () => {
           origin: {
             kind: 'user',
             skillActivations: [
-              { kind: 'skill_activation', trigger: 'user-slash', activationId: 'act-3', skillName: 'commit' },
+              {
+                kind: 'skill_activation',
+                trigger: 'user-slash',
+                activationId: 'act-3',
+                skillName: 'commit',
+              },
             ],
           } as PromptOrigin,
         },
@@ -1259,7 +1278,12 @@ describe('KimiTUI resume message replay', () => {
             kind: 'user',
             inTurn: true,
             skillActivations: [
-              { kind: 'skill_activation', trigger: 'user-slash', activationId: 'act-steer', skillName: 'review' },
+              {
+                kind: 'skill_activation',
+                trigger: 'user-slash',
+                activationId: 'act-steer',
+                skillName: 'review',
+              },
             ],
           } as PromptOrigin,
         },
@@ -1310,9 +1334,7 @@ describe('KimiTUI resume message replay', () => {
       () => {},
     );
 
-    expect(driver.state.transcriptEntries.map((entry) => entry.kind)).toEqual([
-      'skill_activation',
-    ]);
+    expect(driver.state.transcriptEntries.map((entry) => entry.kind)).toEqual(['skill_activation']);
     expect(driver.sessionEventHandler.seenSkillActivationIds.has('act-live-model')).toBe(true);
   });
 
@@ -1389,19 +1411,26 @@ describe('KimiTUI resume message replay', () => {
   it.each([
     { skillArgs: undefined, expected: '/example' },
     { skillArgs: 'inspect project', expected: '/example inspect project' },
-  ])('preserves recorded builtin command syntax in replay ($expected)', async ({ skillArgs, expected }) => {
-    const driver = await replayIntoDriver([
-      message('user', [{ type: 'text', text: 'expanded builtin skill body' }], {
-        origin: {
-          kind: 'skill_activation', activationId: 'act-builtin', skillName: 'example',
-          skillSource: 'builtin', skillArgs, trigger: 'user-slash',
-        },
-      }),
-    ]);
-    expect(driver.state.transcriptEntries.filter((entry) => entry.kind === 'user')).toEqual([
-      expect.objectContaining({ content: expected, skillNames: ['example'] }),
-    ]);
-  });
+  ])(
+    'preserves recorded builtin command syntax in replay ($expected)',
+    async ({ skillArgs, expected }) => {
+      const driver = await replayIntoDriver([
+        message('user', [{ type: 'text', text: 'expanded builtin skill body' }], {
+          origin: {
+            kind: 'skill_activation',
+            activationId: 'act-builtin',
+            skillName: 'example',
+            skillSource: 'builtin',
+            skillArgs,
+            trigger: 'user-slash',
+          },
+        }),
+      ]);
+      expect(driver.state.transcriptEntries.filter((entry) => entry.kind === 'user')).toEqual([
+        expect.objectContaining({ content: expected, skillNames: ['example'] }),
+      ]);
+    },
+  );
 
   it('prefers explicitly saved caller text over the canonical reconstruction', async () => {
     const driver = await replayIntoDriver([

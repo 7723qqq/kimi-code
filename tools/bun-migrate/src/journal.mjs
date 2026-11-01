@@ -35,7 +35,9 @@ function deleteFile(root, file) {
   const absolute = join(root, file);
   if (!existsSync(absolute)) return;
 
-  const staged = Bun.spawnSync(['git', 'rm', '--quiet', '--ignore-unmatch', '--', file], { cwd: root });
+  const staged = Bun.spawnSync(['git', 'rm', '--quiet', '--ignore-unmatch', '--', file], {
+    cwd: root,
+  });
   if (staged.exitCode === 0 && !existsSync(absolute)) return;
 
   /**
@@ -59,9 +61,7 @@ export function createJournal(layersOption) {
   const removals = [];
   const notes = [];
   const forcedSkips = new Map();
-  const perLayer = new Map(
-    layers.map((name) => [name, { name, changes: [], skipped: [] }]),
-  );
+  const perLayer = new Map(layers.map((name) => [name, { name, changes: [], skipped: [] }]));
 
   const enabled = (layer) => perLayer.has(layer);
 

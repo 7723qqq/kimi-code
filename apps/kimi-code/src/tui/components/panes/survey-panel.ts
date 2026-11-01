@@ -3,13 +3,13 @@ import type { Component } from '@moonshot-ai/pi-tui';
 import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
+
 import {
   SURVEY_MIN_OPTIONS_WIDTH,
   SURVEY_OPTION_GAP,
   surveyOptionLabels,
   surveyQuestion,
 } from '../../constant/survey';
-
 import { currentTheme } from '../../theme';
 
 export type SurveyPanelPhase = 'open' | 'pending' | 'thanks';
@@ -41,12 +41,17 @@ export class SurveyPanelComponent implements Component {
       case 'open':
         return this.renderOpen(width);
       case 'pending': {
-        const label =
-          this.view.response === undefined ? '' : RESPONSE_LABELS[this.view.response];
-        return this.renderStatusLine(width, currentTheme.fg('textDim', `Feedback: ${label} · [escape: undo]`));
+        const label = this.view.response === undefined ? '' : RESPONSE_LABELS[this.view.response];
+        return this.renderStatusLine(
+          width,
+          currentTheme.fg('textDim', `Feedback: ${label} · [escape: undo]`),
+        );
       }
       case 'thanks':
-        return this.renderStatusLine(width, currentTheme.fg('success', t('tui.messages.surveyThanks')));
+        return this.renderStatusLine(
+          width,
+          currentTheme.fg('success', t('tui.messages.surveyThanks')),
+        );
     }
   }
 
@@ -61,10 +66,7 @@ export class SurveyPanelComponent implements Component {
       return [...title, optionsLine];
     }
     if (width >= SURVEY_MIN_OPTIONS_WIDTH) {
-      return [
-        ...title,
-        ...this.styledOptionsPerLine().map((option) => OPTION_INDENT + option),
-      ];
+      return [...title, ...this.styledOptionsPerLine().map((option) => OPTION_INDENT + option)];
     }
     return title;
   }

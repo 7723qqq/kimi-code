@@ -4,6 +4,13 @@ import type {
   ThinkingEffort,
 } from '@moonshot-ai/kimi-code-sdk';
 
+import { t } from '#/i18n';
+import {
+  acknowledgeModelMigration,
+  readModelMigrationAcknowledgements,
+} from '#/utils/model-migration-state';
+
+import type { SlashCommandHost } from '../commands/dispatch';
 import { ChoicePickerComponent } from '../components/dialogs/choice-picker';
 import {
   defaultThinkingEffortFor,
@@ -11,8 +18,6 @@ import {
   segmentsFor,
   thinkingAvailabilityKind,
 } from '../components/dialogs/model-selector';
-import type { SlashCommandHost } from '../commands/dispatch';
-import { t } from '#/i18n';
 import {
   effectiveModelForHost,
   hasConversationHistory,
@@ -20,10 +25,6 @@ import {
   performModelSwitch,
 } from '../utils/model-switch';
 import { sanitizeShellOutput } from '../utils/shell-output';
-import {
-  acknowledgeModelMigration,
-  readModelMigrationAcknowledgements,
-} from '#/utils/model-migration-state';
 
 interface ModelMigration {
   readonly fromAlias: string;

@@ -1,15 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
-import { IAgentTodoService } from '#/features/todo/todoService';
 import { TODO_LIST_TOOL_NAME, type TodoItem } from '#/features/todo/todoItem';
-import {
-  ITodoListTool,
-  TodoListInputSchema,
-} from '#/features/todo/tools/todo-list/todo-list';
-import { executeTool } from '../../../tools/fixtures/execute-tool';
+import { IAgentTodoService } from '#/features/todo/todoService';
+import { ITodoListTool, TodoListInputSchema } from '#/features/todo/tools/todo-list/todo-list';
 
 import { recordingTelemetry, type TelemetryRecord } from '../../../app/telemetry/stubs';
 import { createTestAgent, type TestAgentContext } from '../../../harness';
+import { executeTool } from '../../../tools/fixtures/execute-tool';
 
 const signal = new AbortController().signal;
 
@@ -47,7 +44,9 @@ describe('TodoListTool', () => {
     expect(tool.description.length).toBeGreaterThan(0);
     expect(TodoListInputSchema.safeParse({}).success).toBe(true);
     expect(
-      TodoListInputSchema.safeParse({ todos: [{ id: 'x', parentId: null, kind: 'task', title: 'x', status: 'wip' }] }).success,
+      TodoListInputSchema.safeParse({
+        todos: [{ id: 'x', parentId: null, kind: 'task', title: 'x', status: 'wip' }],
+      }).success,
     ).toBe(false);
     expect(tool.parameters).toMatchObject({
       type: 'object',
@@ -59,7 +58,9 @@ describe('TodoListTool', () => {
   });
 
   it('query mode renders the current list without mutating it', async () => {
-    await seed([{ id: 'x', parentId: null, kind: 'task', title: 'existing', status: 'in_progress' }]);
+    await seed([
+      { id: 'x', parentId: null, kind: 'task', title: 'existing', status: 'in_progress' },
+    ]);
     const tool = ctx.get(ITodoListTool);
 
     const result = await executeTool(tool, {
@@ -72,7 +73,9 @@ describe('TodoListTool', () => {
     expect(result).toMatchObject({ isError: false });
     expect(result.output).toContain('Current todo list');
     expect(result.output).toContain('[in_progress] x: existing');
-    expect(todos()).toEqual([{ id: 'x', parentId: null, kind: 'task', title: 'existing', status: 'in_progress' }]);
+    expect(todos()).toEqual([
+      { id: 'x', parentId: null, kind: 'task', title: 'existing', status: 'in_progress' },
+    ]);
   });
 
   it('write mode replaces the list and defensively copies todos', async () => {

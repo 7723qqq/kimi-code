@@ -1,12 +1,13 @@
+import { describe, expect, it } from 'bun:test';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { describe, expect, it } from 'bun:test';
-
-import { resetUnexpectedErrorHandler, setUnexpectedErrorHandler } from '#/_base/errors/unexpectedError';
+import {
+  resetUnexpectedErrorHandler,
+  setUnexpectedErrorHandler,
+} from '#/_base/errors/unexpectedError';
 import { ErrorCodes } from '#/errors';
 import { type LspProviderQuery } from '#/features/lsp/lsp';
-
 import { LspInstance } from '#/features/lsp/lspInstance';
 import { LspStdioProvider } from '#/features/lsp/lspStdioProvider';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';

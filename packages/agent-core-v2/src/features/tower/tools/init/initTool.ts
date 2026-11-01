@@ -1,10 +1,10 @@
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
-import { IAgentTowerService } from '#/features/tower/tower';
 import {
   TowerProtocolError,
   type TowerReanchorMissionDigest,
 } from '#/features/tower/protocol/index';
+import { IAgentTowerService } from '#/features/tower/tower';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';

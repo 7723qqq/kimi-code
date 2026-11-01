@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'bun:test';
 /**
  * Meta-tests: prove the suite itself is Bun-native and cannot quietly stop
  * testing what it claims to test.
@@ -8,8 +9,6 @@
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-
-import { describe, expect, it } from 'bun:test';
 
 import { parse, ts } from '../src/ast.mjs';
 
@@ -47,7 +46,15 @@ function npmSpecifiersOf(text) {
 
 describe('the suite is Bun-native', () => {
   it('imports every assertion helper from bun:test', () => {
-    const frameworks = new Set(['bun:test', 'vitest', 'jest', '@jest/globals', 'node:test', 'tap', 'mocha']);
+    const frameworks = new Set([
+      'bun:test',
+      'vitest',
+      'jest',
+      '@jest/globals',
+      'node:test',
+      'tap',
+      'mocha',
+    ]);
     const offenders = [];
     for (const file of TEST_FILES) {
       if (!file.name.endsWith('.test.mjs')) continue;
@@ -64,7 +71,16 @@ describe('the suite is Bun-native', () => {
 
   it('names no other test framework anywhere in a real import', () => {
     const offenders = [];
-    const banned = new Set(['vitest', 'jest', '@jest/globals', 'node:test', 'tap', 'mocha', 'chai', 'sinon']);
+    const banned = new Set([
+      'vitest',
+      'jest',
+      '@jest/globals',
+      'node:test',
+      'tap',
+      'mocha',
+      'chai',
+      'sinon',
+    ]);
     for (const file of TEST_FILES) {
       for (const specifier of npmSpecifiersOf(file.text)) {
         if (banned.has(specifier)) offenders.push(`${file.name}: ${specifier}`);
@@ -79,7 +95,8 @@ describe('the suite is Bun-native', () => {
       const lines = file.text.split('\n');
       for (let index = 0; index < lines.length; index += 1) {
         const line = lines[index];
-        if (!/\b(vi\.(fn|spyOn|mock|useFakeTimers)|jest\.(fn|spyOn|mock))\s*\(/.test(line)) continue;
+        if (!/\b(vi\.(fn|spyOn|mock|useFakeTimers)|jest\.(fn|spyOn|mock))\s*\(/.test(line))
+          continue;
         const quoted = /['"`]vitest['"`]/.test(line);
         const startsString = /^\s*['"`]/.test(line) || /[+]\s*['"`]/.test(line);
         if (quoted || startsString) continue;
@@ -112,7 +129,16 @@ describe('the suite is Bun-native', () => {
 describe('the source has no test-framework coupling', () => {
   it('imports nothing from vitest or jest', () => {
     const offenders = [];
-    const banned = new Set(['vitest', 'jest', '@jest/globals', 'node:test', 'tap', 'mocha', 'chai', 'sinon']);
+    const banned = new Set([
+      'vitest',
+      'jest',
+      '@jest/globals',
+      'node:test',
+      'tap',
+      'mocha',
+      'chai',
+      'sinon',
+    ]);
     for (const file of SRC_FILES) {
       for (const match of file.text.matchAll(/from\s+['"]([^'"]+)['"]/g)) {
         if (banned.has(match[1])) offenders.push(`${file.name}: ${match[1]}`);

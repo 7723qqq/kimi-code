@@ -268,7 +268,8 @@ export function registerWorkspacesRoutes(app: WorkspaceRouteHost, core: Scope): 
       errors: {
         [ErrorCode.WORKSPACE_NOT_FOUND]: {},
       },
-      description: 'Revoke persisted workspace trust (project-level MCP config unloads unless process or config overrides apply)',
+      description:
+        'Revoke persisted workspace trust (project-level MCP config unloads unless process or config overrides apply)',
       tags: ['workspaces'],
     },
     async (req, reply) => {

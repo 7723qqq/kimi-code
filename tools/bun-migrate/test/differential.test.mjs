@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'bun:test';
 /**
  * Rewrites are offered only when they are behaviour preserving. This file is
  * the proof: every pairing in src/pairings.mjs is exercised as "original under
@@ -10,8 +11,6 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { describe, expect, it } from 'bun:test';
 
 import { PAIRINGS, REPORT_ONLY, SPEED } from '../src/pairings.mjs';
 
@@ -476,7 +475,10 @@ describe('node to bun differential', () => {
 
   for (const testCase of CASES) {
     it(`${testCase.pairing}: ${testCase.name}`, () => {
-      if (!nodeAvailable) throw new Error('node must be on PATH: every differential case compares two runtimes, so skipping it would report a pass that proves nothing');
+      if (!nodeAvailable)
+        throw new Error(
+          'node must be on PATH: every differential case compares two runtimes, so skipping it would report a pass that proves nothing',
+        );
       const original = run('node', testCase.original);
       expect(original.ok).toBe(true);
 
@@ -516,14 +518,14 @@ describe('every pairing has a differential case', () => {
   it('names a case for each rule in the table', () => {
     const covered = new Set(CASES.map((testCase) => testCase.pairing));
     const missing = PAIRINGS.map((pairing) => pairing.id).filter((id) => !covered.has(id));
-    expect(`rules without a case: ${JSON.stringify(missing)}`).toBe(
-      'rules without a case: []',
-    );
+    expect(`rules without a case: ${JSON.stringify(missing)}`).toBe('rules without a case: []');
   });
 
   it('has no case for a rule that is not in the table', () => {
     const known = new Set(PAIRINGS.map((pairing) => pairing.id));
-    const stale = [...new Set(CASES.map((testCase) => testCase.pairing))].filter((id) => !known.has(id));
+    const stale = [...new Set(CASES.map((testCase) => testCase.pairing))].filter(
+      (id) => !known.has(id),
+    );
     expect(`cases without a rule: ${JSON.stringify(stale)}`).toBe('cases without a rule: []');
   });
 });
@@ -566,7 +568,10 @@ describe('zstd frames are byte-identical, which is why the rule may claim it', (
     ['1 KB text', 'compressible '.repeat(80)],
     ['100 KB text', 'compressible '.repeat(7700)],
     ['32 KB zeros', '\u0000'.repeat(32768)],
-    ['pseudo-random 4 KB', Array.from({ length: 4096 }, (_, i) => String.fromCodePoint((i * 131 + 7) % 256)).join('')],
+    [
+      'pseudo-random 4 KB',
+      Array.from({ length: 4096 }, (_, i) => String.fromCodePoint((i * 131 + 7) % 256)).join(''),
+    ],
   ];
 
   it('states byte identity in the rule, not just interoperability', () => {
@@ -577,7 +582,8 @@ describe('zstd frames are byte-identical, which is why the rule may claim it', (
 
   for (const [label, payload] of PAYLOADS) {
     it(`matches a real Node frame: ${label}`, () => {
-      if (!nodeAvailable) throw new Error('node must be on PATH: this compares against a frame Node produced');
+      if (!nodeAvailable)
+        throw new Error('node must be on PATH: this compares against a frame Node produced');
       const dir = mkdtempSync(join(tmpdir(), 'zstdb-'));
       const file = join(dir, 'p.bin');
       try {
@@ -646,7 +652,15 @@ describe('measured performance decides speed claims', () => {
   });
 
   it('keeps the rules with no measured win on report-only', () => {
-    const slow = ['readFile', 'writeFile', 'copyFile', 'deflateSync', 'inflateSync', 'deflateRawSync', 'isDeepStrictEqual'];
+    const slow = [
+      'readFile',
+      'writeFile',
+      'copyFile',
+      'deflateSync',
+      'inflateSync',
+      'deflateRawSync',
+      'isDeepStrictEqual',
+    ];
     for (const name of slow) {
       const found = PAIRINGS.find((pairing) => pairing.exportName === name);
       expect(found).toBeDefined();
@@ -658,7 +672,12 @@ describe('measured performance decides speed claims', () => {
     for (const pairing of PAIRINGS) {
       if (pairing.effect !== SPEED) continue;
       const summary = pairing.summary.toLowerCase();
-      expect(summary.includes('measured') || summary.includes('verified') || summary.includes('byte identical') || summary.includes('faster')).toBe(true);
+      expect(
+        summary.includes('measured') ||
+          summary.includes('verified') ||
+          summary.includes('byte identical') ||
+          summary.includes('faster'),
+      ).toBe(true);
     }
   });
 });

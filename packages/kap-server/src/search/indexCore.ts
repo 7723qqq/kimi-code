@@ -1,7 +1,6 @@
 import fs from 'node:fs/promises';
 import { join, relative } from 'node:path';
 
-import { errorMessage } from '@moonshot-ai/runtime-shared';
 import {
   classifyStorageError,
   MiniDb,
@@ -10,6 +9,7 @@ import {
   wipeStoreDir,
   type BatchInputOp,
 } from '@moonshot-ai/minidb';
+import { errorMessage } from '@moonshot-ai/runtime-shared';
 
 import { SYSTEM_CLOCK, type Clock, type TimerHandle } from '../lib/clock.ts';
 import { GlobalSearchError, type GlobalSearchIncomplete } from './contract.ts';

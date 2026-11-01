@@ -2,7 +2,6 @@
 //
 // Boundary / resource edge cases.
 
-
 import { expect, test } from 'bun:test';
 
 import { MiniDb } from '../../src/index.js';

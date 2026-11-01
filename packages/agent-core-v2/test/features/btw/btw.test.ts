@@ -2,9 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
-import { Emitter } from '#/_base/event';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { TestInstantiationService } from '#/_base/di/test';
+import { Emitter } from '#/_base/event';
+import type { AgentContext } from '#/agent/agentContext/agentContext';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import {
@@ -16,15 +17,17 @@ import {
 } from '#/features/btw/btw';
 import { SessionBtwService } from '#/features/btw/btwService';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
-import type { ToolCall } from '#human/llm/message';
-import type { AgentContext } from '#/agent/agentContext/agentContext';
 import {
   IAgentLifecycleService,
   type AgentScopeCreatedEvent,
 } from '#/session/agentLifecycle/agentLifecycle';
+import type { ToolCall } from '#human/llm/message';
 
-import { stubToolExecutorEvents, type ToolExecutorEventStubs } from '../../agent/toolExecutor/stubs';
 import { stubAgentContext } from '../../agent/agentContext/stubs';
+import {
+  stubToolExecutorEvents,
+  type ToolExecutorEventStubs,
+} from '../../agent/toolExecutor/stubs';
 
 describe('SessionBtwService', () => {
   let disposables: DisposableStore;
@@ -96,10 +99,12 @@ describe('SessionBtwService', () => {
         },
       },
     };
-    fork = jest.fn(async (_source: unknown, opts?: { labels?: Readonly<Record<string, string>> }) => {
-      fireScopeCreated(child, opts?.labels);
-      return childContext;
-    });
+    fork = jest.fn(
+      async (_source: unknown, opts?: { labels?: Readonly<Record<string, string>> }) => {
+        fireScopeCreated(child, opts?.labels);
+        return childContext;
+      },
+    );
     ix.stub(IAgentLifecycleService, {
       _serviceBrand: undefined,
       fork,

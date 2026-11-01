@@ -1,4 +1,3 @@
-import { toLlmSyntaxErrorMessage } from '#/llm/syntax-errors';
 import Anthropic from '@anthropic-ai/sdk';
 import { assign, shake } from 'radashi';
 
@@ -9,7 +8,6 @@ import type { ProtocolBase, ProtocolRequesterOptions, TraitContext } from '#/llm
 import { resolveModelConnection } from '#/llm/protocol/connection';
 import { resolveMaxCompletionCap, type FormatRequestInput } from '#/llm/protocol/format';
 import { applyThinking } from '#/llm/protocol/thinking';
-import { ThinkingConfigError } from '#/llm/thinking';
 import {
   mergeRequestHeaders,
   type LlmClientContext,
@@ -25,6 +23,8 @@ import {
   getLlmHeadersTimeoutDispatcher,
   resolveLlmHeadersTimeoutMs,
 } from '#/llm/requester/timeout';
+import { toLlmSyntaxErrorMessage } from '#/llm/syntax-errors';
+import { ThinkingConfigError } from '#/llm/thinking';
 
 import { normalizeToolCallIdsForProvider, sanitizeToolCallId } from '../tool-call-id';
 import { getAnthropicModelCapability } from './capability';

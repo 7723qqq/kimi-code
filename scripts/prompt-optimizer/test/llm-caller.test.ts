@@ -39,7 +39,9 @@ describe('parseConfigText', () => {
   });
 
   test('a provider block does not leak into the next section', () => {
-    const { providers } = parseConfigText(`${FIXTURE}\n[models."workbuddy/x"]\nbase_url = "wrong"\n`);
+    const { providers } = parseConfigText(
+      `${FIXTURE}\n[models."workbuddy/x"]\nbase_url = "wrong"\n`,
+    );
     expect(providers['workbuddy']?.baseUrl).toBe('https://api.workbuddy.example/v1');
   });
 });

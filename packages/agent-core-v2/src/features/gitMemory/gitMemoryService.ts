@@ -1,7 +1,7 @@
 import picomatch from 'picomatch';
 
-import { Disposable } from '#/_base/di/lifecycle';
 import { createDecorator } from '#/_base/di/instantiation';
+import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
@@ -124,10 +124,7 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
       });
   }
 
-  private async rebuild(
-    head: RepoHead,
-    path: string,
-  ): Promise<GitMemoryIndex | undefined> {
+  private async rebuild(head: RepoHead, path: string): Promise<GitMemoryIndex | undefined> {
     const history = await readGitHistory(
       this.process,
       head.repoRoot,
@@ -183,8 +180,7 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
       const commits = this.commitsForPath(index, key);
       const memories = await this.safeMemories(() => this.memoriesForPath(key));
       const directory = directoryOf(key);
-      const dirCommits =
-        directory.length === 0 ? [] : this.commitsForDirectory(index, directory);
+      const dirCommits = directory.length === 0 ? [] : this.commitsForDirectory(index, directory);
       if (commits.length === 0 && dirCommits.length === 0 && memories.length === 0) return '';
       this.renderedPaths.add(key);
       let block = projectFileBlock(key, commits, directory, dirCommits, this.renderedCommits);
@@ -272,10 +268,7 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
     return commits.slice(0, GIT_MEMORY_FILE_COMMITS);
   }
 
-  private commitsForDirectory(
-    index: GitMemoryIndex,
-    directory: string,
-  ): readonly CommitRecord[] {
+  private commitsForDirectory(index: GitMemoryIndex, directory: string): readonly CommitRecord[] {
     const cached = this.directoryHistory.get(directory);
     if (cached !== undefined) return cached;
     const prefix = `${directory}/`;
@@ -307,9 +300,7 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
     return entries;
   }
 
-  private async safeMemories(
-    load: () => Promise<MemoryEntryView[]>,
-  ): Promise<MemoryEntryView[]> {
+  private async safeMemories(load: () => Promise<MemoryEntryView[]>): Promise<MemoryEntryView[]> {
     try {
       return await load();
     } catch (error) {

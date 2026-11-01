@@ -1,14 +1,14 @@
+import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 
 import type { createKimiDeviceId as createKimiDeviceIdFn } from '@moonshot-ai/kimi-code-oauth';
-import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
-import { setEnv, restoreEnvs } from '../helpers/stubs';
 
 import { runShell } from '#/cli/run-shell';
 import { resetKimiRegionCache } from '#/utils/region';
 
 import { captureProcessWrite, ExitCalled, mockProcessExit } from '../helpers/process';
+import { setEnv, restoreEnvs } from '../helpers/stubs';
 
 const requireReal = createRequire(import.meta.url);
 
@@ -212,7 +212,10 @@ describe('runShell', () => {
     mocks.tuiStart.mockResolvedValue(undefined);
   }
 
-  function withEnv(patch: Record<string, string | undefined>, fn: () => Promise<void>): Promise<void> {
+  function withEnv(
+    patch: Record<string, string | undefined>,
+    fn: () => Promise<void>,
+  ): Promise<void> {
     const saved: Record<string, string | undefined> = {};
     for (const key of Object.keys(patch)) {
       saved[key] = process.env[key];

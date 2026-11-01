@@ -149,7 +149,10 @@ export function taskDetailSections(
   const headline =
     task.kind === 'process' ? singleLine(task.command) : singleLine(task.description);
   what.push(
-    currentTheme.fg('text', headline.length > 0 ? headline : t('tui.dialogs.tasksBrowser.noDescription')),
+    currentTheme.fg(
+      'text',
+      headline.length > 0 ? headline : t('tui.dialogs.tasksBrowser.noDescription'),
+    ),
   );
   const tags: string[] = [];
   if (task.kind === 'agent') {
@@ -236,7 +239,9 @@ export function taskIdLine(task: BackgroundTaskInfo): string {
   return `${currentTheme.fg('textMuted', t('tui.dialogs.tasksBrowser.labelTaskId'))}: ${currentTheme.fg('textDim', task.taskId)}`;
 }
 
-function sectionLabel(key: 'sectionWhat' | 'sectionWhere' | 'sectionOutcome' | 'sectionRaw'): string {
+function sectionLabel(
+  key: 'sectionWhat' | 'sectionWhere' | 'sectionOutcome' | 'sectionRaw',
+): string {
   switch (key) {
     case 'sectionWhat':
       return currentTheme.boldFg('textStrong', t('tui.dialogs.tasksBrowser.sectionWhat'));

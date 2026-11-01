@@ -1,10 +1,12 @@
 import { describe, expect, it, mock, type Mock } from 'bun:test';
 
-import { handleUndoCommand } from '#/tui/commands/undo';
 import type { SlashCommandHost } from '#/tui/commands/dispatch';
+import { handleUndoCommand } from '#/tui/commands/undo';
 import type { TranscriptEntry } from '#/tui/types';
 
-function entry(partial: Partial<TranscriptEntry> & Pick<TranscriptEntry, 'kind' | 'content'>): TranscriptEntry {
+function entry(
+  partial: Partial<TranscriptEntry> & Pick<TranscriptEntry, 'kind' | 'content'>,
+): TranscriptEntry {
   return {
     id: `t-${Math.random().toString(36).slice(2, 10)}`,
     turnId: undefined,

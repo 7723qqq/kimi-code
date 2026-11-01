@@ -1,6 +1,6 @@
-import { isInstantiationServiceDisposedError } from '@moonshot-ai/agent-core-v2';
 import { rm } from 'node:fs/promises';
 
+import { isInstantiationServiceDisposedError } from '@moonshot-ai/agent-core-v2';
 import type {
   ApprovalResponse,
   Event2,
@@ -29,6 +29,38 @@ import {
   interactions,
   toDisposable,
 } from '@moonshot-ai/agent-core-v2';
+import {
+  detachGrades,
+  filterOpsForGrade,
+  gradeFor,
+  needsResetOnTransition,
+  redactSnapshotForGrade,
+  type AgentTranscript,
+  type TranscriptGrade,
+  type TranscriptGradeSpec,
+  type TranscriptOperation,
+  type TranscriptOpsEvent,
+  type TranscriptResetEvent,
+  type TranscriptStore,
+} from '@moonshot-ai/transcript';
+
+import {
+  configChangedEventSchema,
+  modelCatalogChangedEventSchema,
+} from '../../../protocol/events-zod';
+import { toWireQuestion } from '../../../protocol/question-wire';
+import type { InFlightTurn, SnapshotSubagent } from '../../../protocol/rest-snapshot';
+import type { SessionCursor } from '../../../protocol/ws-control';
+import { interactionAgentId, toWireApproval } from '../../../routes/approvals';
+import { toWireWorkspace } from '../../../routes/workspaces';
+import {
+  legacyApprovalsOf,
+  LegacyActivityTracker,
+  phaseFromDomainEvent,
+} from '../../../services/legacyStatus/legacyActivity';
+import { readLegacyStatus } from '../../../services/legacyStatus/legacyStatus';
+import { projectPromptContentParts } from '../../../services/messages/messageProjection';
+import type { TranscriptService } from '../../../services/transcript/transcriptService';
 import type {
   ConfigWarningItem,
   DiUnitChangedEvent,
@@ -40,22 +72,14 @@ import type {
   Event,
 } from './events';
 import { isVolatileEventType } from './events';
-import type { SessionCursor } from '../../../protocol/ws-control';
-import { configChangedEventSchema, modelCatalogChangedEventSchema } from '../../../protocol/events-zod';
-import type { InFlightTurn, SnapshotSubagent } from '../../../protocol/rest-snapshot';
-import { detachGrades, filterOpsForGrade, gradeFor, needsResetOnTransition, redactSnapshotForGrade, type AgentTranscript, type TranscriptGrade, type TranscriptGradeSpec, type TranscriptOperation, type TranscriptOpsEvent, type TranscriptResetEvent, type TranscriptStore } from '@moonshot-ai/transcript';
-import { toWireQuestion } from '../../../protocol/question-wire';
-import { interactionAgentId, toWireApproval } from '../../../routes/approvals';
-import { toWireWorkspace } from '../../../routes/workspaces';
-import { legacyApprovalsOf, LegacyActivityTracker, phaseFromDomainEvent } from '../../../services/legacyStatus/legacyActivity';
-import { readLegacyStatus } from '../../../services/legacyStatus/legacyStatus';
-import { projectPromptContentParts } from '../../../services/messages/messageProjection';
-import type { TranscriptService } from '../../../services/transcript/transcriptService';
 import { InFlightTurnTracker } from './inFlightTurnTracker';
-import { type EventEnvelope, type JournalLogger, SessionEventJournal, sessionJournalPath } from './sessionEventJournal';
+import {
+  type EventEnvelope,
+  type JournalLogger,
+  SessionEventJournal,
+  sessionJournalPath,
+} from './sessionEventJournal';
 import { SubagentRosterTracker } from './subagentRosterTracker';
-
-
 
 export type ResyncReason = 'buffer_overflow' | 'session_recreated' | 'epoch_changed';
 
@@ -150,11 +174,9 @@ export class SessionEventBroadcaster {
   ) {
     this.maxBufferSize = opts.maxBufferSize ?? DEFAULT_MAX_BUFFER_SIZE;
     const sessionManager = opts.core.accessor.get(ISessionManager);
-    this.deletionSubscription = sessionManager.onWillDeleteSession?.(
-      (event) => {
-        event.waitUntil(this.purgeSession(event.sessionId));
-      },
-    );
+    this.deletionSubscription = sessionManager.onWillDeleteSession?.((event) => {
+      event.waitUntil(this.purgeSession(event.sessionId));
+    });
     this.lifecycleSubscription = followSessionLifecycles(opts.core.accessor, (service) => {
       const closeSubscription = service.onDidCloseSession((event) => {
         this.detachSession(event.sessionId);
@@ -590,8 +612,8 @@ export class SessionEventBroadcaster {
       return;
     }
     if (state !== undefined) this.sessions.delete(sessionId);
-    const eviction = this.disposeLifecycleState(sessionId, state, pending).catch(
-      (error: unknown) => this.logDispatchDropped(sessionId, 'session.evict', error),
+    const eviction = this.disposeLifecycleState(sessionId, state, pending).catch((error: unknown) =>
+      this.logDispatchDropped(sessionId, 'session.evict', error),
     );
     this.evictions.set(sessionId, eviction);
     void eviction.finally(() => {
@@ -725,8 +747,7 @@ export class SessionEventBroadcaster {
       this.sessions.delete(sessionId);
       await disposeSessionState(state);
       this.dropActivityTrackers(sessionId);
-      if (isInstantiationServiceDisposedError(error))
-        return undefined;
+      if (isInstantiationServiceDisposedError(error)) return undefined;
       throw error;
     }
     return state;

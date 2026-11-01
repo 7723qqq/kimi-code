@@ -41,9 +41,9 @@ describe('table invariants', () => {
 
   it('no entry claims a signature that matches', () => {
     for (const gap of SIGNATURE_GAPS) {
-      expect(`${gap.member} node=${gap.node.length} bun=${gap.bun.length} differs=${gap.node.length !== gap.bun.length}`).toBe(
-        `${gap.member} node=${gap.node.length} bun=${gap.bun.length} differs=true`,
-      );
+      expect(
+        `${gap.member} node=${gap.node.length} bun=${gap.bun.length} differs=${gap.node.length !== gap.bun.length}`,
+      ).toBe(`${gap.member} node=${gap.node.length} bun=${gap.bun.length} differs=true`);
     }
   });
 
@@ -56,7 +56,10 @@ describe('table invariants', () => {
 describe('the recorded arities match live runtimes', () => {
   for (const gap of SIGNATURE_GAPS) {
     it(`${gap.module}#${gap.member}`, () => {
-      if (!nodeAvailable) throw new Error('node must be on PATH: every differential case compares two runtimes, so skipping it would report a pass that proves nothing');
+      if (!nodeAvailable)
+        throw new Error(
+          'node must be on PATH: every differential case compares two runtimes, so skipping it would report a pass that proves nothing',
+        );
       expect(`${gap.member} bun=${bunLength(gap.module, gap.member)}`).toBe(
         `${gap.member} bun=${gap.bun.length}`,
       );
@@ -75,7 +78,10 @@ describe('promisify reads the arity, which is why the table exists', () => {
   });
 
   it('promisifying crypto.scrypt gives different arities on the two runtimes', () => {
-    if (!nodeAvailable) throw new Error('node must be on PATH: every differential case compares two runtimes, so skipping it would report a pass that proves nothing');
+    if (!nodeAvailable)
+      throw new Error(
+        'node must be on PATH: every differential case compares two runtimes, so skipping it would report a pass that proves nothing',
+      );
     const script = `
       const { promisify } = require('node:util');
       const crypto = require('node:crypto');

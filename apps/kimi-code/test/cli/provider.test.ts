@@ -4,19 +4,32 @@
  * config storage; upstream HTTP responses are stubbed.
  */
 
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { resetModelsDevUpstreamForTest, setModelsDevUpstreamForTest } from '@moonshot-ai/agent-core-v2/app/kosongConfig/modelsDevUpstream';
+import {
+  resetModelsDevUpstreamForTest,
+  setModelsDevUpstreamForTest,
+} from '@moonshot-ai/agent-core-v2/app/kosongConfig/modelsDevUpstream';
 import { type KimiConfig, KimiHarness } from '@moonshot-ai/kimi-code-sdk';
 import * as sdkModule from '@moonshot-ai/kimi-code-sdk';
 import { Command } from 'commander';
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { buildAddPatch } from '#/utils/provider-form';
 
-import { handleCatalogAdd, handleCatalogList, handleProviderAdd, handleProviderCreate, handleProviderList, handleProviderRemove, handleProviderUpdate, registerProviderCommand, type ProviderDeps } from '#/cli/sub/provider';
+import {
+  handleCatalogAdd,
+  handleCatalogList,
+  handleProviderAdd,
+  handleProviderCreate,
+  handleProviderList,
+  handleProviderRemove,
+  handleProviderUpdate,
+  registerProviderCommand,
+  type ProviderDeps,
+} from '#/cli/sub/provider';
 import { t } from '#/i18n';
+import { buildAddPatch } from '#/utils/provider-form';
 import { planEditWrite, type ProviderFormValue } from '#/utils/provider-form';
 
 // Spy on the SDK harness factory so the default-deps construction can be
@@ -1565,7 +1578,10 @@ describe('kimi provider create', () => {
     expect(setConfigCalls).toEqual([
       // The patch is a partial config by construction; `toEqual` is typed
       // against the recorder's element type.
-      { ...buildAddPatch(demoFormValue()), defaultModel: 'demo/gpt-4.1' } as unknown as Partial<KimiConfig>,
+      {
+        ...buildAddPatch(demoFormValue()),
+        defaultModel: 'demo/gpt-4.1',
+      } as unknown as Partial<KimiConfig>,
     ]);
     expect(current().defaultModel).toBe('demo/gpt-4.1');
   });

@@ -1,22 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
-import { setEnv, restoreEnvs } from '#test/helpers/stubs';
+
 import { createControlledPromise } from '@antfu/utils';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import { IAgentConversationUndoService } from '#/agent/undo/undo';
 import type { ContextMessage } from '#/agent/contextMemory/types';
+import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentProfileService } from '#/agent/profile/profile';
-import type { ExecutableTool, ToolExecution } from '#/tool/toolContract';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { TOOL_SELECT_FLAG_ENV } from '#/agent/toolSelect/flag';
 import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
 import { IAgentToolSelectAnnouncementsService } from '#/agent/toolSelect/toolSelectAnnouncements';
 import { IAgentToolSelectSchemasService } from '#/agent/toolSelect/toolSelectSchemas';
+import { IAgentConversationUndoService } from '#/agent/undo/undo';
 import { IAgentUserToolService } from '#/agent/userTool/userTool';
-import { IAgentLoopService } from '#/agent/loop/loop';
 import { McpConnectionManager } from '#/mcpCore/connection-manager';
 import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
+import type { ExecutableTool, ToolExecution } from '#/tool/toolContract';
+import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 import '#/agent/tools/select-tools/selectToolsTool';
 
 import { createTestAgent, sessionService, type TestAgentContext } from '../../harness';
@@ -34,10 +35,7 @@ const DISCLOSURE_CAPABILITIES = {
   dynamically_loaded_tools: true,
 } as const;
 
-type WireEvent = Extract<
-  TestAgentContext['allEvents'][number],
-  { readonly type: '[wire]' }
->;
+type WireEvent = Extract<TestAgentContext['allEvents'][number], { readonly type: '[wire]' }>;
 
 class StubMcpTool implements ExecutableTool<Record<string, unknown>> {
   readonly description: string;
@@ -101,15 +99,17 @@ describe('progressive tool disclosure end-to-end', () => {
     setEnv(TOOL_SELECT_FLAG_ENV, '1');
     mcpReady = Promise.resolve();
     onMcpWait = () => {};
-    ctx = createTestAgent(sessionService(ISessionMcpHandle, {
-      _serviceBrand: undefined,
-      get ready() {
-        onMcpWait();
-        return mcpReady;
-      },
-      connectionManager: new McpConnectionManager(),
-      isBaselineServer: () => true,
-    }));
+    ctx = createTestAgent(
+      sessionService(ISessionMcpHandle, {
+        _serviceBrand: undefined,
+        get ready() {
+          onMcpWait();
+          return mcpReady;
+        },
+        connectionManager: new McpConnectionManager(),
+        isBaselineServer: () => true,
+      }),
+    );
     ctx.get(IAgentToolSelectService);
     ctx.get(IAgentToolSelectAnnouncementsService);
     ctx.get(IAgentToolSelectSchemasService);
@@ -140,7 +140,8 @@ describe('progressive tool disclosure end-to-end', () => {
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'use the server tool' }] });
     await waiting;
     expect(ctx.llmCalls).toHaveLength(0);
-    registration = ctx.get(IAgentToolRegistryService)
+    registration = ctx
+      .get(IAgentToolRegistryService)
       .register(alpha, { source: 'mcp', disclosure: 'deferred' });
     ready.resolve();
     await ctx.untilTurnEnd();
@@ -198,8 +199,8 @@ describe('progressive tool disclosure end-to-end', () => {
     }
 
     const secondWire = ctx.llmCalls[1]!;
-    const schemaMessages = secondWire.history.filter(
-      (message) => message.tools?.some((tool) => tool.name === MCP_ALPHA),
+    const schemaMessages = secondWire.history.filter((message) =>
+      message.tools?.some((tool) => tool.name === MCP_ALPHA),
     );
     expect(schemaMessages).toHaveLength(1);
 
@@ -255,9 +256,7 @@ describe('progressive tool disclosure end-to-end', () => {
     expect(historyText(ctx.get(IAgentContextMemoryService).get())).toContain(
       `Loaded: ${DASHBOARD_TOOL}`,
     );
-    expect(historyText(ctx.get(IAgentContextMemoryService).get())).toContain(
-      'dashboard-created',
-    );
+    expect(historyText(ctx.get(IAgentContextMemoryService).get())).toContain('dashboard-created');
   });
 
   it('keeps the selected schema across undo and reports it as already available on reselect', async () => {
@@ -275,9 +274,9 @@ describe('progressive tool disclosure end-to-end', () => {
 
     await ctx.get(IAgentConversationUndoService).undo(1);
     const afterUndo = ctx.get(IAgentContextMemoryService).get();
-    expect(afterUndo.some((message) => message.tools?.some((tool) => tool.name === MCP_ALPHA))).toBe(
-      true,
-    );
+    expect(
+      afterUndo.some((message) => message.tools?.some((tool) => tool.name === MCP_ALPHA)),
+    ).toBe(true);
 
     ctx.mockNextResponse(selectToolsCall('call_select_2', [MCP_ALPHA]));
     ctx.mockNextResponse({ type: 'text', text: 'reloaded' });

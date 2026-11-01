@@ -46,7 +46,10 @@ function parseHex(hex: string): Rgb {
 
 function rgbToHex(rgb: Rgb): string {
   const channel = (value: number): string =>
-    Math.round(clamp(value, 0, 255)).toString(16).padStart(2, '0').toUpperCase();
+    Math.round(clamp(value, 0, 255))
+      .toString(16)
+      .padStart(2, '0')
+      .toUpperCase();
   return `#${channel(rgb.r)}${channel(rgb.g)}${channel(rgb.b)}`;
 }
 
@@ -108,11 +111,7 @@ function contrastRatio(first: Rgb, second: Rgb): number {
 }
 
 function relativeLuminance(rgb: Rgb): number {
-  return (
-    0.2126 * srgbToLinear(rgb.r) +
-    0.7152 * srgbToLinear(rgb.g) +
-    0.0722 * srgbToLinear(rgb.b)
-  );
+  return 0.2126 * srgbToLinear(rgb.r) + 0.7152 * srgbToLinear(rgb.g) + 0.0722 * srgbToLinear(rgb.b);
 }
 
 function srgbToLinear(channel: number): number {

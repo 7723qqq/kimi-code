@@ -8,12 +8,13 @@
  * import.
  */
 
-import { Command } from 'commander';
 import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import type { Mock } from 'bun:test';
-import { restoreEnvs } from '#test/helpers/stubs';
 
 import * as sdkModule from '@moonshot-ai/kimi-code-sdk';
+import { Command } from 'commander';
+
+import { restoreEnvs } from '#test/helpers/stubs';
 
 void mock.module('@moonshot-ai/acp-server', () => ({
   runAcpServer: mock(async () => undefined),
@@ -124,10 +125,7 @@ describe('kimi acp', () => {
   });
 
   it('advertises process.execPath on a native install and argv[1] on a script install', async () => {
-    const detectSpy = spyOn(
-      await import('#/cli/update/source'),
-      'detectNativeInstall',
-    );
+    const detectSpy = spyOn(await import('#/cli/update/source'), 'detectNativeInstall');
 
     detectSpy.mockReturnValue({ native: true, kind: 'bun' });
     const nativeProgram = new Command('kimi').exitOverride();

@@ -18,9 +18,7 @@ function emptyStore(): Record<string, string> {
   return Object.create(null) as Record<string, string>;
 }
 
-type ReadResult =
-  | { ok: true; store: Record<string, string> }
-  | { ok: false; reason: string };
+type ReadResult = { ok: true; store: Record<string, string> } | { ok: false; reason: string };
 
 export class GuiStoreService implements IGuiStoreService {
   readonly _serviceBrand: undefined;

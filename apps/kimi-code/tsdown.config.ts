@@ -26,7 +26,10 @@ export default defineConfig({
   plugins: [rawTextPlugin()],
   copy: [
     {
-      from: resolve(appRoot, '../../packages/agent-core-v2/src/app/agentProfileCatalog/model-adaptations'),
+      from: resolve(
+        appRoot,
+        '../../packages/agent-core-v2/src/app/agentProfileCatalog/model-adaptations',
+      ),
       to: resolve(appRoot, 'dist/chunks'),
     },
   ],

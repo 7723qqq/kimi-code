@@ -1,5 +1,6 @@
-import { TaskOutput } from '@moonshot-ai/agent-core-v2';
 import { describe, expect, expectTypeOf, it } from 'bun:test';
+
+import { TaskOutput } from '@moonshot-ai/agent-core-v2';
 
 import type { ApprovalRequest, ApprovalResponse, Event, QuestionRequest } from '#/index';
 import { translateDomainEvent } from '#/v2/event-mapper';

@@ -1,7 +1,5 @@
-import { PassThrough, Readable, type Writable } from 'node:stream';
-
 import { describe, expect, it, mock } from 'bun:test';
-import { waitForAssertion } from '#test/helpers/waitFor';
+import { PassThrough, Readable, type Writable } from 'node:stream';
 
 import { userCancellationReason } from '#/_base/utils/abort';
 import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
@@ -31,6 +29,7 @@ import type {
   ExecutableToolResult,
   ToolExecution,
 } from '#/tool/toolContract';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
 
@@ -448,7 +447,11 @@ function errorMessage(error: unknown): string {
 }
 
 function createFakeTaskService(
-  options: { maxRunningTasks?: number; outputPersistenceAvailable?: boolean; timers?: IHostTimers } = {},
+  options: {
+    maxRunningTasks?: number;
+    outputPersistenceAvailable?: boolean;
+    timers?: IHostTimers;
+  } = {},
 ): {
   readonly service: IAgentTaskService;
   readonly tasks: Map<string, ManagedEntry>;
@@ -1288,9 +1291,7 @@ describe('BashTool', () => {
     expect(result.output).toBe(fullOutput);
     const spill = result.spill;
     expect(spill).toBeDefined();
-    const taskId = /^\/fake\/tasks\/(bash-[0-9a-z]{8})\/output\.log$/.exec(
-      spill!.outputPath!,
-    )?.[1];
+    const taskId = /^\/fake\/tasks\/(bash-[0-9a-z]{8})\/output\.log$/.exec(spill!.outputPath!)?.[1];
     expect(taskId).toBeTruthy();
     expect(persisted.has(taskId!)).toBe(true);
     expect(spill!.totalChars).toBe(fullOutput.length);
@@ -1437,17 +1438,25 @@ describe('BashTool', () => {
     const { runner, exec } = createTestRunner(processWithOutput({ stdout: '' }));
     const tool = bashTool(runner, windowsBashEnv, createTestCtx('C:\\Users\\me\\project'));
 
-    await executeTool(tool, context({ command: 'cat <<EOF\necho hi > nul\nEOF\nls 2>nul', timeout: 60 }));
+    await executeTool(
+      tool,
+      context({ command: 'cat <<EOF\necho hi > nul\nEOF\nls 2>nul', timeout: 60 }),
+    );
 
     const args = exec.mock.calls[0]?.[1] as readonly string[];
-    expect(args[1]).toBe("cd '/c/Users/me/project' && cat <<EOF\necho hi > nul\nEOF\nls 2>/dev/null");
+    expect(args[1]).toBe(
+      "cd '/c/Users/me/project' && cat <<EOF\necho hi > nul\nEOF\nls 2>/dev/null",
+    );
   });
 
   it('does not rewrite > nul inside a quoted heredoc delimiter body nor inside $( )', async () => {
     const { runner, exec } = createTestRunner(processWithOutput({ stdout: '' }));
     const tool = bashTool(runner, windowsBashEnv, createTestCtx('C:\\Users\\me\\project'));
 
-    await executeTool(tool, context({ command: "cat <<'EOF'\necho hi > nul\nEOF\necho $(ls 2>nul)", timeout: 60 }));
+    await executeTool(
+      tool,
+      context({ command: "cat <<'EOF'\necho hi > nul\nEOF\necho $(ls 2>nul)", timeout: 60 }),
+    );
 
     const args = exec.mock.calls[0]?.[1] as readonly string[];
     expect(args[1]).toBe(
@@ -1567,7 +1576,9 @@ describe('BashTool background mode', () => {
     expect(result.output).toContain('The user moved this task to the background.');
     expect(result.output).toContain('detached_by_user: true');
     expect(result.output).toContain('do NOT wait, poll, or call TaskOutput');
-    expect(result.output).toContain('human_shell_hint: The task is visible in the background-task panel.');
+    expect(result.output).toContain(
+      'human_shell_hint: The task is visible in the background-task panel.',
+    );
     expect((result as { brief?: string }).brief).toBe(`Backgrounded ${task.taskId} by the user`);
     expect(service.getTask(task.taskId)).toMatchObject({ detached: true });
     await waitForAssertion(async () => {
@@ -1666,7 +1677,9 @@ describe('BashTool background mode', () => {
     expect(result.output).toContain('The task now runs in the background.');
     expect(result.output).not.toContain('The user moved this task');
     expect(result.output).not.toContain('detached_by_user');
-    expect(result.output).toContain('human_shell_hint: The task is visible in the background-task panel.');
+    expect(result.output).toContain(
+      'human_shell_hint: The task is visible in the background-task panel.',
+    );
     const taskId = /^task_id: (\S+)/m.exec(result.output as string)?.[1];
     expect(taskId).toBeDefined();
     expect(service.getTask(taskId!)).toMatchObject({ status: 'running', detached: true });

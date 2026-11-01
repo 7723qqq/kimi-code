@@ -8,8 +8,6 @@ import { LifecycleScope } from '#/app/scopes';
 import type { McpOAuthStore } from '#/mcpCore/oauth/store';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 
-
-
 export interface IMcpOAuthStore extends McpOAuthStore {
   readonly _serviceBrand: undefined;
 }

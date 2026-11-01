@@ -1,8 +1,7 @@
+import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 
 import type { KimiRegion } from '@moonshot-ai/kimi-code-oauth';
 import { z } from 'zod';
@@ -21,7 +20,10 @@ const client = new ClientConfigClient({
 
 const configSchema = z.object({
   version: z.literal(1),
-  config: z.record(z.string(), z.object({ min_tokens_to_hint: z.number(), cache_duration: z.number() })),
+  config: z.record(
+    z.string(),
+    z.object({ min_tokens_to_hint: z.number(), cache_duration: z.number() }),
+  ),
 });
 
 const CONFIG = {
@@ -50,7 +52,10 @@ describe('fetchClientConfig', () => {
     const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
 
     const result = await client.fetch('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
     });
 
     expect(result).toEqual(CONFIG);
@@ -67,7 +72,10 @@ describe('fetchClientConfig', () => {
     const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
 
     await client.fetch('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       accessToken: 'tok',
     });
     expect(fetchImpl).toHaveBeenCalledWith(
@@ -78,7 +86,10 @@ describe('fetchClientConfig', () => {
     );
 
     await client.fetch('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
     });
     expect(fetchImpl).toHaveBeenLastCalledWith(
       expect.any(String),
@@ -93,7 +104,10 @@ describe('fetchClientConfig', () => {
 
     await expect(
       client.fetch('estimated_cache_duration', configSchema, {
-        fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+        fetchImpl: fetchImpl as unknown as (
+          input: string | URL | Request,
+          init?: RequestInit,
+        ) => Promise<Response>,
       }),
     ).resolves.toBeUndefined();
   });
@@ -105,7 +119,10 @@ describe('fetchClientConfig', () => {
 
     await expect(
       client.fetch('estimated_cache_duration', configSchema, {
-        fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+        fetchImpl: fetchImpl as unknown as (
+          input: string | URL | Request,
+          init?: RequestInit,
+        ) => Promise<Response>,
       }),
     ).resolves.toBeUndefined();
   });
@@ -117,7 +134,10 @@ describe('fetchClientConfig', () => {
 
     await expect(
       client.fetch('estimated_cache_duration', configSchema, {
-        fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+        fetchImpl: fetchImpl as unknown as (
+          input: string | URL | Request,
+          init?: RequestInit,
+        ) => Promise<Response>,
       }),
     ).resolves.toBeUndefined();
   });
@@ -129,7 +149,10 @@ describe('fetchClientConfig', () => {
 
     await expect(
       client.fetch('estimated_cache_duration', configSchema, {
-        fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+        fetchImpl: fetchImpl as unknown as (
+          input: string | URL | Request,
+          init?: RequestInit,
+        ) => Promise<Response>,
       }),
     ).resolves.toBeUndefined();
   });
@@ -138,7 +161,10 @@ describe('fetchClientConfig', () => {
     const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
 
     const result = await client.fetch('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       path: '/resource_configs',
     });
 
@@ -159,12 +185,18 @@ describe('getClientConfig', () => {
     const now = Date.now();
 
     const first = await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       now,
       cacheFile: null,
     });
     const second = await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       now: now + 60_000,
       cacheFile: null,
     });
@@ -179,12 +211,18 @@ describe('getClientConfig', () => {
     const now = Date.now();
 
     await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       now,
       cacheFile: null,
     });
     const result = await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       now: now + 25 * 60 * 60 * 1000,
       cacheFile: null,
     });
@@ -201,12 +239,18 @@ describe('getClientConfig', () => {
     const now = Date.now();
 
     await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       now,
       cacheFile: null,
     });
     const second = await client.get('other_config', configSchema, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       now,
       cacheFile: null,
     });
@@ -220,7 +264,10 @@ describe('getClientConfig', () => {
 
     await expect(
       client.get('estimated_cache_duration', configSchema, {
-        fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+        fetchImpl: fetchImpl as unknown as (
+          input: string | URL | Request,
+          init?: RequestInit,
+        ) => Promise<Response>,
         cacheFile: null,
       }),
     ).resolves.toBeUndefined();
@@ -231,12 +278,18 @@ describe('getClientConfig', () => {
     const now = Date.now();
 
     await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       now,
       cacheFile: null,
     });
     const second = await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       now,
       cacheFile: null,
       path: '/resource_configs',
@@ -250,13 +303,18 @@ describe('getClientConfig', () => {
     const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
     await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       now,
       cacheFile: null,
       path: '/resource_configs',
     });
 
-    expect(client.peek('estimated_cache_duration', configSchema, now, '/resource_configs')).toEqual(CONFIG);
+    expect(client.peek('estimated_cache_duration', configSchema, now, '/resource_configs')).toEqual(
+      CONFIG,
+    );
     expect(client.peek('estimated_cache_duration', configSchema, now)).toBeUndefined();
   });
 });
@@ -266,7 +324,10 @@ describe('peekClientConfig', () => {
     const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
     await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       now,
       cacheFile: null,
     });
@@ -301,7 +362,10 @@ describe('getClientConfig disk cache', () => {
     const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
 
     const result = await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       now: now + 60_000,
       cacheFile: file,
     });
@@ -315,7 +379,10 @@ describe('getClientConfig disk cache', () => {
     const now = Date.now();
     const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
     await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       now,
       cacheFile: file,
     });
@@ -325,7 +392,10 @@ describe('getClientConfig disk cache', () => {
       throw new Error('offline');
     });
     const result = await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: offline as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: offline as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       now: now + 60_000,
       cacheFile: file,
     });
@@ -342,11 +412,16 @@ describe('getClientConfig disk cache', () => {
     );
     const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
     await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       now,
       cacheFile: file,
     });
-    expect(client.peek('estimated_cache_duration', configSchema, now + 2 * 60 * 60 * 1000)).toBeUndefined();
+    expect(
+      client.peek('estimated_cache_duration', configSchema, now + 2 * 60 * 60 * 1000),
+    ).toBeUndefined();
   });
 
   it('refetches and rewrites the file when the disk entry is stale', async () => {
@@ -358,7 +433,10 @@ describe('getClientConfig disk cache', () => {
     const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
 
     const result = await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       now,
       cacheFile: file,
     });
@@ -374,7 +452,10 @@ describe('getClientConfig disk cache', () => {
     const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
 
     const result = await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       cacheFile: file,
     });
 
@@ -390,7 +471,10 @@ describe('getClientConfig disk cache', () => {
     const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
 
     const result = await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       cacheFile: file,
     });
 
@@ -404,7 +488,10 @@ describe('getClientConfig disk cache', () => {
     const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
 
     const result = await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       cacheFile: join(blocker, 'nested', 'config.json'),
     });
 
@@ -419,12 +506,18 @@ describe('getClientConfig disk cache', () => {
       const now = Date.now();
 
       await client.get('estimated_cache_duration', configSchema, {
-        fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+        fetchImpl: fetchImpl as unknown as (
+          input: string | URL | Request,
+          init?: RequestInit,
+        ) => Promise<Response>,
         now,
         path: '/client_configs',
       });
       await client.get('estimated_cache_duration', configSchema, {
-        fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+        fetchImpl: fetchImpl as unknown as (
+          input: string | URL | Request,
+          init?: RequestInit,
+        ) => Promise<Response>,
         now,
         path: '/client:configs',
       });
@@ -446,7 +539,10 @@ describe('region awareness', () => {
     const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
 
     const data = await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       cacheFile: null,
     });
 
@@ -465,7 +561,10 @@ describe('region awareness', () => {
     const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
 
     await client.fetch('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
     });
 
     expect(fetchImpl).toHaveBeenCalledWith(

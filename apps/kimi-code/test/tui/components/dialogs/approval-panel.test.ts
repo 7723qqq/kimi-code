@@ -1,5 +1,6 @@
-import { CURSOR_MARKER } from '@moonshot-ai/pi-tui';
 import { describe, expect, it } from 'bun:test';
+
+import { CURSOR_MARKER } from '@moonshot-ai/pi-tui';
 
 import { ApprovalPanelComponent } from '#/tui/components/dialogs/approval-panel';
 import type {
@@ -46,10 +47,7 @@ function makeDialog(): {
     feedback?: string | undefined;
     selected_label?: string | undefined;
   }> = [];
-  const dialog = new ApprovalPanelComponent(
-    makePending(),
-    (response) => responses.push(response),
-  );
+  const dialog = new ApprovalPanelComponent(makePending(), (response) => responses.push(response));
   return { dialog, responses };
 }
 
@@ -284,14 +282,11 @@ describe('ApprovalPanelComponent', () => {
     expect(out).toContain(CURSOR_MARKER);
   });
 
-  it.each(['\u0003', '\u0004', '\u001B'])(
-    'shortcut %j rejects approval immediately',
-    (key) => {
-      const { dialog, responses } = makeDialog();
-      dialog.handleInput(key);
-      expect(responses).toEqual([{ response: 'rejected' }]);
-    },
-  );
+  it.each(['\u0003', '\u0004', '\u001B'])('shortcut %j rejects approval immediately', (key) => {
+    const { dialog, responses } = makeDialog();
+    dialog.handleInput(key);
+    expect(responses).toEqual([{ response: 'rejected' }]);
+  });
 
   it('renders ExitPlanMode with plan-specific header and plan-review choices', () => {
     const pending: PendingApproval = {
@@ -402,7 +397,11 @@ describe('ApprovalPanelComponent', () => {
       },
     };
     let globalToggleCalls = 0;
-    const dialog = new ApprovalPanelComponent(pending, () => {}, () => globalToggleCalls++);
+    const dialog = new ApprovalPanelComponent(
+      pending,
+      () => {},
+      () => globalToggleCalls++,
+    );
 
     dialog.handleInput('\u000F'); // Ctrl+O
 
@@ -540,24 +539,27 @@ describe('ApprovalPanelComponent', () => {
         ],
       },
     };
-    const dialog = new ApprovalPanelComponent(
-      pending,
-      (response) => responses.push(response),
-    );
+    const dialog = new ApprovalPanelComponent(pending, (response) => responses.push(response));
 
     dialog.handleInput('2');
     dialog.handleInput('n');
     dialog.handleInput('o');
     dialog.handleInput('\r');
-    expect(responses).toEqual([
-      { response: 'rejected', feedback: 'no', selected_label: 'Revise' },
-    ]);
+    expect(responses).toEqual([{ response: 'rejected', feedback: 'no', selected_label: 'Revise' }]);
   });
   it('prints each choice description under its label', () => {
     const pending = makePending();
     pending.data.choices = [
-      { label: 'Plan without edits', response: 'approved', description: 'Explore the codebase and write a plan file.' },
-      { label: 'Plan with edits', response: 'approved_for_session', description: 'May edit files while writing the plan.' },
+      {
+        label: 'Plan without edits',
+        response: 'approved',
+        description: 'Explore the codebase and write a plan file.',
+      },
+      {
+        label: 'Plan with edits',
+        response: 'approved_for_session',
+        description: 'May edit files while writing the plan.',
+      },
       { label: 'Reject', response: 'rejected' },
     ];
     const dialog = new ApprovalPanelComponent(pending, () => {});
@@ -568,10 +570,11 @@ describe('ApprovalPanelComponent', () => {
     expect(out).toContain('May edit files while writing the plan.');
     // A choice without a description adds no blank helper line of its own.
     const lines = out.split('\n');
-    const rejectRow = lines.findIndex((line) => line.includes('Reject') && !line.includes('with feedback'));
+    const rejectRow = lines.findIndex(
+      (line) => line.includes('Reject') && !line.includes('with feedback'),
+    );
     expect(rejectRow).toBeGreaterThan(0);
   });
-
 });
 
 describe('ApprovalPanelComponent — interrupting an approval', () => {

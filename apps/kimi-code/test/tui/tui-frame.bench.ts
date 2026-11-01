@@ -15,6 +15,7 @@
 
 import type { Component, Terminal } from '@moonshot-ai/pi-tui';
 import { TuiMainScreen } from '@moonshot-ai/pi-tui';
+
 import { bench, describe, reportBenchResults } from './bench-harness';
 
 const WIDTH = 120;

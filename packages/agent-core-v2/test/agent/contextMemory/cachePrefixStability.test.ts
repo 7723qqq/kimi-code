@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'bun:test';
+
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { type ToolCall } from '#human/llm/message';
 import { type ExecutableTool } from '#/tool/toolContract';
-import { createTestAgent, permissionModeServices } from '../../harness/agent';
+import { type ToolCall } from '#human/llm/message';
 
+import { createTestAgent, permissionModeServices } from '../../harness/agent';
 import { type GenerateCall } from '../../harness/snapshots';
 
 function assertPrefixStable(calls: readonly GenerateCall[]): void {

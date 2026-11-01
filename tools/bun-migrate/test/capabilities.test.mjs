@@ -62,7 +62,18 @@ describe('sharp versus Bun.Image', () => {
 
   it('Bun.Image supports the encode and geometry operations it claims', () => {
     const image = new Bun.Image(new Uint8Array([137, 80, 78, 71]));
-    for (const method of ['png', 'jpeg', 'webp', 'avif', 'resize', 'rotate', 'flip', 'flop', 'metadata', 'bytes']) {
+    for (const method of [
+      'png',
+      'jpeg',
+      'webp',
+      'avif',
+      'resize',
+      'rotate',
+      'flip',
+      'flop',
+      'metadata',
+      'bytes',
+    ]) {
       expect(`${method}=${typeof image[method]}`).toBe(`${method}=function`);
     }
   });

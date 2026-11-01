@@ -1,10 +1,11 @@
-import type { TurnStartedEvent } from '@moonshot-ai/kimi-code-sdk';
+import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
+
 import {
   DEFAULT_SURVEY_POPUP_PAYLOAD,
   SurveyPopupConfigFeed,
   type SurveyPopupPayload,
 } from '@moonshot-ai/kimi-code-product/session-rating/node';
-import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
+import type { TurnStartedEvent } from '@moonshot-ai/kimi-code-sdk';
 
 import { GutterContainer } from '#/tui/components/chrome/gutter-container';
 import {
@@ -1206,9 +1207,6 @@ describe('SurveyController interaction', () => {
     expect(harness.controller.handlePreInput(ESC)).toBe(false);
   });
 
-
-
-
   it('resets in-session pacing on session reset', async () => {
     const harness = createHarness();
     await harness.flush();
@@ -1228,7 +1226,7 @@ describe('SurveyController interaction', () => {
     await harness.appear();
     expect(harness.container.children).toHaveLength(0);
   });
-    it('cancels the pending digit selection when a cursor key passes through to the draft', async () => {
+  it('cancels the pending digit selection when a cursor key passes through to the draft', async () => {
     const harness = createHarness();
     await harness.flush();
     await harness.appear();

@@ -1,12 +1,11 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-
 import { IAgentKnowledgeService } from '#/agent/knowledge/knowledge';
-import { INJECTION_CONFIDENCE_FLOOR } from '#/agent/knowledge/knowledgeService';
 import { LEARNED_CONFIDENCE } from '#/agent/knowledge/knowledgeLearner';
+import { INJECTION_CONFIDENCE_FLOOR } from '#/agent/knowledge/knowledgeService';
 import * as sqliteKnowledge from '#/agent/knowledge/sqliteKnowledge';
 
 import { createTestAgent, type TestAgentContext } from '../../harness';

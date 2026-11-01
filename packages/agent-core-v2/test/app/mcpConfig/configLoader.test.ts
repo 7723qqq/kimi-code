@@ -1,12 +1,13 @@
+import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve as resolveNativePath, sep } from 'node:path';
-import { join } from 'pathe';
-import { afterEach, describe, expect, it } from 'bun:test';
 
-import { ErrorCodes, Error2 } from '#/errors';
+import { join } from 'pathe';
+
 import { loadMcpServers, resolveMcpJsonPaths } from '#/app/mcpConfig/configLoader';
+import { ErrorCodes, Error2 } from '#/errors';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
 
 const fs = new HostFileSystem();
@@ -178,7 +179,11 @@ describe('loadMcpServers', () => {
       transport: 'stdio',
       command: 'shared-project',
     });
-    expect(servers['rootOnly']).toEqual({ transport: 'stdio', command: 'root-only', cwd: repoRoot });
+    expect(servers['rootOnly']).toEqual({
+      transport: 'stdio',
+      command: 'root-only',
+      cwd: repoRoot,
+    });
     expect(servers['userOnly']).toEqual({ transport: 'stdio', command: 'user-only' });
     expect(servers['projectOnly']).toEqual({ transport: 'http', url: 'https://mcp.example.com' });
   });

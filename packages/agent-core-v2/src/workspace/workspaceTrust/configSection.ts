@@ -16,7 +16,9 @@ export const DEFAULT_WORKSPACE_TRUST_CONFIG: WorkspaceTrustConfig = {
 };
 
 export function workspaceTrustRequired(config: IConfigService): boolean {
-  return config.get<WorkspaceTrustConfig | undefined>(WORKSPACE_TRUST_SECTION)?.requireTrust ?? true;
+  return (
+    config.get<WorkspaceTrustConfig | undefined>(WORKSPACE_TRUST_SECTION)?.requireTrust ?? true
+  );
 }
 
 registerConfigSection(WORKSPACE_TRUST_SECTION, WorkspaceTrustConfigSchema, {

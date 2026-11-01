@@ -9,6 +9,7 @@ import {
   NOTIFY_USER_UI_CAPABILITY,
   notifyUserAvailable,
 } from '#/features/notify/notifyUserAvailability';
+import { NOTIFY_USER_NUDGE_VARIANT } from '#/features/notify/notifyUserNudge';
 import {
   INotifyUserTool,
   NOTIFY_USER_TOOL_NAME,
@@ -22,11 +23,10 @@ import {
   NOTIFY_USER_MULTILINE_TITLE,
   NOTIFY_USER_SUPPRESSED_OUTPUT,
 } from '#/features/notify/tools/notify-user/notifyUserTool';
-import { NOTIFY_USER_NUDGE_VARIANT } from '#/features/notify/notifyUserNudge';
-import { recordingTelemetry, type TelemetryRecord } from '../../../app/telemetry/stubs';
-import { executeTool } from '../../../tools/fixtures/execute-tool';
 
+import { recordingTelemetry, type TelemetryRecord } from '../../../app/telemetry/stubs';
 import { createTestAgent, type TestAgentContext } from '../../../harness';
+import { executeTool } from '../../../tools/fixtures/execute-tool';
 
 const signal = new AbortController().signal;
 
@@ -153,7 +153,9 @@ describe('NotifyUserTool', () => {
     context.append({
       role: 'assistant',
       content: [],
-      toolCalls: [{ type: 'function', id: 'call_notify', name: NOTIFY_USER_TOOL_NAME, arguments: '{}' }],
+      toolCalls: [
+        { type: 'function', id: 'call_notify', name: NOTIFY_USER_TOOL_NAME, arguments: '{}' },
+      ],
     });
 
     await executeTool(ctx.get(INotifyUserTool), {
@@ -184,7 +186,9 @@ describe('NotifyUserTool', () => {
     });
 
     expect(result).toEqual({ isError: false, output: NOTIFY_USER_DELIVERED_OUTPUT });
-    expect(telemetry.find((record) => record.event === 'notify_user_sent')?.properties).toMatchObject({
+    expect(
+      telemetry.find((record) => record.event === 'notify_user_sent')?.properties,
+    ).toMatchObject({
       title_chars: 0,
     });
   });
@@ -271,7 +275,9 @@ describe('NotifyUserTool', () => {
       isError: false,
       output: NOTIFY_USER_SUPPRESSED_OUTPUT,
     });
-    expect(telemetry.find((record) => record.event === 'notify_user_sent')?.properties).toMatchObject({
+    expect(
+      telemetry.find((record) => record.event === 'notify_user_sent')?.properties,
+    ).toMatchObject({
       displayed: false,
     });
   });

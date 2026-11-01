@@ -1,9 +1,9 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { ErrorCodes, KimiError } from '@moonshot-ai/kimi-code-sdk';
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import {
   appendGoalQueueItem,

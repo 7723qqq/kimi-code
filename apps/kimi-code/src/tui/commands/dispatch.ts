@@ -39,10 +39,10 @@ import {
   showSettingsSelector,
 } from './config';
 import { handleCopyCommand } from './copy';
-import { handleImportSessionsCommand } from './import-sessions';
 import { handleDesktopCommand } from './desktop';
 import { handleGoalCommand } from './goal';
 import { handleHelloWorldCommand } from './hello-world';
+import { handleImportSessionsCommand } from './import-sessions';
 import { handleFeedbackCommand, showMcpServers, showStatusReport, showUsage } from './info';
 import { parseSlashInput } from './parse';
 import { handlePluginsCommand } from './plugins';
@@ -221,7 +221,10 @@ export interface SlashCommandHost {
    * (v2 engine only): all activations ride the same submission as the prompt
    * and launch as a single turn.
    */
-  sendInlineSkillUserInput(text: string, activations: readonly InlineSkillActivation[]): Promise<void>;
+  sendInlineSkillUserInput(
+    text: string,
+    activations: readonly InlineSkillActivation[],
+  ): Promise<void>;
   activatePluginCommand(
     session: Session,
     pluginId: string,
@@ -253,7 +256,11 @@ export function dispatchInput(host: SlashCommandHost, text: string): void {
   });
   if (intent.kind === 'skill' || activations.length > 0) {
     const leading = activations[0];
-    if (intent.kind === 'skill' && leading?.args !== undefined && host.state.appState.model.trim().length > 0) {
+    if (
+      intent.kind === 'skill' &&
+      leading?.args !== undefined &&
+      host.state.appState.model.trim().length > 0
+    ) {
       host.track('input_command', {
         command: intent.commandName,
         skill_name: leading.skillName,
@@ -328,7 +335,10 @@ async function executeSlashCommand(
     case 'builtin':
       if (intent.enqueue === true) {
         if (!host.enqueueCompactCommand(intent.args)) {
-          host.track('input_command_invalid', { reason: 'duplicate-compact', command: intent.name });
+          host.track('input_command_invalid', {
+            reason: 'duplicate-compact',
+            command: intent.name,
+          });
           host.showError(t('tui.statusMessages.compactAlreadyQueued'));
           host.restoreInputText(input);
           return;

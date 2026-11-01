@@ -1,49 +1,50 @@
-import { createControlledPromise } from '@antfu/utils';
 import { afterEach, beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
-import { setEnv, restoreEnvs } from '#test/helpers/stubs';
-import { waitForAssertion } from '#test/helpers/waitFor';
+
+import { createControlledPromise } from '@antfu/utils';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { ScopeUnits, type Fiber } from '#/_base/di/fiber';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { type IAgentScopeHandle } from '#/_base/di/scope';
 import { TestInstantiationService } from '#/_base/di/test';
-import { userCancellationReason } from '#/_base/utils/abort';
-import '#/agent/profile/profileService';
 import { Emitter, Event } from '#/_base/event';
 import { Ledger } from '#/_base/lifecycle/ledger';
-import '#/agent/permissionMode/permissionModeService';
 import { ILogService } from '#/_base/log/log';
+import '#/agent/profile/profileService';
+import { userCancellationReason } from '#/_base/utils/abort';
 import { type AgentContext } from '#/agent/agentContext/agentContext';
-import '#/agent/contextMemory/contextMemoryService';
+import '#/agent/permissionMode/permissionModeService';
 import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminder';
 import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
+import '#/agent/contextMemory/contextMemoryService';
 import { IAgentLoopService, type LoopSnapshot } from '#/agent/loop/loop';
 import { type MachineEngine, type MachineEngineAttachBundle } from '#/agent/loop/machine/engine';
 import { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
 import { SessionMediaStoreService } from '#/agent/media/sessionMediaStoreService';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import { permissionModeConfiguredKey, permissionModeKey } from '#/agent/permissionMode/permissionModeOps';
+import {
+  permissionModeConfiguredKey,
+  permissionModeKey,
+} from '#/agent/permissionMode/permissionModeOps';
 import { IAgentPluginService } from '#/agent/plugin/agentPlugin';
-
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
 import { IAgentTaskService } from '#/agent/task/task';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { _clearAgentToolContributionsForTests } from '#/agent/toolRegistry/toolContribution';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import '#/agent/mcp/mcpService';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
-import '#/state/eventDispatcherService';
 import { IBuiltinAgentProfileLoader } from '#/app/agentProfileCatalog/builtinAgentProfileLoader';
+import '#/agent/mcp/mcpService';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import '#/state/eventDispatcherService';
 import { IConfigService } from '#/app/config/config';
 import { ISessionEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
 import { IFlagService } from '#/app/flag/flag';
+import { IProviderDiscoveryService } from '#/app/kosongConfig/discovery';
 import { createMcpOAuthStore } from '#/app/mcpConfig/oauthStore';
 import { IPluginService } from '#/app/plugin/plugin';
-import { IProviderDiscoveryService } from '#/app/kosongConfig/discovery';
 import { LifecycleScope } from '#/app/scopes';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ISessionNotify } from '#/features/notify/sessionNotify';
@@ -74,19 +75,36 @@ import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
-import '#/agent/toolActivation/toolActivationService';
 import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
 import { ISessionStateService } from '#/session/state/sessionState';
+import '#/agent/toolActivation/toolActivationService';
 import { SessionStateService } from '#/session/state/sessionStateService';
-import { SubagentCancelled, SubagentCompleted, SubagentStarted } from '#/session/subagent/mirrorAgentRun';
-import { DEFAULT_SUBAGENT_SCOPE_CACHE_SIZE, DEFAULT_SUBAGENT_SCOPE_EVICT_TIMEOUT_MS, ISessionSubagentScopeCacheService, resolveSubagentScopeCacheSize, resolveSubagentScopeEvictTimeoutMs, SUBAGENT_SCOPE_CACHE_SIZE_ENV, SUBAGENT_SCOPE_EVICT_TIMEOUT_ENV } from '#/session/subagent/subagentScopeCache';
+import {
+  SubagentCancelled,
+  SubagentCompleted,
+  SubagentStarted,
+} from '#/session/subagent/mirrorAgentRun';
+import {
+  DEFAULT_SUBAGENT_SCOPE_CACHE_SIZE,
+  DEFAULT_SUBAGENT_SCOPE_EVICT_TIMEOUT_MS,
+  ISessionSubagentScopeCacheService,
+  resolveSubagentScopeCacheSize,
+  resolveSubagentScopeEvictTimeoutMs,
+  SUBAGENT_SCOPE_CACHE_SIZE_ENV,
+  SUBAGENT_SCOPE_EVICT_TIMEOUT_ENV,
+} from '#/session/subagent/subagentScopeCache';
 import { SessionSubagentScopeCacheService } from '#/session/subagent/subagentScopeCacheService';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
-import { IRuntimeResolver, IWorkspaceInstanceManager } from '#/workspace/workspaceInstance/workspaceInstanceManager';
+import {
+  IRuntimeResolver,
+  IWorkspaceInstanceManager,
+} from '#/workspace/workspaceInstance/workspaceInstanceManager';
 import { type AgentEventStore } from '#human/agent/slices';
+import { setEnv, restoreEnvs } from '#test/helpers/stubs';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { stubAgentContext } from '../../agent/agentContext/stubs';
 import { stubProviderDiscovery } from '../../stubs';
@@ -1116,7 +1134,9 @@ describe('SessionSubagentScopeCacheService eviction guards', () => {
       expect(removeAgent.mock.calls.some((call) => call[0].agentId === 'agent-new')).toBe(true);
     });
     expect(removeAgent.mock.calls.some((call) => call[0].agentId === 'agent-later')).toBe(false);
-    expect(removeAgent.mock.calls.filter((call) => call[0].agentId === 'agent-old')).toHaveLength(1);
+    expect(removeAgent.mock.calls.filter((call) => call[0].agentId === 'agent-old')).toHaveLength(
+      1,
+    );
     expect(handles.has('agent-later')).toBe(true);
   });
 
@@ -1169,9 +1189,7 @@ describe('SessionSubagentScopeCacheService eviction guards', () => {
     expect(removeAgent.mock.calls[3]![0]).toMatchObject({ agentId: 'agent-4' });
 
     expect(
-      logs.entries.filter(
-        (entry) => entry.level === 'warn' && entry.message.includes('timed out'),
-      ),
+      logs.entries.filter((entry) => entry.level === 'warn' && entry.message.includes('timed out')),
     ).toHaveLength(1);
   });
 
@@ -1186,7 +1204,8 @@ describe('SessionSubagentScopeCacheService eviction guards', () => {
       closingAgents.delete(context.agentId);
       didClose.fire(context);
     });
-    for (const agentId of ['agent-a', 'agent-b', 'agent-c']) handles.set(agentId, idleHandle(agentId));
+    for (const agentId of ['agent-a', 'agent-b', 'agent-c'])
+      handles.set(agentId, idleHandle(agentId));
 
     bus.publish(new SubagentCompleted({ subagentId: 'agent-a', resultSummary: 'done' }));
     bus.publish(new SubagentCompleted({ subagentId: 'agent-b', resultSummary: 'done' }));

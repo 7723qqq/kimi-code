@@ -78,13 +78,16 @@ export class SelectToolsTool implements ISelectToolsTool {
             'select_tools only loads exact announced names; it cannot search for capabilities or install tools. ';
           const candidates = suggestions[name];
           if (candidates !== undefined && candidates.length > 0) {
-            lines.push(`${reason}Did you mean: ${candidates.join(', ')}? Use an exact listed name.`);
+            lines.push(
+              `${reason}Did you mean: ${candidates.join(', ')}? Use an exact listed name.`,
+            );
           } else {
-            const available = loadable.length === 0
-              ? 'No additional tools can be loaded right now; use the tools you already have.'
-              : loadable.length <= 5
-                ? `Loadable tools: ${loadable.join(', ')}.`
-                : 'Select only exact names from the current announcements.';
+            const available =
+              loadable.length === 0
+                ? 'No additional tools can be loaded right now; use the tools you already have.'
+                : loadable.length <= 5
+                  ? `Loadable tools: ${loadable.join(', ')}.`
+                  : 'Select only exact names from the current announcements.';
             lines.push(
               `${reason}${available} Do not guess aliases; use an available tool ` +
                 'or tell the user what capability is missing.',

@@ -1,9 +1,7 @@
+import { describe, expect, it } from 'bun:test';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { describe, expect, it } from 'bun:test';
-import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { FooterComponent } from '#/tui/components/chrome/footer';
 import type { AppState } from '#/tui/types';
@@ -14,6 +12,7 @@ import {
   StatusLineCommandRunner,
   type StatusLinePayload,
 } from '#/tui/utils/status-line-command';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 const RERUN_INTERVAL_MS = 50;
 
@@ -313,14 +312,22 @@ describe('StatusLineCommandRunner', () => {
       const runner = new StatusLineCommandRunner(nodeCommand(`${scriptFile} ${outFile}`), () => {});
 
       runner.maybeRefresh({ ...payload, specMode: true, swarmMode: true, towerMode: true });
-      await waitForAssertion(() => {
-        expect(() => JSON.parse(readFileSync(outFile, 'utf-8'))).not.toThrow();
-      }, { timeout: 5_000 });
+      await waitForAssertion(
+        () => {
+          expect(() => JSON.parse(readFileSync(outFile, 'utf-8'))).not.toThrow();
+        },
+        { timeout: 5_000 },
+      );
 
       // A user's custom status line must be able to see every mode the footer
       // renders, not just plan.
       const sent = JSON.parse(readFileSync(outFile, 'utf-8')) as Record<string, unknown>;
-      expect(sent).toMatchObject({ specMode: true, swarmMode: true, towerMode: true, planMode: false });
+      expect(sent).toMatchObject({
+        specMode: true,
+        swarmMode: true,
+        towerMode: true,
+        planMode: false,
+      });
       runner.dispose();
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -383,15 +390,21 @@ describe('StatusLineCommandRunner', () => {
     };
     const footer = new FooterComponent(state);
     footer.render(120); // kicks the first run
-    await waitForAssertion(() => {
-      expect(plain(footer.render(120)[0]!)).toContain('aaa');
-    }, { timeout: 5_000 });
+    await waitForAssertion(
+      () => {
+        expect(plain(footer.render(120)[0]!)).toContain('aaa');
+      },
+      { timeout: 5_000 },
+    );
 
     footer.setState({ ...state, statusLine: { items: null, command: 'echo bbb' } });
     footer.render(120); // kicks the replacement run
-    await waitForAssertion(() => {
-      expect(plain(footer.render(120)[0]!)).toContain('bbb');
-    }, { timeout: 5_000 });
+    await waitForAssertion(
+      () => {
+        expect(plain(footer.render(120)[0]!)).toContain('bbb');
+      },
+      { timeout: 5_000 },
+    );
 
     const line1 = plain(footer.render(120)[0]!);
     expect(line1).toContain('bbb');

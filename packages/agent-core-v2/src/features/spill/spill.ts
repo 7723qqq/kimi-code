@@ -11,7 +11,6 @@ export interface SpillOwner {
 }
 
 export interface SpillSource {
-
   readonly toolName: string;
 
   readonly callId: string;

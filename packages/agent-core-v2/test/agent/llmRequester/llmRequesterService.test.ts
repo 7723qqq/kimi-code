@@ -1,9 +1,11 @@
-import { createControlledPromise } from '@antfu/utils';
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+
+import { createControlledPromise } from '@antfu/utils';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
+import { ILogService, type LogContext } from '#/_base/log/log';
 import type { AgentContext } from '#/agent/agentContext/agentContext';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
@@ -13,37 +15,30 @@ import {
   type ProjectionPolicy,
 } from '#/agent/contextProjector/contextProjector';
 import { AgentContextProjectorService } from '#/agent/contextProjector/contextProjectorService';
-import { AgentLLMRequesterService, KIMI_CODE_INFINITE_RETRY_ENV, estimateLlmRequestBytes } from '#/agent/llmRequester/llmRequesterService';
 import {
   DEFAULT_REQUEST_BYTE_BUDGET_BYTES,
   LlmRequesterConfigSchema,
 } from '#/agent/llmRequester/configSection';
 import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
-import { createMachineRequester } from '#/agent/loop/machine/requester';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import {
-  createTurnMachine,
-  type AssistantEntry,
-  type TurnEvent,
-  type TurnInput,
-  type TurnLlmEvent,
-} from '#human/agent/turn';
-import { UNKNOWN_CAPABILITY } from '#human/llm/capability';
-import type { LlmModel } from '#human/llm/model';
-import type { LlmRequester } from '#human/llm/requester/requester';
-import { createActor, emit, setup, SimulatedClock } from '#human/xstate2';
-import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
+  AgentLLMRequesterService,
+  KIMI_CODE_INFINITE_RETRY_ENV,
+  estimateLlmRequestBytes,
+} from '#/agent/llmRequester/llmRequesterService';
+import { createMachineRequester } from '#/agent/loop/machine/requester';
+import { IAgentMediaResolverService } from '#/agent/media/mediaResolver';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
-import { IAgentMediaResolverService } from '#/agent/media/mediaResolver';
-import { ISessionUsageService } from '#/session/usage/sessionUsage';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import type { Event2 } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
-import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { Error2, ErrorCodes } from '#/errors';
+import type { ModelCapability } from '#/llm-adapter/contract/capability';
 import {
   APIConnectionError,
   APIContextOverflowError,
@@ -53,11 +48,7 @@ import {
   APIRequestTooLargeError,
   APIStatusError,
 } from '#/llm-adapter/contract/errors';
-import { emptyUsage, type TokenUsage } from '#human/llm/usage';
 import { type Message } from '#/llm-adapter/contract/message';
-import { isToolCall, type StreamedMessagePart, type ToolCall } from '#human/llm/message';
-import type { ThinkingEffort } from '#human/llm/thinking';
-import type { ModelCapability } from '#/llm-adapter/contract/capability';
 import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
 import { IModelService } from '#/llm-adapter/model/model';
 import {
@@ -65,14 +56,28 @@ import {
   type ModelRequestInput,
   type ModelRequester,
 } from '#/llm-adapter/model/model-requester';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { ILogService, type LogContext } from '#/_base/log/log';
-import { Error2, ErrorCodes } from '#/errors';
+import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
+import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
+import { ISessionUsageService } from '#/session/usage/sessionUsage';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import type { WireRecord } from '#/wire/record';
-import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
-import { stubBootstrap } from '../../app/bootstrap/stubs';
+import {
+  createTurnMachine,
+  type AssistantEntry,
+  type TurnEvent,
+  type TurnInput,
+  type TurnLlmEvent,
+} from '#human/agent/turn';
+import { UNKNOWN_CAPABILITY } from '#human/llm/capability';
+import { isToolCall, type StreamedMessagePart, type ToolCall } from '#human/llm/message';
+import type { LlmModel } from '#human/llm/model';
+import type { LlmRequester } from '#human/llm/requester/requester';
+import type { ThinkingEffort } from '#human/llm/thinking';
+import { emptyUsage, type TokenUsage } from '#human/llm/usage';
+import { createActor, emit, setup, SimulatedClock } from '#human/xstate2';
 
+import { stubBootstrap } from '../../app/bootstrap/stubs';
+import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import {
   recordingWireLog,
   registerTestAgentWire,
@@ -186,8 +191,7 @@ function createRequester(
         calls.value === 1
           ? firstCallError === null
             ? undefined
-            : (firstCallError ??
-              new APIStatusError(400, 'messages: `tool_use` ids must be unique'))
+            : (firstCallError ?? new APIStatusError(400, 'messages: `tool_use` ids must be unique'))
           : subsequentCallErrors[calls.value - 2];
       if (error !== undefined) throw error;
       yield {
@@ -301,7 +305,10 @@ function createService(
   projector:
     | (Pick<IAgentContextProjectorService, 'project'> &
         Partial<
-          Pick<IAgentContextProjectorService, 'captureMediaStripSnapshot' | 'captureMediaDegradeCount'>
+          Pick<
+            IAgentContextProjectorService,
+            'captureMediaStripSnapshot' | 'captureMediaDegradeCount'
+          >
         >)
     | undefined,
   options: {
@@ -387,15 +394,15 @@ function createService(
 
   ix.stub(IAgentContextMemoryService, context);
   ix.stub(IAgentToolSelectService, toolSelect);
-  ix.stub(IAgentMediaResolverService, options.mediaResolver ?? {
-    resolve: async (messages) => messages,
-    displayPaths: async () => new Map(),
-  });
+  ix.stub(
+    IAgentMediaResolverService,
+    options.mediaResolver ?? {
+      resolve: async (messages) => messages,
+      displayPaths: async () => new Map(),
+    },
+  );
   if (projector === undefined) {
-    ix.set(
-      IAgentContextProjectorService,
-      new SyncDescriptor(AgentContextProjectorService),
-    );
+    ix.set(IAgentContextProjectorService, new SyncDescriptor(AgentContextProjectorService));
   } else {
     ix.stub(IAgentContextProjectorService, {
       captureMediaStripSnapshot: () => testSnapshot,
@@ -583,7 +590,10 @@ describe('AgentLLMRequesterService infinite retry', () => {
 
   it('keeps deterministic projection recovery ahead of infinite retry', async () => {
     const calls = { value: 0 };
-    const requester = createRequester(calls, new APIRequestTooLargeError(413, 'Request Entity Too Large'));
+    const requester = createRequester(
+      calls,
+      new APIRequestTooLargeError(413, 'Request Entity Too Large'),
+    );
     const { service } = createService(requester, undefined, {
       env: { [KIMI_CODE_INFINITE_RETRY_ENV]: '1' },
     });
@@ -646,7 +656,10 @@ describe('AgentLLMRequesterService media-stripped resend', () => {
   it('resends once with the media-stripped projection after an image-format 400', async () => {
     const calls = { value: 0 };
     const projection = recordProjectionCalls();
-    const { service } = createService(createRequester(calls, IMAGE_FORMAT_400), projection.projector);
+    const { service } = createService(
+      createRequester(calls, IMAGE_FORMAT_400),
+      projection.projector,
+    );
 
     const result = await service.request();
 
@@ -658,7 +671,10 @@ describe('AgentLLMRequesterService media-stripped resend', () => {
   it('keeps later steps of the same turn on the stripped projection', async () => {
     const calls = { value: 0 };
     const projection = recordProjectionCalls();
-    const { service } = createService(createRequester(calls, IMAGE_FORMAT_400), projection.projector);
+    const { service } = createService(
+      createRequester(calls, IMAGE_FORMAT_400),
+      projection.projector,
+    );
 
     await service.request({ source: { type: 'turn', turnId: 1, step: 1 } });
     expect(calls.value).toBe(2);
@@ -767,15 +783,14 @@ describe('AgentLLMRequesterService media-degraded resend', () => {
 
     expect(calls.value).toBe(2);
     const parts = capturedInputs[1]!.messages.flatMap((message) => message.content);
-    const urls = parts
-      .filter((part) => part.type === 'image_url')
-      .map((part) => part.imageUrl.url);
+    const urls = parts.filter((part) => part.type === 'image_url').map((part) => part.imageUrl.url);
     expect(urls).toEqual(['kimi-file://f_keep1', 'kimi-file://f_keep2']);
     const texts = parts.filter((part) => part.type === 'text').map((part) => part.text);
     expect(texts).toContain('<image path="/session/media/f_old.png"></image>');
   });
 
-  it('falls back to media-stripped when the media-degraded request still receives 413', async () => {    const calls = { value: 0 };
+  it('falls back to media-stripped when the media-degraded request still receives 413', async () => {
+    const calls = { value: 0 };
     const projection = recordProjectionCalls();
     const { service } = createService(
       createRequester(calls, BODY_TOO_LARGE_413, [BODY_TOO_LARGE_413]),
@@ -820,12 +835,7 @@ describe('AgentLLMRequesterService media-degraded resend', () => {
       toolCalls: [],
     });
     const { service } = createService(
-      createRequester(
-        calls,
-        BODY_TOO_LARGE_413,
-        [BODY_TOO_LARGE_413],
-        capturedInputs,
-      ),
+      createRequester(calls, BODY_TOO_LARGE_413, [BODY_TOO_LARGE_413], capturedInputs),
       undefined,
     );
 
@@ -834,10 +844,7 @@ describe('AgentLLMRequesterService media-degraded resend', () => {
       source: { type: 'turn', turnId: 1, step: 1 },
     });
     await service.request({
-      messages: [
-        imageMessage(oldUrl, 'rejected-id'),
-        imageMessage(newUrl, 'recovery-id'),
-      ],
+      messages: [imageMessage(oldUrl, 'rejected-id'), imageMessage(newUrl, 'recovery-id')],
       source: { type: 'turn', turnId: 1, step: 2 },
     });
 
@@ -857,9 +864,9 @@ describe('AgentLLMRequesterService media-degraded resend', () => {
       projection.projector,
     );
 
-    await expect(
-      service.request({ source: { type: 'turn', turnId: 1, step: 1 } }),
-    ).rejects.toBe(BODY_TOO_LARGE_413);
+    await expect(service.request({ source: { type: 'turn', turnId: 1, step: 1 } })).rejects.toBe(
+      BODY_TOO_LARGE_413,
+    );
     expect(calls.value).toBe(3);
     expect(projection.calls).toEqual(['normal', 'degraded', 'stripped']);
   });
@@ -867,7 +874,10 @@ describe('AgentLLMRequesterService media-degraded resend', () => {
   it('keeps later steps of the same turn on the degraded projection', async () => {
     const calls = { value: 0 };
     const projection = recordProjectionCalls();
-    const { service } = createService(createRequester(calls, BODY_TOO_LARGE_413), projection.projector);
+    const { service } = createService(
+      createRequester(calls, BODY_TOO_LARGE_413),
+      projection.projector,
+    );
 
     await service.request({ source: { type: 'turn', turnId: 1, step: 1 } });
     expect(calls.value).toBe(2);
@@ -980,7 +990,9 @@ describe('AgentLLMRequesterService combined recovery projections', () => {
     ]);
     await dispatcher.flush();
     expect(
-      records.filter((record) => record.type === 'llm.request').map((record) => record['projection']),
+      records
+        .filter((record) => record.type === 'llm.request')
+        .map((record) => record['projection']),
     ).toEqual([undefined, 'strict', 'strict-media-degraded', 'strict-media-stripped']);
   });
 
@@ -1017,7 +1029,9 @@ describe('AgentLLMRequesterService combined recovery projections', () => {
         policies.push(policy);
         if (policy?.media === undefined || !('degradeCount' in policy.media)) return messages;
         const message = messages[0]!;
-        return [{ ...message, content: message.content.slice(policy.structure === 'strict' ? -1 : -2) }];
+        return [
+          { ...message, content: message.content.slice(policy.structure === 'strict' ? -1 : -2) },
+        ];
       },
     };
     const { service, dispatcher, events } = createService(
@@ -1080,9 +1094,13 @@ describe('AgentLLMRequesterService trace id', () => {
     const headersArrived = createControlledPromise<void>();
     const releaseStream = createControlledPromise<void>();
     Object.defineProperty(requester, 'request', {
-      value: async function* (_input: unknown, _signal: unknown, requestOptions: {
-        onTraceId?: (traceId: string | null) => void;
-      }) {
+      value: async function* (
+        _input: unknown,
+        _signal: unknown,
+        requestOptions: {
+          onTraceId?: (traceId: string | null) => void;
+        },
+      ) {
         requestOptions.onTraceId?.('trace-req-1');
         headersArrived.resolve();
         await releaseStream;
@@ -1231,9 +1249,13 @@ describe('AgentLLMRequesterService trace id', () => {
     let nextTrace: string | null = 'trace-ambient-2';
     const requester = createTracedRequester(null);
     Object.defineProperty(requester, 'request', {
-      value: async function* (_input: unknown, _signal: unknown, requestOptions: {
-        onTraceId?: (traceId: string | null) => void;
-      }) {
+      value: async function* (
+        _input: unknown,
+        _signal: unknown,
+        requestOptions: {
+          onTraceId?: (traceId: string | null) => void;
+        },
+      ) {
         requestOptions?.onTraceId?.(nextTrace);
         yield {
           type: 'finish',
@@ -1289,7 +1311,9 @@ describe('AgentLLMRequesterService trace id', () => {
 describe('AgentLLMRequesterService media resolver wiring', () => {
   it('resolves the projected messages through the DI-injected media resolver', async () => {
     const requester = createRequester({ value: 0 }, null);
-    const resolve = mock(async (messages: readonly Message[], _requester: ModelRequester) => messages);
+    const resolve = mock(
+      async (messages: readonly Message[], _requester: ModelRequester) => messages,
+    );
     const { service } = createService(requester, undefined, {
       mediaResolver: { resolve },
     });
@@ -1301,9 +1325,7 @@ describe('AgentLLMRequesterService media resolver wiring', () => {
   });
 });
 
-function createScriptedRequester(
-  script: { ids: string[]; error?: Error }[],
-): ModelRequester {
+function createScriptedRequester(script: { ids: string[]; error?: Error }[]): ModelRequester {
   const base = createRequester({ value: 0 });
   let callIndex = 0;
   return {
@@ -1415,19 +1437,15 @@ describe('AgentLLMRequesterService tool call id normalization', () => {
   });
 
   it('rewrites an id that already exists in the restored context', async () => {
-    const { service } = createService(
-      createScriptedRequester([{ ids: ['Bash_0'] }]),
-      undefined,
-      {
-        contextMessages: [
-          {
-            role: 'assistant',
-            content: [],
-            toolCalls: [{ type: 'function', id: 'Bash_0', name: 'Bash', arguments: '{}' }],
-          },
-        ],
-      },
-    );
+    const { service } = createService(createScriptedRequester([{ ids: ['Bash_0'] }]), undefined, {
+      contextMessages: [
+        {
+          role: 'assistant',
+          content: [],
+          toolCalls: [{ type: 'function', id: 'Bash_0', name: 'Bash', arguments: '{}' }],
+        },
+      ],
+    });
 
     const result = await service.request();
     expect(result.message.toolCalls[0]!.id).toBe('Bash_0__2');
@@ -1446,7 +1464,11 @@ describe('estimateLlmRequestBytes', () => {
         ],
         toolCalls: [{ type: 'function', id: 'c1', name: 'Bash', arguments: '{"a":1}' }],
       },
-      { role: 'assistant', content: [], toolCalls: [{ type: 'function', id: 'c2', name: 'B', arguments: null }] },
+      {
+        role: 'assistant',
+        content: [],
+        toolCalls: [{ type: 'function', id: 'c2', name: 'B', arguments: null }],
+      },
     ];
     expect(estimateLlmRequestBytes(messages)).toBe(3 + 2 + 3 + 24 + 7);
   });
@@ -1487,9 +1509,7 @@ describe('AgentLLMRequesterService proactive media eviction', () => {
   } {
     const parts = (capturedInputs.at(-1)?.messages ?? []).flatMap((message) => message.content);
     return {
-      urls: parts
-        .filter((part) => part.type === 'image_url')
-        .map((part) => part.imageUrl.url),
+      urls: parts.filter((part) => part.type === 'image_url').map((part) => part.imageUrl.url),
       texts: parts.filter((part) => part.type === 'text').map((part) => part.text),
     };
   }
@@ -1535,13 +1555,9 @@ describe('AgentLLMRequesterService proactive media eviction', () => {
     const parts = sentParts(capturedInputs);
     expect(parts.urls).toEqual([urls[2]!, urls[3]!]);
     expect(
-      parts.texts.filter((text) =>
-        text.includes('dropped to fit the provider request size limit'),
-      ),
+      parts.texts.filter((text) => text.includes('dropped to fit the provider request size limit')),
     ).toHaveLength(2);
-    const eviction = warnings.find((warning) =>
-      warning.message.includes('evicting older media'),
-    );
+    const eviction = warnings.find((warning) => warning.message.includes('evicting older media'));
     expect(eviction?.context).toMatchObject({
       budgetBytes: DEFAULT_REQUEST_BYTE_BUDGET_BYTES,
       evictedMediaCount: 2,
@@ -1576,12 +1592,10 @@ describe('AgentLLMRequesterService proactive media eviction', () => {
     expect(calls.value).toBe(1);
     const parts = sentParts(capturedInputs);
     expect(parts.urls).toEqual([]);
-    expect(
-      parts.texts.some((text) => text.includes('omitted for provider compatibility')),
-    ).toBe(true);
-    const eviction = warnings.find((warning) =>
-      warning.message.includes('evicting older media'),
+    expect(parts.texts.some((text) => text.includes('omitted for provider compatibility'))).toBe(
+      true,
     );
+    const eviction = warnings.find((warning) => warning.message.includes('evicting older media'));
     expect(eviction?.context).toMatchObject({
       evictedMediaCount: 4,
       projection: 'media-stripped',
@@ -1615,9 +1629,7 @@ describe('AgentLLMRequesterService proactive media eviction', () => {
     expect(calls.value).toBe(1);
     expect(sentParts(capturedInputs).urls).toEqual([]);
     expect(
-      warnings
-        .find((warning) => warning.message.includes('evicting older media'))
-        ?.context,
+      warnings.find((warning) => warning.message.includes('evicting older media'))?.context,
     ).toMatchObject({ budgetBytes: 40 });
   });
 
@@ -1651,8 +1663,9 @@ describe('AgentLLMRequesterService proactive media eviction', () => {
     expect(parts.texts.some((text) => text.includes('omitted for provider compatibility'))).toBe(
       true,
     );
-    expect(warnings.find((warning) => warning.message.includes('evicting older media'))?.context)
-      .toMatchObject({ budgetBytes: 40, evictedMediaCount: 1, projection: 'media-stripped' });
+    expect(
+      warnings.find((warning) => warning.message.includes('evicting older media'))?.context,
+    ).toMatchObject({ budgetBytes: 40, evictedMediaCount: 1, projection: 'media-stripped' });
   });
 
   it('rejects invalid requestByteBudget values at config intake', () => {
@@ -1680,9 +1693,9 @@ describe('AgentLLMRequesterService proactive media eviction', () => {
     expect(
       warnings.find((warning) => warning.message === 'llm request failed')?.context,
     ).toMatchObject({ estimatedRequestBytes: expectedBytes });
-    expect(telemetryRecords.find((record) => record.event === 'api_error')?.properties).toMatchObject(
-      { estimated_request_bytes: expectedBytes },
-    );
+    expect(
+      telemetryRecords.find((record) => record.event === 'api_error')?.properties,
+    ).toMatchObject({ estimated_request_bytes: expectedBytes });
   });
 });
 

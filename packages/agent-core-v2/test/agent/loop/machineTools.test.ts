@@ -1,13 +1,13 @@
 import { describe, expect, it, mock } from 'bun:test';
 
+import { createMachineTools } from '#/agent/loop/machine/tools';
 import type {
   IAgentToolExecutorService,
   ToolExecutionResult,
 } from '#/agent/toolExecutor/toolExecutor';
-import { createMachineTools } from '#/agent/loop/machine/tools';
+import type { ToolInfo } from '#/tool/toolContract';
 import type { ToolCall } from '#human/llm/message';
 import type { ToolExecuteInput } from '#human/tool/executor';
-import type { ToolInfo } from '#/tool/toolContract';
 
 function call(id: string, name: string): ToolCall {
   return { type: 'function', id, name, arguments: '{}' };

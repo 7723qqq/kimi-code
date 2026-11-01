@@ -19,17 +19,17 @@ function createHost() {
     telemetryListener: undefined as ((enabled: boolean) => void) | undefined,
     deviceIdFirstLaunch: false,
     configTelemetry: undefined as boolean | undefined,
-    configModel: "kimi-k2",
-    accessToken: "token-1" as string | null,
+    configModel: 'kimi-k2',
+    accessToken: 'token-1' as string | null,
     staticallyEnabled: true,
   };
-  const currentRegion = mock(() => ({ region: "global" as const, source: "login" as const }));
-  const refreshRegion = mock(() => ({ region: "global" as const, source: "login" as const }));
+  const currentRegion = mock(() => ({ region: 'global' as const, source: 'login' as const }));
+  const refreshRegion = mock(() => ({ region: 'global' as const, source: 'login' as const }));
   return {
     state,
     createKimiDeviceId: mock((_homeDir: string, options?: { onFirstLaunch?: () => void }) => {
       if (state.deviceIdFirstLaunch) options?.onFirstLaunch?.();
-      return "device-1";
+      return 'device-1';
     }),
     initializeTelemetry: mock(),
     setTelemetryEnabled: mock(),
@@ -48,12 +48,14 @@ function createHost() {
         telemetry: state.configTelemetry,
         defaultModel: state.configModel,
         providers: {
-          "managed:kimi-code": { oauth: { key: "oauth/kimi-code-global", oauthHost: "https://auth.kimi.ai" } },
+          'managed:kimi-code': {
+            oauth: { key: 'oauth/kimi-code-global', oauthHost: 'https://auth.kimi.ai' },
+          },
         },
       },
     })),
-    resolveConfigPath: mock(() => "/kimi-home/config.toml"),
-    resolveKimiHome: mock(() => "/kimi-home"),
+    resolveConfigPath: mock(() => '/kimi-home/config.toml'),
+    resolveKimiHome: mock(() => '/kimi-home'),
     getCachedAccessToken: mock(async () => state.accessToken),
   };
 }
@@ -66,7 +68,7 @@ function host(): Host {
   return holder.current;
 }
 
-void mock.module("@moonshot-ai/kimi-telemetry", () => {
+void mock.module('@moonshot-ai/kimi-telemetry', () => {
   const current = host();
   return {
     initializeTelemetry: current.initializeTelemetry,
@@ -78,34 +80,34 @@ void mock.module("@moonshot-ai/kimi-telemetry", () => {
   };
 });
 
-void mock.module("@moonshot-ai/kimi-code-oauth", () => {
+void mock.module('@moonshot-ai/kimi-code-oauth', () => {
   const current = host();
   return {
     createKimiDeviceId: current.createKimiDeviceId,
-    KIMI_CODE_PROVIDER_NAME: "managed:kimi-code",
+    KIMI_CODE_PROVIDER_NAME: 'managed:kimi-code',
     KIMI_REGION_PROFILES: {
-      "mainland-cn": {
-        oauthHost: "https://auth.kimi.com",
-        baseUrl: "https://api.kimi.com/coding/v1",
-        cdnBase: "https://cdn.kimi.com/kimi-code",
-        siteBase: "https://www.kimi.com",
-        relayOrigin: "https://code-rc.kimi.com",
-        telemetryEndpoint: "https://telemetry-logs.example.com/v1/event",
+      'mainland-cn': {
+        oauthHost: 'https://auth.kimi.com',
+        baseUrl: 'https://api.kimi.com/coding/v1',
+        cdnBase: 'https://cdn.kimi.com/kimi-code',
+        siteBase: 'https://www.kimi.com',
+        relayOrigin: 'https://code-rc.kimi.com',
+        telemetryEndpoint: 'https://telemetry-logs.example.com/v1/event',
       },
       global: {
-        oauthHost: "https://auth.kimi.ai",
-        baseUrl: "https://api.kimi.ai/coding/v1",
-        cdnBase: "https://cdn.kimi.ai/kimi-code",
-        siteBase: "https://www.kimi.ai",
-        relayOrigin: "https://code-rc.kimi.ai",
-        telemetryEndpoint: "https://telemetry-logs.example.net/v1/event",
+        oauthHost: 'https://auth.kimi.ai',
+        baseUrl: 'https://api.kimi.ai/coding/v1',
+        cdnBase: 'https://cdn.kimi.ai/kimi-code',
+        siteBase: 'https://www.kimi.ai',
+        relayOrigin: 'https://code-rc.kimi.ai',
+        telemetryEndpoint: 'https://telemetry-logs.example.net/v1/event',
       },
     },
     createKimiRegionResolver: current.createKimiRegionResolver,
   };
 });
 
-void mock.module("@moonshot-ai/kimi-code-sdk", () => {
+void mock.module('@moonshot-ai/kimi-code-sdk', () => {
   const current = host();
   return {
     KimiAuthFacade: class {
@@ -129,77 +131,78 @@ installVscode({
   },
 });
 
-import {
-  activateExtensionTelemetry,
-  deactivateExtensionTelemetry,
-} from "../src/telemetry";
-import { resetExtensionRegionCache } from "../src/utils/region";
+import { activateExtensionTelemetry, deactivateExtensionTelemetry } from '../src/telemetry';
+import { resetExtensionRegionCache } from '../src/utils/region';
 
 const hostApi = host();
 
 function activate() {
-  return activateExtensionTelemetry({ version: "1.2.3", log: mock() });
+  return activateExtensionTelemetry({ version: '1.2.3', log: mock() });
 }
 
 function initializeOptions() {
-  const call = hostApi.initializeTelemetry.mock.calls[0]?.[0] as Record<string, unknown> | undefined;
-  if (call === undefined) throw new Error("initializeTelemetry was not called");
+  const call = hostApi.initializeTelemetry.mock.calls[0]?.[0] as
+    | Record<string, unknown>
+    | undefined;
+  if (call === undefined) throw new Error('initializeTelemetry was not called');
   return call;
 }
 
-describe("extension telemetry composition root", () => {
+describe('extension telemetry composition root', () => {
   beforeEach(() => {
     hostApi.state.isTelemetryEnabled = true;
     hostApi.state.telemetryListener = undefined;
     hostApi.state.deviceIdFirstLaunch = false;
     hostApi.state.configTelemetry = undefined;
-    hostApi.state.configModel = "kimi-k2";
-    hostApi.state.accessToken = "token-1";
+    hostApi.state.configModel = 'kimi-k2';
+    hostApi.state.accessToken = 'token-1';
     hostApi.state.staticallyEnabled = true;
     mock.clearAllMocks();
     resetExtensionRegionCache();
   });
 
-  it("initializes the shared stack with extension identity and the config gate", async () => {
+  it('initializes the shared stack with extension identity and the config gate', async () => {
     activate();
 
     const options = initializeOptions();
     expect(options).toMatchObject({
-      homeDir: "/kimi-home",
-      deviceId: "device-1",
+      homeDir: '/kimi-home',
+      deviceId: 'device-1',
       enabled: true,
       initiallyEnabled: true,
-      appName: "kimi-code-vscode",
-      version: "1.2.3",
-      uiMode: "vscode",
-      model: "kimi-k2",
+      appName: 'kimi-code-vscode',
+      version: '1.2.3',
+      uiMode: 'vscode',
+      model: 'kimi-k2',
     });
-    expect(typeof options["endpoint"]).toBe("function");
-    expect(typeof options["getAccessToken"]).toBe("function");
-    await expect((options["getAccessToken"] as () => Promise<string | null>)()).resolves.toBe("token-1");
+    expect(typeof options['endpoint']).toBe('function');
+    expect(typeof options['getAccessToken']).toBe('function');
+    await expect((options['getAccessToken'] as () => Promise<string | null>)()).resolves.toBe(
+      'token-1',
+    );
     expect(hostApi.shouldEnableTelemetry).toHaveBeenCalledWith({ enabled: true });
   });
 
-  it("maps config telemetry=false to the static gate", () => {
+  it('maps config telemetry=false to the static gate', () => {
     hostApi.state.configTelemetry = false;
 
     activate();
 
-    expect(initializeOptions()["enabled"]).toBe(false);
+    expect(initializeOptions()['enabled']).toBe(false);
     expect(hostApi.shouldEnableTelemetry).toHaveBeenCalledWith({ enabled: false });
   });
 
-  it("resolves the endpoint through the region resolver per flush", () => {
+  it('resolves the endpoint through the region resolver per flush', () => {
     activate();
 
     const options = initializeOptions();
-    (options["resolveRegion"] as () => unknown)();
+    (options['resolveRegion'] as () => unknown)();
     expect(hostApi.currentRegion).toHaveBeenCalled();
-    const endpoint = options["endpoint"] as () => string;
-    expect(endpoint()).toBe("https://telemetry-logs.example.net/v1/event");
+    const endpoint = options['endpoint'] as () => string;
+    expect(endpoint()).toBe('https://telemetry-logs.example.net/v1/event');
     expect(hostApi.createKimiRegionResolver).toHaveBeenCalledWith(
       expect.objectContaining({
-        homeDir: "/kimi-home",
+        homeDir: '/kimi-home',
         allowLocalInference: true,
         readAuth: expect.any(Function),
       }),
@@ -207,19 +210,19 @@ describe("extension telemetry composition root", () => {
     expect(hostApi.refreshRegion).not.toHaveBeenCalled();
   });
 
-  it("passes the VS Code global switch as the initial intake state", () => {
+  it('passes the VS Code global switch as the initial intake state', () => {
     hostApi.state.isTelemetryEnabled = false;
 
     activate();
 
-    expect(initializeOptions()["initiallyEnabled"]).toBe(false);
+    expect(initializeOptions()['initiallyEnabled']).toBe(false);
     expect(hostApi.setTelemetryEnabled).not.toHaveBeenCalled();
   });
 
-  it("follows live changes of the VS Code global switch", () => {
+  it('follows live changes of the VS Code global switch', () => {
     activate();
     const listener = hostApi.state.telemetryListener;
-    if (listener === undefined) throw new Error("no telemetry listener registered");
+    if (listener === undefined) throw new Error('no telemetry listener registered');
 
     listener(false);
     expect(hostApi.setTelemetryEnabled).toHaveBeenLastCalledWith(false);
@@ -227,7 +230,7 @@ describe("extension telemetry composition root", () => {
     expect(hostApi.setTelemetryEnabled).toHaveBeenLastCalledWith(true);
   });
 
-  it("ignores live changes when the static gates are closed", () => {
+  it('ignores live changes when the static gates are closed', () => {
     hostApi.state.staticallyEnabled = false;
 
     activate();
@@ -236,27 +239,27 @@ describe("extension telemetry composition root", () => {
     expect(hostApi.setTelemetryEnabled).not.toHaveBeenCalled();
   });
 
-  it("emits first_launch when the device id is minted", () => {
+  it('emits first_launch when the device id is minted', () => {
     hostApi.state.deviceIdFirstLaunch = true;
 
     activate();
 
-    expect(hostApi.track).toHaveBeenCalledWith("first_launch");
+    expect(hostApi.track).toHaveBeenCalledWith('first_launch');
   });
 
-  it("does not emit first_launch for an existing device id", () => {
+  it('does not emit first_launch for an existing device id', () => {
     activate();
 
     expect(hostApi.track).not.toHaveBeenCalled();
   });
 
-  it("never installs crash handlers in the shared extension host", () => {
+  it('never installs crash handlers in the shared extension host', () => {
     activate();
 
     expect(hostApi.installCrashHandlers).not.toHaveBeenCalled();
   });
 
-  it("shuts down with a short timeout on deactivate", async () => {
+  it('shuts down with a short timeout on deactivate', async () => {
     await deactivateExtensionTelemetry();
 
     expect(hostApi.shutdownTelemetry).toHaveBeenCalledWith({ timeoutMs: 2000 });

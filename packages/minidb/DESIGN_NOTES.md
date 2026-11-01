@@ -9,13 +9,13 @@ records the concrete decisions for our implementation.
 
 ## Sources studied
 
-| Source | Why we read it | Key takeaways |
-|---|---|---|
-| **Redis** | Gold standard for in-memory KV + AOF/RDB + data structures | dict incremental rehashing, skiplist with `span`, lazy+sampled expiration, RDB framing, AOF rewrite, RESP |
-| **SQLite** WAL doc (`sqlite.org/wal.html`) | WAL semantics done right | append-only changes + commit record, checkpoint, single writer / multi reader, read-degradation vs WAL size, `synchronous` FULL/NORMAL |
-| **NeDB** | Pure-JS embedded DB — closest to our stack | append-only log + tombstones + last-writer-wins replay, in-memory AVL secondary indexes, temp+rename compaction, single-concurrency executor, torn-tail tolerance |
-| **Bitcask** | Log-structured hash KV — our storage model | entry format, in-memory keydir (key→offset), append+rotate, merge/compaction, hint-file recovery |
-| **cstack/db_tutorial** | Tiny SQLite clone (paged B-tree) | page cache, B-tree node split/merge, cursor; also clarifies what a paged engine costs vs a log |
+| Source                                     | Why we read it                                             | Key takeaways                                                                                                                                                     |
+| ------------------------------------------ | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Redis**                                  | Gold standard for in-memory KV + AOF/RDB + data structures | dict incremental rehashing, skiplist with `span`, lazy+sampled expiration, RDB framing, AOF rewrite, RESP                                                         |
+| **SQLite** WAL doc (`sqlite.org/wal.html`) | WAL semantics done right                                   | append-only changes + commit record, checkpoint, single writer / multi reader, read-degradation vs WAL size, `synchronous` FULL/NORMAL                            |
+| **NeDB**                                   | Pure-JS embedded DB — closest to our stack                 | append-only log + tombstones + last-writer-wins replay, in-memory AVL secondary indexes, temp+rename compaction, single-concurrency executor, torn-tail tolerance |
+| **Bitcask**                                | Log-structured hash KV — our storage model                 | entry format, in-memory keydir (key→offset), append+rotate, merge/compaction, hint-file recovery                                                                  |
+| **cstack/db_tutorial**                     | Tiny SQLite clone (paged B-tree)                           | page cache, B-tree node split/merge, cursor; also clarifies what a paged engine costs vs a log                                                                    |
 
 ---
 
@@ -34,7 +34,7 @@ over a **paged B-tree** (SQLite style):
 
 - The db_tutorial clone shows the real cost of a paged engine: fixed page
   frames + cache, in-place overwrite, node split/merge, parent pointers,
-  separator keys, root special-casing — and that toy *still* has no WAL, fsync
+  separator keys, root special-casing — and that toy _still_ has no WAL, fsync
   or crash recovery. That is a lot of complexity for our target.
 - A log-structured store gives **sequential writes** (the fastest disk access),
   trivial **recovery by replay**, and simple crash safety — at the cost of

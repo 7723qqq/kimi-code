@@ -86,8 +86,14 @@ describe('title excerpts over the real context memory', () => {
     context.append({
       role: 'user',
       content: [
-        { type: 'text', text: 'User activated the skill "review". Follow the loaded skill instructions.' },
-        { type: 'text', text: 'User activated the skill "security". Follow the loaded skill instructions.' },
+        {
+          type: 'text',
+          text: 'User activated the skill "review". Follow the loaded skill instructions.',
+        },
+        {
+          type: 'text',
+          text: 'User activated the skill "security". Follow the loaded skill instructions.',
+        },
         { type: 'text', text: '检查这次改动的正确性' },
       ],
       toolCalls: [],

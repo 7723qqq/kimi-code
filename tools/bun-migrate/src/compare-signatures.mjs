@@ -50,7 +50,9 @@ const lines = [
   `## length differs (${lengthDiffers.length})`,
 ];
 for (const item of lengthDiffers) {
-  lines.push(`  ${item.path}#${item.member}: node ${item.nodeLength} params vs bun ${item.bunLength}`);
+  lines.push(
+    `  ${item.path}#${item.member}: node ${item.nodeLength} params vs bun ${item.bunLength}`,
+  );
 }
 
 lines.push('');

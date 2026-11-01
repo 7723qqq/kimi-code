@@ -1,10 +1,12 @@
 import { describe, expect, it, mock } from 'bun:test';
+
 import type { WorkspaceTrustInfo } from '@moonshot-ai/kimi-code-sdk';
-import { mouse, pastSettlingWindow } from '#test/helpers/mouse';
+
 import {
   TrustPromptComponent,
   type TrustPromptChoice,
 } from '#/tui/components/dialogs/trust-prompt';
+import { mouse, pastSettlingWindow } from '#test/helpers/mouse';
 
 function info(overrides: Partial<WorkspaceTrustInfo> = {}): WorkspaceTrustInfo {
   return {

@@ -1,12 +1,13 @@
-import type { GoalChange } from '@moonshot-ai/kimi-code-sdk';
 import { beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
-import { waitForAssertion } from '#test/helpers/waitFor';
+
+import type { GoalChange } from '@moonshot-ai/kimi-code-sdk';
 
 import { buildGoalMarker } from '#/tui/components/messages/goal-markers';
 import { STATUS_DOT } from '#/tui/constant/symbols';
 import { SessionEventHandler } from '#/tui/controllers/session-event-handler';
 import { readGoalQueue, removeGoalQueueItem, restoreGoalQueueItem } from '#/tui/goal-queue-store';
 import { getBuiltInPalette } from '#/tui/theme';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 void mock.module('#/tui/goal-queue-store', () => ({
   readGoalQueue: mock(async () => ({

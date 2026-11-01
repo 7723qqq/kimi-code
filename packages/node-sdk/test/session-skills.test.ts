@@ -1,7 +1,6 @@
+import { afterEach, describe, expect, expectTypeOf, it, mock } from 'bun:test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-
-import { afterEach, describe, expect, expectTypeOf, it, mock } from 'bun:test';
 
 import {
   createKimiHarness,
@@ -13,8 +12,8 @@ import {
 import type { SDKRpcClientBase } from '#/rpc';
 
 import { makeTempDir, removeTempDirs, waitForSDKEvent } from './session-runtime-helpers';
-import { TEST_IDENTITY } from './test-identity';
 import { setEnv, restoreEnvs } from './stubs';
+import { TEST_IDENTITY } from './test-identity';
 
 const { Session } = await import('#/index');
 
@@ -220,11 +219,9 @@ describe('Session skills', () => {
       rpc: { promptWithSkills } as unknown as SDKRpcClientBase,
     });
 
-    await session.promptWithSkills(
-      '/review src/app.ts',
-      [{ name: 'review', args: 'src/app.ts' }],
-      { steerIfActive: true },
-    );
+    await session.promptWithSkills('/review src/app.ts', [{ name: 'review', args: 'src/app.ts' }], {
+      steerIfActive: true,
+    });
     expect(promptWithSkills).toHaveBeenLastCalledWith({
       sessionId: 'ses_skill_steer_option',
       input: [{ type: 'text', text: '/review src/app.ts' }],

@@ -1,7 +1,6 @@
+import { describe, expect, it } from 'bun:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
-
-import { describe, expect, it } from 'bun:test';
 
 /**
  * Guard: forbid evaluating a translation (`t(...)` / `translateBatch(...)`) at

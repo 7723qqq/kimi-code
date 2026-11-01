@@ -5,7 +5,11 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
 import { RuntimeRegistry } from '#/runtime/runtimeRegistry';
-import { SharedRuntimeUnitHostFactory, type RuntimeProviderHost, type RuntimeUnitImports } from '#/runtime/runtimeUnitHost';
+import {
+  SharedRuntimeUnitHostFactory,
+  type RuntimeProviderHost,
+  type RuntimeUnitImports,
+} from '#/runtime/runtimeUnitHost';
 
 interface IValue {
   readonly value: string;
@@ -46,10 +50,7 @@ class DependentUnit implements IValue {
 }
 
 function runtime(generation: string, runtimeId = 'local'): FakeRuntime {
-  return new FakeRuntime(
-    { workspaceId: 'workspace', runtimeId, generation },
-    { capabilities: [] },
-  );
+  return new FakeRuntime({ workspaceId: 'workspace', runtimeId, generation }, { capabilities: [] });
 }
 
 function setup() {
@@ -87,13 +88,12 @@ describe('RuntimeUnitHost', () => {
         return { dispose: () => {} };
       },
     );
-    await expect(host.provide(
-      { root: [IRoot], imports: [], local: [IDependent] },
-      async (provider) => {
+    await expect(
+      host.provide({ root: [IRoot], imports: [], local: [IDependent] }, async (provider) => {
         provider.provide(IDependent, HiddenUnit);
         return { dispose: () => {} };
-      },
-    )).rejects.toThrow('not declared');
+      }),
+    ).rejects.toThrow('not declared');
     await consumer.remove();
     await producer.remove();
     await host.dispose();
@@ -108,11 +108,13 @@ describe('RuntimeUnitHost', () => {
       return { dispose: () => {} };
     });
     const failed = runtime('failed');
-    await expect(handle.update(emptyImports(), async (provider) => {
-      provider.registerRuntime(failed);
-      await Promise.resolve();
-      throw new Error('prepare failed');
-    })).rejects.toThrow('prepare failed');
+    await expect(
+      handle.update(emptyImports(), async (provider) => {
+        provider.registerRuntime(failed);
+        await Promise.resolve();
+        throw new Error('prepare failed');
+      }),
+    ).rejects.toThrow('prepare failed');
     expect(registry.current('local')).toBe(first);
     expect(failed.disposed).toBe(true);
     const second = runtime('two');
@@ -146,11 +148,13 @@ describe('RuntimeUnitHost', () => {
     const secondLocal = runtime('two-local');
     const secondRemote = runtime('two-remote', 'remote');
 
-    await expect(handle.update(emptyImports(), async (provider) => {
-      provider.registerRuntime(secondLocal);
-      provider.registerRuntime(secondRemote);
-      return { dispose: () => {} };
-    })).rejects.toThrow('remote cleanup failed');
+    await expect(
+      handle.update(emptyImports(), async (provider) => {
+        provider.registerRuntime(secondLocal);
+        provider.registerRuntime(secondRemote);
+        return { dispose: () => {} };
+      }),
+    ).rejects.toThrow('remote cleanup failed');
 
     expect(registry.current('local')).toBe(secondLocal);
     expect(registry.current('remote')).toBe(secondRemote);
@@ -279,7 +283,9 @@ describe('RuntimeUnitHost', () => {
     const { disposables, host } = setup();
     const order: string[] = [];
     let release: (() => void) | undefined;
-    const ready = new Promise<void>((resolve) => { release = resolve; });
+    const ready = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     class Unit implements IValue {
       readonly value: string;
       constructor(value: string) {
@@ -296,12 +302,19 @@ describe('RuntimeUnitHost', () => {
         provider.provide(IFirst, Unit, 'first');
         provider.provide(ISecond, Unit, 'second');
         await ready;
-        return { dispose: async () => { await Promise.resolve(); order.push('attachment'); } };
+        return {
+          dispose: async () => {
+            await Promise.resolve();
+            order.push('attachment');
+          },
+        };
       },
     );
     await Promise.resolve();
     const closing = host.dispose();
-    await expect(host.provide(emptyImports(), async () => ({ dispose: () => {} }))).rejects.toThrow('disposed');
+    await expect(host.provide(emptyImports(), async () => ({ dispose: () => {} }))).rejects.toThrow(
+      'disposed',
+    );
     expect(order).toEqual([]);
     release?.();
     await providing;

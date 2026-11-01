@@ -5,12 +5,11 @@
  * stdin reaches EOF (cron/CI, `< /dev/null`, `ssh host kimi export`).
  */
 
+import { describe, expect, it } from 'bun:test';
 import { Readable, Writable } from 'node:stream';
 
-import { describe, expect, it } from 'bun:test';
-
-import { handleExport, type ExportDeps } from '#/cli/sub/export';
 import { promptYesNo } from '#/cli/sub/confirm';
+import { handleExport, type ExportDeps } from '#/cli/sub/export';
 
 function sink(): Writable {
   return new Writable({

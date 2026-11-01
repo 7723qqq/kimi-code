@@ -1,7 +1,9 @@
+import { afterEach, describe, expect, it } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import {
   drainQueryStoreDisposals,
@@ -9,14 +11,12 @@ import {
   ISessionIndex,
   ISessionIndexMirror,
 } from '@moonshot-ai/agent-core-v2';
-import { afterEach, describe, expect, it } from 'bun:test';
 
 import { createKimiHarness, SDKRpcClientV2 } from '#/index';
 import type { KimiError } from '#/index';
 
-import { TEST_IDENTITY } from './test-identity';
 import { setEnv, restoreEnvs } from './stubs';
-import { setTimeout as delay } from 'node:timers/promises';
+import { TEST_IDENTITY } from './test-identity';
 
 const tempDirs: string[] = [];
 

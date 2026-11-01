@@ -1,10 +1,9 @@
+import { afterEach, describe, expect, it, mock } from 'bun:test';
+
 import { Markdown as PiMarkdown, visibleWidth, type TuiMouseEvent } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 import { render as renderMermaidSource } from 'lovely-mermaid';
 import * as lovelyMermaid from 'lovely-mermaid';
-import { afterEach, describe, expect, it, mock } from 'bun:test';
-import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
-import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { Markdown } from '#/tui/components/markdown/markdown';
 import { MermaidBlock } from '#/tui/components/markdown/mermaid-block';
@@ -16,6 +15,8 @@ import {
   setMarkdownMermaidMode,
   setMarkdownRenderRequester,
 } from '#/tui/utils/markdown-options';
+import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 chalk.level = 3;
 

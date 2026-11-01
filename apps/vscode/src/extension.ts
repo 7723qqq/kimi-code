@@ -1,26 +1,26 @@
-import { NotificationAction } from "./utils/notification-actions";
-import * as vscode from "vscode";
+import * as vscode from 'vscode';
 
-import { Events } from "../shared/bridge";
-import { KimiWebviewProvider } from "./KimiWebviewProvider";
-import { onSettingsChange, VSCodeSettings } from "./config/vscode-settings";
+import { Events } from '../shared/bridge';
+import { onSettingsChange, VSCodeSettings } from './config/vscode-settings';
+import { KimiWebviewProvider } from './KimiWebviewProvider';
 import {
   LegacyMigrationManager,
   type LegacyMigrationDiscovery,
   type LegacyMigrationRunResult,
-} from "./migration";
-import { updateLoginContext } from "./utils/context";
-import { activateExtensionTelemetry, deactivateExtensionTelemetry } from "./telemetry";
+} from './migration';
+import { activateExtensionTelemetry, deactivateExtensionTelemetry } from './telemetry';
+import { updateLoginContext } from './utils/context';
+import { NotificationAction } from './utils/notification-actions';
 
 let outputChannel: vscode.OutputChannel | undefined;
 let provider: KimiWebviewProvider | undefined;
 
-const LEGACY_REAUTH_NOTICE_KEY = "kimi.legacyMigration.reauthNotice.v1";
-const LEGACY_WARNING_NOTICE_KEY = "kimi.legacyMigration.warningNotice.v1";
+const LEGACY_REAUTH_NOTICE_KEY = 'kimi.legacyMigration.reauthNotice.v1';
+const LEGACY_WARNING_NOTICE_KEY = 'kimi.legacyMigration.warningNotice.v1';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  outputChannel = vscode.window.createOutputChannel("Kimi Code");
-  const remoteInfo = vscode.env.remoteName ? ` (remote: ${vscode.env.remoteName})` : "";
+  outputChannel = vscode.window.createOutputChannel('Kimi Code');
+  const remoteInfo = vscode.env.remoteName ? ` (remote: ${vscode.env.remoteName})` : '';
   const version = VSCodeSettings.getExtensionConfig().version;
   log(`Kimi Code ${version} activating${remoteInfo}`);
   context.subscriptions.push(activateExtensionTelemetry({ version, log }));
@@ -37,20 +37,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   try {
     isLoggedIn = await updateLoginContext(provider.harness);
   } catch (error) {
-    logError("Unable to determine login status", error);
+    logError('Unable to determine login status', error);
   }
 
   context.subscriptions.push(
-    vscode.workspace.registerTextDocumentContentProvider("kimi-baseline", {
+    vscode.workspace.registerTextDocumentContentProvider('kimi-baseline', {
       provideTextDocumentContent: async (uri) => {
-        const sessionId = new URLSearchParams(uri.query).get("sessionId");
-        if (!sessionId || !provider) return "";
-        const relativePath = decodeURIComponent(uri.path.replace(/^\//, ""));
+        const sessionId = new URLSearchParams(uri.query).get('sessionId');
+        if (!sessionId || !provider) return '';
+        const relativePath = decodeURIComponent(uri.path.replace(/^\//, ''));
         try {
           return await provider.getBaselineContent(sessionId, relativePath);
         } catch (error) {
-          logError("Unable to open baseline content", error);
-          return "";
+          logError('Unable to open baseline content', error);
+          return '';
         }
       },
     }),
@@ -62,13 +62,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         config: VSCodeSettings.getExtensionConfig(),
         changedKeys,
       });
-      if (changedKeys.includes("yoloMode")) {
+      if (changedKeys.includes('yoloMode')) {
         void provider
           ?.setYoloModeForActiveSessions(VSCodeSettings.yoloMode)
-          .catch((error) => logError("Unable to update session permission", error));
+          .catch((error) => logError('Unable to update session permission', error));
       }
     }),
-    vscode.window.registerWebviewViewProvider("kimi.webview", provider, {
+    vscode.window.registerWebviewViewProvider('kimi.webview', provider, {
       webviewOptions: { retainContextWhenHidden: true },
     }),
   );
@@ -77,8 +77,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     targetHome: provider.harness.homeDir,
     workspaceRoot: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
     legacyEnvironmentVariables: vscode.workspace
-      .getConfiguration("kimi")
-      .get<unknown>("environmentVariables"),
+      .getConfiguration('kimi')
+      .get<unknown>('environmentVariables'),
   });
   let migrationInFlight: Promise<void> | undefined;
   const runMigration = (retry: boolean): Promise<void> => {
@@ -90,44 +90,46 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   const commands: Record<string, () => void | Promise<void>> = {
-    "kimi.clearAllState": async () => {
-      await context.globalState.update("kimi.config", undefined);
-      await context.globalState.update("kimi.mcpServers", undefined);
-      await context.workspaceState.update("kimi.mcpEnabled", undefined);
-      await vscode.window.showInformationMessage("Kimi: Extension UI state cleared.");
+    'kimi.clearAllState': async () => {
+      await context.globalState.update('kimi.config', undefined);
+      await context.globalState.update('kimi.mcpServers', undefined);
+      await context.workspaceState.update('kimi.mcpEnabled', undefined);
+      await vscode.window.showInformationMessage('Kimi: Extension UI state cleared.');
     },
-    "kimi.openInTab": () => {
+    'kimi.openInTab': () => {
       provider?.createPanel();
     },
-    "kimi.openInSideBar": async () => {
-      await vscode.commands.executeCommand("kimi.webview.focus");
+    'kimi.openInSideBar': async () => {
+      await vscode.commands.executeCommand('kimi.webview.focus');
     },
-    "kimi.focusInput": async () => {
-      await vscode.commands.executeCommand("kimi.webview.focus");
+    'kimi.focusInput': async () => {
+      await vscode.commands.executeCommand('kimi.webview.focus');
       provider?.broadcast(Events.FocusInput, {});
     },
-    "kimi.insertMention": async () => {
+    'kimi.insertMention': async () => {
       const editor = vscode.window.activeTextEditor;
       if (!editor) {
-        await vscode.window.showWarningMessage("No active editor");
+        await vscode.window.showWarningMessage('No active editor');
         return;
       }
-      await vscode.commands.executeCommand("kimi.webview.focus");
+      await vscode.commands.executeCommand('kimi.webview.focus');
       if (!(await provider?.insertEditorMention(editor.document.uri, editor.selection))) {
-        await vscode.window.showWarningMessage("The active file is outside the selected working directory.");
+        await vscode.window.showWarningMessage(
+          'The active file is outside the selected working directory.',
+        );
       }
     },
-    "kimi.newConversation": async () => {
-      await vscode.commands.executeCommand("kimi.webview.focus");
+    'kimi.newConversation': async () => {
+      await vscode.commands.executeCommand('kimi.webview.focus');
       provider?.broadcast(Events.NewConversation, {});
     },
-    "kimi.showLogs": () => outputChannel?.show(),
-    "kimi.resetKimi": () => provider?.resetAllWebviews(),
-    "kimi.logout": async () => {
-      await vscode.commands.executeCommand("kimi.webview.focus");
-      await vscode.window.showInformationMessage("Use the logout button in Kimi settings.");
+    'kimi.showLogs': () => outputChannel?.show(),
+    'kimi.resetKimi': () => provider?.resetAllWebviews(),
+    'kimi.logout': async () => {
+      await vscode.commands.executeCommand('kimi.webview.focus');
+      await vscode.window.showInformationMessage('Use the logout button in Kimi settings.');
     },
-    "kimi.migrateLegacyData": () => runMigration(true),
+    'kimi.migrateLegacyData': () => runMigration(true),
   };
 
   for (const [id, handler] of Object.entries(commands)) {
@@ -140,13 +142,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     context.globalState,
     isLoggedIn,
   ).catch((error) => {
-    logError("Unable to check for legacy Kimi data", error);
+    logError('Unable to check for legacy Kimi data', error);
   });
-  log("Kimi Code activated");
+  log('Kimi Code activated');
 }
 
 export async function deactivate(): Promise<void> {
-  log("Kimi Code deactivating");
+  log('Kimi Code deactivating');
   try {
     await provider?.shutdown();
   } finally {
@@ -176,7 +178,7 @@ async function offerLegacyMigration(
   const warningNotice =
     discovery.warnings.length === 0
       ? null
-      : "Some legacy Kimi data could not be inspected. Use “Kimi Code: Migrate Legacy Data” to retry.";
+      : 'Some legacy Kimi data could not be inspected. Use “Kimi Code: Migrate Legacy Data” to retry.';
   if (discovery.prompt === null) {
     if (reauthNotice !== null && !globalState.get<boolean>(LEGACY_REAUTH_NOTICE_KEY, false)) {
       await vscode.window.showWarningMessage(reauthNotice);
@@ -187,7 +189,7 @@ async function offerLegacyMigration(
       !globalState.get<boolean>(LEGACY_WARNING_NOTICE_KEY, false)
     ) {
       const action = await vscode.window.showWarningMessage(
-        warningNotice ?? "Some legacy Kimi data could not be inspected.",
+        warningNotice ?? 'Some legacy Kimi data could not be inspected.',
         NotificationAction.SHOW_LOGS,
       );
       await globalState.update(LEGACY_WARNING_NOTICE_KEY, true);
@@ -199,7 +201,7 @@ async function offerLegacyMigration(
   const action = await vscode.window.showInformationMessage(
     [discovery.prompt.message, reauthNotice, warningNotice]
       .filter((message) => message !== null)
-      .join(" "),
+      .join(' '),
     ...discovery.prompt.actions.map(({ label }) => label),
   );
   if (reauthNotice !== null) await globalState.update(LEGACY_REAUTH_NOTICE_KEY, true);
@@ -215,27 +217,24 @@ function legacyReauthNotice(
   const mcpLogins = discovery.notices.mcpOauthServersRequiringReauth.length;
   if (kimiLogins === 0 && mcpLogins === 0) return null;
   if (kimiLogins > 0 && mcpLogins > 0) {
-    return "Legacy OAuth credentials are not copied. Sign in to Kimi Code and authorize your MCP servers again.";
+    return 'Legacy OAuth credentials are not copied. Sign in to Kimi Code and authorize your MCP servers again.';
   }
   return kimiLogins > 0
-    ? "Legacy OAuth credentials are not copied. Sign in to Kimi Code again."
-    : "Legacy MCP OAuth credentials are not copied. Authorize those MCP servers again.";
+    ? 'Legacy OAuth credentials are not copied. Sign in to Kimi Code again.'
+    : 'Legacy MCP OAuth credentials are not copied. Authorize those MCP servers again.';
 }
 
-async function performMigration(
-  manager: LegacyMigrationManager,
-  retry: boolean,
-): Promise<void> {
-  log(`${retry ? "Retrying" : "Starting"} legacy Kimi data migration`);
+async function performMigration(manager: LegacyMigrationManager, retry: boolean): Promise<void> {
+  log(`${retry ? 'Retrying' : 'Starting'} legacy Kimi data migration`);
   const result = retry ? await manager.retry() : await manager.migrateNow();
   logMigrationResult(result);
 
-  if (result.status === "completed" || result.status === "partial") {
+  if (result.status === 'completed' || result.status === 'partial') {
     try {
       await provider?.harness.getConfig({ reload: true });
       await provider?.resetAllWebviews();
     } catch (error) {
-      logError("Migration finished, but the runtime config could not be reloaded", error);
+      logError('Migration finished, but the runtime config could not be reloaded', error);
     }
   }
 
@@ -243,17 +242,15 @@ async function performMigration(
     result.notices.oauthLoginsRequiringRelogin.length +
     result.notices.mcpOauthServersRequiringReauth.length;
   const reauthNotice =
-    reauthCount === 0
-      ? ""
-      : ` ${reauthCount} OAuth connection(s) must be signed in again.`;
+    reauthCount === 0 ? '' : ` ${reauthCount} OAuth connection(s) must be signed in again.`;
   const message = `${result.message}${reauthNotice}`;
   const needsLogs =
-    result.status === "partial" ||
-    result.status === "failed" ||
+    result.status === 'partial' ||
+    result.status === 'failed' ||
     result.warnings.length > 0 ||
     result.manualActions.length > 0;
 
-  if (result.status === "failed") {
+  if (result.status === 'failed') {
     const action = await vscode.window.showErrorMessage(message, NotificationAction.SHOW_LOGS);
     if (action === NotificationAction.SHOW_LOGS) outputChannel?.show();
   } else if (needsLogs) {

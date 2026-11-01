@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'bun:test';
 /**
  * Package replacement: dropping an npm dependency in favour of a Bun builtin.
  *
@@ -9,8 +10,6 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { describe, expect, it } from 'bun:test';
 
 import { collectPackageBindings, parse } from '../src/ast.mjs';
 import { createJournal } from '../src/journal.mjs';
@@ -52,7 +51,8 @@ function migrate(files) {
   }
 }
 
-const MANIFEST = (deps) => `${JSON.stringify({ name: 'p', version: '1.0.0', dependencies: deps }, null, 2)}\n`;
+const MANIFEST = (deps) =>
+  `${JSON.stringify({ name: 'p', version: '1.0.0', dependencies: deps }, null, 2)}\n`;
 
 /**
  * Removing the import is part of the rewrite: leaving it behind keeps the dependency
@@ -109,7 +109,8 @@ describe('the rewritten import is removed in every layout', () => {
   it('keeps a default binding beside a removed named one', () => {
     const output = migrate({
       'package.json': MANIFEST(DEPS),
-      'src/a.js': "import yaml, { parse } from 'yaml';\nexport const a = (t) => parse(t);\nexport const b = yaml;\n",
+      'src/a.js':
+        "import yaml, { parse } from 'yaml';\nexport const a = (t) => parse(t);\nexport const b = yaml;\n",
     });
     expect(output['src/a.js']).toContain("import yaml from 'yaml';");
     expect(output['src/a.js'].includes('{ parse }')).toBe(false);
@@ -119,7 +120,15 @@ describe('the rewritten import is removed in every layout', () => {
   it('reports a distinct line for each wrapped import', () => {
     const sourceFile = parse(
       'a.mjs',
-      ['import {', '  parse,', "} from 'yaml';", 'import {', '  stringify,', "} from 'yaml';", ''].join('\n'),
+      [
+        'import {',
+        '  parse,',
+        "} from 'yaml';",
+        'import {',
+        '  stringify,',
+        "} from 'yaml';",
+        '',
+      ].join('\n'),
     );
     const bindings = collectPackageBindings(sourceFile);
     expect(bindings.get('parse').statementLine).toBe(0);
@@ -234,7 +243,7 @@ describe('rewriting a whole file', () => {
       'src/a.ts': [
         "import { parse } from 'yaml';",
         "import { satisfies } from 'semver';",
-        'export const a = parse(\'x: 1\');',
+        "export const a = parse('x: 1');",
         "export const b = satisfies('1.0.0', '^1.0.0');",
         '',
       ].join('\n'),
@@ -272,7 +281,12 @@ describe('rewriting a whole file', () => {
 describe('the rewritten code actually runs', () => {
   it('produces a file Bun can execute end to end', () => {
     const root = project({
-      'package.json': MANIFEST({ yaml: '^2.0.0', 'smol-toml': '^1.0.0', 'strip-ansi': '^7.0.0', 'json5': '^2.0.0' }),
+      'package.json': MANIFEST({
+        yaml: '^2.0.0',
+        'smol-toml': '^1.0.0',
+        'strip-ansi': '^7.0.0',
+        json5: '^2.0.0',
+      }),
       'src/a.ts': [
         "import { parse as yamlParse } from 'yaml';",
         "import { parse as tomlParse } from 'smol-toml';",
@@ -296,7 +310,7 @@ describe('the rewritten code actually runs', () => {
         runner,
         [
           "import { y, t, j, s } from './src/a.ts';",
-          "console.log(JSON.stringify({ y, t, j, s }));",
+          'console.log(JSON.stringify({ y, t, j, s }));',
           '',
         ].join('\n'),
         'utf8',
@@ -388,7 +402,8 @@ describe('portable and deny apply to package replacements too', () => {
     const output = migrate({
       '.bun-migrate.toml': 'deny = ["packages/browser"]\n',
       'package.json': MANIFEST({ yaml: '^2.0.0' }),
-      'packages/browser/src/a.ts': "import { parse } from 'yaml';\nexport const a = parse('a: 1');\n",
+      'packages/browser/src/a.ts':
+        "import { parse } from 'yaml';\nexport const a = parse('a: 1');\n",
     });
     expect(output['packages/browser/src/a.ts']).toBeUndefined();
     expect(Object.keys(output).some((key) => key.startsWith('skip:'))).toBe(false);
@@ -409,9 +424,12 @@ describe('which.sync maps to Bun.which, which takes the command directly', () =>
       const migrated = readFileSync(join(root, 'src/a.js'), 'utf8');
       expect(migrated).toContain('Bun.which(');
       expect(migrated.includes('Bun.which.sync')).toBe(false);
-      const result = Bun.spawnSync(['bun', '-e', "import('./src/a.js').then((m) => console.log(m.a))"], {
-        cwd: root,
-      });
+      const result = Bun.spawnSync(
+        ['bun', '-e', "import('./src/a.js').then((m) => console.log(m.a))"],
+        {
+          cwd: root,
+        },
+      );
       expect(result.exitCode).toBe(0);
       expect(result.stdout.toString().trim().length).toBeGreaterThan(0);
     } finally {

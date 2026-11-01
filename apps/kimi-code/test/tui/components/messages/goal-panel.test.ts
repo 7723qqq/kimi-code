@@ -1,6 +1,8 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+
+import type { GoalSnapshot } from '@moonshot-ai/kimi-code-sdk';
 import { visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 
 import { setLocale } from '#/i18n';
 import { formatGoalElapsed } from '#/tui/components/messages/goal-format';
@@ -14,7 +16,6 @@ import {
 } from '#/tui/components/messages/goal-panel';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { darkColors } from '#/tui/theme/colors';
-import type { GoalSnapshot } from '@moonshot-ai/kimi-code-sdk';
 
 const previousChalkLevel = chalk.level;
 beforeAll(() => {
@@ -65,7 +66,11 @@ describe('buildGoalReportLines', () => {
   });
 
   it('shows a Stop row with progress when a turn budget is set', () => {
-    const out = lines(goal({ budget: { turnBudget: 20, tokenBudget: null, wallClockBudgetMs: null } } as Partial<GoalSnapshot>));
+    const out = lines(
+      goal({
+        budget: { turnBudget: 20, tokenBudget: null, wallClockBudgetMs: null },
+      } as Partial<GoalSnapshot>),
+    );
     expect(out).toContain('Stop');
     expect(out).toContain('after 20 turns (7/20)');
     expect(out).not.toContain('No stop condition');
@@ -85,7 +90,9 @@ describe('buildGoalReportLines', () => {
   });
 
   it('shows the reason for a paused goal when one exists', () => {
-    const out = lines(goal({ status: 'paused', terminalReason: 'Paused after provider rate limit' }));
+    const out = lines(
+      goal({ status: 'paused', terminalReason: 'Paused after provider rate limit' }),
+    );
     expect(out).toContain('Status');
     expect(out).toContain('paused — Paused after provider rate limit');
   });
@@ -137,9 +144,9 @@ describe('UpcomingGoalAddedMessageComponent', () => {
     );
     expect(rendered[1]).toBe(
       chalk.hex(darkColors.primary).bold(STATUS_BULLET) +
-        chalk.hex(darkColors.primary).bold(
-          'Upcoming goal added. It will start after the current goal is complete.',
-        ),
+        chalk
+          .hex(darkColors.primary)
+          .bold('Upcoming goal added. It will start after the current goal is complete.'),
     );
   });
 
@@ -169,7 +176,9 @@ describe('GoalStatusMessageComponent', () => {
   });
 
   it('keeps the status box within narrow widths', () => {
-    const rendered = new GoalStatusMessageComponent(goal({ objective: '管理飞书日历的技能描述 '.repeat(4).trim() }));
+    const rendered = new GoalStatusMessageComponent(
+      goal({ objective: '管理飞书日历的技能描述 '.repeat(4).trim() }),
+    );
 
     for (const width of [39, 24, 20, 10]) {
       for (const line of rendered.render(width)) {

@@ -10,14 +10,13 @@
  *     the whole-buffer implementation.
  */
 
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import { createHash } from 'node:crypto';
 import * as nodeFs from 'node:fs';
 import { open, readFile, rm, writeFile } from 'node:fs/promises';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 
 import { archiveFromExportedSession } from '#/feedback/feedback-attachments';
 import { MAX_ARCHIVE_SIZE } from '#/feedback/upload';

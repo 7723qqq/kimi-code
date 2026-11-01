@@ -15,11 +15,11 @@ import {
 void mock.module('#/i18n', () => ({
   t: (key: string) =>
     (
-      {
+      ({
         'tui.messages.usagePanel.limit5h': '5h limit',
         'tui.messages.usagePanel.weeklyLimit': 'Weekly limit',
         'tui.messages.usagePanel.monthlyLimit': 'Monthly limit',
-      } as Record<string, string>
+      }) as Record<string, string>
     )[key] ?? key,
   setLocale: mock(),
   getLocale: () => 'en',
@@ -164,7 +164,12 @@ describe('quotaUsageRows', () => {
     });
     expect(rows).toEqual([
       { name: '5h limit', usedRatio: 0.3, resetAt: '2026-09-11T18:00:00Z', breakdown: undefined },
-      { name: 'Weekly limit', usedRatio: 0.2, resetAt: '2026-09-17T00:00:00Z', breakdown: undefined },
+      {
+        name: 'Weekly limit',
+        usedRatio: 0.2,
+        resetAt: '2026-09-17T00:00:00Z',
+        breakdown: undefined,
+      },
       {
         name: 'Monthly limit',
         usedRatio: 0.4,

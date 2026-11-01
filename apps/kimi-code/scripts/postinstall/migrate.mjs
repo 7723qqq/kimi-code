@@ -95,8 +95,7 @@ async function readShimHead(filePath, platform) {
   try {
     handle = await fs.open(filePath, 'r');
     const stat = await handle.stat();
-    const limit =
-      platform === 'win32' ? SHIM_SNIFF_BYTES_WINDOWS_MAX : SHIM_SNIFF_BYTES_POSIX;
+    const limit = platform === 'win32' ? SHIM_SNIFF_BYTES_WINDOWS_MAX : SHIM_SNIFF_BYTES_POSIX;
     const target = Math.min(stat.size, limit);
     const buffer = Buffer.alloc(target);
     const { bytesRead } = await handle.read(buffer, 0, target, 0);

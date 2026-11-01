@@ -8,9 +8,9 @@ import {
   rmSync,
   statSync,
 } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRequire } from 'node:module';
 
 import { Project, SyntaxKind } from 'ts-morph';
 

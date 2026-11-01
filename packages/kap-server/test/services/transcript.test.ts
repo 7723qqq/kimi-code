@@ -1,20 +1,74 @@
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import { execFile } from 'node:child_process';
-import { appendFile, mkdtemp, mkdir, readFile, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import {
+  appendFile,
+  mkdtemp,
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  utimes,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
-import {IAgentLifecycleService, IEventBus, IAgentContextMemoryService, IAgentConversationUndoParticipantRegistry, IAgentLoopService, IAgentScopeContext, IAgentTaskService, IFlagService, ISessionIndex, ISessionMetadata, ISessionLifecycleService, ISessionManager, IWireService, IWorkspaceInstanceManager, interactions, makeAgentScopeContext, type AgentContext, type ContextMessage, type AgentConversationUndoParticipant, type Event2, TOWER_FLAG_ID, _setTowerFeatureAssembledForTests, type ISessionScopeHandle, type Scope} from '@moonshot-ai/agent-core-v2';
+import {
+  IAgentLifecycleService,
+  IEventBus,
+  IAgentContextMemoryService,
+  IAgentConversationUndoParticipantRegistry,
+  IAgentLoopService,
+  IAgentScopeContext,
+  IAgentTaskService,
+  IFlagService,
+  ISessionIndex,
+  ISessionMetadata,
+  ISessionLifecycleService,
+  ISessionManager,
+  IWireService,
+  IWorkspaceInstanceManager,
+  interactions,
+  makeAgentScopeContext,
+  type AgentContext,
+  type ContextMessage,
+  type AgentConversationUndoParticipant,
+  type Event2,
+  TOWER_FLAG_ID,
+  _setTowerFeatureAssembledForTests,
+  type ISessionScopeHandle,
+  type Scope,
+} from '@moonshot-ai/agent-core-v2';
 import { type AgentActivitySnapshot } from '@moonshot-ai/agent-core-v2';
 import { TowerStore } from '@moonshot-ai/agent-core-v2/features/tower/protocol/index';
-import { AgentTranscript, TranscriptStore, type AgentTranscriptSnapshot, type AppendOp, type FrameUpsertOp, type InteractionUpsertOp, type TranscriptFrame, type TranscriptOperation, type TranscriptTask, type TranscriptTurn } from '@moonshot-ai/transcript';
-import { afterEach, describe, expect, it, spyOn } from 'bun:test';
+import {
+  AgentTranscript,
+  TranscriptStore,
+  type AgentTranscriptSnapshot,
+  type AppendOp,
+  type FrameUpsertOp,
+  type InteractionUpsertOp,
+  type TranscriptFrame,
+  type TranscriptOperation,
+  type TranscriptTask,
+  type TranscriptTurn,
+} from '@moonshot-ai/transcript';
 
 import { toWireQuestion } from '../../src/protocol/question-wire';
 import { type LegacyActivityApproval } from '../../src/services/legacyStatus/legacyStatus';
 import { bindSessionTranscript } from '../../src/services/transcript/coreBinding';
-import { AgentTranscriptProjector, type ProjectorBusEvent } from '../../src/services/transcript/coreEventMap';
-import { healTurnOps, TranscriptService, snapshotToOps, TRANSCRIPT_OPS_JOURNAL_CAPACITY } from '../../src/services/transcript/transcriptService';
+import {
+  AgentTranscriptProjector,
+  type ProjectorBusEvent,
+} from '../../src/services/transcript/coreEventMap';
+import {
+  healTurnOps,
+  TranscriptService,
+  snapshotToOps,
+  TRANSCRIPT_OPS_JOURNAL_CAPACITY,
+} from '../../src/services/transcript/transcriptService';
 import { WireRecordCache, type ContextRecord } from '../../src/services/transcript/wireCache';
 
 _setTowerFeatureAssembledForTests(true);
@@ -3631,12 +3685,46 @@ describe('AgentTranscriptProjector', () => {
       const userTurn = (turnId: number, promptId: string, text: string, time: number) => [
         { type: 'turn.prompt', turnId, promptId, origin: { kind: 'user' }, time },
         { type: 'agent.turn.started', turnId, time: time + 1 },
-        { type: 'context.append_message', message: { id: promptId, role: 'user', content: [{ type: 'text', text }], toolCalls: [], origin: { kind: 'user' } }, time },
-        { type: 'context.append_message', message: { role: 'assistant', content: [{ type: 'text', text: `answer ${turnId}` }], toolCalls: [] }, time: time + 2 },
+        {
+          type: 'context.append_message',
+          message: {
+            id: promptId,
+            role: 'user',
+            content: [{ type: 'text', text }],
+            toolCalls: [],
+            origin: { kind: 'user' },
+          },
+          time,
+        },
+        {
+          type: 'context.append_message',
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: `answer ${turnId}` }],
+            toolCalls: [],
+          },
+          time: time + 2,
+        },
       ];
       const foldedNotification = (turnId: number, taskId: string, time: number) => [
-        { type: 'turn.prompt', turnId, promptId: `n${turnId}`, origin: { kind: 'task_notification', taskId }, time },
-        { type: 'context.append_message', message: { id: `n${turnId}`, role: 'user', content: [{ type: 'text', text: `<notification>done ${turnId}</notification>` }], toolCalls: [], origin: { kind: 'task_notification', taskId } }, time },
+        {
+          type: 'turn.prompt',
+          turnId,
+          promptId: `n${turnId}`,
+          origin: { kind: 'task_notification', taskId },
+          time,
+        },
+        {
+          type: 'context.append_message',
+          message: {
+            id: `n${turnId}`,
+            role: 'user',
+            content: [{ type: 'text', text: `<notification>done ${turnId}</notification>` }],
+            toolCalls: [],
+            origin: { kind: 'task_notification', taskId },
+          },
+          time,
+        },
       ];
       const records = [
         ...userTurn(3, 'u3', 'before the gap', 1000),

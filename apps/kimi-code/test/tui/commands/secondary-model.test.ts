@@ -1,3 +1,5 @@
+import { describe, expect, it, mock, type Mock } from 'bun:test';
+
 /**
  * Scenario: /secondary-model command behavior in the interactive TUI.
  * Responsibilities: picker filtering, persistence of `[secondary_model] default_model`
@@ -6,12 +8,11 @@
  * Run: cd apps/kimi-code && bun test --isolate test/tui/commands/secondary-model.test.ts
  */
 import type { ModelAlias } from '@moonshot-ai/kimi-code-sdk';
-import { describe, expect, it, mock, type Mock } from 'bun:test';
-import { waitForAssertion } from '#test/helpers/waitFor';
 
 import type { SlashCommandHost } from '#/tui/commands';
 import { handleSecondaryModelCommand } from '#/tui/commands/config';
 import { TabbedModelSelectorComponent } from '#/tui/components/dialogs/tabbed-model-selector';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 interface PickerOptions {
   readonly models: Record<string, ModelAlias>;
@@ -39,9 +40,9 @@ function makeHost(options?: {
       k2: model('k2'),
       cheap: model('cheap'),
       // The v1 derived entry must never be selectable.
-      '__secondary__': model('cheap'),
+      __secondary__: model('cheap'),
       // The pool's reserved symbolic choice must never be selectable either.
-      'primary': model('primary'),
+      primary: model('primary'),
     } as Record<string, ModelAlias>,
     availableProviders: {},
     transcriptEntries: [],
@@ -81,7 +82,9 @@ function makeHost(options?: {
   return { host };
 }
 
-function mountedPicker(host: { mountEditorReplacement: Mock<(...args: any[]) => any> }): PickerOptions {
+function mountedPicker(host: {
+  mountEditorReplacement: Mock<(...args: any[]) => any>;
+}): PickerOptions {
   expect(host.mountEditorReplacement).toHaveBeenCalledTimes(1);
   const component = host.mountEditorReplacement.mock.calls[0]![0];
   expect(component).toBeInstanceOf(TabbedModelSelectorComponent);

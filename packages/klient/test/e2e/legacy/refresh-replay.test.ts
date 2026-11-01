@@ -27,6 +27,7 @@
  * `client.test.ts`; missing server → tests skip cleanly so CI stays green.
  */
 import { afterEach, describe, expect, it } from 'bun:test';
+
 import { WebSocket as WsWebSocket } from 'ws';
 
 import { DaemonClient, WsClient, type AnyFrame } from '../harness/index.js';

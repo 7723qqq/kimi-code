@@ -1,4 +1,3 @@
-
 import { expect, test } from 'bun:test';
 
 import { MiniDb } from '../src/index.js';
@@ -24,7 +23,10 @@ test('L6: query({limit:0}) returns zero rows on every path', async () => {
     const db = await seededDb(dir);
 
     expect(db.query({ limit: 0 }).length, 'sync early path').toBe(0);
-    expect(db.query({ limit: 0, sort: { by: 'key', order: 'asc' } }).length, 'sync sorted path').toBe(0);
+    expect(
+      db.query({ limit: 0, sort: { by: 'key', order: 'asc' } }).length,
+      'sync sorted path',
+    ).toBe(0);
     expect((await db.queryAsync({ limit: 0 })).length, 'async early path').toBe(0);
     expect(db.scan({ limit: 0 }).length, 'scan').toBe(0);
 

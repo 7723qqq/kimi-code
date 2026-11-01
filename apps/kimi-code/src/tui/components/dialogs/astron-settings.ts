@@ -84,9 +84,13 @@ export class AstronSettingsComponent extends Container implements Focusable {
     super();
     this.opts = opts;
     this.settings = { ...opts.initial };
-    this.mouse = new ListMouseRouter(this.cursor(), (field) => this.activate(FIELDS.indexOf(field)), {
-      isFocused: () => this.focused,
-    });
+    this.mouse = new ListMouseRouter(
+      this.cursor(),
+      (field) => this.activate(FIELDS.indexOf(field)),
+      {
+        isFocused: () => this.focused,
+      },
+    );
   }
 
   private currentField(): FieldDef {

@@ -1,7 +1,7 @@
 import type { AgentRef } from '../model/frame';
+import { turnId as exportTurnKey } from '../model/ids';
 import type { TranscriptInteraction } from '../model/interaction';
 import type { TranscriptItem, TranscriptMarker, TranscriptTaskRef } from '../model/item';
-import { turnId as exportTurnKey } from '../model/ids';
 import type { GoalMeta, GoalStatus, TranscriptMeta } from '../model/meta';
 import type { TranscriptTask } from '../model/task';
 import type { TodoItem, TranscriptTodo } from '../model/todo';
@@ -904,7 +904,8 @@ export function foldWireRecordFacts(
               ...item,
               turnId: nextTurnId,
               ordinal: renumber ? wireId : item.ordinal,
-              startedAt: item.startedAt ?? turnStartedTimes.get(wireId) ?? turnPromptTimes.get(wireId),
+              startedAt:
+                item.startedAt ?? turnStartedTimes.get(wireId) ?? turnPromptTimes.get(wireId),
               state: wedged ? 'failed' : item.state,
               wedged: wedged ? true : item.wedged,
               steps: renumber
@@ -981,7 +982,11 @@ export function foldWireRecordFacts(
   };
 }
 
-function renameTurnStep(step: TranscriptStep, fromTurnId: string, toTurnId: string): TranscriptStep {
+function renameTurnStep(
+  step: TranscriptStep,
+  fromTurnId: string,
+  toTurnId: string,
+): TranscriptStep {
   const stepId = step.stepId.startsWith(`${fromTurnId}.`)
     ? `${toTurnId}.${step.stepId.slice(fromTurnId.length + 1)}`
     : step.stepId;

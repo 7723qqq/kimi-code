@@ -1,9 +1,3 @@
-import type { FileMeta } from '@moonshot-ai/agent-core-v2';
-import type { ModelCatalogItem, ProviderCatalogItem } from '@moonshot-ai/agent-core-v2';
-import { ErrorCode } from '@moonshot-ai/kap-server/protocol/error-codes';
-import type { Message } from '@moonshot-ai/kap-server/protocol/message';
-import type { SessionStatusResponse } from '@moonshot-ai/kap-server/protocol/rest-session';
-import type { Session } from '@moonshot-ai/kap-server/protocol/session';
 /**
  * Self-tests for `DaemonClient` against a live server at
  * `process.env.KIMI_SERVER_URL ?? http://127.0.0.1:58627`.
@@ -20,6 +14,13 @@ import type { Session } from '@moonshot-ai/kap-server/protocol/session';
  *   5. Created session is observable via `getSession`.
  */
 import { afterEach, describe, expect, it } from 'bun:test';
+
+import type { FileMeta } from '@moonshot-ai/agent-core-v2';
+import type { ModelCatalogItem, ProviderCatalogItem } from '@moonshot-ai/agent-core-v2';
+import { ErrorCode } from '@moonshot-ai/kap-server/protocol/error-codes';
+import type { Message } from '@moonshot-ai/kap-server/protocol/message';
+import type { SessionStatusResponse } from '@moonshot-ai/kap-server/protocol/rest-session';
+import type { Session } from '@moonshot-ai/kap-server/protocol/session';
 
 import { DaemonClient, EnvelopeError } from '../harness/index.js';
 import { fetchWithReport } from '../harness/report.js';

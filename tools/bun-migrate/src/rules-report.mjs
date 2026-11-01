@@ -1,13 +1,13 @@
 #!/usr/bin/env bun
-import { PAIRINGS } from '../src/pairings.mjs';
-import { PACKAGE_REPLACEMENTS } from '../src/packages-map.mjs';
-import { CAPABILITY_REPLACEMENTS, MODULE_REPLACEMENTS } from '../src/modules-map.mjs';
-import { activeGaps } from '../src/node-gaps.mjs';
-import { probeAll } from '../src/silent-gaps.mjs';
+import { cryptoHasherSupports, runtimeReport } from '../src/capabilities.mjs';
 import { CONSTANT_VALUE_DIFFERENCES } from '../src/constant-values.mjs';
 import { ERROR_CASES, ERROR_GAPS } from '../src/error-shapes.mjs';
+import { CAPABILITY_REPLACEMENTS, MODULE_REPLACEMENTS } from '../src/modules-map.mjs';
+import { activeGaps } from '../src/node-gaps.mjs';
+import { PACKAGE_REPLACEMENTS } from '../src/packages-map.mjs';
+import { PAIRINGS } from '../src/pairings.mjs';
 import { SIGNATURE_DIFF_SUMMARY, SIGNATURE_GAPS } from '../src/signature-gaps.mjs';
-import { cryptoHasherSupports, runtimeReport } from '../src/capabilities.mjs';
+import { probeAll } from '../src/silent-gaps.mjs';
 
 const runtime = runtimeReport();
 const nodeRules = PAIRINGS.map((pairing) => ({
@@ -61,7 +61,9 @@ process.stdout.write(`\n=== module replacements (${MODULE_REPLACEMENTS.length}) 
 for (const entry of MODULE_REPLACEMENTS) {
   process.stdout.write(`\n  ${entry.from} -> ${entry.to}  [${entry.effect}]\n`);
   process.stdout.write(`    ${entry.summary}\n`);
-  process.stdout.write(`    divergences: ${entry.divergences.length}, missing: ${entry.missing.length}\n`);
+  process.stdout.write(
+    `    divergences: ${entry.divergences.length}, missing: ${entry.missing.length}\n`,
+  );
   for (const item of entry.divergences) {
     process.stdout.write(`      - ${item.behaviour}\n`);
   }
@@ -78,7 +80,9 @@ for (const entry of CAPABILITY_REPLACEMENTS) {
 const algorithms = ['sha256', 'sha512', 'sha3-256', 'md5', 'blake2b512', 'shake128', 'secp256k1'];
 process.stdout.write('\nalgorithm probe sample\n');
 for (const algorithm of algorithms) {
-  process.stdout.write(`  ${algorithm.padEnd(12)} ${cryptoHasherSupports(algorithm) ? 'hashable' : 'unsupported'}\n`);
+  process.stdout.write(
+    `  ${algorithm.padEnd(12)} ${cryptoHasherSupports(algorithm) ? 'hashable' : 'unsupported'}\n`,
+  );
 }
 
 const gaps = activeGaps();
@@ -93,7 +97,9 @@ if (gaps.length === 0) {
   }
 }
 
-process.stdout.write(`\n=== constant value differences (${CONSTANT_VALUE_DIFFERENCES.length}) ===\n`);
+process.stdout.write(
+  `\n=== constant value differences (${CONSTANT_VALUE_DIFFERENCES.length}) ===\n`,
+);
 for (const entry of CONSTANT_VALUE_DIFFERENCES) {
   process.stdout.write(`  ${entry.module} ${entry.path}\n`);
   process.stdout.write(`    node ${entry.node} vs bun ${entry.bun}\n`);
@@ -103,12 +109,16 @@ process.stdout.write(`\n=== signature differences (${SIGNATURE_GAPS.length} cura
 process.stdout.write(`  raw arity diff: ${SIGNATURE_DIFF_SUMMARY.totalArityDifferences}\n`);
 process.stdout.write(`  ${SIGNATURE_DIFF_SUMMARY.reason}\n`);
 for (const gap of SIGNATURE_GAPS) {
-  process.stdout.write(`  ${gap.module}#${gap.member}: node ${gap.node.length} params vs bun ${gap.bun.length}\n`);
+  process.stdout.write(
+    `  ${gap.module}#${gap.member}: node ${gap.node.length} params vs bun ${gap.bun.length}\n`,
+  );
 }
 
 process.stdout.write(`\n=== silent degradation (${silent.length}) ===\n`);
 for (const entry of silent) {
-  const observed = entry.result.ok ? JSON.stringify(entry.result.observed) : `probe failed: ${entry.result.observed.error}`;
+  const observed = entry.result.ok
+    ? JSON.stringify(entry.result.observed)
+    : `probe failed: ${entry.result.observed.error}`;
   process.stdout.write(`  [${entry.severity}] ${entry.api}\n`);
   process.stdout.write(`    ${entry.summary}\n`);
   process.stdout.write(`    observed: ${observed}\n`);

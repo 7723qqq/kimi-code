@@ -25,6 +25,7 @@
  * rather than a full cartesian product.
  */
 
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -39,7 +40,6 @@ import {
 } from '@moonshot-ai/agent-core-v2';
 import type { ContentPart } from '@moonshot-ai/agent-core-v2';
 import { IModelService } from '@moonshot-ai/agent-core-v2/llm-adapter/model/model';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 
 import type { KlientEvents } from '../../src/core/events/hub.js';
 import type { AgentHandle } from '../../src/core/klient.js';

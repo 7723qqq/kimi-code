@@ -93,8 +93,7 @@ describe('documented divergence from the former context-usage implementation', (
       content: [{ type: 'text' as const, text: 'ok' }],
       toolCalls: [{ type: 'function' as const, id: 'c1', name: 'list_dir', arguments: null }],
     };
-    const base =
-      estimateTokens('assistant') + estimateTokens('ok') + estimateTokens('list_dir');
+    const base = estimateTokens('assistant') + estimateTokens('ok') + estimateTokens('list_dir');
     expect(estimateTokensForMessage(withNull)).toBe(base + estimateTokens(JSON.stringify(null)));
     expect(estimateTokensForMessage(withNull)).toBe(base + 1);
   });
@@ -181,9 +180,7 @@ describe('deepseek vision formula', () => {
   it('floors a small image to the scale-up floor, not the flat fallback', () => {
     const tokens = estimateTokensForContentPart(imagePart(200, 200), pricing);
     expect(tokens).toBe(169);
-    expect(tokens).toBe(
-      estimateTokensForContentPart(imagePart(512, 512), pricing),
-    );
+    expect(tokens).toBe(estimateTokensForContentPart(imagePart(512, 512), pricing));
     expect(tokens * 5).toBeLessThan(pricing.fallbackTokens);
   });
 
@@ -203,9 +200,9 @@ describe('deepseek vision formula', () => {
   });
 
   it('falls back when dimensions are absent or degenerate', () => {
-    expect(estimateTokensForContentPart({ type: 'image_url', imageUrl: { url: 'x' } }, pricing)).toBe(
-      pricing.fallbackTokens,
-    );
+    expect(
+      estimateTokensForContentPart({ type: 'image_url', imageUrl: { url: 'x' } }, pricing),
+    ).toBe(pricing.fallbackTokens);
     expect(estimateTokensForContentPart(imagePart(0, 100), pricing)).toBe(pricing.fallbackTokens);
     expect(estimateTokensForContentPart(imagePart(100, -1), pricing)).toBe(pricing.fallbackTokens);
   });
@@ -217,12 +214,16 @@ describe('deepseek vision formula', () => {
 
   it('keeps the fallback and the cap as independent knobs', () => {
     const changedFallback = { ...pricing, fallbackTokens: 4096 };
-    expect(estimateTokensForContentPart({ type: 'image_url', imageUrl: { url: 'x' } }, changedFallback)).toBe(4096);
+    expect(
+      estimateTokensForContentPart({ type: 'image_url', imageUrl: { url: 'x' } }, changedFallback),
+    ).toBe(4096);
     expect(estimateTokensForContentPart(imagePart(200, 200), changedFallback)).toBe(169);
 
     const changedCap = { ...pricing, tokenCap: 2048 };
     expect(estimateTokensForContentPart(imagePart(200, 200), changedCap)).toBe(169);
-    expect(estimateTokensForContentPart(imagePart(8000, 6000), changedCap)).toBeLessThanOrEqual(2048);
+    expect(estimateTokensForContentPart(imagePart(8000, 6000), changedCap)).toBeLessThanOrEqual(
+      2048,
+    );
   });
 
   it('records the calibration error against the measured endpoint', () => {

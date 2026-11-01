@@ -1,10 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { waitForAssertion } from '#test/helpers/waitFor';
-
 import { promises as fsp } from 'node:fs';
 import os from 'node:os';
 import { join } from 'node:path';
-import { LifecycleScope } from '#/app/scopes';
+
 import {
   ScopeActivation,
   _clearScopedRegistryForTests,
@@ -13,6 +11,19 @@ import {
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { ILogService } from '#/_base/log/log';
 import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IEventService } from '#/app/event/event';
+import { LifecycleScope } from '#/app/scopes';
+import { FileWorkspacePersistence } from '#/app/workspace/fileWorkspacePersistence';
+import { IWorkspaceService, type Workspace } from '#/app/workspace/workspace';
+import {
+  IWorkspacePersistence,
+  type PersistedWorkspaceEntry,
+  type WorkspaceCatalog,
+} from '#/app/workspace/workspacePersistence';
+import { WorkspaceService } from '#/app/workspace/workspaceService';
+import { IWorkspaceAliases } from '#/app/workspaceAliases/workspaceAliases';
+import { WorkspaceAliasesService } from '#/app/workspaceAliases/workspaceAliasesService';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
@@ -21,19 +32,9 @@ import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageSe
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { IEventService } from '#/app/event/event';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { IWorkspaceService, type Workspace } from '#/app/workspace/workspace';
-import { WorkspaceService } from '#/app/workspace/workspaceService';
-import { FileWorkspacePersistence } from '#/app/workspace/fileWorkspacePersistence';
-import {
-  IWorkspacePersistence,
-  type PersistedWorkspaceEntry,
-  type WorkspaceCatalog,
-} from '#/app/workspace/workspacePersistence';
-import { IWorkspaceAliases } from '#/app/workspaceAliases/workspaceAliases';
-import { WorkspaceAliasesService } from '#/app/workspaceAliases/workspaceAliasesService';
 import { isWatchEnabled, setWatchEnabled } from '#human/utils/watch';
+import { waitForAssertion } from '#test/helpers/waitFor';
+
 import { stubBootstrap } from '../bootstrap/stubs';
 
 interface SessionIndexLine {
@@ -265,8 +266,24 @@ describe('WorkspaceAliasesService (file-backed)', () => {
     const persistence = currentHost!.app.accessor.get(IWorkspacePersistence);
     await persistence.save({
       workspaces: [
-        { id: typedId, root: typedRoot, name: 'proj', kind: 'implicit' as const, additionalDirs: [], createdAt: 0, lastOpenedAt: 0 },
-        { id: legacyId, root: 'c:\\users\\foo\\proj', name: 'proj', kind: 'implicit' as const, additionalDirs: [], createdAt: 0, lastOpenedAt: 0 },
+        {
+          id: typedId,
+          root: typedRoot,
+          name: 'proj',
+          kind: 'implicit' as const,
+          additionalDirs: [],
+          createdAt: 0,
+          lastOpenedAt: 0,
+        },
+        {
+          id: legacyId,
+          root: 'c:\\users\\foo\\proj',
+          name: 'proj',
+          kind: 'implicit' as const,
+          additionalDirs: [],
+          createdAt: 0,
+          lastOpenedAt: 0,
+        },
       ],
       deletedIds: [],
     });
@@ -320,7 +337,9 @@ describe('WorkspaceAliasesService (file-backed)', () => {
       id,
       root,
       name: 'proj',
-      kind: 'implicit' as const, additionalDirs: [], createdAt: 0,
+      kind: 'implicit' as const,
+      additionalDirs: [],
+      createdAt: 0,
       lastOpenedAt: 0,
     });
 
@@ -378,7 +397,9 @@ describe('WorkspaceAliasesService (file-backed)', () => {
       id,
       root,
       name: 'proj',
-      kind: 'implicit' as const, additionalDirs: [], createdAt: 0,
+      kind: 'implicit' as const,
+      additionalDirs: [],
+      createdAt: 0,
       lastOpenedAt: 0,
     });
 

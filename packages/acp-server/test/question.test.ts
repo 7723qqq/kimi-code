@@ -1,9 +1,10 @@
+import { describe, expect, it } from 'bun:test';
+
 import type {
   CreateElicitationResponse,
   RequestPermissionResponse,
 } from '@agentclientprotocol/sdk';
 import type { QuestionItem } from '@moonshot-ai/agent-core-v2';
-import { describe, expect, it } from 'bun:test';
 
 import {
   elicitationResponseToQuestionAnswers,

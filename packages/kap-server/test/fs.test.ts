@@ -1,3 +1,4 @@
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
@@ -5,14 +6,13 @@ import { join, sep } from 'node:path';
 import { IModelCatalog, IWorkspaceInstanceManager } from '@moonshot-ai/agent-core-v2';
 import { HostFileSystem } from '@moonshot-ai/agent-core-v2/os/backends/host/hostFsService';
 import { FakeRuntime } from '@moonshot-ai/agent-core-v2/runtime/fakeRuntime';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { removeTempHome } from './helpers/tempHome';
 
 import { ErrorCode } from '../src/protocol/error-codes';
 import { type RunningServer, startServer } from '../src/start';
 import { authHeaders } from './helpers/auth';
 import { fakeModelCatalog } from './helpers/fakeModelCatalog';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { removeTempHome } from './helpers/tempHome';
 
 interface Envelope<T> {
   code: number;
@@ -305,7 +305,10 @@ describe('server-v2 /api/v1 fs routes', () => {
   });
 
   it('fs:list traverses ignored ancestors across wildcard glob segments', async () => {
-    await writeFile(join(work!, '.gitignore'), 'ignored-a/\nignored-b/\nignored-dir/\nother-dir/\n');
+    await writeFile(
+      join(work!, '.gitignore'),
+      'ignored-a/\nignored-b/\nignored-dir/\nother-dir/\n',
+    );
     await mkdir(join(work!, 'ignored-a'), { recursive: true });
     await mkdir(join(work!, 'ignored-b'), { recursive: true });
     await mkdir(join(work!, 'ignored-dir/sub'), { recursive: true });

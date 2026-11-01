@@ -2,8 +2,9 @@ import type { BackgroundTaskInfo, ModelAlias } from '@moonshot-ai/kimi-code-sdk'
 import { Container, Text, type Focusable } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
-import { TasksPanelComponent, type TasksPanelProps, type TasksTab } from './tasks-browser';
 import { currentTheme } from '#/tui/theme';
+
+import { TasksPanelComponent, type TasksPanelProps, type TasksTab } from './tasks-browser';
 
 export interface BackgroundTasksMiniProps {
   readonly tasks: readonly BackgroundTaskInfo[];
@@ -35,7 +36,16 @@ export class BackgroundTasksMiniPanel extends Container implements Focusable {
     this.props = props;
     this.inner = new TasksPanelComponent(this.toPanelProps(props));
     this.addChild(this.inner);
-    this.addChild(new Text(currentTheme.fg('textMuted', `  Esc/q ${t('tui.dialogs.tasksBrowser.hintCancel')} · Enter/a ${t('tui.dialogs.tasksBrowser.backgroundTasksMini.amplify')}  `), 0, 0));
+    this.addChild(
+      new Text(
+        currentTheme.fg(
+          'textMuted',
+          `  Esc/q ${t('tui.dialogs.tasksBrowser.hintCancel')} · Enter/a ${t('tui.dialogs.tasksBrowser.backgroundTasksMini.amplify')}  `,
+        ),
+        0,
+        0,
+      ),
+    );
   }
 
   setProps(next: BackgroundTasksMiniProps): void {
@@ -60,7 +70,10 @@ export class BackgroundTasksMiniPanel extends Container implements Focusable {
   override render(width: number): string[] {
     const innerHeight = Math.max(4, this.props.height - 1);
     const lines = this.inner.render(width).slice(0, innerHeight);
-    const hint = currentTheme.fg('textMuted', `  Esc/q ${t('tui.dialogs.tasksBrowser.hintCancel')} · Enter/a ${t('tui.dialogs.tasksBrowser.backgroundTasksMini.amplify')}  `);
+    const hint = currentTheme.fg(
+      'textMuted',
+      `  Esc/q ${t('tui.dialogs.tasksBrowser.hintCancel')} · Enter/a ${t('tui.dialogs.tasksBrowser.backgroundTasksMini.amplify')}  `,
+    );
     while (lines.length < innerHeight) lines.push('');
     lines.push(hint);
     return lines.slice(0, this.props.height);

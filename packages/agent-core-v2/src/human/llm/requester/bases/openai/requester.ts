@@ -1,15 +1,15 @@
-import { toLlmSyntaxErrorMessage } from '#/llm/syntax-errors';
-import {
-  encodeReasoningEffortFallback,
-  resolveThinkingEffortForModel,
-  type ThinkingEffort,
-} from '#/llm/thinking';
 import OpenAI from 'openai';
 import { assign, shake } from 'radashi';
 
-import type { LlmLogger } from '#/log/log';
 import { headersToRecord } from '#/llm/errors';
 import { modelKey, type LlmModel } from '#/llm/model';
+import {
+  type FamilyMaxOutputDefaults,
+  fullReasoningEchoRequired,
+  ignoredSamplingParamsForModel,
+  maxOutputDefaultsForModel,
+  resolveModelFamily,
+} from '#/llm/modelFamily';
 import type { ProtocolBase, ProtocolRequesterOptions, TraitContext } from '#/llm/protocol/base';
 import { resolveModelConnection } from '#/llm/protocol/connection';
 import {
@@ -18,13 +18,6 @@ import {
   type FormatRequestInput,
 } from '#/llm/protocol/format';
 import { applyThinking } from '#/llm/protocol/thinking';
-import {
-  type FamilyMaxOutputDefaults,
-  fullReasoningEchoRequired,
-  ignoredSamplingParamsForModel,
-  maxOutputDefaultsForModel,
-  resolveModelFamily,
-} from '#/llm/modelFamily';
 import {
   mergeRequestHeaders,
   type LlmClientContext,
@@ -40,6 +33,13 @@ import {
   getLlmHeadersTimeoutDispatcher,
   resolveLlmHeadersTimeoutMs,
 } from '#/llm/requester/timeout';
+import { toLlmSyntaxErrorMessage } from '#/llm/syntax-errors';
+import {
+  encodeReasoningEffortFallback,
+  resolveThinkingEffortForModel,
+  type ThinkingEffort,
+} from '#/llm/thinking';
+import type { LlmLogger } from '#/log/log';
 
 import { normalizeToolCallIdsForProvider, sanitizeToolCallId } from '../tool-call-id';
 import { getOpenAILegacyModelCapability } from './capability';
@@ -157,14 +157,10 @@ export function prepareOpenAIRequest(
     kwargs = { ...kwargs, ...encodeOpenAIThinkHistoryKwargs(ctx.model.model) };
   }
   if (input.determinism !== undefined) {
-    const seed =
-      input.determinism.seed ?? deriveDeterminismSeed(ctx.model.model, input.messages);
+    const seed = input.determinism.seed ?? deriveDeterminismSeed(ctx.model.model, input.messages);
     kwargs = { ...kwargs, seed };
   }
-  const echoFullReasoning = fullReasoningEchoRequired(
-    ctx.model.model,
-    input.tools.length > 0,
-  );
+  const echoFullReasoning = fullReasoningEchoRequired(ctx.model.model, input.tools.length > 0);
   if (input.responseFormat !== undefined) {
     kwargs = { ...kwargs, response_format: responseFormatToOpenAI(input.responseFormat) };
   }
@@ -183,10 +179,7 @@ export function prepareOpenAIRequest(
     };
   }
   kwargs = shake(assign(kwargs, input.extraParams?.openai ?? {}));
-  kwargs = stripIgnoredSamplingParams(
-    kwargs,
-    ignoredSamplingParamsForModel(ctx.model.model),
-  );
+  kwargs = stripIgnoredSamplingParams(kwargs, ignoredSamplingParamsForModel(ctx.model.model));
   if (input.tools.length > 0 && resolveModelFamily(ctx.model.model)?.id === 'deepseek') {
     const { response_format: _preemptedByToolConstraint, ...rest } = kwargs;
     kwargs = rest;

@@ -1,5 +1,6 @@
-import { Container, ScrollView, Text, VStack } from '@moonshot-ai/pi-tui';
 import { describe, expect, it } from 'bun:test';
+
+import { Container, ScrollView, Text, VStack } from '@moonshot-ai/pi-tui';
 
 import { NotifyPanelComponent } from '#/tui/components/chrome/notify-panel';
 

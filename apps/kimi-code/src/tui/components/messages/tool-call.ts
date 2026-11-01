@@ -15,8 +15,8 @@ import {
   visibleWidth,
   wrapTextWithAnsi,
 } from '@moonshot-ai/pi-tui';
-import chalk from 'chalk';
 import type { Component, TUI } from '@moonshot-ai/pi-tui';
+import chalk from 'chalk';
 
 import { t } from '#/i18n';
 import { isExperimentalFlagEnabled } from '#/tui/commands/experimental-flags';
@@ -78,15 +78,15 @@ import { ShellExecutionComponent } from './shell-execution';
 import { pickChip } from './tool-renderers/chip';
 import { buildGoalToolHeader, parseGoalToolOutput } from './tool-renderers/goal';
 import { searchNoticeOnly } from './tool-renderers/grep-output';
+import { parseReadMediaOutput } from './tool-renderers/media';
+import { nonEmptyLines, outcomeLine, outcomeRows } from './tool-renderers/outcome';
+import { isGenericToolResult, pickResultRenderer } from './tool-renderers/registry';
 import {
   isTodoListRead,
   TodoCardBody,
   todoCardHidesItems,
   todoListFromResult,
 } from './tool-renderers/todo';
-import { parseReadMediaOutput } from './tool-renderers/media';
-import { nonEmptyLines, outcomeLine, outcomeRows } from './tool-renderers/outcome';
-import { isGenericToolResult, pickResultRenderer } from './tool-renderers/registry';
 import { TruncatedOutputComponent, trimTrailingEmptyLines } from './tool-renderers/truncated';
 import { isSpilledToolOutput } from './tool-renderers/types';
 import { buildWaitForHeader, parseWaitForOutput } from './tool-renderers/wait-for';
@@ -983,7 +983,11 @@ export class ToolCallComponent extends Container {
     if (this.toolCall.truncated === true && this.result === undefined) return false;
     // A NotifyUser card has its whole body in the argument, so the toggle is
     // live as soon as the message arrives, before any result exists.
-    if (name === 'NotifyUser' && isExperimentalFlagEnabled('notify_user') && this.result === undefined) {
+    if (
+      name === 'NotifyUser' &&
+      isExperimentalFlagEnabled('notify_user') &&
+      this.result === undefined
+    ) {
       return str(notifyUserLiveArgs(this.toolCall)['message']).trim().length > 0;
     }
     if (this.result === undefined && this.toolCall.streamingArguments !== undefined) {

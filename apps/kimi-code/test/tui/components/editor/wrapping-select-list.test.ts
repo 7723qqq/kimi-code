@@ -1,5 +1,6 @@
-import { visibleWidth, type SelectItem, type SelectListTheme } from '@moonshot-ai/pi-tui';
 import { describe, expect, it } from 'bun:test';
+
+import { visibleWidth, type SelectItem, type SelectListTheme } from '@moonshot-ai/pi-tui';
 
 import { WrappingSelectList } from '#/tui/components/editor/wrapping-select-list';
 
@@ -39,10 +40,7 @@ describe('WrappingSelectList', () => {
       { value: 'init', label: 'init', description: 'Second command' },
     ]).render(80);
 
-    expect(lines).toEqual([
-      '[S]→ goal        First command',
-      '  init[D]        Second command',
-    ]);
+    expect(lines).toEqual(['[S]→ goal        First command', '  init[D]        Second command']);
   });
 
   it('wraps a long description onto a second indented line without an ellipsis', () => {
@@ -110,7 +108,8 @@ describe('WrappingSelectList', () => {
   });
 
   it('does not leak ANSI resets into themed lines when the primary name is truncated', () => {
-    const description = 'Use when about to claim work is complete fixed or passing before committing';
+    const description =
+      'Use when about to claim work is complete fixed or passing before committing';
     const lines = makeList([
       { value: 'verify', label: 'skill:verification-before-completion', description },
       { value: 'init', label: 'skill:another-very-long-command-name', description },
@@ -126,7 +125,11 @@ describe('WrappingSelectList', () => {
   it('never emits a line wider than the requested width, including CJK text', () => {
     const list = new WrappingSelectList(
       [
-        { value: 'lark', label: 'skill:lark-calendar', description: '管理飞书日历的技能描述'.repeat(8) },
+        {
+          value: 'lark',
+          label: 'skill:lark-calendar',
+          description: '管理飞书日历的技能描述'.repeat(8),
+        },
         { value: 'init', label: 'init', description: 'word '.repeat(60).trim() },
       ],
       5,

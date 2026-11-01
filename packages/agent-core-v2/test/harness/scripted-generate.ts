@@ -1,5 +1,9 @@
+import { isAbortError } from '#/llm-adapter/contract/errors';
+import { fromLlmMessage, type Message, type Tool } from '#/llm-adapter/contract/message';
+import { estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
+import type { SamplingOptions } from '#/llm-adapter/model/model-requester';
+import { translateProviderError } from '#/llm-adapter/protocol/errors';
 import { type FinishReason } from '#human/llm/finish-reason';
-import type { ThinkingRequestOptions } from '#human/llm/thinking';
 import {
   isContentPart,
   isToolCall,
@@ -13,12 +17,8 @@ import type {
   LlmRequestControl,
   LlmRequester,
 } from '#human/llm/requester/requester';
-import { fromLlmMessage, type Message, type Tool } from '#/llm-adapter/contract/message';
-import { isAbortError } from '#/llm-adapter/contract/errors';
-import { estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
+import type { ThinkingRequestOptions } from '#human/llm/thinking';
 import type { TokenUsage } from '#human/llm/usage';
-import type { SamplingOptions } from '#/llm-adapter/model/model-requester';
-import { translateProviderError } from '#/llm-adapter/protocol/errors';
 
 import {
   generateInputSnapshot,
@@ -60,7 +60,10 @@ function samplingFromExtraParams(extra: ExtraParams | undefined): SamplingOption
     extra.anthropic?.temperature ??
     extra.googleGenai?.temperature;
   const topP =
-    extra.openai?.top_p ?? extra.responses?.top_p ?? extra.anthropic?.top_p ?? extra.googleGenai?.topP;
+    extra.openai?.top_p ??
+    extra.responses?.top_p ??
+    extra.anthropic?.top_p ??
+    extra.googleGenai?.topP;
   if (temperature === undefined && topP === undefined) return undefined;
   return { temperature, topP };
 }
@@ -219,7 +222,8 @@ export function createScriptedGenerate() {
     }
 
     const inferredFinishReason: FinishReason = toolCalls.length > 0 ? 'tool_calls' : 'completed';
-    const finishReason = response.finishReason === undefined ? inferredFinishReason : response.finishReason;
+    const finishReason =
+      response.finishReason === undefined ? inferredFinishReason : response.finishReason;
     emit?.({
       type: 'llm.streaming.usage',
       usage: {

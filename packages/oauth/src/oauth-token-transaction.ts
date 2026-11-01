@@ -1,5 +1,6 @@
-import type { FetchLike } from './types';
 import { isDeepStrictEqual } from 'node:util';
+
+import type { FetchLike } from './types';
 
 const REQUEST_TIMEOUT_MS = 30_000;
 

@@ -1,7 +1,5 @@
 import type { Message } from '#/llm-adapter/contract/message';
 import type { Tool as LLMTool } from '#/llm-adapter/contract/message';
-
-
 import { WIRE_PROTOCOL_VERSION } from '#/wire/migration/migration';
 
 const IS_EVENT_ARRAY = Symbol('isEventArray');
@@ -57,10 +55,7 @@ function stableFingerprints<T>(value: T): T {
   return out as T;
 }
 
-export function eventSnapshot(
-  events: readonly EventSnapshotEntry[],
-  labels: SnapshotLabels,
-) {
+export function eventSnapshot(events: readonly EventSnapshotEntry[], labels: SnapshotLabels) {
   const normalized = events.map((event) => {
     let stableEvent = stableFingerprints(event);
     if (event.type === '[wire]' && event.event === 'llm.tools_snapshot') {
@@ -322,7 +317,11 @@ function normalizeObjectField(key: string, value: unknown, labels: SnapshotLabel
   ) {
     return '<time>';
   }
-  if ((key === 'finishedAt' || key === 'abortedAt' || key === 'steeredAt' || key === 'createdAt') && typeof value === 'string') return '<time>';
+  if (
+    (key === 'finishedAt' || key === 'abortedAt' || key === 'steeredAt' || key === 'createdAt') &&
+    typeof value === 'string'
+  )
+    return '<time>';
   if (key === 'protocol_version' && value === WIRE_PROTOCOL_VERSION) {
     return '<protocol-version>';
   }
@@ -353,9 +352,10 @@ function isUuid(value: string): boolean {
 }
 
 function interactionIdKind(value: string): string | undefined {
-  const match = /^(approval|question|user_tool)_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.exec(
-    value,
-  );
+  const match =
+    /^(approval|question|user_tool)_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.exec(
+      value,
+    );
   return match?.[1];
 }
 

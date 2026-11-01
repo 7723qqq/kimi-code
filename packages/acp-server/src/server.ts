@@ -745,14 +745,20 @@ function parseSetSessionModelParams(params: unknown): SetSessionModelParams {
 export function createAcpAgentApp(getServer: () => AcpServer | Promise<AcpServer>): AgentApp {
   return agent({ name: 'kimi-code-acp' })
     .onRequest(methods.agent.initialize, async (ctx) => (await getServer()).initialize(ctx.params))
-    .onRequest(methods.agent.authenticate, async (ctx) => (await getServer()).authenticate(ctx.params))
+    .onRequest(methods.agent.authenticate, async (ctx) =>
+      (await getServer()).authenticate(ctx.params),
+    )
     .onRequest(methods.agent.logout, async (ctx) => (await getServer()).logout(ctx.params))
     .onRequest(methods.agent.session.new, async (ctx) => (await getServer()).newSession(ctx.params))
-    .onRequest(methods.agent.session.load, async (ctx) => (await getServer()).loadSession(ctx.params))
+    .onRequest(methods.agent.session.load, async (ctx) =>
+      (await getServer()).loadSession(ctx.params),
+    )
     .onRequest(methods.agent.session.resume, async (ctx) =>
       (await getServer()).resumeSession(ctx.params),
     )
-    .onRequest(methods.agent.session.list, async (ctx) => (await getServer()).listSessions(ctx.params))
+    .onRequest(methods.agent.session.list, async (ctx) =>
+      (await getServer()).listSessions(ctx.params),
+    )
     .onRequest(methods.agent.session.close, async (ctx) =>
       (await getServer()).closeSession(ctx.params),
     )

@@ -1,7 +1,6 @@
+import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-
-import { afterEach, describe, expect, it } from 'bun:test';
 
 import { createKimiHarness, ErrorCodes, type Event, type KimiError } from '#/index';
 

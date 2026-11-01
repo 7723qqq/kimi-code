@@ -1,5 +1,5 @@
-import type { InlineSkillActivation } from '../types';
 import { parseSlashInput } from '../commands/parse';
+import type { InlineSkillActivation } from '../types';
 
 export interface InlineSkillToken {
   readonly commandName: string;
@@ -43,7 +43,11 @@ export function findInlineSkillTokens(
     }
 
     const commandName = text.slice(i + 1, end);
-    if (commandName.includes('/') && (!isLeadingSlash || parseSlashInput(text.slice(i, end)) === null)) continue;
+    if (
+      commandName.includes('/') &&
+      (!isLeadingSlash || parseSlashInput(text.slice(i, end)) === null)
+    )
+      continue;
     if (commandName.length === 0 && options.allowEmpty !== true) continue;
     if (!options.isKnownSkill(commandName)) continue;
 

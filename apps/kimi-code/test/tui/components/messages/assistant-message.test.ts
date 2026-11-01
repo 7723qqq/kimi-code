@@ -1,8 +1,8 @@
+import { describe, expect, it, mock, type Mock } from 'bun:test';
+
 import { visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 import * as cliHighlight from 'cli-highlight';
-import { describe, expect, it, mock, type Mock } from 'bun:test';
-import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { Markdown } from '#/tui/components/markdown/markdown';
 import { AssistantMessageComponent } from '#/tui/components/messages/assistant-message';
@@ -11,6 +11,7 @@ import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { createMarkdownTheme } from '#/tui/theme/pi-tui-theme';
 import { currentTheme } from '#/tui/theme/theme';
 import { setMarkdownAltScreenActive, setMarkdownRenderLatex } from '#/tui/utils/markdown-options';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { captureProcessWrite } from '../../../helpers/process';
 

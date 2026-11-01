@@ -1,5 +1,6 @@
 /* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { describe, expect, it } from 'bun:test';
+
 import { z } from 'zod';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
@@ -8,11 +9,11 @@ import { InstantiationService } from '#/_base/di/instantiationService';
 import { Disposable } from '#/_base/di/lifecycle';
 import { Service } from '#/_base/di/service';
 import { ServiceCollection } from '#/_base/di/serviceCollection';
+import { makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { AgentEvent2, Event2 } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
-import { AgentEventBusView, EventBusService } from '#/app/event/eventBusService';
 import '#/app/event/fiberEventResolver';
-import { makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { AgentEventBusView, EventBusService } from '#/app/event/eventBusService';
 
 import { stubAgentContext } from '../../agent/agentContext/stubs';
 
@@ -439,9 +440,7 @@ describe('per-agent sharded channels', () => {
     view2.subscribe((event) => seen2.push(event.type));
 
     const staleSeen: string[] = [];
-    expect(() => view1.subscribe((event) => staleSeen.push(event.type))).toThrow(
-      'not the active',
-    );
+    expect(() => view1.subscribe((event) => staleSeen.push(event.type))).toThrow('not the active');
 
     bus.publish(new TestA({ x: 1 }), gen2.agentContext);
 
@@ -571,7 +570,9 @@ describe('per-agent sharded channels', () => {
     });
     expect(bus.listenerCounts().perAgent).toEqual({});
     expect(subscription).toBe(Disposable.None);
-    expect(() => bus.publish(new TestAgentEvent({ agentId: 'a', value: 3 }), scopeA.agentContext)).not.toThrow();
+    expect(() =>
+      bus.publish(new TestAgentEvent({ agentId: 'a', value: 3 }), scopeA.agentContext),
+    ).not.toThrow();
     expect(seen).toEqual([]);
   });
 });

@@ -7,10 +7,9 @@
 //   - every recovered key's value is correct.
 // This is the durability contract for sequential 'always' writes.
 
+import { expect, test } from 'bun:test';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
-
-import { expect, test } from 'bun:test';
 
 import { MiniDb } from '../../src/index.js';
 import { tmpDir, rmrf } from './helpers/tmp.js';
@@ -23,11 +22,7 @@ function crashWriter(dir: string, compactEvery: number, runMs: number): Promise<
     const child = spawn(
       process.execPath,
       // Bun executes .ts writers natively; Node needs the tsx loader hook.
-      [
-        WRITER,
-        dir,
-        String(compactEvery),
-      ],
+      [WRITER, dir, String(compactEvery)],
       { stdio: ['ignore', 'pipe', 'ignore'] },
     );
     let killTimer: ReturnType<typeof setTimeout> | null = null;
@@ -73,7 +68,10 @@ test(
         const runMs = Math.floor(Math.random() * 150);
         await crashWriter(dir, 0, runMs);
         const last = await verifyContiguous(dir, `run${r}`);
-        expect(last >= 2, `run${r}: expected several durable keys, got up to k${last}`).toBeTruthy();
+        expect(
+          last >= 2,
+          `run${r}: expected several durable keys, got up to k${last}`,
+        ).toBeTruthy();
       } finally {
         await rmrf(dir);
       }
@@ -89,7 +87,10 @@ test('crash-recovery: kill during compaction, still consistent', { timeout: 60_0
       const runMs = Math.floor(Math.random() * 150);
       await crashWriter(dir, 40, runMs); // compact every 40 writes
       const last = await verifyContiguous(dir, `compact-run${r}`);
-      expect(last >= 2, `compact-run${r}: expected several durable keys, got up to k${last}`).toBeTruthy();
+      expect(
+        last >= 2,
+        `compact-run${r}: expected several durable keys, got up to k${last}`,
+      ).toBeTruthy();
     } finally {
       await rmrf(dir);
     }

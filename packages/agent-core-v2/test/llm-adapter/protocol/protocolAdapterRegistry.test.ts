@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { isUnknownCapability } from '#/llm-adapter/contract/capability';
-import { thinkingMetadataOf } from '#human/llm/thinking';
 import type { Model } from '#/llm-adapter/model/catalog';
 import { ProtocolAdapterRegistry } from '#/llm-adapter/protocol/protocolAdapterRegistry';
 import {
@@ -11,6 +10,7 @@ import {
   registerProviderDefinition,
   resolveProviderEndpoint,
 } from '#/llm-adapter/provider/provider-definition';
+import { thinkingMetadataOf } from '#human/llm/thinking';
 
 const ENV_KEYS = [
   'OPENAI_API_KEY',
@@ -163,9 +163,9 @@ describe('resolveCapability', () => {
   });
 
   it('kimi declares no vendor-level capability — the base catalog answers instead', () => {
-    expect(isUnknownCapability(registry.resolveCapability('openai', 'kimi-for-coding', 'kimi'))).toBe(
-      true,
-    );
+    expect(
+      isUnknownCapability(registry.resolveCapability('openai', 'kimi-for-coding', 'kimi')),
+    ).toBe(true);
     expect(registry.resolveCapability('openai', 'gpt-4o', 'kimi').image_in).toBe(true);
   });
 });

@@ -285,9 +285,7 @@ describe('cronToHuman', () => {
   it('renders day restrictions and pinned month days', () => {
     expect(cronToHuman(parseCronExpression('0 9 * * 1-5'))).toBe('at 09:00 on weekdays');
     expect(cronToHuman(parseCronExpression('0 10 * * 0,6'))).toBe('at 10:00 on weekends');
-    expect(cronToHuman(parseCronExpression('0 12 1 1 *'))).toBe(
-      'at 12:00 on day 1 of January',
-    );
+    expect(cronToHuman(parseCronExpression('0 12 1 1 *'))).toBe('at 12:00 on day 1 of January');
   });
 
   it('falls back to the raw expression for unrecognized shapes', () => {

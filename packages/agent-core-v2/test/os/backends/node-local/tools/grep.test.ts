@@ -1,39 +1,49 @@
-import { Readable, type Writable } from 'node:stream';
-
 import { describe, expect, it, mock, type Mock } from 'bun:test';
-import { SENSITIVE_DOT_VARIANT_SUFFIXES } from '#/tool/path-access';
+import { Readable, type Writable } from 'node:stream';
 
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { Service } from '#/_base/di/service';
 import { createServices } from '#/_base/di/test';
-import { type ExecutableTool, type ExecutableToolContext, type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
+import { Event } from '#/_base/event';
+import { type PathClass } from '#/_base/execEnv/environmentProbe';
+import { IAgentProfileService, type ProfileData } from '#/agent/profile/profile';
+import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import { IAgentToolActivationService } from '#/agent/toolActivation/toolActivation';
 import { AgentToolActivationService } from '#/agent/toolActivation/toolActivationService';
-import { IAgentProfileService, type ProfileData } from '#/agent/profile/profile';
-import { _clearAgentToolContributionsForTests, AgentToolContribution, getAgentToolContributions, overrideAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import {
+  _clearAgentToolContributionsForTests,
+  AgentToolContribution,
+  getAgentToolContributions,
+  overrideAgentToolService,
+} from '#/agent/toolRegistry/toolContribution';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
+import { type GrepInput, GrepInputSchema, IGrepTool } from '#/agent/tools/os/grep/grep';
+import { GrepTool as ProductionGrepTool } from '#/agent/tools/os/grep/grepTool';
+import { IOAuthService } from '#/app/auth/auth';
 import { IEventBus } from '#/app/event/eventBus';
 import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
-import { IOAuthService } from '#/app/auth/auth';
-import { type PathClass } from '#/_base/execEnv/environmentProbe';
-import { PathSecurityError, type WorkspaceConfig } from '#/tool/path-access';
+import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
+import { ensureRgPath } from '#/os/backends/host/tools/rgLocator';
+import type { RgHostProcessService } from '#/os/backends/host/tools/runRg';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem, type HostFileStat } from '#/os/interface/hostFileSystem';
 import { IHostProcessService, type IHostProcess } from '#/os/interface/hostProcess';
 import type { IHostTimerHandle, IHostTimers } from '#/os/interface/hostTimers';
-import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
-import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
-import { Event } from '#/_base/event';
-import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { type GrepInput, GrepInputSchema, IGrepTool } from '#/agent/tools/os/grep/grep';
-import { GrepTool as ProductionGrepTool } from '#/agent/tools/os/grep/grepTool';
-import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
-import { ensureRgPath } from '#/os/backends/host/tools/rgLocator';
-import type { RgHostProcessService } from '#/os/backends/host/tools/runRg';
-import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
+import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
+import { SENSITIVE_DOT_VARIANT_SUFFIXES } from '#/tool/path-access';
+import { PathSecurityError, type WorkspaceConfig } from '#/tool/path-access';
+import {
+  type ExecutableTool,
+  type ExecutableToolContext,
+  type ExecutableToolResult,
+  type ToolExecution,
+} from '#/tool/toolContract';
+
 import { recordingTelemetry, type TelemetryRecord } from '../../../../app/telemetry/stubs';
+import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
 import { registerStateServices } from '../../../../state/stubs';
 
 void mock.module('#/os/backends/host/tools/rgLocator', () => ({
@@ -105,10 +115,7 @@ const SENSITIVE_KEY_RG_ARGS = SENSITIVE_KEY_BASENAMES.flatMap((basename) => [
   `!**/${basename}`,
   '--glob',
   `!**/${basename}[-_]*`,
-  ...SENSITIVE_DOT_VARIANT_SUFFIXES.flatMap((suffix) => [
-    '--glob',
-    `!**/${basename}${suffix}`,
-  ]),
+  ...SENSITIVE_DOT_VARIANT_SUFFIXES.flatMap((suffix) => ['--glob', `!**/${basename}${suffix}`]),
 ]);
 const SENSITIVE_RG_ARGS = [
   '--glob',
@@ -463,7 +470,10 @@ describe('GrepTool', () => {
       disposables.add(ix.createInstance(TestContributionAssembly));
       await ix.get(IAgentToolActivationService).activate();
       const tool = ix.get(IAgentToolRegistryService).resolve('Grep');
-      const info = ix.get(IAgentToolRegistryService).list().find((entry) => entry.name === 'Grep');
+      const info = ix
+        .get(IAgentToolRegistryService)
+        .list()
+        .find((entry) => entry.name === 'Grep');
 
       expect(tool).toBeInstanceOf(ProductionGrepTool);
       expect(tool?.name).toBe('Grep');
@@ -504,9 +514,9 @@ describe('GrepTool', () => {
     });
 
     it('rejects the legacy count value', () => {
-      expect(
-        GrepInputSchema.safeParse({ pattern: 'needle', output_mode: 'count' }).success,
-      ).toBe(false);
+      expect(GrepInputSchema.safeParse({ pattern: 'needle', output_mode: 'count' }).success).toBe(
+        false,
+      );
     });
 
     it('exposes count_matches and not count in the JSON Schema enum', () => {
@@ -590,10 +600,12 @@ describe('GrepTool', () => {
       .mockResolvedValueOnce(processWithOutput('/extra/pkg/b.ts:2\n'));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
-    const contentResult = await executeTool(tool,
+    const contentResult = await executeTool(
+      tool,
       context({ pattern: 'hit', path: '/extra', output_mode: 'content' }),
     );
-    const countResult = await executeTool(tool,
+    const countResult = await executeTool(
+      tool,
       context({ pattern: 'hit', path: '/extra', output_mode: 'count_matches' }),
     );
 
@@ -721,7 +733,8 @@ describe('GrepTool', () => {
       { workspaceDir: '/workspace', additionalDirs: [] },
     );
 
-    const result = await executeTool(tool,
+    const result = await executeTool(
+      tool,
       context({ pattern: 'hit', head_limit: 0 }, abortController.signal),
     );
 
@@ -757,7 +770,8 @@ describe('GrepTool', () => {
     const exec = mock().mockResolvedValue(processWithOutput('/workspace/src/a.ts:2\n'));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
-    await executeTool(tool,
+    await executeTool(
+      tool,
       context({ pattern: 'hit', output_mode: 'count_matches', '-A': 2, '-B': 3, '-C': 4 }),
     );
 
@@ -803,7 +817,8 @@ describe('GrepTool', () => {
     const exec = mock().mockResolvedValue(processWithOutput('/workspace/src/a.ts\n'));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
-    await executeTool(tool,
+    await executeTool(
+      tool,
       context({
         pattern: 'hit',
         '-i': true,
@@ -856,7 +871,8 @@ describe('GrepTool', () => {
     const exec = mock().mockResolvedValue(processWithOutput('/workspace/src/a.ts:2:hit\n'));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
-    await executeTool(tool,
+    await executeTool(
+      tool,
       context({ pattern: 'hit', output_mode: 'content', '-A': 2, '-B': 3, '-C': 4 }),
     );
 
@@ -1018,7 +1034,10 @@ describe('GrepTool', () => {
     const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
-    const result = await executeTool(tool, context({ pattern: 'hit', output_mode: 'content', '-C': 1 }));
+    const result = await executeTool(
+      tool,
+      context({ pattern: 'hit', output_mode: 'content', '-C': 1 }),
+    );
 
     expect(toolContentString(result)).toBe(
       ['src/main.ts-1-before', 'src/main.ts:2:hit', 'src/main.ts-3-after'].join('\n'),
@@ -1030,7 +1049,8 @@ describe('GrepTool', () => {
     const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
-    const result = await executeTool(tool,
+    const result = await executeTool(
+      tool,
       context({ pattern: '123', output_mode: 'content', '-n': false }),
     );
 
@@ -1046,7 +1066,10 @@ describe('GrepTool', () => {
     const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
-    const result = await executeTool(tool, context({ pattern: 'hit', output_mode: 'content', '-C': 1 }));
+    const result = await executeTool(
+      tool,
+      context({ pattern: 'hit', output_mode: 'content', '-C': 1 }),
+    );
 
     expect(exec).toHaveBeenCalledWith(
       '/mock/rg',
@@ -1061,10 +1084,9 @@ describe('GrepTool', () => {
       '/workspace',
     );
     expect(toolContentString(result)).toBe(
-      [
-        'src/main.ts:1:[a bracketed payload]',
-        'src/main.ts-2-[a bracketed context payload]',
-      ].join('\n'),
+      ['src/main.ts:1:[a bracketed payload]', 'src/main.ts-2-[a bracketed context payload]'].join(
+        '\n',
+      ),
     );
   });
 
@@ -1079,7 +1101,10 @@ describe('GrepTool', () => {
     const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
-    const result = await executeTool(tool, context({ pattern: 'hit', output_mode: 'content', '-C': 1 }));
+    const result = await executeTool(
+      tool,
+      context({ pattern: 'hit', output_mode: 'content', '-C': 1 }),
+    );
 
     expect(toolContentString(result)).toBe(
       ['src/main.ts:1:hit', 'Filtered 1 sensitive file(s): .env'].join('\n'),
@@ -1090,7 +1115,10 @@ describe('GrepTool', () => {
     const exec = mock().mockResolvedValue(processWithOutput('/workspace/not-a-path\n'));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
-    const result = await executeTool(tool, context({ pattern: 'workspace', output_mode: 'content' }));
+    const result = await executeTool(
+      tool,
+      context({ pattern: 'workspace', output_mode: 'content' }),
+    );
 
     expect(exec).toHaveBeenCalledWith(
       '/mock/rg',
@@ -1136,7 +1164,8 @@ describe('GrepTool', () => {
       additionalDirs: [],
     });
 
-    const result = await executeTool(tool,
+    const result = await executeTool(
+      tool,
       context({ pattern: 'hit', output_mode: 'content', '-n': false }),
     );
 
@@ -1189,7 +1218,8 @@ describe('GrepTool', () => {
     const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
-    const result = await executeTool(tool,
+    const result = await executeTool(
+      tool,
       context({ pattern: 'hit', output_mode: 'content', '-n': false, '-C': 1 }),
     );
 
@@ -1233,7 +1263,8 @@ describe('GrepTool', () => {
       additionalDirs: [],
     });
 
-    const result = await executeTool(tool,
+    const result = await executeTool(
+      tool,
       context({ pattern: 'hit', output_mode: 'content', '-n': false, '-C': 1 }),
     );
 
@@ -1315,7 +1346,8 @@ describe('GrepTool', () => {
       { workspaceDir: '/workspace', additionalDirs: [] },
     );
 
-    const result = await executeTool(tool,
+    const result = await executeTool(
+      tool,
       context({ pattern: 'hit', output_mode: 'content', offset: 1, head_limit: 2 }),
     );
 
@@ -1403,7 +1435,10 @@ describe('GrepTool', () => {
     const result = await resultPromise;
 
     expect(toolContentString(result)).toBe(
-      ['src/a.ts', 'Grep timed out after 20s; partial results returned. Narrow the path, glob, or pattern and retry for complete results.'].join('\n'),
+      [
+        'src/a.ts',
+        'Grep timed out after 20s; partial results returned. Narrow the path, glob, or pattern and retry for complete results.',
+      ].join('\n'),
     );
     expect(proc.kill).toHaveBeenCalledWith('SIGTERM');
   });
@@ -1419,7 +1454,10 @@ describe('GrepTool', () => {
     const result = await resultPromise;
 
     expect(toolContentString(result)).toBe(
-      ['src/a.ts', 'Grep timed out after 20s; partial results returned. Narrow the path, glob, or pattern and retry for complete results.'].join('\n'),
+      [
+        'src/a.ts',
+        'Grep timed out after 20s; partial results returned. Narrow the path, glob, or pattern and retry for complete results.',
+      ].join('\n'),
     );
   });
 
@@ -1435,7 +1473,10 @@ describe('GrepTool', () => {
     const result = await resultPromise;
 
     expect(toolContentString(result)).toBe(
-      ['src/a.ts', 'Grep timed out after 20s; partial results returned. Narrow the path, glob, or pattern and retry for complete results.'].join('\n'),
+      [
+        'src/a.ts',
+        'Grep timed out after 20s; partial results returned. Narrow the path, glob, or pattern and retry for complete results.',
+      ].join('\n'),
     );
   });
 
@@ -1454,7 +1495,10 @@ describe('GrepTool', () => {
     const result = await resultPromise;
 
     expect(toolContentString(result)).toBe(
-      ['src/a.ts:1:hit', 'Grep timed out after 20s; partial results returned. Narrow the path, glob, or pattern and retry for complete results.'].join('\n'),
+      [
+        'src/a.ts:1:hit',
+        'Grep timed out after 20s; partial results returned. Narrow the path, glob, or pattern and retry for complete results.',
+      ].join('\n'),
     );
   });
 
@@ -1518,7 +1562,8 @@ describe('GrepTool', () => {
       { workspaceDir: '/workspace', additionalDirs: [] },
     );
 
-    const result = await executeTool(tool,
+    const result = await executeTool(
+      tool,
       context({ pattern: 'hit', output_mode: 'content', head_limit: 2 }),
     );
 
@@ -1536,7 +1581,10 @@ describe('GrepTool', () => {
       { workspaceDir: '/workspace', additionalDirs: [] },
     );
 
-    const result = await executeTool(tool, context({ pattern: 'hit', output_mode: 'count_matches' }));
+    const result = await executeTool(
+      tool,
+      context({ pattern: 'hit', output_mode: 'count_matches' }),
+    );
 
     expect(toolContentString(result)).toBe(
       ['Found 10 total occurrences across 2 files.', 'src/a.ts:3', 'src/b.ts:7'].join('\n'),
@@ -1552,7 +1600,10 @@ describe('GrepTool', () => {
       { workspaceDir: '/workspace', additionalDirs: [] },
     );
 
-    const result = await executeTool(tool, context({ pattern: 'hit', output_mode: 'count_matches' }));
+    const result = await executeTool(
+      tool,
+      context({ pattern: 'hit', output_mode: 'count_matches' }),
+    );
 
     expect(toolContentString(result)).toBe(
       [
@@ -1576,7 +1627,8 @@ describe('GrepTool', () => {
       { workspaceDir: '/workspace', additionalDirs: [] },
     );
 
-    const result = await executeTool(tool,
+    const result = await executeTool(
+      tool,
       context({ pattern: 'hit', output_mode: 'count_matches', head_limit: 2 }),
     );
 
@@ -1594,13 +1646,15 @@ describe('GrepTool', () => {
   it('keeps the count summary as the first line so a later char cap cannot drop it', async () => {
     const fileCount = 5000;
     const stdout =
-      Array.from({ length: fileCount }, (_, i) => `/workspace/f${String(i)}.txt:3`).join('\n') + '\n';
+      Array.from({ length: fileCount }, (_, i) => `/workspace/f${String(i)}.txt:3`).join('\n') +
+      '\n';
     const tool = new GrepTool(
       createFakeKaos({ exec: mock().mockResolvedValue(processWithOutput(stdout)) }),
       { workspaceDir: '/workspace', additionalDirs: [] },
     );
 
-    const result = await executeTool(tool,
+    const result = await executeTool(
+      tool,
       context({ pattern: 'hit', output_mode: 'count_matches', head_limit: 0 }),
     );
 
@@ -1617,7 +1671,10 @@ describe('GrepTool', () => {
       { workspaceDir: '/workspace', additionalDirs: [] },
     );
 
-    const result = await executeTool(tool, context({ pattern: 'hit', output_mode: 'count_matches' }));
+    const result = await executeTool(
+      tool,
+      context({ pattern: 'hit', output_mode: 'count_matches' }),
+    );
 
     expect(toolContentString(result)).toBe(
       [
@@ -1632,7 +1689,8 @@ describe('GrepTool', () => {
     const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
-    const result = await executeTool(tool,
+    const result = await executeTool(
+      tool,
       context({
         pattern: 'yyyy',
         path: '/workspace/src/only.ts',
@@ -1788,7 +1846,8 @@ describe('GrepTool', () => {
     const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
-    const result = await executeTool(tool,
+    const result = await executeTool(
+      tool,
       context({ pattern: 'TestClass', output_mode: 'content', '-B': 2 }),
     );
 
@@ -1819,7 +1878,8 @@ describe('GrepTool', () => {
     const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
-    const result = await executeTool(tool,
+    const result = await executeTool(
+      tool,
       context({ pattern: 'TestClass', output_mode: 'content', '-A': 2 }),
     );
 
@@ -1840,10 +1900,7 @@ describe('GrepTool', () => {
   });
 
   it('appends the count-mode summary and pagination to the model-visible output', async () => {
-    const counts = Array.from(
-      { length: 10 },
-      (_, i) => `/workspace/f${String(i)}.txt:3`,
-    );
+    const counts = Array.from({ length: 10 }, (_, i) => `/workspace/f${String(i)}.txt:3`);
     const stdout = `${counts.join('\n')}\n`;
     const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), {
@@ -1851,7 +1908,8 @@ describe('GrepTool', () => {
       additionalDirs: [],
     });
 
-    const result = await executeTool(tool,
+    const result = await executeTool(
+      tool,
       context({ pattern: 'word', output_mode: 'count_matches', head_limit: 3 }),
     );
 
@@ -1868,7 +1926,8 @@ describe('GrepTool', () => {
     const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
-    const result = await executeTool(tool,
+    const result = await executeTool(
+      tool,
       context({ pattern: 'match', output_mode: 'content', head_limit: 0 }),
     );
 
@@ -1885,7 +1944,8 @@ describe('GrepTool', () => {
     const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
-    const result = await executeTool(tool,
+    const result = await executeTool(
+      tool,
       context({
         pattern: String.raw`This is a\n    multiline`,
         output_mode: 'content',
@@ -1915,7 +1975,8 @@ describe('GrepTool', () => {
     const exec = mock().mockResolvedValue(processWithOutput('', stderr, 2));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
-    const result = await executeTool(tool,
+    const result = await executeTool(
+      tool,
       context({ pattern: '[invalid', output_mode: 'files_with_matches' }),
     );
 
@@ -1924,11 +1985,13 @@ describe('GrepTool', () => {
   });
 
   it('returns content when searching a single file path', async () => {
-    const exec = mock()
-      .mockResolvedValue(processWithOutput('/workspace/target.py:1:hello world\n'));
+    const exec = mock().mockResolvedValue(
+      processWithOutput('/workspace/target.py:1:hello world\n'),
+    );
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
-    const result = await executeTool(tool,
+    const result = await executeTool(
+      tool,
       context({ pattern: 'hello', path: '/workspace/target.py', output_mode: 'content' }),
     );
 
@@ -1950,7 +2013,8 @@ describe('GrepTool', () => {
     const exec = mock().mockResolvedValue(processWithOutput('/workspace/only.txt\n'));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
-    const result = await executeTool(tool,
+    const result = await executeTool(
+      tool,
       context({ pattern: 'data', output_mode: 'files_with_matches', offset: 100 }),
     );
 
@@ -1973,7 +2037,8 @@ describe('GrepTool', () => {
     const exec = mock().mockResolvedValue(processWithOutput('/workspace/a.txt:hello\n'));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
-    const result = await executeTool(tool,
+    const result = await executeTool(
+      tool,
       context({ pattern: 'hello', output_mode: 'content', '-n': false }),
     );
 
@@ -1990,7 +2055,8 @@ describe('GrepTool', () => {
     const exec = mock().mockResolvedValue(processWithOutput('/workspace/a.ts:1:hello\n'));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
-    await executeTool(tool,
+    await executeTool(
+      tool,
       context({
         pattern: 'test',
         path: '/workspace',
@@ -2020,10 +2086,10 @@ describe('GrepTool', () => {
     expect(flags[ddIdx + 1]).toBe('test');
     expect(flags[ddIdx + 2]).toBe('/workspace');
 
-    const homeTool = new GrepTool(
-      createFakeKaos({ exec, gethome: () => '/home/test' }),
-      { workspaceDir: '/home/test', additionalDirs: [] },
-    );
+    const homeTool = new GrepTool(createFakeKaos({ exec, gethome: () => '/home/test' }), {
+      workspaceDir: '/home/test',
+      additionalDirs: [],
+    });
     exec.mockClear();
     await executeTool(homeTool, context({ pattern: 'x', path: '~/foo' }));
     const expanded = exec.mock.calls[0] as string[];
@@ -2031,14 +2097,14 @@ describe('GrepTool', () => {
   });
 
   it('preserves the sensitive-filter warning when every match is sensitive', async () => {
-    const exec = mock()
-      .mockResolvedValue(processWithOutput('/workspace/.env\n'));
+    const exec = mock().mockResolvedValue(processWithOutput('/workspace/.env\n'));
     const tool = new GrepTool(createFakeKaos({ exec }), {
       workspaceDir: '/workspace',
       additionalDirs: [],
     });
 
-    const result = await executeTool(tool,
+    const result = await executeTool(
+      tool,
       context({ pattern: 'ONLY_IN_ENV', output_mode: 'files_with_matches' }),
     );
 
@@ -2048,14 +2114,14 @@ describe('GrepTool', () => {
   });
 
   it('does not flag .env.example as sensitive', async () => {
-    const exec = mock()
-      .mockResolvedValue(processWithOutput('/workspace/.env.example\n'));
+    const exec = mock().mockResolvedValue(processWithOutput('/workspace/.env.example\n'));
     const tool = new GrepTool(createFakeKaos({ exec }), {
       workspaceDir: '/workspace',
       additionalDirs: [],
     });
 
-    const result = await executeTool(tool,
+    const result = await executeTool(
+      tool,
       context({ pattern: 'API_KEY', output_mode: 'files_with_matches' }),
     );
 
@@ -2065,12 +2131,9 @@ describe('GrepTool', () => {
   });
 
   it('strips workspace prefix from rg output across record kinds (posix)', async () => {
-    const stdout = [
-      '/workspace/src/a.py:42:code',
-      '/workspace/src/b.py-41-context',
-      '--',
-      '',
-    ].join('\n');
+    const stdout = ['/workspace/src/a.py:42:code', '/workspace/src/b.py-41-context', '--', ''].join(
+      '\n',
+    );
     const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), {
       workspaceDir: '/workspace',
@@ -2085,17 +2148,14 @@ describe('GrepTool', () => {
   });
 
   it('strips workspace prefix from rg output across record kinds (win32)', async () => {
-    const stdout = [
-      'C:\\repo\\src\\a.py:42:code',
-      'C:\\repo\\src\\b.py-41-context',
-      '--',
-      '',
-    ].join('\n');
-    const exec = mock().mockResolvedValue(processWithOutput(stdout));
-    const tool = new GrepTool(
-      createFakeKaos({ exec, pathClass: () => 'win32' }),
-      { workspaceDir: 'C:\\repo', additionalDirs: [] },
+    const stdout = ['C:\\repo\\src\\a.py:42:code', 'C:\\repo\\src\\b.py-41-context', '--', ''].join(
+      '\n',
     );
+    const exec = mock().mockResolvedValue(processWithOutput(stdout));
+    const tool = new GrepTool(createFakeKaos({ exec, pathClass: () => 'win32' }), {
+      workspaceDir: 'C:\\repo',
+      additionalDirs: [],
+    });
 
     const result = await executeTool(tool, context({ pattern: 'code', output_mode: 'content' }));
 
@@ -2128,10 +2188,12 @@ describe('GrepTool', () => {
       { workspaceDir: '/tmp/dir', additionalDirs: [] },
     );
 
-    const withSepResult = await executeTool(withSep,
+    const withSepResult = await executeTool(
+      withSep,
       context({ pattern: 'x', output_mode: 'files_with_matches' }),
     );
-    const noSepResult = await executeTool(noSep,
+    const noSepResult = await executeTool(
+      noSep,
       context({ pattern: 'x', output_mode: 'files_with_matches' }),
     );
 
@@ -2149,7 +2211,8 @@ describe('GrepTool', () => {
       additionalDirs: [],
     });
 
-    const result = await executeTool(tool,
+    const result = await executeTool(
+      tool,
       context({ pattern: 'x', output_mode: 'files_with_matches' }),
     );
     const output = toolContentString(result);
@@ -2159,14 +2222,14 @@ describe('GrepTool', () => {
   });
 
   it('relativizes a single-file absolute path against the workspace dir', async () => {
-    const exec = mock()
-      .mockResolvedValue(processWithOutput('/workspace/target.py:1:foo\n'));
+    const exec = mock().mockResolvedValue(processWithOutput('/workspace/target.py:1:foo\n'));
     const tool = new GrepTool(createFakeKaos({ exec }), {
       workspaceDir: '/workspace',
       additionalDirs: [],
     });
 
-    const result = await executeTool(tool,
+    const result = await executeTool(
+      tool,
       context({ pattern: 'foo', path: '/workspace/target.py', output_mode: 'content' }),
     );
 
@@ -2192,7 +2255,8 @@ describe('GrepTool', () => {
       additionalDirs: [],
     });
 
-    const result = await executeTool(tool,
+    const result = await executeTool(
+      tool,
       context({ pattern: 'SECRET', output_mode: 'content', '-C': 1 }),
     );
 

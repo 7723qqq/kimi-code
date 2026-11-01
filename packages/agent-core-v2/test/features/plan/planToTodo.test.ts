@@ -1,12 +1,11 @@
 import { describe, expect, it, mock } from 'bun:test';
 
-import type { IAgentTodoService } from '#/features/todo/todoService';
-import type { TodoItem } from '#/features/todo/todoItem';
+import type { AgentContext } from '#/agent/agentContext/agentContext';
+import { parsePlanToTodos } from '#/features/plan/parsePlanToTodos';
 import type { PlanData } from '#/features/plan/plan';
 import { tryConvertPlanToTodos } from '#/features/plan/planToTodoConverter';
-import type { AgentContext } from '#/agent/agentContext/agentContext';
-
-import { parsePlanToTodos } from '#/features/plan/parsePlanToTodos';
+import type { TodoItem } from '#/features/todo/todoItem';
+import type { IAgentTodoService } from '#/features/todo/todoService';
 
 describe('parsePlanToTodos', () => {
   it('returns null for an empty plan', () => {
@@ -24,10 +23,7 @@ describe('parsePlanToTodos', () => {
 
   it('parses a single phase with list items', () => {
     const todos = parsePlanToTodos(
-      '## Implement feature\n' +
-        '- Read current module\n' +
-        '- Write the patch\n' +
-        '- Run tests',
+      '## Implement feature\n' + '- Read current module\n' + '- Write the patch\n' + '- Run tests',
     );
     expect(todos).toEqual<TodoItem[]>([
       {
@@ -80,7 +76,9 @@ describe('parsePlanToTodos', () => {
     const todos = parsePlanToTodos(
       '## Do it\n- [x] First step\n- [ ] Second step\n- Third step (bare)',
     );
-    expect(todos?.filter((i) => i.kind === 'task').map((i) => ({ id: i.id, status: i.status }))).toEqual([
+    expect(
+      todos?.filter((i) => i.kind === 'task').map((i) => ({ id: i.id, status: i.status })),
+    ).toEqual([
       { id: 'M1.1', status: 'done' },
       { id: 'M1.2', status: 'pending' },
       { id: 'M1.3', status: 'pending' },
@@ -93,7 +91,9 @@ describe('parsePlanToTodos', () => {
   });
 
   it('supports indented list items and numbered lists', () => {
-    const todos = parsePlanToTodos('## Phase\n  - nested bullet\n  1. numbered one\n  2. numbered two');
+    const todos = parsePlanToTodos(
+      '## Phase\n  - nested bullet\n  1. numbered one\n  2. numbered two',
+    );
     expect(todos?.filter((i) => i.kind === 'task').map((i) => i.title)).toEqual([
       'nested bullet',
       'numbered one',
@@ -128,10 +128,7 @@ const PLAN: PlanData = {
   id: 'p1',
   path: '/session/agents/main/plans/p1.md',
   content:
-    '## Implement feature\n' +
-    '- Read current module\n' +
-    '- Write the patch\n' +
-    '- Run tests',
+    '## Implement feature\n' + '- Read current module\n' + '- Write the patch\n' + '- Run tests',
 };
 
 describe('tryConvertPlanToTodos', () => {

@@ -16,7 +16,11 @@ function runtime(generation: string, status: RuntimeStatus = 'ready'): FakeRunti
   ) as FakeRuntime;
 }
 
-function deferred(): { readonly promise: Promise<void>; resolve(): void; reject(error: Error): void } {
+function deferred(): {
+  readonly promise: Promise<void>;
+  resolve(): void;
+  reject(error: Error): void;
+} {
   let resolve!: () => void;
   let reject!: (error: Error) => void;
   const promise = new Promise<void>((onResolve, onReject) => {
@@ -47,7 +51,8 @@ function setup(readiness = new Map<string, Promise<void>>(), order: string[] = [
     },
     {
       agentProfiles: { entries: () => [] },
-      createSessionController: (input: ProgramSessionControllerInput) => ({ dispose: input.onDispose }) as never,
+      createSessionController: (input: ProgramSessionControllerInput) =>
+        ({ dispose: input.onDispose }) as never,
     } as never,
   );
   const create = mock(() => {
@@ -55,7 +60,9 @@ function setup(readiness = new Map<string, Promise<void>>(), order: string[] = [
     const id = lease.runtime.identity.generation;
     const behavior = {
       ready: readiness.get(id) ?? Promise.resolve(),
-      dispose: () => { order.push(`behavior:${id}`); },
+      dispose: () => {
+        order.push(`behavior:${id}`);
+      },
     };
     const catalog = {
       listSkills: () => [],
@@ -160,12 +167,14 @@ describe('Program', () => {
     const { registry, program, create } = setup();
     registry.register(runtime('one'));
     const generation = create.mock.results[0]?.value as {
-      skills: { catalog: {
-        listSkills(): unknown[];
-        listInvocableSkills(): unknown[];
-        getSkippedByPolicy(): unknown[];
-        getSkillRoots(): string[];
-      } };
+      skills: {
+        catalog: {
+          listSkills(): unknown[];
+          listInvocableSkills(): unknown[];
+          getSkippedByPolicy(): unknown[];
+          getSkillRoots(): string[];
+        };
+      };
       instructions: { snapshot: { agentsMdPaths?: readonly string[] } };
       mcpConfig: { servers(): Record<string, unknown> };
       mcp: unknown;

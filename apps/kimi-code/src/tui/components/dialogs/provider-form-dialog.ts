@@ -739,7 +739,10 @@ export class ProviderFormDialogComponent extends Container implements Focusable 
     );
     // The rule the field implements binds both credential sources, so the
     // hint is shown from whichever of the two has focus.
-    for (const line of hintFor(['apiKey', 'apiKeyEnv'], t('tui.dialogs.providerForm.apiKeyEnvHint')))
+    for (const line of hintFor(
+      ['apiKey', 'apiKeyEnv'],
+      t('tui.dialogs.providerForm.apiKeyEnvHint'),
+    ))
       add(line);
     add('');
     addField(

@@ -1,5 +1,6 @@
-import type { Event } from '@moonshot-ai/kimi-code-sdk';
 import { describe, expect, it, mock, type Mock } from 'bun:test';
+
+import type { Event } from '@moonshot-ai/kimi-code-sdk';
 
 import {
   StagingLeaseTracker,
@@ -369,7 +370,11 @@ describe('StagingLeaseTracker', () => {
   describe('trackDispatch across turn end', () => {
     const origin: StagingLeaseOrigin = 'user';
 
-    function pending(): { promise: Promise<void>; resolve: () => void; reject: (error: Error) => void } {
+    function pending(): {
+      promise: Promise<void>;
+      resolve: () => void;
+      reject: (error: Error) => void;
+    } {
       let resolve!: () => void;
       let reject!: (error: Error) => void;
       const promise = new Promise<void>((res, rej) => {

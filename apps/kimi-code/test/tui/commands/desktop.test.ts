@@ -20,7 +20,9 @@ describe('handleDesktopCommand', () => {
 
     await handleDesktopCommand(host);
 
-    expect(host.showStatus).toHaveBeenCalledWith(expect.stringContaining('https://example.com/code'));
+    expect(host.showStatus).toHaveBeenCalledWith(
+      expect.stringContaining('https://example.com/code'),
+    );
     expect(mocks.openUrl).toHaveBeenCalledWith('https://example.com/code');
   });
 });

@@ -4,28 +4,28 @@ import type { ServiceRegistration, TestInstantiationService } from '#/_base/di/t
 import { Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
 import { IAgentBlobService } from '#/agent/blob/agentBlobService';
+import {
+  IAgentScopeContext,
+  makeAgentScopeContext,
+  type IAgentScopeContext as AgentScopeContext,
+} from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
-import { IAgentScopeContext, makeAgentScopeContext, type IAgentScopeContext as AgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IEventBus, ISessionEventBus } from '#/app/event/eventBus';
 import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
+import { AgentGoalService, IAgentGoalService } from '#/features/goal/goalService';
+import { AgentTodoService, IAgentTodoService } from '#/features/todo/todoService';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { InMemorySessionLockService } from '#/persistence/backends/memory/sessionLockService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { ISessionLockService } from '#/persistence/interface/sessionLock';
-
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { EventDispatcherService } from '#/state/eventDispatcherService';
-import { AgentTodoService, IAgentTodoService } from '#/features/todo/todoService';
-import { AgentGoalService, IAgentGoalService } from '#/features/goal/goalService';
-import {
-  IWireService,
-  type IWireService as AgentWire,
-} from '#/wire/wire';
-import { WireService } from '#/wire/wireService';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
+import { IWireService, type IWireService as AgentWire } from '#/wire/wire';
+import { WireService } from '#/wire/wireService';
 
 interface TestAgentWireDependencies {
   readonly log?: IAppendLogStore;
@@ -178,9 +178,7 @@ export async function restoreTestEventDispatcher(
   await dispatcher.restore();
 }
 
-export function stubAgentWire(
-  flush: () => Promise<void> = async () => {},
-): AgentWire {
+export function stubAgentWire(flush: () => Promise<void> = async () => {}): AgentWire {
   return {
     _serviceBrand: undefined,
     seal: async () => {},

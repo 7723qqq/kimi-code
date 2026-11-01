@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
-import { createFailoverWebSearchProvider } from '#/app/auth/webSearch/webSearchService';
 import type { WebSearchProvider } from '#/agent/tools/web-search/web-search';
+import { createFailoverWebSearchProvider } from '#/app/auth/webSearch/webSearchService';
 
 function provider(
   results: string[],

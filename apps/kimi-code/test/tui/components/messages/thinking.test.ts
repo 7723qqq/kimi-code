@@ -1,8 +1,10 @@
-import { visibleWidth, type TUI } from '@moonshot-ai/pi-tui';
 import { describe, expect, it, mock } from 'bun:test';
+
+import { visibleWidth, type TUI } from '@moonshot-ai/pi-tui';
 
 import { ThinkingComponent } from '#/tui/components/messages/thinking';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
+
 import { createFakeClock } from '../../../helpers/fake-clock';
 
 function strip(text: string): string {

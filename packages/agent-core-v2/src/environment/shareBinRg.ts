@@ -3,7 +3,9 @@ import { join } from 'node:path';
 
 import { LOCAL_ENVIRONMENT_ID, type Environment } from './environment';
 
-export function isRemoteEnvironment(environment: Environment | undefined): environment is Environment {
+export function isRemoteEnvironment(
+  environment: Environment | undefined,
+): environment is Environment {
   return environment !== undefined && environment.identity.environmentId !== LOCAL_ENVIRONMENT_ID;
 }
 

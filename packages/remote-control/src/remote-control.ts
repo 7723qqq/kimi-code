@@ -1,8 +1,7 @@
-
+import { validateHeaderName, validateHeaderValue } from 'node:http';
 import { hostname, platform } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { validateHeaderName, validateHeaderValue } from 'node:http';
 
 import {
   createKimiDeviceId,
@@ -336,10 +335,7 @@ export function rewrittenResponseETag(body: Buffer): string {
   return `W/"${new Bun.CryptoHasher('sha256').update(body).digest('hex')}"`;
 }
 
-export function requestMatchesETag(
-  headers: readonly [string, string][],
-  etag: string,
-): boolean {
+export function requestMatchesETag(headers: readonly [string, string][], etag: string): boolean {
   const candidates = new Set([etag, etag.replace(/^W\//, '')]);
   for (const [name, value] of headers) {
     if (name.toLowerCase() !== 'if-none-match') continue;
@@ -385,7 +381,9 @@ export async function startRemoteControl(
     deviceId,
     url,
   });
-  const tokenAfterLock = await storage.load(resolveKimiTokenStorageName({ oauthKey: auth.oauthKey }));
+  const tokenAfterLock = await storage.load(
+    resolveKimiTokenStorageName({ oauthKey: auth.oauthKey }),
+  );
   if (tokenAfterLock?.refreshToken !== token.refreshToken) {
     await lock.release();
     throw new Error('Remote Control requires a Kimi login. Run `kimi login` first.');
@@ -531,9 +529,7 @@ class RemoteControlClient {
           }
           this.stderr.write(`${error.message}\n`);
         } else if (!this.stopped && !this.reconnectImmediately) {
-          this.stderr.write(
-            `${t('remoteControl.disconnected', { error: errorMessage(error) })}\n`,
-          );
+          this.stderr.write(`${t('remoteControl.disconnected', { error: errorMessage(error) })}\n`);
         }
       } finally {
         this.closeCycle();
@@ -708,9 +704,19 @@ class RemoteControlClient {
   private async openStream(payload: Record<string, unknown>): Promise<void> {
     const streamId = stringField(payload, 'stream_id');
     const path = stringField(payload, 'path');
-    if (streamId === undefined || path === undefined || !path.startsWith('/') || path.startsWith('//')) {
+    if (
+      streamId === undefined ||
+      path === undefined ||
+      !path.startsWith('/') ||
+      path.startsWith('//')
+    ) {
       if (streamId !== undefined) {
-        this.sendOpenStreamResult(streamId, false, 'LOCAL_WS_FAILED', 'invalid local WebSocket path');
+        this.sendOpenStreamResult(
+          streamId,
+          false,
+          'LOCAL_WS_FAILED',
+          'invalid local WebSocket path',
+        );
       }
       return;
     }
@@ -889,7 +895,9 @@ export class HttpTunnel {
           `HTTP tunnel request exceeds ${this.limits.maxRequestBytes / 1024 / 1024} MiB`,
         );
       }
-      if (!this.tryRetain(transfer, transfer.retained + chunk.length + HTTP_FRAGMENT_OVERHEAD_BYTES)) {
+      if (
+        !this.tryRetain(transfer, transfer.retained + chunk.length + HTTP_FRAGMENT_OVERHEAD_BYTES)
+      ) {
         throw new SyntaxError(
           `HTTP tunnel retained bytes exceed ${this.limits.maxRetainedBytes / 1024 / 1024} MiB`,
         );
@@ -910,9 +918,7 @@ export class HttpTunnel {
               : 502;
         this.respond(receiving, [buildErrorResponse(status)]);
       }
-      this.stderr.write(
-        `${t('remoteControl.httpMessageError', { error: errorMessage(error) })}\n`,
-      );
+      this.stderr.write(`${t('remoteControl.httpMessageError', { error: errorMessage(error) })}\n`);
     }
   }
 
@@ -1024,15 +1030,13 @@ function responseFrames(
   limits: HttpTunnelLimits,
 ): (() => string)[] {
   const length = byteLength(response);
-  const frame =
-    (type: string, isLast: boolean, start: number, end: number) =>
-    (): string =>
-      JSON.stringify({
-        request_id: requestId,
-        type,
-        is_last: isLast,
-        body_base64: Buffer.concat(sliceChunks(response, start, end)).toString('base64'),
-      });
+  const frame = (type: string, isLast: boolean, start: number, end: number) => (): string =>
+    JSON.stringify({
+      request_id: requestId,
+      type,
+      is_last: isLast,
+      body_base64: Buffer.concat(sliceChunks(response, start, end)).toString('base64'),
+    });
   if (length <= limits.maxSingleFrameResponseBytes) return [frame('response', true, 0, length)];
   const frames: (() => string)[] = [];
   for (let offset = 0; offset <= length; offset += limits.responseChunkBytes) {
@@ -1130,7 +1134,10 @@ function isWebSocketProtocolToken(value: string): boolean {
 
 function waitForRelayMessage(socket: WebSocket, timeoutMs: number): Promise<RelayMessage> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => finish(new Error('Remote Control registration timed out')), timeoutMs);
+    const timer = setTimeout(
+      () => finish(new Error('Remote Control registration timed out')),
+      timeoutMs,
+    );
     const onMessage = (data: RawData): void => {
       try {
         finish(undefined, parseRelayMessage(data));
@@ -1178,7 +1185,10 @@ class ResponseBudgetExceededError extends Error {}
 
 class ResponseTooLargeError extends Error {}
 
-export function filterResponseHeaders(rawHeaders: readonly string[], blockCacheValidators = false): string[] {
+export function filterResponseHeaders(
+  rawHeaders: readonly string[],
+  blockCacheValidators = false,
+): string[] {
   const connectionHeaders = new Set<string>();
   for (let index = 0; index < rawHeaders.length; index += 2) {
     if (rawHeaders[index]!.toLowerCase() === 'connection') {
@@ -1300,10 +1310,7 @@ function buildErrorResponse(status: number): Buffer {
   return Buffer.from(`HTTP/1.1 ${status} ${reason}\r\nContent-Length: 0\r\n\r\n`);
 }
 
-function stringField(
-  value: Record<string, unknown> | undefined,
-  key: string,
-): string | undefined {
+function stringField(value: Record<string, unknown> | undefined, key: string): string | undefined {
   const field = value?.[key];
   return typeof field === 'string' ? field : undefined;
 }
@@ -1343,8 +1350,6 @@ function rawDataText(data: RawData): string {
   return Buffer.from(data as ArrayBuffer).toString('utf8');
 }
 
-
-
 type RetainCallback = (receivedBytes: number) => boolean;
 
 export async function requestLocalHttpFetch(
@@ -1376,7 +1381,10 @@ export async function requestLocalHttpFetch(
   const onAbort = (): void => controller.abort(signal.reason);
   if (signal.aborted) controller.abort(signal.reason);
   else signal.addEventListener('abort', onAbort, { once: true });
-  const timeout = setTimeout(() => controller.abort(new Error('local HTTP request timed out')), HTTP_REQUEST_TIMEOUT_MS);
+  const timeout = setTimeout(
+    () => controller.abort(new Error('local HTTP request timed out')),
+    HTTP_REQUEST_TIMEOUT_MS,
+  );
 
   try {
     const response = await fetch(new URL(parsed.path, origin), {
@@ -1414,7 +1422,9 @@ export async function requestLocalHttpFetch(
       Buffer.from(`HTTP/1.1 ${statusCode} ${statusMessage}\r\n${headerLines(hs)}\r\n\r\n`);
     const contentType = response.headers.get('content-type') ?? '';
     const contentEncoding = response.headers.get('content-encoding') ?? undefined;
-    const transformable = contentEncoding === undefined && (rewritesContentType(contentType) || isGzipCompressibleType(contentType));
+    const transformable =
+      contentEncoding === undefined &&
+      (rewritesContentType(contentType) || isGzipCompressibleType(contentType));
 
     if (!transformable) {
       const responseHeaders = filterResponseHeaders(rawHeaders);
@@ -1423,28 +1433,50 @@ export async function requestLocalHttpFetch(
     }
 
     const receivedBody = Buffer.concat(chunks);
-    let body = contentEncoding === undefined ? rewriteRemoteControlResponse(contentType, receivedBody, publicPrefix) : receivedBody;
+    let body =
+      contentEncoding === undefined
+        ? rewriteRemoteControlResponse(contentType, receivedBody, publicPrefix)
+        : receivedBody;
     const rewritten = body !== receivedBody;
     const responseHeaders = filterResponseHeaders(rawHeaders, rewritten);
     if (rewritten) {
       const etag = rewrittenResponseETag(body);
       responseHeaders.push('Cache-Control', 'no-cache', 'ETag', etag);
-      const revalidatable = (parsed.method === 'GET' || parsed.method === 'HEAD') && statusCode >= 200 && statusCode < 300;
-      if (revalidatable && requestMatchesETag(parsed.headers as unknown as readonly [string, string][], etag)) {
-        return [Buffer.from(`HTTP/1.1 304 Not Modified\r\n${headerLines(responseHeaders)}\r\n\r\n`)];
+      const revalidatable =
+        (parsed.method === 'GET' || parsed.method === 'HEAD') &&
+        statusCode >= 200 &&
+        statusCode < 300;
+      if (
+        revalidatable &&
+        requestMatchesETag(parsed.headers as unknown as readonly [string, string][], etag)
+      ) {
+        return [
+          Buffer.from(`HTTP/1.1 304 Not Modified\r\n${headerLines(responseHeaders)}\r\n\r\n`),
+        ];
       }
     }
-    const negotiated = contentEncoding === undefined && statusCode !== 206 && body.length >= 1024 && isGzipCompressibleType(contentType);
+    const negotiated =
+      contentEncoding === undefined &&
+      statusCode !== 206 &&
+      body.length >= 1024 &&
+      isGzipCompressibleType(contentType);
     if (negotiated) {
       let varyCovers = false;
       for (let index = 0; index < responseHeaders.length; index += 2) {
         if (responseHeaders[index]!.toLowerCase() !== 'vary') continue;
-        const tokens = new Set(responseHeaders[index + 1]!.toLowerCase().split(',').map((t) => t.trim()));
+        const tokens = new Set(
+          responseHeaders[index + 1]!.toLowerCase()
+            .split(',')
+            .map((t) => t.trim()),
+        );
         if (tokens.has('*') || tokens.has('accept-encoding')) varyCovers = true;
       }
       if (!varyCovers) responseHeaders.push('Vary', 'Accept-Encoding');
     }
-    if (negotiated && acceptsGzipEncoding(parsed.headers as unknown as readonly [string, string][])) {
+    if (
+      negotiated &&
+      acceptsGzipEncoding(parsed.headers as unknown as readonly [string, string][])
+    ) {
       body = await gzipAsync(body);
       responseHeaders.push('Content-Encoding', 'gzip');
     }

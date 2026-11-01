@@ -1,8 +1,8 @@
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'pathe';
 
-import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
+import { join } from 'pathe';
 
 import { FileLogWriter, PENDING_MAX, RotatingFileWriter } from '#/_base/log/fileLog';
 import type { LogEntry } from '#/_base/log/log';
@@ -100,9 +100,9 @@ describe('RotatingFileWriter', () => {
     });
     badWriter.enqueue('x\n');
     expect(await badWriter.flush()).toBe(false);
-    expect(
-      stderrSpy.mock.calls.some((c) => String(c[0]).includes('[logger] write failed')),
-    ).toBe(true);
+    expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('[logger] write failed'))).toBe(
+      true,
+    );
     stderrSpy.mockRestore();
   });
 

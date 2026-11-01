@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { waitUntil } from '#test/helpers/waitFor';
 
 import { KeyedResourceLeasePool } from '#/_base/lifecycle/keyedResource';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
@@ -9,12 +8,13 @@ import { IEventBus } from '#/app/event/eventBus';
 import { IFeatureManager } from '#/app/feature/featureManager';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { TodoFeature } from '#/features/todo/todoFeature';
-import { IAgentTodoService } from '#/features/todo/todoService';
 import type { TodoItem } from '#/features/todo/todoItem';
 import { TODO_LIST_REMINDER_VARIANT } from '#/features/todo/todoListReminder';
 import { TodoUpdated } from '#/features/todo/todoOps';
+import { IAgentTodoService } from '#/features/todo/todoService';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import type { WireRecord } from '#/wire/record';
+import { waitUntil } from '#test/helpers/waitFor';
 
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import {
@@ -28,10 +28,13 @@ function todoItem(id: string, title: string, status: TodoItem['status']): TodoIt
 }
 
 function reminderCount(memory: IAgentContextMemoryService): number {
-  return memory.get().filter(
-    (message) =>
-      message.origin?.kind === 'injection' && message.origin.variant === TODO_LIST_REMINDER_VARIANT,
-  ).length;
+  return memory
+    .get()
+    .filter(
+      (message) =>
+        message.origin?.kind === 'injection' &&
+        message.origin.variant === TODO_LIST_REMINDER_VARIANT,
+    ).length;
 }
 
 function appendAssistantTurns(memory: IAgentContextMemoryService, count: number): void {
@@ -77,21 +80,17 @@ describe('AgentTodoService', () => {
   it('emits each actual change once', async () => {
     const todo = ctx.get(IAgentTodoService);
     const seen: TodoItem[][] = [];
-    const subscription = todo.onDidChange((todos) => { seen.push([...todos]); });
+    const subscription = todo.onDidChange((todos) => {
+      seen.push([...todos]);
+    });
 
     await todo.replace([todoItem('T1', 'a', 'pending')]);
-    await todo.replace([
-      todoItem('T1', 'a', 'pending'),
-      todoItem('T2', 'b', 'done'),
-    ]);
+    await todo.replace([todoItem('T1', 'a', 'pending'), todoItem('T2', 'b', 'done')]);
     await todo.clear();
 
     expect(seen).toEqual([
       [todoItem('T1', 'a', 'pending')],
-      [
-        todoItem('T1', 'a', 'pending'),
-        todoItem('T2', 'b', 'done'),
-      ],
+      [todoItem('T1', 'a', 'pending'), todoItem('T2', 'b', 'done')],
       [],
     ]);
     subscription.dispose();
@@ -102,13 +101,15 @@ describe('AgentTodoService', () => {
     await todo.replace([todoItem('T1', 'persist me', 'in_progress')]);
 
     const records = await ctx.persistedWireRecords();
-    expect(records.filter((record) => record.type === 'tools.update_store')).toEqual([{
-      type: 'tools.update_store',
-      agentId: 'main',
-      key: 'todo',
-      value: [todoItem('T1', 'persist me', 'in_progress')],
-      time: expect.any(Number),
-    }]);
+    expect(records.filter((record) => record.type === 'tools.update_store')).toEqual([
+      {
+        type: 'tools.update_store',
+        agentId: 'main',
+        key: 'todo',
+        value: [todoItem('T1', 'persist me', 'in_progress')],
+        time: expect.any(Number),
+      },
+    ]);
   });
 
   it('publishes a todo.updated event with the full item shape after the wire record', async () => {
@@ -255,10 +256,7 @@ describe('AgentTodoService', () => {
       expect(service.get()).toEqual([todoItem('T1', 'kept', 'in_progress')]);
       return service;
     });
-    await revived.replace([
-      todoItem('T1', 'kept', 'done'),
-      todoItem('T2', 'added', 'pending'),
-    ]);
+    await revived.replace([todoItem('T1', 'kept', 'done'), todoItem('T2', 'added', 'pending')]);
     expect(revived.get()).toEqual([
       todoItem('T1', 'kept', 'done'),
       todoItem('T2', 'added', 'pending'),
@@ -382,14 +380,11 @@ describe('KeyedResourceLeasePool', () => {
 
   it('deduplicates concurrent materialization by key', async () => {
     let creates = 0;
-    const pool = new KeyedResourceLeasePool(
-      { owner: 'todo.test', generation: 1 },
-      async () => {
-        creates += 1;
-        await nextTick();
-        return { dispose: () => {} };
-      },
-    );
+    const pool = new KeyedResourceLeasePool({ owner: 'todo.test', generation: 1 }, async () => {
+      creates += 1;
+      await nextTick();
+      return { dispose: () => {} };
+    });
 
     const [first, second] = await Promise.all([pool.acquire('main'), pool.acquire('main')]);
     expect(creates).toBe(1);
@@ -401,15 +396,12 @@ describe('KeyedResourceLeasePool', () => {
 
   it('rejects stale generation acquires while an existing lease drains', async () => {
     let disposed = false;
-    const pool = new KeyedResourceLeasePool(
-      { owner: 'todo.test', generation: 2 },
-      () => ({
-        dispose: async () => {
-          await nextTick();
-          disposed = true;
-        },
-      }),
-    );
+    const pool = new KeyedResourceLeasePool({ owner: 'todo.test', generation: 2 }, () => ({
+      dispose: async () => {
+        await nextTick();
+        disposed = true;
+      },
+    }));
     const lease = await pool.acquire('main');
     const withdrawal = pool.withdraw();
 

@@ -1,10 +1,10 @@
 import { describe, expect, it, mock, type Mock } from 'bun:test';
-import { waitForAssertion } from '#test/helpers/waitFor';
 
-import { handleHelloWorldCommand } from '#/tui/commands/index';
 import type { SlashCommandHost } from '#/tui/commands/dispatch';
+import { handleHelloWorldCommand } from '#/tui/commands/index';
 import { currentTheme } from '#/tui/theme';
 import { permissionModeDescription } from '#/tui/utils/permission-mode';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 const ENTER = '\r';
 const ESCAPE = '\u001B';
@@ -66,7 +66,9 @@ function makeHost(
     },
     session: hasSession ? session : undefined,
     requireSession: () => session,
-    setAppState: mock((patch: Record<string, unknown>) => Object.assign(host.state.appState, patch)),
+    setAppState: mock((patch: Record<string, unknown>) =>
+      Object.assign(host.state.appState, patch),
+    ),
     showError: mock(),
     showNotice: mock(),
     showStatus: mock(),
@@ -401,7 +403,9 @@ describe('handleHelloWorldCommand run subcommands', () => {
 
     expect(host.showStatus).not.toHaveBeenCalled();
     expect(host.showError).not.toHaveBeenCalled();
-    const components = markerAddChild(host).mock.calls.map(([, component]) => component as TestComponent);
+    const components = markerAddChild(host).mock.calls.map(
+      ([, component]) => component as TestComponent,
+    );
     const rendered = stripAnsi(components.at(-1)?.render(80).join('\n') ?? '');
     expect(rendered).toContain('design');
     expect(rendered).toContain('Ship feature X');
@@ -453,9 +457,7 @@ describe('handleHelloWorldCommand run subcommands', () => {
 
     await handleHelloWorldCommand(host, 'phase bogus');
 
-    expect(host.showError).toHaveBeenCalledWith(
-      expect.stringContaining('Unknown stage "bogus"'),
-    );
+    expect(host.showError).toHaveBeenCalledWith(expect.stringContaining('Unknown stage "bogus"'));
     expect(session.setHelloWorldStage).not.toHaveBeenCalled();
   });
 

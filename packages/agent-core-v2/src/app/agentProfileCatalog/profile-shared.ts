@@ -13,8 +13,8 @@ import {
 import { renderFullBehaviorContract } from './behaviorContract';
 import { BUILTIN_AGENT_PROFILE_SOURCE_ID } from './builtinAgentProfileLoader';
 import CODING_SECTION from './coding.md?raw';
-import DELIVERING_WORK_SECTION from './delivering-work.md?raw';
 import READ_ONLY_DELIVERING_WORK_SECTION from './delivering-work-read-only.md?raw';
+import DELIVERING_WORK_SECTION from './delivering-work.md?raw';
 import PROJECT_INFORMATION_SECTION from './project-information.md?raw';
 import SYSTEM_PROMPT_TEMPLATE from './system.md?raw';
 
@@ -187,8 +187,7 @@ export function systemPromptVars(
     options.readOnly === true
       ? READ_ONLY_DELIVERING_WORK_SECTION
       : renderPrompt(DELIVERING_WORK_SECTION, {
-          plan_mode_guidance:
-            context.planModeAvailable === true ? `${PLAN_MODE_GUIDANCE}\n\n` : '',
+          plan_mode_guidance: context.planModeAvailable === true ? `${PLAN_MODE_GUIDANCE}\n\n` : '',
           todo_list_guidance: todoListGuidance,
         });
   return {

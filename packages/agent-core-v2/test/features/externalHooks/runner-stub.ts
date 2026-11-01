@@ -2,11 +2,11 @@ import { Event } from '#/_base/event';
 import type { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import type { IConfigService } from '#/app/config/config';
 import type { IPluginService } from '#/app/plugin/plugin';
+import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
 import { ExternalHooksRunnerService } from '#/features/externalHooks/app/externalHooksRunnerService';
 import { HOOKS_SECTION } from '#/features/externalHooks/configSection';
 import type { HookDef } from '#/features/externalHooks/internal/types';
 import { HostProcessService } from '#/os/backends/host/hostProcessService';
-import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
 
 export function makeHookRunner(
   hooks: readonly HookDef[],

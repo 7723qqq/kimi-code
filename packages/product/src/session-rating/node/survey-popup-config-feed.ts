@@ -1,4 +1,7 @@
-import type { ClientConfigClient, ClientConfigFetchOptions } from '#/client-configs/node/client-configs';
+import type {
+  ClientConfigClient,
+  ClientConfigFetchOptions,
+} from '#/client-configs/node/client-configs';
 
 import {
   surveyPopupConfigSchema,

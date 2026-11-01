@@ -1,6 +1,7 @@
 import { describe, expect, it, mock } from 'bun:test';
-import chalk from 'chalk';
+
 import type { CapabilityStatus, PluginSummary } from '@moonshot-ai/kimi-code-sdk';
+import chalk from 'chalk';
 
 import {
   PluginInstallTrustConfirmComponent,
@@ -14,7 +15,11 @@ import {
 } from '#/tui/components/dialogs/plugins-selector';
 import { currentTheme } from '#/tui/theme';
 import { darkColors, lightColors } from '#/tui/theme/colors';
-import { isOfficialPluginInstall, isOfficialPluginSource, pluginTrustLabel } from '#/tui/utils/plugin-source-label';
+import {
+  isOfficialPluginInstall,
+  isOfficialPluginSource,
+  pluginTrustLabel,
+} from '#/tui/utils/plugin-source-label';
 import { mouse } from '#test/helpers/mouse';
 
 const ANSI_SGR = /\u001B\[[0-9;]*m/g;
@@ -74,7 +79,12 @@ const officialEntries = [
   },
 ];
 const thirdPartyEntries = [
-  { id: 'superpowers', tier: 'curated' as const, displayName: 'Superpowers', source: 'https://x/s.zip' },
+  {
+    id: 'superpowers',
+    tier: 'curated' as const,
+    displayName: 'Superpowers',
+    source: 'https://x/s.zip',
+  },
 ];
 const marketplaceEntries = [...officialEntries, ...thirdPartyEntries];
 
@@ -124,76 +134,86 @@ function makeCapability(overrides: Partial<CapabilityStatus> = {}): CapabilitySt
 
 describe('plugins selector dialogs', () => {
   it('trusts only built-in Kimi CDN plugin paths', () => {
-    expect(pluginTrustLabel({
-      id: 'kimi-datasource',
-      displayName: 'Kimi Datasource',
-      enabled: true,
-      state: 'ok',
-      skillCount: 0,
-      mcpServerCount: 0,
-      enabledMcpServerCount: 0,
-      hookCount: 0,
-      commandCount: 0,
-      hasErrors: false,
-      source: 'zip-url',
-      originalSource: 'https://code.kimi.com/kimi-code/plugins/official/kimi-datasource.zip',
-    })).toBe('official');
-    expect(pluginTrustLabel({
-      id: 'superpowers',
-      displayName: 'Superpowers',
-      enabled: true,
-      state: 'ok',
-      skillCount: 0,
-      mcpServerCount: 0,
-      enabledMcpServerCount: 0,
-      hookCount: 0,
-      commandCount: 0,
-      hasErrors: false,
-      source: 'zip-url',
-      originalSource: 'https://code.kimi.com/kimi-code/plugins/curated/superpowers.zip',
-    })).toBe('curated');
-    expect(pluginTrustLabel({
-      id: 'kimi-cu',
-      displayName: 'Kimi Computer Use',
-      enabled: true,
-      state: 'ok',
-      skillCount: 1,
-      mcpServerCount: 1,
-      enabledMcpServerCount: 1,
-      hookCount: 0,
-      commandCount: 0,
-      hasErrors: false,
-      source: 'zip-url',
-      originalSource: 'https://cdn.kimi.com/kimi-computer-use/latest/kimi-cu-plugin.zip',
-    })).toBe('official');
-    expect(pluginTrustLabel({
-      id: 'demo',
-      displayName: 'Demo',
-      enabled: true,
-      state: 'ok',
-      skillCount: 0,
-      mcpServerCount: 0,
-      enabledMcpServerCount: 0,
-      hookCount: 0,
-      commandCount: 0,
-      hasErrors: false,
-      source: 'zip-url',
-      originalSource: 'https://code.kimi.com/demo.zip',
-    })).toBe('third-party');
-    expect(pluginTrustLabel({
-      id: 'local',
-      displayName: 'Local',
-      enabled: true,
-      state: 'ok',
-      skillCount: 0,
-      mcpServerCount: 0,
-      enabledMcpServerCount: 0,
-      hookCount: 0,
-      commandCount: 0,
-      hasErrors: false,
-      source: 'local-path',
-      originalSource: 'https://code.kimi.com/kimi-code/plugins/official/local',
-    })).toBe('third-party');
+    expect(
+      pluginTrustLabel({
+        id: 'kimi-datasource',
+        displayName: 'Kimi Datasource',
+        enabled: true,
+        state: 'ok',
+        skillCount: 0,
+        mcpServerCount: 0,
+        enabledMcpServerCount: 0,
+        hookCount: 0,
+        commandCount: 0,
+        hasErrors: false,
+        source: 'zip-url',
+        originalSource: 'https://code.kimi.com/kimi-code/plugins/official/kimi-datasource.zip',
+      }),
+    ).toBe('official');
+    expect(
+      pluginTrustLabel({
+        id: 'superpowers',
+        displayName: 'Superpowers',
+        enabled: true,
+        state: 'ok',
+        skillCount: 0,
+        mcpServerCount: 0,
+        enabledMcpServerCount: 0,
+        hookCount: 0,
+        commandCount: 0,
+        hasErrors: false,
+        source: 'zip-url',
+        originalSource: 'https://code.kimi.com/kimi-code/plugins/curated/superpowers.zip',
+      }),
+    ).toBe('curated');
+    expect(
+      pluginTrustLabel({
+        id: 'kimi-cu',
+        displayName: 'Kimi Computer Use',
+        enabled: true,
+        state: 'ok',
+        skillCount: 1,
+        mcpServerCount: 1,
+        enabledMcpServerCount: 1,
+        hookCount: 0,
+        commandCount: 0,
+        hasErrors: false,
+        source: 'zip-url',
+        originalSource: 'https://cdn.kimi.com/kimi-computer-use/latest/kimi-cu-plugin.zip',
+      }),
+    ).toBe('official');
+    expect(
+      pluginTrustLabel({
+        id: 'demo',
+        displayName: 'Demo',
+        enabled: true,
+        state: 'ok',
+        skillCount: 0,
+        mcpServerCount: 0,
+        enabledMcpServerCount: 0,
+        hookCount: 0,
+        commandCount: 0,
+        hasErrors: false,
+        source: 'zip-url',
+        originalSource: 'https://code.kimi.com/demo.zip',
+      }),
+    ).toBe('third-party');
+    expect(
+      pluginTrustLabel({
+        id: 'local',
+        displayName: 'Local',
+        enabled: true,
+        state: 'ok',
+        skillCount: 0,
+        mcpServerCount: 0,
+        enabledMcpServerCount: 0,
+        hookCount: 0,
+        commandCount: 0,
+        hasErrors: false,
+        source: 'local-path',
+        originalSource: 'https://code.kimi.com/kimi-code/plugins/official/local',
+      }),
+    ).toBe('third-party');
   });
 
   it('trusts the .ai Kimi plugin hosts with the same path rules', () => {
@@ -213,14 +233,24 @@ describe('plugins selector dialogs', () => {
         originalSource,
       });
     // code.kimi.ai mirrors the cdnBase rules; cdn.kimi.ai the content-CDN ones.
-    expect(labelFor('https://code.kimi.ai/kimi-code/plugins/official/kimi-datasource.zip')).toBe('official');
-    expect(labelFor('https://code.kimi.ai/kimi-code/plugins/curated/superpowers.zip')).toBe('curated');
-    expect(labelFor('https://cdn.kimi.ai/kimi-computer-use/latest/kimi-cu-plugin.zip')).toBe('official');
-    expect(labelFor('https://cdn.kimi.ai/kimi-computer-use-windows/latest/kimi-cu-win-plugin.zip')).toBe('official');
+    expect(labelFor('https://code.kimi.ai/kimi-code/plugins/official/kimi-datasource.zip')).toBe(
+      'official',
+    );
+    expect(labelFor('https://code.kimi.ai/kimi-code/plugins/curated/superpowers.zip')).toBe(
+      'curated',
+    );
+    expect(labelFor('https://cdn.kimi.ai/kimi-computer-use/latest/kimi-cu-plugin.zip')).toBe(
+      'official',
+    );
+    expect(
+      labelFor('https://cdn.kimi.ai/kimi-computer-use-windows/latest/kimi-cu-win-plugin.zip'),
+    ).toBe('official');
     // Non-plugin paths on the .ai hosts, and lookalike hosts, stay third-party.
     expect(labelFor('https://code.kimi.ai/demo.zip')).toBe('third-party');
     expect(labelFor('https://cdn.kimi.ai/unrelated/plugin.zip')).toBe('third-party');
-    expect(labelFor('https://code.kimi.ai.example.test/kimi-code/plugins/official/x.zip')).toBe('third-party');
+    expect(labelFor('https://code.kimi.ai.example.test/kimi-code/plugins/official/x.zip')).toBe(
+      'third-party',
+    );
   });
 
   it('recognizes installed plugins by official provenance', () => {
@@ -237,37 +267,47 @@ describe('plugins selector dialogs', () => {
       hasErrors: false,
     };
     // Zip installs from the official CDN path.
-    expect(isOfficialPluginInstall({
-      ...base,
-      source: 'zip-url',
-      originalSource: 'https://code.kimi.com/kimi-code/plugins/official/kimi-datasource.zip',
-    })).toBe(true);
-    expect(isOfficialPluginInstall({
-      ...base,
-      source: 'zip-url',
-      originalSource: 'https://code.kimi.ai/kimi-code/plugins/official/kimi-datasource.zip',
-    })).toBe(true);
-    expect(isOfficialPluginInstall({
-      ...base,
-      id: 'kimi-cu',
-      displayName: 'Kimi Computer Use',
-      source: 'zip-url',
-      originalSource: 'https://cdn.kimi.com/kimi-computer-use/latest/kimi-cu-plugin.zip',
-    })).toBe(true);
+    expect(
+      isOfficialPluginInstall({
+        ...base,
+        source: 'zip-url',
+        originalSource: 'https://code.kimi.com/kimi-code/plugins/official/kimi-datasource.zip',
+      }),
+    ).toBe(true);
+    expect(
+      isOfficialPluginInstall({
+        ...base,
+        source: 'zip-url',
+        originalSource: 'https://code.kimi.ai/kimi-code/plugins/official/kimi-datasource.zip',
+      }),
+    ).toBe(true);
+    expect(
+      isOfficialPluginInstall({
+        ...base,
+        id: 'kimi-cu',
+        displayName: 'Kimi Computer Use',
+        source: 'zip-url',
+        originalSource: 'https://cdn.kimi.com/kimi-computer-use/latest/kimi-cu-plugin.zip',
+      }),
+    ).toBe(true);
     // Same manifest id from a local path, GitHub, a loopback URL, or a
     // third-party URL is not the official build.
     expect(isOfficialPluginInstall({ ...base, source: 'local-path' })).toBe(false);
     expect(isOfficialPluginInstall({ ...base, source: 'github' })).toBe(false);
-    expect(isOfficialPluginInstall({
-      ...base,
-      source: 'zip-url',
-      originalSource: 'http://127.0.0.1:58627/kimi-code/plugins/official/kimi-datasource.zip',
-    })).toBe(false);
-    expect(isOfficialPluginInstall({
-      ...base,
-      source: 'zip-url',
-      originalSource: 'https://example.test/kimi-code/plugins/official/kimi-datasource.zip',
-    })).toBe(false);
+    expect(
+      isOfficialPluginInstall({
+        ...base,
+        source: 'zip-url',
+        originalSource: 'http://127.0.0.1:58627/kimi-code/plugins/official/kimi-datasource.zip',
+      }),
+    ).toBe(false);
+    expect(
+      isOfficialPluginInstall({
+        ...base,
+        source: 'zip-url',
+        originalSource: 'https://example.test/kimi-code/plugins/official/kimi-datasource.zip',
+      }),
+    ).toBe(false);
   });
 
   it('shows installed Kimi Computer Use and WebBridge plugins as official', () => {
@@ -298,32 +338,52 @@ describe('plugins selector dialogs', () => {
   });
 
   it('treats only the official Kimi CDN path as a trusted install source', () => {
-    expect(isOfficialPluginSource('https://code.kimi.com/kimi-code/plugins/official/kimi-datasource.zip')).toBe(true);
-    expect(isOfficialPluginSource('https://cdn.kimi.com/kimi-computer-use/latest/kimi-cu-plugin.zip')).toBe(true);
+    expect(
+      isOfficialPluginSource(
+        'https://code.kimi.com/kimi-code/plugins/official/kimi-datasource.zip',
+      ),
+    ).toBe(true);
+    expect(
+      isOfficialPluginSource('https://cdn.kimi.com/kimi-computer-use/latest/kimi-cu-plugin.zip'),
+    ).toBe(true);
     expect(
       isOfficialPluginSource(
         'https://cdn.kimi.com/kimi-computer-use-windows/latest/kimi-cu-win-plugin.zip',
       ),
     ).toBe(true);
     // The .ai region family follows the same path rules.
-    expect(isOfficialPluginSource('https://code.kimi.ai/kimi-code/plugins/official/kimi-datasource.zip')).toBe(true);
-    expect(isOfficialPluginSource('https://cdn.kimi.ai/kimi-computer-use/latest/kimi-cu-plugin.zip')).toBe(true);
+    expect(
+      isOfficialPluginSource('https://code.kimi.ai/kimi-code/plugins/official/kimi-datasource.zip'),
+    ).toBe(true);
+    expect(
+      isOfficialPluginSource('https://cdn.kimi.ai/kimi-computer-use/latest/kimi-cu-plugin.zip'),
+    ).toBe(true);
     expect(
       isOfficialPluginSource(
         'https://cdn.kimi.ai/kimi-computer-use-windows/latest/kimi-cu-win-plugin.zip',
       ),
     ).toBe(true);
-    expect(isOfficialPluginSource('https://code.kimi.ai/kimi-code/plugins/curated/superpowers.zip')).toBe(false);
+    expect(
+      isOfficialPluginSource('https://code.kimi.ai/kimi-code/plugins/curated/superpowers.zip'),
+    ).toBe(false);
     expect(isOfficialPluginSource('https://cdn.kimi.ai/unrelated/plugin.zip')).toBe(false);
     // Curated and other Kimi CDN paths are not "official" for the install gate.
-    expect(isOfficialPluginSource('https://code.kimi.com/kimi-code/plugins/curated/superpowers.zip')).toBe(false);
+    expect(
+      isOfficialPluginSource('https://code.kimi.com/kimi-code/plugins/curated/superpowers.zip'),
+    ).toBe(false);
     expect(isOfficialPluginSource('https://code.kimi.com/kimi-code/plugins/foo.zip')).toBe(false);
     expect(isOfficialPluginSource('https://cdn.kimi.com/unrelated/plugin.zip')).toBe(false);
     // Non-Kimi hosts (loopback included), non-https schemes, local paths, and
     // GitHub sources are unofficial.
-    expect(isOfficialPluginSource('https://example.test/kimi-code/plugins/official/x.zip')).toBe(false);
-    expect(isOfficialPluginSource('http://code.kimi.com/kimi-code/plugins/official/x.zip')).toBe(false);
-    expect(isOfficialPluginSource('http://127.0.0.1:58627/kimi-code/plugins/official/x.zip')).toBe(false);
+    expect(isOfficialPluginSource('https://example.test/kimi-code/plugins/official/x.zip')).toBe(
+      false,
+    );
+    expect(isOfficialPluginSource('http://code.kimi.com/kimi-code/plugins/official/x.zip')).toBe(
+      false,
+    );
+    expect(isOfficialPluginSource('http://127.0.0.1:58627/kimi-code/plugins/official/x.zip')).toBe(
+      false,
+    );
     expect(isOfficialPluginSource('./plugins/kimi-datasource')).toBe(false);
     expect(isOfficialPluginSource('/abs/path/to/plugin')).toBe(false);
     expect(isOfficialPluginSource('github.com/owner/repo')).toBe(false);
@@ -433,7 +493,12 @@ describe('plugins selector dialogs', () => {
   });
 
   it('renders the inline plugin hint on the installed row', () => {
-    const datasource = { ...superpowers, id: 'kimi-datasource', displayName: 'Kimi Datasource', skillCount: 1 };
+    const datasource = {
+      ...superpowers,
+      id: 'kimi-datasource',
+      displayName: 'Kimi Datasource',
+      skillCount: 1,
+    };
     const { panel } = makePanel({
       installed: [datasource],
       selectedId: 'kimi-datasource',
@@ -481,7 +546,9 @@ describe('plugins selector dialogs', () => {
     // A custom marketplace may legitimately list an entry reusing the
     // kimi-webbridge id: without the capability: marker it must render and
     // install as a plain plugin, not borrow capability status.
-    const capabilities = [makeCapability({ id: 'kimi-webbridge', displayName: 'Kimi Browser Extension' })];
+    const capabilities = [
+      makeCapability({ id: 'kimi-webbridge', displayName: 'Kimi Browser Extension' }),
+    ];
     const entries = [
       {
         id: 'kimi-webbridge',
@@ -800,9 +867,7 @@ describe('plugins selector dialogs', () => {
     const installed = [
       { ...superpowers, id: 'kimi-cu', displayName: 'Kimi Computer Use', version: '0.5.4' },
     ];
-    const capabilities = [
-      makeCapability({ supported: false, state: 'unsupported', steps: [] }),
-    ];
+    const capabilities = [makeCapability({ supported: false, state: 'unsupported', steps: [] })];
     const { panel, onSelect } = makePanel({ installed, capabilities });
 
     const out = strip(renderRaw(panel));
@@ -829,11 +894,24 @@ describe('plugins selector dialogs', () => {
       }),
     ];
     const installed = [
-      { ...superpowers, id: 'kimi-webbridge', displayName: 'Kimi Browser Extension', version: '1.11.3' },
+      {
+        ...superpowers,
+        id: 'kimi-webbridge',
+        displayName: 'Kimi Browser Extension',
+        version: '1.11.3',
+      },
     ];
     const { panel } = makePanel({ installed, capabilities, initialTab: 'official' });
     panel.setMarketplace(
-      [{ id: 'kimi-webbridge', displayName: 'Kimi Browser Extension', source: 'capability:kimi-webbridge', tier: 'official', builtIn: true }],
+      [
+        {
+          id: 'kimi-webbridge',
+          displayName: 'Kimi Browser Extension',
+          source: 'capability:kimi-webbridge',
+          tier: 'official',
+          builtIn: true,
+        },
+      ],
       '/tmp/marketplace.json',
     );
 
@@ -860,7 +938,15 @@ describe('plugins selector dialogs', () => {
     ];
     const { panel } = makePanel({ capabilities, initialTab: 'official' });
     panel.setMarketplace(
-      [{ id: 'kimi-webbridge', displayName: 'Kimi Browser Extension', source: 'capability:kimi-webbridge', tier: 'official', builtIn: true }],
+      [
+        {
+          id: 'kimi-webbridge',
+          displayName: 'Kimi Browser Extension',
+          source: 'capability:kimi-webbridge',
+          tier: 'official',
+          builtIn: true,
+        },
+      ],
       '/tmp/marketplace.json',
     );
 
@@ -934,7 +1020,7 @@ describe('plugins selector dialogs', () => {
         mcpServerCount: 1,
         enabledMcpServerCount: 1,
         hookCount: 0,
-      commandCount: 0,
+        commandCount: 0,
         hasErrors: false,
         source: 'local-path',
         installedAt: '2026-05-29T00:00:00.000Z',
@@ -1107,7 +1193,9 @@ describe('plugins panel mouse', () => {
     const { panel, onRequestMarketplace } = makePanel({ installed: [superpowers] });
     panel.focused = true;
     const rows = renderRaw(panel).split('\n').map(strip);
-    const tabRow = rows.findIndex((line) => line.includes('Installed') && line.includes('Official'));
+    const tabRow = rows.findIndex(
+      (line) => line.includes('Installed') && line.includes('Official'),
+    );
     const column = rows[tabRow]!.indexOf('Official');
 
     panel.handleMouse(mouse('click', tabRow, undefined, column + 1));

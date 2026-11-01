@@ -2,10 +2,10 @@ import { describe, expect, it } from 'bun:test';
 
 import type { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import type { IFlagService } from '#/app/flag/flag';
+import { SessionNotify } from '#/features/notify/sessionNotify';
 import type { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import type { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import type { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { SessionNotify } from '#/features/notify/sessionNotify';
 
 function sessionContext(): ISessionContext {
   return { scope: (name: string) => ({ kind: 'scope', name }) } as unknown as ISessionContext;

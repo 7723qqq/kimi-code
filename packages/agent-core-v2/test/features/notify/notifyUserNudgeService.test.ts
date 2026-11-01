@@ -13,8 +13,8 @@ import { NOTIFY_USER_NUDGE_VARIANT } from '#/features/notify/notifyUserNudge';
 import { NOTIFY_USER_TOOL_NAME } from '#/features/notify/tools/notify-user/notify-user';
 import type { ExecutableTool } from '#/tool/toolContract';
 
-import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import { runWillBeginStepHooks } from '../../agent/loop/stubs';
+import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import { createTestAgent, type TestAgentContext } from '../../harness';
 
 const notifyToolStub: ExecutableTool = {
@@ -43,7 +43,8 @@ describe('AgentNotifyUserNudgeService', () => {
       .get()
       .filter(
         (message) =>
-          message.origin?.kind === 'injection' && message.origin.variant === NOTIFY_USER_NUDGE_VARIANT,
+          message.origin?.kind === 'injection' &&
+          message.origin.variant === NOTIFY_USER_NUDGE_VARIANT,
       );
   }
 
@@ -156,7 +157,9 @@ describe('AgentNotifyUserNudgeService', () => {
     appendSilentRounds(8);
     await runWillBeginStepHooks(loop);
     expect(nudgeInjections()).toHaveLength(0);
-    expect(telemetry.filter((record) => record.event === 'notify_user_nudge_shown')).toHaveLength(0);
+    expect(telemetry.filter((record) => record.event === 'notify_user_nudge_shown')).toHaveLength(
+      0,
+    );
 
     context.append({
       role: 'assistant',

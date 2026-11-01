@@ -31,7 +31,9 @@ function isToolCallRound(message: ContextMessage): boolean {
 }
 
 function isNudge(message: ContextMessage): boolean {
-  return message.origin?.kind === 'injection' && message.origin.variant === NOTIFY_USER_NUDGE_VARIANT;
+  return (
+    message.origin?.kind === 'injection' && message.origin.variant === NOTIFY_USER_NUDGE_VARIANT
+  );
 }
 
 export interface NotifyStreak {

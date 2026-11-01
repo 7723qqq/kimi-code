@@ -101,11 +101,10 @@ async function googleWireRoles(history: Message[]): Promise<string[]> {
     captured = params;
     return Promise.resolve(response);
   });
-  models['generateContentStream'] = mock()
-    .mockImplementation((params: Record<string, unknown>) => {
-      captured = params;
-      return Promise.resolve(stream());
-    });
+  models['generateContentStream'] = mock().mockImplementation((params: Record<string, unknown>) => {
+    captured = params;
+    return Promise.resolve(stream());
+  });
 
   const generated = await provider.generate('', [], history);
   for await (const part of generated) void part;

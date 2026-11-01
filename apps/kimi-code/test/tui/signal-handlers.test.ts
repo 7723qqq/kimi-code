@@ -52,7 +52,9 @@ function makeHarness() {
     getWorkspaceTrustInfo: jest.fn(async () => ({
       trusted: true,
       gatedMcpServers: [],
-      gatedAdditionalDirs: [], additionalDirSources: [], warnings: [],
+      gatedAdditionalDirs: [],
+      additionalDirSources: [],
+      warnings: [],
       instructionSources: { agentsMdPaths: [], skills: [], agentProfiles: [], paths: [] },
     })),
     auth: {
@@ -139,8 +141,9 @@ describe('KimiTUI signal handlers', () => {
   let platformDescriptor: PropertyDescriptor | undefined;
 
   beforeEach(() => {
-    exitSpy = spyOn(process, 'exit')
-      .mockImplementation((() => undefined) as unknown as typeof process.exit);
+    exitSpy = spyOn(process, 'exit').mockImplementation(
+      (() => undefined) as unknown as typeof process.exit,
+    );
     platformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
   });
 
@@ -313,9 +316,11 @@ describe('KimiTUI signal handlers', () => {
   it('stop() drains terminal input before stopping the UI and exiting', async () => {
     const { driver, tui } = makeDriver();
     const events: string[] = [];
-    const drainInput = jest.spyOn(driver.state.terminal, 'drainInput').mockImplementation(async () => {
-      events.push('drain');
-    });
+    const drainInput = jest
+      .spyOn(driver.state.terminal, 'drainInput')
+      .mockImplementation(async () => {
+        events.push('drain');
+      });
     const uiStop = jest.spyOn(driver.state.ui, 'stop').mockImplementation(() => {
       events.push('ui.stop');
     });
@@ -336,15 +341,14 @@ describe('KimiTUI signal handlers', () => {
     // Force the very first awaited call inside start() to reject. We don't
     // care which method blows up — only that the failure surfaces and any
     // listeners we installed up front get cleaned up before the throw escapes.
-    jest.spyOn(tui as unknown as { initMainTui(): Promise<boolean> }, 'initMainTui').mockRejectedValue(
-      new Error('init boom'),
-    );
+    jest
+      .spyOn(tui as unknown as { initMainTui(): Promise<boolean> }, 'initMainTui')
+      .mockRejectedValue(new Error('init boom'));
     // Stub state.ui.stop so the failure-path cleanup does not touch the real
     // event loop.
-    jest.spyOn(
-      (tui as unknown as { state: { ui: { stop(): void } } }).state.ui,
-      'stop',
-    ).mockImplementation(() => {});
+    jest
+      .spyOn((tui as unknown as { state: { ui: { stop(): void } } }).state.ui, 'stop')
+      .mockImplementation(() => {});
 
     const beforeSigterm = process.listenerCount('SIGTERM');
     const beforeSighup = process.listenerCount('SIGHUP');

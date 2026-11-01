@@ -1,10 +1,10 @@
+import { describe, expect, it, mock } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { Event } from '@moonshot-ai/kimi-code-sdk';
 import type { TuiMouseEvent } from '@moonshot-ai/pi-tui';
-import { describe, expect, it, mock } from 'bun:test';
 
 import type { SurveyControllerDeps } from '#/tui/controllers/survey-controller';
 import type { KimiTUIStartupInput } from '#/tui/kimi-tui';

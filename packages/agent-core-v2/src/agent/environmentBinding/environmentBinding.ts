@@ -9,11 +9,13 @@ export interface IAgentEnvironmentBindingService {
   bind(environmentId: string, cwd?: string): EnvironmentBinding;
 }
 
-export const IAgentEnvironmentBindingService: ServiceIdentifier<IAgentEnvironmentBindingService> = createDecorator<IAgentEnvironmentBindingService>('agentEnvironmentBindingService');
+export const IAgentEnvironmentBindingService: ServiceIdentifier<IAgentEnvironmentBindingService> =
+  createDecorator<IAgentEnvironmentBindingService>('agentEnvironmentBindingService');
 
 export interface IAgentEnvironmentBindingSeed {
   readonly _serviceBrand: undefined;
   readonly binding: EnvironmentBinding;
 }
 
-export const IAgentEnvironmentBindingSeed: ServiceIdentifier<IAgentEnvironmentBindingSeed> = createDecorator<IAgentEnvironmentBindingSeed>('agentEnvironmentBindingSeed');
+export const IAgentEnvironmentBindingSeed: ServiceIdentifier<IAgentEnvironmentBindingSeed> =
+  createDecorator<IAgentEnvironmentBindingSeed>('agentEnvironmentBindingSeed');

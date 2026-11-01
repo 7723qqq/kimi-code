@@ -589,7 +589,11 @@ describe('CLI options parsing', () => {
         () => {},
       );
       const commandNames: string[] = program.commands
-        .filter((command) => !command.name().startsWith('__') && !(command as unknown as { _hidden?: boolean })._hidden)
+        .filter(
+          (command) =>
+            !command.name().startsWith('__') &&
+            !(command as unknown as { _hidden?: boolean })._hidden,
+        )
         .map((command) => command.name());
       expect(commandNames).toEqual([
         'export',

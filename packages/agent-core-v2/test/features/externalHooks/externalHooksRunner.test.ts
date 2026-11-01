@@ -1,15 +1,14 @@
-import { realpathSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-
-import type { ContentPart } from '#human/llm/message';
 import { describe, expect, it, spyOn } from 'bun:test';
+import { randomUUID } from 'node:crypto';
+import { realpathSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { ITelemetryService } from '#/app/telemetry/telemetry';
+import type { ContentPart } from '#human/llm/message';
 
 import { makeHookRunner } from './runner-stub';
-import { randomUUID } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 
 const HOOK_BIN = process.execPath;
 
@@ -387,8 +386,18 @@ describe('ExternalHooksRunnerService', () => {
     } as unknown as ITelemetryService;
     const runner = makeHookRunner(
       [
-        { event: 'PreToolUse', matcher: 'Bash', command: nodeCommand('process.exit(2);'), timeout: 5 },
-        { event: 'PreToolUse', matcher: 'Bash', command: nodeCommand('process.exit(1);'), timeout: 5 },
+        {
+          event: 'PreToolUse',
+          matcher: 'Bash',
+          command: nodeCommand('process.exit(2);'),
+          timeout: 5,
+        },
+        {
+          event: 'PreToolUse',
+          matcher: 'Bash',
+          command: nodeCommand('process.exit(1);'),
+          timeout: 5,
+        },
       ],
       { telemetry },
     );
@@ -397,7 +406,15 @@ describe('ExternalHooksRunnerService', () => {
     await runner.trigger('PreToolUse', { matcherValue: 'Grep', inputData: {} });
 
     const spawnFailRunner = makeHookRunner(
-      [{ event: 'PreToolUse', matcher: 'Bash', command: 'true', timeout: 5, cwd: '/nonexistent-hook-cwd' }],
+      [
+        {
+          event: 'PreToolUse',
+          matcher: 'Bash',
+          command: 'true',
+          timeout: 5,
+          cwd: '/nonexistent-hook-cwd',
+        },
+      ],
       { telemetry },
     );
     await spawnFailRunner.trigger('PreToolUse', { matcherValue: 'Bash', inputData: {} });

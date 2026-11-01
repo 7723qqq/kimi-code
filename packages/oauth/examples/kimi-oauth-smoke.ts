@@ -78,9 +78,9 @@ function smokeIdentityFromEnv(): KimiHostIdentity {
     throw new Error('KIMI_CODE_SMOKE_VERSION is required for Kimi OAuth smoke.');
   }
   return {
-    productName: "kimi-code-cli",
+    productName: 'kimi-code-cli',
     version,
-    platform: "kimi_code_cli",
+    platform: 'kimi_code_cli',
   };
 }
 

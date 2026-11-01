@@ -117,9 +117,7 @@ export async function readAgentWire(path: string): Promise<WireReadResult> {
       );
       migrated = structuredClone(raw);
     }
-    const normalized = newerWireVersion
-      ? migrated
-      : normalizePlanRevisionRecord(migrated, agentId);
+    const normalized = newerWireVersion ? migrated : normalizePlanRevisionRecord(migrated, agentId);
     if (normalized === undefined) {
       warnings.push(`line ${lineNo}: invalid legacy plan.revision record skipped`);
       continue;

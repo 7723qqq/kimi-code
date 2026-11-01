@@ -7,7 +7,9 @@ const atHuman = (sub: string, file: string): string => `${SRC_ROOT}/human/${sub}
 const atAdapter = (sub: string, file: string): string => `${SRC_ROOT}/llm-adapter/${sub}/${file}`;
 
 const KOSONG_IMPORT = ['#', 'kosong', 'contract', 'message'].join('/');
-const KOSONG_SELF_IMPORT = ['@moonshot-ai/agent-core-v2', 'kosong', 'contract', 'message'].join('/');
+const KOSONG_SELF_IMPORT = ['@moonshot-ai/agent-core-v2', 'kosong', 'contract', 'message'].join(
+  '/',
+);
 
 describe('check-import-boundaries', () => {
   it('flags a literal kosong-kernel import (the deleted kernel)', () => {
@@ -77,7 +79,9 @@ describe('check-import-boundaries', () => {
       at('agent', 'loop.ts'),
     );
     expect(violations).toHaveLength(1);
-    expect(violations[0]?.message).toMatch(/only llm-adapter, agent\/loop\/machine and session\/agentLifecycle may import the human implementation/);
+    expect(violations[0]?.message).toMatch(
+      /only llm-adapter, agent\/loop\/machine and session\/agentLifecycle may import the human implementation/,
+    );
   });
 
   it('allows a non-adapter v2 file importing human vocabulary', () => {
@@ -102,7 +106,9 @@ describe('check-import-boundaries', () => {
       at('agent', 'loop.ts'),
     );
     expect(violations).toHaveLength(1);
-    expect(violations[0]?.message).toMatch(/only llm-adapter, agent\/loop\/machine and session\/agentLifecycle may import the human implementation/);
+    expect(violations[0]?.message).toMatch(
+      /only llm-adapter, agent\/loop\/machine and session\/agentLifecycle may import the human implementation/,
+    );
   });
 
   it('flags a trait importing a protocol format module', () => {

@@ -1,3 +1,5 @@
+import type { AuthSummary } from '@moonshot-ai/agent-core-v2/app/authLegacy/authLegacy';
+import type { FileMeta } from '@moonshot-ai/agent-core-v2/app/file/fileService';
 /**
  * `DaemonClient` — wire-level test client for the kimi-code server.
  *
@@ -16,22 +18,14 @@ import type {
   FsBrowseResponse,
   FsHomeResponse,
 } from '@moonshot-ai/agent-core-v2/app/hostFolderBrowser/hostFolderBrowser';
-import type { AuthSummary } from '@moonshot-ai/agent-core-v2/app/authLegacy/authLegacy';
-import type { FileMeta } from '@moonshot-ai/agent-core-v2/app/file/fileService';
 import type { UpdateSessionProfileRequest as SessionUpdate } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
 import type {
   ProviderCatalogItem,
   SetDefaultModelResponse,
 } from '@moonshot-ai/agent-core-v2/llm-adapter/model/catalog';
-import type {
-  ApprovalRequest,
-  ApprovalResponse,
-} from '@moonshot-ai/kap-server/protocol/approval';
+import type { ApprovalRequest, ApprovalResponse } from '@moonshot-ai/kap-server/protocol/approval';
 import type { Message } from '@moonshot-ai/kap-server/protocol/message';
-import type {
-  QuestionRequest,
-  QuestionResponse,
-} from '@moonshot-ai/kap-server/protocol/question';
+import type { QuestionRequest, QuestionResponse } from '@moonshot-ai/kap-server/protocol/question';
 import type {
   ApprovalResolveResult,
   ListPendingApprovalsResponse,
@@ -132,9 +126,10 @@ export const DEFAULT_PROMPT_CONTROLS = {
  * `DEFAULT_PROMPT_CONTROLS` when omitted. `metadata` carries through
  * verbatim.
  */
-export type PromptSubmitInput =
-  Pick<PromptSubmission, 'content'>
-  & Partial<Pick<PromptSubmission, 'metadata' | 'model' | 'thinking' | 'permission_mode' | 'plan_mode'>>;
+export type PromptSubmitInput = Pick<PromptSubmission, 'content'> &
+  Partial<
+    Pick<PromptSubmission, 'metadata' | 'model' | 'thinking' | 'permission_mode' | 'plan_mode'>
+  >;
 
 function fillPromptDefaults(input: PromptSubmitInput): PromptSubmission {
   return { ...DEFAULT_PROMPT_CONTROLS, ...input };
@@ -199,9 +194,12 @@ export class DaemonClient {
   getSession(sid: string): Promise<Session> {
     return this.http.getSession(sid);
   }
-  listSessions(
-    query?: { page_size?: number; before_id?: string; after_id?: string; workspace_id?: string },
-  ): Promise<{ items: Session[]; has_more: boolean }> {
+  listSessions(query?: {
+    page_size?: number;
+    before_id?: string;
+    after_id?: string;
+    workspace_id?: string;
+  }): Promise<{ items: Session[]; has_more: boolean }> {
     return this.http.listSessions(query);
   }
   updateSession(sid: string, body: SessionUpdate): Promise<Session> {
@@ -210,16 +208,10 @@ export class DaemonClient {
   forkSession(sid: string, body: ForkSessionRequest = {}): Promise<Session> {
     return this.http.forkSession(sid, body);
   }
-  compactSession(
-    sid: string,
-    body: CompactSessionRequest = {},
-  ): Promise<CompactSessionResponse> {
+  compactSession(sid: string, body: CompactSessionRequest = {}): Promise<CompactSessionResponse> {
     return this.http.compactSession(sid, body);
   }
-  undoSession(
-    sid: string,
-    body: UndoSessionRequest = { count: 1 },
-  ): Promise<UndoSessionResponse> {
+  undoSession(sid: string, body: UndoSessionRequest = { count: 1 }): Promise<UndoSessionResponse> {
     return this.http.undoSession(sid, body);
   }
   archiveSession(sid: string): Promise<{ archived: true }> {
@@ -281,10 +273,7 @@ export class DaemonClient {
    * legacy default-filled path) to first establish session state, then
    * exercise the "content-only prompt inherits session state" contract.
    */
-  submitPromptStateful(
-    sid: string,
-    body: PromptSubmission,
-  ): Promise<PromptSubmitResult> {
+  submitPromptStateful(sid: string, body: PromptSubmission): Promise<PromptSubmitResult> {
     return this.http.submitPrompt(sid, body);
   }
   listPrompts(sid: string): Promise<PromptListResponse> {
@@ -322,10 +311,7 @@ export class DaemonClient {
   listPendingQuestions(sid: string): Promise<ListPendingQuestionsResponse> {
     return this.http.listPendingQuestions(sid);
   }
-  dismissQuestion(
-    sid: string,
-    qid: string,
-  ): Promise<{ dismissed: true; dismissed_at: string }> {
+  dismissQuestion(sid: string, qid: string): Promise<{ dismissed: true; dismissed_at: string }> {
     return this.http.dismissQuestion(sid, qid);
   }
 
@@ -431,10 +417,7 @@ export class DaemonClient {
     predicate: (frame: AnyFrame) => boolean,
     opts?: { timeoutMs?: number },
   ): Promise<AnyFrame> {
-    return this._requireWs().waitForFrame(
-      predicate,
-      opts?.timeoutMs ?? DEFAULT_FRAME_TIMEOUT_MS,
-    );
+    return this._requireWs().waitForFrame(predicate, opts?.timeoutMs ?? DEFAULT_FRAME_TIMEOUT_MS);
   }
 
   /** Poll `/sessions/{sid}` until its aggregate work flag reaches `busy`. */

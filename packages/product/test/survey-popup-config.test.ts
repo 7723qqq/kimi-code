@@ -1,22 +1,21 @@
+import { afterEach, describe, expect, it, jest } from 'bun:test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it, jest } from 'bun:test';
-
 import { ClientConfigClient } from '#/client-configs/node/client-configs';
-import {
-  cloudSurveyPopupConfigFeed,
-  getSurveyPopupConfig,
-  peekSurveyPopupConfig,
-  resetSurveyPopupConfigCache,
-} from '#/session-rating/node/survey-popup-config-feed';
 import {
   DEFAULT_SURVEY_POPUP_CONFIG,
   DEFAULT_SURVEY_POPUP_PAYLOAD,
   resolveSurveyPopupConfig,
   type SurveyPopupPayload,
 } from '#/session-rating/common/survey-popup-config';
+import {
+  cloudSurveyPopupConfigFeed,
+  getSurveyPopupConfig,
+  peekSurveyPopupConfig,
+  resetSurveyPopupConfigCache,
+} from '#/session-rating/node/survey-popup-config-feed';
 
 const client = new ClientConfigClient({
   region: () => 'mainland-cn',
@@ -81,7 +80,10 @@ describe('getSurveyPopupConfig', () => {
     const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       cacheFile: null,
     });
 
@@ -101,7 +103,10 @@ describe('getSurveyPopupConfig', () => {
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       cacheFile: null,
     });
 
@@ -122,7 +127,10 @@ describe('getSurveyPopupConfig', () => {
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       cacheFile: null,
     });
 
@@ -150,7 +158,10 @@ describe('getSurveyPopupConfig', () => {
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       cacheFile: null,
     });
 
@@ -172,7 +183,10 @@ describe('getSurveyPopupConfig', () => {
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       cacheFile: null,
     });
 
@@ -195,7 +209,10 @@ describe('getSurveyPopupConfig', () => {
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       cacheFile: null,
     });
 
@@ -211,7 +228,10 @@ describe('getSurveyPopupConfig', () => {
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       cacheFile: null,
     });
 
@@ -226,7 +246,10 @@ describe('getSurveyPopupConfig', () => {
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       cacheFile: null,
     });
 
@@ -237,7 +260,10 @@ describe('getSurveyPopupConfig', () => {
     const fetchImpl = jest.fn(async () => jsonResponse({ name: 'survey_popup', config: 'nope' }));
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       cacheFile: null,
     });
 
@@ -250,7 +276,10 @@ describe('getSurveyPopupConfig', () => {
     });
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       cacheFile: null,
     });
 
@@ -261,9 +290,19 @@ describe('getSurveyPopupConfig', () => {
     const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
-    await getSurveyPopupConfig(client, { fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>, now, cacheFile: null });
+    await getSurveyPopupConfig(client, {
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
+      now,
+      cacheFile: null,
+    });
     const cached = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       now: now + 60_000,
       cacheFile: null,
     });
@@ -271,7 +310,10 @@ describe('getSurveyPopupConfig', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
 
     await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       now: now + 25 * 60 * 60 * 1000,
       cacheFile: null,
     });
@@ -283,7 +325,14 @@ describe('getSurveyPopupConfig', () => {
     const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
-    await getSurveyPopupConfig(client, { fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>, now, cacheFile });
+    await getSurveyPopupConfig(client, {
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
+      now,
+      cacheFile,
+    });
 
     const persisted = JSON.parse(await readFile(cacheFile, 'utf-8')) as { config: unknown };
     expect(persisted.config).toEqual(CLOUD_CONFIG);
@@ -292,7 +341,10 @@ describe('getSurveyPopupConfig', () => {
     const result = await getSurveyPopupConfig(client, {
       fetchImpl: jest.fn(async () => {
         throw new Error('must not fetch');
-      }) as unknown as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      }) as unknown as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       now: now + 60_000,
       cacheFile,
     });
@@ -304,11 +356,21 @@ describe('getSurveyPopupConfig', () => {
     const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
-    await getSurveyPopupConfig(client, { fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>, now, cacheFile });
+    await getSurveyPopupConfig(client, {
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
+      now,
+      cacheFile,
+    });
     resetSurveyPopupConfigCache(client);
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: jest.fn(async () => jsonResponse('no', 503)) as unknown as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: jest.fn(async () => jsonResponse('no', 503)) as unknown as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       now: now + 25 * 60 * 60 * 1000,
       cacheFile,
     });
@@ -325,10 +387,22 @@ describe('peekSurveyPopupConfig', () => {
     const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
-    await getSurveyPopupConfig(client, { fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>, now, cacheFile: null });
+    await getSurveyPopupConfig(client, {
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
+      now,
+      cacheFile: null,
+    });
 
-    expect(peekSurveyPopupConfig(client, now + 60_000)).toEqual({ ...CLOUD_CONFIG, model_overrides: {} });
-    expect(peekSurveyPopupConfig(client, now + 25 * 60 * 60 * 1000)).toEqual(DEFAULT_SURVEY_POPUP_PAYLOAD);
+    expect(peekSurveyPopupConfig(client, now + 60_000)).toEqual({
+      ...CLOUD_CONFIG,
+      model_overrides: {},
+    });
+    expect(peekSurveyPopupConfig(client, now + 25 * 60 * 60 * 1000)).toEqual(
+      DEFAULT_SURVEY_POPUP_PAYLOAD,
+    );
   });
 });
 
@@ -345,7 +419,10 @@ describe('model_overrides parsing', () => {
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       cacheFile: null,
     });
 
@@ -366,7 +443,10 @@ describe('model_overrides parsing', () => {
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       cacheFile: null,
     });
 
@@ -388,7 +468,10 @@ describe('model_overrides parsing', () => {
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       cacheFile: null,
     });
 
@@ -407,7 +490,10 @@ describe('model_overrides parsing', () => {
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       cacheFile: null,
     });
 
@@ -418,12 +504,18 @@ describe('model_overrides parsing', () => {
     const fetchImpl = jest.fn(async () =>
       jsonResponse({
         name: 'survey_popup',
-        config: { ...CLOUD_CONFIG, model_overrides: { k3: 42, 'other-model': { probability: 0.5 } } },
+        config: {
+          ...CLOUD_CONFIG,
+          model_overrides: { k3: 42, 'other-model': { probability: 0.5 } },
+        },
       }),
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: fetchImpl as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       cacheFile: null,
     });
     expect(result.model_overrides).toEqual({ 'other-model': { probability: 0.5 } });
@@ -433,7 +525,10 @@ describe('model_overrides parsing', () => {
       jsonResponse({ name: 'survey_popup', config: { ...CLOUD_CONFIG, model_overrides: 'yes' } }),
     );
     const fallback = await getSurveyPopupConfig(client, {
-      fetchImpl: stringTable as unknown as (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+      fetchImpl: stringTable as unknown as (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => Promise<Response>,
       cacheFile: null,
     });
     expect(fallback.model_overrides).toEqual({});
@@ -513,10 +608,7 @@ describe('cloudSurveyPopupConfigFeed', () => {
     ],
   ])('skips the fetch when the token provider %s', async (_kind, accessToken) => {
     const stub = stubClient();
-    const feed = cloudSurveyPopupConfigFeed(
-      stub,
-      accessToken as () => Promise<string | undefined>,
-    );
+    const feed = cloudSurveyPopupConfigFeed(stub, accessToken as () => Promise<string | undefined>);
     await flush();
     expect(stub.get).not.toHaveBeenCalled();
     expect(feed.readyForEvaluation()).toBe(true);

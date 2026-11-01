@@ -157,8 +157,7 @@ function readChain(source: string, start: number): string {
 function scanReplayableStates(): ReplayableStateScan[] {
   const states: ReplayableStateScan[] = [];
   const byConst = new Map<string, ReplayableStateScan>();
-  const constChainRe =
-    /(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*=\s*defineState\(\s*'([^']+)'/g;
+  const constChainRe = /(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*=\s*defineState\(\s*'([^']+)'/g;
   for (const file of walk(SRC)) {
     const source = readFileSync(file, 'utf-8');
     if (!source.includes('.replayable(') && !source.includes('.on(')) continue;
@@ -252,10 +251,7 @@ function sketchFromJsonSchema(schema: unknown, root: JsonSchema, depth: number):
   return describeType(resolved, tsQuote);
 }
 
-function buildPayloadSketch(
-  schema: unknown,
-  staticSketch?: string | Map<string, Sketch>,
-): Sketch {
+function buildPayloadSketch(schema: unknown, staticSketch?: string | Map<string, Sketch>): Sketch {
   const jsonSchema = toJsonSchema(schema);
   if (jsonSchema === undefined) {
     if (typeof staticSketch === 'string') return staticSketch;
@@ -343,7 +339,9 @@ function emitTsDict(lines: string[], dict: SketchDict, indent: string): void {
     const fieldKey = tsFieldKey(optional ? key.slice(0, -1) : key);
     const { doc, lines: typeLines } = renderTsType(sketch, indent);
     if (doc !== undefined) lines.push(`${indent}/** ${doc} */`);
-    lines.push(`${indent}${fieldKey}${optional ? '?' : ''}: ${typeLines[0]}${typeLines.length === 1 ? ';' : ''}`);
+    lines.push(
+      `${indent}${fieldKey}${optional ? '?' : ''}: ${typeLines[0]}${typeLines.length === 1 ? ';' : ''}`,
+    );
     if (typeLines.length > 1) {
       lines.push(...typeLines.slice(1, -1));
       lines.push(`${typeLines[typeLines.length - 1]};`);
@@ -579,7 +577,16 @@ function splitTsTypeFields(body: string): Map<string, TsField> {
   return fields;
 }
 
-const TS_PRIMITIVES = new Set(['string', 'number', 'boolean', 'unknown', 'any', 'null', 'undefined', 'void']);
+const TS_PRIMITIVES = new Set([
+  'string',
+  'number',
+  'boolean',
+  'unknown',
+  'any',
+  'null',
+  'undefined',
+  'void',
+]);
 
 function renderTsFields(
   fields: Map<string, TsField>,
@@ -606,7 +613,9 @@ function findTsTypeDef(name: string, file: string): string | undefined {
   const typeRe = new RegExp(`(?:export\\s+)?type\\s+${name}(?:<[^>;=]*>)?\\s*=\\s*`);
   const m = typeRe.exec(source);
   if (m !== null) return readExpression(source, m.index + m[0].length).trim();
-  const ifaceRe = new RegExp(`(?:export\\s+)?interface\\s+${name}(?:<[^>]*>)?(?:\\s+extends[^{]+)?\\s*\\{`);
+  const ifaceRe = new RegExp(
+    `(?:export\\s+)?interface\\s+${name}(?:<[^>]*>)?(?:\\s+extends[^{]+)?\\s*\\{`,
+  );
   const im = ifaceRe.exec(source);
   if (im !== null) {
     const body = objectBody(source, im.index + im[0].length - 1);
@@ -654,7 +663,9 @@ function summarizeTsUnion(
     }
     return t;
   });
-  const bodies = resolved.map((m) => (m.trim().startsWith('{') ? objectBody(m.trim(), 0) : undefined));
+  const bodies = resolved.map((m) =>
+    m.trim().startsWith('{') ? objectBody(m.trim(), 0) : undefined,
+  );
   if (bodies.length > 0 && bodies.every((b) => b !== undefined)) {
     const fieldMaps = bodies.map((b) => splitTsTypeFields(b!));
     for (const [name, info] of fieldMaps[0]!) {
@@ -707,7 +718,9 @@ function summarizeTsTypeExpr(
   const intersections = splitTopLevel(text, ['&']);
   if (intersections.length > 1) {
     if (!spend(budget)) return truncate(text, 80);
-    const sides = intersections.map((m) => summarizeTsTypeExpr(m, file, budget, charBudget, depth + 1));
+    const sides = intersections.map((m) =>
+      summarizeTsTypeExpr(m, file, budget, charBudget, depth + 1),
+    );
     if (sides.every((side) => typeof side !== 'string' && !Array.isArray(side))) {
       return Object.assign({}, ...sides) as SketchDict;
     }
@@ -754,7 +767,10 @@ function appendArraySuffix(text: string): string {
 }
 
 function friendlyZodExpr(expr: string, ownerFile: string, depth = 0): Sketch {
-  let text = expr.replaceAll(/\s+/g, ' ').replaceAll(/\s*\.\s*/g, '.').trim();
+  let text = expr
+    .replaceAll(/\s+/g, ' ')
+    .replaceAll(/\s*\.\s*/g, '.')
+    .trim();
   let stripped = true;
   while (stripped) {
     stripped = false;
@@ -887,10 +903,7 @@ function sketchPayloadFromSource(
   const classWindow = nextType === null ? rest : rest.slice(0, nextType.index);
   const schemaMatch = /static\s+override\s+readonly\s+schema\s*=\s*/.exec(classWindow);
   if (schemaMatch === null) return undefined;
-  const schemaExpr = readExpression(
-    classWindow,
-    schemaMatch.index + schemaMatch[0].length,
-  ).trim();
+  const schemaExpr = readExpression(classWindow, schemaMatch.index + schemaMatch[0].length).trim();
   if (schemaExpr === '') return undefined;
   const literal = resolveSchemaLiteral(schemaExpr, source);
   if (literal === undefined) {

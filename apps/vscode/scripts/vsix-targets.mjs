@@ -34,9 +34,7 @@ export function normalizeVsixTargets(values) {
 
 export function assertVsixTarget(target) {
   if (VSIX_TARGETS.includes(target)) return;
-  throw new Error(
-    `Unknown VSIX target "${target}". Expected one of: ${VSIX_TARGETS.join(', ')}`,
-  );
+  throw new Error(`Unknown VSIX target "${target}". Expected one of: ${VSIX_TARGETS.join(', ')}`);
 }
 
 export function isMainModule(metaUrl) {

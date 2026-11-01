@@ -1,28 +1,29 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { UserCancellationError } from '#/_base/utils/abort';
+import type { AgentContext } from '#/agent/agentContext/agentContext';
+import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminder';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IEventBus } from '#/app/event/eventBus';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { IHostFileSystem, type HostFileStat } from '#/os/interface/hostFileSystem';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminder';
-import { IEventDispatcher } from '#/state/eventDispatcher';
 import { ErrorCodes, Error2 } from '#/errors';
-import type { AgentContext } from '#/agent/agentContext/agentContext';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { ISessionInitService } from '#/features/sessionInit/sessionInit';
 import { SessionInitService } from '#/features/sessionInit/sessionInitService';
-import { IAgentReminderService } from '#/features/reminder/reminderService';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import { IHostFileSystem, type HostFileStat } from '#/os/interface/hostFileSystem';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
+import { IEventDispatcher } from '#/state/eventDispatcher';
+import { waitForAssertion } from '#test/helpers/waitFor';
+
 import { stubAgentContext } from '../../agent/agentContext/stubs';
 
 const WORK_DIR = '/project';
@@ -173,10 +174,7 @@ describe('SessionInitService', () => {
     expect((runArgs[1] as { prompt: string }).prompt).toContain('Task requirements:');
 
     expect(appendReminder).toHaveBeenCalledTimes(1);
-    const [content, notification] = appendReminder.mock.calls[0] as [
-      string,
-      { variant: string },
-    ];
+    const [content, notification] = appendReminder.mock.calls[0] as [string, { variant: string }];
     expect(notification).toEqual({ variant: 'init' });
     expect(content).toContain('The user just ran `/init` slash command.');
     expect(content).toContain('Latest AGENTS.md file content:');

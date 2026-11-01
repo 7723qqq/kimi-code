@@ -2,31 +2,26 @@ import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
+import type { QuestionRequest, QuestionResult } from '#/agent/interaction/question';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentTaskService } from '#/agent/task/task';
+import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import {
   AskUserQuestionInputSchema,
   IAskUserQuestionTool,
   type AskUserQuestionInput,
 } from '#/agent/tools/ask-user-question/ask-user-question';
 import { AskUserQuestionTool } from '#/agent/tools/ask-user-question/askUserQuestionTool';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IAgentTaskService } from '#/agent/task/task';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
-import type {
-  QuestionRequest,
-  QuestionResult,
-} from '#/agent/interaction/question';
-import {
-  INTERACTION_TAG_AGENT_ID,
-  INTERACTION_TAG_TURN_ID,
-} from '#/human/interaction/interaction';
-import { interactions } from '#/human/interaction/facade';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import type {
   QuestionBackgroundTask,
   QuestionTaskInfo,
 } from '#/agent/tools/ask-user-question/question-background-task';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { interactions } from '#/human/interaction/facade';
+import { INTERACTION_TAG_AGENT_ID, INTERACTION_TAG_TURN_ID } from '#/human/interaction/interaction';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+
 import { executeTool } from '../../../tools/fixtures/execute-tool';
 
 const signal = new AbortController().signal;
@@ -79,21 +74,20 @@ function makeTool(
     lastTask = task;
     return 'q_test_task_id';
   });
-  const getTask = mock(
-    (id: string): QuestionTaskInfo | undefined =>
-      id === 'q_test_task_id'
-        ? {
-            taskId: id,
-            description: 'Which database?',
-            status: 'running',
-            detached: true,
-            startedAt: 0,
-            endedAt: null,
-            kind: 'question',
-            questionCount: 1,
-            toolCallId: 'call_bg',
-          }
-        : undefined,
+  const getTask = mock((id: string): QuestionTaskInfo | undefined =>
+    id === 'q_test_task_id'
+      ? {
+          taskId: id,
+          description: 'Which database?',
+          status: 'running',
+          detached: true,
+          startedAt: 0,
+          endedAt: null,
+          kind: 'question',
+          questionCount: 1,
+          toolCallId: 'call_bg',
+        }
+      : undefined,
   );
   const activeTaskTools = options.activeTaskTools ?? TASK_TOOLS;
   const ix = createServices(disposables, {
@@ -136,7 +130,14 @@ function makeTool(
   };
   disposables.add(toDisposable(interactions.onDidChangePending(answerNewPending)));
   const tool = ix.get(IAskUserQuestionTool);
-  return { tool, request, telemetryTrack, registerTask, getTask, lastRegisteredTask: () => lastTask };
+  return {
+    tool,
+    request,
+    telemetryTrack,
+    registerTask,
+    getTask,
+    lastRegisteredTask: () => lastTask,
+  };
 }
 
 describe('AskUserQuestionTool', () => {
@@ -169,9 +170,7 @@ describe('AskUserQuestionTool', () => {
   });
 
   it('rejects empty question text and empty option labels at the schema layer', () => {
-    expect(
-      AskUserQuestionInputSchema.safeParse(input({ question: '' })).success,
-    ).toBe(false);
+    expect(AskUserQuestionInputSchema.safeParse(input({ question: '' })).success).toBe(false);
     expect(
       AskUserQuestionInputSchema.safeParse(
         input({
@@ -225,10 +224,7 @@ describe('AskUserQuestionTool', () => {
 
   it('allows the same option label to appear in different questions', async () => {
     const args: AskUserQuestionInput = {
-      questions: [
-        input().questions[0]!,
-        input({ question: 'Which cache?' }).questions[0]!,
-      ],
+      questions: [input().questions[0]!, input({ question: 'Which cache?' }).questions[0]!],
     };
     expect(AskUserQuestionInputSchema.safeParse(args).success).toBe(true);
 
@@ -604,7 +600,10 @@ describe('AskUserQuestionTool', () => {
       await lastRegisteredTask()!.start(sink);
 
       expect(request).toHaveBeenCalledTimes(1);
-      expect(request.mock.calls[0]![0]).toMatchObject({ turnId: 4, toolCallId: 'call_bg_detached' });
+      expect(request.mock.calls[0]![0]).toMatchObject({
+        turnId: 4,
+        toolCallId: 'call_bg_detached',
+      });
       expect(request.mock.calls[0]![1]).toMatchObject({ detached: true });
 
       await executeTool(tool, { turnId: 4, toolCallId: 'call_fg', args: input(), signal });

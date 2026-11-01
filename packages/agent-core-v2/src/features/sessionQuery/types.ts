@@ -1,5 +1,4 @@
 export interface SessionRecord {
-
   readonly id: string;
 
   readonly workspaceId: string;
@@ -18,7 +17,6 @@ export interface SessionRecord {
 export type SessionAvailability = 'live' | 'persisted';
 
 export interface SessionResultRange {
-
   readonly from?: number;
 
   readonly to?: number;
@@ -32,7 +30,6 @@ export type SessionResultFilter =
   | { kind: 'availability'; values: readonly SessionAvailability[] };
 
 export interface SessionLineageNode {
-
   readonly session: SessionRecord;
 
   readonly descendants: readonly SessionLineageNode[];
@@ -51,7 +48,6 @@ export type {
 export { SessionSearchCursor } from './cursor';
 
 export type SessionLineageTrace = {
-
   readonly target: SessionRecord;
 
   readonly ancestors: readonly SessionRecord[];
@@ -59,13 +55,11 @@ export type SessionLineageTrace = {
   readonly descendants: readonly SessionLineageNode[];
 } & (
   | {
-
       readonly complete: true;
 
       readonly root: SessionRecord;
     }
   | {
-
       readonly complete: false;
 
       readonly unresolvedParentId: string;

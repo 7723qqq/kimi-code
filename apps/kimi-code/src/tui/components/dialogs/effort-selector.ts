@@ -91,7 +91,10 @@ export class EffortSelectorComponent extends Container implements Focusable {
     if (event.type === 'wheel') {
       const direction = this.mouse.wheel(event);
       if (direction === 0) return { handled: true };
-      const next = Math.max(0, Math.min(this.opts.efforts.length - 1, this.activeIndex + direction));
+      const next = Math.max(
+        0,
+        Math.min(this.opts.efforts.length - 1, this.activeIndex + direction),
+      );
       if (next === this.activeIndex) return { handled: true };
       this.activeIndex = next;
       return { handled: true, render: true };

@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
-import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 
 import {
   GITHUB_DEFAULT_BASE_URL,
   GITHUB_NO_TOKEN_ERROR,
   githubRequest,
 } from '#/agent/tools/github/github-request';
+import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 
 const TOKEN = 'ghp_token';
 
@@ -133,10 +133,9 @@ describe('githubRequest', () => {
   });
 
   it('normalizes non-2xx responses to GitHub API error with the raw body', async () => {
-    const fetchImpl = mock()
-      .mockResolvedValue(
-        jsonResponse({ message: 'Not Found' }, 404, { 'x-ratelimit-remaining': '4998' }),
-      );
+    const fetchImpl = mock().mockResolvedValue(
+      jsonResponse({ message: 'Not Found' }, 404, { 'x-ratelimit-remaining': '4998' }),
+    );
 
     const res = await githubRequest('GET', '/repos/o/r', { token: TOKEN }, { fetchImpl });
 
@@ -150,10 +149,9 @@ describe('githubRequest', () => {
   });
 
   it('parses the rate-limit header on success', async () => {
-    const fetchImpl = mock()
-      .mockResolvedValue(
-        jsonResponse({ full_name: 'o/r' }, 200, { 'x-ratelimit-remaining': '1234' }),
-      );
+    const fetchImpl = mock().mockResolvedValue(
+      jsonResponse({ full_name: 'o/r' }, 200, { 'x-ratelimit-remaining': '1234' }),
+    );
 
     const res = await githubRequest('GET', '/repos/o/r', { token: TOKEN }, { fetchImpl });
 

@@ -5,12 +5,12 @@
  * Run: cd packages/node-sdk && bun test test/create-session-transport.test.ts
  */
 
+import { afterEach, describe, expect, it, setDefaultTimeout } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import { join } from 'pathe';
-import { afterEach, describe, expect, it, setDefaultTimeout } from 'bun:test';
 
 // Each test boots a full v2 engine (DI container, fs watchers, minidb); on
 // Windows cold starts routinely exceed bun test's 5s default.

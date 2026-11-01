@@ -69,7 +69,8 @@ const SNAPSHOT_BLOCKERS = [
   },
   {
     pattern: /\btoThrowErrorMatchingSnapshot\s*\(/,
-    reason: 'vitest stores a thrown snapshot as [Error: msg] and bun compares against msg, so an unchanged test fails',
+    reason:
+      'vitest stores a thrown snapshot as [Error: msg] and bun compares against msg, so an unchanged test fails',
   },
 ];
 
@@ -226,7 +227,9 @@ function rewriteImports(sourceFile, text) {
      * file compiling, and the note tells the reader it needs a decision.
      */
     if (clause.isTypeOnly) {
-      blockers.push(`${statement.getText().split('\n')[0].trim()} is type-only and has no bun:test counterpart`);
+      blockers.push(
+        `${statement.getText().split('\n')[0].trim()} is type-only and has no bun:test counterpart`,
+      );
       continue;
     }
     if (clause.name) {
@@ -262,20 +265,25 @@ function rewriteImports(sourceFile, text) {
      * helpers have no drop-in equivalent, so a file using them is left alone and
      * reported rather than half-rewritten.
      */
-    const unrewritable = dropped.filter((item) => hasUnrewritableUse(sourceFile, item.local, statement));
+    const unrewritable = dropped.filter((item) =>
+      hasUnrewritableUse(sourceFile, item.local, statement),
+    );
     if (unrewritable.length > 0) {
-      const methods = unrewritable.map((item) => `${item.local}.${unrewritableMethod(sourceFile, item.local)}`);
+      const methods = unrewritable.map(
+        (item) => `${item.local}.${unrewritableMethod(sourceFile, item.local)}`,
+      );
       blockers.push(
         `${methods.join(', ')} is used but has no bun:test export, so this file was left alone`,
       );
       continue;
     }
 
-    const replacement = kept.length > 0
-      ? `import { ${[...new Set(kept)].join(', ')} } from 'bun:test';`
-      : '';
+    const replacement =
+      kept.length > 0 ? `import { ${[...new Set(kept)].join(', ')} } from 'bun:test';` : '';
     if (dropped.length > 0) {
-      notes.push(`dropped adapter(s) bun:test does not export: ${[...new Set(dropped.map((item) => item.imported))].join(', ')}`);
+      notes.push(
+        `dropped adapter(s) bun:test does not export: ${[...new Set(dropped.map((item) => item.imported))].join(', ')}`,
+      );
     }
     edits.push({
       start: statement.getStart(),
@@ -330,7 +338,8 @@ function resolvesNotToThrowArgument(node) {
   const notAccess = callee.expression;
   if (!ts.isPropertyAccessExpression(notAccess) || notAccess.name.text !== 'not') return;
   const resolvesAccess = notAccess.expression;
-  if (!ts.isPropertyAccessExpression(resolvesAccess) || resolvesAccess.name.text !== 'resolves') return;
+  if (!ts.isPropertyAccessExpression(resolvesAccess) || resolvesAccess.name.text !== 'resolves')
+    return;
   const expectCall = resolvesAccess.expression;
   if (
     !ts.isCallExpression(expectCall) ||

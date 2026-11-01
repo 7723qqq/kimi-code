@@ -4,10 +4,7 @@ import { Component, type ReactNode } from 'react';
  *  from a malformed imported wire record) unmounts the React root and leaves
  *  a blank page until the user reloads. Individual readers guard their own
  *  payloads; this only catches what slips through. */
-export class RootErrorBoundary extends Component<
-  { children: ReactNode },
-  { error: Error | null }
-> {
+export class RootErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   override state: { error: Error | null } = { error: null };
 
   static getDerivedStateFromError(error: Error): { error: Error } {

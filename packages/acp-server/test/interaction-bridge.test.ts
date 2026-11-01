@@ -1,9 +1,10 @@
+import { describe, expect, it, mock, spyOn } from 'bun:test';
+
 import type { RequestPermissionResponse } from '@agentclientprotocol/sdk';
 import { RequestError } from '@agentclientprotocol/sdk';
 import type { Interaction } from '@moonshot-ai/agent-core-v2';
 import type { ToolInputDisplay } from '@moonshot-ai/agent-core-v2/contract';
 import type { SessionHandle } from '@moonshot-ai/klient';
-import { describe, expect, it, mock, spyOn } from 'bun:test';
 
 import type { AcpClient } from '../src/acp-client';
 import { AcpInteractionBridge } from '../src/interaction-bridge';

@@ -1,7 +1,4 @@
-import {
-  createKimiDeviceId,
-  KIMI_CODE_PROVIDER_NAME,
-} from '@moonshot-ai/kimi-code-oauth';
+import { createKimiDeviceId, KIMI_CODE_PROVIDER_NAME } from '@moonshot-ai/kimi-code-oauth';
 import {
   KimiAuthFacade,
   loadRuntimeConfigSafe,

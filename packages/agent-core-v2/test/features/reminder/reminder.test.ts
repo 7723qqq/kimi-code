@@ -1,20 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
 
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { ContextSpliced } from '#/agent/contextMemory/contextEvents';
-import type { ContextMessage } from '#/agent/contextMemory/types';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { contextMemoryKey } from '#/agent/contextMemory/contextOps';
+import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService } from '#/agent/loop/loop';
-import { ReminderFeature } from '#/features/reminder/reminderFeature';
-import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { IEventBus } from '#/app/event/eventBus';
 import { IFeatureManager } from '#/app/feature/featureManager';
+import { ReminderFeature } from '#/features/reminder/reminderFeature';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
+import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
+
+import { runWillBeginStepHooks, type StubLoop } from '../../agent/loop/stubs';
 import { createTestAgent, type TestAgentContext } from '../../harness';
-import {
-  runWillBeginStepHooks,
-  type StubLoop,
-} from '../../agent/loop/stubs';
 
 function userMessage(text: string): ContextMessage {
   return {
@@ -231,10 +229,7 @@ describe('AgentReminderService', () => {
     await runInjectionStep();
 
     expect(seen).toEqual([null, 0, 0]);
-    expect(context.get().map((message) => message.origin?.kind)).toEqual([
-      'injection',
-      'user',
-    ]);
+    expect(context.get().map((message) => message.origin?.kind)).toEqual(['injection', 'user']);
   });
 
   it('resets every stored injection index after context clear', async () => {
@@ -272,11 +267,7 @@ describe('AgentReminderService', () => {
     });
 
     await runInjectionStep();
-    spliceContext(
-      0,
-      2,
-      [compactionSummary('Compacted summary.')],
-    );
+    spliceContext(0, 2, [compactionSummary('Compacted summary.')]);
     await runInjectionStep();
 
     expect(seen).toEqual([null, null]);
@@ -290,10 +281,7 @@ describe('AgentReminderService', () => {
     const seenA: Array<number | null> = [];
     const seenB: Array<number | null> = [];
 
-    context.append(
-      userMessage('old request'),
-      userMessage('old follow-up'),
-    );
+    context.append(userMessage('old request'), userMessage('old follow-up'));
     reminder.register('recording_a', ({ lastInjectedAt }) => {
       seenA.push(lastInjectedAt);
       return lastInjectedAt === null ? 'recorded reminder A' : undefined;

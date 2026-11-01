@@ -34,7 +34,7 @@ if (result.ok) {
 - `ParseOptions`: `{ timeoutMs?: number; maxNodes?: number }` (defaults
   50 ms / 50 000 nodes; `timeoutMs: Infinity` disables the time check).
 - `SyntaxNode`: `{ type, text, startIndex, endIndex, isNamed, parent,
-  children, namedChildren }`. Named node types come from tree-sitter-bash's
+children, namedChildren }`. Named node types come from tree-sitter-bash's
   `node-types.json`; `children` includes the anonymous (punctuation /
   keyword token) nodes as well, `namedChildren` only the named ones, and
   `descendantsOfType(root, ...types)` walks named descendants.
@@ -143,9 +143,9 @@ and pinned by a stored expectation in `test/fixtures/` — see
 - A trailing connector (`ls &&`, `ls |`) yields a single-child
   `list` / `pipeline` with `hasError: true`; tree-sitter-bash inserts a
   zero-width `command` recovery node.
-- An empty backtick substitution (`` `` ``), or a pair containing only
-  whitespace, is a `command_substitution` with no statements;
-  tree-sitter-bash treats the two backticks as a single `` `` `` token
+- An empty backtick substitution (` ` ``), or a pair containing only
+whitespace, is a `command_substitution` with no statements;
+tree-sitter-bash treats the two backticks as a single `` ` ` token
   that is only valid inside a concatenation and errors in argument
   position.
 - An empty command substitution (`$( )`) is a clean `command_substitution`

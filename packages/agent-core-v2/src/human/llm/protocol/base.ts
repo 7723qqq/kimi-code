@@ -1,7 +1,7 @@
-import type { LlmLogger } from '#/log/log';
 import type { ModelCapability } from '#/llm/capability';
 import type { LlmModel } from '#/llm/model';
 import type { LlmErrorClassifier, LlmRequester } from '#/llm/requester/requester';
+import type { LlmLogger } from '#/log/log';
 
 import type { ProviderConnection } from './connection';
 

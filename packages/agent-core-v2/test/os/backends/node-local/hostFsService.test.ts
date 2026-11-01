@@ -1,11 +1,11 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import { join } from 'pathe';
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { supportsSymlinks } from '#test/helpers/symlinks';
 
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
+import { supportsSymlinks } from '#test/helpers/symlinks';
 
 let dir: string;
 let fs: HostFileSystem;
@@ -84,7 +84,6 @@ describe('HostFileSystem stat / lstat', () => {
       },
     );
   });
-
 });
 
 describe('HostFileSystem streamed UTF-8 lines', () => {
@@ -102,7 +101,8 @@ describe('HostFileSystem streamed UTF-8 lines', () => {
     const path = join(dir, 'invalid.txt');
     await writeFile(path, Buffer.from([0x61, 0x0a, 0xc3]));
     const read = async () => {
-      for await (const _line of fs.readLines(path, { errors: 'strict' })) {}
+      for await (const _line of fs.readLines(path, { errors: 'strict' })) {
+      }
     };
     await expect(read()).rejects.toThrow();
   });

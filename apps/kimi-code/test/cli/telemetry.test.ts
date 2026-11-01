@@ -5,8 +5,10 @@
 
 import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 import { createRequire } from 'node:module';
-import { setEnv, restoreEnvs } from '../helpers/stubs';
+
 import { resetKimiRegionCache } from '#/utils/region';
+
+import { setEnv, restoreEnvs } from '../helpers/stubs';
 
 const requireReal = createRequire(import.meta.url);
 

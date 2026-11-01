@@ -8,11 +8,10 @@
 // path-predicated wrappers, plus the barrier facility from helpers.ts for
 // deterministic mid-build crash points.
 
+import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-
-import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 
 import { CompoundIndexManager } from '../src/compound-index.js';
 import { crc32 } from '../src/crc32.js';

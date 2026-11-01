@@ -1,12 +1,12 @@
 import type { ServiceRegistration } from '#/_base/di/test';
 import { buildContextCompactionShape } from '#/agent/contextMemory/compactionHandoff';
+import { ContextSpliced } from '#/agent/contextMemory/contextEvents';
 import {
   IAgentContextMemoryService,
   type ContextCompactionInput,
   type ContextCompactionResult,
 } from '#/agent/contextMemory/contextMemory';
 import { computeUndoCut, type UndoCut } from '#/agent/contextMemory/contextOps';
-import { ContextSpliced } from '#/agent/contextMemory/contextEvents';
 import type { LoopRecordedEvent } from '#/agent/contextMemory/loopEventFold';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IEventBus, type ISessionEventBus } from '#/app/event/eventBus';

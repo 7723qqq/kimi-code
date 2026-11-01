@@ -21,11 +21,11 @@
  * derives from transcript state (`meta.activity` / running turns).
  */
 
-import { IAgentLoopService } from '@moonshot-ai/agent-core-v2/agent/loop/loop';
 import {
   type QuestionItem,
   type QuestionRequest,
 } from '@moonshot-ai/agent-core-v2/agent/interaction/question';
+import { IAgentLoopService } from '@moonshot-ai/agent-core-v2/agent/loop/loop';
 import {
   EMPTY_AGENT_STATE,
   itemId,
@@ -934,8 +934,7 @@ function AttachmentChips({
             className="rounded border border-neutral-700 bg-neutral-900 px-2 py-0.5 text-[10px] text-neutral-400"
             title={attachment?.mediaType}
           >
-            📎{' '}
-            <AttachmentLink attachment={attachment} label={label} />
+            📎 <AttachmentLink attachment={attachment} label={label} />
           </span>
         );
       })}
@@ -1198,7 +1197,11 @@ function InteractionEntityView({
       });
       const other = (others[question.question] ?? '').trim();
       if (other !== '' && optionIds.length > 0) {
-        answers[`q_${index}`] = { kind: 'multi_with_other', option_ids: optionIds, other_text: other };
+        answers[`q_${index}`] = {
+          kind: 'multi_with_other',
+          option_ids: optionIds,
+          other_text: other,
+        };
       } else if (other !== '') {
         answers[`q_${index}`] = { kind: 'other', text: other };
       } else if (optionIds.length > 1 || (question.multiSelect === true && optionIds.length > 0)) {

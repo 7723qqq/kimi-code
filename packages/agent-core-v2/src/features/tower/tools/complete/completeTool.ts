@@ -8,12 +8,12 @@ import type { ToolExecution } from '#/tool/toolContract';
 
 import { deliverTowerMessage } from '../delivery';
 import { newTowerStore, runTowerTool } from '../support';
-import DESCRIPTION from './complete.md?raw';
 import {
   ITowerCompleteTool,
   TowerCompleteToolInputSchema,
   type TowerCompleteToolInput,
 } from './complete';
+import DESCRIPTION from './complete.md?raw';
 
 export class TowerCompleteTool implements ITowerCompleteTool {
   declare readonly _serviceBrand: undefined;
@@ -40,10 +40,7 @@ export class TowerCompleteTool implements ITowerCompleteTool {
             await store.loadOrRecover(),
             this.scopeContext.agentId,
           );
-          const result = await store.complete(
-            resolved.caller,
-            args.report.trim(),
-          );
+          const result = await store.complete(resolved.caller, args.report.trim());
           const delivery =
             result.message !== undefined
               ? deliverTowerMessage(

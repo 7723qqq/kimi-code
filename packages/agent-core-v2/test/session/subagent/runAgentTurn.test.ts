@@ -153,10 +153,9 @@ describe('runAgentTurn', () => {
   });
 
   it('still reports max tokens as a failure', async () => {
-    const { handle } = handleWith(
-      makeTurn({ type: 'completed', steps: 1, truncated: true }),
-      [assistant('cut off')],
-    );
+    const { handle } = handleWith(makeTurn({ type: 'completed', steps: 1, truncated: true }), [
+      assistant('cut off'),
+    ]);
     const run = await runAgentTurn(handle, { kind: 'prompt', prompt: 'find it' }, { signal });
     const error = await rejection(run.completion);
     expect(isError2(error) && error.code).toBe(ErrorCodes.AGENT_MAX_TOKENS_EXCEEDED);
@@ -169,7 +168,9 @@ describe('runAgentTurn', () => {
     );
     await runAgentTurn(handle, { kind: 'prompt', prompt: 'find it' }, { signal });
 
-    const submitted = prompts[0] as { meta: { origin: { kind: string; backgroundHelper?: string } } };
+    const submitted = prompts[0] as {
+      meta: { origin: { kind: string; backgroundHelper?: string } };
+    };
     expect(submitted.meta.origin.kind).toBe('system_trigger');
     expect(submitted.meta.origin.backgroundHelper).toBeUndefined();
   });

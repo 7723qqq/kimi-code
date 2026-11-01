@@ -84,7 +84,10 @@ export async function persistProviderWrite(
   harness: ProviderWriteHarness,
   write: ProviderWrite,
 ): Promise<void> {
-  if (harness.supportsAtomicSectionReplace?.() === true && harness.replaceConfigSections !== undefined) {
+  if (
+    harness.supportsAtomicSectionReplace?.() === true &&
+    harness.replaceConfigSections !== undefined
+  ) {
     // Every key is passed even when its value is `undefined`: that is how a
     // dangling default pointer is cleared rather than left pointing at an alias
     // the write just removed.

@@ -62,15 +62,21 @@ const TREE = [
   'apps/kimi-code/src/types.ts',
 ] as const;
 
-function harness(options: {
-  readonly flagOn?: boolean;
-  readonly stub?: GitMemoryIndex | undefined;
-  readonly messages?: unknown[];
-  readonly memories?: readonly MemoryFixture[];
-  readonly head?: { readonly repoRoot: string; readonly prefix: string; readonly headSha: string };
-  readonly tree?: readonly string[];
-  readonly memoryStoreFails?: boolean;
-} = {}): Harness {
+function harness(
+  options: {
+    readonly flagOn?: boolean;
+    readonly stub?: GitMemoryIndex | undefined;
+    readonly messages?: unknown[];
+    readonly memories?: readonly MemoryFixture[];
+    readonly head?: {
+      readonly repoRoot: string;
+      readonly prefix: string;
+      readonly headSha: string;
+    };
+    readonly tree?: readonly string[];
+    readonly memoryStoreFails?: boolean;
+  } = {},
+): Harness {
   const state = { spawns: 0, registered: [] as string[] };
   const process = {
     _serviceBrand: undefined as undefined,
@@ -83,9 +89,7 @@ function harness(options: {
       const entries =
         pathspec === undefined
           ? options.tree
-          : options.tree.filter(
-              (entry) => entry === pathspec || entry.startsWith(`${pathspec}/`),
-            );
+          : options.tree.filter((entry) => entry === pathspec || entry.startsWith(`${pathspec}/`));
       return {
         _serviceBrand: undefined as undefined,
         pid: 1,

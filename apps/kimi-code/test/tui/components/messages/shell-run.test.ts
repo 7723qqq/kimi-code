@@ -1,5 +1,6 @@
-import chalk from 'chalk';
 import { afterEach, describe, expect, it } from 'bun:test';
+
+import chalk from 'chalk';
 
 import { ShellRunComponent } from '#/tui/components/messages/shell-run';
 import { currentTheme, darkColors, lightColors } from '#/tui/theme';
@@ -218,7 +219,11 @@ describe('ShellRunComponent hasHiddenContent', () => {
     expect(c.hasHiddenContent()).toBe(false);
 
     const foldable = create();
-    foldable.finish(Array.from({ length: 12 }, (_, i) => `row ${String(i + 1)}`).join('\n'), '', false);
+    foldable.finish(
+      Array.from({ length: 12 }, (_, i) => `row ${String(i + 1)}`).join('\n'),
+      '',
+      false,
+    );
     foldable.render(100);
     expect(foldable.hasHiddenContent()).toBe(true);
   });
@@ -235,7 +240,11 @@ describe('ShellRunComponent hasHiddenContent when finished while expanded', () =
   it('still reports the rows a collapse would hide, without a prior collapsed render', () => {
     component = new ShellRunComponent(() => {});
     component.setExpanded(true);
-    component.finish(Array.from({ length: 20 }, (_, i) => `row ${String(i + 1)}`).join('\n'), '', false);
+    component.finish(
+      Array.from({ length: 20 }, (_, i) => `row ${String(i + 1)}`).join('\n'),
+      '',
+      false,
+    );
     component.render(100);
     expect(component.hasHiddenContent()).toBe(true);
   });

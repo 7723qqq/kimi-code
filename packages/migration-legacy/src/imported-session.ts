@@ -41,7 +41,11 @@ export async function writeImportedSession(input: ImportedSessionInput): Promise
   const sessionDir = importedSessionDir(input.targetHome, input.workDir, input.sessionId);
   await writeMainAgentWire(sessionDir, {
     createdAtMs: input.updatedAtMs,
-    messages: input.messages.map((message) => ({ role: message.role, content: message.content, toolCalls: [] })),
+    messages: input.messages.map((message) => ({
+      role: message.role,
+      content: message.content,
+      toolCalls: [],
+    })),
   });
   const state = {
     id: input.sessionId,
@@ -55,10 +59,16 @@ export async function writeImportedSession(input: ImportedSessionInput): Promise
     isCustomTitle: false,
     lastPrompt: input.lastPrompt.slice(0, 200),
     lastTurnReason: 'completed',
-    agents: { main: { homedir: join(sessionDir, 'agents', 'main'), type: 'main', parentAgentId: null } },
+    agents: {
+      main: { homedir: join(sessionDir, 'agents', 'main'), type: 'main', parentAgentId: null },
+    },
     custom: input.custom,
   };
   await writeFile(join(sessionDir, 'state.json'), JSON.stringify(state, null, 2), 'utf-8');
-  await ensureSessionIndexEntry(input.targetHome, { sessionId: input.sessionId, sessionDir, workDir: input.workDir });
+  await ensureSessionIndexEntry(input.targetHome, {
+    sessionId: input.sessionId,
+    sessionDir,
+    workDir: input.workDir,
+  });
   return sessionDir;
 }

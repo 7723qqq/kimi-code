@@ -1,12 +1,12 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { Command } from 'commander';
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { restoreEnvs } from '#test/helpers/stubs';
 
 import { handleDoctor, registerDoctorCommand, type DoctorDeps } from '#/cli/sub/doctor';
+import { restoreEnvs } from '#test/helpers/stubs';
 
 let dir: string;
 

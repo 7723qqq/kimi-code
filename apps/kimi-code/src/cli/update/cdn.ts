@@ -83,12 +83,7 @@ async function fetchUpdateManifestFromCdn(
   timeoutMs: number,
   clock: RenderClock,
 ): Promise<UpdateManifest> {
-  const response = await fetchWithTimeout(
-    fetchImpl,
-    kimiCodeCdnLatestJsonUrl(),
-    timeoutMs,
-    clock,
-  );
+  const response = await fetchWithTimeout(fetchImpl, kimiCodeCdnLatestJsonUrl(), timeoutMs, clock);
   if (!response.ok) {
     throw new Error(`CDN /latest.json returned HTTP ${response.status}`);
   }

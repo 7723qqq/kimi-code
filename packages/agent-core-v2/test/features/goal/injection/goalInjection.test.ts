@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { waitForAssertion } from '#test/helpers/waitFor';
-import type { ToolCall } from '#human/llm/message';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentLoopService } from '#/agent/loop/loop';
-import { runWillBeginStepHooks, type StubLoop } from '../../../agent/loop/stubs';
-import { IAgentGoalService } from '#/features/goal/goalService';
-
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentGoalService } from '#/features/goal/goalService';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
+import type { ToolCall } from '#human/llm/message';
+import { waitForAssertion } from '#test/helpers/waitFor';
+
+import { runWillBeginStepHooks, type StubLoop } from '../../../agent/loop/stubs';
 import {
   InMemoryWireRecordPersistence,
   agentService,
@@ -94,9 +94,13 @@ describe('GoalInjection content', () => {
 
     await injectDynamic(local, true);
     expect(lastGoalReminder(localContext)).toContain('<untrusted_objective>');
-    expect(localContext.get().filter((message) =>
-      message.origin?.kind === 'injection' && message.origin.variant === 'goal'
-    )).toHaveLength(1);
+    expect(
+      localContext
+        .get()
+        .filter(
+          (message) => message.origin?.kind === 'injection' && message.origin.variant === 'goal',
+        ),
+    ).toHaveLength(1);
 
     await local.dispose();
     const count = localContext.get().length;
@@ -143,7 +147,9 @@ describe('GoalInjection content', () => {
         completionCriterion: 'tests pass',
       });
     }))!;
-    expect(text).toContain('<untrusted_completion_criterion>\ntests pass\n</untrusted_completion_criterion>');
+    expect(text).toContain(
+      '<untrusted_completion_criterion>\ntests pass\n</untrusted_completion_criterion>',
+    );
   });
 
   it('escapes objective and completion criterion delimiters inside untrusted wrappers', async () => {
@@ -357,7 +363,6 @@ describe('GoalInjection integration', () => {
       await expect(flushedGoalReminderRecords(ctx, persistence)).resolves.toHaveLength(0);
     });
   });
-
 });
 
 describe('GoalInjection tail anchor', () => {

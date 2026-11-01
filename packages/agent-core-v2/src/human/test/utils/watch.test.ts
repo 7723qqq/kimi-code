@@ -1,12 +1,9 @@
+import { afterEach, describe, expect, it } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, realpathSync } from 'node:fs';
 import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
-
-import { afterEach, describe, expect, it } from 'bun:test';
-
-import { waitForAssertion } from '../../../../test/helpers/waitFor';
 
 import {
   createWatchService,
@@ -17,6 +14,8 @@ import {
   type WatchHandle,
   type WatchRuntime,
 } from '#/utils/watch';
+
+import { waitForAssertion } from '../../../../test/helpers/waitFor';
 
 const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 const longTempDir = (prefix: string): Promise<string> =>
@@ -478,7 +477,9 @@ describe('watch chokidar mode', () => {
     await waitForAssertion(() =>
       expect(events.some((e) => e.path === join(root, 'top.txt'))).toBe(true),
     );
-    await waitForAssertion(() => expect(events.some((e) => e.path === join(root, 'sub'))).toBe(true));
+    await waitForAssertion(() =>
+      expect(events.some((e) => e.path === join(root, 'sub'))).toBe(true),
+    );
     expect(events.some((e) => e.path.endsWith('nested.txt'))).toBe(false);
   });
 

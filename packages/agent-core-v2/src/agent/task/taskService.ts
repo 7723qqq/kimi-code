@@ -1,5 +1,3 @@
-import { errorMessage } from '#/_base/utils/errorMessage';
-import { formatTaskList } from '#/agent/tools/task/task-list/taskListTool';
 import { randomBytes } from 'node:crypto';
 
 import { join } from 'pathe';
@@ -9,28 +7,26 @@ import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { abortable, userCancellationReason } from '#/_base/utils/abort';
+import { errorMessage } from '#/_base/utils/errorMessage';
 import { escapeXml, escapeXmlAttr, escapeXmlTags } from '#/_base/utils/xml-escape';
 import { ContextAppendMessage, ContextSpliced } from '#/agent/contextMemory/contextEvents';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentConversationUndoParticipantRegistry } from '#/agent/contextMemory/conversationUndoParticipants';
 import type { TaskOrigin } from '#/agent/contextMemory/types';
 import { IAgentLoopService, type LoopNotifyHandle } from '#/agent/loop/loop';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { WarningIssued } from '#/agent/profile/profileOps';
-import '#/agent/contextMemory/conversationTime';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
+import '#/agent/contextMemory/conversationTime';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { formatTaskList } from '#/agent/tools/task/task-list/taskListTool';
 import { WAIT_FOR_FLAG_ID } from '#/agent/tools/task/task-wait/flag';
-import { IFlagService } from '#/app/flag/flag';
-import { ITaskService, type ITaskHandle, TERMINAL_TASK_STATES } from '#/app/task/task';
-import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
-import { renderNotificationXml } from './notificationXml';
-import { formatTaskWallTime } from './wallTime';
-
 import { IConfigService } from '#/app/config/config';
 import { IEventBus, ISessionEventBus } from '#/app/event/eventBus';
+import { IFlagService } from '#/app/flag/flag';
 import { LifecycleScope } from '#/app/scopes';
+import { ITaskService, type ITaskHandle, TERMINAL_TASK_STATES } from '#/app/task/task';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { Error2, ErrorCodes } from '#/errors';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
@@ -38,12 +34,14 @@ import { IHostClock } from '#/os/interface/hostClock';
 import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { defineState } from '#/state/state';
 import type { ContentPart } from '#human/llm/message';
 
 import { resolveAgentTaskConfig } from './configSection';
+import { renderNotificationXml } from './notificationXml';
 import { AgentTaskPersistence } from './persist';
 import {
   IAgentTaskService,
@@ -58,7 +56,6 @@ import {
   type IAgentTaskEntry,
   type RegisterAgentTaskOptions,
 } from './task';
-import { alignToCharacterStart } from './textAlign';
 import {
   taskKey,
   TaskNotified,
@@ -67,7 +64,9 @@ import {
   TaskTerminated,
   TaskWaitDelivered,
 } from './taskOps';
+import { alignToCharacterStart } from './textAlign';
 import { TERMINAL_STATUSES, type AgentTaskInfoBase, type AgentTaskSettlement } from './types';
+import { formatTaskWallTime } from './wallTime';
 import '#/agent/tools/task/task-output/taskOutputTool';
 import '#/agent/tools/task/task-stop/taskStopTool';
 import '#/agent/tools/task/task-wait/taskWaitTool';
@@ -316,7 +315,8 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
             !flags.enabled(WAIT_FOR_FLAG_ID) ||
             tools.resolve('WaitFor') === undefined ||
             !policy.isToolActive('WaitFor')
-          ) return undefined;
+          )
+            return undefined;
           return SUBAGENT_BACKGROUND_TASK_NOTICE;
         }),
       );
@@ -1758,7 +1758,6 @@ function createForegroundRelease(): ForegroundRelease {
   });
   return { promise, resolve };
 }
-
 
 function previousSessionTaskLine(info: AgentTaskInfo): string {
   if (info.kind === 'agent' && info.agentId !== undefined) {

@@ -60,7 +60,15 @@ describe('todoListStaleReminder', () => {
     const history = assistantSteps(10);
     const result = todoListStaleReminder({
       history,
-      todos: [{ id: 'x', parentId: null, kind: 'task', title: 'Investigate todo reminder', status: 'in_progress' }],
+      todos: [
+        {
+          id: 'x',
+          parentId: null,
+          kind: 'task',
+          title: 'Investigate todo reminder',
+          status: 'in_progress',
+        },
+      ],
       active: false,
     });
 
@@ -69,8 +77,20 @@ describe('todoListStaleReminder', () => {
 
   it('injects a reminder after enough assistant steps since the last TodoList write', async () => {
     const todos: TodoItem[] = [
-      { id: 'x', parentId: null, kind: 'task', title: 'Read current TodoList implementation', status: 'in_progress' },
-      { id: 'x', parentId: null, kind: 'task', title: 'Add reminder injector tests', status: 'pending' },
+      {
+        id: 'x',
+        parentId: null,
+        kind: 'task',
+        title: 'Read current TodoList implementation',
+        status: 'in_progress',
+      },
+      {
+        id: 'x',
+        parentId: null,
+        kind: 'task',
+        title: 'Add reminder injector tests',
+        status: 'pending',
+      },
     ];
     const history = [todoListWrite(todos), ...assistantSteps(10)];
     const result = todoListStaleReminder({ history, todos, active: true });
@@ -82,7 +102,9 @@ describe('todoListStaleReminder', () => {
   });
 
   it('does not inject before the assistant-step threshold', async () => {
-    const todos: TodoItem[] = [{ id: 'x', parentId: null, kind: 'task', title: 'Read code', status: 'in_progress' }];
+    const todos: TodoItem[] = [
+      { id: 'x', parentId: null, kind: 'task', title: 'Read code', status: 'in_progress' },
+    ];
     const history = [todoListWrite(todos), ...assistantSteps(9)];
     const result = todoListStaleReminder({ history, todos, active: true });
 
@@ -90,7 +112,9 @@ describe('todoListStaleReminder', () => {
   });
 
   it('does not inject another reminder before the reminder spacing threshold', async () => {
-    const todos: TodoItem[] = [{ id: 'x', parentId: null, kind: 'task', title: 'Read code', status: 'in_progress' }];
+    const todos: TodoItem[] = [
+      { id: 'x', parentId: null, kind: 'task', title: 'Read code', status: 'in_progress' },
+    ];
     const history = [
       todoListWrite(todos),
       ...assistantSteps(10),
@@ -103,7 +127,9 @@ describe('todoListStaleReminder', () => {
   });
 
   it('injects again once the reminder spacing threshold has passed', async () => {
-    const todos: TodoItem[] = [{ id: 'x', parentId: null, kind: 'task', title: 'Read code', status: 'in_progress' }];
+    const todos: TodoItem[] = [
+      { id: 'x', parentId: null, kind: 'task', title: 'Read code', status: 'in_progress' },
+    ];
     const history = [
       todoListWrite(todos),
       ...assistantSteps(10),
@@ -116,7 +142,9 @@ describe('todoListStaleReminder', () => {
   });
 
   it('does not treat TodoList query mode as a write', async () => {
-    const todos: TodoItem[] = [{ id: 'x', parentId: null, kind: 'task', title: 'Read code', status: 'in_progress' }];
+    const todos: TodoItem[] = [
+      { id: 'x', parentId: null, kind: 'task', title: 'Read code', status: 'in_progress' },
+    ];
     const history = [
       todoListWrite(todos),
       ...assistantSteps(8),
@@ -147,7 +175,9 @@ describe('todoListStaleReminder', () => {
 });
 
 describe('todoListWriteStatsBefore', () => {
-  const todos: TodoItem[] = [{ id: 'x', parentId: null, kind: 'task', title: 'Read code', status: 'in_progress' }];
+  const todos: TodoItem[] = [
+    { id: 'x', parentId: null, kind: 'task', title: 'Read code', status: 'in_progress' },
+  ];
 
   it('counts the steps since the previous write and notices a reminder in between', () => {
     const history = [

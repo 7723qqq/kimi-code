@@ -1,7 +1,5 @@
-import { PassThrough, Readable, type Writable } from 'node:stream';
-
 import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
-import { waitForAssertion } from '#test/helpers/waitFor';
+import { PassThrough, Readable, type Writable } from 'node:stream';
 
 import type { IDisposable } from '#/_base/di/lifecycle';
 import { isUserCancellation } from '#/_base/utils/abort';
@@ -45,6 +43,7 @@ import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 import type { WireRecord } from '#/wire/record';
 import type { ToolCall } from '#human/llm/message';
 import type { TokenUsage } from '#human/llm/usage';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { stubAgentContext } from '../../agent/agentContext/stubs';
 import { stubLoopWithHooks, type StubLoop, type StubTurn } from '../../agent/loop/stubs';

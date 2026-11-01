@@ -6,11 +6,10 @@
  * and `sleep` for determinism. The storage is an in-memory implementation.
  */
 
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import {
   DeviceCodeTimeoutError,
@@ -403,8 +402,9 @@ describe('OAuthManager.ensureFresh', () => {
       'kimi-code',
       makeToken({ expiresAt: currentNow + 7200, refreshToken: 'rt-revoked' }),
     );
-    const refreshImpl = mock()
-      .mockRejectedValue(new OAuthUnauthorizedError('refresh_token revoked'));
+    const refreshImpl = mock().mockRejectedValue(
+      new OAuthUnauthorizedError('refresh_token revoked'),
+    );
     const mgr = new OAuthManager({
       config,
       storage,
@@ -502,9 +502,7 @@ describe('OAuthManager.ensureFresh — logout during a locked refresh', () => {
     const refreshImpl = mock().mockResolvedValue(makeToken({ accessToken: 'resurrected' }));
     const mgr = new OAuthManager({ config, storage, now, refreshTokenImpl: refreshImpl });
 
-    await expect(mgr.ensureFresh({ force: true })).rejects.toThrow(
-      /was removed while refreshing/,
-    );
+    await expect(mgr.ensureFresh({ force: true })).rejects.toThrow(/was removed while refreshing/);
 
     expect(refreshImpl).not.toHaveBeenCalled();
     expect(await storage.load('kimi-code')).toBeUndefined();
@@ -570,8 +568,9 @@ describe('OAuthManager.ensureFresh — rejected refresh token retention', () => 
         expiresAt: 0,
       }),
     );
-    const refreshImpl = mock()
-      .mockResolvedValue(makeToken({ accessToken: 'at-should-not-refresh' }));
+    const refreshImpl = mock().mockResolvedValue(
+      makeToken({ accessToken: 'at-should-not-refresh' }),
+    );
     const mgr = new OAuthManager({
       config,
       storage,

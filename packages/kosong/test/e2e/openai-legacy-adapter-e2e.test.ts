@@ -5,7 +5,6 @@ import type { StreamedMessage } from '#/provider';
 import { OpenAILegacyChatProvider } from '#/providers/openai-legacy';
 import type { Tool } from '#/tool';
 
-
 import { createFakeProviderHarness, type FakeProviderHarness } from './fake-provider-harness';
 
 function createProvider(baseUrl: string): OpenAILegacyChatProvider {

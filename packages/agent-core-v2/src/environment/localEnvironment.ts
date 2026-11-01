@@ -6,7 +6,12 @@ import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IHostProcessService } from '#/os/interface/hostProcess';
 
-import type { Environment, EnvironmentCapability, EnvironmentPath, EnvironmentStatus } from './environment';
+import type {
+  Environment,
+  EnvironmentCapability,
+  EnvironmentPath,
+  EnvironmentStatus,
+} from './environment';
 
 let nextGeneration = 1;
 

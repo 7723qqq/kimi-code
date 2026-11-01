@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'bun:test';
 
-import { ProtocolAdapterRegistry } from '#/llm-adapter/protocol/protocolAdapterRegistry';
 import {
   declaredDefaultEffortForModel,
   defaultThinkingEffortForModel,
@@ -12,6 +11,7 @@ import {
   resolveThinkingKeep,
   usesTraitDrivenThinking,
 } from '#/llm-adapter/model/thinking';
+import { ProtocolAdapterRegistry } from '#/llm-adapter/protocol/protocolAdapterRegistry';
 
 const registry = new ProtocolAdapterRegistry();
 

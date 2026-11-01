@@ -1,6 +1,16 @@
 import { describe, expect, it, mock } from 'bun:test';
 
-import { applyOpenPlatformConfig, capabilitiesForModel, fetchOpenPlatformModels, filterModelsByPrefix, getOpenPlatformById, isOpenPlatformId, OpenPlatformApiError, removeOpenPlatformConfig, type ManagedKimiConfigShape } from '../src/open-platform';
+import {
+  applyOpenPlatformConfig,
+  capabilitiesForModel,
+  fetchOpenPlatformModels,
+  filterModelsByPrefix,
+  getOpenPlatformById,
+  isOpenPlatformId,
+  OpenPlatformApiError,
+  removeOpenPlatformConfig,
+  type ManagedKimiConfigShape,
+} from '../src/open-platform';
 
 function makeModelsResponse(): Response {
   return new Response(

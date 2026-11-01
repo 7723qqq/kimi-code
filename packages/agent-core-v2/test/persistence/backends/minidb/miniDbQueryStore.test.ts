@@ -1,9 +1,9 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { promises as fsp } from 'node:fs';
 import os from 'node:os';
 import { join } from 'node:path';
 
 import { ClusterDb } from '@moonshot-ai/minidb/cluster';
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import {
   ScopeActivation,
@@ -19,6 +19,7 @@ import {
   MiniDbQueryStore,
 } from '#/persistence/backends/minidb/miniDbQueryStore';
 import { IQueryStore, QueryStoreRebuiltError } from '#/persistence/interface/queryStore';
+
 import { stubLog } from '../../../_base/log/stubs';
 import { stubBootstrap } from '../../../app/bootstrap/stubs';
 
@@ -229,7 +230,12 @@ describe('MiniDbQueryStore', () => {
     expect(await store.get(COLLECTION, 'c')).toEqual({ id: 'c', v: 3 });
 
     const storeDir = join(homeDir, 'cache', 'query-store');
-    const peer = await ClusterDb.open({ dir: storeDir, shardCount: 16, valueCodec: 'json', lockHoldMs: 0 });
+    const peer = await ClusterDb.open({
+      dir: storeDir,
+      shardCount: 16,
+      valueCodec: 'json',
+      lockHoldMs: 0,
+    });
     await peer.set(`${COLLECTION}${SEP}peer`, { id: 'peer', v: 9 });
     const db3 = await internal.dbPromise;
     (db3 as unknown as { set: unknown }).set = () => Promise.reject(poisoned);

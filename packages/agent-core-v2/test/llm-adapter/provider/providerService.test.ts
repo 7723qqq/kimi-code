@@ -5,8 +5,8 @@ import {
   providersFromToml,
   providersToToml,
 } from '#/app/kosongConfig/configSection';
-import { ProviderService } from '#/llm-adapter/provider/provider-service';
 import { type ProviderConfig } from '#/llm-adapter/provider/provider';
+import { ProviderService } from '#/llm-adapter/provider/provider-service';
 
 describe('ProviderTypeSchema (enum validation)', () => {
   it('parses unregistered vendor names — resolve-time validation, not parse-time', () => {
@@ -67,10 +67,10 @@ describe('providers TOML transforms', () => {
         oauth: { storage: 'file', key: 'oauth/acme' },
       },
     };
-    const next = providersToToml(
-      { acme: { type: 'openai', apiKey: 'sk-new' } },
-      raw,
-    ) as Record<string, Record<string, unknown>>;
+    const next = providersToToml({ acme: { type: 'openai', apiKey: 'sk-new' } }, raw) as Record<
+      string,
+      Record<string, unknown>
+    >;
     expect(next['acme']).toEqual({ type: 'openai', api_key: 'sk-new' });
   });
 });

@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'bun:test';
 
+import { extractAnthropicUsage } from '#/providers/anthropic-usage';
 import { extractUsage } from '#/providers/openai-common';
 import { extractResponsesUsage } from '#/providers/openai-responses';
-import { extractAnthropicUsage } from '#/providers/anthropic-usage';
 
+import type { StreamParseSink } from '../../agent-core-v2/src/human/llm/protocol/format';
+import { anthropicFormat } from '../../agent-core-v2/src/human/llm/requester/bases/anthropic/format';
+import { parseOpenAIResponsesUsage } from '../../agent-core-v2/src/human/llm/requester/bases/openai-responses/format';
 // The v2 engine's OpenAI-compatible usage reader. Imported by relative path on
 // purpose: the two engines have separate copies of this rule and no shared
 // package can hold one, so this file's whole job is to fail the moment the two
@@ -12,9 +15,6 @@ import { extractAnthropicUsage } from '#/providers/anthropic-usage';
 // direction too), which is exactly why the agreement is asserted from outside
 // both rather than enforced by a single implementation.
 import { parseOpenAIUsage } from '../../agent-core-v2/src/human/llm/requester/bases/openai/usage';
-import { parseOpenAIResponsesUsage } from '../../agent-core-v2/src/human/llm/requester/bases/openai-responses/format';
-import type { StreamParseSink } from '../../agent-core-v2/src/human/llm/protocol/format';
-import { anthropicFormat } from '../../agent-core-v2/src/human/llm/requester/bases/anthropic/format';
 
 interface Case {
   readonly name: string;
@@ -378,6 +378,8 @@ describe('anthropic cache-field classification agrees across engines', () => {
     // the sum inside `input_tokens` is subtracting again.
     const captured = ANTHROPIC_CASES[0]!;
     const kosong = extractAnthropicUsage(captured.usage as never);
-    expect(kosong.inputOther + kosong.inputCacheRead).toBeGreaterThan(captured.usage['input_tokens']!);
+    expect(kosong.inputOther + kosong.inputCacheRead).toBeGreaterThan(
+      captured.usage['input_tokens']!,
+    );
   });
 });

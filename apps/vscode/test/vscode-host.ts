@@ -1,4 +1,3 @@
-
 // `vscode` is provided by the Extension Host, not by a package on disk. Bun
 // resolves the static import graph of a test file before that file's own
 // `mock.module` calls run, so the specifier must already be registered when the

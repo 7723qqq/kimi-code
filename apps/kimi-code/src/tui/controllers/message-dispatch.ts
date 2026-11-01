@@ -29,12 +29,12 @@ import {
 } from '../utils/image-placeholder';
 import type { ExtractionResult } from '../utils/image-placeholder';
 import { isSessionOccupiedError } from '../utils/session-lock-errors';
-import type { SessionOccupancyPrompt } from './session-occupancy';
 import { combineSteerInput } from '../utils/steer-input';
 import { nextTranscriptId } from '../utils/transcript-id';
 import type { BtwPanelController } from './btw-panel';
 import type { CacheHintController } from './cache-hint-controller';
 import type { EditorKeyboardController } from './editor-keyboard';
+import type { SessionOccupancyPrompt } from './session-occupancy';
 import { StagingLeaseTracker, type StagingLease } from './staging-leases';
 import type { StreamingUIController } from './streaming-ui';
 
@@ -254,9 +254,7 @@ export class MessageDispatchController {
         (originatingSession !== undefined && this.host.session !== originatingSession) ||
         this.imageStore.generation !== mediaGeneration
       ) {
-        this.host.showError(
-          t('tui.statusMessages.sessionChangedWhilePreparingMedia'),
-        );
+        this.host.showError(t('tui.statusMessages.sessionChangedWhilePreparingMedia'));
         return;
       }
     }
@@ -435,7 +433,8 @@ export class MessageDispatchController {
     const message = t('tui.statusMessages.skillActivationFailed', {
       error: formatErrorMessage(error),
     });
-    if (this.host.streamingUI.getTurnContext().turnId === undefined) this.failSessionRequest(message);
+    if (this.host.streamingUI.getTurnContext().turnId === undefined)
+      this.failSessionRequest(message);
     else this.host.showError(message);
   }
 
@@ -1118,10 +1117,7 @@ export class MessageDispatchController {
     });
   }
 
-  trackPendingEntries(
-    entries: readonly TranscriptEntry[],
-    request: Promise<void>,
-  ): Promise<void> {
+  trackPendingEntries(entries: readonly TranscriptEntry[], request: Promise<void>): Promise<void> {
     for (const entry of entries) this.pendingPromptEntries.add(entry);
     const settle = (): void => {
       for (const entry of entries) this.pendingPromptEntries.delete(entry);

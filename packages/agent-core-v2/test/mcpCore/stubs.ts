@@ -8,12 +8,8 @@ import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
 
-import type { ToolDescription as KosongTool } from '#human/llm/message';
+import type { McpOAuthScheduledTask, McpOAuthScheduler } from '#/mcpCore/oauth/service';
 import type { McpOAuthStore } from '#/mcpCore/oauth/store';
-import type {
-  McpOAuthScheduledTask,
-  McpOAuthScheduler,
-} from '#/mcpCore/oauth/service';
 import type { MCPClient, MCPToolDefinition } from '#/mcpCore/types';
 import type {
   ExecutableTool,
@@ -21,6 +17,7 @@ import type {
   ExecutableToolResult,
   ToolExecution,
 } from '#/tool/toolContract';
+import type { ToolDescription as KosongTool } from '#human/llm/message';
 
 export const fixturesDir = fileURLToPath(new URL('./fixtures/', import.meta.url));
 export const stdioFixture = fileURLToPath(

@@ -2,8 +2,8 @@ import { describe, expect, it, mock } from 'bun:test';
 
 import type { Session } from '@moonshot-ai/kimi-code-sdk';
 
-import { handleTowerCommand } from '#/tui/commands/index';
 import type { SlashCommandHost } from '#/tui/commands/dispatch';
+import { handleTowerCommand } from '#/tui/commands/index';
 import { getLlmNotSetMessage, TOWER_TEARDOWN_PROMPT } from '#/tui/constant/kimi-tui';
 
 function makeHost(
@@ -41,7 +41,9 @@ function makeHost(
       if (host.session === undefined) throw new Error('No active session');
       return host.session;
     },
-    setAppState: mock((patch: Record<string, unknown>) => Object.assign(host.state.appState, patch)),
+    setAppState: mock((patch: Record<string, unknown>) =>
+      Object.assign(host.state.appState, patch),
+    ),
     showError: mock(),
     showStatus: mock(),
     showNotice: mock(),
@@ -127,9 +129,7 @@ describe('handleTowerCommand', () => {
 
     await handleTowerCommand(host, 'status');
 
-    expect(host.showError).toHaveBeenCalledWith(
-      'Failed to read tower status: backend unavailable',
-    );
+    expect(host.showError).toHaveBeenCalledWith('Failed to read tower status: backend unavailable');
     expect(host.showNotice).not.toHaveBeenCalled();
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
     expect(host.mountEditorReplacement).not.toHaveBeenCalled();

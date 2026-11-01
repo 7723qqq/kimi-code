@@ -55,7 +55,13 @@ export function RightPanel({
             }`}
             onClick={() => setTab(t)}
           >
-            {t === 'audit' ? 'Audit' : t === 'agent' ? 'Agent' : t === 'state' ? 'State' : 'Session'}
+            {t === 'audit'
+              ? 'Audit'
+              : t === 'agent'
+                ? 'Agent'
+                : t === 'state'
+                  ? 'State'
+                  : 'Session'}
           </button>
         ))}
       </div>

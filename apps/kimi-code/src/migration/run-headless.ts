@@ -112,7 +112,12 @@ export async function runHeadlessMigrate(
       plansSourceDir: plansSourceHome,
       onProgress: (msg) => log(t('tui.migration.headlessStep', { message: msg })),
       onSessionProgress: (done, total) =>
-        log(t('tui.migration.headlessSessionsTranslating', { done: String(done), total: String(total) })),
+        log(
+          t('tui.migration.headlessSessionsTranslating', {
+            done: String(done),
+            total: String(total),
+          }),
+        ),
     });
   } catch (error) {
     log(
@@ -124,7 +129,11 @@ export async function runHeadlessMigrate(
   }
 
   const complete = logReport(report, scope, log);
-  log(t('tui.migration.headlessReportWritten', { path: `${resolved.targetHome}/migration-report.json` }));
+  log(
+    t('tui.migration.headlessReportWritten', {
+      path: `${resolved.targetHome}/migration-report.json`,
+    }),
+  );
   log(t('tui.migration.headlessRunLog', { path: `${resolved.targetHome}/migration-errors.log` }));
   if (complete) {
     log(t('tui.migration.headlessResultComplete'));

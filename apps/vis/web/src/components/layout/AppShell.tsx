@@ -1,8 +1,8 @@
+import { localeMeta, otherLocale } from '@moonshot-ai/i18n-shared';
 import { useQueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 
-import { localeMeta, otherLocale } from '@moonshot-ai/i18n-shared';
 import { useTheme, type ThemeChoice, type ResolvedTheme } from '../../hooks/useTheme';
 import { t, useLocale } from '../../i18n';
 import { SessionRail } from '../sessions/SessionRail';

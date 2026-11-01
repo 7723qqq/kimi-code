@@ -1,10 +1,11 @@
+import { describe, expect, it, mock } from 'bun:test';
+
 import {
   APIConnectionError as RawOpenAISDKConnectionError,
   APIConnectionTimeoutError as RawOpenAISDKConnectionTimeoutError,
   APIError as RawOpenAISDKAPIError,
   OpenAIError as RawOpenAISDKError,
 } from 'openai';
-import { describe, expect, it, mock } from 'bun:test';
 
 import { classifyKimiQuotaError } from '#/llm-kimi/errors';
 import { kimiConnection, kimiOpenAITrait } from '#/llm-kimi/trait';

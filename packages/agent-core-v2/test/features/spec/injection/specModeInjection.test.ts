@@ -6,11 +6,7 @@ import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentSpecService } from '#/features/spec/spec';
 
 import { runWillBeginStepHooks, type StubLoop } from '../../../agent/loop/stubs';
-import {
-  createTestAgent,
-  execEnvServices,
-  type TestAgentContext,
-} from '../../../harness';
+import { createTestAgent, execEnvServices, type TestAgentContext } from '../../../harness';
 import { createFakeHostFs } from '../../../tools/fixtures/fake-exec';
 
 const SPEC_DIR_NAME = 'specs';
@@ -30,9 +26,7 @@ async function injectDynamic(ctx: TestAgentContext): Promise<void> {
   await runWillBeginStepHooks(ctx.get(IAgentLoopService) as StubLoop, false);
 }
 
-function specReminderMessages(
-  context: IAgentContextMemoryService,
-): readonly ContextMessage[] {
+function specReminderMessages(context: IAgentContextMemoryService): readonly ContextMessage[] {
   return context.get().filter((message) => {
     return message.origin?.kind === 'injection' && message.origin.variant === 'spec_mode';
   });
@@ -92,8 +86,7 @@ describe('SpecModeInjection reminder variants', () => {
   });
 
   it('injects the reentry reminder when the directory already has a document', async () => {
-    readText = async (path: string) =>
-      path.endsWith('/requirements.md') ? '# Requirements' : '';
+    readText = async (path: string) => (path.endsWith('/requirements.md') ? '# Requirements' : '');
     await injectDynamic(ctx);
 
     const text = lastSpecReminder(context);
@@ -102,15 +95,13 @@ describe('SpecModeInjection reminder variants', () => {
   });
 
   it('does not assert that earlier documents exist in the reentry reminder', async () => {
-    readText = async (path: string) =>
-      path.endsWith('/requirements.md') ? '# Requirements' : '';
+    readText = async (path: string) => (path.endsWith('/requirements.md') ? '# Requirements' : '');
     await injectDynamic(ctx);
 
     const text = lastSpecReminder(context);
     expect(text).toContain('may already contain documents');
     expect(text).not.toContain('earlier documents may be present');
   });
-
 });
 
 describe('SpecModeInjection cadence', () => {

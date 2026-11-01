@@ -1,5 +1,6 @@
-import { TodoUpdated } from '@moonshot-ai/agent-core-v2';
 import { describe, expect, it } from 'bun:test';
+
+import { TodoUpdated } from '@moonshot-ai/agent-core-v2';
 
 import { translateDomainEvent } from '#/v2/event-mapper';
 

@@ -7,7 +7,10 @@ import { EnvironmentError } from './environmentRegistry';
 
 export function normalizeRemoteCwd(cwd: string): string {
   if (!posixPath.isAbsolute(cwd) || cwd.includes('\0')) {
-    throw new EnvironmentError('environment.invalid_cwd', 'remote cwd must be an absolute POSIX path; relative paths and ~ are not expanded');
+    throw new EnvironmentError(
+      'environment.invalid_cwd',
+      'remote cwd must be an absolute POSIX path; relative paths and ~ are not expanded',
+    );
   }
   return posixPath.resolve(cwd);
 }

@@ -33,11 +33,10 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { EXAMPLE_CLIENT_IDENTITY } from './identity.js';
-
-
 import { bootstrap, logSeed, resolveLoggingConfig } from '@moonshot-ai/agent-core-v2';
 import { createKlient } from '@moonshot-ai/klient/memory';
+
+import { EXAMPLE_CLIENT_IDENTITY } from './identity.js';
 
 const SEEDED_MODEL_ID = 'klient-example-model';
 
@@ -79,7 +78,7 @@ async function main(): Promise<void> {
     await klient.global.kosong.addProvider({
       id: SEEDED_MODEL_ID,
       model: seedModel,
-      protocol: (process.env['KIMI_EXAMPLE_PROTOCOL'] ?? 'openai'),
+      protocol: process.env['KIMI_EXAMPLE_PROTOCOL'] ?? 'openai',
       baseUrl: process.env['KIMI_EXAMPLE_BASE_URL'] ?? 'http://127.0.0.1:1',
       auth: { method: 'api-key', apiKey: seedKey },
       maxContextSize: 262_144,
@@ -182,7 +181,7 @@ async function main(): Promise<void> {
     console.log(
       '[note]    reading guide:\n' +
         '          - tokenCount is 0 until the first measured exchange lands, then it\n' +
-        '            should equal THAT exchange\'s total (input + output); new messages\n' +
+        "            should equal THAT exchange's total (input + output); new messages\n" +
         '            appended between turns are the unmeasured tail.\n' +
         '          - after one covered exchange on a fresh session, cumulative\n' +
         '            usage.total and tokenCount should roughly agree; a large gap means\n' +

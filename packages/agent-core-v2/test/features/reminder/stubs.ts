@@ -1,7 +1,7 @@
 import { toDisposable } from '#/_base/di/lifecycle';
-import type { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { isCompactionSummaryMessage } from '#/agent/contextMemory/compactionHandoff';
 import { ContextSpliced } from '#/agent/contextMemory/contextEvents';
+import type { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { IAgentLoopService } from '#/agent/loop/loop';
 import type { IEventBus } from '#/app/event/eventBus';
 import type { IAgentReminderService } from '#/features/reminder/reminderService';
@@ -14,11 +14,13 @@ import type {
   ReminderNotification,
 } from '#/features/reminder/types';
 
-export function createReminderStub(input: {
-  register?<D>(variant: string, provider: ContextInjectionProvider<D>): { dispose(): void };
-  notify?(content: string, notification: ReminderNotification): void;
-  reconcileWhenIdle?(variant: string): Promise<void>;
-} = {}): IAgentReminderService {
+export function createReminderStub(
+  input: {
+    register?<D>(variant: string, provider: ContextInjectionProvider<D>): { dispose(): void };
+    notify?(content: string, notification: ReminderNotification): void;
+    reconcileWhenIdle?(variant: string): Promise<void>;
+  } = {},
+): IAgentReminderService {
   return {
     _serviceBrand: undefined,
     register: input.register ?? (() => toDisposable(() => {})),
@@ -51,9 +53,8 @@ export function createReminderHarness(
         injectedPositions: positions,
         lastInjectedAt,
         lastInjection,
-        lastDisclosure: lastInjection?.origin?.kind === 'injection'
-          ? lastInjection.origin.disclosure
-          : undefined,
+        lastDisclosure:
+          lastInjection?.origin?.kind === 'injection' ? lastInjection.origin.disclosure : undefined,
         isNewTurn,
       });
       if (value === undefined) continue;
@@ -79,7 +80,10 @@ export function createReminderHarness(
         continue;
       }
       const message = (content as { readonly message: ContextInjectionMessage }).message;
-      if (message.content.length === 0 && (message.tools === undefined || message.tools.length === 0)) {
+      if (
+        message.content.length === 0 &&
+        (message.tools === undefined || message.tools.length === 0)
+      ) {
         continue;
       }
       context.append({
@@ -95,7 +99,9 @@ export function createReminderHarness(
   return createReminderStub({
     register: (variant, provider) => {
       entries.set(variant, provider as ContextInjectionProvider);
-      return toDisposable(() => { entries.delete(variant); });
+      return toDisposable(() => {
+        entries.delete(variant);
+      });
     },
   });
 }

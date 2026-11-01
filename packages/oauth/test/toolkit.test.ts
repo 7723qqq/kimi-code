@@ -1,6 +1,5 @@
-import { join } from 'node:path';
-
 import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { join } from 'node:path';
 
 import {
   applyManagedKimiCodeConfig,
@@ -435,9 +434,7 @@ describe('KimiOAuthToolkit', () => {
     });
     const devStorageName = resolveKimiTokenStorageName({ oauthKey: devOauthKey });
     const write = mock();
-    const fetchMock = mock(async (_input: unknown, _init?: RequestInit) =>
-      managedModelsResponse(),
-    );
+    const fetchMock = mock(async (_input: unknown, _init?: RequestInit) => managedModelsResponse());
     const oauthFetch = mock(async (_input: unknown, init?: RequestInit) => {
       if (typeof init?.body !== 'string') throw new TypeError('expected form body');
       const body = new URLSearchParams(init.body);

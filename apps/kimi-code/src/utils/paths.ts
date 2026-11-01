@@ -127,7 +127,6 @@ export function getBannerStateFile(): string {
   return join(getCacheDir(), KIMI_CODE_BANNER_DIR_NAME, KIMI_CODE_BANNER_STATE_FILE_NAME);
 }
 
-
 export function getRecommendedEffortStateFile(): string {
   return join(getDataDir(), KIMI_CODE_RECOMMENDED_EFFORT_STATE_FILE_NAME);
 }

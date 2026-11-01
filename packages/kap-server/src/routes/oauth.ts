@@ -150,7 +150,8 @@ export function registerOAuthRoutes(
       errors: { [ErrorCode.INTERNAL_ERROR]: {} },
       description: 'Logout the managed OAuth provider',
       tags: ['auth'],
-    },    async (req, reply) => {
+    },
+    async (req, reply) => {
       const provider = req.body.provider ?? KIMI_CODE_PROVIDER_NAME;
       if (provider !== KIMI_CODE_PROVIDER_NAME) {
         const result = await core.accessor.get(IOAuthService).logout(req.body.provider);

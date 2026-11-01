@@ -6,9 +6,8 @@
  * the real fetch code path.
  */
 
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 
 import {
   OAuthConnectionError,

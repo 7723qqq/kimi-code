@@ -52,7 +52,10 @@ test('postings codec: roundtrip + delta compression', () => {
   const enc = encodePostingList(entries);
   expect(decodePostingList(enc)).toStrictEqual(entries);
   // delta+varint should beat a naive 8 bytes/pair for dense-ish ids.
-  expect(enc.length < entries.length * 8, `expected compression, got ${enc.length} bytes`).toBeTruthy();
+  expect(
+    enc.length < entries.length * 8,
+    `expected compression, got ${enc.length} bytes`,
+  ).toBeTruthy();
 });
 
 test('postings codec: empty list', () => {
@@ -159,10 +162,12 @@ test('TextIndex: add + search (AND/OR) disk-backed', async () => {
 
     expect(ti.search('hello').map((h) => h.key)).toStrictEqual(['a']);
     expect(ti.search('北京').map((h) => h.key)).toStrictEqual(['b']);
-    expect(ti
+    expect(
+      ti
         .search('北京 上海', { op: 'OR' })
         .map((h) => h.key)
-        .toSorted()).toStrictEqual(['b', 'c']);
+        .toSorted(),
+    ).toStrictEqual(['b', 'c']);
     // AND across two terms only present together in 'b'
     expect(ti.search('北京 编程').map((h) => h.key)).toStrictEqual(['b']);
     ti.close();
@@ -217,10 +222,12 @@ test('TextIndex: build persists to disk + merges delta after build', async () =>
 
     // new writes after build go to the in-memory delta and are still found
     ti.add('c', { bio: 'hello from c' });
-    expect(ti
+    expect(
+      ti
         .search('hello')
         .map((h) => h.key)
-        .toSorted()).toStrictEqual(['a', 'c']);
+        .toSorted(),
+    ).toStrictEqual(['a', 'c']);
     ti.close();
 
     // a fresh TextIndex over the same file sees the base but not the lost delta
@@ -305,7 +312,10 @@ test('MiniDb: text postings written to disk, search survives reopen', async () =
     await db.set('b', { bio: '今天天气不错' });
     await db.close();
 
-    expect(fssync.existsSync(path.join(dir, 'db.text-bio.postings')), 'postings file exists').toBeTruthy();
+    expect(
+      fssync.existsSync(path.join(dir, 'db.text-bio.postings')),
+      'postings file exists',
+    ).toBeTruthy();
 
     db = await MiniDb.open({ dir, valueCodec: 'json' });
     expect(db.search('bio', '北京').map((r) => r.key)).toStrictEqual(['a']);
@@ -338,7 +348,10 @@ for (const indexGenerations of [false, true]) {
         // The background generation build may already have re-published the
         // base (root file reclaimed) — either location proves persistence.
         const inGen = fssync.existsSync(path.join(dir, 'CURRENT'));
-        expect(fssync.existsSync(p) || inGen, 'postings persisted (root or generation)').toBeTruthy();
+        expect(
+          fssync.existsSync(p) || inGen,
+          'postings persisted (root or generation)',
+        ).toBeTruthy();
       } else {
         expect(fssync.existsSync(p)).toBeTruthy();
       }
@@ -354,10 +367,16 @@ for (const indexGenerations of [false, true]) {
       if (indexGenerations) {
         // The base moved into the published generation: the legacy root file
         // is reclaimed and CURRENT's generation carries the fresh postings.
-        expect(!fssync.existsSync(p), 'root postings reclaimed after generation publish').toBeTruthy();
+        expect(
+          !fssync.existsSync(p),
+          'root postings reclaimed after generation publish',
+        ).toBeTruthy();
         const gen = db.getIndexGeneration()!;
         expect(gen, 'compaction published a generation').toBeTruthy();
-        expect(fssync.existsSync(path.join(dir, 'generations', gen.id, 'text-bio.postings')), 'postings live in the generation').toBeTruthy();
+        expect(
+          fssync.existsSync(path.join(dir, 'generations', gen.id, 'text-bio.postings')),
+          'postings live in the generation',
+        ).toBeTruthy();
       } else {
         expect(fssync.existsSync(p), 'legacy path keeps the root postings file').toBeTruthy();
       }
@@ -433,7 +452,10 @@ test('MiniDb: a generation build leaves the non-override rebuild target intact [
     // generation's tmp directory, which the publish rename then takes away.
     await db.compact();
     const ti = (db as unknown as { text: Map<string, TextIndex> }).text.get('bio')!;
-    expect(ti.currentPostingsPath?.includes('generations'), `expected the live base inside a generation, got ${ti.currentPostingsPath}`).toBeTruthy();
+    expect(
+      ti.currentPostingsPath?.includes('generations'),
+      `expected the live base inside a generation, got ${ti.currentPostingsPath}`,
+    ).toBeTruthy();
 
     // A later NON-override rebuild (the legacy postings maintenance path) must
     // still target the index's own root postings file — never the vanished
@@ -544,13 +566,15 @@ test('trigram: index vs query tokenizer shapes', () => {
   expect(ix('AB')).toStrictEqual([ngramTerm('ab')]);
   // length >= 3: query side only 3-grams; index side 3-grams + 2-grams
   expect(q('abcd')).toStrictEqual([ngramTerm('abc'), ngramTerm('bcd')]);
-  expect(ix('abcd').toSorted()).toStrictEqual([
+  expect(ix('abcd').toSorted()).toStrictEqual(
+    [
       ngramTerm('ab'),
       ngramTerm('abc'),
       ngramTerm('bc'),
       ngramTerm('bcd'),
       ngramTerm('cd'),
-    ].toSorted());
+    ].toSorted(),
+  );
   // emoji are single code points: '🙂a' has length 2 -> one 2-gram, not a
   // 3-gram over split UTF-16 surrogates
   expect(q('🙂a')).toStrictEqual([ngramTerm('🙂a')]);
@@ -570,7 +594,9 @@ test('trigram: query of exactly 3 code points emits its single 3-gram', () => {
   expect(q('abc')).toStrictEqual([ngramTerm('abc')]);
   expect(q('已通过')).toStrictEqual([ngramTerm('已通过')]);
   // the index side of a 3-char text still emits both widths
-  expect(createNgramTokenizer()('abc').toSorted()).toStrictEqual([ngramTerm('abc'), ngramTerm('ab'), ngramTerm('bc')].toSorted());
+  expect(createNgramTokenizer()('abc').toSorted()).toStrictEqual(
+    [ngramTerm('abc'), ngramTerm('ab'), ngramTerm('bc')].toSorted(),
+  );
 });
 
 test('TextIndex: injected n-gram tokenizer matches symbol substrings', async () => {
@@ -618,10 +644,12 @@ test('TextIndex: n-gram tokenizer delta add/remove/overwrite', async () => {
 
     // writes after build land in the delta and stay searchable
     ti.add('b', { text: 'C++ cookbook' });
-    expect(ti
+    expect(
+      ti
         .search('c++')
         .map((h) => h.key)
-        .toSorted()).toStrictEqual(['a', 'b']);
+        .toSorted(),
+    ).toStrictEqual(['a', 'b']);
 
     ti.remove('a');
     expect(ti.search('c++').map((h) => h.key)).toStrictEqual(['b']);
@@ -707,17 +735,21 @@ test('MiniDb: n-gram text index persists tokenizer, survives reopen', async () =
     // n-gram index restored as n-gram: 'C++' matches only the real substring
     expect(db.search('tri', 'C++').map((r) => r.key)).toStrictEqual(['a']);
     // default index restored as default: 'C++' still tokenizes to the word 'c'
-    expect(db
+    expect(
+      db
         .search('body', 'C++')
         .map((r) => r.key)
-        .toSorted()).toStrictEqual(['a', 'b']);
+        .toSorted(),
+    ).toStrictEqual(['a', 'b']);
 
     // delta writes after reopen use the restored tokenizer too
     await db.set('c', { text: 'another C++ note' });
-    expect(db
+    expect(
+      db
         .search('tri', 'c++')
         .map((r) => r.key)
-        .toSorted()).toStrictEqual(['a', 'c']);
+        .toSorted(),
+    ).toStrictEqual(['a', 'c']);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -728,7 +760,9 @@ test('MiniDb: createTextIndex rejects an unknown tokenizer', async () => {
   const dir = await tmpDir();
   try {
     const db = await MiniDb.open({ dir, valueCodec: 'json' });
-    await expect(db.createTextIndex('x', { tokenizer: 'bogus' as 'ngram' })).rejects.toThrow(/unknown text index tokenizer/);
+    await expect(db.createTextIndex('x', { tokenizer: 'bogus' as 'ngram' })).rejects.toThrow(
+      /unknown text index tokenizer/,
+    );
     // the failed creation left nothing behind
     expect(() => db.search('x', 'q')).toThrow(/no such text index/);
     await db.close();
@@ -750,7 +784,10 @@ test('TextIndex: top-K ranks score desc with a stable key tie-break', async () =
       { key: 'k1', value: { bio: 'common pad' } },
       { key: 'k2', value: { bio: 'common pad' } },
     ]);
-    expect(ti.search('common', { limit: 2 }).map((h) => h.key), 'equal scores -> key asc').toStrictEqual(['k1', 'k2']);
+    expect(
+      ti.search('common', { limit: 2 }).map((h) => h.key),
+      'equal scores -> key asc',
+    ).toStrictEqual(['k1', 'k2']);
     expect(ti.search('common', { limit: 10 }).map((h) => h.key)).toStrictEqual(['k1', 'k2', 'k3']);
     expect(ti.search('common', { limit: 0 }), 'limit 0 stays empty').toStrictEqual([]);
     ti.close();
@@ -780,14 +817,20 @@ test('TextIndex: top-K over many candidates matches the full-ranking reference',
     expect(all.length, 'unbounded search returns every scoring doc').toBe(matching);
     for (let i = 1; i < all.length; i++) {
       const [p, c] = [all[i - 1]!, all[i]!];
-      expect(p.score > c.score || (p.score === c.score && p.key < c.key), `rank order at ${i}`).toBeTruthy();
+      expect(
+        p.score > c.score || (p.score === c.score && p.key < c.key),
+        `rank order at ${i}`,
+      ).toBeTruthy();
     }
     const rank = new Map(all.map((h, i) => [h.key, i]));
     for (const limit of [1, 5, 10, 50, 499]) {
       const hits = ti.search('x', { limit });
       expect(hits.length).toBe(Math.min(limit, all.length));
       // Exactly the first `limit` rows of the full ranking, in the same order.
-      expect(hits.map((h) => h.key), `limit=${limit} is the full ranking's prefix`).toStrictEqual(all.slice(0, limit).map((h) => h.key));
+      expect(
+        hits.map((h) => h.key),
+        `limit=${limit} is the full ranking's prefix`,
+      ).toStrictEqual(all.slice(0, limit).map((h) => h.key));
       for (const h of hits) expect(rank.get(h.key)! < limit).toBeTruthy();
     }
     ti.close();
@@ -832,14 +875,20 @@ test('TextIndex: maxVisits truncates a hot term and reports visits (disk-backed)
 
     const bounded = ti.searchBounded('x', { limit: 1_000, maxVisits: 100 });
     expect(bounded.truncated, 'the budget cut the hot list short').toBe(true);
-    expect(bounded.visits <= 100, `visits stay within the budget, got ${bounded.visits}`).toBeTruthy();
+    expect(
+      bounded.visits <= 100,
+      `visits stay within the budget, got ${bounded.visits}`,
+    ).toBeTruthy();
     expect(bounded.hits.length > 0 && bounded.hits.length <= 100).toBeTruthy();
     // A truncated result is a SUBSET of the full matches — never false hits.
     const fullKeys = new Set(full.hits.map((h) => h.key));
-    for (const h of bounded.hits) expect(fullKeys.has(h.key), `${h.key} is a real match`).toBeTruthy();
+    for (const h of bounded.hits)
+      expect(fullKeys.has(h.key), `${h.key} is a real match`).toBeTruthy();
 
     // The same options through plain search() keep returning just the hits.
-    expect(ti.search('x', { limit: 1_000, maxVisits: 100 }).map((h) => h.key)).toStrictEqual(bounded.hits.map((h) => h.key));
+    expect(ti.search('x', { limit: 1_000, maxVisits: 100 }).map((h) => h.key)).toStrictEqual(
+      bounded.hits.map((h) => h.key),
+    );
     // Unbudgeted callers are unaffected, and a capped read never poisoned the
     // postings cache with a partial list.
     expect(ti.search('x', { limit: 1_000 }).length).toBe(500);
@@ -969,7 +1018,9 @@ test('MiniDb: concurrent createTextIndex calls are serialized; memory == sidecar
       db.createTextIndex('body', { fields: ['body'] }),
       db.dropTextIndex('neverThere'),
     ]);
-    expect(results.map((r) => (r.status === 'rejected' ? String(r.reason) : r.status))).toStrictEqual(['fulfilled', 'fulfilled', 'fulfilled']);
+    expect(
+      results.map((r) => (r.status === 'rejected' ? String(r.reason) : r.status)),
+    ).toStrictEqual(['fulfilled', 'fulfilled', 'fulfilled']);
     expect(await textSidecarNames(dir)).toStrictEqual(['body', 'title']);
     // Both builds (registered before building) saw the pre-existing document.
     expect(db.search('title', 'hello').map((r) => r.key)).toStrictEqual(['a']);
@@ -1119,7 +1170,10 @@ test('TextIndex: a throwing tokenizer leaves the live view, delta and buildQueue
     ti.add('k', { bio: 'goodbye world' });
   }).toThrow(/boom/);
   expect(ti.N).toBe(1);
-  expect(ti.search('hello').map((h) => h.key), 'old doc survives the failed overwrite').toStrictEqual(['k']);
+  expect(
+    ti.search('hello').map((h) => h.key),
+    'old doc survives the failed overwrite',
+  ).toStrictEqual(['k']);
   expect(ti.search('goodbye')).toStrictEqual([]);
   expect(priv.docLen.size, 'no ghost docLen entry').toBe(1);
   expect(priv.keys.length, 'no ghost docID').toBe(1);
@@ -1142,7 +1196,10 @@ test('TextIndex: a throwing tokenizer leaves the live view, delta and buildQueue
     ti.add('q', { bio: 'queued?' });
   }).toThrow(/boom/);
   expect((priv.buildQueue as unknown[] | null)?.length, 'the failed add was never queued').toBe(0);
-  expect(ti.search('hello').map((h) => h.key), 'live view intact during the build').toStrictEqual(['k']);
+  expect(
+    ti.search('hello').map((h) => h.key),
+    'live view intact during the build',
+  ).toStrictEqual(['k']);
   b.abort();
   ti.close();
 });
@@ -1164,7 +1221,9 @@ test('TextIndex: an overlong custom-tokenizer term is rejected before any mutati
     expect(priv.docLen.size).toBe(0);
     expect(priv.deltaCount).toBe(0);
     // The build path validates at the same boundary (and aborts cleanly).
-    await expect(ti.build([{ key: 'k', value: { bio: 'x' } }])).rejects.toThrow(/longer than 65535 utf8 bytes/);
+    await expect(ti.build([{ key: 'k', value: { bio: 'x' } }])).rejects.toThrow(
+      /longer than 65535 utf8 bytes/,
+    );
     ti.close();
 
     // A healthy index over the same postings path builds and searches fine.
@@ -1200,7 +1259,10 @@ test('MiniDb: a throwing tokenizer rejects set with zero side effects; the old d
     // Overwrite rejected: the old document is fully intact.
     await expect(db.set('k1', { t: 'goodbye' })).rejects.toThrow(/boom/);
     expect(db.get('k1')).toStrictEqual({ t: 'hello world' });
-    expect(db.search('ft', 'hello').map((h) => h.key), 'old doc still searchable').toStrictEqual(['k1']);
+    expect(
+      db.search('ft', 'hello').map((h) => h.key),
+      'old doc still searchable',
+    ).toStrictEqual(['k1']);
     expect(db.search('ft', 'goodbye')).toStrictEqual([]);
     expect(priv.N).toBe(1);
     expect(priv.docLen.size).toBe(1);
@@ -1244,7 +1306,9 @@ test('MiniDb: an overlong tokenizer term rejects set/batch; the postings rebuild
     ti.tokenizer = () => ['你'.repeat(30000)];
 
     await expect(db.set('bad', { t: 'x' })).rejects.toThrow(/longer than 65535 utf8 bytes/);
-    await expect(db.batch([{ op: 'set', key: 'bad2', value: { t: 'x' } }])).rejects.toThrow(/longer than 65535 utf8 bytes/);
+    await expect(db.batch([{ op: 'set', key: 'bad2', value: { t: 'x' } }])).rejects.toThrow(
+      /longer than 65535 utf8 bytes/,
+    );
     expect(db.get('bad'), 'the poisonous doc never enters the store').toBe(undefined);
     expect(db.get('bad2')).toBe(undefined);
 
@@ -1308,10 +1372,14 @@ test('searchBoundedAsync matches searchBounded on a disk-backed index', async ()
       })),
     );
     for (const q of ['hello', '异步', 'hello world', 'missing-term']) {
-      expect(await ti.searchBoundedAsync(q, { limit: 25 }), q).toStrictEqual(ti.searchBounded(q, { limit: 25 }));
+      expect(await ti.searchBoundedAsync(q, { limit: 25 }), q).toStrictEqual(
+        ti.searchBounded(q, { limit: 25 }),
+      );
     }
     // With a visit budget too (capped decodes must match as well).
-    expect(await ti.searchBoundedAsync('hello', { maxVisits: 10 })).toStrictEqual(ti.searchBounded('hello', { maxVisits: 10 }));
+    expect(await ti.searchBoundedAsync('hello', { maxVisits: 10 })).toStrictEqual(
+      ti.searchBounded('hello', { maxVisits: 10 }),
+    );
     ti.close();
     await fs.rm(dir, { recursive: true, force: true });
   } catch (error) {
@@ -1554,9 +1622,11 @@ test('PostingsFile: a replace that cannot land (EPERM) throws instead of renamin
     // The real EPERM window spans ~2.5 s of retries; the injected seam is the
     // same call the retry would ultimately make, and it fails ONLY on the
     // fixed name — so a fallback that renames aside would succeed and return.
-    await expect(PostingsFile.rebuild(p, [{ term: 'bye', entries: [[0, 1]] }], {
+    await expect(
+      PostingsFile.rebuild(p, [{ term: 'bye', entries: [[0, 1]] }], {
         rename: epermOn(p),
-      })).rejects.toThrow(/EPERM/);
+      }),
+    ).rejects.toThrow(/EPERM/);
     // The previous file is byte-identical and no renamed-aside copy exists:
     // the fixed name is the only one the generation manifest records and the
     // loader verifies, so a second name would be a guaranteed ENOENT there.

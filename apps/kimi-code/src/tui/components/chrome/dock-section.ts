@@ -75,7 +75,12 @@ export abstract class DockSection extends VStack {
         handleMouse: (event) => {
           const result = this.handlePartMouse(part, event);
           if (result?.focus !== true) return result;
-          return { ...result, handled: true, focusTarget: this, target: mouseTarget(component, event) };
+          return {
+            ...result,
+            handled: true,
+            focusTarget: this,
+            target: mouseTarget(component, event),
+          };
         },
       };
       return component;
@@ -120,7 +125,10 @@ export abstract class DockSection extends VStack {
 
   protected abstract renderPart(part: DockPart, width: number): string[];
 
-  protected handlePartMouse(_part: DockPart, _event: TuiMouseEvent): TuiMouseEventResult | undefined {
+  protected handlePartMouse(
+    _part: DockPart,
+    _event: TuiMouseEvent,
+  ): TuiMouseEventResult | undefined {
     return undefined;
   }
 }

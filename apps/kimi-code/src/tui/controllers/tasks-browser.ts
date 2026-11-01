@@ -318,10 +318,7 @@ export class TasksBrowserController {
    * of truth — it survives a session restart, unlike the in-memory activity
    * of a subagent, so the panel can always show what a task printed.
    */
-  private async loadOutput(
-    taskId: string,
-    opts: { silent?: boolean } = {},
-  ): Promise<void> {
+  private async loadOutput(taskId: string, opts: { silent?: boolean } = {}): Promise<void> {
     const { state } = this.host;
     const browser = state.tasksBrowser;
     if (browser === undefined) return;

@@ -1,5 +1,6 @@
-import type { GoalSnapshot } from '@moonshot-ai/kimi-code-sdk';
 import { describe, expect, it, mock } from 'bun:test';
+
+import type { GoalSnapshot } from '@moonshot-ai/kimi-code-sdk';
 
 import { buildGoalCompletionMessage } from '#/tui/utils/goal-completion';
 

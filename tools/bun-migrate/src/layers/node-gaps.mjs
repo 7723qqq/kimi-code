@@ -26,7 +26,10 @@ function readText(project, path) {
 export function applyNodeGapLayer(project, journal) {
   const gaps = activeGaps();
   if (gaps.length === 0) {
-    journal.note('source', 'this Bun implements every recorded node: gap; the gap list can be trimmed');
+    journal.note(
+      'source',
+      'this Bun implements every recorded node: gap; the gap list can be trimmed',
+    );
     return;
   }
 

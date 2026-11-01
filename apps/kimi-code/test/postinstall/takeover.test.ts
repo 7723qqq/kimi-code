@@ -1,21 +1,30 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import {
-  executeTakeover,
-  planTakeover,
-  verifyTakeover,
-} from '../../scripts/postinstall/takeover.mjs';
+import { renameTargetFor, isSystemOwnedDir } from '../../scripts/postinstall/migrate.mjs';
+import { executableCandidates } from '../../scripts/postinstall/platform.mjs';
 import {
   detectPackageManager,
   isGlobalInstall,
   ownPackageRoot,
 } from '../../scripts/postinstall/reach.mjs';
-import { renameTargetFor, isSystemOwnedDir } from '../../scripts/postinstall/migrate.mjs';
-import { executableCandidates } from '../../scripts/postinstall/platform.mjs';
+import {
+  executeTakeover,
+  planTakeover,
+  verifyTakeover,
+} from '../../scripts/postinstall/takeover.mjs';
 
 const POSIX = process.platform !== 'win32';
 const DELIM = POSIX ? ':' : ';';
@@ -87,9 +96,7 @@ describePosix('shim takeover (POSIX fixtures)', () => {
     expect(outcomes.errors).toHaveLength(0);
     expect(existsSync(join(legacy.dir, 'kimi-legacy'))).toBe(true);
     expect(existsSync(legacy.shim)).toBe(false);
-    await expect(readFile(join(legacy.dir, 'kimi-legacy'), 'utf-8')).resolves.toContain(
-      'kimi_cli',
-    );
+    await expect(readFile(join(legacy.dir, 'kimi-legacy'), 'utf-8')).resolves.toContain('kimi_cli');
 
     const verify = await verifyTakeover(
       env.ownRoot,
@@ -128,7 +135,12 @@ describePosix('shim takeover (POSIX fixtures)', () => {
       'utf-8',
     );
 
-    const plan = await planTakeover(env.ownRoot, env.path(env.ownBin, legacy.dir), env.path(env.ownBin, legacy.dir), PLATFORM);
+    const plan = await planTakeover(
+      env.ownRoot,
+      env.path(env.ownBin, legacy.dir),
+      env.path(env.ownBin, legacy.dir),
+      PLATFORM,
+    );
     expect(plan.kind).toBe('proceed');
     if (plan.kind !== 'proceed') return;
 
@@ -145,7 +157,12 @@ describePosix('shim takeover (POSIX fixtures)', () => {
     const legacy = await makeLegacyShim('uvbin');
     await writeFile(join(legacy.dir, 'kimi-legacy'), 'my own wrapper\n', 'utf-8');
 
-    const plan = await planTakeover(env.ownRoot, env.path(env.ownBin, legacy.dir), env.path(env.ownBin, legacy.dir), PLATFORM);
+    const plan = await planTakeover(
+      env.ownRoot,
+      env.path(env.ownBin, legacy.dir),
+      env.path(env.ownBin, legacy.dir),
+      PLATFORM,
+    );
     expect(plan.kind).toBe('proceed');
     if (plan.kind !== 'proceed') return;
 
@@ -190,7 +207,12 @@ describePosix('shim takeover (POSIX fixtures)', () => {
     const legacy = await makeLegacyShim('uvbin');
     const reachability = env.path(legacy.dir, env.ownBin);
 
-    const plan = await planTakeover(env.ownRoot, env.path(legacy.dir, env.ownBin), reachability, PLATFORM);
+    const plan = await planTakeover(
+      env.ownRoot,
+      env.path(legacy.dir, env.ownBin),
+      reachability,
+      PLATFORM,
+    );
     expect(plan.kind).toBe('proceed');
     if (plan.kind !== 'proceed') return;
 
@@ -209,7 +231,12 @@ describePosix('shim takeover (POSIX fixtures)', () => {
     const legacy = await makeLegacyShim('sysbin');
     await chmod(legacy.dir, 0o555);
     try {
-      const plan = await planTakeover(env.ownRoot, env.path(env.ownBin, legacy.dir), env.path(legacy.dir, env.ownBin), PLATFORM);
+      const plan = await planTakeover(
+        env.ownRoot,
+        env.path(env.ownBin, legacy.dir),
+        env.path(legacy.dir, env.ownBin),
+        PLATFORM,
+      );
       expect(plan.kind).toBe('blocked');
       expect(existsSync(legacy.shim)).toBe(true);
     } finally {
@@ -239,20 +266,35 @@ describePosix('shim takeover (POSIX fixtures)', () => {
     const env = await makeEnv();
     const legacy = await makeLegacyShim('uvbin');
 
-    const plan = await planTakeover(env.ownRoot, env.path(env.ownBin, legacy.dir), env.path(legacy.dir), PLATFORM);
+    const plan = await planTakeover(
+      env.ownRoot,
+      env.path(env.ownBin, legacy.dir),
+      env.path(legacy.dir),
+      PLATFORM,
+    );
     expect(plan.kind).toBe('not-on-path');
     expect(existsSync(legacy.shim)).toBe(true);
   });
 
   it('returns noop when no legacy shim exists', async () => {
     const env = await makeEnv();
-    const plan = await planTakeover(env.ownRoot, env.path(env.ownBin), env.path(env.ownBin), PLATFORM);
+    const plan = await planTakeover(
+      env.ownRoot,
+      env.path(env.ownBin),
+      env.path(env.ownBin),
+      PLATFORM,
+    );
     expect(plan.kind).toBe('noop');
   });
 
   it('verifies none when every kimi is gone after execution', async () => {
     const env = await makeEnv();
-    const verify = await verifyTakeover(env.ownRoot, env.path(join(root, 'emptybin')), [], PLATFORM);
+    const verify = await verifyTakeover(
+      env.ownRoot,
+      env.path(join(root, 'emptybin')),
+      [],
+      PLATFORM,
+    );
     expect(verify.kind).toBe('none');
   });
 });
@@ -309,10 +351,16 @@ describe('windows forms (platform injection, host-agnostic)', () => {
   });
 
   it('classifies system-owned dirs from drive-letter and UNC forms', async () => {
-    await expect(isSystemOwnedDir('C:\\Program Files\\kimi\\kimi.exe', 'win32')).resolves.toBe(true);
+    await expect(isSystemOwnedDir('C:\\Program Files\\kimi\\kimi.exe', 'win32')).resolves.toBe(
+      true,
+    );
     await expect(isSystemOwnedDir('c:\\programdata\\uv\\kimi.exe', 'win32')).resolves.toBe(true);
-    await expect(isSystemOwnedDir('C:\\Users\\me\\.local\\bin\\kimi.exe', 'win32')).resolves.toBe(false);
+    await expect(isSystemOwnedDir('C:\\Users\\me\\.local\\bin\\kimi.exe', 'win32')).resolves.toBe(
+      false,
+    );
     await expect(isSystemOwnedDir('D:\\tools\\kimi.exe', 'win32')).resolves.toBe(false);
-    await expect(isSystemOwnedDir('\\\\server\\share\\tools\\kimi.exe', 'win32')).resolves.toBe(false);
+    await expect(isSystemOwnedDir('\\\\server\\share\\tools\\kimi.exe', 'win32')).resolves.toBe(
+      false,
+    );
   });
 });

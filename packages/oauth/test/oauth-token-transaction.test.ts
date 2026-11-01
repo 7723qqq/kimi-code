@@ -1,7 +1,7 @@
-import type { FetchLike } from '../src/types';
 import { describe, expect, it, mock } from 'bun:test';
 
 import { OAuthTokenTransaction } from '../src/oauth-token-transaction';
+import type { FetchLike } from '../src/types';
 
 interface TestTokens {
   access_token: string;

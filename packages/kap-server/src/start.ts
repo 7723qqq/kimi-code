@@ -39,6 +39,7 @@ import {
   kimiRegionProfile,
   type KimiHostIdentity,
 } from '@moonshot-ai/kimi-code-oauth';
+import { createRemoteControlManager, RemoteControlDeviceClient } from '@moonshot-ai/remote-control';
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import { installErrorHandler } from './error-handler';
@@ -47,7 +48,6 @@ import { createAuthHook } from './middleware/auth';
 import { createHostCheck, isHostCheckDisabled, parseAllowedHosts } from './middleware/hostnames';
 import { createOriginHook, isOriginAllowed, parseCorsOrigins } from './middleware/origin';
 import { createAuthFailureLimiter } from './middleware/rateLimit';
-import { SessionIdleReaper, resolveSessionIdleReclaimMs } from './services/sessionIdleReaper';
 import { createSecurityHeadersHook } from './middleware/securityHeaders';
 import { transformOpenApiDocument } from './openapi/transforms';
 import { createAsyncApiDocument } from './protocol/asyncapi';
@@ -58,7 +58,6 @@ import { registerApiV2Routes } from './routes/registerApiV2Routes';
 import { registerWebAssetRoutes } from './routes/webAssets';
 import { drainGlobalSearchDisposals, IGlobalSearchService } from './search/searchService';
 import { classify } from './security/bindClassify';
-import { ConnectionRegistry, type IConnectionRegistry } from './transport/ws/connectionRegistry';
 import { createAuthTokenService, type IAuthTokenService } from './services/auth/authTokenService';
 import { createCredentialValidator } from './services/auth/credentials';
 import { resolvePasswordHash } from './services/auth/password';
@@ -71,25 +70,21 @@ import {
   type ServerLogger,
   type ServerLogLevel,
 } from './services/pinoLoggerService';
+import { SessionIdleReaper, resolveSessionIdleReclaimMs } from './services/sessionIdleReaper';
+import { createServerSessionRating } from './services/sessionRating';
 import {
   initializeServerTelemetry,
   type ServerTelemetry,
   shutdownServerTelemetry,
 } from './services/telemetry';
-import { createServerSessionRating } from './services/sessionRating';
 import { TranscriptService } from './services/transcript/transcriptService';
 import { extractWsBearerToken } from './transport/ws/bearerProtocol';
+import { ConnectionRegistry, type IConnectionRegistry } from './transport/ws/connectionRegistry';
 import { registerWsDebug, WS_DEBUG_PATH } from './transport/ws/debug/registerWsDebug';
 import type { ConfigWarningItem } from './transport/ws/v1/events';
 import { registerWsV1, WS_PATH as WS_PATH_V1 } from './transport/ws/v1/registerWsV1';
 import { SessionEventBroadcaster } from './transport/ws/v1/sessionEventBroadcaster';
 import { getServerVersion } from './version';
-import {
-  createRemoteControlManager,
-  RemoteControlDeviceClient,
-} from '@moonshot-ai/remote-control';
-
-
 
 export interface ServerHostIdentity extends KimiHostIdentity {
   readonly displayName?: string;

@@ -1,12 +1,12 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { createKimiHarness, type KimiHarness } from '@moonshot-ai/kimi-code-sdk';
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { readE2EFlags } from '#test/helpers/e2e-flags';
 
 import { createKimiCodeHostIdentity } from '#/cli/version';
+import { readE2EFlags } from '#test/helpers/e2e-flags';
 
 const ENABLED = readE2EFlags(process.env).e2e;
 

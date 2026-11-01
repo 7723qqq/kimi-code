@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-import {
-  renderModelToolSkillPrompt,
-  renderUserSlashSkillPrompt,
-} from '#/features/skill/prompt';
+import { renderModelToolSkillPrompt, renderUserSlashSkillPrompt } from '#/features/skill/prompt';
 
 describe('renderSkillLoadedBlock skill directory', () => {
   const base = {

@@ -1,6 +1,7 @@
+import { describe, expect, it } from 'bun:test';
+
 import type { ContentPart, ToolCall } from '@moonshot-ai/kimi-code-sdk';
 import type { ContextMessage, PromptOrigin } from '@moonshot-ai/kimi-code-sdk';
-import { describe, expect, it } from 'bun:test';
 
 import {
   buildExportMarkdown,

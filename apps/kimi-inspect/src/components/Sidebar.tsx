@@ -288,9 +288,9 @@ export function Sidebar({
         {groups.isError ? <ErrorLine error={groups.error} /> : null}
         {activities.seedError !== null ? (
           <ErrorLine
-            error={new Error(
-              t('sidebar.activityBaselineUnavailable', { reason: activities.seedError }),
-            )}
+            error={
+              new Error(t('sidebar.activityBaselineUnavailable', { reason: activities.seedError }))
+            }
           />
         ) : null}
         {groupList.map((group) => (

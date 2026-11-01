@@ -149,7 +149,8 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
       }
     }
     const escalated: Record<string, number> = {};
-    const succeeded = toLoad.length > 0 || alreadyAvailable.length > 0 || alreadyCallable.length > 0;
+    const succeeded =
+      toLoad.length > 0 || alreadyAvailable.length > 0 || alreadyCallable.length > 0;
     this.consecutiveFailures = succeeded ? 0 : this.consecutiveFailures + 1;
     for (const name of [...toLoad, ...alreadyAvailable, ...alreadyCallable]) {
       this.failedSelectionAttempts.delete(name.toLowerCase());
@@ -234,9 +235,12 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
       if (loadable.length > 0) return undefined;
       const lastAnnouncement = history.findLast(isLoadableToolsAnnouncement);
       const emptyAnnouncement = renderLoadableToolsAnnouncement([], [], false);
-      if (lastAnnouncement?.content.some((part) =>
-        part.type === 'text' && part.text.includes(emptyAnnouncement),
-      )) return undefined;
+      if (
+        lastAnnouncement?.content.some(
+          (part) => part.type === 'text' && part.text.includes(emptyAnnouncement),
+        )
+      )
+        return undefined;
     }
     return renderLoadableToolsAnnouncement(added, removed, loadable.length > 0);
   }

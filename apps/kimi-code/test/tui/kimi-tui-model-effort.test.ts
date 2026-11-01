@@ -1,10 +1,8 @@
-
-
 import { describe, expect, it, mock } from 'bun:test';
-import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { EffortSelectorComponent } from '#/tui/components/dialogs/effort-selector';
 import { TabbedModelSelectorComponent } from '#/tui/components/dialogs/tabbed-model-selector';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { makeDriver, makeSession, renderTranscript } from './kimi-tui-message-flow-helpers';
 

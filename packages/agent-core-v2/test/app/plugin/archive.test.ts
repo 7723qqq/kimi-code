@@ -1,12 +1,11 @@
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { readFile, stat } from 'node:fs/promises';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { setGlobal, restoreGlobals } from '#test/helpers/stubs';
-
 import { downloadZip, extractZip } from '#/app/plugin/archive';
+import { setGlobal, restoreGlobals } from '#test/helpers/stubs';
 
 import { createZipFromDir } from './zip-helper';
 

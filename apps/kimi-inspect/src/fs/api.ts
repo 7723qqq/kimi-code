@@ -83,14 +83,17 @@ async function postSuggest(
 }
 
 export async function fetchFsSuggest(opts: FetchFsSuggestOptions): Promise<FsSuggestResult> {
-  return postSuggest({
-    roots: [...opts.roots],
-    query: opts.query,
-    limit: opts.limit,
-    follow_gitignore: opts.followGitignore,
-    show_hidden: opts.showHidden,
-    include_globs: opts.includeGlobs,
-    exclude_globs: opts.excludeGlobs,
-    runtime_id: opts.runtimeId,
-  }, opts);
+  return postSuggest(
+    {
+      roots: [...opts.roots],
+      query: opts.query,
+      limit: opts.limit,
+      follow_gitignore: opts.followGitignore,
+      show_hidden: opts.showHidden,
+      include_globs: opts.includeGlobs,
+      exclude_globs: opts.excludeGlobs,
+      runtime_id: opts.runtimeId,
+    },
+    opts,
+  );
 }

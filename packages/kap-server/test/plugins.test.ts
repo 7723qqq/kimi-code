@@ -1,16 +1,16 @@
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { removeTempHome } from './helpers/tempHome';
 import { WebSocket } from 'ws';
 
 import { type RunningServer, startServer } from '../src/start';
 import { authHeaders, bearerToken } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { setEnv, setGlobal, restoreEnvs, restoreGlobals } from './helpers/stubs';
+import { removeTempHome } from './helpers/tempHome';
 import { waitForAssertion } from './helpers/waitFor';
 
 interface Envelope<T> {
@@ -584,9 +584,7 @@ describe('server-v2 /api/v1 plugins', () => {
 
     const { body } = await call<{
       entries: { id: string; tier: string; displayName: string; source: string }[];
-    }>('GET',
-      '/api/v1/plugins/marketplace',
-    );
+    }>('GET', '/api/v1/plugins/marketplace');
     expect(
       body.code,
       `marketplace responded: ${JSON.stringify((body as { msg?: string }).msg ?? body)}`,

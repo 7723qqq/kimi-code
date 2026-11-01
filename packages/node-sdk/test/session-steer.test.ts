@@ -1,7 +1,7 @@
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { createRequire } from 'node:module';
 
 import type * as KosongModule from '@moonshot-ai/kosong';
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import { createKimiHarness, type KimiError } from '#/index';
 

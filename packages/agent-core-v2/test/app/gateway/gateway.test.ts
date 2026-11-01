@@ -3,28 +3,26 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { type ServiceIdentifier, type ServicesAccessor } from '#/_base/di/instantiation';
 import { DisposableStore } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { type IAgentScopeHandle, type ISessionScopeHandle } from '#/_base/di/scope';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-
+import { ILogService } from '#/_base/log/log';
 import { type ContextMessage, type PromptOrigin } from '#/agent/contextMemory/types';
+import { IAgentLoopService } from '#/agent/loop/loop';
 import { IRestGateway } from '#/app/gateway/gateway';
 import { RestGateway } from '#/app/gateway/gatewayService';
-import { stubAgentContext } from '../../agent/agentContext/stubs';
-import { ILogService } from '#/_base/log/log';
+import { LifecycleScope } from '#/app/scopes';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
-import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { type SessionMeta } from '#/session/sessionMetadata/sessionMetadata';
-import { IAgentLoopService } from '#/agent/loop/loop';
+import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
 import { type UserEntry } from '#human/agent/turn';
+
 import { stubLog } from '../../_base/log/stubs';
+import { stubAgentContext } from '../../agent/agentContext/stubs';
 import { stubLoopWithHooks, type StubLoop } from '../../agent/loop/stubs';
 
 function textOf(message: ContextMessage): string {
-  return message.content
-    .map((part) => (part.type === 'text' ? part.text : ''))
-    .join('');
+  return message.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
 }
 
 function makeAccessor(
@@ -51,14 +49,19 @@ describe('RestGateway', () => {
     ix = disposables.add(new TestInstantiationService());
     promptCalls = [];
     turnService = stubLoopWithHooks({ hasActiveTurn: true });
-    turnService.submit = (input: UserEntry) => { promptCalls.push({ ...input.message, toolCalls: [], origin: input.meta?.origin as PromptOrigin | undefined }); return { id: 'p' }; };
+    turnService.submit = (input: UserEntry) => {
+      promptCalls.push({
+        ...input.message,
+        toolCalls: [],
+        origin: input.meta?.origin as PromptOrigin | undefined,
+      });
+      return { id: 'p' };
+    };
 
     const agentHandle: IAgentScopeHandle = {
       id: 'main',
       kind: LifecycleScope.Agent,
-      accessor: makeAccessor([
-        [IAgentLoopService, turnService],
-      ]),
+      accessor: makeAccessor([[IAgentLoopService, turnService]]),
       dispose: () => {},
     };
     const agentContext = stubAgentContext('main', 1);

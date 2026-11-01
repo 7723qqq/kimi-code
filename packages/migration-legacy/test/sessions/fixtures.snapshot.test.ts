@@ -1,9 +1,8 @@
+import { describe, expect, it, beforeEach, afterEach } from 'bun:test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-
-import { describe, expect, it, beforeEach, afterEach } from 'bun:test';
 
 import { migrateOneSession } from '../../src/sessions/migrate-one.js';
 
@@ -33,7 +32,11 @@ afterEach(async () => {
 describe.each(SCENARIOS)('migration snapshot: %s', (name) => {
   it('migration succeeds and matches snapshot', async () => {
     const result = await migrateOneSession({
-      source: { uuid: name, sessionDir: join(FIXTURES, name), contextPath: join(join(FIXTURES, name), 'context.jsonl') },
+      source: {
+        uuid: name,
+        sessionDir: join(FIXTURES, name),
+        contextPath: join(join(FIXTURES, name), 'context.jsonl'),
+      },
       workdirPath: '/Users/example/proj',
       targetHome: target,
     });

@@ -1,11 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { waitForAssertion } from '#test/helpers/waitFor';
+
 import { createControlledPromise } from '@antfu/utils';
 
 import { InMemorySkillCatalog } from '#/features/skill/catalog/registry';
 import { summarizeSkill } from '#/features/skill/catalog/types';
 import { IAgentSkillService } from '#/features/skill/skillService';
-import type { LlmRequester } from '#human/llm/requester/requester';
 import {
   ISkillTool,
   MAX_SKILL_QUERY_DEPTH,
@@ -13,14 +12,17 @@ import {
   SkillToolInputSchema,
 } from '#/features/skill/tools/skill';
 import { SkillTool } from '#/features/skill/tools/skillTool';
-import { executeTool } from '../../tools/fixtures/execute-tool';
-import { stubSkill } from './catalog/stubs';
+import type { LlmRequester } from '#human/llm/requester/requester';
+import { waitForAssertion } from '#test/helpers/waitFor';
+
 import {
   createTestAgent,
   InMemoryWireRecordPersistence,
   skillServices,
   type TestAgentContext,
 } from '../../harness';
+import { executeTool } from '../../tools/fixtures/execute-tool';
+import { stubSkill } from './catalog/stubs';
 
 type GenerateFn = LlmRequester;
 
@@ -155,10 +157,7 @@ describe('SkillTool', () => {
   });
 
   it('returns a tool error when the skill is unknown', async () => {
-    const result = await executeTool(
-      makeTool(),
-      toolContext({ skill: 'missing' }),
-    );
+    const result = await executeTool(makeTool(), toolContext({ skill: 'missing' }));
 
     expect(result).toMatchObject({
       isError: true,
@@ -169,10 +168,7 @@ describe('SkillTool', () => {
   it('rejects skills that disable model invocation', async () => {
     skills.register(stubSkill('private', { metadata: { disableModelInvocation: true } }));
 
-    const result = await executeTool(
-      makeTool(),
-      toolContext({ skill: 'private' }),
-    );
+    const result = await executeTool(makeTool(), toolContext({ skill: 'private' }));
 
     expect(result).toMatchObject({
       isError: true,
@@ -183,10 +179,7 @@ describe('SkillTool', () => {
   it('rejects non-inline skill types in the current v1 runtime', async () => {
     skills.register(stubSkill('flow-only', { metadata: { type: 'flow' } }));
 
-    const result = await executeTool(
-      makeTool(),
-      toolContext({ skill: 'flow-only' }),
-    );
+    const result = await executeTool(makeTool(), toolContext({ skill: 'flow-only' }));
 
     expect(result).toMatchObject({
       isError: true,
@@ -223,14 +216,8 @@ describe('SkillTool', () => {
   });
 
   it('honors initialQueryDepth as an alias for queryDepth', async () => {
-    const nested = await executeTool(
-      makeTool(2),
-      toolContext({ skill: 'commit' }),
-    );
-    const root = await executeTool(
-      makeTool(0),
-      toolContext({ skill: 'commit' }),
-    );
+    const nested = await executeTool(makeTool(2), toolContext({ skill: 'commit' }));
+    const root = await executeTool(makeTool(0), toolContext({ skill: 'commit' }));
 
     expect(ctx.context.get()).toHaveLength(0);
     expect(nested.delivery?.message.origin).toMatchObject({
@@ -245,10 +232,7 @@ describe('SkillTool', () => {
 
   it('throws a structured recursion error when nested skill invocation is too deep', async () => {
     await expect(
-      executeTool(
-        makeTool(MAX_SKILL_QUERY_DEPTH),
-        toolContext({ skill: 'commit' }),
-      ),
+      executeTool(makeTool(MAX_SKILL_QUERY_DEPTH), toolContext({ skill: 'commit' })),
     ).rejects.toBeInstanceOf(NestedSkillTooDeepError);
     expect(ctx.context.get()).toHaveLength(0);
   });
@@ -302,7 +286,9 @@ describe('AgentSkillService busy delivery (harness)', () => {
       expect(generateCalls).toBe(1);
     });
 
-    const busyResult = await ctx.get(IAgentSkillService).activate({ name: 'tower', args: 'mission-1' });
+    const busyResult = await ctx
+      .get(IAgentSkillService)
+      .activate({ name: 'tower', args: 'mission-1' });
     expect(busyResult.turn_id).toBe(0);
     expect(generateCalls).toBe(1);
 
@@ -310,7 +296,9 @@ describe('AgentSkillService busy delivery (harness)', () => {
     await promptPromise;
     await ctx.untilTurnEnd();
 
-    const idleResult = await ctx.get(IAgentSkillService).activate({ name: 'tower', args: 'mission-2' });
+    const idleResult = await ctx
+      .get(IAgentSkillService)
+      .activate({ name: 'tower', args: 'mission-2' });
     expect(idleResult.turn_id).toBe(2);
     await ctx.untilTurnEnd();
     expect(generateCalls).toBe(3);
@@ -318,10 +306,9 @@ describe('AgentSkillService busy delivery (harness)', () => {
     const activations = ctx
       .contextData()
       .history.filter((m) => m.role === 'user' && m.origin?.kind === 'skill_activation');
-    expect(activations.map((m) => (m.origin?.kind === 'skill_activation' ? m.origin.skillArgs : ''))).toEqual([
-      'mission-1',
-      'mission-2',
-    ]);
+    expect(
+      activations.map((m) => (m.origin?.kind === 'skill_activation' ? m.origin.skillArgs : '')),
+    ).toEqual(['mission-1', 'mission-2']);
 
     const types = persistence.records.map((record) => record.type);
     expect(types.filter((type) => type === 'turn.prompt')).toHaveLength(2);

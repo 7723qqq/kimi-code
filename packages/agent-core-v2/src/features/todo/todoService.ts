@@ -1,7 +1,7 @@
 import { assign, fromCallback, setup, type Snapshot } from 'xstate';
 
-import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { createDecorator, IInstantiationService } from '#/_base/di/instantiation';
+import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import type { Event } from '#/_base/event';
 import {
   AgentActorService,
@@ -57,24 +57,26 @@ const todoReminder = fromCallback(
     const telemetry = runtime.get(ITelemetryService);
     const bus = runtime.get(IEventBus);
     let updatedInTurn = false;
-    const registration = runtime.get(IAgentReminderService).register(TODO_LIST_REMINDER_VARIANT, () => {
-      const todos = runtime.getState();
-      const reminder = todoListStaleReminder({
-        active: toolPolicy.isToolActive(TODO_LIST_TOOL_NAME, 'builtin'),
-        history: memory.get(),
-        todos,
+    const registration = runtime
+      .get(IAgentReminderService)
+      .register(TODO_LIST_REMINDER_VARIANT, () => {
+        const todos = runtime.getState();
+        const reminder = todoListStaleReminder({
+          active: toolPolicy.isToolActive(TODO_LIST_TOOL_NAME, 'builtin'),
+          history: memory.get(),
+          todos,
+        });
+        if (reminder === undefined) return undefined;
+        const progress = todoProgress(todos);
+        const properties: TodoReminderShownEvent = {
+          turn_id: runtime.get(IAgentLoopService).snapshot().activeTurnId,
+          steps_since_write: reminder.stepsSinceLastWrite,
+          item_count: progress.total,
+          open_count: progress.open,
+        };
+        telemetry.track2('todo_reminder_shown', properties);
+        return reminder.text;
       });
-      if (reminder === undefined) return undefined;
-      const progress = todoProgress(todos);
-      const properties: TodoReminderShownEvent = {
-        turn_id: runtime.get(IAgentLoopService).snapshot().activeTurnId,
-        steps_since_write: reminder.stepsSinceLastWrite,
-        item_count: progress.total,
-        open_count: progress.open,
-      };
-      telemetry.track2('todo_reminder_shown', properties);
-      return reminder.text;
-    });
     const change = runtime.onDidChange(() => {
       updatedInTurn = true;
     });

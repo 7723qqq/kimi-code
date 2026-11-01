@@ -1,32 +1,31 @@
+import { afterEach, beforeEach, describe, expect, it, jest, type Mock } from 'bun:test';
 import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
-import { afterEach, beforeEach, describe, expect, it, jest, type Mock } from 'bun:test';
-import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
-
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentProfileService } from '#/agent/profile/profile';
+import type { AgentContext } from '#/agent/agentContext/agentContext';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
-import type { AgentContext } from '#/agent/agentContext/agentContext';
+import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentTaskService } from '#/agent/task/task';
-import { STATE_FILE, TowerProtocolError, TowerStore } from '#/features/tower/protocol/index';
-import type { TowerState } from '#/features/tower/protocol/index';
-import { IAgentTowerService } from '#/features/tower/tower';
-import { ITowerRateLimitService } from '#/features/tower/towerRateLimit';
+import type { AgentTaskInfo } from '#/agent/task/types';
 import { SubagentTask } from '#/agent/tools/agent/subagent-task';
-import { ITowerSpawnTool, type TowerSpawnToolInput } from '#/features/tower/tools/spawn/spawn';
-import { TowerSpawnTool } from '#/features/tower/tools/spawn/spawnTool';
-import { TOWER_MODE_USER_ENABLED_ONLY } from '#/features/tower/tools/support';
 import { IConfigService } from '#/app/config/config';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
+import { STATE_FILE, TowerProtocolError, TowerStore } from '#/features/tower/protocol/index';
+import type { TowerState } from '#/features/tower/protocol/index';
+import { ITowerSpawnTool, type TowerSpawnToolInput } from '#/features/tower/tools/spawn/spawn';
+import { TowerSpawnTool } from '#/features/tower/tools/spawn/spawnTool';
+import { TOWER_MODE_USER_ENABLED_ONLY } from '#/features/tower/tools/support';
+import { IAgentTowerService } from '#/features/tower/tower';
+import { ITowerRateLimitService } from '#/features/tower/towerRateLimit';
 import { UNKNOWN_CAPABILITY } from '#/llm-adapter/contract/capability';
 import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
@@ -37,15 +36,12 @@ import {
   SUBAGENT_SECTION,
   type SecondaryModelConfig,
 } from '#/session/subagent/configSection';
-import {
-  ISessionSubagentService,
-  type AgentRunHandle,
-} from '#/session/subagent/subagent';
-import type { AgentTaskInfo } from '#/agent/task/types';
+import { ISessionSubagentService, type AgentRunHandle } from '#/session/subagent/subagent';
 import type { ExecutableToolResult } from '#/tool/toolContract';
+import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
 
-import { executeTool } from '../../../tools/fixtures/execute-tool';
 import { stubAgentContext } from '../../../agent/agentContext/stubs';
+import { executeTool } from '../../../tools/fixtures/execute-tool';
 
 const execFileAsync = promisify(execFile);
 const signal = new AbortController().signal;
@@ -150,7 +146,10 @@ describe('TowerSpawnTool', () => {
       acquire,
       release,
     } as unknown as ITowerRateLimitService);
-    ix.stub(ISessionContext, { cwd: repo, sessionId: 'session-spawn-test' } as unknown as ISessionContext);
+    ix.stub(ISessionContext, {
+      cwd: repo,
+      sessionId: 'session-spawn-test',
+    } as unknown as ISessionContext);
     ix.stub(IAgentScopeContext, { agentId: 'main', scope: (subKey?: string) => subKey ?? '' });
     const createdHandle = {
       id: 'agent-7',
@@ -192,7 +191,10 @@ describe('TowerSpawnTool', () => {
       create: createAgent,
     } as unknown as IAgentLifecycleService);
     ix.stub(ISessionSubagentService, { run: runAgent } as unknown as ISessionSubagentService);
-    ix.stub(IAgentTaskService, { registerTask, getTask: (taskId: string) => taskInfoLookup(taskId) } as unknown as IAgentTaskService);
+    ix.stub(IAgentTaskService, {
+      registerTask,
+      getTask: (taskId: string) => taskInfoLookup(taskId),
+    } as unknown as IAgentTaskService);
     ix.stub(IAgentProfileService, {
       data: () => ({ profileName: 'agent', modelAlias: callerModelAlias, thinkingLevel: 'off' }),
     } as unknown as IAgentProfileService);
@@ -249,7 +251,9 @@ describe('TowerSpawnTool', () => {
     const mission = state.missions.find((candidate) => candidate.id === 'M1');
     expect(mission?.status).toBe('planned');
     expect(mission?.owner).toBeUndefined();
-    await expect(git(repo, 'rev-parse', '--verify', 'refs/heads/feat/build-gemm')).rejects.toThrow();
+    await expect(
+      git(repo, 'rev-parse', '--verify', 'refs/heads/feat/build-gemm'),
+    ).rejects.toThrow();
   }
 
   it('updates the advertised model schema and descriptions with the current pool config', () => {
@@ -270,7 +274,9 @@ describe('TowerSpawnTool', () => {
     expect(tool.description).toContain('Available models (pass via model):');
     expect(tool.description).toContain('- cheap/fast [default]: fast and cheap');
     expect(tool.description).toContain('- smart/slow: careful and thorough');
-    expect(tool.description).toContain('- primary (= kimi-code): your current model and thinking level');
+    expect(tool.description).toContain(
+      '- primary (= kimi-code): your current model and thinking level',
+    );
     expect(tool.description).toContain(
       'The [default] marker is the worker pool default, not the reviewer default.',
     );
@@ -306,7 +312,9 @@ describe('TowerSpawnTool', () => {
     expect(createAgent).not.toHaveBeenCalled();
     expect(runAgent).not.toHaveBeenCalled();
     expect(registerTask).not.toHaveBeenCalled();
-    await expect(git(repo, 'rev-parse', '--verify', 'refs/heads/feat/build-gemm')).rejects.toThrow();
+    await expect(
+      git(repo, 'rev-parse', '--verify', 'refs/heads/feat/build-gemm'),
+    ).rejects.toThrow();
   });
 
   it.each(['merged', 'abandoned'] as const)(
@@ -330,7 +338,9 @@ describe('TowerSpawnTool', () => {
       const mission = after.missions.find((candidate) => candidate.id === 'M1');
       expect(mission?.status).toBe(status);
       expect(mission?.owner).toBeUndefined();
-      await expect(git(repo, 'rev-parse', '--verify', 'refs/heads/feat/build-gemm')).rejects.toThrow();
+      await expect(
+        git(repo, 'rev-parse', '--verify', 'refs/heads/feat/build-gemm'),
+      ).rejects.toThrow();
     },
   );
 
@@ -991,21 +1001,17 @@ describe('TowerSpawnTool', () => {
     expect(result.isError).toBeUndefined();
     const prompt = (runAgent.mock.calls.at(-1)?.[1] as { prompt: string }).prompt;
     expect(prompt).toContain('# When the mission is done');
+    expect(prompt).toContain('call TowerInbox once and incorporate anything new into the delivery');
+    expect(prompt).toContain('TowerComplete refuses while unread messages wait in your inbox');
     expect(prompt).toContain(
-      'call TowerInbox once and incorporate anything new into the delivery',
+      'Re-read your mission too (TowerMission(id="M1") with no patch fields)',
     );
-    expect(prompt).toContain(
-      'TowerComplete refuses while unread messages wait in your inbox',
-    );
-    expect(prompt).toContain('Re-read your mission too (TowerMission(id="M1") with no patch fields)');
     expect(prompt).toContain('Call TowerComplete(report=what you changed and why');
     expect(prompt).not.toContain('Mark the mission completed: TowerMission');
   });
 
   it('briefs the survey worker to read the inbox before completing', async () => {
-    const [survey] = await store.plan([
-      { title: 'Scan apis', scope: ['src/**'], kind: 'survey' },
-    ]);
+    const [survey] = await store.plan([{ title: 'Scan apis', scope: ['src/**'], kind: 'survey' }]);
 
     const result = await execute({ name: 'agent-scan', kind: 'worker', mission_id: survey!.id });
 
@@ -1026,7 +1032,11 @@ describe('TowerSpawnTool', () => {
         context: 'Keep the tone friendly. Do not document internals.',
       },
     ]);
-    const workerResult = await execute({ name: 'agent-docs', kind: 'worker', mission_id: docs!.id });
+    const workerResult = await execute({
+      name: 'agent-docs',
+      kind: 'worker',
+      mission_id: docs!.id,
+    });
     expect(workerResult.isError).toBeUndefined();
     await store.send('agent-docs', {
       to: 'tower',
@@ -1128,7 +1138,9 @@ describe('TowerSpawnTool', () => {
     expect(result.isError).toBeUndefined();
     const prompt = (runAgent.mock.calls.at(-1)?.[1] as { prompt: string }).prompt;
     expect(prompt).toContain('# Previous work on this branch');
-    expect(prompt).toContain('Latest review — round 1 by rev: p1-2items, merge verdict "fix-then-merge"');
+    expect(prompt).toContain(
+      'Latest review — round 1 by rev: p1-2items, merge verdict "fix-then-merge"',
+    );
     expect(prompt).toContain('the kernel leaks memory');
     expect(prompt).toContain('fix the leak first');
     expect(prompt).toContain("The previous worker's review-request to the tower");

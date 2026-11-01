@@ -1,6 +1,6 @@
 import { Disposable, DisposableStore } from '#/_base/di/lifecycle';
-import { ILogService } from '#/_base/log/log';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { ILogService } from '#/_base/log/log';
 import { TurnStarted } from '#/agent/loop/turnEvents';
 import { TurnEnded, turnKey } from '#/agent/loop/turnOps';
 import { IAgentStateService } from '#/agent/state/agentState';
@@ -161,10 +161,7 @@ export class SessionOutcomeMirror extends Disposable implements ISessionOutcomeM
     void this.metadata
       .update({ lastTurnReason: outcome }, { touchUpdatedAt: opts?.touchUpdatedAt })
       .catch((error: unknown) => {
-        this.log.warn(
-          `session outcome persist failed: lastTurnReason=${String(outcome)}`,
-          error,
-        );
+        this.log.warn(`session outcome persist failed: lastTurnReason=${String(outcome)}`, error);
         if (this.lastPersisted === outcome) {
           this.lastPersisted = previous;
           this.lastPersistedTurnId = previousTurnId;

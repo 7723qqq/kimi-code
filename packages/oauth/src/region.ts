@@ -206,9 +206,7 @@ export interface ResolveKimiRegionParts {
  * (the stat-gated resolver) share exactly this chain with the I/O wrapper
  * {@link resolveKimiRegionDetailed}.
  */
-export function resolveKimiRegionFromParts(
-  parts: ResolveKimiRegionParts,
-): KimiRegionResolution {
+export function resolveKimiRegionFromParts(parts: ResolveKimiRegionParts): KimiRegionResolution {
   const env = parts.env ?? process.env;
   const envHost = env['KIMI_CODE_OAUTH_HOST'] ?? env['KIMI_OAUTH_HOST'];
   if (envHost !== undefined && envHost.length > 0) {

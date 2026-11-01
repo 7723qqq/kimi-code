@@ -44,8 +44,7 @@ export function createCopyTextDeps(overrides: Partial<CopyTextDeps> = {}): CopyT
       try {
         const result = Bun.spawnSync({
           cmd: [command, ...args],
-          stdin:
-            options.input === undefined ? 'ignore' : Buffer.from(options.input, 'utf8'),
+          stdin: options.input === undefined ? 'ignore' : Buffer.from(options.input, 'utf8'),
           stdout: 'ignore',
           stderr: 'pipe',
           timeout: options.timeoutMs,

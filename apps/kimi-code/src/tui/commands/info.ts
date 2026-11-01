@@ -6,8 +6,8 @@ import { t } from '#/i18n';
 import { openUrl } from '#/utils/open-url';
 import { quotaUsageRows } from '#/utils/usage/usage-format';
 
-import { submitFeedbackWithAttachments } from '../../feedback/feedback-attachments';
 import type { FeedbackCodebaseLimitExceeded } from '../../feedback/codebase';
+import { submitFeedbackWithAttachments } from '../../feedback/feedback-attachments';
 import { buildMcpStatusReportLines } from '../components/messages/mcp-status-panel';
 import { buildStatusReportLines } from '../components/messages/status-panel';
 import {

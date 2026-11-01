@@ -1,10 +1,9 @@
+import { afterEach, beforeEach, describe, expect, it, jest, mock } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import { join } from 'pathe';
-import { afterEach, beforeEach, describe, expect, it, jest, mock } from 'bun:test';
-import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
@@ -13,10 +12,7 @@ import { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { MCP_SECTION, type McpSection } from '#/app/mcpConfig/configSection';
-import {
-  IMcpConfigStore,
-  type McpConfigWriteEvent,
-} from '#/app/mcpConfig/configStore';
+import { IMcpConfigStore, type McpConfigWriteEvent } from '#/app/mcpConfig/configStore';
 import { IPluginService } from '#/app/plugin/plugin';
 import type { PluginReloadEvent } from '#/app/plugin/types';
 import type { McpServerConfig } from '#/mcpCore/config-schema';
@@ -33,6 +29,7 @@ import {
   type WorkspaceTrustChange,
 } from '#/workspace/workspaceTrust/workspaceTrust';
 import type { WatchChange } from '#human/utils/watch';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { stubLog } from '../../_base/log/stubs';
 
@@ -170,7 +167,9 @@ describe('WorkspaceMcpConfigService', () => {
   it('skips the project-level config files when trust initialization fails', async () => {
     await writeProjectConfig({ fileOnly: stdioConfig('file') });
 
-    const service = createService(undefined, () => Promise.reject(new Error('trust storage unavailable')));
+    const service = createService(undefined, () =>
+      Promise.reject(new Error('trust storage unavailable')),
+    );
     await service.ready;
 
     expect(service.servers()).toEqual({});
@@ -240,10 +239,18 @@ describe('WorkspaceMcpConfigService', () => {
   }, 20000);
 
   it('exposes the [mcp] section as tunables, resolved live', async () => {
-    const service = createService({ startupTimeoutMs: 1234, toolTimeoutMs: 5678, defaultDeferred: true });
+    const service = createService({
+      startupTimeoutMs: 1234,
+      toolTimeoutMs: 5678,
+      defaultDeferred: true,
+    });
     await service.ready;
 
-    expect(service.tunables()).toEqual({ startupTimeoutMs: 1234, toolTimeoutMs: 5678, defaultDeferred: true });
+    expect(service.tunables()).toEqual({
+      startupTimeoutMs: 1234,
+      toolTimeoutMs: 5678,
+      defaultDeferred: true,
+    });
   });
 
   it('publishes the diff when a watched config file changes', async () => {

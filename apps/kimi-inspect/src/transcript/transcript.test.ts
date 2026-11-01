@@ -4,6 +4,8 @@
  * test suite and are intentionally not re-tested here.
  */
 
+import { describe, expect, it, mock } from 'bun:test';
+
 import {
   itemId,
   type StepHeader,
@@ -12,7 +14,6 @@ import {
   type TurnHeader,
   type TurnState,
 } from '@moonshot-ai/transcript';
-import { describe, expect, it, mock } from 'bun:test';
 
 import { waitFor } from '../../test/_helpers/bunTest';
 import type { WsLike } from '../channel/wsLike';
@@ -49,9 +50,9 @@ function stepHeader(stepId: string, ordinal: number): StepHeader {
 
 describe('transcript attachments', () => {
   it('maps each attachment locator to its transport route', () => {
-    expect(
-      transcriptAttachmentUrl('http://h:1', 's 1', { kind: 'file', fileId: 'f 1' }),
-    ).toBe('http://h:1/api/v1/files/f%201');
+    expect(transcriptAttachmentUrl('http://h:1', 's 1', { kind: 'file', fileId: 'f 1' })).toBe(
+      'http://h:1/api/v1/files/f%201',
+    );
     expect(
       transcriptAttachmentUrl('http://h:1', 's 1', {
         kind: 'session_media',
@@ -77,10 +78,9 @@ describe('transcript attachments', () => {
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
 
-    expect(fetchImpl).toHaveBeenCalledWith(
-      'http://h:1/api/v1/sessions/s1/media/f_1',
-      { headers: { authorization: 'Bearer tok' } },
-    );
+    expect(fetchImpl).toHaveBeenCalledWith('http://h:1/api/v1/sessions/s1/media/f_1', {
+      headers: { authorization: 'Bearer tok' },
+    });
     await expect(blob.text()).resolves.toBe('media-bytes');
   });
 });

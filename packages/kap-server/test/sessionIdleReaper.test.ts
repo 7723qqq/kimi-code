@@ -1,13 +1,14 @@
-import type { ISessionManager, ISessionScopeHandle } from '@moonshot-ai/agent-core-v2';
 import { describe, expect, it, jest } from 'bun:test';
 
+import type { ISessionManager, ISessionScopeHandle } from '@moonshot-ai/agent-core-v2';
+
+import type { ServerLogger } from '../src/services/pinoLoggerService';
 import {
   DEFAULT_SESSION_IDLE_RECLAIM_MS,
   SESSION_IDLE_RECLAIM_ENV,
   SessionIdleReaper,
   resolveSessionIdleReclaimMs,
 } from '../src/services/sessionIdleReaper';
-import type { ServerLogger } from '../src/services/pinoLoggerService';
 
 function fakeSessions(ids: readonly string[]) {
   const calls: string[] = [];

@@ -51,6 +51,9 @@ export async function waitUntil<T>(
   }
 }
 
-export async function waitForAssertion(probe: () => unknown, options: PollOptions = {}): Promise<void> {
+export async function waitForAssertion(
+  probe: () => unknown,
+  options: PollOptions = {},
+): Promise<void> {
   await waitUntil(probe, { ...options, until: () => true });
 }

@@ -1,30 +1,29 @@
+import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+
 import { basename, dirname, isAbsolute, join, normalize, relative, resolve } from 'pathe';
 
-import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
-
 import { Emitter, Event } from '#/_base/event';
-import { HostFileSystem } from '#/os/backends/host/hostFsService';
-import { IAgentProfileService, type ResolvedAgentProfile } from '#/agent/profile/profile';
 import { IAgentChangeNotifierService } from '#/agent/changeNotifier/changeNotifier';
+import { IAgentProfileService, type ResolvedAgentProfile } from '#/agent/profile/profile';
 import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
-import type { Runtime, RuntimeCapability, RuntimeStatus } from '#/runtime/runtime';
+import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { normalizeAgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import { DEFAULT_PRODUCT_NAME } from '#/app/agentProfileCatalog/profile-shared';
 import { IPluginService } from '#/app/plugin/plugin';
 import type { EnabledPluginSystemPrompt } from '#/app/plugin/types';
 import { InMemorySkillCatalog } from '#/features/skill/catalog/registry';
-import type { SkillCatalog } from '#/features/skill/catalog/types';
-import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import {
   BUILTIN_SKILL_SOURCE_ID,
   PLUGIN_SKILL_SOURCE_ID,
 } from '#/features/skill/catalog/skillSource';
-import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
-import { DEFAULT_PRODUCT_NAME } from '#/app/agentProfileCatalog/profile-shared';
+import type { SkillCatalog } from '#/features/skill/catalog/types';
+import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
+import { HostFileSystem } from '#/os/backends/host/hostFsService';
+import type { Runtime, RuntimeCapability, RuntimeStatus } from '#/runtime/runtime';
 
 import { stubAgentIdentity } from '../../app/agentIdentity/stubs';
-
 import {
   agentService,
   appService,
@@ -95,9 +94,10 @@ describe('AgentProfileService.applyProfile', () => {
     await rm(workDir, { recursive: true, force: true });
   });
 
-  function buildContext(
-    ...extra: readonly (TestAgentServiceOverride | TestAgentOptions)[]
-  ): { ctx: TestAgentContext; profile: IAgentProfileService } {
+  function buildContext(...extra: readonly (TestAgentServiceOverride | TestAgentOptions)[]): {
+    ctx: TestAgentContext;
+    profile: IAgentProfileService;
+  } {
     const fs = new HostFileSystem();
     ctx = createTestAgent(
       execEnvServices({ hostFs: fs }),
@@ -126,9 +126,7 @@ describe('AgentProfileService.applyProfile', () => {
     });
 
     it('keeps the built-in product name when no identity is configured', async () => {
-      const { profile: svc } = buildContext(
-        appService(IAgentIdentity, stubAgentIdentity()),
-      );
+      const { profile: svc } = buildContext(appService(IAgentIdentity, stubAgentIdentity()));
 
       await svc.applyProfile(selfNaming);
 
@@ -235,7 +233,10 @@ describe('AgentProfileService.applyProfile', () => {
   it('skips the directory listing when the bound runtime has no fs capability', async () => {
     const fs = new HostFileSystem();
     const { profile: svc } = buildContext(
-      agentService(IAgentRuntimeService, mappedRuntimeService(fs, homeDir, (path) => path, [])),
+      agentService(
+        IAgentRuntimeService,
+        mappedRuntimeService(fs, homeDir, (path) => path, []),
+      ),
     );
 
     await svc.applyProfile(exactProfile);
@@ -293,15 +294,15 @@ describe('AgentProfileService.applyProfile', () => {
 
   it('injects enabled plugin system-prompt sections into the rendered prompt', async () => {
     const sections = {
-      value: [{ pluginId: 'demo', content: 'Always cite sources.' }] as readonly EnabledPluginSystemPrompt[],
+      value: [
+        { pluginId: 'demo', content: 'Always cite sources.' },
+      ] as readonly EnabledPluginSystemPrompt[],
     };
     const { profile: svc } = buildContext(appService(IPluginService, pluginStub(sections)));
 
     await svc.applyProfile(pluginProfile);
 
-    expect(svc.data().systemPrompt).toBe(
-      '<!-- From: plugin demo -->\nAlways cite sources.',
-    );
+    expect(svc.data().systemPrompt).toBe('<!-- From: plugin demo -->\nAlways cite sources.');
   });
 
   it('keeps the rendered prompt frozen when the plugin skill source reloads', async () => {
@@ -584,7 +585,7 @@ function mappedRuntimeService(
     inspect: () => runtime,
     acquire: () => ({
       runtime,
-      track: <T,>(resource: T): T => resource,
+      track: <T>(resource: T): T => resource,
       dispose: () => {},
     }),
   };

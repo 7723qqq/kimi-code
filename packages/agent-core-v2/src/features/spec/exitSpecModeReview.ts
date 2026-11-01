@@ -1,3 +1,4 @@
+import { reviewDecisionFromLabel, SpecReviewDecision } from '#/agent/interaction/reviewDecisions';
 import type { ApprovalResponse, PermissionPolicyResolution } from '#/agent/permissionPolicy/types';
 import type { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import type {
@@ -9,7 +10,6 @@ import type { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 
 import type { IAgentSpecService } from './spec';
-import { reviewDecisionFromLabel, SpecReviewDecision } from '#/agent/interaction/reviewDecisions';
 
 type SpecReviewDisplay = Extract<ToolInputDisplay, { kind: 'spec_review' }>;
 type SpecReviewOption = NonNullable<SpecReviewDisplay['options']>[number];

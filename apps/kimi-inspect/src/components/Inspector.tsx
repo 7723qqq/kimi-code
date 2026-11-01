@@ -150,15 +150,25 @@ export function Inspector({
               </div>
               <div className="grid grid-cols-[80px_minmax(0,1fr)] gap-1 font-mono">
                 <span className="text-neutral-600">workspace</span>
-                <span className="break-all text-neutral-300">{runtimeBinding.data?.binding.workspaceId ?? 'loading…'}</span>
+                <span className="break-all text-neutral-300">
+                  {runtimeBinding.data?.binding.workspaceId ?? 'loading…'}
+                </span>
                 <span className="text-neutral-600">runtime</span>
-                <span className="break-all text-neutral-300">{runtimeBinding.data?.binding.runtimeId ?? 'loading…'}</span>
+                <span className="break-all text-neutral-300">
+                  {runtimeBinding.data?.binding.runtimeId ?? 'loading…'}
+                </span>
                 <span className="text-neutral-600">generation</span>
-                <span className="break-all text-neutral-300">{runtimeBinding.data?.runtime?.generation ?? 'unavailable'}</span>
+                <span className="break-all text-neutral-300">
+                  {runtimeBinding.data?.runtime?.generation ?? 'unavailable'}
+                </span>
                 <span className="text-neutral-600">status</span>
-                <span className="text-neutral-300">{runtimeBinding.data?.runtime?.status ?? 'unavailable'}</span>
+                <span className="text-neutral-300">
+                  {runtimeBinding.data?.runtime?.status ?? 'unavailable'}
+                </span>
                 <span className="text-neutral-600">capabilities</span>
-                <span className="text-neutral-300">{runtimeBinding.data?.runtime?.capabilities.join(', ') ?? 'none'}</span>
+                <span className="text-neutral-300">
+                  {runtimeBinding.data?.runtime?.capabilities.join(', ') ?? 'none'}
+                </span>
               </div>
               {runtimeBinding.isError ? <ErrorLine error={runtimeBinding.error} /> : null}
             </div>

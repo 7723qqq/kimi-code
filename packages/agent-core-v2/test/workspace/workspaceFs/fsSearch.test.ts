@@ -176,9 +176,7 @@ describe('rgPath', () => {
   });
 
   it('decodes the bytes field as base64', () => {
-    expect(rgPath({ bytes: Buffer.from('src/a.ts', 'utf-8').toString('base64') })).toBe(
-      'src/a.ts',
-    );
+    expect(rgPath({ bytes: Buffer.from('src/a.ts', 'utf-8').toString('base64') })).toBe('src/a.ts');
   });
 
   it('returns undefined for missing input', () => {

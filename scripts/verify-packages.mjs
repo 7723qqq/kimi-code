@@ -10,7 +10,8 @@ const only = args.find((a) => a.startsWith('--only='))?.slice(7);
 const json = args.includes('--json');
 const skipTypecheck = args.includes('--no-typecheck');
 const concurrency = Number(args.find((a) => a.startsWith('--parallel='))?.slice(11) ?? '4');
-const stepTimeoutMs = Number(args.find((a) => a.startsWith('--timeout='))?.slice(10) ?? '1800') * 1000;
+const stepTimeoutMs =
+  Number(args.find((a) => a.startsWith('--timeout='))?.slice(10) ?? '1800') * 1000;
 const budgetSeconds = Number(args.find((a) => a.startsWith('--budget='))?.slice(9) ?? '120');
 const changedOnly = args.includes('--changed');
 
@@ -98,7 +99,10 @@ function changedPackages() {
   for (const path of paths) {
     const parts = path.split('/');
     if (parts.length < 2) continue;
-    const scope = parts[0] === 'apps' && parts[1] === 'vis' ? parts.slice(0, 3).join('/') : parts.slice(0, 2).join('/');
+    const scope =
+      parts[0] === 'apps' && parts[1] === 'vis'
+        ? parts.slice(0, 3).join('/')
+        : parts.slice(0, 2).join('/');
     labels.add(scope);
   }
   return labels;
@@ -178,9 +182,13 @@ if (json) {
 } else {
   console.log('');
   console.log(`packages: ${list.length}`);
-  console.log(`tests:    pass=${totalPass} fail=${totalFail} errors=${totalErrors} skip=${totalSkip}`);
+  console.log(
+    `tests:    pass=${totalPass} fail=${totalFail} errors=${totalErrors} skip=${totalSkip}`,
+  );
   console.log(`typecheck errors: ${totalTypecheck}`);
-  console.log(`failing packages: ${failing.length === 0 ? 'none' : failing.map((r) => r.label).join(', ')}`);
+  console.log(
+    `failing packages: ${failing.length === 0 ? 'none' : failing.map((r) => r.label).join(', ')}`,
+  );
   console.log(
     `over ${budgetSeconds}s budget: ${overBudget.length === 0 ? 'none' : overBudget.map((r) => `${r.label} (${r.testSeconds.toFixed(0)}s)`).join(', ')}`,
   );

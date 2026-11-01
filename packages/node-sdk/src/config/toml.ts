@@ -845,7 +845,6 @@ function oauthToToml(oauth: OAuthRef): Record<string, unknown> {
 /*  Utilities                                                          */
 /* ------------------------------------------------------------------ */
 
-
 function cloneRecord(value: unknown): Record<string, unknown> {
   if (!isRecord(value)) return {};
   return cloneUnknown(value);

@@ -284,8 +284,7 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
           // inside a turn is the agent/tool being slow.
           kind:
             rec.type === 'turn.prompt' ||
-            (rec.type === 'turn.steer' &&
-              (current === null || current.outcome !== undefined))
+            (rec.type === 'turn.steer' && (current === null || current.outcome !== undefined))
               ? 'between_turns'
               : 'in_turn',
         });
@@ -316,7 +315,9 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
         if (
           current !== null &&
           rec.target !== 'queued' &&
-          (rec.turnId === undefined || current.turnId === undefined || current.turnId === rec.turnId)
+          (rec.turnId === undefined ||
+            current.turnId === undefined ||
+            current.turnId === rec.turnId)
         ) {
           current.cancelled = true;
         }
@@ -368,7 +369,13 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
         // variants) — keep the prior count then.
         if (rec.tokensAfter !== undefined) {
           contextTokens = rec.tokensAfter;
-          contextSeries.push({ lineNo: entry.lineNo, time: t, turnIndex: current?.index ?? -1, step: -1, contextTokens });
+          contextSeries.push({
+            lineNo: entry.lineNo,
+            time: t,
+            turnIndex: current?.index ?? -1,
+            step: -1,
+            contextTokens,
+          });
           if (contextTokens > peakContext) peakContext = contextTokens;
         }
         break;
@@ -382,7 +389,8 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
         if (rec.modelAlias !== undefined) changed.push({ field: 'model', value: rec.modelAlias });
         if (effort !== undefined) changed.push({ field: 'thinking', value: effort });
         if (cwd !== undefined) changed.push({ field: 'cwd', value: cwd });
-        if (rec.systemPrompt !== undefined) changed.push({ field: 'systemPrompt', value: `${rec.systemPrompt.length} chars` });
+        if (rec.systemPrompt !== undefined)
+          changed.push({ field: 'systemPrompt', value: `${rec.systemPrompt.length} chars` });
         if (changed.length > 0) configChanges.push({ lineNo: entry.lineNo, time: t, changed });
         break;
       }
@@ -391,10 +399,12 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
         // v2 writes most initial config state on `profile.bind` rather than
         // `config.update`.
         const changed: { field: string; value: string }[] = [];
-        if (rec.profileName !== undefined) changed.push({ field: 'profile', value: rec.profileName });
+        if (rec.profileName !== undefined)
+          changed.push({ field: 'profile', value: rec.profileName });
         if (rec.modelAlias !== undefined) changed.push({ field: 'model', value: rec.modelAlias });
         changed.push({ field: 'thinking', value: rec.thinkingEffort });
-        if (rec.environmentDisclosure !== undefined) changed.push({ field: 'cwd', value: rec.environmentDisclosure.cwd });
+        if (rec.environmentDisclosure !== undefined)
+          changed.push({ field: 'cwd', value: rec.environmentDisclosure.cwd });
         changed.push({ field: 'systemPrompt', value: `${rec.systemPrompt.length} chars` });
         configChanges.push({ lineNo: entry.lineNo, time: t, changed });
         break;
@@ -403,29 +413,25 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
       case 'context.append_loop_event': {
         const ev = rec.event;
         if (ev.type === 'step.begin') {
-          const parsedTurnId =
-            ev.turnId === undefined ? undefined : Number.parseInt(ev.turnId, 10);
+          const parsedTurnId = ev.turnId === undefined ? undefined : Number.parseInt(ev.turnId, 10);
           const validTurnId =
-            parsedTurnId !== undefined && Number.isInteger(parsedTurnId)
-              ? parsedTurnId
-              : undefined;
+            parsedTurnId !== undefined && Number.isInteger(parsedTurnId) ? parsedTurnId : undefined;
           let turn: TurnNode | null = current;
           if (
             turn === null ||
             turn.outcome !== undefined ||
-            (validTurnId !== undefined &&
-              turn.turnId !== undefined &&
-              turn.turnId !== validTurnId)
+            (validTurnId !== undefined && turn.turnId !== undefined && turn.turnId !== validTurnId)
           ) {
-            turn = pendingSteer === null
-              ? startTurn('prompt', entry.lineNo, t, '(no prompt record)', undefined)
-              : startTurn(
-                  'steer',
-                  pendingSteer.lineNo,
-                  pendingSteer.time,
-                  pendingSteer.text,
-                  pendingSteer.originKind,
-                );
+            turn =
+              pendingSteer === null
+                ? startTurn('prompt', entry.lineNo, t, '(no prompt record)', undefined)
+                : startTurn(
+                    'steer',
+                    pendingSteer.lineNo,
+                    pendingSteer.time,
+                    pendingSteer.text,
+                    pendingSteer.originKind,
+                  );
           }
           pendingSteer = null;
           current = turn;

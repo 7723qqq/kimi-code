@@ -42,8 +42,8 @@ describe('forkIncompatibility', () => {
     expect(forkIncompatibility(input({ fork: true, resume: 'r', subagent_type: 'x' }))).toContain(
       'resume',
     );
-    expect(
-      forkIncompatibility(input({ fork: true, subagent_type: 'x', model: 'm' })),
-    ).toContain('subagent_type');
+    expect(forkIncompatibility(input({ fork: true, subagent_type: 'x', model: 'm' }))).toContain(
+      'subagent_type',
+    );
   });
 });

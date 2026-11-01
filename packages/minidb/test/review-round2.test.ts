@@ -1,14 +1,13 @@
-import fs from 'node:fs/promises';
-import net from 'node:net';
-import os from 'node:os';
-import path from 'node:path';
-
 // Regression tests for the second deep-review round (compound-index dup,
 // snapshot/WAL short-write, rollback on WAL failure, RESP binary, buffer
 // aliasing, batch unique swap/del+set, unique-on-existing-dups, batch key
 // length, TTL heap growth, size vs expiry, range-array, dtColumns, MSET
 // atomicity, openOrRebuild scope, open-failure cleanup).
 import { expect, test } from 'bun:test';
+import fs from 'node:fs/promises';
+import net from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
 
 import { encodeBatchOps, encodeFrame, TYPE_BATCH, TYPE_SET } from '../src/codec.js';
 import { MiniDb, UniqueViolationError } from '../src/index.js';
@@ -142,10 +141,12 @@ test('batch rolls back atomically when the WAL write fails', async () => {
     return orig(...a);
   };
 
-  await expect(db.batch([
+  await expect(
+    db.batch([
       { op: 'set', key: 'a', value: { n: 99 } },
       { op: 'set', key: 'b', value: { n: 2 } },
-    ])).rejects.toThrow(/injected/);
+    ]),
+  ).rejects.toThrow(/injected/);
   expect(db.get('a'), 'a must be restored to pre-batch value').toStrictEqual({ n: 1 });
   expect(db.get('b'), 'b must not exist').toBe(undefined);
   await db.close();
@@ -177,7 +178,10 @@ test('RESP GET returns correct UTF-8 bulk for non-ASCII values', async () => {
       Buffer.from('北京', 'utf8'),
       Buffer.from('\r\n', 'binary'),
     ]);
-    expect(raw.includes(expected), `expected bulk reply, got ${JSON.stringify(raw.toString('binary'))}`).toBeTruthy();
+    expect(
+      raw.includes(expected),
+      `expected bulk reply, got ${JSON.stringify(raw.toString('binary'))}`,
+    ).toBeTruthy();
   } finally {
     await close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -236,7 +240,9 @@ test('batch still rejects genuine unique violations', async () => {
   const db = await MiniDb.open({ dir, valueCodec: 'json' });
   await db.createIndex('byMail', { field: 'email', unique: true });
   await db.set('u1', { email: 'duplicate@example.test' });
-  await expect(db.batch([{ op: 'set', key: 'u2', value: { email: 'duplicate@example.test' } }])).rejects.toThrow(/unique/i);
+  await expect(
+    db.batch([{ op: 'set', key: 'u2', value: { email: 'duplicate@example.test' } }]),
+  ).rejects.toThrow(/unique/i);
   expect(db.get('u2')).toBe(undefined);
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
@@ -249,7 +255,9 @@ test('createIndex(unique) rejects existing duplicate data', async () => {
   const db = await MiniDb.open({ dir, valueCodec: 'json' });
   await db.set('a', { email: 'duplicate@example.test' });
   await db.set('b', { email: 'duplicate@example.test' });
-  await expect(db.createIndex('byMail', { field: 'email', unique: true })).rejects.toThrow(/unique/i);
+  await expect(db.createIndex('byMail', { field: 'email', unique: true })).rejects.toThrow(
+    /unique/i,
+  );
   expect(db.listIndexes().length, 'index must not persist after failed create').toBe(0);
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
@@ -261,7 +269,9 @@ test('batch rejects keys longer than 128 chars', async () => {
   const dir = await tmpDir();
   const db = await MiniDb.open({ dir, valueCodec: 'json' });
   const longKey = 'k'.repeat(200);
-  await expect(db.batch([{ op: 'set', key: longKey, value: { v: 1 } }])).rejects.toThrow(/key too long/i);
+  await expect(db.batch([{ op: 'set', key: longKey, value: { v: 1 } }])).rejects.toThrow(
+    /key too long/i,
+  );
   expect(db.get(longKey)).toBe(undefined);
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
@@ -451,7 +461,10 @@ test('WAL poison: a failed writev is truncated away — the rejected key never r
     (error) => error as Error,
   );
   expect(String(String(err))).toMatch(/injected WAL failure/);
-  expect((err as { ambiguous?: boolean }).ambiguous, 'a failure past the commit point is marked ambiguous').toBe(true);
+  expect(
+    (err as { ambiguous?: boolean }).ambiguous,
+    'a failure past the commit point is marked ambiguous',
+  ).toBe(true);
   expect(db.get('failed'), 'the group rollback hides the rejected write in-memory').toBe(undefined);
   expect(db.stats.walWriteErrors, 'writev-class failure counted').toBe(1);
   expect(db.stats.walFsyncErrors).toBe(0);
@@ -493,7 +506,9 @@ test('WAL poison: a half-written group is fully revoked — in-memory and reopen
   await db.close();
 
   db = await MiniDb.open<string>({ dir, ...MEM_OPTS });
-  expect(db.get('first'), 'the half-written frame was truncated by the in-place recovery').toBe(undefined);
+  expect(db.get('first'), 'the half-written frame was truncated by the in-place recovery').toBe(
+    undefined,
+  );
   expect(db.get('second')).toBe(undefined);
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
@@ -551,7 +566,9 @@ test('WAL poison: same-key ops failing in one group restore the pre-group value;
   failNextWritev(db as MiniDb<unknown>);
   const results = await Promise.allSettled([db.set('k', 'A'), db.set('k', 'B')]);
   expect(results.map((r) => r.status)).toStrictEqual(['rejected', 'rejected']);
-  expect(db.get('k'), 'group rollback restores the pre-group value, not an intermediate one').toBe('old');
+  expect(db.get('k'), 'group rollback restores the pre-group value, not an intermediate one').toBe(
+    'old',
+  );
   await db.close();
   db = await MiniDb.open<string>({ dir: dir1, ...MEM_OPTS });
   expect(db.get('k'), 'reopen agrees with the in-memory state').toBe('old');
@@ -648,7 +665,9 @@ test('WAL poison: when the recovery truncate fails the instance is write-disable
   expect(String(String(db.writeDisabled))).toMatch(/injected truncate failure/);
 
   await expect(db.set('more', 'x')).rejects.toThrow(/writes are disabled/);
-  await expect(db.batch([{ op: 'set', key: 'b2', value: 'x' }])).rejects.toThrow(/writes are disabled/);
+  await expect(db.batch([{ op: 'set', key: 'b2', value: 'x' }])).rejects.toThrow(
+    /writes are disabled/,
+  );
   expect(db.get('k'), 'reads keep working').toBe('v');
   await db.close(); // must not throw
   await fs.rm(dir, { recursive: true, force: true });
@@ -790,7 +809,10 @@ test('WAL poison: an applyOp violation on a never-enqueued frame (sealed WAL) do
   expect(db.wal.poison, 'a never-enqueued frame poisons nothing').toBe(null);
   expect(db.get('bad'), 'the partial apply was undone').toBe(undefined);
   expect(db.get('old')?.t).toBe('keep');
-  expect(db.search('ft', 'keep').map((h) => h.key), 'derived indexes stayed consistent').toStrictEqual(['old']);
+  expect(
+    db.search('ft', 'keep').map((h) => h.key),
+    'derived indexes stayed consistent',
+  ).toStrictEqual(['old']);
   await db.close(); // the sealed WAL still flushes its (empty) queue and closes
 
   db = await MiniDb.open<{ t: string }>({
@@ -830,7 +852,9 @@ test('WAL poison: in-place recovery skips the truncate when the WAL file was rep
   await (db as unknown as { recoverWalInPlace(w: unknown): Promise<void> }).recoverWalInPlace(
     db.wal,
   );
-  expect((await fs.stat(path.join(dir, 'db.wal'))).size, 'the new file was not zero-extended').toBe(0);
+  expect((await fs.stat(path.join(dir, 'db.wal'))).size, 'the new file was not zero-extended').toBe(
+    0,
+  );
   expect(db.wal.poison, 'the poison is cleared').toBe(null);
 
   await db.set('post', 'ok');
@@ -945,7 +969,9 @@ test('a unique-conflicting insert is rejected before any eviction side effect (r
 
     // The conflicting value fails the unique check; before stage 11 the
     // eviction ran FIRST and the rejected insert still deleted the victim.
-    await expect(db.set('bad', { u: 'taken', pad: 'z'.repeat(100) })).rejects.toThrow(UniqueViolationError);
+    await expect(db.set('bad', { u: 'taken', pad: 'z'.repeat(100) })).rejects.toThrow(
+      UniqueViolationError,
+    );
     expect(db.get('bad')).toBe(undefined);
     expect(db.get('owner'), 'untouched keys stay').toBeTruthy();
     expect(db.get('victim'), 'the failed insert must not evict the LRU victim').toBeTruthy();
@@ -954,7 +980,10 @@ test('a unique-conflicting insert is rejected before any eviction side effect (r
     // Sanity: a LEGAL oversized write under the same budget still evicts —
     // the eviction pressure is real, only the ordering changed.
     await db.set('big', { u: 'new', pad: 'z'.repeat(100) });
-    expect(db.stats.evictions > evictionsBefore, 'a legal write still evicts under pressure').toBeTruthy();
+    expect(
+      db.stats.evictions > evictionsBefore,
+      'a legal write still evicts under pressure',
+    ).toBeTruthy();
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });

@@ -1,17 +1,17 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+
 import { join, normalize } from 'pathe';
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-
-import { HostFileSystem } from '#/os/backends/host/hostFsService';
-import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import {
   extractAgentsMdPathsFromSystemPrompt,
   loadAgentsMd,
   loadAgentsMdDetailed,
   prepareSystemPromptContext,
 } from '#/agent/profile/context';
+import { HostFileSystem } from '#/os/backends/host/hostFsService';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 
 import { SYMLINKS } from '../../_support/symlinkSupport';
 
@@ -83,37 +83,43 @@ describe('loadAgentsMd user-level discovery', () => {
 });
 
 describe('loadAgentsMd symlinked files', () => {
-  it.skipIf(!SYMLINKS)('follows symlinks when loading user-level and project-level AGENTS.md', async () => {
-    const targetDir = await mkdtemp(join(tmpdir(), 'kimi-agents-target-'));
-    extraDirs.push(targetDir);
-    const brandTarget = join(targetDir, 'brand-AGENTS.md');
-    const projectTarget = join(targetDir, 'project-AGENTS.md');
-    await writeFile(brandTarget, 'brand via symlink', 'utf-8');
-    await writeFile(projectTarget, 'project via symlink', 'utf-8');
+  it.skipIf(!SYMLINKS)(
+    'follows symlinks when loading user-level and project-level AGENTS.md',
+    async () => {
+      const targetDir = await mkdtemp(join(tmpdir(), 'kimi-agents-target-'));
+      extraDirs.push(targetDir);
+      const brandTarget = join(targetDir, 'brand-AGENTS.md');
+      const projectTarget = join(targetDir, 'project-AGENTS.md');
+      await writeFile(brandTarget, 'brand via symlink', 'utf-8');
+      await writeFile(projectTarget, 'project via symlink', 'utf-8');
 
-    await mkdir(join(homeDir, '.kimi-code'), { recursive: true });
-    await symlink(brandTarget, join(homeDir, '.kimi-code', 'AGENTS.md'));
-    await symlink(projectTarget, join(workDir, 'AGENTS.md'));
+      await mkdir(join(homeDir, '.kimi-code'), { recursive: true });
+      await symlink(brandTarget, join(homeDir, '.kimi-code', 'AGENTS.md'));
+      await symlink(projectTarget, join(workDir, 'AGENTS.md'));
 
-    const result = await loadAgentsMd({ fs, homeDir }, workDir);
+      const result = await loadAgentsMd({ fs, homeDir }, workDir);
 
-    expect(result).toContain('brand via symlink');
-    expect(result).toContain('project via symlink');
-  });
+      expect(result).toContain('brand via symlink');
+      expect(result).toContain('project via symlink');
+    },
+  );
 });
 
 describe('loadAgentsMd unreadable paths', () => {
-  it.skipIf(!SYMLINKS)('warns when an instruction file exists but is a dangling symlink', async () => {
-    const brandHome = await mkdtemp(join(tmpdir(), 'kimi-agents-brand-'));
-    extraDirs.push(brandHome);
-    await symlink(join(workDir, 'missing-target.md'), join(workDir, 'AGENTS.md'));
+  it.skipIf(!SYMLINKS)(
+    'warns when an instruction file exists but is a dangling symlink',
+    async () => {
+      const brandHome = await mkdtemp(join(tmpdir(), 'kimi-agents-brand-'));
+      extraDirs.push(brandHome);
+      await symlink(join(workDir, 'missing-target.md'), join(workDir, 'AGENTS.md'));
 
-    const result = await prepareSystemPromptContext({ fs, homeDir }, workDir, brandHome);
+      const result = await prepareSystemPromptContext({ fs, homeDir }, workDir, brandHome);
 
-    expect(result.agentsMd).toBe('');
-    expect(result.agentsMdWarning).toBeDefined();
-    expect(result.agentsMdWarning).toContain('not a readable regular file');
-  });
+      expect(result.agentsMd).toBe('');
+      expect(result.agentsMdWarning).toBeDefined();
+      expect(result.agentsMdWarning).toContain('not a readable regular file');
+    },
+  );
 });
 
 describe('loadAgentsMd brand home (KIMI_CODE_HOME)', () => {
@@ -175,8 +181,12 @@ describe('loadAgentsMd nested project hierarchy', () => {
     expect(result).toContain('root instructions');
     expect(result).toContain('packages instructions');
     expect(result).toContain('leaf instructions');
-    expect(result.indexOf('root instructions')).toBeLessThan(result.indexOf('packages instructions'));
-    expect(result.indexOf('packages instructions')).toBeLessThan(result.indexOf('leaf instructions'));
+    expect(result.indexOf('root instructions')).toBeLessThan(
+      result.indexOf('packages instructions'),
+    );
+    expect(result.indexOf('packages instructions')).toBeLessThan(
+      result.indexOf('leaf instructions'),
+    );
   });
 });
 

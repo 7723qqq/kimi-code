@@ -1,9 +1,9 @@
+import { describe, expect, it, jest } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { KimiConfig } from '@moonshot-ai/kimi-code-sdk';
-import { describe, expect, it, jest } from 'bun:test';
 
 import { applySurveyPreferenceChoice } from '#/tui/commands/config';
 import { loadTuiConfig, removeLegacySurveySetting, saveTuiConfig } from '#/tui/config';
@@ -163,11 +163,18 @@ describe('legacy survey setting migration', () => {
         configured: undefined,
         action: 'write_failed',
       });
-      await saveTuiConfig({
-        ...await loadTuiConfig(filePath), disableFeedbackSurvey: undefined, theme: 'light',
-      }, filePath);
+      await saveTuiConfig(
+        {
+          ...(await loadTuiConfig(filePath)),
+          disableFeedbackSurvey: undefined,
+          theme: 'light',
+        },
+        filePath,
+      );
       expect(await loadTuiConfig(filePath)).toMatchObject({
-        disableFeedbackSurvey: true, autoSessionTitle: false, theme: 'light',
+        disableFeedbackSurvey: true,
+        autoSessionTitle: false,
+        theme: 'light',
       });
       const retry = deps((await loadTuiConfig(filePath)).disableFeedbackSurvey, undefined);
       retry.dropLegacy.mockImplementation(() => removeLegacySurveySetting(filePath));

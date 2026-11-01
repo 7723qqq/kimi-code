@@ -1,3 +1,5 @@
+import { describe, expect, it } from 'bun:test';
+import { globSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 /**
  * Performance regression guards.
  *
@@ -9,11 +11,8 @@
  * The full numbers live in PERFORMANCE.md. This file only checks the sign.
  */
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { globSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os, { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { describe, expect, it } from 'bun:test';
 
 const nodeAvailable = (() => Bun.spawnSync(['node', '--version']).exitCode === 0)();
 
@@ -47,7 +46,10 @@ async function benchAsync(fn, iterations, rounds = 5) {
 describe('speed claims hold', () => {
   it('Bun.CryptoHasher beats createHash', () => {
     const text = 'x'.repeat(1000);
-    const nodePer = benchSync(() => require('node:crypto').createHash('sha256').update(text).digest('hex'), 400);
+    const nodePer = benchSync(
+      () => require('node:crypto').createHash('sha256').update(text).digest('hex'),
+      400,
+    );
     const bunPer = benchSync(() => new Bun.CryptoHasher('sha256').update(text).digest('hex'), 400);
     expect(nodePer / bunPer).toBeGreaterThan(1.1);
   });
@@ -99,7 +101,10 @@ describe('report-only claims hold', () => {
     try {
       const file = join(dir, 'r.txt');
       await writeFile(file, 'z'.repeat(1000));
-      const nodePer = await benchAsync(() => require('node:fs/promises').readFile(file, 'utf8'), 200);
+      const nodePer = await benchAsync(
+        () => require('node:fs/promises').readFile(file, 'utf8'),
+        200,
+      );
       const bunPer = await benchAsync(() => Bun.file(file).text(), 200);
       expect(nodePer / bunPer).toBeLessThan(1.2);
     } finally {
@@ -108,7 +113,10 @@ describe('report-only claims hold', () => {
   });
 
   it('raw deflate bytes still diverge past the block boundary', () => {
-    if (!nodeAvailable) throw new Error('node must be on PATH: a differential case that skips reports a pass it did not earn');
+    if (!nodeAvailable)
+      throw new Error(
+        'node must be on PATH: a differential case that skips reports a pass it did not earn',
+      );
     const hex = (engine, size) => {
       const source =
         engine === 'node'
@@ -188,7 +196,10 @@ describe('the speed evidence is measured the way it is documented', () => {
             "import { createHash } from 'node:crypto';\nexport const a = (t) => createHash('sha256').update(t).digest('hex');\n",
           );
         }
-        writeFileSync(join(dir, 'package.json'), '{"name":"p","version":"1.0.0","type":"module"}\n');
+        writeFileSync(
+          join(dir, 'package.json'),
+          '{"name":"p","version":"1.0.0","type":"module"}\n',
+        );
         const started = Bun.nanoseconds();
         Bun.spawnSync(['bun', 'tools/bun-migrate/src/cli.mjs', 'scan', '--root', dir], {
           cwd: process.cwd(),
@@ -238,16 +249,20 @@ describe('gzip output is interoperable, not byte-identical', () => {
 
   for (const [label, payload, expectedIdentical] of PAYLOADS) {
     it(`compared with a real Node stream, ${label} is ${expectedIdentical ? 'identical' : 'different'}`, () => {
-      if (!nodeAvailable) throw new Error('node must be on PATH: this compares against a stream Node produced');
+      if (!nodeAvailable)
+        throw new Error('node must be on PATH: this compares against a stream Node produced');
       const source = `const {gzipSync}=require('node:zlib');process.stdout.write(gzipSync(${JSON.stringify(payload)}).toString('hex'));`;
       const fromNode = Bun.spawnSync(['node', '-e', source]).stdout.toString().trim();
       const fromBun = Buffer.from(Bun.gzipSync(payload)).toString('hex');
-      expect(`${label} identical=${fromNode === fromBun}`).toBe(`${label} identical=${expectedIdentical}`);
+      expect(`${label} identical=${fromNode === fromBun}`).toBe(
+        `${label} identical=${expectedIdentical}`,
+      );
     });
   }
 
   it('decodes a Node-produced stream', () => {
-    if (!nodeAvailable) throw new Error('node must be on PATH: this decodes a stream Node produced');
+    if (!nodeAvailable)
+      throw new Error('node must be on PATH: this decodes a stream Node produced');
     const text = 'hello world'.repeat(100);
     const source = `const {gzipSync}=require('node:zlib');process.stdout.write(gzipSync(${JSON.stringify(text)}).toString('hex'));`;
     const hex = Bun.spawnSync(['node', '-e', source]).stdout.toString().trim();

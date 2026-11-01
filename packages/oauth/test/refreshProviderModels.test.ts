@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, jest } from 'bun:test';
-import { setEnv, restoreEnvs, setGlobal, restoreGlobals } from './helpers/stubs';
 
 import {
   KIMI_CODE_PROVIDER_NAME,
@@ -8,6 +7,7 @@ import {
   type ManagedKimiConfigShape,
 } from '../src/managed-kimi-code';
 import { refreshProviderModels } from '../src/refreshProviderModels';
+import { setEnv, restoreEnvs, setGlobal, restoreGlobals } from './helpers/stubs';
 
 type FetchMock = (
   input: Parameters<typeof fetch>[0],
@@ -22,8 +22,12 @@ function fetchInputUrl(input: Parameters<typeof fetch>[0]): string {
 
 function makeRefreshHost(initial: ManagedKimiConfigShape): {
   current: () => ManagedKimiConfigShape;
-  removeProvider: ReturnType<typeof jest.fn<(providerId: string) => Promise<ManagedKimiConfigShape>>>;
-  setConfig: ReturnType<typeof jest.fn<(patch: Partial<ManagedKimiConfigShape>) => Promise<ManagedKimiConfigShape>>>;
+  removeProvider: ReturnType<
+    typeof jest.fn<(providerId: string) => Promise<ManagedKimiConfigShape>>
+  >;
+  setConfig: ReturnType<
+    typeof jest.fn<(patch: Partial<ManagedKimiConfigShape>) => Promise<ManagedKimiConfigShape>>
+  >;
 } {
   let persisted = structuredClone(initial);
   const removeProvider = jest.fn(async (providerId: string) => {
@@ -900,26 +904,27 @@ describe('refreshProviderModels', () => {
       defaultModel: modelAlias,
     } as unknown as ManagedKimiConfigShape);
 
-    const fetchMock = jest.fn<FetchMock>(async () =>
-      new Response(
-        JSON.stringify({
-          [providerId]: {
-            id: providerId,
-            name: 'Example Chat Completions',
-            api: 'https://api.example.test/v1',
-            type: 'openai',
-            models: {
-              [modelId]: {
-                id: modelId,
-                name: 'Reasoner Pro',
-                limit: { context: 262144 },
-                tool_call: true,
+    const fetchMock = jest.fn<FetchMock>(
+      async () =>
+        new Response(
+          JSON.stringify({
+            [providerId]: {
+              id: providerId,
+              name: 'Example Chat Completions',
+              api: 'https://api.example.test/v1',
+              type: 'openai',
+              models: {
+                [modelId]: {
+                  id: modelId,
+                  name: 'Reasoner Pro',
+                  limit: { context: 262144 },
+                  tool_call: true,
+                },
               },
             },
-          },
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ),
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
     );
     setGlobal('fetch', fetchMock);
 

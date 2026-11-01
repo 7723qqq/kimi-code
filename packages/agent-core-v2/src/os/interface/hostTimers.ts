@@ -12,4 +12,5 @@ export interface IHostTimers {
   clearTimeout(handle: IHostTimerHandle): void;
 }
 
-export const IHostTimers: ServiceIdentifier<IHostTimers> = createDecorator<IHostTimers>('hostTimers');
+export const IHostTimers: ServiceIdentifier<IHostTimers> =
+  createDecorator<IHostTimers>('hostTimers');

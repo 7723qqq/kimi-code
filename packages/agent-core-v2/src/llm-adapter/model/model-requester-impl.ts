@@ -441,7 +441,6 @@ export function buildStreamTiming(
     timing.llmLastTokenOffsetMs = outputParts.lastTokenAt;
   }
   if (outputParts.firstTokenAt !== undefined && outputParts.lastTokenAt !== undefined) {
-
     timing.llmWindowOnFrameClock = true;
   }
   if (requestSentAt !== undefined) {

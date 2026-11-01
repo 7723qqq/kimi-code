@@ -128,11 +128,7 @@ export async function runMigration(input: RunMigrationInput): Promise<MigrationR
   // user can share one log covering every retry attempt.
   await writeMigrationErrorsLog(input.target, {
     startedAt,
-    failures: [
-      ...sessions.sessionsFailed,
-      ...sessions.subagentFailures,
-      ...plans.failures,
-    ],
+    failures: [...sessions.sessionsFailed, ...sessions.subagentFailures, ...plans.failures],
   });
 
   const markerSummary: Record<string, unknown> = {

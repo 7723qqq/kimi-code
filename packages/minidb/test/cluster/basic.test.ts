@@ -3,10 +3,9 @@
 // Single-process ClusterDb behavior: topology creation/validation, basic KV
 // across shards, multi-key ops, merged scans, hash distribution, stats.
 
+import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-
-import { expect, test } from 'bun:test';
 
 import { ClusterDb, shardDirName } from '../../src/cluster/index.js';
 import { shardFor } from '../../src/cluster/utils.js';
@@ -29,7 +28,8 @@ test('cluster open creates meta + shard dirs; reload validates topology', async 
     expect(meta.shardCount).toBe(4);
     expect(meta.valueCodec).toBe('json');
     const entries = await fs.readdir(dir);
-    for (let i = 0; i < 4; i++) expect(entries.includes(`shard-0${i}`), `shard-0${i} exists`).toBeTruthy();
+    for (let i = 0; i < 4; i++)
+      expect(entries.includes(`shard-0${i}`), `shard-0${i} exists`).toBeTruthy();
     await db.close();
 
     // Reopen without options: inherits the on-disk topology.
@@ -39,12 +39,16 @@ test('cluster open creates meta + shard dirs; reload validates topology', async 
 
     // Explicit mismatches are rejected.
     await expect((() => ClusterDb.open({ dir, shardCount: 8 }))()).rejects.toThrow(/shardCount=4/);
-    await expect((() => ClusterDb.open({ dir, valueCodec: 'string' }))()).rejects.toThrow(/valueCodec=json/);
+    await expect((() => ClusterDb.open({ dir, valueCodec: 'string' }))()).rejects.toThrow(
+      /valueCodec=json/,
+    );
 
     // Invalid creation parameter is rejected upfront.
     const dir2 = await tmpDir('minidb-cluster-');
     try {
-      await expect((() => ClusterDb.open({ dir: dir2, shardCount: 0 }))()).rejects.toThrow(RangeError);
+      await expect((() => ClusterDb.open({ dir: dir2, shardCount: 0 }))()).rejects.toThrow(
+        RangeError,
+      );
     } finally {
       await rmrf(dir2);
     }
@@ -162,15 +166,22 @@ test(
 
       const all = await db.scan();
       expect(all.length).toBe(300);
-      expect(all.map((e) => e.key), 'globally sorted by key bytes').toStrictEqual(byteSorted);
+      expect(
+        all.map((e) => e.key),
+        'globally sorted by key bytes',
+      ).toStrictEqual(byteSorted);
 
       // Interleaved writes land in every shard; the merge must be complete.
       const range = await db.scan({ gte: 's:0010', lt: 's:0020' });
-      expect(range.map((e) => e.key)).toStrictEqual(byteSorted.filter((k) => k >= 's:0010' && k < 's:0020'));
+      expect(range.map((e) => e.key)).toStrictEqual(
+        byteSorted.filter((k) => k >= 's:0010' && k < 's:0020'),
+      );
 
       const pref = await db.prefix('s:01', 10);
       expect(pref.length).toBe(10);
-      expect(pref.map((e) => e.key)).toStrictEqual(byteSorted.filter((k) => k.startsWith('s:01')).slice(0, 10));
+      expect(pref.map((e) => e.key)).toStrictEqual(
+        byteSorted.filter((k) => k.startsWith('s:01')).slice(0, 10),
+      );
 
       const limited = await db.scan({ limit: 7 });
       expect(limited.length).toBe(7);
@@ -181,7 +192,8 @@ test(
 
       // Prefix within ScanOptions beats range bounds.
       const prefOpt = await db.scan({ prefix: 's:029', gte: 'zzz' });
-      expect(prefOpt.map((e) => e.key)).toStrictEqual([
+      expect(prefOpt.map((e) => e.key)).toStrictEqual(
+        [
           's:0290',
           's:0291',
           's:0292',
@@ -192,7 +204,8 @@ test(
           's:0297',
           's:0298',
           's:0299',
-        ].filter((k) => k.startsWith('s:029')));
+        ].filter((k) => k.startsWith('s:029')),
+      );
       await db.close();
     } finally {
       await rmrf(dir);
@@ -295,14 +308,19 @@ test('compound index definitions fan out to all shards and survive reopen', asyn
         readOnly: true,
       });
       try {
-        expect(shard.listCompoundIndexes().some((i) => i.name === 'byGN'), `shard ${id} has the index`).toBeTruthy();
+        expect(
+          shard.listCompoundIndexes().some((i) => i.name === 'byGN'),
+          `shard ${id} has the index`,
+        ).toBeTruthy();
       } finally {
         await shard.close();
       }
     }
 
     // A duplicate create is rejected, and the registry round-trips a reopen.
-    await expect((() => db.createCompoundIndex('byGN', { groupBy: 'g', orderBy: 'n' }))()).rejects.toThrow(/already exists/);
+    await expect(
+      (() => db.createCompoundIndex('byGN', { groupBy: 'g', orderBy: 'n' }))(),
+    ).rejects.toThrow(/already exists/);
     await db.close();
     const db2 = await ClusterDb.open<QueryDoc>({ dir, shardCount: 4, valueCodec: 'json' });
     expect(await db2.listCompoundIndexes()).toStrictEqual(info);

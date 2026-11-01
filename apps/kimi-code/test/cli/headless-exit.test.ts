@@ -1,10 +1,9 @@
 import { describe, expect, it, mock } from 'bun:test';
 import type { Writable } from 'node:stream';
 
-import { createFakeClock } from '#test/helpers/fake-clock';
-
 import { drainStdio, finalizeHeadlessRun, scheduleHeadlessForceExit } from '#/cli/headless-exit';
 import type { RenderClock, RenderTimerHandle } from '#/tui/utils/render-clock';
+import { createFakeClock } from '#test/helpers/fake-clock';
 
 interface TestClock {
   readonly clock: RenderClock;
@@ -73,7 +72,7 @@ describe('scheduleHeadlessForceExit', () => {
     expect(exit).toHaveBeenCalledWith(7);
   });
 
-  it('schedules an unref\'d timer so a healthy run still exits naturally', () => {
+  it("schedules an unref'd timer so a healthy run still exits naturally", () => {
     // Real timers: an un-unref'd guard would itself keep the event loop alive,
     // turning the fix into a regression (every healthy run would wait the full
     // grace before exiting). hasRef() must be false.

@@ -6,7 +6,7 @@ that is byte-identical:
 
 ```ts
 import { bootstrap, logSeed, resolveLoggingConfig } from '@moonshot-ai/agent-core-v2';
-import { createKlient } from '@moonshot-ai/klient/memory';   // or '/ipc'
+import { createKlient } from '@moonshot-ai/klient/memory'; // or '/ipc'
 
 const clientIdentity = {
   productName: 'kimi-code-example',
@@ -51,11 +51,11 @@ ipc │ memory
     `auth.*`, `flags.*`, `plugins.*`, `capabilities.*`, `hostFs.*`,
     `files.*`, `mcp.*`, `env()`.
   - `klient.session(id).*` — `get/setTitle/update/status/close/archive/
-    restore/fork/createChild`, `approvals.*`, `questions.*`,
+restore/fork/createChild`, `approvals.*`, `questions.*`,
     `interactions.*`, `agents()`.
   - `session.agent(id).*` — `prompt/steer/cancel/runShellCommand/
-    cancelShellCommand/getModel/setModel/setPermission/getUsage/getContext/
-    getPlan*/getTasks*/stopTask/getTaskOutput`.
+cancelShellCommand/getModel/setModel/setPermission/getUsage/getContext/
+getPlan*/getTasks*/stopTask/getTaskOutput`.
 - **Contract** — every method has a zod input tuple + output schema, validated
   on the client before send / after receive (default on; `validate: false` to
   disable). Validation is sub-µs for typical payloads — cheaper than the JSON
@@ -63,16 +63,16 @@ ipc │ memory
 - **Events** — `klient.events.on(...)` for the global bus
   (`config.changed`, `kosong.models.changed`, `session.archived`, …),
   `session(id).events.on('metadata.changed' | 'interactions.changed' |
-  'interactions.resolved')`, and `agent(id).events.on('turn.started' |
-  'assistant.delta' | 'tool.call.started' | 'prompt.completed' | …)`.
+'interactions.resolved')`, and `agent(id).events.on('turn.started' |
+'assistant.delta' | 'tool.call.started' | 'prompt.completed' | …)`.
   Underlying subscriptions are shared and ref-counted; payloads are
   validated; bad payloads drop to `events.onError`.
 
 ## Transports
 
-| entry | options | events |
-|---|---|---|
-| `@moonshot-ai/klient/ipc` | `{ socketPath, token? }` | same socket |
+| entry                        | options                                       | events                          |
+| ---------------------------- | --------------------------------------------- | ------------------------------- |
+| `@moonshot-ai/klient/ipc`    | `{ socketPath, token? }`                      | same socket                     |
 | `@moonshot-ai/klient/memory` | `{ scope }` (a bootstrapped engine app scope) | direct emitter/bus subscription |
 
 `ipc` and `memory` share one in-process dispatcher, so they behave identically

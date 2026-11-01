@@ -26,7 +26,9 @@ export function handleImportSessionsCommand(host: SlashCommandHost): void {
       const budget = importBudget(await host.harness.getConfig().catch(() => ({})));
       const report = await importSessions(candidates, { kimiHome, ...budget, now, ...hooks });
       await Promise.all(
-        report.imported.map((sessionId) => host.harness.listSessions({ sessionId }).catch(() => [])),
+        report.imported.map((sessionId) =>
+          host.harness.listSessions({ sessionId }).catch(() => []),
+        ),
       );
       return report;
     },

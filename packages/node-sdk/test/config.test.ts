@@ -1,11 +1,10 @@
+import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it } from 'bun:test';
-
-import { createKimiConfigRpc } from '#/index';
 import { configToTomlData, parseConfigString } from '#/config/index';
+import { createKimiConfigRpc } from '#/index';
 
 const toPosix = (p: string): string => p.replaceAll('\\', '/');
 
@@ -28,7 +27,9 @@ describe('SDK config TOML', () => {
     const dir = await makeTempDir();
     const rpc = createKimiConfigRpc();
 
-    await expect(rpc.resolveConfigPath({ homeDir: dir })).resolves.toBe(toPosix(join(dir, 'config.toml')));
+    await expect(rpc.resolveConfigPath({ homeDir: dir })).resolves.toBe(
+      toPosix(join(dir, 'config.toml')),
+    );
   });
 
   it('returns structured validation issues through the config RPC wrapper', async () => {

@@ -354,9 +354,9 @@ export class SearchWorkerHost {
     };
     let worker: Worker;
     try {
-      (globalThis as unknown as { setEnvironmentData?: (value: unknown) => void }).setEnvironmentData?.(
-        data,
-      );
+      (
+        globalThis as unknown as { setEnvironmentData?: (value: unknown) => void }
+      ).setEnvironmentData?.(data);
       const BunWorker = (
         globalThis as unknown as {
           Worker?: new (url: URL, options?: Record<string, unknown>) => Worker;

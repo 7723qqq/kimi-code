@@ -1,12 +1,16 @@
-import { type Event } from '@moonshot-ai/kimi-code-sdk';
 import { describe, expect, it, mock } from 'bun:test';
-import { waitForAssertion } from '#test/helpers/waitFor';
+
+import { type Event } from '@moonshot-ai/kimi-code-sdk';
 
 import { AssistantMessageComponent } from '#/tui/components/messages/assistant-message';
 import { StepSummaryComponent } from '#/tui/components/messages/step-summary';
-
 import { ToolCallComponent } from '#/tui/components/messages/tool-call';
-import { TRANSCRIPT_KEEP_RECENT_ASSISTANT, TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED, TRANSCRIPT_KEEP_RECENT_STEPS } from '#/tui/utils/transcript-window';
+import {
+  TRANSCRIPT_KEEP_RECENT_ASSISTANT,
+  TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED,
+  TRANSCRIPT_KEEP_RECENT_STEPS,
+} from '#/tui/utils/transcript-window';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { makeDriver, stripSgr, type MessageDriver } from './kimi-tui-message-flow-helpers';
 

@@ -45,7 +45,10 @@ function layerList(value, flag) {
   if (value === undefined || value === '') {
     throw new UsageError(`${flag} needs a comma-separated layer list, e.g. --only config,packages`);
   }
-  const names = value.split(',').map((name) => name.trim()).filter(Boolean);
+  const names = value
+    .split(',')
+    .map((name) => name.trim())
+    .filter(Boolean);
   if (names.length === 0) {
     throw new UsageError(`${flag} needs a comma-separated layer list, e.g. --only config,packages`);
   }
@@ -152,7 +155,10 @@ function applyMayProceed(root, allowDirty) {
   if (state === true && allowDirty) return { ok: true };
   if (state === undefined && allowDirty) return { ok: true };
   if (state === true) {
-    return { ok: false, message: 'bun-migrate: uncommitted changes present. Commit first, or pass --allow-dirty.' };
+    return {
+      ok: false,
+      message: 'bun-migrate: uncommitted changes present. Commit first, or pass --allow-dirty.',
+    };
   }
   return {
     ok: false,
@@ -164,7 +170,9 @@ function applyMayProceed(root, allowDirty) {
 function printHuman(report) {
   const lines = [report.summary, ''];
   for (const layer of report.layers) {
-    lines.push(`[${layer.name}] ${layer.changes.length} change(s), ${layer.skipped.length} skipped`);
+    lines.push(
+      `[${layer.name}] ${layer.changes.length} change(s), ${layer.skipped.length} skipped`,
+    );
     for (const change of layer.changes) {
       if (change.kind === 'note') {
         lines.push(`  NOTE   ${change.detail}`);
@@ -194,9 +202,12 @@ function writeFileAtomic(path, content) {
 }
 
 function gitHasStagedDeletion(root, file) {
-  const result = Bun.spawnSync(['git', 'diff', '--cached', '--name-only', '--diff-filter=D', '--', file], {
-    cwd: root,
-  });
+  const result = Bun.spawnSync(
+    ['git', 'diff', '--cached', '--name-only', '--diff-filter=D', '--', file],
+    {
+      cwd: root,
+    },
+  );
   if (result.exitCode !== 0) return false;
   return result.stdout
     .toString()
@@ -219,7 +230,8 @@ function restoreRemovalIndex(root, file) {
 
 function warnAboutJournalSecrets(root, journal) {
   const sensitive = journal.removals.filter(
-    (item) => item.file === '.npmrc' || /(?:^|_)(?:authToken|password)\b/m.test(String(item.before ?? '')),
+    (item) =>
+      item.file === '.npmrc' || /(?:^|_)(?:authToken|password)\b/m.test(String(item.before ?? '')),
   );
   if (sensitive.length === 0) return;
   const ignored = Bun.spawnSync(['git', 'check-ignore', '-q', '.bun-migrate'], { cwd: root });

@@ -1,13 +1,6 @@
+import { beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
+
 import type { TUI } from '@moonshot-ai/pi-tui';
-import {
-  beforeEach,
-  describe,
-  expect,
-  it,
-  mock,
-  type Mock,
-} from 'bun:test';
-import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
 
 import type { FooterComponent } from '#/tui/components/chrome/footer';
 import {
@@ -16,6 +9,7 @@ import {
 } from '#/tui/controllers/clipboard-image-hint';
 import { TERMINAL_FOCUS_IN, TERMINAL_FOCUS_OUT } from '#/tui/utils/terminal-focus';
 import { clipboardHasImage } from '#/utils/clipboard/clipboard-has-image';
+import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
 
 void mock.module('#/i18n', () => ({
   t: (key: string, params?: Record<string, string | number>): string => {

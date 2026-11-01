@@ -45,7 +45,6 @@
 import type { Event } from '@moonshot-ai/kimi-code-sdk';
 
 import { MAIN_AGENT_ID } from '../constant/kimi-tui';
-
 import type { QueuedMessage } from '../types';
 
 /** Narrowed event shapes consumed by the tracker (see `handleTurnStarted`). */
@@ -148,8 +147,10 @@ export class StagingLeaseTracker {
     }
     const candidates = [...this.leases].filter(
       (candidate) =>
-        !candidate.released && candidate.turnId === undefined &&
-        candidate.origin === kind && candidate.agentId === agentId,
+        !candidate.released &&
+        candidate.turnId === undefined &&
+        candidate.origin === kind &&
+        candidate.agentId === agentId,
     );
     if (candidates.length > 1) {
       // INVARIANT violation: the earliest-unclaimed pick cannot tell

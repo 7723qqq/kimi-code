@@ -241,9 +241,7 @@ describe('PromptOptimizePanelComponent', () => {
     expect((joined.match(/x/g) ?? []).length).toBe(300);
     // The tail survives too. It may be split across a fold boundary, so the
     // assertion is on the reassembled code rather than on any single row.
-    const code = rendered
-      .map((line) => line.replace(/^ {7}/, '').trimEnd())
-      .join('');
+    const code = rendered.map((line) => line.replace(/^ {7}/, '').trimEnd()).join('');
     expect(code).toContain('reject-');
     expect(code).toContain('-trailing');
   });

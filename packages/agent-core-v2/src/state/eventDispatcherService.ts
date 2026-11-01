@@ -1,13 +1,12 @@
 import { freeze, Immer, produce } from 'immer';
 
+import { type CollectionView } from '#/_base/di/collection';
+import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
 import { BugIndicatingError } from '#/_base/errors/errors';
 import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { ILogService } from '#/_base/log/log';
-import { Service } from '#/_base/di/service';
-import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
-import { type CollectionView } from '#/_base/di/collection';
-import { LifecycleScope } from '#/app/scopes';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { AgentSpaceImpl, type AgentSpaceHost } from '#/agent/agentContext/agentSpace';
 import { IAgentBlobService } from '#/agent/blob/agentBlobService';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
@@ -19,13 +18,14 @@ import {
   type Event2Class,
 } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
-import type { ContentPart } from '#human/llm/message';
+import { LifecycleScope } from '#/app/scopes';
 import { OrderedHookSlot } from '#/hooks';
-import { IWireService } from '#/wire/wire';
 import { WireError, WireErrors } from '#/wire/errors';
 import { isHumanRecordType } from '#/wire/human';
-import { AGENT_SWITCHED_TYPE } from '#/wire/tree/index';
 import type { PartsTransformer, WireRecord } from '#/wire/record';
+import { AGENT_SWITCHED_TYPE } from '#/wire/tree/index';
+import { IWireService } from '#/wire/wire';
+import type { ContentPart } from '#human/llm/message';
 
 import {
   AgentModelContribution,
@@ -33,8 +33,12 @@ import {
   type AgentModel,
   type AgentModelDefinition,
 } from './agentModel';
-import { IEventDispatcher, type DurableAgentRuntimeParticipant, type RestorePhase } from './eventDispatcher';
 import { StateError, StateErrors } from './errors';
+import {
+  IEventDispatcher,
+  type DurableAgentRuntimeParticipant,
+  type RestorePhase,
+} from './eventDispatcher';
 import {
   expandedModelAppliers,
   expandedRuntimeFolds,
@@ -97,11 +101,7 @@ interface PreparedFold {
   readonly next: any;
 }
 
-type ParticipantApplier = (
-  state: any,
-  event: Event2<any>,
-  ctx: FoldContextImpl,
-) => unknown;
+type ParticipantApplier = (state: any, event: Event2<any>, ctx: FoldContextImpl) => unknown;
 
 interface ParticipantAttachment {
   readonly id: string;
@@ -190,8 +190,7 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
   private readonly participantAttachments = new Map<string, ParticipantAttachment>();
 
   private readonly spaceHost: AgentSpaceHost = {
-    isActiveModelDefinition: (definition) =>
-      this.activeModelDefs.get(definition.id) === definition,
+    isActiveModelDefinition: (definition) => this.activeModelDefs.get(definition.id) === definition,
     registerModel: (definition, model) => this.registerModel(definition, model),
     dispatchModelEvent: (event) => this.dispatch(event),
     readLegacyState: (key) => this.agentState.get(key),
@@ -288,7 +287,9 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
     }
     const attachment = this.buildParticipantAttachment(participant);
     this.attachParticipant(attachment);
-    return toDisposable(() => { this.detachParticipant(attachment); });
+    return toDisposable(() => {
+      this.detachParticipant(attachment);
+    });
   }
 
   async attachLate(participant: DurableAgentRuntimeParticipant): Promise<IDisposable> {
@@ -303,10 +304,14 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
       );
     }
     const previous = this.lateAttachmentTail;
-    const pending = previous === undefined
-      ? this.attachLateNow(participant)
-      : previous.then(() => this.attachLateNow(participant));
-    const settled = pending.then(() => {}, () => {});
+    const pending =
+      previous === undefined
+        ? this.attachLateNow(participant)
+        : previous.then(() => this.attachLateNow(participant));
+    const settled = pending.then(
+      () => {},
+      () => {},
+    );
     this.lateAttachmentTail = settled;
     void settled.then(() => {
       if (this.lateAttachmentTail === settled) this.lateAttachmentTail = undefined;
@@ -316,7 +321,9 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
 
   private async attachLateNow(participant: DurableAgentRuntimeParticipant): Promise<IDisposable> {
     if (this.disposed) {
-      throw new Error(`Agent runtime participant '${participant.id}' late-attached to a disposed event dispatcher`);
+      throw new Error(
+        `Agent runtime participant '${participant.id}' late-attached to a disposed event dispatcher`,
+      );
     }
     const attachment = this.buildParticipantAttachment(participant);
     this.dispatching = true;
@@ -324,9 +331,7 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
     let replayFailure: { error: unknown } | undefined;
     try {
       await this.wire.flush();
-      const stream = participant.undoable
-        ? this.wire.readRestorable()
-        : this.wire.readJournal();
+      const stream = participant.undoable ? this.wire.readRestorable() : this.wire.readJournal();
       for await (const record of stream) {
         if (record.type === 'metadata') continue;
         const cls = this.folded.events.get(record.type);
@@ -335,7 +340,8 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
         if (cls.agentDomain) {
           if (this.agentScope === undefined) continue;
           const recordAgentId = record['agentId'];
-          if (recordAgentId === undefined) eventRecord = { ...record, agentId: this.agentScope.agentId };
+          if (recordAgentId === undefined)
+            eventRecord = { ...record, agentId: this.agentScope.agentId };
           else if (recordAgentId !== this.agentScope.agentId) continue;
         }
         const event = event2FromRecord(cls, eventRecord);
@@ -343,10 +349,7 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
         const applier = attachment.appliers.get(event.constructor as Event2Class);
         if (applier === undefined) continue;
         const ctx = new FoldContextImpl(this, true);
-        const next = produce(
-          attachment.getState(),
-          (draft: any) => applier(draft, event, ctx),
-        );
+        const next = produce(attachment.getState(), (draft: any) => applier(draft, event, ctx));
         if (ctx.pendingUndo !== undefined && next !== attachment.getState()) {
           throw new BugIndicatingError(
             `Fold of event '${event.type}' on durable participant '${attachment.id}' both mutates and undoes to a checkpoint`,
@@ -375,7 +378,9 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
       }
     }
     if (replayFailure !== undefined) throw replayFailure.error;
-    return toDisposable(() => { this.detachParticipant(attachment); });
+    return toDisposable(() => {
+      this.detachParticipant(attachment);
+    });
   }
 
   private buildParticipantAttachment(
@@ -395,7 +400,9 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
       undoable: participant.undoable,
       initial: participant.getState(),
       getState: () => participant.getState(),
-      commit: (state) => { participant.commit(state); },
+      commit: (state) => {
+        participant.commit(state);
+      },
     };
   }
 
@@ -472,10 +479,7 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
     }
   }
 
-  private registerModel(
-    definition: AgentModelDefinition<any, any>,
-    model: AgentModel<any>,
-  ): void {
+  private registerModel(definition: AgentModelDefinition<any, any>, model: AgentModel<any>): void {
     if (this.modelAttachments.has(definition)) return;
     const domainAppliers = new Map<Event2Class<any, any>, EventApplier>();
     for (const [cls, applier] of model._appliersTable()) {
@@ -509,7 +513,9 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
       undoable: definition.undoable,
       initial: model._state(),
       getState: () => model._state(),
-      commit: (state) => { model._commitState(state); },
+      commit: (state) => {
+        model._commitState(state);
+      },
     };
     this.attachParticipant(attachment);
     this.modelAttachments.set(definition, attachment);
@@ -667,10 +673,7 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
         const applier = attachment.appliers.get(event.constructor as Event2Class);
         if (applier === undefined) continue;
         const ctx = new FoldContextImpl(this, silent);
-        const next = produceFor(
-          attachment.getState(),
-          (draft: any) => applier(draft, event, ctx),
-        );
+        const next = produceFor(attachment.getState(), (draft: any) => applier(draft, event, ctx));
         if (ctx.pendingUndo !== undefined && next !== attachment.getState()) {
           throw new BugIndicatingError(
             `Fold of event '${event.type}' on durable participant '${attachment.id}' both mutates and undoes to a checkpoint`,
@@ -875,10 +878,7 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
       if (entry.event === undefined) {
         if (!undoable) {
           if (entry.cls === undefined) {
-            if (
-              !UNREPORTED_WIRE_RECORD_TYPES.has(record.type) &&
-              !isHumanRecordType(record.type)
-            ) {
+            if (!UNREPORTED_WIRE_RECORD_TYPES.has(record.type) && !isHumanRecordType(record.type)) {
               this.reportSkippedRecord(record.type, recordIndex, false);
             }
           } else {
@@ -949,7 +949,10 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
     for (const key of this.folded.states) {
       const codec = key.replayable.blobs;
       if (codec?.rehydrate === undefined) continue;
-      this.agentState.set(key, Object.freeze(await codec.rehydrate(this.agentState.get(key), transform)));
+      this.agentState.set(
+        key,
+        Object.freeze(await codec.rehydrate(this.agentState.get(key), transform)),
+      );
     }
   }
 

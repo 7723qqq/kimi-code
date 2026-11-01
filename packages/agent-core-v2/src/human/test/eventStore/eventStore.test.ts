@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+
 import { z } from 'zod';
 
 import { storeActor } from '#/eventStore/actor';
@@ -177,7 +178,11 @@ describe('createEventStore', () => {
       kind: 'event',
       data: { type: 'test.note_tagged', time: 1, tag: 'a' },
     });
-    const store = await createEventStore({ journal, slices: { notes: notesSlice }, mutableReplay: true });
+    const store = await createEventStore({
+      journal,
+      slices: { notes: notesSlice },
+      mutableReplay: true,
+    });
 
     await expect(store.registerSlice(flakySlice)).rejects.toThrow('fold failure');
     expect(store.getState()).toEqual({ notes: ['a'] });

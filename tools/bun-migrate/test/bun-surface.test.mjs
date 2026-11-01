@@ -84,7 +84,11 @@ describe('the Node-equivalent claims reproduce', () => {
 
   it('Bun.readableStreamToText is covered by Response.text on Node', () => {
     const stream = new Response('payload').body;
-    expect(Bun.readableStreamToText(stream instanceof ReadableStream ? new Response('payload').body : stream)).resolves.toBe('payload');
+    expect(
+      Bun.readableStreamToText(
+        stream instanceof ReadableStream ? new Response('payload').body : stream,
+      ),
+    ).resolves.toBe('payload');
     expect(typeof new Response('').text).toBe('function');
   });
 });
@@ -142,7 +146,15 @@ describe('the tables describe real capability gaps', () => {
 
   it('Bun-only covers the categories a Node project would miss', () => {
     const kinds = new Set(BUN_ONLY_FUNCTIONS.map((entry) => entry.kind));
-    for (const expected of ['database', 'server', 'bundler', 'archive', 'image', 'pty', 'webview']) {
+    for (const expected of [
+      'database',
+      'server',
+      'bundler',
+      'archive',
+      'image',
+      'pty',
+      'webview',
+    ]) {
       expect(`${expected}=${kinds.has(expected)}`).toBe(`${expected}=true`);
     }
   });

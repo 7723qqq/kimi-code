@@ -130,7 +130,11 @@ export interface EvaluationReportInput {
   readonly apiErrors: readonly ApiErrorRecord[];
   readonly dryRun: boolean;
   readonly credentialsPresent: boolean;
-  readonly warnings?: readonly { readonly code: string; readonly name: string; readonly message: string }[];
+  readonly warnings?: readonly {
+    readonly code: string;
+    readonly name: string;
+    readonly message: string;
+  }[];
   /** Raw output is kept by default, truncated and redacted; false drops it. */
   readonly includeRawOutput?: boolean;
 }
@@ -324,9 +328,7 @@ export function formatEvaluationReport(report: EvaluationReport): string {
   lines.push('');
   lines.push(`Effectiveness: ${report.effectivenessVerdict}`);
   if (report.effectivenessVerdict === 'unavailable') {
-    lines.push(
-      '  This report is not evidence about the prompt. Reasons:',
-    );
+    lines.push('  This report is not evidence about the prompt. Reasons:');
     for (const blocker of report.effectivenessBlockers) lines.push(`  - ${blocker}`);
   }
   return lines.join('\n');
@@ -380,8 +382,4 @@ export function reportCompletenessErrors(report: unknown): string[] {
   return errors;
 }
 
-
-
 // ─── Helpers ────────────────────────────────────────────────────────────────
-
-

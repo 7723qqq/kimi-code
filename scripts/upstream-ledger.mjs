@@ -27,20 +27,7 @@ const VERDICTS = new Set([
   'not-applicable',
 ]);
 const PROBE_KINDS = ['test:', 'grep:', 'absent:', 'manual:'];
-const BATCHES = [
-  'B1',
-  'B2',
-  'B3',
-  'B4',
-  'B5',
-  'B6',
-  'B7',
-  'B8',
-  'B9',
-  'B10',
-  'B11',
-  'B12',
-];
+const BATCHES = ['B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B9', 'B10', 'B11', 'B12'];
 
 function fail(message) {
   process.stderr.write(`upstream-ledger: ${message}\n`);
@@ -114,7 +101,14 @@ function clusterOf(sha, hints) {
 
 function refresh() {
   git(['fetch', '--quiet', 'upstream']);
-  const commitLines = git(['log', '--no-merges', '--reverse', '--format=%H%x1f%s', 'upstream/main', '^main'])
+  const commitLines = git([
+    'log',
+    '--no-merges',
+    '--reverse',
+    '--format=%H%x1f%s',
+    'upstream/main',
+    '^main',
+  ])
     .split('\n')
     .filter((line) => line.length > 0);
   const existing = loadLedger();
@@ -125,7 +119,15 @@ function refresh() {
     const [sha, subject] = line.split('\x1f');
     if (kept.has(sha)) continue;
     const match = /#(\d+)\)?\s*$/.exec(subject);
-    const files = git(['diff-tree', '--no-commit-id', '--name-only', '-r', '-m', '--first-parent', sha])
+    const files = git([
+      'diff-tree',
+      '--no-commit-id',
+      '--name-only',
+      '-r',
+      '-m',
+      '--first-parent',
+      sha,
+    ])
       .split('\n')
       .filter((path) => path.length > 0).length;
     added.push({
@@ -144,7 +146,9 @@ function refresh() {
   }
   const rows = [...existing, ...added].sort((a, b) => a.sha.localeCompare(b.sha));
   saveLedger(rows);
-  process.stdout.write(`refresh: ${commitLines.length} open upstream commits, ${added.length} new rows\n`);
+  process.stdout.write(
+    `refresh: ${commitLines.length} open upstream commits, ${added.length} new rows\n`,
+  );
 }
 
 function resolveProbeTarget(target) {
@@ -160,10 +164,9 @@ function runTestProbe(probe) {
   const path = body.slice(0, separator).trim();
   const name = body.slice(separator + 1).trim();
   if (!existsSync(join(ROOT, path))) return { ok: false, detail: `missing file ${path}` };
-  const result = Bun.spawnSync(
-    ['bun', 'test', '--isolate', '--test-name-pattern', name, path],
-    { cwd: ROOT },
-  );
+  const result = Bun.spawnSync(['bun', 'test', '--isolate', '--test-name-pattern', name, path], {
+    cwd: ROOT,
+  });
   const output = `${result.stdout.toString()}${result.stderr.toString()}`;
   if (result.exitCode !== 0) return { ok: false, detail: `test exited ${result.exitCode}` };
   if (!output.includes(name)) return { ok: false, detail: `test name never ran: ${name}` };
@@ -173,10 +176,14 @@ function runTestProbe(probe) {
 }
 
 function runRipgrep(pattern, target) {
-  const result = Bun.spawnSync(['rg', '--no-config', '-n', '--no-messages', '-e', pattern, target], {
-    cwd: ROOT,
-  });
-  if (result.exitCode === 0) return { found: true, detail: result.stdout.toString().trim().split('\n')[0] };
+  const result = Bun.spawnSync(
+    ['rg', '--no-config', '-n', '--no-messages', '-e', pattern, target],
+    {
+      cwd: ROOT,
+    },
+  );
+  if (result.exitCode === 0)
+    return { found: true, detail: result.stdout.toString().trim().split('\n')[0] };
   if (result.exitCode === 1) return { found: false, detail: '' };
   return { found: false, detail: `rg exited ${result.exitCode}` };
 }
@@ -224,7 +231,9 @@ function verify(rows, onlyBatch) {
     }
   }
   saveLedger(rows);
-  process.stdout.write(`verify: ${selected.length - failures.length} pass, ${failures.length} fail\n`);
+  process.stdout.write(
+    `verify: ${selected.length - failures.length} pass, ${failures.length} fail\n`,
+  );
   if (failures.length > 0) process.exit(1);
 }
 
@@ -254,10 +263,14 @@ function report(rows) {
     const remaining = rowCount - closed;
     totalRows += rowCount;
     totalRemaining += remaining;
-    process.stdout.write([batch, String(rowCount), ...cells, String(closed), String(remaining)].join('\t'));
+    process.stdout.write(
+      [batch, String(rowCount), ...cells, String(closed), String(remaining)].join('\t'),
+    );
     process.stdout.write('\n');
   }
-  process.stdout.write(`total\t${totalRows}\tclosed=${totalRows - totalRemaining}\tremaining=${totalRemaining}\n`);
+  process.stdout.write(
+    `total\t${totalRows}\tclosed=${totalRows - totalRemaining}\tremaining=${totalRemaining}\n`,
+  );
   if (totalRemaining > 0) process.stdout.write('STATUS: open\n');
   else process.stdout.write('STATUS: clear\n');
 }
@@ -306,9 +319,7 @@ function setBatch(rows, batch) {
   if (affected.length === 0) fail(`no rows in ${batch}`);
   const unfinished = affected.filter(
     (row) =>
-      row.verdict === 'pending' ||
-      row.verdict === 'in_progress' ||
-      row.verdict === 'partial',
+      row.verdict === 'pending' || row.verdict === 'in_progress' || row.verdict === 'partial',
   );
   if (unfinished.length > 0) fail(`${batch} still has ${unfinished.length} unfinished rows`);
   for (const row of affected) {

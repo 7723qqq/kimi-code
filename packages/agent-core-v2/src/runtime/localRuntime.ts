@@ -8,7 +8,11 @@ import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IHostProcessService } from '#/os/interface/hostProcess';
 
 import type { Runtime, RuntimeCapability, RuntimePath, RuntimeStatus } from './runtime';
-import type { RuntimeProviderAttachment, RuntimeProviderContext, RuntimeProviderFactory } from './runtimeProvider';
+import type {
+  RuntimeProviderAttachment,
+  RuntimeProviderContext,
+  RuntimeProviderFactory,
+} from './runtimeProvider';
 import type { RuntimeProviderHost } from './runtimeUnitHost';
 
 let nextGeneration = 1;
@@ -88,22 +92,23 @@ export class LocalRuntime implements Runtime {
 export class LocalRuntimeProviderFactory implements RuntimeProviderFactory {
   readonly id = 'local';
   readonly imports = {
-    root: [
-      IHostEnvironment,
-      IHostFileSystem,
-      IHostProcessService,
-    ],
+    root: [IHostEnvironment, IHostFileSystem, IHostProcessService],
     imports: [],
     local: [],
   };
 
-  async attach(context: RuntimeProviderContext, host: RuntimeProviderHost): Promise<RuntimeProviderAttachment> {
-    const handle = host.registerRuntime(new LocalRuntime(
-      context.id,
-      host.get(IHostEnvironment),
-      host.get(IHostFileSystem),
-      host.get(IHostProcessService),
-    ));
+  async attach(
+    context: RuntimeProviderContext,
+    host: RuntimeProviderHost,
+  ): Promise<RuntimeProviderAttachment> {
+    const handle = host.registerRuntime(
+      new LocalRuntime(
+        context.id,
+        host.get(IHostEnvironment),
+        host.get(IHostFileSystem),
+        host.get(IHostProcessService),
+      ),
+    );
     return { dispose: () => handle.remove() };
   }
 }

@@ -118,10 +118,7 @@ function parseMeta(stdout: string): Map<string, CommitMeta> {
   return meta;
 }
 
-function parseCommits(
-  stdout: string,
-  meta: Map<string, CommitMeta>,
-): CommitRecord[] {
+function parseCommits(stdout: string, meta: Map<string, CommitMeta>): CommitRecord[] {
   const commits: CommitRecord[] = [];
   let sha: string | undefined;
   let files: string[] = [];
@@ -240,17 +237,7 @@ export async function readRepoTree(
   const tree = await runGit(
     process,
     cwd,
-    [
-      '-c',
-      'core.quotePath=false',
-      '-C',
-      cwd,
-      'ls-tree',
-      '-d',
-      '-r',
-      '--name-only',
-      'HEAD',
-    ],
+    ['-c', 'core.quotePath=false', '-C', cwd, 'ls-tree', '-d', '-r', '--name-only', 'HEAD'],
     timers,
   );
   if (!tree.ok) return undefined;

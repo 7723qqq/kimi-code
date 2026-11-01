@@ -38,14 +38,14 @@ describe('readApprovalResult', () => {
   });
 
   it('drops individual non-string fields instead of passing them through', () => {
-    expect(
-      readApprovalResult({ result: { decision: { unexpected: true }, feedback: 7 } }),
-    ).toEqual({
-      decision: undefined,
-      feedback: undefined,
-      scope: undefined,
-      selectedLabel: undefined,
-    });
+    expect(readApprovalResult({ result: { decision: { unexpected: true }, feedback: 7 } })).toEqual(
+      {
+        decision: undefined,
+        feedback: undefined,
+        scope: undefined,
+        selectedLabel: undefined,
+      },
+    );
   });
 
   it('exposes the placeholder used where the result is missing', () => {

@@ -1,67 +1,65 @@
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, normalize, basename, dirname } from 'pathe';
 
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { join, normalize, basename, dirname } from 'pathe';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { Emitter } from '#/_base/event';
+import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminder';
+import { AgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminderService';
+import { extractBashTargetDirs } from '#/agent/agentsMdReminder/bashTargets';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { profileKey } from '#/agent/profile/profileOps';
+import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentStateService } from '#/agent/state/agentState';
+import { AgentStateService } from '#/agent/state/agentStateService';
+import { IAgentToolDedupeService } from '#/agent/toolDedupe/toolDedupe';
+import { AgentToolDedupeService } from '#/agent/toolDedupe/toolDedupeService';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { AgentToolExecutorService } from '#/agent/toolExecutor/toolExecutorService';
+import type { ToolDidExecuteContext } from '#/agent/toolExecutor/toolHooks';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
+import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
+import { ToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncationService';
 import { IBashParserService } from '#/app/bashParser/bashParser';
 import { BashParserService } from '#/app/bashParser/bashParserService';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IEventBus } from '#/app/event/eventBus';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import type { ToolCall } from '#human/llm/message';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
+import { OrderedHookSlot } from '#/hooks';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem, type HostFileStat } from '#/os/interface/hostFileSystem';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import type { RuntimeLease } from '#/runtime/runtime';
-import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
-import type { WatchChange } from '#human/utils/watch';
-import {
-  ToolAccesses,
-  type ToolAccesses as ToolAccessesType,
-} from '#/tool/toolContract';
+import { IEventDispatcher } from '#/state/eventDispatcher';
+import { ToolAccesses, type ToolAccesses as ToolAccessesType } from '#/tool/toolContract';
 import type {
   ExecutableTool,
   ExecutableToolContext,
   ExecutableToolResult,
   ToolExecution,
 } from '#/tool/toolContract';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { AgentToolExecutorService } from '#/agent/toolExecutor/toolExecutorService';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
-import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
-import { ToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncationService';
-import { IEventBus } from '#/app/event/eventBus';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { IAgentStateService } from '#/agent/state/agentState';
-import { profileKey } from '#/agent/profile/profileOps';
-import { AgentStateService } from '#/agent/state/agentStateService';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import { IAgentToolDedupeService } from '#/agent/toolDedupe/toolDedupe';
-import { AgentToolDedupeService } from '#/agent/toolDedupe/toolDedupeService';
-import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import { IAgentReminderService } from '#/features/reminder/reminderService';
-import { createReminderHarness } from '../../features/reminder/stubs';
-import { OrderedHookSlot } from '#/hooks';
-import { IEventDispatcher } from '#/state/eventDispatcher';
-import type { ToolDidExecuteContext } from '#/agent/toolExecutor/toolHooks';
-import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminder';
-import { AgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminderService';
-import { extractBashTargetDirs } from '#/agent/agentsMdReminder/bashTargets';
-import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
-import { stubToolExecutorEvents, type ToolExecutorEventStubs } from '../toolExecutor/stubs';
-import { runWillBeginStepHooks, stubLoopWithHooks, type StubLoop } from '../loop/stubs';
-import { stubContextMemory, type StubContextMemory } from '../contextMemory/stubs';
+import type { ToolCall } from '#human/llm/message';
+import type { WatchChange } from '#human/utils/watch';
+
 import { registerLogServices } from '../../_base/log/stubs';
-import { stubAgentContext } from '../agentContext/stubs';
 import { SYMLINKS } from '../../_support/symlinkSupport';
+import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
+import { createReminderHarness } from '../../features/reminder/stubs';
+import { stubAgentContext } from '../agentContext/stubs';
+import { stubContextMemory, type StubContextMemory } from '../contextMemory/stubs';
+import { runWillBeginStepHooks, stubLoopWithHooks, type StubLoop } from '../loop/stubs';
+import { stubToolExecutorEvents, type ToolExecutorEventStubs } from '../toolExecutor/stubs';
 
 let disposables: DisposableStore;
 let homeDir: string;
@@ -202,7 +200,9 @@ function createHarness(
         _serviceBrand: undefined,
         onDidChange: () => ({ dispose: () => {} }),
         isAvailable: () => true,
-        inspect() { return this.acquire().runtime; },
+        inspect() {
+          return this.acquire().runtime;
+        },
         acquire: (): RuntimeLease => ({
           runtime: {
             identity: { workspaceId: 'workspace-1', runtimeId: 'local', generation: 'test' },
@@ -213,7 +213,8 @@ function createHarness(
               delimiter: options.pathClass === 'win32' ? ';' : ':',
               isAbsolute: (path: string) => path.startsWith('/') || /^[A-Za-z]:[\\\\]/.test(path),
               join,
-              relative: (from: string, to: string) => normalize(to).replace(`${normalize(from)}/`, ''),
+              relative: (from: string, to: string) =>
+                normalize(to).replace(`${normalize(from)}/`, ''),
               resolve: (...paths: readonly string[]) => normalize(join(...paths)),
               basename: (path: string) => basename(path),
               dirname: (path: string) => dirname(path),
@@ -284,7 +285,7 @@ function didCtx(
     accesses:
       options.preflightRejected === true
         ? undefined
-        : options.accesses ?? testAccesses(name, args),
+        : (options.accesses ?? testAccesses(name, args)),
     result: options.result ?? { output: 'original result' },
   };
 }
@@ -915,9 +916,13 @@ describe('agentsMdReminder probing boundaries', () => {
 
     const result = await fire(
       h,
-      didCtx('Read', { path: join(subDir, 'missing.ts') }, {
-        result: { output: 'not found', isError: true },
-      }),
+      didCtx(
+        'Read',
+        { path: join(subDir, 'missing.ts') },
+        {
+          result: { output: 'not found', isError: true },
+        },
+      ),
     );
 
     expect(outputText(result)).toBe('not found');
@@ -984,9 +989,7 @@ describe('agentsMdReminder probing boundaries', () => {
     await h.events.didExecuteSlot.run(
       didCtx('Read', { path: join(subDir, 'a.ts') }, { id: 'call-a' }),
     );
-    await h.events.didExecuteSlot.run(
-      didCtx('Read', { path: subAgentsMd }, { id: 'call-b' }),
-    );
+    await h.events.didExecuteSlot.run(didCtx('Read', { path: subAgentsMd }, { id: 'call-b' }));
     await h.step();
 
     expect(agentsMdMessages(h)).toHaveLength(0);
@@ -998,9 +1001,7 @@ describe('agentsMdReminder probing boundaries', () => {
     const subAgentsMd = await writeAgentsMd(subDir);
     h.reminder.seedInjected([], workDir);
 
-    await h.events.didExecuteSlot.run(
-      didCtx('Read', { path: subAgentsMd }, { id: 'call-read' }),
-    );
+    await h.events.didExecuteSlot.run(didCtx('Read', { path: subAgentsMd }, { id: 'call-read' }));
     await h.events.didExecuteSlot.run(
       didCtx('Read', { path: join(subDir, 'a.ts') }, { id: 'call-access' }),
     );
@@ -1062,23 +1063,26 @@ describe('agentsMdReminder probing boundaries', () => {
     }
   });
 
-  it.skipIf(!SYMLINKS)('discovers a symlinked directory through the link at its lexical address', async () => {
-    const h = createHarness();
-    const target = await mkdtemp(join(tmpdir(), 'kimi-reminder-target-'));
-    const targetAgentsMd = await writeAgentsMd(target, 'target instructions');
-    await symlink(target, join(workDir, 'link'));
+  it.skipIf(!SYMLINKS)(
+    'discovers a symlinked directory through the link at its lexical address',
+    async () => {
+      const h = createHarness();
+      const target = await mkdtemp(join(tmpdir(), 'kimi-reminder-target-'));
+      const targetAgentsMd = await writeAgentsMd(target, 'target instructions');
+      await symlink(target, join(workDir, 'link'));
 
-    try {
-      const result = await fire(h, didCtx('Read', { path: join(workDir, 'link', 'index.ts') }));
+      try {
+        const result = await fire(h, didCtx('Read', { path: join(workDir, 'link', 'index.ts') }));
 
-      expect(outputText(result)).toBe('original result');
-      const text = reminderText(h);
-      expect(text).toContain(normalize(join(workDir, 'link', 'AGENTS.md')));
-      expect(text).not.toContain(targetAgentsMd);
-    } finally {
-      await rm(target, { recursive: true, force: true });
-    }
-  });
+        expect(outputText(result)).toBe('original result');
+        const text = reminderText(h);
+        expect(text).toContain(normalize(join(workDir, 'link', 'AGENTS.md')));
+        expect(text).not.toContain(targetAgentsMd);
+      } finally {
+        await rm(target, { recursive: true, force: true });
+      }
+    },
+  );
 });
 
 describe('agentsMdReminder round-2 hardening', () => {
@@ -1388,9 +1392,9 @@ describe('agentsMdReminder cancellation outcomes', () => {
     expect(queued).toBeDefined();
     await h.step();
     expect(agentsMdMessages(h)).toHaveLength(0);
-    expect(
-      h.telemetryEvents.filter((event) => event.event === 'agents_md_reminder_shown'),
-    ).toEqual([]);
+    expect(h.telemetryEvents.filter((event) => event.event === 'agents_md_reminder_shown')).toEqual(
+      [],
+    );
 
     const real = [];
     for await (const item of h.ix.get(IAgentToolExecutorService).execute(
@@ -1421,10 +1425,7 @@ describe('agentsMdReminder Bash parse degradation', () => {
     const h = createHarness();
     const subAgentsMd = await writeAgentsMd(join(workDir, 'packages', 'kap-server'));
 
-    const result = await fire(
-      h,
-      didCtx('Bash', { command: "ls '", cwd: 'packages/kap-server' }),
-    );
+    const result = await fire(h, didCtx('Bash', { command: "ls '", cwd: 'packages/kap-server' }));
 
     expect(outputText(result)).toBe('original result');
     expect(reminderText(h)).toContain(subAgentsMd);

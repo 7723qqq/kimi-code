@@ -1,5 +1,6 @@
-import { visibleWidth } from '@moonshot-ai/pi-tui';
 import { describe, expect, it } from 'bun:test';
+
+import { visibleWidth } from '@moonshot-ai/pi-tui';
 
 import { CronMessageComponent } from '#/tui/components/messages/cron-message';
 import {
@@ -30,7 +31,9 @@ describe('NoticeComponent', () => {
     const lines = component.render(120).map((line) => strip(line));
     const titleColumn = lines.find((line) => line.includes('Title'))?.indexOf('Title');
     const firstColumn = lines.find((line) => line.includes('First line.'))?.indexOf('First line.');
-    const secondColumn = lines.find((line) => line.includes('Second line.'))?.indexOf('Second line.');
+    const secondColumn = lines
+      .find((line) => line.includes('Second line.'))
+      ?.indexOf('Second line.');
     expect(titleColumn).toBeDefined();
     expect(firstColumn).toBe(titleColumn);
     expect(secondColumn).toBe(titleColumn);
@@ -39,13 +42,16 @@ describe('NoticeComponent', () => {
 
 describe('CronMessageComponent', () => {
   it('keeps title, detail, and prompt within narrow widths', () => {
-    const component = new CronMessageComponent('Please investigate the reminder payload and report back.', {
-      cron: '*/15 * * * *',
-      jobId: 'job-with-a-very-long-identifier-for-width-testing',
-      recurring: true,
-      missedCount: 3,
-      stale: true,
-    });
+    const component = new CronMessageComponent(
+      'Please investigate the reminder payload and report back.',
+      {
+        cron: '*/15 * * * *',
+        jobId: 'job-with-a-very-long-identifier-for-width-testing',
+        recurring: true,
+        missedCount: 3,
+        stale: true,
+      },
+    );
 
     for (const width of [39, 20, 10, 4]) {
       for (const line of component.render(width)) {

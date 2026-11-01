@@ -1,9 +1,8 @@
+// test/batch.test.ts
+import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-
-// test/batch.test.ts
-import { expect, test } from 'bun:test';
 
 import { MiniDb } from '../src/index.js';
 
@@ -38,14 +37,18 @@ test('batch with dt + indexes updates everything', async () => {
       { op: 'set', key: 'u1', value: { city: 'Paris' }, dt: { created: 100 } },
       { op: 'set', key: 'u2', value: { city: 'Paris' }, dt: { created: 200 } },
     ]);
-    expect(db
+    expect(
+      db
         .findEq('byCity', 'Paris')
         .map((r) => r.key)
-        .toSorted()).toStrictEqual(['u1', 'u2']);
-    expect(db
+        .toSorted(),
+    ).toStrictEqual(['u1', 'u2']);
+    expect(
+      db
         .dtRange('created', { gte: 100 })
         .map((r) => r.key)
-        .toSorted()).toStrictEqual(['u1', 'u2']);
+        .toSorted(),
+    ).toStrictEqual(['u1', 'u2']);
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -105,8 +108,14 @@ test('batch is atomic on recovery: a corrupt batch frame skips the whole batch',
     // — but it must NEVER be the case that only one of x/y is present.
     const x = db.get('x');
     const y = db.get('y');
-    expect(!(x !== undefined && y === undefined), 'batch must not be half-applied (x only)').toBeTruthy();
-    expect(!(x === undefined && y !== undefined), 'batch must not be half-applied (y only)').toBeTruthy();
+    expect(
+      !(x !== undefined && y === undefined),
+      'batch must not be half-applied (x only)',
+    ).toBeTruthy();
+    expect(
+      !(x === undefined && y !== undefined),
+      'batch must not be half-applied (y only)',
+    ).toBeTruthy();
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });

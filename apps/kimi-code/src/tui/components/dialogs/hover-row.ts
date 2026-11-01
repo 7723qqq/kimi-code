@@ -1,5 +1,5 @@
-import chalk from 'chalk';
 import { truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
+import chalk from 'chalk';
 
 export function paintHoverRow(line: string, width: number, background: string): string {
   const clipped = truncateToWidth(line, width);

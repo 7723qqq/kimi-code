@@ -1,25 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { expectRejection } from '#test/helpers/assertions';
-import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 
 import { createScopedTestHost, SILENT_TEST_LOGGER, stubPair } from '#/_base/di/test';
 import { isErrorCode } from '#/_base/errors/codes';
-import { ILogService } from '#/_base/log/log';
 import { isError2 } from '#/_base/errors/errors';
+import { ILogService } from '#/_base/log/log';
 import { IConfigService } from '#/app/config/config';
 import { ConfigErrors } from '#/app/config/errors';
 import { DEFAULT_MODEL_SECTION } from '#/app/kosongConfig/configSection';
+import { HostRequestHeadersAdapter } from '#/app/kosongConfig/hostRequestHeadersAdapter';
 import { UNKNOWN_CAPABILITY, isUnknownCapability } from '#/llm-adapter/contract/capability';
-import { emptyUsage } from '#human/llm/usage';
-import type { LlmRequester } from '#human/llm/requester/requester';
-import { IProtocolAdapterRegistry } from '#/llm-adapter/protocol/protocol';
-import '#/llm-adapter/protocol/protocolAdapterRegistry';
-import {
-  IProviderService,
-  type ProviderConfig,
-  type ProvidersSection,
-} from '#/llm-adapter/provider/provider';
-import '#/llm-adapter/provider/provider-service';
 import {
   globalDefaultForProvider,
   IModelCatalog,
@@ -29,19 +18,29 @@ import {
   toProtocolModelFallback,
   toProtocolProvider,
 } from '#/llm-adapter/model/catalog';
-import { ModelCatalog } from '#/llm-adapter/model/catalog-service';
 import { ProviderCatalogRuntimeService } from '#/llm-adapter/model/catalog-runtime';
-import '#/llm-adapter/model/errors';
+import { ModelCatalog } from '#/llm-adapter/model/catalog-service';
 import { IHostRequestHeaders } from '#/llm-adapter/model/host-request-headers';
+import '#/llm-adapter/protocol/protocolAdapterRegistry';
 import { IModelService, type ModelRecord, type ModelsSection } from '#/llm-adapter/model/model';
-import '#/llm-adapter/model/model-service';
+import '#/llm-adapter/provider/provider-service';
 import { IModelOAuthTokens } from '#/llm-adapter/model/model-oauth';
+import { IProtocolAdapterRegistry } from '#/llm-adapter/protocol/protocol';
+import {
+  IProviderService,
+  type ProviderConfig,
+  type ProvidersSection,
+} from '#/llm-adapter/provider/provider';
+import '#/llm-adapter/model/errors';
+import type { LlmRequester } from '#human/llm/requester/requester';
+import { emptyUsage } from '#human/llm/usage';
+import '#/llm-adapter/model/model-service';
+import { expectRejection } from '#test/helpers/assertions';
+import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 
-import { HostRequestHeadersAdapter } from '#/app/kosongConfig/hostRequestHeadersAdapter';
-
-import { StubConfigService, stubModelOAuthTokens, stubTokenProvider } from '../../stubs';
 import { stubAgentIdentity } from '../../app/agentIdentity/stubs';
 import { stubBootstrap } from '../../app/bootstrap/stubs';
+import { StubConfigService, stubModelOAuthTokens, stubTokenProvider } from '../../stubs';
 
 const HOST_HEADERS = { 'User-Agent': 'kimi-test/1.0', 'X-Msh-Device-Id': 'device-1' };
 
@@ -360,7 +359,10 @@ describe('Model assembly (pure data)', () => {
   it('resolves provider env-bag credentials and endpoints through the registry', async () => {
     const { host, catalog } = createHost({
       providers: {
-        kimi: { type: 'kimi', env: { KIMI_API_KEY: 'env-token', KIMI_BASE_URL: 'https://kimi-env.example.test/v1' } },
+        kimi: {
+          type: 'kimi',
+          env: { KIMI_API_KEY: 'env-token', KIMI_BASE_URL: 'https://kimi-env.example.test/v1' },
+        },
         openai: { type: 'openai', env: { OPENAI_API_KEY: 'sk-openai' } },
       },
       models: {
@@ -514,7 +516,10 @@ describe('Model assembly (pure data)', () => {
       }
     };
     expectInvalid(kimiSections, 'nope');
-    expectInvalid({ models: { ghost: { provider: 'missing', model: 'm', maxContextSize: 1 } } }, 'ghost');
+    expectInvalid(
+      { models: { ghost: { provider: 'missing', model: 'm', maxContextSize: 1 } } },
+      'ghost',
+    );
     expectInvalid(
       { models: { noname: { protocol: 'openai', baseUrl: 'https://x.test', maxContextSize: 1 } } },
       'noname',
@@ -549,7 +554,11 @@ describe('Model assembly (pure data)', () => {
     const { host, catalog } = createHost(
       {
         providers: {
-          kimi: { type: 'kimi', oauth: { storage: 'file', key: 'kimi' }, baseUrl: 'https://api.moonshot.ai/v1' },
+          kimi: {
+            type: 'kimi',
+            oauth: { storage: 'file', key: 'kimi' },
+            baseUrl: 'https://api.moonshot.ai/v1',
+          },
         },
         models: { k1: { provider: 'kimi', model: 'kimi-k2', maxContextSize: 1 } },
       },
@@ -557,9 +566,9 @@ describe('Model assembly (pure data)', () => {
     );
     try {
       const model = catalog.get('k1');
-      expect(model.credentialProvider?.canRecover?.(Object.assign(new Error('x'), { status: 401 }))).toBe(
-        true,
-      );
+      expect(
+        model.credentialProvider?.canRecover?.(Object.assign(new Error('x'), { status: 401 })),
+      ).toBe(true);
       await expect(model.credentialProvider?.resolve()).resolves.toEqual({ apiKey: 'tok-1' });
     } finally {
       host.dispose();
@@ -570,9 +579,15 @@ describe('Model assembly (pure data)', () => {
     setEnv('KIMI_TEST_ACME_ENV_KEY', 'sk-first');
     const { host, catalog } = createHost({
       providers: {
-        acme: { type: 'openai', apiKeyEnv: 'KIMI_TEST_ACME_ENV_KEY', baseUrl: 'https://acme.example.test/v1' },
+        acme: {
+          type: 'openai',
+          apiKeyEnv: 'KIMI_TEST_ACME_ENV_KEY',
+          baseUrl: 'https://acme.example.test/v1',
+        },
       },
-      models: { m: { provider: 'acme', protocol: 'openai', model: 'acme-1', maxContextSize: 1000 } },
+      models: {
+        m: { provider: 'acme', protocol: 'openai', model: 'acme-1', maxContextSize: 1000 },
+      },
     });
     try {
       const model = catalog.get('m');
@@ -587,16 +602,24 @@ describe('Model assembly (pure data)', () => {
   it('fails credential resolution with config.invalid when the declared api_key_env variable is unset or empty', () => {
     const { host, catalog } = createHost({
       providers: {
-        acme: { type: 'openai', apiKeyEnv: 'KIMI_TEST_ACME_ENV_KEY', baseUrl: 'https://acme.example.test/v1' },
+        acme: {
+          type: 'openai',
+          apiKeyEnv: 'KIMI_TEST_ACME_ENV_KEY',
+          baseUrl: 'https://acme.example.test/v1',
+        },
       },
-      models: { m: { provider: 'acme', protocol: 'openai', model: 'acme-1', maxContextSize: 1000 } },
+      models: {
+        m: { provider: 'acme', protocol: 'openai', model: 'acme-1', maxContextSize: 1000 },
+      },
     });
     try {
       const model = catalog.get('m');
       expect(() => model.credentialProvider?.resolve()).toThrowError(
         expect.objectContaining({ code: ConfigErrors.codes.CONFIG_INVALID }),
       );
-      expect(() => model.credentialProvider?.resolve()).toThrowError(/acme[\s\S]*KIMI_TEST_ACME_ENV_KEY/);
+      expect(() => model.credentialProvider?.resolve()).toThrowError(
+        /acme[\s\S]*KIMI_TEST_ACME_ENV_KEY/,
+      );
       setEnv('KIMI_TEST_ACME_ENV_KEY', '   ');
       expect(() => model.credentialProvider?.resolve()).toThrowError(
         expect.objectContaining({ code: ConfigErrors.codes.CONFIG_INVALID }),
@@ -635,12 +658,21 @@ describe('ModelCatalog caching and config-event invalidation', () => {
     try {
       const k1Before = catalog.get('k1');
       const gptBefore = catalog.get('gpt');
-      await models.set('k1', { provider: 'kimi', model: 'kimi-k2', maxContextSize: 262144, displayName: 'K2' });
+      await models.set('k1', {
+        provider: 'kimi',
+        model: 'kimi-k2',
+        maxContextSize: 262144,
+        displayName: 'K2',
+      });
       expect(catalog.get('k1')).not.toBe(k1Before);
       expect(catalog.get('k1').displayName).toBe('K2');
       expect(catalog.get('gpt')).toBe(gptBefore);
 
-      await providers.set('kimi', { type: 'kimi', apiKey: 'sk-2', baseUrl: 'https://other.example.test/v1' });
+      await providers.set('kimi', {
+        type: 'kimi',
+        apiKey: 'sk-2',
+        baseUrl: 'https://other.example.test/v1',
+      });
       expect(catalog.get('k1').baseUrl).toBe('https://other.example.test/v1');
       expect(catalog.get('gpt')).toBe(gptBefore);
     } finally {
@@ -803,7 +835,12 @@ const catalogSections: Record<string, unknown> = {
       displayName: 'Kimi K2',
       capabilities: ['thinking'],
     },
-    turbo: { provider: 'kimi', model: 'kimi-turbo', maxContextSize: 32768, displayName: 'Kimi Turbo' },
+    turbo: {
+      provider: 'kimi',
+      model: 'kimi-turbo',
+      maxContextSize: 32768,
+      displayName: 'Kimi Turbo',
+    },
     gpt4o: { provider: 'openai', model: 'gpt-4o', maxContextSize: 128000 },
   },
   defaultModel: 'k2',
@@ -1214,7 +1251,10 @@ describe('ModelCatalog enumeration', () => {
         default_model: 'k2',
         models: ['k2', 'turbo'],
       });
-      await expectRejection(catalog.getProvider('missing'), (error) => isError2(error) && error.code === 'provider.not_found');
+      await expectRejection(
+        catalog.getProvider('missing'),
+        (error) => isError2(error) && error.code === 'provider.not_found',
+      );
       expect(isErrorCode('provider.not_found')).toBe(true);
       expect(isErrorCode('model.not_found')).toBe(true);
     } finally {
@@ -1245,7 +1285,10 @@ describe('ModelCatalog setDefaultModel', () => {
   it('throws model.not_found for an unknown model', async () => {
     const { host, catalog } = createHost(catalogSections);
     try {
-      await expectRejection(catalog.setDefaultModel('missing'), (error) => isError2(error) && error.code === 'model.not_found');
+      await expectRejection(
+        catalog.setDefaultModel('missing'),
+        (error) => isError2(error) && error.code === 'model.not_found',
+      );
     } finally {
       host.dispose();
     }

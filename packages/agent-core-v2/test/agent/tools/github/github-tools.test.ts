@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
-import { setGlobal, restoreGlobals } from '#test/helpers/stubs';
 
 import { getAgentToolContributions } from '#/agent/toolRegistry/toolContribution';
 import { GITHUB_SECTION } from '#/agent/tools/github/configSection';
@@ -20,6 +19,7 @@ import type { IConfigService } from '#/app/config/config';
 import { getConfigSectionContributions } from '#/app/config/configSectionContributions';
 import { getContributedFlags } from '#/app/flag/flagRegistry';
 import type { ExecutableToolContext } from '#/tool/toolContract';
+import { setGlobal, restoreGlobals } from '#test/helpers/stubs';
 
 const EXPECTED_TOOL_COUNT = 34;
 const EXPECTED_READONLY_COUNT = 22;

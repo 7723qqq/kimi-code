@@ -10,7 +10,9 @@ import { detectLocaleNode } from '../src/detect.js';
 describe('detectLocaleNode', () => {
   const saved = { ...process.env };
 
-  const withEnv = (patch: Record<string, string | undefined>): ReturnType<typeof detectLocaleNode> => {
+  const withEnv = (
+    patch: Record<string, string | undefined>,
+  ): ReturnType<typeof detectLocaleNode> => {
     for (const key of ['KIMI_LANG', 'LANG', 'LC_ALL', 'LC_MESSAGES']) delete process.env[key];
     Object.assign(process.env, patch);
     return detectLocaleNode();

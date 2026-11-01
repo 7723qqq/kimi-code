@@ -4,11 +4,11 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import type { ContextMessage } from '#/agent/contextMemory/types';
 import { AgentContextMemoryService } from '#/agent/contextMemory/contextMemoryService';
-import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
+import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
+import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 
 import { registerTestAgentWire, registerTestEventDispatcher } from '../../wire/stubs';
 
@@ -21,9 +21,7 @@ function textMessage(role: ContextMessage['role'], text: string): ContextMessage
 }
 
 function textOf(message: ContextMessage): string {
-  return message.content
-    .map((part) => (part.type === 'text' ? part.text : ''))
-    .join('');
+  return message.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
 }
 
 const noopTokenCounting: ISessionTokenCountingService = {
@@ -41,7 +39,6 @@ const noopTokenCounting: ISessionTokenCountingService = {
   estimateMessages: () => 0,
   estimateTools: () => 0,
 };
-
 
 describe('message history (IAgentContextMemoryService)', () => {
   let disposables: DisposableStore;

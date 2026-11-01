@@ -141,8 +141,11 @@ export function dismissQuestion(
 ): Promise<unknown> {
   // The dismiss endpoint reports success as a QUESTION_DISMISSED (40909)
   // envelope (see kap-server's question dismiss action), not code 0.
-  return call(opts, 'POST', `/questions/${encodeURIComponent(questionId)}:dismiss`, undefined, [
-    0,
-    40909,
-  ]);
+  return call(
+    opts,
+    'POST',
+    `/questions/${encodeURIComponent(questionId)}:dismiss`,
+    undefined,
+    [0, 40909],
+  );
 }

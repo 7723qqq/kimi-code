@@ -1,10 +1,19 @@
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { execFile } from 'node:child_process';
-import { cp, mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import {
+  cp,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  utimes,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
-
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 
 import {
   MAX_REVIEW_ROUNDS,
@@ -75,7 +84,9 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-function rosterEntry(partial: Partial<TowerRosterEntry> & Pick<TowerRosterEntry, 'name' | 'kind'>): TowerRosterEntry {
+function rosterEntry(
+  partial: Partial<TowerRosterEntry> & Pick<TowerRosterEntry, 'name' | 'kind'>,
+): TowerRosterEntry {
   return {
     agentId: `agent-${partial.name}`,
     spawnedAt: new Date().toISOString(),
@@ -215,7 +226,9 @@ describe('init', () => {
 
   it('keeps the roster on a same-session re-init', async () => {
     await store.init('session-a');
-    await store.registerAgent(rosterEntry({ name: 'agent-build', kind: 'worker', sessionId: 'session-a' }));
+    await store.registerAgent(
+      rosterEntry({ name: 'agent-build', kind: 'worker', sessionId: 'session-a' }),
+    );
 
     const second = await store.init('session-a');
 
@@ -230,11 +243,15 @@ describe('init', () => {
     expect(state.roster.agents.map((agent) => agent.name)).toEqual(['agent-build']);
   });
 
-  it('retires a foreign session\'s roster on adopt and logs the session boundary', async () => {
+  it("retires a foreign session's roster on adopt and logs the session boundary", async () => {
     await store.init('session-a');
     await store.plan([{ title: 'kept mission', scope: ['src/kept/**'] }]);
-    await store.registerAgent(rosterEntry({ name: 'agent-build', kind: 'worker', sessionId: 'session-a' }));
-    await store.registerAgent(rosterEntry({ name: 'reviewer-a', kind: 'reviewer', sessionId: 'session-a' }));
+    await store.registerAgent(
+      rosterEntry({ name: 'agent-build', kind: 'worker', sessionId: 'session-a' }),
+    );
+    await store.registerAgent(
+      rosterEntry({ name: 'reviewer-a', kind: 'reviewer', sessionId: 'session-a' }),
+    );
 
     const second = await store.init('session-b');
 
@@ -250,7 +267,15 @@ describe('init', () => {
     expect(state.roster.agents).toEqual([]);
     expect(state.missions).toHaveLength(1);
     const log = await store.recentLog(5);
-    expect(log.some((line) => line.includes(' adopt ') && line.includes('session=session-b') && line.includes('previous=session-a') && line.includes('retired=agent-build,reviewer-a'))).toBe(true);
+    expect(
+      log.some(
+        (line) =>
+          line.includes(' adopt ') &&
+          line.includes('session=session-b') &&
+          line.includes('previous=session-a') &&
+          line.includes('retired=agent-build,reviewer-a'),
+      ),
+    ).toBe(true);
   });
 
   it('rejects reserved protocol names on roster registration', async () => {
@@ -359,7 +384,9 @@ describe('release', () => {
     const state = await store.load();
     expect(state.sessionId).toBeUndefined();
     const log = await store.recentLog(5);
-    expect(log.some((line) => line.includes(' release ') && line.includes('session=session-a'))).toBe(true);
+    expect(
+      log.some((line) => line.includes(' release ') && line.includes('session=session-a')),
+    ).toBe(true);
   });
 
   it('keeps the recorded owner for a different session and logs nothing', async () => {
@@ -839,9 +866,9 @@ describe('plan', () => {
   });
 
   it('rejects deps referencing unknown missions', async () => {
-    await expect(
-      store.plan([{ title: 'a', scope: ['src/a/**'], deps: ['M9'] }]),
-    ).rejects.toThrow(/depends on unknown mission "M9"/);
+    await expect(store.plan([{ title: 'a', scope: ['src/a/**'], deps: ['M9'] }])).rejects.toThrow(
+      /depends on unknown mission "M9"/,
+    );
   });
 
   it('lets new missions reuse the scope of an already-merged mission', async () => {
@@ -923,9 +950,9 @@ describe('plan', () => {
     await expect(
       store.plan([{ title: 'Исправить ошибку входа', scope: ['src/x/**'] }]),
     ).rejects.toThrow(/contains non-ASCII characters \(first: "И"\)/);
-    await expect(
-      store.plan([{ title: '한글 제목', scope: ['src/x/**'] }]),
-    ).rejects.toThrow(/contains non-ASCII characters \(first: "한"\)/);
+    await expect(store.plan([{ title: '한글 제목', scope: ['src/x/**'] }])).rejects.toThrow(
+      /contains non-ASCII characters \(first: "한"\)/,
+    );
     expect((await store.load()).missions).toHaveLength(0);
   });
 
@@ -1044,9 +1071,7 @@ describe('inbox read tracking', () => {
       rosterEntry({ name: 'w1', kind: 'worker', spawnedAt: '2026-09-20T10:00:00.000Z' }),
     );
 
-    expect((await store.load()).roster.agents[0]?.lastInboxReadAt).toBe(
-      '2026-09-20T10:00:00.000Z',
-    );
+    expect((await store.load()).roster.agents[0]?.lastInboxReadAt).toBe('2026-09-20T10:00:00.000Z');
   });
 
   it('refuses a worker completion while unread inbox messages wait and names the count', async () => {
@@ -1073,7 +1098,12 @@ describe('inbox read tracking', () => {
     );
 
     const items = await store.readUnreadInbox('w1', 20);
-    expect(await store.ackInbox('w1', items.map((item) => item.messageId))).toBe(0);
+    expect(
+      await store.ackInbox(
+        'w1',
+        items.map((item) => item.messageId),
+      ),
+    ).toBe(0);
 
     const completed = await store.updateMission('w1', mission.id, { status: 'completed' });
     expect(completed.status).toBe('completed');
@@ -1147,7 +1177,12 @@ describe('inbox read tracking', () => {
     expect(history.find((item) => item.file === newRel)?.messageId).toBe(newRel);
     const unread = await store.readUnreadInbox('w1', 20);
     expect(unread.map((item) => item.subject)).toEqual(['after cutoff']);
-    expect(await store.ackInbox('w1', unread.map((item) => item.messageId))).toBe(0);
+    expect(
+      await store.ackInbox(
+        'w1',
+        unread.map((item) => item.messageId),
+      ),
+    ).toBe(0);
     expect(await store.readUnreadInbox('w1', 20)).toHaveLength(0);
 
     const state = await store.load();
@@ -1310,9 +1345,7 @@ describe('merge gate', () => {
     await store.registerAgent(
       rosterEntry({ name: 'rev', kind: 'reviewer', reviewTarget: mission.branch }),
     );
-    await store.registerAgent(
-      rosterEntry({ name: 'w1', kind: 'worker', missionId: mission.id }),
-    );
+    await store.registerAgent(rosterEntry({ name: 'w1', kind: 'worker', missionId: mission.id }));
 
     const input = {
       target: mission.branch,
@@ -1373,14 +1406,12 @@ describe('merge gate', () => {
     await store.registerAgent(
       rosterEntry({ name: 'rev', kind: 'reviewer', reviewTarget: mission.branch }),
     );
-    await store.registerAgent(
-      rosterEntry({ name: 'w1', kind: 'worker', missionId: mission.id }),
-    );
+    await store.registerAgent(rosterEntry({ name: 'w1', kind: 'worker', missionId: mission.id }));
     await cleanReview('rev', mission.branch);
 
-    await expect(
-      store.merge(mission.branch, { activeAgentIds: new Set() }),
-    ).rejects.toThrow(/outside mission M1 scope/);
+    await expect(store.merge(mission.branch, { activeAgentIds: new Set() })).rejects.toThrow(
+      /outside mission M1 scope/,
+    );
 
     await store.plan([{ title: 'other', scope: ['src/other/**'] }]);
     await expect(
@@ -1428,9 +1459,7 @@ describe('merge gate', () => {
     await expect(store.merge(second.branch)).rejects.toThrow(/outside mission M2 scope/);
 
     const { conflictsWith } = await store.merge(first.branch);
-    expect(conflictsWith).toEqual([
-      { branch: second.branch, files: ['src/a/shared.ts'] },
-    ]);
+    expect(conflictsWith).toEqual([{ branch: second.branch, files: ['src/a/shared.ts'] }]);
   });
 
   it('closes a zero-diff survey with a noop merge — no review, no git ceremony', async () => {
@@ -1450,7 +1479,7 @@ describe('merge gate', () => {
     expect(await git(repo, 'rev-parse', 'HEAD')).toBe(baseTip);
   });
 
-  it('enforces a zero-diff survey mission\'s own open dependencies', async () => {
+  it("enforces a zero-diff survey mission's own open dependencies", async () => {
     const [, survey] = await store.plan([
       { title: 'build dependency', scope: ['src/a/**'] },
       { title: 'survey dependent', scope: ['src/a/**'], kind: 'survey', deps: ['M1'] },
@@ -1459,14 +1488,16 @@ describe('merge gate', () => {
     await store.addWorktree(survey!.worktree, survey!.branch, state.base);
     await completeMission(survey!);
 
-    await expect(store.merge(survey!.branch)).rejects.toThrow(
-      /dependencies not merged yet \(M1\)/,
+    await expect(store.merge(survey!.branch)).rejects.toThrow(/dependencies not merged yet \(M1\)/);
+    expect((await store.load()).missions.find((mission) => mission.id === survey!.id)?.status).toBe(
+      'completed',
     );
-    expect((await store.load()).missions.find((mission) => mission.id === survey!.id)?.status).toBe('completed');
 
     await store.updateMission('tower', 'M1', { status: 'abandoned' });
     await store.merge(survey!.branch);
-    expect((await store.load()).missions.find((mission) => mission.id === survey!.id)?.status).toBe('merged');
+    expect((await store.load()).missions.find((mission) => mission.id === survey!.id)?.status).toBe(
+      'merged',
+    );
   });
 
   it('refuses to merge a survey branch that has changes', async () => {
@@ -1485,9 +1516,7 @@ describe('merge gate', () => {
   });
 
   it('a build mission can depend on a survey and merges after its noop close', async () => {
-    const [survey] = await store.plan([
-      { title: 'scan x', scope: ['src/x/**'], kind: 'survey' },
-    ]);
+    const [survey] = await store.plan([{ title: 'scan x', scope: ['src/x/**'], kind: 'survey' }]);
     const build = await setupMission({
       title: 'implement y',
       scope: 'src/y/**',
@@ -1580,7 +1609,12 @@ describe('merge gate', () => {
     await store.addWorktree(live.worktree, live.branch, state.base);
     await commitFile(worktreeOf(live), 'src/x/x.ts', 'x\n', 'work on M2');
     await store.registerAgent(
-      rosterEntry({ name: 'rev', kind: 'reviewer', reviewTarget: live.branch, reviewMissionId: 'M2' }),
+      rosterEntry({
+        name: 'rev',
+        kind: 'reviewer',
+        reviewTarget: live.branch,
+        reviewMissionId: 'M2',
+      }),
     );
     await cleanReview('rev', live.branch);
 
@@ -1714,7 +1748,12 @@ describe('merge gate', () => {
     await store.addWorktree(stale!.worktree, stale!.branch, state.base);
     await commitFile(worktreeOf(stale!), 'src/x/x.ts', 'x\n', 'work on M1');
     await store.registerAgent(
-      rosterEntry({ name: 'rev', kind: 'reviewer', reviewTarget: stale!.branch, reviewMissionId: 'M1' }),
+      rosterEntry({
+        name: 'rev',
+        kind: 'reviewer',
+        reviewTarget: stale!.branch,
+        reviewMissionId: 'M1',
+      }),
     );
     await cleanReview('rev', stale!.branch);
     expect((await store.latestReview(stale!.branch))?.mission).toBe('M1');
@@ -1742,7 +1781,12 @@ describe('merge gate', () => {
     await store.addWorktree(stale!.worktree, stale!.branch, state.base);
     await commitFile(worktreeOf(stale!), 'src/x/x.ts', 'x\n', 'work on M1');
     await store.registerAgent(
-      rosterEntry({ name: 'rev-old', kind: 'reviewer', reviewTarget: stale!.branch, reviewMissionId: 'M1' }),
+      rosterEntry({
+        name: 'rev-old',
+        kind: 'reviewer',
+        reviewTarget: stale!.branch,
+        reviewMissionId: 'M1',
+      }),
     );
     for (let round = 0; round < 5; round++) await cleanReview('rev-old', stale!.branch);
 
@@ -1758,7 +1802,12 @@ describe('merge gate', () => {
     };
     await spliceMissionIntoState(live);
     await store.registerAgent(
-      rosterEntry({ name: 'rev-new', kind: 'reviewer', reviewTarget: stale!.branch, reviewMissionId: 'M2' }),
+      rosterEntry({
+        name: 'rev-new',
+        kind: 'reviewer',
+        reviewTarget: stale!.branch,
+        reviewMissionId: 'M2',
+      }),
     );
     await cleanReview('rev-new', stale!.branch);
 
@@ -1792,7 +1841,12 @@ describe('merge gate', () => {
     };
     await spliceMissionIntoState(live);
     await store.registerAgent(
-      rosterEntry({ name: 'rev-new', kind: 'reviewer', reviewTarget: stale!.branch, reviewMissionId: 'M2' }),
+      rosterEntry({
+        name: 'rev-new',
+        kind: 'reviewer',
+        reviewTarget: stale!.branch,
+        reviewMissionId: 'M2',
+      }),
     );
     await cleanReview('rev-new', stale!.branch);
 
@@ -1809,7 +1863,12 @@ describe('merge gate', () => {
       content: 'x\n',
     });
     await store.registerAgent(
-      rosterEntry({ name: 'rev-new', kind: 'reviewer', reviewTarget: mission.branch, reviewMissionId: mission.id }),
+      rosterEntry({
+        name: 'rev-new',
+        kind: 'reviewer',
+        reviewTarget: mission.branch,
+        reviewMissionId: mission.id,
+      }),
     );
     await store.registerAgent(
       rosterEntry({ name: 'rev-old', kind: 'reviewer', reviewTarget: mission.branch }),
@@ -1838,7 +1897,12 @@ describe('merge gate', () => {
       content: 'x\n',
     });
     await store.registerAgent(
-      rosterEntry({ name: 'rev-new', kind: 'reviewer', reviewTarget: mission.branch, reviewMissionId: mission.id }),
+      rosterEntry({
+        name: 'rev-new',
+        kind: 'reviewer',
+        reviewTarget: mission.branch,
+        reviewMissionId: mission.id,
+      }),
     );
     await store.registerAgent(
       rosterEntry({ name: 'rev-old', kind: 'reviewer', reviewTarget: mission.branch }),
@@ -1866,10 +1930,20 @@ describe('merge gate', () => {
       content: 'x\n',
     });
     await store.registerAgent(
-      rosterEntry({ name: 'rev-z', kind: 'reviewer', reviewTarget: mission.branch, reviewMissionId: mission.id }),
+      rosterEntry({
+        name: 'rev-z',
+        kind: 'reviewer',
+        reviewTarget: mission.branch,
+        reviewMissionId: mission.id,
+      }),
     );
     await store.registerAgent(
-      rosterEntry({ name: 'rev-a', kind: 'reviewer', reviewTarget: mission.branch, reviewMissionId: mission.id }),
+      rosterEntry({
+        name: 'rev-a',
+        kind: 'reviewer',
+        reviewTarget: mission.branch,
+        reviewMissionId: mission.id,
+      }),
     );
     await cleanReview('rev-z', mission.branch);
     await store.submitReview('rev-a', {
@@ -1885,7 +1959,11 @@ describe('merge gate', () => {
     const later = files.find((r) => r.reviewer === 'rev-a')!;
     const now = new Date();
     await utimes(store.abs(earlier.file), now, now);
-    await utimes(store.abs(later.file), new Date(now.getTime() - 60_000), new Date(now.getTime() - 60_000));
+    await utimes(
+      store.abs(later.file),
+      new Date(now.getTime() - 60_000),
+      new Date(now.getTime() - 60_000),
+    );
     await completeMission(mission);
 
     await expect(store.merge(mission.branch)).rejects.toThrow(/says hold/);
@@ -1961,10 +2039,12 @@ describe('merge gate', () => {
     );
     await cleanReview('rev', mission.branch);
     const state = await store.load();
-    state.missions.find((candidate) => candidate.id === mission.id)!.tasks.push({
-      text: 'unfinished',
-      done: false,
-    });
+    state.missions
+      .find((candidate) => candidate.id === mission.id)!
+      .tasks.push({
+        text: 'unfinished',
+        done: false,
+      });
     await writeFile(store.abs(STATE_FILE), `${JSON.stringify(state, null, 2)}\n`);
 
     await expect(store.merge(mission.branch)).rejects.toThrow(/1 open task.*unfinished/);
@@ -2008,7 +2088,9 @@ describe('merge gate', () => {
     ).rejects.toThrow(/mid-turn/);
     await store.merge(mission.branch, { activeAgentIds: new Set() });
 
-    expect((await store.load()).missions.find((candidate) => candidate.id === mission.id)?.status).toBe('merged');
+    expect(
+      (await store.load()).missions.find((candidate) => candidate.id === mission.id)?.status,
+    ).toBe('merged');
   });
 
   it('requires the latest applicable review to be clean with merge approval', async () => {
@@ -2041,7 +2123,9 @@ describe('merge gate', () => {
 
     await cleanReview('rev', mission.branch);
     await store.merge(mission.branch);
-    expect((await store.load()).missions.find((candidate) => candidate.id === mission.id)?.status).toBe('merged');
+    expect(
+      (await store.load()).missions.find((candidate) => candidate.id === mission.id)?.status,
+    ).toBe('merged');
   });
 
   it('keeps accepting a legacy clean review without a merge field', async () => {
@@ -2061,7 +2145,9 @@ describe('merge gate', () => {
 
     await store.merge(mission.branch);
 
-    expect((await store.load()).missions.find((candidate) => candidate.id === mission.id)?.status).toBe('merged');
+    expect(
+      (await store.load()).missions.find((candidate) => candidate.id === mission.id)?.status,
+    ).toBe('merged');
   });
 
   it('merges only the evaluated SHA and reports an advanced branch without marking the mission merged', async () => {
@@ -2100,7 +2186,9 @@ describe('merge gate', () => {
     expect(await git(repo, 'rev-parse', 'HEAD^2')).toBe(evaluated);
     expect(await git(repo, 'log', '-1', '--format=%s')).toBe(`Merge branch '${mission.branch}'`);
     await expect(git(repo, 'merge-base', '--is-ancestor', advanced, 'HEAD')).rejects.toThrow();
-    expect((await store.load()).missions.find((candidate) => candidate.id === mission.id)?.status).toBe('completed');
+    expect(
+      (await store.load()).missions.find((candidate) => candidate.id === mission.id)?.status,
+    ).toBe('completed');
     expect((await store.recentLog(3)).join('\n').split(sep).join('/')).toContain('merge.advanced');
   });
 });
@@ -2204,9 +2292,7 @@ describe('rebaseMission', () => {
     await commitFile(repo, 'docs/readme.md', 'docs\n', 'base moves on');
     await writeFile(join(worktreeOf(mission), 'src/x/x.ts'), 'dirty\n');
 
-    await expect(store.rebaseMission('tower', mission.id)).rejects.toThrow(
-      /uncommitted changes/,
-    );
+    await expect(store.rebaseMission('tower', mission.id)).rejects.toThrow(/uncommitted changes/);
   });
 
   it('requires authoritative idle runtime for every mission worker', async () => {
@@ -2237,49 +2323,54 @@ describe('rebaseMission', () => {
     });
     await git(worktreeOf(mission), 'checkout', '--detach', 'HEAD');
 
-    await expect(store.rebaseMission('tower', mission.id)).rejects.toThrow(
-      /not mission branch/,
-    );
-    expect((await store.load()).missions.find((candidate) => candidate.id === mission.id)?.lastRebase).toBeUndefined();
+    await expect(store.rebaseMission('tower', mission.id)).rejects.toThrow(/not mission branch/);
+    expect(
+      (await store.load()).missions.find((candidate) => candidate.id === mission.id)?.lastRebase,
+    ).toBeUndefined();
   });
 
-  it.skipIf(process.platform === 'win32')('refuses a worktree whose HEAD differs from the mission branch tip', async () => {
-    const mission = await setupMission({
-      title: 'feature x',
-      scope: 'src/x/**',
-      file: 'src/x/x.ts',
-      content: 'x\n',
-    });
-    const worktree = worktreeOf(mission);
-    await commitFile(worktree, 'src/x/more.ts', 'more\n', 'branch advances');
-    const { stdout } = await execFileAsync('which', ['git']);
-    const realGit = stdout.trim();
-    const wrapperDir = await mkdtemp(join(tmpdir(), 'tower-git-head-wrapper-'));
-    const previousPath = process.env['PATH'] ?? '';
-    try {
-      await writeFile(
-        join(wrapperDir, 'git'),
-        [
-          '#!/bin/sh',
-          'if [ "$1" = "rev-parse" ] && [ "$2" = "HEAD" ]; then',
-          `  exec '${realGit}' rev-parse HEAD~1`,
-          'fi',
-          `exec '${realGit}' "$@"`,
-          '',
-        ].join('\n'),
-        { mode: 0o755 },
-      );
-      process.env['PATH'] = `${wrapperDir}:${previousPath}`;
+  it.skipIf(process.platform === 'win32')(
+    'refuses a worktree whose HEAD differs from the mission branch tip',
+    async () => {
+      const mission = await setupMission({
+        title: 'feature x',
+        scope: 'src/x/**',
+        file: 'src/x/x.ts',
+        content: 'x\n',
+      });
+      const worktree = worktreeOf(mission);
+      await commitFile(worktree, 'src/x/more.ts', 'more\n', 'branch advances');
+      const { stdout } = await execFileAsync('which', ['git']);
+      const realGit = stdout.trim();
+      const wrapperDir = await mkdtemp(join(tmpdir(), 'tower-git-head-wrapper-'));
+      const previousPath = process.env['PATH'] ?? '';
+      try {
+        await writeFile(
+          join(wrapperDir, 'git'),
+          [
+            '#!/bin/sh',
+            'if [ "$1" = "rev-parse" ] && [ "$2" = "HEAD" ]; then',
+            `  exec '${realGit}' rev-parse HEAD~1`,
+            'fi',
+            `exec '${realGit}' "$@"`,
+            '',
+          ].join('\n'),
+          { mode: 0o755 },
+        );
+        process.env['PATH'] = `${wrapperDir}:${previousPath}`;
 
-      await expect(store.rebaseMission('tower', mission.id)).rejects.toThrow(
-        /does not match mission branch/,
-      );
-    } finally {
-      process.env['PATH'] = previousPath;
-      await rm(wrapperDir, { recursive: true, force: true });
-    }
-    expect((await store.load()).missions.find((candidate) => candidate.id === mission.id)?.lastRebase).toBeUndefined();
-  });
+        await expect(store.rebaseMission('tower', mission.id)).rejects.toThrow(
+          /does not match mission branch/,
+        );
+      } finally {
+        process.env['PATH'] = previousPath;
+        await rm(wrapperDir, { recursive: true, force: true });
+      }
+      expect(
+        (await store.load()).missions.find((candidate) => candidate.id === mission.id)?.lastRebase,
+      ).toBeUndefined();
+    },
+  );
 
   it('does not mark a mission blocked for a non-conflict rebase failure', async () => {
     const mission = await setupMission({
@@ -2300,45 +2391,48 @@ describe('rebaseMission', () => {
     expect(after.lastRebase).toBeUndefined();
   });
 
-  it.skipIf(process.platform === 'win32')('reports recovery-required without claiming recovery when rebase abort fails', async () => {
-    const mission = await setupMission({
-      title: 'feature x',
-      scope: 'src/x/shared.ts',
-      file: 'src/x/shared.ts',
-      content: 'from branch\n',
-    });
-    await commitFile(repo, 'src/x/shared.ts', 'from base\n', 'base touches the same file');
-    const { stdout } = await execFileAsync('which', ['git']);
-    const realGit = stdout.trim();
-    const wrapperDir = await mkdtemp(join(tmpdir(), 'tower-git-wrapper-'));
-    const previousPath = process.env['PATH'] ?? '';
-    try {
-      await writeFile(
-        join(wrapperDir, 'git'),
-        [
-          '#!/bin/sh',
-          'if [ "$1" = "rebase" ] && [ "$2" = "--abort" ]; then',
-          '  exit 97',
-          'fi',
-          `exec '${realGit}' "$@"`,
-          '',
-        ].join('\n'),
-        { mode: 0o755 },
-      );
-      process.env['PATH'] = `${wrapperDir}:${previousPath}`;
+  it.skipIf(process.platform === 'win32')(
+    'reports recovery-required without claiming recovery when rebase abort fails',
+    async () => {
+      const mission = await setupMission({
+        title: 'feature x',
+        scope: 'src/x/shared.ts',
+        file: 'src/x/shared.ts',
+        content: 'from branch\n',
+      });
+      await commitFile(repo, 'src/x/shared.ts', 'from base\n', 'base touches the same file');
+      const { stdout } = await execFileAsync('which', ['git']);
+      const realGit = stdout.trim();
+      const wrapperDir = await mkdtemp(join(tmpdir(), 'tower-git-wrapper-'));
+      const previousPath = process.env['PATH'] ?? '';
+      try {
+        await writeFile(
+          join(wrapperDir, 'git'),
+          [
+            '#!/bin/sh',
+            'if [ "$1" = "rebase" ] && [ "$2" = "--abort" ]; then',
+            '  exit 97',
+            'fi',
+            `exec '${realGit}' "$@"`,
+            '',
+          ].join('\n'),
+          { mode: 0o755 },
+        );
+        process.env['PATH'] = `${wrapperDir}:${previousPath}`;
 
-      await expect(store.rebaseMission('tower', mission.id)).rejects.toThrow(/recovery-required/);
-    } finally {
-      process.env['PATH'] = previousPath;
-      await rm(wrapperDir, { recursive: true, force: true });
-    }
+        await expect(store.rebaseMission('tower', mission.id)).rejects.toThrow(/recovery-required/);
+      } finally {
+        process.env['PATH'] = previousPath;
+        await rm(wrapperDir, { recursive: true, force: true });
+      }
 
-    const after = (await store.load()).missions.find((candidate) => candidate.id === mission.id)!;
-    expect(after.status).toBe('completed');
-    expect(after.blockers).toEqual([]);
-    expect(after.lastRebase).toBeUndefined();
-    await git(worktreeOf(mission), 'rebase', '--abort');
-  });
+      const after = (await store.load()).missions.find((candidate) => candidate.id === mission.id)!;
+      expect(after.status).toBe('completed');
+      expect(after.blockers).toEqual([]);
+      expect(after.lastRebase).toBeUndefined();
+      await git(worktreeOf(mission), 'rebase', '--abort');
+    },
+  );
 
   it('runs the whole rebase under the tower state lock', async () => {
     const mission = await setupMission({
@@ -2357,7 +2451,9 @@ describe('rebaseMission', () => {
     } finally {
       await rm(lockPath, { force: true });
     }
-    expect((await store.load()).missions.find((candidate) => candidate.id === mission.id)?.lastRebase).toBeUndefined();
+    expect(
+      (await store.load()).missions.find((candidate) => candidate.id === mission.id)?.lastRebase,
+    ).toBeUndefined();
   });
 
   it('mergeNoFf aborts and restores a non-conflicting merge rejected by a commit hook', async () => {
@@ -2406,13 +2502,16 @@ describe('rebaseMission', () => {
     expect(mainTip).not.toBe(await git(repo, 'rev-parse', 'HEAD'));
   });
 
-  it.skipIf(process.platform === 'win32')('propagates git query failures instead of reporting clean, missing, or not-ancestor', async () => {
-    const missing = join(repo, 'missing-worktree');
+  it.skipIf(process.platform === 'win32')(
+    'propagates git query failures instead of reporting clean, missing, or not-ancestor',
+    async () => {
+      const missing = join(repo, 'missing-worktree');
 
-    await expect(branchExists(missing, 'main')).rejects.toThrow();
-    await expect(isAncestor(repo, 'missing-ref', 'HEAD')).rejects.toThrow();
-    await expect(isWorktreeDirty(missing)).rejects.toThrow();
-  });
+      await expect(branchExists(missing, 'main')).rejects.toThrow();
+      await expect(isAncestor(repo, 'missing-ref', 'HEAD')).rejects.toThrow();
+      await expect(isWorktreeDirty(missing)).rejects.toThrow();
+    },
+  );
 });
 
 describe('rework loop closure', () => {
@@ -2437,7 +2536,12 @@ describe('rework loop closure', () => {
       await store.updateMission('tower', mission.id, { status });
     }
     await store.registerAgent(
-      rosterEntry({ name: 'rev', kind: 'reviewer', reviewTarget: mission.branch, reviewMissionId: mission.id }),
+      rosterEntry({
+        name: 'rev',
+        kind: 'reviewer',
+        reviewTarget: mission.branch,
+        reviewMissionId: mission.id,
+      }),
     );
     return mission;
   }
@@ -2504,7 +2608,12 @@ describe('rework loop closure', () => {
 
     const paused = await missionIn('paused', 'feature y');
     await store.registerAgent(
-      rosterEntry({ name: 'rev-2', kind: 'reviewer', reviewTarget: paused.branch, reviewMissionId: paused.id }),
+      rosterEntry({
+        name: 'rev-2',
+        kind: 'reviewer',
+        reviewTarget: paused.branch,
+        reviewMissionId: paused.id,
+      }),
     );
     await store.submitReview('rev-2', {
       target: paused.branch,
@@ -2569,9 +2678,7 @@ describe('review notification recipients', () => {
       content: 'x\n',
     });
     if (options.withOwner !== false) {
-      await store.registerAgent(
-        rosterEntry({ name: 'w1', kind: 'worker', missionId: mission.id }),
-      );
+      await store.registerAgent(rosterEntry({ name: 'w1', kind: 'worker', missionId: mission.id }));
       await store.updateMission('tower', mission.id, { owner: 'w1' }, { silent: true });
     }
     await store.registerAgent(
@@ -2625,7 +2732,9 @@ describe('review notification recipients', () => {
     expect(ownerMessage.item.body).toContain('merge recommendation: hold');
     expect(ownerMessage.item.body).toContain(`reviewedCommit: ${result.review.reviewedCommit}`);
     expect(ownerMessage.item.body).toContain('owner: w1');
-    expect((await store.load()).missions.find((candidate) => candidate.id === mission.id)?.status).toBe('active');
+    expect(
+      (await store.load()).missions.find((candidate) => candidate.id === mission.id)?.status,
+    ).toBe('active');
   });
 
   it('uses only the tower when there is no valid owner', async () => {
@@ -2656,7 +2765,9 @@ describe('review notification recipients', () => {
 
     expect(result.storedMessages.map((message) => message.item.to)).toEqual(['tower']);
     expect(result.storedMessages.some((message) => message.item.to === 'w1')).toBe(false);
-    expect((await store.load()).missions.find((candidate) => candidate.id === mission.id)?.status).toBe('abandoned');
+    expect(
+      (await store.load()).missions.find((candidate) => candidate.id === mission.id)?.status,
+    ).toBe('abandoned');
   });
 
   it('never sends a tower-originated review to the tower itself', async () => {
@@ -2695,9 +2806,7 @@ describe('complete and review concurrency', () => {
       content: 'x\n',
       status: 'active',
     });
-    await store.registerAgent(
-      rosterEntry({ name: 'w1', kind: 'worker', missionId: mission.id }),
-    );
+    await store.registerAgent(rosterEntry({ name: 'w1', kind: 'worker', missionId: mission.id }));
     await store.updateMission('tower', mission.id, { owner: 'w1' }, { silent: true });
     await store.registerAgent(
       rosterEntry({
@@ -2726,8 +2835,12 @@ describe('complete and review concurrency', () => {
     const state = await store.load();
     expect(state.missions.find((candidate) => candidate.id === mission.id)?.status).toBe('active');
     const messages = await store.readInbox('tower', 50);
-    expect(messages.filter((item) => item.subject === 'review-result' && item.to === 'w1')).toHaveLength(1);
-    expect(messages.filter((item) => item.subject === 'review-result' && item.to === 'tower')).toHaveLength(1);
+    expect(
+      messages.filter((item) => item.subject === 'review-result' && item.to === 'w1'),
+    ).toHaveLength(1);
+    expect(
+      messages.filter((item) => item.subject === 'review-result' && item.to === 'tower'),
+    ).toHaveLength(1);
   });
 });
 
@@ -2750,9 +2863,15 @@ describe('dirty base checkout', () => {
 
     expect(added.spawnBase).toBeDefined();
     const wt = worktreeOf(mission!);
-    expect((await readFile(join(wt, 'README.md'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe('# fixture\nwip edit\n');
-    expect((await readFile(join(wt, 'staged.ts'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe('export const staged = 1;\n');
-    expect((await readFile(join(wt, 'untracked.ts'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe('export const untracked = 1;\n');
+    expect((await readFile(join(wt, 'README.md'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe(
+      '# fixture\nwip edit\n',
+    );
+    expect((await readFile(join(wt, 'staged.ts'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe(
+      'export const staged = 1;\n',
+    );
+    expect((await readFile(join(wt, 'untracked.ts'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe(
+      'export const untracked = 1;\n',
+    );
     expect(await git(wt, 'status', '--porcelain')).toBe('');
 
     expect(await git(repo, 'rev-parse', `${added.spawnBase}^`)).toBe(baseTip);
@@ -2778,7 +2897,11 @@ describe('dirty base checkout', () => {
     const added = await store.addWorktree(mission!.worktree, mission!.branch, state.base);
 
     expect(added.spawnBase).toBeDefined();
-    const snapshotFiles = (await git(repo, 'diff', '--name-only', `${added.spawnBase}^`, added.spawnBase!)).split(/\r?\n/).filter(Boolean);
+    const snapshotFiles = (
+      await git(repo, 'diff', '--name-only', `${added.spawnBase}^`, added.spawnBase!)
+    )
+      .split(/\r?\n/)
+      .filter(Boolean);
     expect(snapshotFiles).toEqual(['wip.ts']);
     await expect(stat(join(worktreeOf(mission!), '.tower'))).rejects.toThrow();
     await expect(stat(join(worktreeOf(mission!), 'ignored'))).rejects.toThrow();
@@ -2798,10 +2921,14 @@ describe('dirty base checkout', () => {
     expect(added.spawnBase).toBeDefined();
     const snapshotFiles = (
       await git(repo, 'diff', '--name-only', `${added.spawnBase}^`, added.spawnBase!)
-    ).split(/\r?\n/).filter(Boolean);
+    )
+      .split(/\r?\n/)
+      .filter(Boolean);
     expect(snapshotFiles).toEqual(['sub/wip.ts']);
     const wt = join(sub, '.tower/worktrees', mission!.worktree);
-    expect((await readFile(join(wt, 'sub/wip.ts'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe('export const wip = 1;\n');
+    expect((await readFile(join(wt, 'sub/wip.ts'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe(
+      'export const wip = 1;\n',
+    );
   });
 
   it('refuses to create a worktree while the base checkout has unmerged paths', async () => {
@@ -2813,9 +2940,9 @@ describe('dirty base checkout', () => {
 
     const [mission] = await store.plan([{ title: 'wip consumer', scope: ['src/**'] }]);
     const state = await store.load();
-    await expect(
-      store.addWorktree(mission!.worktree, mission!.branch, state.base),
-    ).rejects.toThrow(/unmerged paths/);
+    await expect(store.addWorktree(mission!.worktree, mission!.branch, state.base)).rejects.toThrow(
+      /unmerged paths/,
+    );
 
     await git(repo, 'merge', '--abort');
   });
@@ -2827,9 +2954,9 @@ describe('dirty base checkout', () => {
 
     const [mission] = await store.plan([{ title: 'wip consumer', scope: ['src/**'] }]);
     const state = await store.load();
-    await expect(
-      store.addWorktree(mission!.worktree, mission!.branch, state.base),
-    ).rejects.toThrow(/on "side" with uncommitted changes, not the recorded base "main"/);
+    await expect(store.addWorktree(mission!.worktree, mission!.branch, state.base)).rejects.toThrow(
+      /on "side" with uncommitted changes, not the recorded base "main"/,
+    );
     await expect(stat(join(repo, '.tower/worktrees', mission!.worktree))).rejects.toThrow();
     await expect(git(repo, 'rev-parse', '--verify', mission!.branch)).rejects.toThrow();
   });
@@ -2840,9 +2967,9 @@ describe('dirty base checkout', () => {
 
     const [mission] = await store.plan([{ title: 'wip consumer', scope: ['src/**'] }]);
     const state = await store.load();
-    await expect(
-      store.addWorktree(mission!.worktree, mission!.branch, state.base),
-    ).rejects.toThrow(/detached HEAD state with uncommitted changes/);
+    await expect(store.addWorktree(mission!.worktree, mission!.branch, state.base)).rejects.toThrow(
+      /detached HEAD state with uncommitted changes/,
+    );
   });
 
   it('the merge gate ignores snapshotted base WIP and blocks only while the checkout still holds it', async () => {
@@ -2875,8 +3002,12 @@ describe('dirty base checkout', () => {
     const { mergeCommit } = await store.merge(mission!.branch);
     expect(mergeCommit).toBe(await git(repo, 'rev-parse', 'HEAD'));
     expect((await store.load()).missions[0]?.status).toBe('merged');
-    expect((await readFile(join(repo, 'wip.ts'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe('export const wip = 1;\n');
-    expect((await readFile(join(repo, 'src/x/x.ts'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe('export const x = 1;\n');
+    expect((await readFile(join(repo, 'wip.ts'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe(
+      'export const wip = 1;\n',
+    );
+    expect((await readFile(join(repo, 'src/x/x.ts'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe(
+      'export const x = 1;\n',
+    );
   });
 
   it('falls back to the base branch for the scope diff after a rebase drops the snapshot', async () => {
@@ -2906,10 +3037,12 @@ describe('dirty base checkout', () => {
     const { mergeCommit } = await store.merge(mission!.branch);
     expect(mergeCommit).toBe(await git(repo, 'rev-parse', 'HEAD'));
     expect((await store.load()).missions[0]?.status).toBe('merged');
-    expect((await readFile(join(repo, 'src/x/x.ts'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe('export const x = 1;\n');
-    expect((await readFile(join(repo, 'src/other/base.ts'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe(
-      'export const other = 1;\n',
+    expect((await readFile(join(repo, 'src/x/x.ts'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe(
+      'export const x = 1;\n',
     );
+    expect(
+      (await readFile(join(repo, 'src/other/base.ts'), 'utf8')).replaceAll(/\r?\n/g, '\n'),
+    ).toBe('export const other = 1;\n');
   });
 
   it('merges when checkout dirt does not intersect the files the merge touches', async () => {
@@ -2939,7 +3072,13 @@ describe('updateMission', () => {
       { title: 'beta', scope: ['src/beta/**'] },
     ]);
     await store.registerAgent(
-      rosterEntry({ name: 'w1', kind: 'worker', missionId: 'M1', worktree: 'wt-1', branch: 'feat/alpha' }),
+      rosterEntry({
+        name: 'w1',
+        kind: 'worker',
+        missionId: 'M1',
+        worktree: 'wt-1',
+        branch: 'feat/alpha',
+      }),
     );
   });
 
@@ -3081,7 +3220,7 @@ describe('updateMission', () => {
     expect((await store.updateMission('tower', 'M1', { status: 'merged' })).status).toBe('merged');
   });
 
-  it('serializes new plans into an open mission\'s scope with an auto dependency, and frees it on abandon', async () => {
+  it("serializes new plans into an open mission's scope with an auto dependency, and frees it on abandon", async () => {
     const [overlapping] = await store.plan([{ title: 'gamma overlap', scope: ['src/alpha/**'] }]);
     expect(overlapping!.deps).toEqual(['M1']);
 
@@ -3096,7 +3235,7 @@ describe('updateMission', () => {
     expect(gamma!.deps).toEqual([]);
   });
 
-  it('frees an abandoned mission\'s scope for scope patches', async () => {
+  it("frees an abandoned mission's scope for scope patches", async () => {
     const patched = await store.updateMission('tower', 'M2', { scope: ['src/alpha/**'] });
     expect(patched.deps).toEqual(['M1']);
 
@@ -3157,9 +3296,7 @@ describe('concurrent state writes', () => {
 
     const state = await store.load();
     expect(state.missions[0]?.notes).toHaveLength(fromStore.length + fromOther.length);
-    expect(state.missions[0]?.notes).toEqual(
-      expect.arrayContaining([...fromStore, ...fromOther]),
-    );
+    expect(state.missions[0]?.notes).toEqual(expect.arrayContaining([...fromStore, ...fromOther]));
     JSON.parse(await readFile(store.abs(STATE_FILE), 'utf8'));
     await expectNoLockOrTmpLeftovers();
   });
@@ -3181,7 +3318,7 @@ describe('concurrent state writes', () => {
     await expectNoLockOrTmpLeftovers();
   });
 
-  it('a stale release cannot delete another holder\'s state lock', async () => {
+  it("a stale release cannot delete another holder's state lock", async () => {
     type LockDriver = { withStateLock: <T>(fn: () => Promise<T>) => Promise<T> };
     const drive = <T>(s: TowerStore, fn: () => Promise<T>): Promise<T> =>
       (s as unknown as LockDriver).withStateLock(fn);
@@ -3275,13 +3412,13 @@ describe('completion invariants', () => {
       withCommit: true,
     });
 
-    await expect(
-      store.updateMission('tower', mission.id, { status: 'completed' }),
-    ).rejects.toThrow(/cannot transition to completed — 2 open task\(s\): "scaffold", "implement"/);
+    await expect(store.updateMission('tower', mission.id, { status: 'completed' })).rejects.toThrow(
+      /cannot transition to completed — 2 open task\(s\): "scaffold", "implement"/,
+    );
     await store.updateMission('tower', mission.id, { taskDone: 'scaffold' });
-    await expect(
-      store.updateMission('tower', mission.id, { status: 'completed' }),
-    ).rejects.toThrow(/1 open task\(s\): "implement"/);
+    await expect(store.updateMission('tower', mission.id, { status: 'completed' })).rejects.toThrow(
+      /1 open task\(s\): "implement"/,
+    );
 
     expect((await store.load()).missions.find((m) => m.id === mission.id)?.status).toBe('planned');
   });
@@ -3392,9 +3529,9 @@ describe('completion invariants', () => {
       taskDrop: { text: 'implement', reason: 'descoped' },
     });
 
-    await expect(store.updateMission('tower', mission.id, { taskDone: 'implement' })).rejects.toThrow(
-      /no open task matching "implement"/,
-    );
+    await expect(
+      store.updateMission('tower', mission.id, { taskDone: 'implement' }),
+    ).rejects.toThrow(/no open task matching "implement"/);
     await expect(
       store.updateMission('tower', mission.id, {
         taskDrop: { text: 'implement', reason: 'again' },
@@ -3405,9 +3542,9 @@ describe('completion invariants', () => {
   it('refuses completed for a build mission whose branch has no diff vs its base', async () => {
     const mission = await seedMission('feature x', { withWorktree: true });
 
-    await expect(
-      store.updateMission('tower', mission.id, { status: 'completed' }),
-    ).rejects.toThrow(/has no changes vs "main"/);
+    await expect(store.updateMission('tower', mission.id, { status: 'completed' })).rejects.toThrow(
+      /has no changes vs "main"/,
+    );
 
     await commitFile(worktreeOf(mission), 'src/feature-x/x.ts', 'x\n', `work on ${mission.id}`);
     const completed = await store.updateMission('tower', mission.id, { status: 'completed' });
@@ -3417,9 +3554,9 @@ describe('completion invariants', () => {
   it('refuses completed for a build mission whose branch does not exist', async () => {
     const mission = await seedMission('feature x');
 
-    await expect(
-      store.updateMission('tower', mission.id, { status: 'completed' }),
-    ).rejects.toThrow(/does not exist, so no work has landed/);
+    await expect(store.updateMission('tower', mission.id, { status: 'completed' })).rejects.toThrow(
+      /does not exist, so no work has landed/,
+    );
   });
 
   it('lets a survey mission complete with no branch and no diff', async () => {
@@ -3432,9 +3569,9 @@ describe('completion invariants', () => {
   it('still refuses a survey mission with open tasks', async () => {
     const mission = await seedMission('scan layer', { kind: 'survey', tasks: ['read the code'] });
 
-    await expect(
-      store.updateMission('tower', mission.id, { status: 'completed' }),
-    ).rejects.toThrow(/1 open task\(s\): "read the code"/);
+    await expect(store.updateMission('tower', mission.id, { status: 'completed' })).rejects.toThrow(
+      /1 open task\(s\): "read the code"/,
+    );
   });
 });
 
@@ -3516,7 +3653,9 @@ describe('roster', () => {
   it('rejects duplicate agent names', async () => {
     await store.registerAgent(rosterEntry({ name: 'w1', kind: 'worker' }));
     await expect(
-      store.registerAgent(rosterEntry({ name: 'w1', kind: 'reviewer', agentId: 'agent-w1-reviewer' })),
+      store.registerAgent(
+        rosterEntry({ name: 'w1', kind: 'reviewer', agentId: 'agent-w1-reviewer' }),
+      ),
     ).rejects.toThrow(/already registered/);
   });
 
@@ -3530,10 +3669,20 @@ describe('roster', () => {
 
   it('re-registering an agent id retires the stale entry so identity follows the latest registration', async () => {
     await store.registerAgent(
-      rosterEntry({ name: 'worker-old', kind: 'worker', agentId: 'agent-1', sessionId: 'session-a' }),
+      rosterEntry({
+        name: 'worker-old',
+        kind: 'worker',
+        agentId: 'agent-1',
+        sessionId: 'session-a',
+      }),
     );
     await store.registerAgent(
-      rosterEntry({ name: 'worker-new', kind: 'worker', agentId: 'agent-1', sessionId: 'session-b' }),
+      rosterEntry({
+        name: 'worker-new',
+        kind: 'worker',
+        agentId: 'agent-1',
+        sessionId: 'session-b',
+      }),
     );
 
     const state = await store.load();
@@ -3653,11 +3802,15 @@ describe('teardown', () => {
     await writeFile(join(wt, 'uncommitted.txt'), 'dirty\n');
 
     const report = await store.teardown();
-    expect(report.join('\n').replaceAll('\\', '/')).toContain(`kept .tower/worktrees/${mission.worktree}`);
+    expect(report.join('\n').replaceAll('\\', '/')).toContain(
+      `kept .tower/worktrees/${mission.worktree}`,
+    );
     expect((await stat(wt)).isDirectory()).toBe(true);
 
     const forced = await store.teardown({ force: true });
-    expect(forced.join('\n').replaceAll('\\', '/')).toContain(`removed .tower/worktrees/${mission.worktree}`);
+    expect(forced.join('\n').replaceAll('\\', '/')).toContain(
+      `removed .tower/worktrees/${mission.worktree}`,
+    );
     await expect(stat(wt)).rejects.toThrow();
   });
 
@@ -3694,32 +3847,37 @@ describe('teardown', () => {
     });
     const wt = worktreeOf(mission);
     const report = await store.teardown();
-    expect(report.join('\n').replaceAll('\\', '/')).toContain(`removed .tower/worktrees/${mission.worktree}`);
+    expect(report.join('\n').replaceAll('\\', '/')).toContain(
+      `removed .tower/worktrees/${mission.worktree}`,
+    );
     await expect(stat(wt)).rejects.toThrow();
   });
 
-  it.skipIf(process.platform === 'win32')('removes mission worktrees when the repository path contains a newline', async () => {
-    const nlRepo = await mkdtemp(join(tmpdir(), 'tower-store-nl\n-'));
-    try {
-      await git(nlRepo, 'init', '-b', 'main');
-      await git(nlRepo, 'config', 'user.email', 'tower-test@example.com');
-      await git(nlRepo, 'config', 'user.name', 'Tower Test');
-      await commitFile(nlRepo, 'README.md', '# fixture\n', 'initial');
-      const nlStore = new TowerStore(nlRepo);
-      await nlStore.init();
-      const [mission] = await nlStore.plan([{ title: 'feature x', scope: ['src/x/**'] }]);
-      const state = await nlStore.load();
-      await nlStore.addWorktree(mission!.worktree, mission!.branch, state.base);
+  it.skipIf(process.platform === 'win32')(
+    'removes mission worktrees when the repository path contains a newline',
+    async () => {
+      const nlRepo = await mkdtemp(join(tmpdir(), 'tower-store-nl\n-'));
+      try {
+        await git(nlRepo, 'init', '-b', 'main');
+        await git(nlRepo, 'config', 'user.email', 'tower-test@example.com');
+        await git(nlRepo, 'config', 'user.name', 'Tower Test');
+        await commitFile(nlRepo, 'README.md', '# fixture\n', 'initial');
+        const nlStore = new TowerStore(nlRepo);
+        await nlStore.init();
+        const [mission] = await nlStore.plan([{ title: 'feature x', scope: ['src/x/**'] }]);
+        const state = await nlStore.load();
+        await nlStore.addWorktree(mission!.worktree, mission!.branch, state.base);
 
-      const report = await nlStore.teardown();
+        const report = await nlStore.teardown();
 
-      expect(report.map((line) => line.split(sep).join('/'))).toEqual([
-        `removed .tower/worktrees/${mission!.worktree}`,
-      ]);
-    } finally {
-      await rm(nlRepo, { recursive: true, force: true });
-    }
-  });
+        expect(report.map((line) => line.split(sep).join('/'))).toEqual([
+          `removed .tower/worktrees/${mission!.worktree}`,
+        ]);
+      } finally {
+        await rm(nlRepo, { recursive: true, force: true });
+      }
+    },
+  );
 
   it('removes mission worktrees when the tower runs inside a linked git worktree', async () => {
     const linked = join(await mkdtemp(join(tmpdir(), 'tower-store-linked-')), 'linked');
@@ -3752,7 +3910,9 @@ describe('teardown', () => {
     await git(repo, 'worktree', 'remove', '--force', worktreeOf(mission));
 
     const report = await store.teardown();
-    expect(report.join('\n').split(sep).join('/')).toContain(`already removed .tower/worktrees/${mission.worktree}`);
+    expect(report.join('\n').split(sep).join('/')).toContain(
+      `already removed .tower/worktrees/${mission.worktree}`,
+    );
     expect(report.join('\n')).not.toContain('failed');
     const log = (await store.recentLog(20)).join('\n');
     expect(log).not.toContain('worktree.remove.failed');
@@ -3774,12 +3934,20 @@ describe('teardown', () => {
     await writeFile(join(worktreeOf(dirty), 'uncommitted.txt'), 'dirty\n');
 
     const first = await store.teardown();
-    expect(first.join('\n').split(sep).join('/')).toContain(`removed .tower/worktrees/${clean.worktree}`);
-    expect(first.join('\n').split(sep).join('/')).toContain(`kept .tower/worktrees/${dirty.worktree}`);
+    expect(first.join('\n').split(sep).join('/')).toContain(
+      `removed .tower/worktrees/${clean.worktree}`,
+    );
+    expect(first.join('\n').split(sep).join('/')).toContain(
+      `kept .tower/worktrees/${dirty.worktree}`,
+    );
 
     const second = await store.teardown();
-    expect(second.join('\n').split(sep).join('/')).toContain(`already removed .tower/worktrees/${clean.worktree}`);
-    expect(second.join('\n').split(sep).join('/')).toContain(`kept .tower/worktrees/${dirty.worktree}`);
+    expect(second.join('\n').split(sep).join('/')).toContain(
+      `already removed .tower/worktrees/${clean.worktree}`,
+    );
+    expect(second.join('\n').split(sep).join('/')).toContain(
+      `kept .tower/worktrees/${dirty.worktree}`,
+    );
     expect(second.join('\n')).not.toContain('failed');
     const log = (await store.recentLog(50)).join('\n');
     expect(log).not.toContain('worktree.remove.failed');
@@ -3795,7 +3963,9 @@ describe('teardown', () => {
     await git(repo, 'worktree', 'lock', worktreeOf(mission));
 
     const report = await store.teardown();
-    expect(report.join('\n').split(sep).join('/')).toContain(`failed to remove .tower/worktrees/${mission.worktree}`);
+    expect(report.join('\n').split(sep).join('/')).toContain(
+      `failed to remove .tower/worktrees/${mission.worktree}`,
+    );
     const log = (await store.recentLog(20)).join('\n');
     expect(log).toContain('worktree.remove.failed');
   });
@@ -3807,7 +3977,15 @@ describe('teardown', () => {
       await git(subRepo, 'config', 'user.email', 'tower-test@example.com');
       await git(subRepo, 'config', 'user.name', 'Tower Test');
       await commitFile(subRepo, 'lib.txt', 'lib\n', 'lib initial');
-      await git(repo, '-c', 'protocol.file.allow=always', 'submodule', 'add', subRepo, 'vendor/lib');
+      await git(
+        repo,
+        '-c',
+        'protocol.file.allow=always',
+        'submodule',
+        'add',
+        subRepo,
+        'vendor/lib',
+      );
       await git(repo, 'commit', '-m', 'add vendor/lib submodule');
 
       const mission = await setupMission({
@@ -3820,7 +3998,9 @@ describe('teardown', () => {
       await git(wt, '-c', 'protocol.file.allow=always', 'submodule', 'update', '--init');
 
       const report = await store.teardown();
-      expect(report.join('\n').replaceAll('\\', '/')).toContain(`removed .tower/worktrees/${mission.worktree}`);
+      expect(report.join('\n').replaceAll('\\', '/')).toContain(
+        `removed .tower/worktrees/${mission.worktree}`,
+      );
       await expect(stat(wt)).rejects.toThrow();
     } finally {
       await rm(subRepo, { recursive: true, force: true });
@@ -3857,7 +4037,9 @@ describe('teardown', () => {
     expect((await stat(worktreeOf(mission))).isDirectory()).toBe(true);
 
     const settled = await store.teardown({ liveAgentIds: new Set() });
-    expect(settled.join('\n').split(sep).join('/')).toContain(`removed .tower/worktrees/${mission.worktree}`);
+    expect(settled.join('\n').split(sep).join('/')).toContain(
+      `removed .tower/worktrees/${mission.worktree}`,
+    );
     await expect(stat(worktreeOf(mission))).rejects.toThrow();
   });
 
@@ -3870,12 +4052,18 @@ describe('teardown', () => {
     });
 
     const report = await store.teardown({ exclude: [mission.worktree, 'wt-999'] });
-    expect(report.join('\n').split(sep).join('/')).toContain(`kept .tower/worktrees/${mission.worktree} (excluded)`);
-    expect(report.join('\n').split(sep).join('/')).toContain('excluded worktree "wt-999" matched no mission worktree');
+    expect(report.join('\n').split(sep).join('/')).toContain(
+      `kept .tower/worktrees/${mission.worktree} (excluded)`,
+    );
+    expect(report.join('\n').split(sep).join('/')).toContain(
+      'excluded worktree "wt-999" matched no mission worktree',
+    );
     expect((await stat(worktreeOf(mission))).isDirectory()).toBe(true);
 
     const after = await store.teardown();
-    expect(after.join('\n').split(sep).join('/')).toContain(`removed .tower/worktrees/${mission.worktree}`);
+    expect(after.join('\n').split(sep).join('/')).toContain(
+      `removed .tower/worktrees/${mission.worktree}`,
+    );
   });
 
   it('dry run reports the decisions without changing worktrees, state, or the log', async () => {
@@ -3933,8 +4121,12 @@ describe('teardown', () => {
     expect(await store.recentLog(200)).toEqual(logBefore);
 
     const real = await store.teardown({ liveAgentIds: new Set(['agent-dry-live']) });
-    expect(real.join('\n').split(sep).join('/')).toContain(`removed .tower/worktrees/${clean.worktree}`);
-    expect(real.join('\n').split(sep).join('/')).toContain(`kept .tower/worktrees/${live.worktree} (live agent: w-dry-live)`);
+    expect(real.join('\n').split(sep).join('/')).toContain(
+      `removed .tower/worktrees/${clean.worktree}`,
+    );
+    expect(real.join('\n').split(sep).join('/')).toContain(
+      `kept .tower/worktrees/${live.worktree} (live agent: w-dry-live)`,
+    );
   });
 });
 
@@ -3981,12 +4173,10 @@ describe('addWorktree branch ownership', () => {
     const state = await store.load();
     await store.addWorktree(mission!.worktree, mission!.branch, state.base);
 
-    const retry = await store
-      .addWorktree(mission!.worktree, mission!.branch, state.base)
-      .then(
-        () => undefined,
-        (error: unknown) => error,
-      );
+    const retry = await store.addWorktree(mission!.worktree, mission!.branch, state.base).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
 
     expect(retry).toBeInstanceOf(Error);
     expect((retry as Error).message).not.toMatch(/not owned by any tower mission/);
@@ -4010,7 +4200,6 @@ describe('addWorktree branch ownership', () => {
     expect((await readFile(join(wt, 'src/x/x.ts'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe('x\n');
   });
 });
-
 
 describe('scopesOverlap', () => {
   it('detects identical and nested directory globs', () => {

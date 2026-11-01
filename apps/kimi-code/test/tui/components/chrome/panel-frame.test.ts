@@ -1,5 +1,6 @@
-import { visibleWidth } from '@moonshot-ai/pi-tui';
 import { afterEach, describe, expect, it } from 'bun:test';
+
+import { visibleWidth } from '@moonshot-ai/pi-tui';
 
 import { setLocale } from '#/i18n';
 import { DeviceCodeBoxComponent } from '#/tui/components/chrome/device-code-box';
@@ -123,5 +124,4 @@ describe('panel frame adoption', () => {
       for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(40);
     }
   });
-
 });

@@ -1,21 +1,30 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
+import type { IDisposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Emitter, type Event } from '#/_base/event';
-import type { IDisposable } from '#/_base/di/lifecycle';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IEnvironmentService } from '#/app/environment/environment';
 import { ISessionEventBus } from '#/app/event/eventBus';
 import { LifecycleScope } from '#/app/scopes';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import type { Environment, EnvironmentBinding, EnvironmentCapability, EnvironmentLease, EnvironmentPath, EnvironmentWorkspaceRoots } from '#/environment/environment';
+import type {
+  Environment,
+  EnvironmentBinding,
+  EnvironmentCapability,
+  EnvironmentLease,
+  EnvironmentPath,
+  EnvironmentWorkspaceRoots,
+} from '#/environment/environment';
 import { LOCAL_ENVIRONMENT_ID } from '#/environment/environment';
-import { environmentIsReady, type EnvironmentGenerationSnapshot, type EnvironmentRegistryChange } from '#/environment/environmentRegistry';
+import {
+  environmentIsReady,
+  type EnvironmentGenerationSnapshot,
+  type EnvironmentRegistryChange,
+} from '#/environment/environmentRegistry';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionStateService } from '#/session/state/sessionState';
-import {
-  workspaceContextAdditionalDirsKey,
-} from '#/session/workspaceContext/workspaceContextService';
-import { IEnvironmentService } from '#/app/environment/environment';
+import { workspaceContextAdditionalDirsKey } from '#/session/workspaceContext/workspaceContextService';
 
 import { IAgentEnvironmentBindingService } from './environmentBinding';
 import { EnvironmentStatusChanged } from './environmentEvents';
@@ -123,7 +132,11 @@ export class AgentEnvironmentService implements IAgentEnvironmentService {
     this.bindingSubscription = this.binding.onDidChange(() => this.changeEmitter.fire());
     this.registrySubscription = this.resolver.onDidChange((change) => {
       if (change.environmentId !== this.binding.current.environmentId) return;
-      if (change.current !== undefined && change.current !== this.resolver.current(change.environmentId)) return;
+      if (
+        change.current !== undefined &&
+        change.current !== this.resolver.current(change.environmentId)
+      )
+        return;
       this.changeEmitter.fire();
       this.publishEnvironmentStatus(change);
     });
@@ -153,7 +166,10 @@ export class AgentEnvironmentService implements IAgentEnvironmentService {
   isAvailable(required: readonly EnvironmentCapability[] = []): boolean {
     try {
       const environment = this.inspect();
-      return environmentIsReady(environment) && required.every((capability) => environment.capabilities.has(capability));
+      return (
+        environmentIsReady(environment) &&
+        required.every((capability) => environment.capabilities.has(capability))
+      );
     } catch {
       return false;
     }
@@ -163,7 +179,9 @@ export class AgentEnvironmentService implements IAgentEnvironmentService {
     return this.resolver.acquire(this.binding.current, required);
   }
 
-  async acquireWhenReady(required: readonly EnvironmentCapability[] = []): Promise<EnvironmentLease> {
+  async acquireWhenReady(
+    required: readonly EnvironmentCapability[] = [],
+  ): Promise<EnvironmentLease> {
     return this.resolver.acquireWhenReady(this.binding.current, required);
   }
 
@@ -177,7 +195,11 @@ export class AgentEnvironmentService implements IAgentEnvironmentService {
     const agent = this.scopeContext.agentContext;
     if (this.scopeContext.agentId !== MAIN_AGENT_ID || !this.eventBus.isAgentActive(agent)) return;
     this.eventBus.publish(
-      new EnvironmentStatusChanged({ agentId: agent.agentId, environmentId: change.environmentId, status: change.status }),
+      new EnvironmentStatusChanged({
+        agentId: agent.agentId,
+        environmentId: change.environmentId,
+        status: change.status,
+      }),
       agent,
     );
   }

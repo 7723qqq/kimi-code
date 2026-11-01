@@ -14,12 +14,12 @@ old lockfile and tells you to run `bun install --lockfile-only`.
 
 What is left splits by risk:
 
-| layer | what it changes | how it is justified |
-| --- | --- | --- |
-| `config` | `.npmrc`, `.nvmrc`, `engines.node`, pnpm/npm/npx in scripts, CI setup steps | text transformations with a fixed target |
-| `packages` | `pnpm-workspace.yaml` globs, lockfiles, `vitest.config.ts`, package `imports` → tsconfig paths, **and npm dependencies Bun now implements** | Bun's documented equivalents, member by member |
-| `tests` | `vitest` / `jest` imports to `bun:test`, `vi.fn` to `mock` | `bun:test` exports the same names |
-| `source` | `node:` calls to Bun APIs, through either `import` or `require` | a per-call condition, plus a Node-versus-Bun differential test |
+| layer      | what it changes                                                                                                                             | how it is justified                                            |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `config`   | `.npmrc`, `.nvmrc`, `engines.node`, pnpm/npm/npx in scripts, CI setup steps                                                                 | text transformations with a fixed target                       |
+| `packages` | `pnpm-workspace.yaml` globs, lockfiles, `vitest.config.ts`, package `imports` → tsconfig paths, **and npm dependencies Bun now implements** | Bun's documented equivalents, member by member                 |
+| `tests`    | `vitest` / `jest` imports to `bun:test`, `vi.fn` to `mock`                                                                                  | `bun:test` exports the same names                              |
+| `source`   | `node:` calls to Bun APIs, through either `import` or `require`                                                                             | a per-call condition, plus a Node-versus-Bun differential test |
 
 The `packages` layer covers two different things on purpose. The first is
 workspace scaffolding: pnpm globs, lockfiles, vitest project configs. The second
@@ -30,19 +30,19 @@ any single call.
 Verified package replacements, each checked for equal output before being
 offered:
 
-| package | Bun | verified members |
-| --- | --- | --- |
-| `yaml` | `Bun.YAML` | `parse`, `stringify` |
-| `js-yaml` | `Bun.YAML` | `load`, `dump` |
-| `smol-toml` | `Bun.TOML` | `parse`, `stringify` |
-| `json5` | `Bun.JSON5` | `parse`, `stringify` |
-| `strip-ansi` | `Bun.stripANSI` | default export |
-| `string-width` | `Bun.stringWidth` | default export |
-| `which` | `Bun.which` | `sync`, which maps to `Bun.which(...)` directly because `Bun.which` is synchronous and has no `.sync` member |
-| `semver` | `Bun.semver` | **report-only**: only `order` and `satisfies` exist; `sort`, `valid`, `gt`, `maxSatisfying` do not |
-| `marked` | `Bun.markdown` | **report-only**: only the simplest `parse` to html overlaps |
+| package        | Bun               | verified members                                                                                             |
+| -------------- | ----------------- | ------------------------------------------------------------------------------------------------------------ |
+| `yaml`         | `Bun.YAML`        | `parse`, `stringify`                                                                                         |
+| `js-yaml`      | `Bun.YAML`        | `load`, `dump`                                                                                               |
+| `smol-toml`    | `Bun.TOML`        | `parse`, `stringify`                                                                                         |
+| `json5`        | `Bun.JSON5`       | `parse`, `stringify`                                                                                         |
+| `strip-ansi`   | `Bun.stripANSI`   | default export                                                                                               |
+| `string-width` | `Bun.stringWidth` | default export                                                                                               |
+| `which`        | `Bun.which`       | `sync`, which maps to `Bun.which(...)` directly because `Bun.which` is synchronous and has no `.sync` member |
+| `semver`       | `Bun.semver`      | **report-only**: only `order` and `satisfies` exist; `sort`, `valid`, `gt`, `maxSatisfying` do not           |
+| `marked`       | `Bun.markdown`    | **report-only**: only the simplest `parse` to html overlaps                                                  |
 
-A replacement is offered only when *every* imported member was verified. `import
+A replacement is offered only when _every_ imported member was verified. `import
 { satisfies } from 'semver'` is refused even though that one member works,
 because a partial migration would leave the import removed and the remaining
 call unresolved — a run-time failure instead of a build error.
@@ -56,12 +56,12 @@ Both are recorded in `src/modules-map.mjs` as measured facts rather than prose.
 `all`, `get`, `iterate`, `run`, positional and named binding, and `transaction`
 all produce equal results. Four things do not:
 
-| behaviour | `node:sqlite` | `bun:sqlite` |
-| --- | --- | --- |
-| `get()` on an empty result | `undefined` | `null` |
-| integer above 2^53 | throws `ERR_OUT_OF_RANGE` | returns a **silently rounded number** unless `statement.safeIntegers(true)` |
-| error code | `ERR_SQLITE_ERROR` | `SQLITE_ERROR` |
-| large-int opt-in | `setReadBigInts(true)` | `safeIntegers(true)` |
+| behaviour                  | `node:sqlite`             | `bun:sqlite`                                                                |
+| -------------------------- | ------------------------- | --------------------------------------------------------------------------- |
+| `get()` on an empty result | `undefined`               | `null`                                                                      |
+| integer above 2^53         | throws `ERR_OUT_OF_RANGE` | returns a **silently rounded number** unless `statement.safeIntegers(true)` |
+| error code                 | `ERR_SQLITE_ERROR`        | `SQLITE_ERROR`                                                              |
+| large-int opt-in           | `setReadBigInts(true)`    | `safeIntegers(true)`                                                        |
 
 The integer row is the dangerous one. `9007199254740993` reads back as
 `9007199254740992` on the Bun side with no error, so a port that does not add the
@@ -107,32 +107,32 @@ replacement for this call site", not "this call needs Node".
 `report-only` is not a lesser category; it is where the tool records what it
 found. Every entry below was proven by running both runtimes, not read off a doc:
 
-| finding | why the Bun-native API is not a drop-in |
-| --- | --- |
-| `deflateSync`, `inflateSync` | **Different format.** Node's `deflateSync` emits a zlib wrapper (`78 9c` header, adler32 tail); `Bun.deflateSync` emits raw deflate with neither. `Bun.inflateSync` rejects every stream `deflateSync` produces, and Node rejects every stream `Bun.deflateSync` produces. |
-| `deflateRawSync` | Same format, different bytes. Identical up to 200 bytes, divergent from 500 up because the two pick different block boundaries. Both inflate correctly, but anything that hashes or compares the compressed output sees a different value. |
-| `isDeepStrictEqual` | **Ownership semantics differ.** `isDeepStrictEqual({a: undefined}, {})` is `false`; `Bun.deepEquals` returns `true` because it ignores an undefined-valued key. |
-| `readFile`, `writeFile`, `copyFile` | Measured slower or equal. `Bun.file().text()` ran at 0.68x of `readFile`, `Bun.write` at 0.66-0.93x of `writeFile` across three runs. Both sides are Bun; the `node:` path happens to be the faster one here. |
-| `pathToFileURL` | On Windows, Node's resolution gives `/tmp/x` -> `file:///D:/tmp/x`; Bun's gives `file:///tmp/x`. Different URL, different file. |
-| `readFileSync`, `writeFileSync` | `Bun.file()` is lazy and `Bun.write` is async, so a sync call site would change timing or control flow. |
-| `spawnSync` | Node takes `(cmd, args, opts)` and returns `{status,stdout,stderr}`; Bun takes an argv array and returns `{exitCode,...}`. Both the call shape and the result fields differ. |
-| `brotliCompressSync`, `util.format` | Bun exposes no equivalent API, so there is nothing to swap to. The call keeps running Bun's own `node:zlib` / `node:util` implementation. |
+| finding                             | why the Bun-native API is not a drop-in                                                                                                                                                                                                                                    |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `deflateSync`, `inflateSync`        | **Different format.** Node's `deflateSync` emits a zlib wrapper (`78 9c` header, adler32 tail); `Bun.deflateSync` emits raw deflate with neither. `Bun.inflateSync` rejects every stream `deflateSync` produces, and Node rejects every stream `Bun.deflateSync` produces. |
+| `deflateRawSync`                    | Same format, different bytes. Identical up to 200 bytes, divergent from 500 up because the two pick different block boundaries. Both inflate correctly, but anything that hashes or compares the compressed output sees a different value.                                 |
+| `isDeepStrictEqual`                 | **Ownership semantics differ.** `isDeepStrictEqual({a: undefined}, {})` is `false`; `Bun.deepEquals` returns `true` because it ignores an undefined-valued key.                                                                                                            |
+| `readFile`, `writeFile`, `copyFile` | Measured slower or equal. `Bun.file().text()` ran at 0.68x of `readFile`, `Bun.write` at 0.66-0.93x of `writeFile` across three runs. Both sides are Bun; the `node:` path happens to be the faster one here.                                                              |
+| `pathToFileURL`                     | On Windows, Node's resolution gives `/tmp/x` -> `file:///D:/tmp/x`; Bun's gives `file:///tmp/x`. Different URL, different file.                                                                                                                                            |
+| `readFileSync`, `writeFileSync`     | `Bun.file()` is lazy and `Bun.write` is async, so a sync call site would change timing or control flow.                                                                                                                                                                    |
+| `spawnSync`                         | Node takes `(cmd, args, opts)` and returns `{status,stdout,stderr}`; Bun takes an argv array and returns `{exitCode,...}`. Both the call shape and the result fields differ.                                                                                               |
+| `brotliCompressSync`, `util.format` | Bun exposes no equivalent API, so there is nothing to swap to. The call keeps running Bun's own `node:zlib` / `node:util` implementation.                                                                                                                                  |
 
 The `speed` side is measured too, not assumed. Everything below is the same
 process — `require('node:crypto')` inside Bun is Bun's own compiled
 implementation, so timing both in one Bun process compares the two
 implementations rather than two process start-ups:
 
-| rule | measured range | note |
-| --- | --- | --- |
-| `gzipSync` -> `Buffer.from(Bun.gzipSync(...))` | 3.0x at 1 MB up to 39.6x at 16 B | faster, wrapper preserves Node's Buffer type; see the byte caveat below |
-| `stripVTControlCharacters` -> `Bun.stripANSI` | 14.2x at 1 KB up to 22.0x at 16 B | flat across sizes |
-| `gunzipSync` -> `Buffer.from(Bun.gunzipSync(...))` | 2.2x at 1 MB up to 33.3x at 16 B | wrapper preserves the Buffer type |
-| `zstdCompressSync` -> `Bun.zstdCompressSync` | 1.4x at 100 KB up to 8.3x at 16 B | frames are byte-identical, unlike gzip |
-| `zstdDecompressSync` -> `Bun.zstdDecompressSync` | 1.6x at 100 KB up to 80.7x at 16 B | |
-| `globSync` -> `Bun.Glob` | 2.0x-5.3x | wider with directory size |
-| `createHash` / `createHmac` -> `Bun.CryptoHasher` | 1.3x-1.8x for sha256/sha1, 1.0x-1.2x for sha512/md5 | 2.0x under 4 worker threads |
-| `fileURLToPath` -> `Bun.fileURLToPath` | ~2.6x | |
+| rule                                               | measured range                                      | note                                                                    |
+| -------------------------------------------------- | --------------------------------------------------- | ----------------------------------------------------------------------- |
+| `gzipSync` -> `Buffer.from(Bun.gzipSync(...))`     | 3.0x at 1 MB up to 39.6x at 16 B                    | faster, wrapper preserves Node's Buffer type; see the byte caveat below |
+| `stripVTControlCharacters` -> `Bun.stripANSI`      | 14.2x at 1 KB up to 22.0x at 16 B                   | flat across sizes                                                       |
+| `gunzipSync` -> `Buffer.from(Bun.gunzipSync(...))` | 2.2x at 1 MB up to 33.3x at 16 B                    | wrapper preserves the Buffer type                                       |
+| `zstdCompressSync` -> `Bun.zstdCompressSync`       | 1.4x at 100 KB up to 8.3x at 16 B                   | frames are byte-identical, unlike gzip                                  |
+| `zstdDecompressSync` -> `Bun.zstdDecompressSync`   | 1.6x at 100 KB up to 80.7x at 16 B                  |                                                                         |
+| `globSync` -> `Bun.Glob`                           | 2.0x-5.3x                                           | wider with directory size                                               |
+| `createHash` / `createHmac` -> `Bun.CryptoHasher`  | 1.3x-1.8x for sha256/sha1, 1.0x-1.2x for sha512/md5 | 2.0x under 4 worker threads                                             |
+| `fileURLToPath` -> `Bun.fileURLToPath`             | ~2.6x                                               |                                                                         |
 
 `createHmac` is rewritten only when the key is provably a string, `Buffer`/typed
 array/`ArrayBuffer`/`DataView`. Node also accepts a `KeyObject` or `CryptoKey`;
@@ -157,7 +157,7 @@ An earlier version of this file said the gzip output was "byte identical, verifi
 That was wrong, and the way it was wrong matters.
 
 Inside one Bun process, `require('node:zlib').gzipSync` and `Bun.gzipSync` do
-produce the same bytes — because Bun's `node:zlib` *is* `Bun.gzipSync`, so the
+produce the same bytes — because Bun's `node:zlib` _is_ `Bun.gzipSync`, so the
 comparison is a tautology. Against a stream produced by real Node, they differ:
 measured across ten payloads, eight differed, and the widest case
 (`'compressible ' x 1000`) came out 76 bytes from Node against 125 bytes from Bun.
@@ -308,7 +308,7 @@ A journal `remove` entry records the file's bytes, so restoring that file was ne
 the problem. The index was. The first version ran `git rm --force`, and with an edit
 staged in the index — the state a user is in after `git add .` mid-refactor —
 `--force` deletes the staged blob along with the worktree copy. Measured: after the
-removal, `git show :pnpm-lock.yaml` reported *"neither on disk nor in the index"*,
+removal, `git show :pnpm-lock.yaml` reported _"neither on disk nor in the index"_,
 and the content was reachable only as an unreachable blob no command pointed at. So
 `--allow-dirty`, the flag that exists so a reviewer can inspect an in-progress
 change, was turning a recoverable state into an unrecoverable one.
@@ -316,14 +316,14 @@ change, was turning a recoverable state into an unrecoverable one.
 Removal now runs `git rm --ignore-unmatch` **without** `--force`, and unlinks the
 worktree file when git refuses. Three states, each measured:
 
-| state | `git rm` | result |
-| --- | --- | --- |
-| tracked and clean | succeeds | deletion is staged (`D  pnpm-lock.yaml`) |
-| staged or unstaged edits | refuses | the worktree copy is unlinked, the index entry survives, `git checkout -- <path>` restores the staged text |
-| untracked | `--ignore-unmatch` is a no-op | the file is unlinked |
+| state                    | `git rm`                      | result                                                                                                     |
+| ------------------------ | ----------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| tracked and clean        | succeeds                      | deletion is staged (`D  pnpm-lock.yaml`)                                                                   |
+| staged or unstaged edits | refuses                       | the worktree copy is unlinked, the index entry survives, `git checkout -- <path>` restores the staged text |
+| untracked                | `--ignore-unmatch` is a no-op | the file is unlinked                                                                                       |
 
 `revert` restores the bytes from the journal in all three cases. The same
-guarantee covers what the migration *adds*: a `package.json` entry records the
+guarantee covers what the migration _adds_: a `package.json` entry records the
 disk bytes as the `before`, so a file that was not written in
 `JSON.stringify(…, null, 2)` shape comes back exactly as it was — measured, a
 single-line manifest used to revert to five lines and still show as modified. A
@@ -513,7 +513,7 @@ that says what it left out.
   and module mocking are reported; incompatible snapshots refuse the whole file.
 - It does not make a `Bun.*` rewrite reversible. Use `portable = true` before
   applying, not after.
-- It does not rewrite `require('node:...')` into `import`. It rewrites the *call*
+- It does not rewrite `require('node:...')` into `import`. It rewrites the _call_
   a `require` binding reaches and removes the binding once nothing uses it, but the
   statement stays CommonJS, because converting module syntax is a different change
   with different failure modes.
@@ -530,13 +530,13 @@ compatible and rewrote the runner import. That was wrong in a way that made a
 suite greener without making it correct. Each row below was measured on Bun 1.4.4
 against a vitest-written snapshot file:
 
-| form | vitest | Bun | what the user sees |
-| --- | --- | --- | --- |
+| form                                | vitest                        | Bun                       | what the user sees                                                                                                                                                                          |
+| ----------------------------------- | ----------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `toMatchSnapshot` inside `describe` | key `outer > inner > works 1` | key `outer inner works 1` | the stored entry is not found, Bun **appends a new one and passes**. Measured: the asserted value was changed to `"TOTALLY-DIFFERENT"` and the test still passed with `snapshots: +1 added` |
-| `toMatchSnapshot(hint)` | key `name: hint 1` | key `name hint 1` | same absence, same silent append |
-| `toThrowErrorMatchingSnapshot` | stores `[Error: boom]` | compares against `"boom"` | the test fails even though nothing changed |
-| `toMatchFileSnapshot` | exists | **not a function** | `TypeError: toMatchFileSnapshot is not a function` |
-| `expect.addSnapshotSerializer` | exists | throws `Not implemented` | the file cannot run at all |
+| `toMatchSnapshot(hint)`             | key `name: hint 1`            | key `name hint 1`         | same absence, same silent append                                                                                                                                                            |
+| `toThrowErrorMatchingSnapshot`      | stores `[Error: boom]`        | compares against `"boom"` | the test fails even though nothing changed                                                                                                                                                  |
+| `toMatchFileSnapshot`               | exists                        | **not a function**        | `TypeError: toMatchFileSnapshot is not a function`                                                                                                                                          |
+| `expect.addSnapshotSerializer`      | exists                        | throws `Not implemented`  | the file cannot run at all                                                                                                                                                                  |
 
 The `describe` case is the dangerous one, because the same file passes locally and
 fails in CI: Bun refuses to create snapshots when `CI` is set
@@ -555,12 +555,12 @@ vitest wrote is read by Bun unchanged.
 have a verified mechanism, and losing them changes how a suite behaves without
 saying so:
 
-| setting | measured in bunfig | what actually works |
-| --- | --- | --- |
-| `testTimeout` | `[test] timeout = 50` is accepted and a 300 ms test still passes | `setDefaultTimeout(100)` from `bun:test`, loaded through `[test] preload` — a 400 ms test fails with "this test timed out after 100ms" |
-| `hookTimeout` | same | the same `setDefaultTimeout`, which also covers hooks: a slow `beforeEach` fails with "a beforeEach/afterEach hook timed out" |
-| `maxWorkers` | `[test] parallel = 4` is accepted and four 500 ms files still take 2.2 s | `bun test --parallel=4`, which took 1.0 s on the same four files |
-| `pool`, `minWorkers` | no equivalent | reported, because `--parallel` is a worker count rather than an isolation model |
+| setting              | measured in bunfig                                                       | what actually works                                                                                                                    |
+| -------------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `testTimeout`        | `[test] timeout = 50` is accepted and a 300 ms test still passes         | `setDefaultTimeout(100)` from `bun:test`, loaded through `[test] preload` — a 400 ms test fails with "this test timed out after 100ms" |
+| `hookTimeout`        | same                                                                     | the same `setDefaultTimeout`, which also covers hooks: a slow `beforeEach` fails with "a beforeEach/afterEach hook timed out"          |
+| `maxWorkers`         | `[test] parallel = 4` is accepted and four 500 ms files still take 2.2 s | `bun test --parallel=4`, which took 1.0 s on the same four files                                                                       |
+| `pool`, `minWorkers` | no equivalent                                                            | reported, because `--parallel` is a worker count rather than an isolation model                                                        |
 
 The migration writes `bun-migrate.timeout.ts` next to `bunfig.toml`, adds it to
 `preload` (keeping any existing `setupFiles` entry), and appends `--parallel=N` to
@@ -609,13 +609,13 @@ A migration tool that takes minutes on a real repo is a tool people run once and
 then avoid. Measured on this machine (Windows x64, warm cache), `scan` — the
 read-only pass — against a synthetic project of small ESM modules, median of three:
 
-| files | total | per file |
-| --- | --- | --- |
-| 100 | 270 ms | 2.70 ms |
-| 500 | 489 ms | 0.98 ms |
-| 1 000 | 688 ms | 0.69 ms |
-| 2 000 | 1 146 ms | 0.57 ms |
-| 5 000 | 2 529 ms | 0.51 ms |
+| files | total    | per file |
+| ----- | -------- | -------- |
+| 100   | 270 ms   | 2.70 ms  |
+| 500   | 489 ms   | 0.98 ms  |
+| 1 000 | 688 ms   | 0.69 ms  |
+| 2 000 | 1 146 ms | 0.57 ms  |
+| 5 000 | 2 529 ms | 0.51 ms  |
 
 The per-file cost falls toward 0.5 ms because roughly 200 ms of every run is
 process start-up and module loading, which is the dominant term only for tiny
@@ -647,12 +647,12 @@ migration, so this package is the pinned before/after comparison.
 39 rules across four tables. That is a fraction of what Bun offers, so here is
 the honest shape of it.
 
-| table | rules | auto-applied |
-| --- | --- | --- |
-| `node:` builtins | 23 | 10 |
-| npm packages | 13 | 7 |
-| module-level (`node:sqlite`, `node:http`) | 2 | 0 |
-| capability-level (`sharp`) | 1 | 0 |
+| table                                     | rules | auto-applied |
+| ----------------------------------------- | ----- | ------------ |
+| `node:` builtins                          | 23    | 10           |
+| npm packages                              | 13    | 7            |
+| module-level (`node:sqlite`, `node:http`) | 2     | 0            |
+| capability-level (`sharp`)                | 1     | 0            |
 
 Bun exposes 112 top-level members; 25 are referenced by a rule. The rest fall
 into two groups, and only one of them is a gap:
@@ -660,7 +660,7 @@ into two groups, and only one of them is a gap:
 - **No Node counterpart exists.** `Bun.S3Client`, `Bun.redis`, `Bun.sql`,
   `Bun.FFI`, `Bun.Terminal`, `Bun.WebView`, `Bun.Archive`, `Bun.cron`,
   `Bun.secrets`, `Bun.Transpiler`, `Bun.build`, `Bun.listen`, `Bun.connect`.
-  There is nothing to migrate *from*, so a rule would have no source pattern.
+  There is nothing to migrate _from_, so a rule would have no source pattern.
   These are new capabilities, not replacements.
 - **A counterpart exists and is not covered yet.** `Bun.openInEditor`, `Bun.peek`,
   `Bun.deepMatch`, `Bun.randomUUIDv7`, `Bun.hash`/`Bun.sha`, `Bun.escapeHTML`
@@ -677,16 +677,16 @@ A missing export throws, and a throw is visible. Worse is an API that is present
 accepts its arguments, returns something plausible, and does nothing. Measured on
 Bun 1.4.4, none of these throw:
 
-| API | what actually happens |
-| --- | --- |
-| `async_hooks#createHook` | `enable()` succeeds, callbacks **never fire** |
-| `async_hooks#executionAsyncId` | always `0`, so id-based correlation collapses into one bucket |
-| `worker_threads#resourceLimits` | accepted and ignored; the memory cap is never enforced |
-| `perf_hooks#eventLoopUtilization` | always `{ idle: 0, active: 0, utilization: 0 }` |
-| `perf_hooks#performance.nodeTiming` | placeholder values, not real startup timings |
-| `process#_getActiveHandles` | always `[]`, even with a live timer |
-| `bun:sqlite` wide integer | `9007199254740993` reads back as `9007199254740992`, no error |
-| `bun:sqlite` empty `get()` | `null` where `node:sqlite` returns `undefined` |
+| API                                 | what actually happens                                         |
+| ----------------------------------- | ------------------------------------------------------------- |
+| `async_hooks#createHook`            | `enable()` succeeds, callbacks **never fire**                 |
+| `async_hooks#executionAsyncId`      | always `0`, so id-based correlation collapses into one bucket |
+| `worker_threads#resourceLimits`     | accepted and ignored; the memory cap is never enforced        |
+| `perf_hooks#eventLoopUtilization`   | always `{ idle: 0, active: 0, utilization: 0 }`               |
+| `perf_hooks#performance.nodeTiming` | placeholder values, not real startup timings                  |
+| `process#_getActiveHandles`         | always `[]`, even with a live timer                           |
+| `bun:sqlite` wide integer           | `9007199254740993` reads back as `9007199254740992`, no error |
+| `bun:sqlite` empty `get()`          | `null` where `node:sqlite` returns `undefined`                |
 
 The consequence is specific: tracing, leak detection and saturation alarms built
 on these instruments report "all clear" forever. Nothing in a log says the
@@ -715,12 +715,12 @@ extra            19
 
 Seventeen numeric mismatches, curated to four rows a caller can be hurt by:
 
-| constant | Node | Bun | why it matters |
-| --- | --- | --- | --- |
-| `buffer.constants.MAX_LENGTH` | `9007199254740991` | `4294967296` | a size guard accepts 8 PB on one runtime and 4 GB on the other |
-| `buffer.constants.MAX_STRING_LENGTH` | `536870888` | `2147483647` | a string-length guard changes threshold silently |
-| `crypto.constants.OPENSSL_VERSION_NUMBER` | `810549311` | `269488255` | Bun is BoringSSL, so a version branch answers differently |
-| `crypto.constants.SSL_OP_*` (14 flags) | non-zero masks | **all 0** | `options \|= SSL_OP_NO_RENEGOTIATION` configures nothing and looks configured |
+| constant                                  | Node               | Bun          | why it matters                                                                |
+| ----------------------------------------- | ------------------ | ------------ | ----------------------------------------------------------------------------- |
+| `buffer.constants.MAX_LENGTH`             | `9007199254740991` | `4294967296` | a size guard accepts 8 PB on one runtime and 4 GB on the other                |
+| `buffer.constants.MAX_STRING_LENGTH`      | `536870888`        | `2147483647` | a string-length guard changes threshold silently                              |
+| `crypto.constants.OPENSSL_VERSION_NUMBER` | `810549311`        | `269488255`  | Bun is BoringSSL, so a version branch answers differently                     |
+| `crypto.constants.SSL_OP_*` (14 flags)    | non-zero masks     | **all 0**    | `options \|= SSL_OP_NO_RENEGOTIATION` configures nothing and looks configured |
 
 The `SSL_OP_*` row is the dangerous one: the OR succeeds, the options word stays
 `0`, and the TLS behaviour you asked for never happens. No error, no warning.
@@ -749,16 +749,16 @@ So the difference is invisible unless something reads `.length`.
 
 Eight entries do feed a decision, and they are recorded with both measured values:
 
-| member | Node | Bun | why it matters |
-| --- | --- | --- | --- |
-| `crypto.scrypt` | 4 params | 5 | `promisify(crypto.scrypt)` produces a differently-shaped function |
-| `crypto.scryptSync` | 3 | 4 | a curry helper binds the wrong number of arguments |
-| `crypto.randomInt` | 3 | 2 | the `(min, max, callback)` form loses a declared parameter |
-| `crypto.timingSafeEqual` | 0 | 2 | a forwarding wrapper passes arguments Node read from `arguments` |
-| `crypto.verify` | 5 | 4 | positional forwarding drops the last argument |
-| `crypto.hash` | 3 | 2 | the `outputEncoding` parameter is no longer declared |
-| `fs/promises.open` | 3 | 1 | rest wrapper collapses the arity to one |
-| `fs/promises.opendir` | 3 | 2 | same rest wrapper |
+| member                   | Node     | Bun | why it matters                                                    |
+| ------------------------ | -------- | --- | ----------------------------------------------------------------- |
+| `crypto.scrypt`          | 4 params | 5   | `promisify(crypto.scrypt)` produces a differently-shaped function |
+| `crypto.scryptSync`      | 3        | 4   | a curry helper binds the wrong number of arguments                |
+| `crypto.randomInt`       | 3        | 2   | the `(min, max, callback)` form loses a declared parameter        |
+| `crypto.timingSafeEqual` | 0        | 2   | a forwarding wrapper passes arguments Node read from `arguments`  |
+| `crypto.verify`          | 5        | 4   | positional forwarding drops the last argument                     |
+| `crypto.hash`            | 3        | 2   | the `outputEncoding` parameter is no longer declared              |
+| `fs/promises.open`       | 3        | 1   | rest wrapper collapses the arity to one                           |
+| `fs/promises.opendir`    | 3        | 2   | same rest wrapper                                                 |
 
 The negative result is the useful part: `SIGNATURE_DIFF_SUMMARY` records how the
 123 split (95 where Bun declares more, 42 where Node declares none, 41 where Node
@@ -793,13 +793,13 @@ net        occupied port
 **Twenty-five agree; five do not**, and the divergences are recorded with what
 breaks and what to do instead:
 
-| observable | Node | Bun | breaks |
-| --- | --- | --- | --- |
-| `err.constructor.name` for an aborted `fs` read | `AbortError` | `Error`, with only `.name` set | `instanceof AbortError` and `constructor.name === 'AbortError'` are both false on Bun |
-| `err.name` / `err.errno` for a failed lookup | `Error` / `-3008` | `DNSException` / `4` | a catch branching on `name`, any errno→symbol map |
-| `err.errno` for `EADDRINUSE` | `-4091` | `10048` (raw Windows WSA) | code switching on errno numerically |
-| `err.path` for a relative path | resolved absolute | verbatim as passed | a retry that re-reads `err.path` resolves a different file |
-| `Object.keys(spawnSync())` order | `error` first | `signal` first | only key-order serialisation; the key set is identical |
+| observable                                      | Node              | Bun                            | breaks                                                                                |
+| ----------------------------------------------- | ----------------- | ------------------------------ | ------------------------------------------------------------------------------------- |
+| `err.constructor.name` for an aborted `fs` read | `AbortError`      | `Error`, with only `.name` set | `instanceof AbortError` and `constructor.name === 'AbortError'` are both false on Bun |
+| `err.name` / `err.errno` for a failed lookup    | `Error` / `-3008` | `DNSException` / `4`           | a catch branching on `name`, any errno→symbol map                                     |
+| `err.errno` for `EADDRINUSE`                    | `-4091`           | `10048` (raw Windows WSA)      | code switching on errno numerically                                                   |
+| `err.path` for a relative path                  | resolved absolute | verbatim as passed             | a retry that re-reads `err.path` resolves a different file                            |
+| `Object.keys(spawnSync())` order                | `error` first     | `signal` first                 | only key-order serialisation; the key set is identical                                |
 
 The `AbortError` row is the one to act on: branch on
 `err.name === 'AbortError' || err.code === 'ABORT_ERR'`, never on the class.
@@ -828,15 +828,15 @@ and a probe that reports agreement may be describing too little.
 
 ## The Bun-only surface, classified
 
-The inverse question a shared package needs: *if I write `Bun.X`, does my package
-still run on Node?* `src/bun-surface.mjs` answers it in three tables covering all
+The inverse question a shared package needs: _if I write `Bun.X`, does my package
+still run on Node?_ `src/bun-surface.mjs` answers it in three tables covering all
 112 top-level Bun exports, and a test fails if any export is unclassified.
 
-| table | count | meaning |
-| --- | --- | --- |
-| `HAS_NODE_EQUIVALENT` | 30 | a Node path exists today; 21 of them are unconditional, 9 carry a caveat |
-| `BUN_ONLY_FUNCTIONS` | 60 | no Node API does this |
-| `BUN_ONLY_NAMESPACES` | 22 | object namespaces with no Node shape |
+| table                 | count | meaning                                                                  |
+| --------------------- | ----- | ------------------------------------------------------------------------ |
+| `HAS_NODE_EQUIVALENT` | 30    | a Node path exists today; 21 of them are unconditional, 9 carry a caveat |
+| `BUN_ONLY_FUNCTIONS`  | 60    | no Node API does this                                                    |
+| `BUN_ONLY_NAMESPACES` | 22    | object namespaces with no Node shape                                     |
 
 30 + 60 + 22 = 112, which is every top-level `Bun` export.
 
@@ -894,16 +894,16 @@ the rest are the ZSTD_* constant block that `node:zlib` exports and Bun does not
 
 The 17 functions are the ones that matter, and each has a workaround recorded:
 
-| module | members |
-| --- | --- |
-| `node:module` | `registerHooks`, `stripTypeScriptTypes`, `findPackageJSON`, `getSourceMapsSupport`, `setSourceMapsSupport` |
-| `node:util` | `transferableAbortController`, `transferableAbortSignal`, `diff`, `getCallSite` |
-| `node:console` | `context`, `createTask` |
-| `node:crypto` | `encapsulate`, `decapsulate` |
-| `node:dns` | `resolveTlsa` |
-| `node:domain` | `Domain` |
-| `node:http2` | `constants.NGHTTP2_HCAT_*`, `constants.NGHTTP2_NV_FLAG_*`, `constants.NGHTTP2_ERR_*` (7), `constants.STREAM_OPTION_*` (2) |
-| `node:v8` | `queryObjects` |
+| module         | members                                                                                                                   |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `node:module`  | `registerHooks`, `stripTypeScriptTypes`, `findPackageJSON`, `getSourceMapsSupport`, `setSourceMapsSupport`                |
+| `node:util`    | `transferableAbortController`, `transferableAbortSignal`, `diff`, `getCallSite`                                           |
+| `node:console` | `context`, `createTask`                                                                                                   |
+| `node:crypto`  | `encapsulate`, `decapsulate`                                                                                              |
+| `node:dns`     | `resolveTlsa`                                                                                                             |
+| `node:domain`  | `Domain`                                                                                                                  |
+| `node:http2`   | `constants.NGHTTP2_HCAT_*`, `constants.NGHTTP2_NV_FLAG_*`, `constants.NGHTTP2_ERR_*` (7), `constants.STREAM_OPTION_*` (2) |
+| `node:v8`      | `queryObjects`                                                                                                            |
 
 A missing export does not fail the build. It fails the first time that line runs,
 so a migration can look green and still break in production.
@@ -939,33 +939,33 @@ bun test --isolate tools/bun-migrate/test/
 
 Twenty-five suites, each covering a different failure mode:
 
-| file | what it proves |
-| --- | --- |
-| `unit.test.mjs` | rule-table invariants: no rule claims a rewrite without a Bun target, every rule states a condition, no duplicate module/export pair |
-| `edge-cases.test.mjs` | shadowed names (a local `const`, a parameter, a require of another module with the same binding name), aliased imports, two builtins from one module, computed arguments, options objects the rewrite must refuse, the five snapshot forms that must block a file, each `require` binding shape, tests-layer namespace/`vi`-only/CommonJS shapes, the awaited `resolves.not.toThrow()` rewrite (including a migrated file Bun runs) and the un-awaited form left for manual porting, `portable` and `deny` for the tests layer, plus TS syntax the parser must survive |
-| `differential.test.mjs` | one worked example per rule — and a coverage assertion that fails if any pairing in the table has no case, so a rule added later cannot go untested |
-| `properties.test.mjs` | many generated inputs per rule — hashes across 5 algorithms x 4 encodings x 7 payload shapes, HMAC across keys and payloads, gzip and raw deflate across sizes, ANSI across escape sequences, deep equality across 14 structure pairs |
-| `silent-failures.test.mjs` | the layers that used to fail quietly: a bad `--only` or unknown command exits 2, `--help` is parsed, `vitest.config.ts` is ported into `bunfig.toml` instead of deleted and unknown/computed settings are named, per-package `setupFiles` are rebased onto the root preload and per-package timeouts are reported instead of collapsed into one deadline, package `imports` are mirrored into tsconfig `paths` (including nested package boundaries), every workspace member's scripts are rewritten while a non-member fixture is left alone, node-gap detection resolves a binding (including nested `constants.*`) instead of matching text, the CI workflow layer actually runs per job, rewrites `run: |` bodies, survives CRLF and keeps each step's own `with:` block, `testTimeout` is migrated for a single config and reported per package otherwise, `maxWorkers` becomes `--parallel`, a quoted or unmapped `.npmrc` key is handled without producing an invalid bunfig, and a bare `pnpm`/`npm` script call is rewritten rather than orphaned |
-| `package-replacement.test.mjs` | npm dependency removal: binding collection, per-member safety, shared imports keeping their unrewritten members, removal of a single-line *and* a wrapped import clause, shadowed and namespace imports refused, `portable`/`deny` honoured, `which.sync` executed against `Bun.which`, and a rewritten file that Bun actually executes end to end |
-| `modules.test.mjs` | `node:sqlite` and `node:http` divergences reproduce: empty `get()`, silent integer rounding, error-code shape, and `Bun.serve`'s Request/Response model |
-| `performance.test.mjs` | the direction of every speed claim, so a rule cannot silently stop being faster |
-| `project.test.mjs` | whole-project behaviour: config, packages, tests and source layers together, plus `revert` restoring the original, deny-list and `auto-source` handling across layers, `portable` across package/test/source rewrites, a broken nested manifest, and the credential warning |
-| `error-shapes.test.mjs` | 30 error cases on both runtimes, synchronous and asynchronous; 25 agree and 5 divergences are recorded with what breaks, and the comparison is tested against synthetic regressions |
-| `bun-surface.test.mjs` | all 112 Bun exports classified; every Node-equivalent claim reproduced live |
-| `signature-gaps.test.mjs` | arity differences: 123 raw, 8 that feed a decision, plus proof the rest do not affect calling |
-| `constant-values.test.mjs` | same name, different number: buffer limits, zero-valued SSL_OP_* flags, OpenSSL version |
-| `silent-gaps.test.mjs` | APIs that accept input and do nothing: createHook never fires, loop utilization is always zero, wide integers round |
-| `node-surface.test.mjs` | re-enumerates 55 `node:` modules on both runtimes; an unrecorded gap fails, a closed gap prints a retire note |
-| `node-gaps.test.mjs` | the reverse risk: members Node has and Bun does not, verified by running both, plus the Bun-only API list |
-| `runtime-truth.test.mjs` | a report-only rule never means "falls back to Node": every `node:` specifier resolves to Bun native code |
-| `repository.test.mjs` | runs against this repository: bounded rewrite count, build output and temp dirs skipped, denied packages untouched, working tree unchanged |
-| `revert.test.mjs` | undo restores what a migration removed, and the three git states removal can meet: clean tracked, staged edits (the index entry must survive), and untracked; plus byte-exact restore of a reformatted manifest, removal of files the migration created, re-staging a clean removal's index entry, and refusing a path outside the project root |
-| `report.test.mjs` | the journal a human reads: a diff past the line limit is announced as truncated rather than cut silently, short diffs are not, notes and removes do not invent a diff, and every skip reason appears under its layer |
-| `candidates.test.mjs` | the rules added after probing coverage: zstd kept because the bytes matched and it is faster, `escape-html` kept report-only because one entity differs, `he` refused because all of them do |
-| `capabilities.test.mjs` | package-level capabilities that depend on an installed package; a missing package reports a skip rather than passing silently |
-| `portable.test.mjs` | the end-to-end contract: a migrated project still parses, still runs, and stays runnable under Node when `portable = true`; the package, test and source layers all consult the same flag |
-| `upstream-shape.test.mjs` | whole-project regressions found against a real upstream checkout: a package manager left behind, a catalog entry lost, a script Bun cannot resolve |
-| `self.test.mjs` | **the suite is Bun-native**: every test imports from `bun:test` and nothing from vitest, jest or `node:test`; no `vi`/`jest` globals in test bodies; the source carries no test-framework coupling |
+| file                           | what it proves                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `unit.test.mjs`                | rule-table invariants: no rule claims a rewrite without a Bun target, every rule states a condition, no duplicate module/export pair                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `edge-cases.test.mjs`          | shadowed names (a local `const`, a parameter, a require of another module with the same binding name), aliased imports, two builtins from one module, computed arguments, options objects the rewrite must refuse, the five snapshot forms that must block a file, each `require` binding shape, tests-layer namespace/`vi`-only/CommonJS shapes, the awaited `resolves.not.toThrow()` rewrite (including a migrated file Bun runs) and the un-awaited form left for manual porting, `portable` and `deny` for the tests layer, plus TS syntax the parser must survive                                                                                                                                      |
+| `differential.test.mjs`        | one worked example per rule — and a coverage assertion that fails if any pairing in the table has no case, so a rule added later cannot go untested                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `properties.test.mjs`          | many generated inputs per rule — hashes across 5 algorithms x 4 encodings x 7 payload shapes, HMAC across keys and payloads, gzip and raw deflate across sizes, ANSI across escape sequences, deep equality across 14 structure pairs                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `silent-failures.test.mjs`     | the layers that used to fail quietly: a bad `--only` or unknown command exits 2, `--help` is parsed, `vitest.config.ts` is ported into `bunfig.toml` instead of deleted and unknown/computed settings are named, per-package `setupFiles` are rebased onto the root preload and per-package timeouts are reported instead of collapsed into one deadline, package `imports` are mirrored into tsconfig `paths` (including nested package boundaries), every workspace member's scripts are rewritten while a non-member fixture is left alone, node-gap detection resolves a binding (including nested `constants.*`) instead of matching text, the CI workflow layer actually runs per job, rewrites `run: | `bodies, survives CRLF and keeps each step's own`with:`block,`testTimeout`is migrated for a single config and reported per package otherwise,`maxWorkers`becomes`--parallel`, a quoted or unmapped `.npmrc`key is handled without producing an invalid bunfig, and a bare`pnpm`/`npm` script call is rewritten rather than orphaned |
+| `package-replacement.test.mjs` | npm dependency removal: binding collection, per-member safety, shared imports keeping their unrewritten members, removal of a single-line _and_ a wrapped import clause, shadowed and namespace imports refused, `portable`/`deny` honoured, `which.sync` executed against `Bun.which`, and a rewritten file that Bun actually executes end to end                                                                                                                                                                                                                                                                                                                                                          |
+| `modules.test.mjs`             | `node:sqlite` and `node:http` divergences reproduce: empty `get()`, silent integer rounding, error-code shape, and `Bun.serve`'s Request/Response model                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `performance.test.mjs`         | the direction of every speed claim, so a rule cannot silently stop being faster                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `project.test.mjs`             | whole-project behaviour: config, packages, tests and source layers together, plus `revert` restoring the original, deny-list and `auto-source` handling across layers, `portable` across package/test/source rewrites, a broken nested manifest, and the credential warning                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `error-shapes.test.mjs`        | 30 error cases on both runtimes, synchronous and asynchronous; 25 agree and 5 divergences are recorded with what breaks, and the comparison is tested against synthetic regressions                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `bun-surface.test.mjs`         | all 112 Bun exports classified; every Node-equivalent claim reproduced live                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `signature-gaps.test.mjs`      | arity differences: 123 raw, 8 that feed a decision, plus proof the rest do not affect calling                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `constant-values.test.mjs`     | same name, different number: buffer limits, zero-valued SSL_OP_* flags, OpenSSL version                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `silent-gaps.test.mjs`         | APIs that accept input and do nothing: createHook never fires, loop utilization is always zero, wide integers round                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `node-surface.test.mjs`        | re-enumerates 55 `node:` modules on both runtimes; an unrecorded gap fails, a closed gap prints a retire note                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `node-gaps.test.mjs`           | the reverse risk: members Node has and Bun does not, verified by running both, plus the Bun-only API list                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `runtime-truth.test.mjs`       | a report-only rule never means "falls back to Node": every `node:` specifier resolves to Bun native code                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `repository.test.mjs`          | runs against this repository: bounded rewrite count, build output and temp dirs skipped, denied packages untouched, working tree unchanged                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `revert.test.mjs`              | undo restores what a migration removed, and the three git states removal can meet: clean tracked, staged edits (the index entry must survive), and untracked; plus byte-exact restore of a reformatted manifest, removal of files the migration created, re-staging a clean removal's index entry, and refusing a path outside the project root                                                                                                                                                                                                                                                                                                                                                             |
+| `report.test.mjs`              | the journal a human reads: a diff past the line limit is announced as truncated rather than cut silently, short diffs are not, notes and removes do not invent a diff, and every skip reason appears under its layer                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `candidates.test.mjs`          | the rules added after probing coverage: zstd kept because the bytes matched and it is faster, `escape-html` kept report-only because one entity differs, `he` refused because all of them do                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `capabilities.test.mjs`        | package-level capabilities that depend on an installed package; a missing package reports a skip rather than passing silently                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `portable.test.mjs`            | the end-to-end contract: a migrated project still parses, still runs, and stays runnable under Node when `portable = true`; the package, test and source layers all consult the same flag                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `upstream-shape.test.mjs`      | whole-project regressions found against a real upstream checkout: a package manager left behind, a catalog entry lost, a script Bun cannot resolve                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `self.test.mjs`                | **the suite is Bun-native**: every test imports from `bun:test` and nothing from vitest, jest or `node:test`; no `vi`/`jest` globals in test bodies; the source carries no test-framework coupling                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 The `self.test.mjs` check matters more than it looks. A Node-to-Bun migration tool
 whose own tests ran on a Node framework could not observe the differences it

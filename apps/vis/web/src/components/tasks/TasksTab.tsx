@@ -138,9 +138,7 @@ function TaskCard({ sessionId, entry }: { sessionId: string; entry: BackgroundTa
             <Field label={t('tasks.subagentType')}>
               {task.subagentType ?? <Dim>{t('tasks.none')}</Dim>}
             </Field>
-            {task.stopCode !== undefined ? (
-              <Field label="stopCode">{task.stopCode}</Field>
-            ) : null}
+            {task.stopCode !== undefined ? <Field label="stopCode">{task.stopCode}</Field> : null}
           </>
         ) : null}
         {task.kind === 'question' ? (

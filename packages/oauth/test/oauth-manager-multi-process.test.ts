@@ -24,10 +24,9 @@
  * env-var escape hatch; this test skips on `process.platform === 'win32'`.
  */
 
+import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-
-import { afterEach, describe, expect, it } from 'bun:test';
 
 import { createTempWorkDir, spawnInlineWorkers, type TempDirHandle } from './helpers';
 

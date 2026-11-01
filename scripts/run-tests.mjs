@@ -2,8 +2,8 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-import { killProcessTree } from './lib/kill-process-tree.mjs';
 import { limitSelfToCpus, resolveTestCpuLimit } from './lib/cpu-limit.mjs';
+import { killProcessTree } from './lib/kill-process-tree.mjs';
 import { acquireTestSuiteLock } from './lib/test-suite-lock.mjs';
 
 const ROOT = resolve(import.meta.dirname, '..');
@@ -84,7 +84,10 @@ for (const group of ['packages', 'apps', 'apps/vis']) {
 
 packages.sort((a, b) => a.name.localeCompare(b.name));
 
-const selected = only === undefined ? packages : packages.filter((pkg) => pkg.name === only || pkg.dir.endsWith(only));
+const selected =
+  only === undefined
+    ? packages
+    : packages.filter((pkg) => pkg.name === only || pkg.dir.endsWith(only));
 
 if (selected.length === 0) {
   process.stderr.write(`no package matched --package=${String(only)}\n`);
@@ -109,12 +112,15 @@ const failures = [];
 for (const pkg of selected) {
   const label = pkg.dir.slice(ROOT.length + 1).replace(/\\/g, '/');
   process.stdout.write(`\n=== ${pkg.name} (${label}) ===\n`);
-  const child = Bun.spawn(['bun', 'run', script, ...(forwarded.length > 0 ? ['--', ...forwarded] : [])], {
-    cwd: pkg.dir,
-    stdio: ['inherit', 'inherit', 'inherit'],
-    env: process.env,
-    detached: process.platform !== 'win32',
-  });
+  const child = Bun.spawn(
+    ['bun', 'run', script, ...(forwarded.length > 0 ? ['--', ...forwarded] : [])],
+    {
+      cwd: pkg.dir,
+      stdio: ['inherit', 'inherit', 'inherit'],
+      env: process.env,
+      detached: process.platform !== 'win32',
+    },
+  );
   let timedOut = false;
   const timer =
     packageTimeoutMs > 0

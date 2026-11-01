@@ -1,8 +1,8 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import { dirname, join } from 'pathe';
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
@@ -223,10 +223,7 @@ describe('FileSkillDiscovery', () => {
   });
 
   it('ignores node_modules and dot directories while walking', async () => {
-    await writeSkill(
-      'skills/node_modules/hidden/SKILL.md',
-      'name: hidden\ndescription: hidden',
-    );
+    await writeSkill('skills/node_modules/hidden/SKILL.md', 'name: hidden\ndescription: hidden');
 
     const result = await discover([skillRoot('skills')]);
 

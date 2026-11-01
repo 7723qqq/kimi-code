@@ -33,7 +33,9 @@ export function resolveProgramPath(
       throw new Error(`launcher command "${program}" is not an executable file`);
     }
     if (isInsideCwd(program, cwd)) {
-      throw new Error(`launcher command "${program}" resolves inside the working directory; refusing cwd match`);
+      throw new Error(
+        `launcher command "${program}" resolves inside the working directory; refusing cwd match`,
+      );
     }
     return program;
   }
@@ -42,9 +44,12 @@ export function resolveProgramPath(
     process.platform === 'win32'
       ? (process.env['PATHEXT'] ?? '.EXE;.CMD;.BAT;.COM').split(';')
       : [''];
-  const hasExecutableExtension = process.platform === 'win32' && extensions.some(
-    (extension) => extension.length > 0 && program.toLowerCase().endsWith(extension.toLowerCase()),
-  );
+  const hasExecutableExtension =
+    process.platform === 'win32' &&
+    extensions.some(
+      (extension) =>
+        extension.length > 0 && program.toLowerCase().endsWith(extension.toLowerCase()),
+    );
   const candidateNames = hasExecutableExtension
     ? [program]
     : extensions.map((extension) => program + extension.toLowerCase());
@@ -54,7 +59,9 @@ export function resolveProgramPath(
       const candidate = join(entry, name);
       if (!isExecutableFile(candidate)) continue;
       if (isInsideCwd(candidate, cwd)) {
-        throw new Error(`launcher command "${program}" resolves inside the working directory; refusing cwd match`);
+        throw new Error(
+          `launcher command "${program}" resolves inside the working directory; refusing cwd match`,
+        );
       }
       return candidate;
     }

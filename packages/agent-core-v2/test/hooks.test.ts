@@ -50,12 +50,10 @@ describe('OrderedHookSlot', () => {
   it('honors before / after ordering', async () => {
     const slot = new OrderedHookSlot<Record<string, never>>();
     const order: string[] = [];
-    const mk =
-      (id: string) =>
-      async (_ctx: Record<string, never>, next: () => Promise<void>) => {
-        order.push(id);
-        await next();
-      };
+    const mk = (id: string) => async (_ctx: Record<string, never>, next: () => Promise<void>) => {
+      order.push(id);
+      await next();
+    };
     slot.register('a', mk('a'));
     slot.register('c', mk('c'));
     slot.register('b', mk('b'), { before: 'c' });

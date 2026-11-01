@@ -94,9 +94,9 @@ describe('parseArgs selects the rendered profile', () => {
 
 describe('parseArgs reads the actual-global opt-in', () => {
   test('parses the authorized path as a value flag', () => {
-    expect(parseArgs(['bench', '--actual-global', AUTHORIZED_ACTUAL_GLOBAL_PATH]).actualGlobal).toBe(
-      AUTHORIZED_ACTUAL_GLOBAL_PATH,
-    );
+    expect(
+      parseArgs(['bench', '--actual-global', AUTHORIZED_ACTUAL_GLOBAL_PATH]).actualGlobal,
+    ).toBe(AUTHORIZED_ACTUAL_GLOBAL_PATH);
   });
 
   test('is absent unless asked for', () => {
@@ -110,6 +110,8 @@ describe('parseArgs reads the actual-global opt-in', () => {
   });
 
   test('parsing does not validate the path — that decision belongs to the renderer', () => {
-    expect(parseArgs(['bench', '--actual-global', '/tmp/anything']).actualGlobal).toBe('/tmp/anything');
+    expect(parseArgs(['bench', '--actual-global', '/tmp/anything']).actualGlobal).toBe(
+      '/tmp/anything',
+    );
   });
 });

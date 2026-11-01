@@ -11,8 +11,9 @@
 
 import chalk from 'chalk';
 
-import type { ColorPalette, ResolvedTheme } from './colors';
 import { SGR_FAINT, SGR_NORMAL_INTENSITY, SGR_SEQUENCE } from '#/tui/constant/terminal';
+
+import type { ColorPalette, ResolvedTheme } from './colors';
 import { darkColors } from './colors';
 import { deriveHoverBackground } from './hover-color';
 

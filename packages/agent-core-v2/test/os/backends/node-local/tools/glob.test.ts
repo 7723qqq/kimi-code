@@ -1,24 +1,11 @@
+import { afterEach, beforeAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { Readable, type Writable } from 'node:stream';
 
-import {
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  mock,
-  spyOn,
-} from 'bun:test';
-
-import { type RgProbe, type RgResolution } from '#/os/backends/host/tools/rgLocator';
-import { PathSecurityError, type PathClass } from '#/tool/path-access';
-import { noopTelemetryService } from '#/app/telemetry/telemetry';
-import type { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
+import { probeHostEnvironmentFromNode } from '#/_base/execEnv/environmentProbe';
+import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import {
   type GlobInput,
   GlobInputSchema,
@@ -26,20 +13,27 @@ import {
   WINDOWS_PATH_HINT,
 } from '#/agent/tools/os/glob/glob';
 import { GlobTool, splitCompletePaths } from '#/agent/tools/os/glob/globTool';
+import { noopTelemetryService } from '#/app/telemetry/telemetry';
+import type { ITelemetryService, TelemetryProperties } from '#/app/telemetry/telemetry';
+import { HostFileSystem } from '#/os/backends/host/hostFsService';
+import { HostProcessService } from '#/os/backends/host/hostProcessService';
+import { type RgProbe, type RgResolution } from '#/os/backends/host/tools/rgLocator';
+import * as rgLocator from '#/os/backends/host/tools/rgLocator';
+import type { RgHostProcessService } from '#/os/backends/host/tools/runRg';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
-import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
-import { FakeRuntime } from '#/runtime/fakeRuntime';
-import { HostFileSystem } from '#/os/backends/host/hostFsService';
-import { HostProcessService } from '#/os/backends/host/hostProcessService';
-import { probeHostEnvironmentFromNode } from '#/_base/execEnv/environmentProbe';
-import type { ITelemetryService, TelemetryProperties } from '#/app/telemetry/telemetry';
-import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
-
-import * as rgLocator from '#/os/backends/host/tools/rgLocator';
-import type { RgHostProcessService } from '#/os/backends/host/tools/runRg';
 import type { IHostTimerHandle, IHostTimers } from '#/os/interface/hostTimers';
+import { FakeRuntime } from '#/runtime/fakeRuntime';
+import type { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
+import { PathSecurityError, type PathClass } from '#/tool/path-access';
+import type {
+  ExecutableToolContext,
+  ExecutableToolResult,
+  ToolExecution,
+} from '#/tool/toolContract';
+
+import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
 
 const realEnsureRgPath = rgLocator.ensureRgPath;
 const ensureRgPath = spyOn(rgLocator, 'ensureRgPath').mockImplementation(async () => ({
@@ -124,7 +118,9 @@ function fileStat(): HostFileStat {
   return { isFile: true, isDirectory: false, size: 0 };
 }
 
-function createTestFs(opts: { stat?: ReturnType<typeof mock>; readdir?: ReturnType<typeof mock> } = {}) {
+function createTestFs(
+  opts: { stat?: ReturnType<typeof mock>; readdir?: ReturnType<typeof mock> } = {},
+) {
   const stat = opts.stat ?? mock(async (): Promise<HostFileStat> => dirStat());
   const readdir = opts.readdir ?? mock(async (): Promise<readonly string[]> => []);
   const fs = { stat, readdir } as unknown as IHostFileSystem;
@@ -204,21 +200,23 @@ function createRealRgProbe(processService: IHostProcessService): RgProbe {
       const proc = await processService.spawn(command, rest);
       try {
         proc.stdin.end();
-      } catch {
-      }
+      } catch {}
       proc.stdout.resume();
       proc.stderr.resume();
       const exitCode = await proc.wait();
       try {
         void proc.dispose();
-      } catch {
-      }
+      } catch {}
       return { exitCode };
     },
   };
 }
 
-function withCwdOf(exec: ReturnType<typeof mock>): { toHaveBeenCalledWith: (dir: string) => void; toHaveBeenCalled: () => void; not: { toHaveBeenCalled: () => void; toHaveBeenCalledWith: (dir: string) => void } } {
+function withCwdOf(exec: ReturnType<typeof mock>): {
+  toHaveBeenCalledWith: (dir: string) => void;
+  toHaveBeenCalled: () => void;
+  not: { toHaveBeenCalled: () => void; toHaveBeenCalledWith: (dir: string) => void };
+} {
   const cwds = () =>
     (
       exec.mock.calls as unknown as ReadonlyArray<
@@ -263,7 +261,9 @@ function telemetryStub(
   };
 }
 
-function isPromiseLike(value: ToolExecution | Promise<ToolExecution>): value is Promise<ToolExecution> {
+function isPromiseLike(
+  value: ToolExecution | Promise<ToolExecution>,
+): value is Promise<ToolExecution> {
   return typeof (value as Promise<ToolExecution>).then === 'function';
 }
 
@@ -408,10 +408,10 @@ describe('GlobTool', () => {
 
   it('uses the backend path class when displaying paths relative to a windows root', async () => {
     const exec = execReturning('C:\\workspace\\src\\old.ts\n');
-    const { tool, withCwd } = makeTool(
-      stubWorkspaceContext('C:\\workspace'),
-      { pathClass: 'win32', exec },
-    );
+    const { tool, withCwd } = makeTool(stubWorkspaceContext('C:\\workspace'), {
+      pathClass: 'win32',
+      exec,
+    });
 
     const result = await execute(tool, { pattern: 'src/**/*.ts', path: 'C:\\WORKSPACE' });
 
@@ -421,8 +421,9 @@ describe('GlobTool', () => {
 
   it('walks pure-wildcard patterns and gives a continuation for the default page', async () => {
     const stdout =
-      Array.from({ length: DEFAULT_HEAD_LIMIT + 5 }, (_, i) => `/workspace/${String(i)}.ts`).join('\n') +
-      '\n';
+      Array.from({ length: DEFAULT_HEAD_LIMIT + 5 }, (_, i) => `/workspace/${String(i)}.ts`).join(
+        '\n',
+      ) + '\n';
     const exec = execReturning(stdout);
     const { tool, withCwd } = makeTool(workspace, { exec });
 
@@ -505,8 +506,9 @@ describe('GlobTool', () => {
 
   it('limits the default page and gives the next offset', async () => {
     const stdout =
-      Array.from({ length: DEFAULT_HEAD_LIMIT + 1 }, (_, i) => `/workspace/${String(i)}.ts`).join('\n') +
-      '\n';
+      Array.from({ length: DEFAULT_HEAD_LIMIT + 1 }, (_, i) => `/workspace/${String(i)}.ts`).join(
+        '\n',
+      ) + '\n';
     const exec = execReturning(stdout);
     const { tool } = makeTool(stubWorkspaceContext('/workspace'), { exec });
 
@@ -519,21 +521,25 @@ describe('GlobTool', () => {
 
   it('offers an all-matches query when the default page is incomplete', async () => {
     const stdout =
-      Array.from({ length: DEFAULT_HEAD_LIMIT + 50 }, (_, i) => `/workspace/file_${String(i)}.txt`).join(
-        '\n',
-      ) + '\n';
+      Array.from(
+        { length: DEFAULT_HEAD_LIMIT + 50 },
+        (_, i) => `/workspace/file_${String(i)}.txt`,
+      ).join('\n') + '\n';
     const exec = execReturning(stdout);
     const { tool } = makeTool(stubWorkspaceContext('/workspace'), { exec });
 
     const result = await execute(tool, { pattern: '*.txt' });
 
-    expect(result.output).toContain('To remove the match-count limit, omit offset and use head_limit=0.');
+    expect(result.output).toContain(
+      'To remove the match-count limit, omit offset and use head_limit=0.',
+    );
   });
 
   it('returns a "Found N matches" footer at exactly DEFAULT_HEAD_LIMIT without truncation', async () => {
     const stdout =
-      Array.from({ length: DEFAULT_HEAD_LIMIT }, (_, i) => `/workspace/test_${String(i)}.py`).join('\n') +
-      '\n';
+      Array.from({ length: DEFAULT_HEAD_LIMIT }, (_, i) => `/workspace/test_${String(i)}.py`).join(
+        '\n',
+      ) + '\n';
     const exec = execReturning(stdout);
     const { tool } = makeTool(stubWorkspaceContext('/workspace'), { exec });
 
@@ -543,38 +549,64 @@ describe('GlobTool', () => {
     expect(result.output).toContain(`Found ${String(DEFAULT_HEAD_LIMIT)} matches`);
   });
 
-  it.each([2, 10])('distinguishes an exhausted page at offset=%s from a search with no matches', async (offset) => {
-    const { tool } = makeTool(workspace, { exec: execReturning('/workspace/a.ts\n/workspace/b.ts\n') });
-    const result = await execute(tool, GlobInputSchema.parse({ pattern: '*.ts', offset }));
-    expect(result.output).toBe(`No more matches at offset=${String(offset)} in the current result set (2 matches).`);
-  });
+  it.each([2, 10])(
+    'distinguishes an exhausted page at offset=%s from a search with no matches',
+    async (offset) => {
+      const { tool } = makeTool(workspace, {
+        exec: execReturning('/workspace/a.ts\n/workspace/b.ts\n'),
+      });
+      const result = await execute(tool, GlobInputSchema.parse({ pattern: '*.ts', offset }));
+      expect(result.output).toBe(
+        `No more matches at offset=${String(offset)} in the current result set (2 matches).`,
+      );
+    },
+  );
 
-  it.each([0, 1, 3])('keeps traversal warnings and partial counts on the page at offset=%s', async (offset) => {
-    const { tool } = makeTool(workspace, {
-      exec: execReturning('/workspace/a.ts\n/workspace/b.ts\n/workspace/c.ts\n', 'rg: ./locked: Permission denied', 2),
-    });
-    const result = await execute(tool, GlobInputSchema.parse({ pattern: '*.ts', offset, head_limit: 1 }));
-    expect(result.output).toContain('Permission denied');
-    expect(result.output).toContain('partial result set');
-    expect(result.output).not.toContain('No matches found');
-    if (offset < 3) expect(result.output).toContain('of 3 collected matches (partial result set).');
-    else expect(result.output).toContain('No more matches at offset=3');
-  });
+  it.each([0, 1, 3])(
+    'keeps traversal warnings and partial counts on the page at offset=%s',
+    async (offset) => {
+      const { tool } = makeTool(workspace, {
+        exec: execReturning(
+          '/workspace/a.ts\n/workspace/b.ts\n/workspace/c.ts\n',
+          'rg: ./locked: Permission denied',
+          2,
+        ),
+      });
+      const result = await execute(
+        tool,
+        GlobInputSchema.parse({ pattern: '*.ts', offset, head_limit: 1 }),
+      );
+      expect(result.output).toContain('Permission denied');
+      expect(result.output).toContain('partial result set');
+      expect(result.output).not.toContain('No matches found');
+      if (offset < 3)
+        expect(result.output).toContain('of 3 collected matches (partial result set).');
+      else expect(result.output).toContain('No more matches at offset=3');
+    },
+  );
 
   it.each<{ head_limit: number; expected: string[] }>([
     { head_limit: 1, expected: ['b.ts'] },
     { head_limit: 0, expected: ['b.ts', 'c.ts'] },
-  ])('applies head_limit=$head_limit and offset after sensitive filtering', async ({ head_limit, expected }) => {
-    const { tool } = makeTool(workspace, {
-      exec: execReturning('/workspace/.env\n/workspace/a.ts\n/workspace/.aws/credentials\n/workspace/b.ts\n/workspace/c.ts\n'),
-    });
-    const result = await execute(tool, GlobInputSchema.parse({ pattern: '**', offset: 1, head_limit }));
-    const text = toolContentString(result);
-    expect(text.split('\n').filter((line) => line.endsWith('.ts'))).toEqual(expected);
-    expect(text).not.toContain('.env');
-    expect(text).not.toContain('credentials');
-    expect(text).toContain('of 3.');
-  });
+  ])(
+    'applies head_limit=$head_limit and offset after sensitive filtering',
+    async ({ head_limit, expected }) => {
+      const { tool } = makeTool(workspace, {
+        exec: execReturning(
+          '/workspace/.env\n/workspace/a.ts\n/workspace/.aws/credentials\n/workspace/b.ts\n/workspace/c.ts\n',
+        ),
+      });
+      const result = await execute(
+        tool,
+        GlobInputSchema.parse({ pattern: '**', offset: 1, head_limit }),
+      );
+      const text = toolContentString(result);
+      expect(text.split('\n').filter((line) => line.endsWith('.ts'))).toEqual(expected);
+      expect(text).not.toContain('.env');
+      expect(text).not.toContain('credentials');
+      expect(text).toContain('of 3.');
+    },
+  );
 
   it('does not present a capped capture as a complete search when returning all matches', async () => {
     const { tool } = makeTool(workspace, {
@@ -589,7 +621,9 @@ describe('GlobTool', () => {
   it('keeps the timeout warning when the requested page has no collected matches', async () => {
     const timers = createFakeTimers();
     let finish!: (code: number) => void;
-    const completion = new Promise<number>((resolve) => { finish = resolve; });
+    const completion = new Promise<number>((resolve) => {
+      finish = resolve;
+    });
     const proc = fakeProcess('/workspace/a.ts\n');
     const { tool } = makeTool(workspace, {
       timers,
@@ -597,7 +631,9 @@ describe('GlobTool', () => {
         ...proc,
         exitCode: null,
         wait: () => completion,
-        kill: async () => { finish(143); },
+        kill: async () => {
+          finish(143);
+        },
       }),
     });
     const pending = execute(tool, GlobInputSchema.parse({ pattern: '*.ts', offset: 1 }));
@@ -607,29 +643,46 @@ describe('GlobTool', () => {
     await flushAsyncWork();
     const result = await pending;
     expect(result.output).toContain('Glob timed out');
-    expect(result.output).toContain('No more matches at offset=1 in the collected partial result set');
+    expect(result.output).toContain(
+      'No more matches at offset=1 in the collected partial result set',
+    );
     expect(result.output).not.toContain('No matches found');
   });
 
-  it.each([0, 60_000])('keeps expanded paths within spill retention and continues with head_limit=%s', async (head_limit) => {
-    const root = `/${'r'.repeat(180)}`;
-    const names = Array.from({ length: 60_000 }, (_, i) => `file-${String(i).padStart(6, '0')}.ts`);
-    const stdout = names.map((name) => `./${name}`).join('\n') + '\n';
-    const { tool } = makeTool(workspace, { exec: mock(async () => fakeProcess(stdout)) });
-    const first = toolContentString(await execute(tool, { pattern: '*.ts', path: root, head_limit }));
-    expect(first.length).toBeLessThanOrEqual(10_000_000);
-    expect(first).toContain('Character limit reached; only complete paths are returned.');
-    expect(first).not.toContain('head_limit=0');
-    const next = /Continue with the same search arguments and offset=(\d+)\./.exec(first)?.[1];
-    expect(next).toBeDefined();
-    const second = toolContentString(await execute(tool, {
-      pattern: '*.ts', path: root, head_limit, offset: Number(next),
-    }));
-    expect(second.length).toBeLessThanOrEqual(10_000_000);
-    expect(second).not.toContain('Continue with');
-    const recovered = [...first.split('\n'), ...second.split('\n')].filter((line) => line.startsWith('/'));
-    expect(recovered).toEqual(names.map((name) => `${root}/${name}`));
-  });
+  it.each([0, 60_000])(
+    'keeps expanded paths within spill retention and continues with head_limit=%s',
+    async (head_limit) => {
+      const root = `/${'r'.repeat(180)}`;
+      const names = Array.from(
+        { length: 60_000 },
+        (_, i) => `file-${String(i).padStart(6, '0')}.ts`,
+      );
+      const stdout = names.map((name) => `./${name}`).join('\n') + '\n';
+      const { tool } = makeTool(workspace, { exec: mock(async () => fakeProcess(stdout)) });
+      const first = toolContentString(
+        await execute(tool, { pattern: '*.ts', path: root, head_limit }),
+      );
+      expect(first.length).toBeLessThanOrEqual(10_000_000);
+      expect(first).toContain('Character limit reached; only complete paths are returned.');
+      expect(first).not.toContain('head_limit=0');
+      const next = /Continue with the same search arguments and offset=(\d+)\./.exec(first)?.[1];
+      expect(next).toBeDefined();
+      const second = toolContentString(
+        await execute(tool, {
+          pattern: '*.ts',
+          path: root,
+          head_limit,
+          offset: Number(next),
+        }),
+      );
+      expect(second.length).toBeLessThanOrEqual(10_000_000);
+      expect(second).not.toContain('Continue with');
+      const recovered = [...first.split('\n'), ...second.split('\n')].filter((line) =>
+        line.startsWith('/'),
+      );
+      expect(recovered).toEqual(names.map((name) => `${root}/${name}`));
+    },
+  );
 
   it('filters sensitive files from results', async () => {
     const exec = execReturning('/workspace/.env\n/workspace/src/a.ts\n');
@@ -672,9 +725,7 @@ describe('GlobTool', () => {
   });
 
   it('surfaces an actionable error and tracks telemetry when rg is unavailable', async () => {
-    ensureRgPath.mockRejectedValueOnce(
-      new Error('ripgrep (rg) is not available on PATH'),
-    );
+    ensureRgPath.mockRejectedValueOnce(new Error('ripgrep (rg) is not available on PATH'));
     const events: Array<{ event: string; properties: Record<string, unknown> }> = [];
     const exec = mock();
     const { tool } = makeTool(workspace, { exec, telemetry: telemetryStub(events) });
@@ -740,10 +791,9 @@ describe('GlobTool', () => {
 
     it('rejects a relative path that escapes both workspace and additionalDirs', async () => {
       const exec = mock();
-      const { tool, withCwd } = makeTool(
-        stubWorkspaceContext('/workspace/project', ['/skills']),
-        { exec },
-      );
+      const { tool, withCwd } = makeTool(stubWorkspaceContext('/workspace/project', ['/skills']), {
+        exec,
+      });
 
       const result = await execute(tool, { pattern: '*.py', path: '../../tmp/evil' });
 
@@ -925,10 +975,7 @@ describe('GlobTool', () => {
 
   it('shows absolute paths when explicit search root is outside all workspace roots', async () => {
     const exec = execReturning('/extra/test.py\n');
-    const { tool, withCwd } = makeTool(
-      stubWorkspaceContext('/workspace'),
-      { exec },
-    );
+    const { tool, withCwd } = makeTool(stubWorkspaceContext('/workspace'), { exec });
 
     const result = await execute(tool, { pattern: '*.py', path: '/extra' });
     expect(result.isError).toBeFalsy();
@@ -960,10 +1007,10 @@ describe('GlobTool', () => {
 
   it('expands a leading "~/" path before searching outside the workspace', async () => {
     const exec = execReturning('');
-    const { tool, withCwd } = makeTool(
-      stubWorkspaceContext('/workspace'),
-      { home: '/home/test', exec },
-    );
+    const { tool, withCwd } = makeTool(stubWorkspaceContext('/workspace'), {
+      home: '/home/test',
+      exec,
+    });
 
     const result = await execute(tool, { pattern: '*.py', path: '~/' });
 
@@ -975,10 +1022,7 @@ describe('GlobTool', () => {
 
   it('allows a path sharing the workspace prefix when it is absolute', async () => {
     const exec = execReturning('');
-    const { tool, withCwd } = makeTool(
-      stubWorkspaceContext('/parent/workdir'),
-      { exec },
-    );
+    const { tool, withCwd } = makeTool(stubWorkspaceContext('/parent/workdir'), { exec });
 
     const result = await execute(tool, { pattern: '*.py', path: '/parent/workdir-sneaky' });
 
@@ -987,7 +1031,6 @@ describe('GlobTool', () => {
     withCwd.toHaveBeenCalledWith('/parent/workdir-sneaky');
     expect(execArgs(exec).at(-1)).toBe('.');
   });
-
 });
 
 describe('splitCompletePaths', () => {
@@ -1031,7 +1074,6 @@ if (HEAVY && realRgResolution === undefined) {
 }
 
 describe.skipIf(realRgResolution === undefined)('GlobTool integration (real ripgrep)', () => {
-
   let tmpDir: string | undefined;
   let realEnv: IHostEnvironment;
   let realProcessService: IHostProcessService;
@@ -1076,16 +1118,27 @@ describe.skipIf(realRgResolution === undefined)('GlobTool integration (real ripg
   const ws = () => stubWorkspaceContext(tmpDir!);
 
   it('continues through every match beyond the default page without duplicates', async () => {
-    const expected = Array.from({ length: 347 }, (_, index) => `file-${String(index).padStart(3, '0')}.ts`);
-    await Promise.all(expected.map((name, index) => touch(name, new Date(1_700_000_000_000 - index * 1000))));
-    const tool = new GlobTool(createRuntime(realFs, realEnv, realProcessService), ws(), noopTelemetryService);
+    const expected = Array.from(
+      { length: 347 },
+      (_, index) => `file-${String(index).padStart(3, '0')}.ts`,
+    );
+    await Promise.all(
+      expected.map((name, index) => touch(name, new Date(1_700_000_000_000 - index * 1000))),
+    );
+    const tool = new GlobTool(
+      createRuntime(realFs, realEnv, realProcessService),
+      ws(),
+      noopTelemetryService,
+    );
     const recovered: string[] = [];
     for (const offset of [0, 100, 200, 300]) {
       const result = await execute(tool, GlobInputSchema.parse({ pattern: '*.ts', offset }));
       expect(result.isError).not.toBe(true);
       const text = toolContentString(result);
       recovered.push(...text.split('\n').filter((line) => /^file-\d+\.ts$/.test(line)));
-      expect(text).toContain(`Showing matches ${String(offset + 1)}–${String(Math.min(offset + 100, 347))} of 347.`);
+      expect(text).toContain(
+        `Showing matches ${String(offset + 1)}–${String(Math.min(offset + 100, 347))} of 347.`,
+      );
       if (offset < 300) expect(text).toContain(`offset=${String(offset + 100)}`);
       else expect(text).not.toContain('Continue with');
     }
@@ -1096,7 +1149,11 @@ describe.skipIf(realRgResolution === undefined)('GlobTool integration (real ripg
     await touch('old.ts', new Date('2020-01-01T00:00:00Z'));
     await touch('mid.ts', new Date('2022-01-01T00:00:00Z'));
     await touch('new.ts', new Date('2024-01-01T00:00:00Z'));
-    const tool = new GlobTool(createRuntime(realFs, realEnv, realProcessService), ws(), noopTelemetryService);
+    const tool = new GlobTool(
+      createRuntime(realFs, realEnv, realProcessService),
+      ws(),
+      noopTelemetryService,
+    );
 
     const result = await execute(tool, { pattern: '*.ts', path: tmpDir! });
 
@@ -1107,7 +1164,11 @@ describe.skipIf(realRgResolution === undefined)('GlobTool integration (real ripg
     await touch('root.ts', new Date('2024-01-01T00:00:00Z'));
     await touch('src/a.ts', new Date('2023-01-01T00:00:00Z'));
     await touch('src/sub/b.ts', new Date('2022-01-01T00:00:00Z'));
-    const tool = new GlobTool(createRuntime(realFs, realEnv, realProcessService), ws(), noopTelemetryService);
+    const tool = new GlobTool(
+      createRuntime(realFs, realEnv, realProcessService),
+      ws(),
+      noopTelemetryService,
+    );
 
     const result = await execute(tool, { pattern: '*.ts', path: tmpDir! });
 
@@ -1120,7 +1181,11 @@ describe.skipIf(realRgResolution === undefined)('GlobTool integration (real ripg
     await touch('src/a.ts', new Date('2024-01-01T00:00:00Z'));
     await touch('test/a.ts', new Date('2023-01-01T00:00:00Z'));
     await touch('other/a.ts', new Date('2022-01-01T00:00:00Z'));
-    const tool = new GlobTool(createRuntime(realFs, realEnv, realProcessService), ws(), noopTelemetryService);
+    const tool = new GlobTool(
+      createRuntime(realFs, realEnv, realProcessService),
+      ws(),
+      noopTelemetryService,
+    );
 
     const result = await execute(tool, { pattern: '{src,test}/*.ts', path: tmpDir! });
 
@@ -1133,7 +1198,11 @@ describe.skipIf(realRgResolution === undefined)('GlobTool integration (real ripg
     await touch('src/a.ts', new Date('2024-01-01T00:00:00Z'));
     await touch('src/sub/b.ts', new Date('2023-01-01T00:00:00Z'));
     await touch('other/c.ts', new Date('2022-01-01T00:00:00Z'));
-    const tool = new GlobTool(createRuntime(realFs, realEnv, realProcessService), ws(), noopTelemetryService);
+    const tool = new GlobTool(
+      createRuntime(realFs, realEnv, realProcessService),
+      ws(),
+      noopTelemetryService,
+    );
 
     const result = await execute(tool, { pattern: 'src/**/*.ts', path: tmpDir! });
 
@@ -1144,7 +1213,11 @@ describe.skipIf(realRgResolution === undefined)('GlobTool integration (real ripg
 
   it('treats an escaped brace as a literal filename', async () => {
     await touch('{a,b}.ts', new Date('2024-01-01T00:00:00Z'));
-    const tool = new GlobTool(createRuntime(realFs, realEnv, realProcessService), ws(), noopTelemetryService);
+    const tool = new GlobTool(
+      createRuntime(realFs, realEnv, realProcessService),
+      ws(),
+      noopTelemetryService,
+    );
 
     const result = await execute(tool, { pattern: '\\{a,b\\}.ts', path: tmpDir! });
 
@@ -1156,7 +1229,11 @@ describe.skipIf(realRgResolution === undefined)('GlobTool integration (real ripg
     try {
       const extFile = path.join(externalDir, 'pkg.ts');
       await fs.writeFile(extFile, '');
-      const tool = new GlobTool(createRuntime(realFs, realEnv, realProcessService), ws(), noopTelemetryService);
+      const tool = new GlobTool(
+        createRuntime(realFs, realEnv, realProcessService),
+        ws(),
+        noopTelemetryService,
+      );
 
       const result = await execute(tool, { pattern: '*.ts', path: externalDir });
 

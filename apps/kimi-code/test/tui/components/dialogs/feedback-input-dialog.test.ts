@@ -1,13 +1,14 @@
-import { visibleWidth } from '@moonshot-ai/pi-tui';
-import chalk from 'chalk';
 import { beforeAll, describe, expect, it } from 'bun:test';
 
-import { mouse } from '#test/helpers/mouse';
+import { visibleWidth } from '@moonshot-ai/pi-tui';
+import chalk from 'chalk';
+
 import {
   FeedbackInputDialogComponent,
   type FeedbackInputDialogResult,
 } from '#/tui/components/dialogs/feedback-input-dialog';
 import { darkColors } from '#/tui/theme/colors';
+import { mouse } from '#test/helpers/mouse';
 
 const ESC = String.fromCodePoint(27);
 const CTRL_C = String.fromCodePoint(3);

@@ -1,7 +1,6 @@
+import { describe, expect, it } from 'bun:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-
-import { describe, expect, it } from 'bun:test';
 
 const sourceRoot = join(import.meta.dirname, '../../src');
 const kapSourceRoot = join(import.meta.dirname, '../../../kap-server/src');
@@ -33,7 +32,9 @@ describe('runtime architecture boundaries', () => {
     const workspaceInstance = source('workspace/workspaceInstance/workspaceInstance.ts');
     const program = source('program/program.ts');
     const dependencies = source('program/programDependencies.ts');
-    const workspaceSources = sourceFiles('workspace').map((path) => readFileSync(path, 'utf8')).join('\n');
+    const workspaceSources = sourceFiles('workspace')
+      .map((path) => readFileSync(path, 'utf8'))
+      .join('\n');
     expect(workspaceInstance).not.toContain('createScopedChildHandle');
     expect(program).not.toContain('ServicesAccessor');
     expect(program).not.toContain('readonly accessor');
@@ -83,7 +84,9 @@ describe('runtime architecture boundaries', () => {
       const contents = source(path);
       expect(contents).toContain('new RuntimeWorkspaceView(');
       expect(contents).toMatch(/\.runtime\.(acquire|inspect)\(/);
-      expect(contents).not.toMatch(/@IHost(?:Environment|FileSystem|FsWatchService|ProcessService)/);
+      expect(contents).not.toMatch(
+        /@IHost(?:Environment|FileSystem|FsWatchService|ProcessService)/,
+      );
     }
     const readTool = source('agent/tools/os/read/readTool.ts');
     expect(readTool).not.toContain('IAgentRuntimeService | IHostFileSystem');

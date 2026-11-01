@@ -139,7 +139,11 @@ console.log(`before: ${BEFORE_TAG}`);
 console.log(`after:  ${AFTER_TAG}`);
 console.log('');
 console.log(
-  'surface'.padEnd(22) + 'before'.padStart(9) + 'after'.padStart(9) + 'saved'.padStart(9) + 'reduced'.padStart(9),
+  'surface'.padEnd(22) +
+    'before'.padStart(9) +
+    'after'.padStart(9) +
+    'saved'.padStart(9) +
+    'reduced'.padStart(9),
 );
 console.log('─'.repeat(76));
 for (const m of [system, tools, combined]) console.log(line(m));

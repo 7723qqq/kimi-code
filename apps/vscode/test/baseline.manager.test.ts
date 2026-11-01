@@ -1,3 +1,4 @@
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 /**
  * Scenario: VSCode-owned file baselines for new, migrated, and forked sessions.
  * Responsibilities: capture originals, show changes, keep/undo, persist legacy tombstones, and reject unsafe paths.
@@ -5,14 +6,25 @@
  * Run: cd apps/vscode && bun run test -- baseline.manager.test.ts
  */
 import { existsSync, writeFileSync } from 'node:fs';
-import { chmod, lstat, mkdir, mkdtemp, open, readdir, readFile, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  lstat,
+  mkdir,
+  mkdtemp,
+  open,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  unlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-
-import { realNodeFs, realStatSync, statSyncMock } from './real-node-fs';
 import { SYMLINKS } from './helpers';
+import { realNodeFs, realStatSync, statSyncMock } from './real-node-fs';
 
 // An unreachable UNC share reports EUNKNOWN on Windows rather than ENOENT, and
 // `statSync` cannot be spied on through a module namespace. Only that export is
@@ -159,17 +171,20 @@ describe('file baselines (capture, compare, keep, and undo)', () => {
 
   // Windows has no POSIX permission bits: `chmod` is a no-op beyond the
   // read-only flag, so there is no mode to preserve.
-  it.skipIf(process.platform === 'win32')('restores the original content and keeps the file mode when undo runs', async () => {
-    const session = createSession();
-    const filePath = join(workDir, 'script.sh');
-    await writeFile(filePath, '#!/bin/sh\necho original\n', 'utf-8');
-    await chmod(filePath, 0o600);
-    await manager.capture(session, filePath);
-    await manager.undo(session, filePath);
+  it.skipIf(process.platform === 'win32')(
+    'restores the original content and keeps the file mode when undo runs',
+    async () => {
+      const session = createSession();
+      const filePath = join(workDir, 'script.sh');
+      await writeFile(filePath, '#!/bin/sh\necho original\n', 'utf-8');
+      await chmod(filePath, 0o600);
+      await manager.capture(session, filePath);
+      await manager.undo(session, filePath);
 
-    await expect(readFile(filePath, 'utf-8')).resolves.toBe('#!/bin/sh\necho original\n');
-    expect((await stat(filePath)).mode & 0o777).toBe(0o600);
-  });
+      await expect(readFile(filePath, 'utf-8')).resolves.toBe('#!/bin/sh\necho original\n');
+      expect((await stat(filePath)).mode & 0o777).toBe(0o600);
+    },
+  );
 
   it.skipIf(!SYMLINKS)('restores the snapshotted file behind an in-workspace symlink', async () => {
     const session = createSession();
@@ -213,28 +228,31 @@ describe('file baselines (capture, compare, keep, and undo)', () => {
 
   // Replacing a file while another handle holds it open is POSIX behaviour;
   // Windows refuses the rename with EPERM.
-  it.skipIf(process.platform === 'win32')('replaces the restored file instead of truncating it in place', async () => {
-    const session = createSession();
-    const filePath = join(workDir, 'app.ts');
-    await writeFile(filePath, 'original content\n', 'utf-8');
-    await manager.capture(session, filePath);
-    await writeFile(filePath, 'changed\n', 'utf-8');
-    // A reader that opened the file before the restore: with `writeFile` it
-    // would observe the truncated intermediate state, with a rename it keeps
-    // reading the complete original.
-    const heldOpen = await open(filePath, 'r');
+  it.skipIf(process.platform === 'win32')(
+    'replaces the restored file instead of truncating it in place',
+    async () => {
+      const session = createSession();
+      const filePath = join(workDir, 'app.ts');
+      await writeFile(filePath, 'original content\n', 'utf-8');
+      await manager.capture(session, filePath);
+      await writeFile(filePath, 'changed\n', 'utf-8');
+      // A reader that opened the file before the restore: with `writeFile` it
+      // would observe the truncated intermediate state, with a rename it keeps
+      // reading the complete original.
+      const heldOpen = await open(filePath, 'r');
 
-    try {
-      await manager.undo(session, filePath);
+      try {
+        await manager.undo(session, filePath);
 
-      await expect(readFile(filePath, 'utf-8')).resolves.toBe('original content\n');
-      const handle = await heldOpen.readFile({ encoding: 'utf-8' });
-      expect(handle).toBe('changed\n');
-    } finally {
-      await heldOpen.close();
-    }
-    await expect(readdir(workDir)).resolves.toEqual(['app.ts']);
-  });
+        await expect(readFile(filePath, 'utf-8')).resolves.toBe('original content\n');
+        const handle = await heldOpen.readFile({ encoding: 'utf-8' });
+        expect(handle).toBe('changed\n');
+      } finally {
+        await heldOpen.close();
+      }
+      await expect(readdir(workDir)).resolves.toEqual(['app.ts']);
+    },
+  );
 
   it('captures a new original after keep accepts the previous changes', async () => {
     const session = createSession();

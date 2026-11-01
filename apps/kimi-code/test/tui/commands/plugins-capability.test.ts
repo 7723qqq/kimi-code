@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+
 import { log } from '@moonshot-ai/kimi-code-sdk';
 import { resetCapabilitiesCache, setCapabilities, type Component } from '@moonshot-ai/pi-tui';
 
@@ -99,9 +100,7 @@ function visibleLines(entries: readonly Component[], width = 100): string[] {
 }
 
 function unwrappedVisibleText(entries: readonly Component[]): string {
-  return visibleLines(entries)
-    .join('\n')
-    .replaceAll(/\s+/g, '');
+  return visibleLines(entries).join('\n').replaceAll(/\s+/g, '');
 }
 
 describe('plugins command capability surface', () => {
@@ -130,9 +129,7 @@ describe('plugins command capability surface', () => {
       isCapabilityEntry({ id: 'kimi-cu', source: 'https://example.test/plugin.zip' } as never),
     ).toBe(false);
     // A forged capability: source without the parser-proof flag is a plain row.
-    expect(isCapabilityEntry({ id: 'kimi-cu', source: 'capability:kimi-cu' } as never)).toBe(
-      false,
-    );
+    expect(isCapabilityEntry({ id: 'kimi-cu', source: 'capability:kimi-cu' } as never)).toBe(false);
   });
 
   it('logs progress without replacing the generic installing label', async () => {
@@ -161,7 +158,9 @@ describe('plugins command capability surface', () => {
     await removePlugin(host, 'kimi-cu');
     expect(statuses.some((s) => s.includes('Removed kimi-cu'))).toBe(true);
     expect(statuses.some((s) => s.includes('runtime binaries were left untouched'))).toBe(true);
-    expect(statuses.some((s) => s.includes('plugin wiring is disabled for new sessions'))).toBe(true);
+    expect(statuses.some((s) => s.includes('plugin wiring is disabled for new sessions'))).toBe(
+      true,
+    );
     expect(statuses.some((s) => s.includes('Restart Kimi Code before reinstalling'))).toBe(true);
     expect(statuses.some((s) => s.includes('Run /new or /reload'))).toBe(false);
   });
@@ -216,7 +215,11 @@ describe('plugins command capability surface', () => {
         // The pre-check sees the running install; the poll then sees it settle.
         return Promise.resolve(
           calls === 1
-            ? { state: 'partial', steps: [], install: { running: true, step: 'download', percent: 40 } }
+            ? {
+                state: 'partial',
+                steps: [],
+                install: { running: true, step: 'download', percent: 40 },
+              }
             : { state: 'ready', steps: [], install: { running: false } },
         );
       },
@@ -251,7 +254,10 @@ describe('plugins command capability surface', () => {
       NO_WAIT,
     );
 
-    expect(notices).toContainEqual({ title: 'Kimi Browser Extension is installed.', detail: undefined });
+    expect(notices).toContainEqual({
+      title: 'Kimi Browser Extension is installed.',
+      detail: undefined,
+    });
     expect(statuses).not.toContain('Run /new or /reload to apply plugin changes.');
     const rendered = transcriptEntries.flatMap((entry) => entry.render(100)).join('\n');
     expect(rendered).toContain(
@@ -302,13 +308,13 @@ describe('plugins command capability surface', () => {
     );
 
     const lines = visibleLines(transcriptEntries, 180);
-    const installed = lines.findIndex((line) => line.includes('Kimi Browser Extension is installed.'));
+    const installed = lines.findIndex((line) =>
+      line.includes('Kimi Browser Extension is installed.'),
+    );
     const intro = lines.findIndex((line) =>
       line.includes('Two steps left to use Kimi Browser Extension:'),
     );
-    const firstStep = lines.findIndex((line) =>
-      line.includes('Install the browser extension'),
-    );
+    const firstStep = lines.findIndex((line) => line.includes('Install the browser extension'));
     const secondStep = lines.findIndex((line) => line.includes('Run /reload or /new to apply it.'));
     expect(lines.slice(installed + 1, intro)).toEqual(['']);
     expect(firstStep).toBe(intro + 1);
@@ -344,12 +350,13 @@ describe('plugins command capability surface', () => {
 
   it('shows required permissions once after installation instead of exposing step details', async () => {
     const { host, statuses } = fakeHost({
-      capabilityStatus: () => Promise.resolve({
-        id: 'kimi-cu',
-        state: 'partial',
-        steps: [{ id: 'permissions', state: 'missing', detail: 'screenRecording' }],
-        install: { running: false },
-      }),
+      capabilityStatus: () =>
+        Promise.resolve({
+          id: 'kimi-cu',
+          state: 'partial',
+          steps: [{ id: 'permissions', state: 'missing', detail: 'screenRecording' }],
+          install: { running: false },
+        }),
     });
 
     await installCapabilityFromPanel(

@@ -1,4 +1,3 @@
-
 import {
   ISessionIndex,
   ISessionIndexMirror,
@@ -255,7 +254,6 @@ const v2SessionGroupPageSchema = z.object({
   scan_truncated: z.boolean().optional(),
 });
 
-
 const BATCH_IDS_MAX = 5000;
 
 const v2SessionsBatchBodySchema = z
@@ -338,7 +336,10 @@ function queryFingerprint(query: NormalizedQuery): string {
     query.pageSize,
     query.projection,
   ];
-  return new Bun.CryptoHasher('sha256').update(JSON.stringify(canonical)).digest('base64url').slice(0, 16);
+  return new Bun.CryptoHasher('sha256')
+    .update(JSON.stringify(canonical))
+    .digest('base64url')
+    .slice(0, 16);
 }
 
 function encodePageToken(fingerprint: string, key: number, id: string): string {

@@ -1,8 +1,7 @@
+import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
 
 import { log } from '#/logging/logger';
 import { limitAgentReplayByTurns, type AgentReplayRecord } from '#/replay';
@@ -117,7 +116,12 @@ describe('limitAgentReplayByTurns', () => {
       kind: 'user' as const,
       inTurn: true as const,
       skillActivations: [
-        { kind: 'skill_activation' as const, trigger: 'user-slash' as const, activationId: 'activation-review', skillName: 'review' },
+        {
+          kind: 'skill_activation' as const,
+          trigger: 'user-slash' as const,
+          activationId: 'activation-review',
+          skillName: 'review',
+        },
       ],
     };
     const currentTurn = userTurn('current prompt', 2);
@@ -132,7 +136,13 @@ describe('limitAgentReplayByTurns', () => {
       },
     };
     const answer = assistant('review result', 4);
-    const records = [userTurn('old prompt', 0), assistant('old answer', 1), currentTurn, steered, answer];
+    const records = [
+      userTurn('old prompt', 0),
+      assistant('old answer', 1),
+      currentTurn,
+      steered,
+      answer,
+    ];
 
     expect(limitAgentReplayByTurns(records, 1)).toEqual([steered, answer]);
   });
@@ -230,10 +240,7 @@ describe('foldAgentWireReplay corruption handling', () => {
     const wirePath = join(dir, 'wire-head.jsonl');
     await writeFile(
       wirePath,
-      [
-        '{not json',
-        '{"type":"permission.set_mode","mode":"auto","time":2}',
-      ].join('\n') + '\n',
+      ['{not json', '{"type":"permission.set_mode","mode":"auto","time":2}'].join('\n') + '\n',
       'utf-8',
     );
     const warn = spyOn(log, 'warn').mockImplementation(() => {});

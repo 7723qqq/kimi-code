@@ -1,14 +1,14 @@
+import { describe, expect, it, spyOn } from 'bun:test';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { IEventService, IMcpManagementService } from '@moonshot-ai/agent-core-v2';
-import { describe, expect, it, spyOn } from 'bun:test';
 
-import { createKlient, serveKlientIpc, type KlientIpcHost } from '../src/transports/ipc/index.js';
 import { IpcChannel } from '../src/transports/ipc/channel.js';
 import { NdjsonDecoder } from '../src/transports/ipc/codec.js';
+import { createKlient, serveKlientIpc, type KlientIpcHost } from '../src/transports/ipc/index.js';
 import { defineKlientConformance } from './helpers/conformance.js';
 import { cleanupEngine, makeEngine, type TestEngine } from './helpers/engine.js';
 
@@ -24,7 +24,6 @@ async function waitFor(assert: () => void, options?: { timeout?: number }): Prom
     }
   }
 }
-
 
 // Windows cannot listen on Unix-socket paths at all (Node throws EACCES),
 // so the whole socket-behavior suite is POSIX-only.
@@ -131,10 +130,12 @@ describe.skipIf(process.platform === 'win32')('ipc transport specifics', () => {
     // A slow engine-side wait: without the facade's per-call deadline the
     // channel's default would kill the long poll mid-flight.
     const management = app.accessor.get(IMcpManagementService);
-    const completeSpy = spyOn(management, 'completeServerAuth')
-      .mockImplementation(() => new Promise<void>((resolve) => setTimeout(resolve, 200)));
-    const cancelSpy = spyOn(management, 'cancelServerAuth')
-      .mockImplementation(() => new Promise<void>((resolve) => setTimeout(resolve, 200)));
+    const completeSpy = spyOn(management, 'completeServerAuth').mockImplementation(
+      () => new Promise<void>((resolve) => setTimeout(resolve, 200)),
+    );
+    const cancelSpy = spyOn(management, 'cancelServerAuth').mockImplementation(
+      () => new Promise<void>((resolve) => setTimeout(resolve, 200)),
+    );
     const klient = createKlient({ socketPath, token: host!.token, callTimeoutMs: 25 });
     try {
       // completeAuth passes the engine wait + margin as its per-call deadline,
@@ -157,8 +158,9 @@ describe.skipIf(process.platform === 'win32')('ipc transport specifics', () => {
   it('completeAuth clamps a near-max timeoutMs instead of overflowing the call timer', async () => {
     const socketPath = await setup();
     const management = app.accessor.get(IMcpManagementService);
-    const completeSpy = spyOn(management, 'completeServerAuth')
-      .mockImplementation(() => new Promise<void>((resolve) => setTimeout(resolve, 50)));
+    const completeSpy = spyOn(management, 'completeServerAuth').mockImplementation(
+      () => new Promise<void>((resolve) => setTimeout(resolve, 50)),
+    );
     const klient = createKlient({ socketPath, token: host!.token, callTimeoutMs: 25 });
     try {
       // timeoutMs at the contract max plus the facade margin would overflow
@@ -404,7 +406,8 @@ describe.skipIf(process.platform === 'win32')('ipc transport specifics', () => {
 
       // A stream has no default deadline: `next()` must reject, not hang.
       const iter = klient.global.kosong
-        .generate('no-such-model', { systemPrompt: '', messages: [] })[Symbol.asyncIterator]();
+        .generate('no-such-model', { systemPrompt: '', messages: [] })
+        [Symbol.asyncIterator]();
       await expect(iter.next()).rejects.toThrow();
 
       // The rejected `ready` promises were handled, so nothing bubbled up.

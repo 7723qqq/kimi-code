@@ -163,12 +163,7 @@ export async function runHook(
       killProcess(proc);
       if (options.failClosed === true) {
         settle(
-          blockResult(
-            'Permission hook timed out',
-            undefined,
-            `${stderr} (timed out)`,
-            truncated,
-          ),
+          blockResult('Permission hook timed out', undefined, `${stderr} (timed out)`, truncated),
         );
         return;
       }
@@ -302,7 +297,6 @@ function killProcess(proc: IHostProcess): void {
   killTimer.unref();
 }
 
-
 function blockResult(
   reason: string,
   stdout: string | undefined,
@@ -318,4 +312,3 @@ function blockResult(
     outputTruncated,
   };
 }
-

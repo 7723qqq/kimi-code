@@ -9,7 +9,6 @@ export function AttachmentId(digest: string): AttachmentId {
 export type ImageMediaType = 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
 
 export interface ImageAttachmentRef {
-
   readonly attachmentId: AttachmentId;
 
   readonly mediaType: ImageMediaType;

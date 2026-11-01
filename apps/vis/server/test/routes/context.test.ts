@@ -2,13 +2,18 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
 import { buildCompactionContinuationText } from '@moonshot-ai/agent-core-v2/agent/contextMemory/compactionHandoff';
-import { buildSessionFixture } from '../fixtures/build';
+
 import { contextRoute } from '../../src/routes/context';
+import { buildSessionFixture } from '../fixtures/build';
 
 describe('context route', () => {
   let cleanup: (() => Promise<void>) | null = null;
-  afterEach(async () => { if (cleanup) await cleanup(); cleanup = null; });
+  afterEach(async () => {
+    if (cleanup) await cleanup();
+    cleanup = null;
+  });
 
   it('echoes the new projection fields (contextTokens, goal, swarm)', async () => {
     const { home, cleanup: c } = await buildSessionFixture('sample-main');
@@ -81,10 +86,15 @@ describe('context route', () => {
       messages: { source: string; message: { content: { type: string; text?: string }[] } }[];
     };
     expect(modelBody.messages.map((m) => m.source)).toEqual([
-      'append_message', 'compaction_summary', 'append_message', 'append_message',
+      'append_message',
+      'compaction_summary',
+      'append_message',
+      'append_message',
     ]);
     expect(modelBody.messages[0]!.message.content[0]).toMatchObject({ text: 'before compaction' });
-    expect(modelBody.messages[2]!.message.content[0]).toMatchObject({ text: buildCompactionContinuationText() });
+    expect(modelBody.messages[2]!.message.content[0]).toMatchObject({
+      text: buildCompactionContinuationText(),
+    });
     expect(modelBody.messages[3]!.message.content[0]).toMatchObject({ text: 'after compaction' });
 
     // Full history: every pre-compaction message (user prompt + assistant reply)
@@ -95,7 +105,10 @@ describe('context route', () => {
       messages: { source: string; message: { content: { type: string; text?: string }[] } }[];
     };
     expect(fullBody.messages.map((m) => m.source)).toEqual([
-      'append_message', 'append_message', 'compaction_summary', 'append_message',
+      'append_message',
+      'append_message',
+      'compaction_summary',
+      'append_message',
     ]);
     expect(fullBody.messages[0]!.message.content[0]).toMatchObject({ text: 'before compaction' });
     expect(fullBody.messages[1]!.message.content[0]).toMatchObject({ text: 'assistant reply' });
@@ -163,10 +176,16 @@ describe('context route', () => {
     // session (1+5 / 2+6) and the second, well-formed record still counted.
     expect(body.messages[0]!.message.content).toEqual([{ type: 'text', text: 'predicted' }]);
     expect(body.usage.byScope.session).toEqual({
-      inputOther: 6, output: 8, inputCacheRead: 3, inputCacheCreation: 4,
+      inputOther: 6,
+      output: 8,
+      inputCacheRead: 3,
+      inputCacheCreation: 4,
     });
     expect(body.usage.byScope.turn).toEqual({
-      inputOther: 0, output: 0, inputCacheRead: 0, inputCacheCreation: 0,
+      inputOther: 0,
+      output: 0,
+      inputCacheRead: 0,
+      inputCacheCreation: 0,
     });
     expect(body.warnings.some((w) => /replace_tool_result skipped/.test(w))).toBe(true);
   });

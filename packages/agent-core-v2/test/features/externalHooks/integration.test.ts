@@ -1,63 +1,87 @@
+import { describe, expect, it } from 'bun:test';
+import { randomUUID } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { describe, expect, it } from 'bun:test';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { type ISessionScopeHandle } from '#/_base/di/scope';
-import { createServices, type ServiceRegistration, type TestInstantiationService } from '#/_base/di/test';
+import {
+  createServices,
+  type ServiceRegistration,
+  type TestInstantiationService,
+} from '#/_base/di/test';
 import { AsyncEmitter, Emitter, Event, type IWaitUntil } from '#/_base/event';
-import { emptyUsage } from '#human/llm/usage';
 import { buildContextCompactionShape } from '#/agent/contextMemory/compactionHandoff';
-import { IAgentContextMemoryService, type ContextCompactionInput, type ContextCompactionResult } from '#/agent/contextMemory/contextMemory';
+import {
+  IAgentContextMemoryService,
+  type ContextCompactionInput,
+  type ContextCompactionResult,
+} from '#/agent/contextMemory/contextMemory';
 import { type ContextMessage } from '#/agent/contextMemory/types';
-import { HookDefSchema, HOOKS_SECTION, hooksFromToml, hooksToToml } from '#/features/externalHooks/configSection';
-import { IAgentExternalHooksService } from '#/features/externalHooks/agent/agentExternalHooks';
-import { AgentExternalHooksService } from '#/features/externalHooks/agent/agentExternalHooksService';
 import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
-import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentLoopService, type AfterStepContext } from '#/agent/loop/loop';
 import { TurnStarted } from '#/agent/loop/turnEvents';
 import { TurnEnded } from '#/agent/loop/turnOps';
 import { IAgentPermissionGate } from '#/agent/permissionGate/permissionGate';
 import { PromptQueued } from '#/agent/prompt/promptEvents';
+import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentTaskService } from '#/agent/task/task';
-import { TaskStarted } from '#/agent/task/taskOps';
-import { PermissionApprovalRequested, PermissionApprovalResolved } from '#/agent/toolApproval/toolApprovalService';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { IExternalHooksRunnerService } from '#/features/externalHooks/app/externalHooksRunner';
-import { ExternalHooksRunnerService } from '#/features/externalHooks/app/externalHooksRunnerService';
-import { makeHookRunner } from './runner-stub';
 import { type AgentTaskInfo } from '#/agent/task/task';
+import { TaskStarted } from '#/agent/task/taskOps';
+import {
+  PermissionApprovalRequested,
+  PermissionApprovalResolved,
+} from '#/agent/toolApproval/toolApprovalService';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { IEventBus, ISessionEventBus } from '#/app/event/eventBus';
 import { AgentEventBusView, EventBusService } from '#/app/event/eventBusService';
 import { IPluginService } from '#/app/plugin/plugin';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
-import { IHostProcessService } from '#/os/interface/hostProcess';
-import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
-import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { type SessionCloseReason, type SessionCreatedEvent, type SessionCreateSource, type SessionWillCloseEvent } from '#/workspace/sessionLifecycle/sessionLifecycle';
-import { createHooks, OrderedHookSlot } from '#/hooks';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { IEventDispatcher } from '#/state/eventDispatcher';
-import { type AgentTaskHooks, type AgentTaskStopHookContext, ISessionSubagentService } from '#/session/subagent/subagent';
+import { IAgentExternalHooksService } from '#/features/externalHooks/agent/agentExternalHooks';
+import { AgentExternalHooksService } from '#/features/externalHooks/agent/agentExternalHooksService';
+import { IExternalHooksRunnerService } from '#/features/externalHooks/app/externalHooksRunner';
+import { ExternalHooksRunnerService } from '#/features/externalHooks/app/externalHooksRunnerService';
+import {
+  HookDefSchema,
+  HOOKS_SECTION,
+  hooksFromToml,
+  hooksToToml,
+} from '#/features/externalHooks/configSection';
 import { ISessionExternalHooksService } from '#/features/externalHooks/session/sessionExternalHooks';
 import { SessionExternalHooksService } from '#/features/externalHooks/session/sessionExternalHooksService';
-import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
-import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
+import { createHooks, OrderedHookSlot } from '#/hooks';
 import { IModelService } from '#/llm-adapter/model/model';
+import { HostProcessService } from '#/os/backends/host/hostProcessService';
+import { IHostProcessService } from '#/os/interface/hostProcess';
+import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
+import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
+import {
+  type AgentTaskHooks,
+  type AgentTaskStopHookContext,
+  ISessionSubagentService,
+} from '#/session/subagent/subagent';
+import { IEventDispatcher } from '#/state/eventDispatcher';
+import {
+  type SessionCloseReason,
+  type SessionCreatedEvent,
+  type SessionCreateSource,
+  type SessionWillCloseEvent,
+} from '#/workspace/sessionLifecycle/sessionLifecycle';
+import { emptyUsage } from '#human/llm/usage';
 
-import { stubBootstrap } from '../../app/bootstrap/stubs';
 import { stubLoopWithHooks, stubToolExecutor } from '../../agent/loop/stubs';
+import { stubBootstrap } from '../../app/bootstrap/stubs';
 import { registerStateServices } from '../../state/stubs';
 import { registerTestAgentWireServices } from '../../wire/stubs';
-import { randomUUID } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
+import { makeHookRunner } from './runner-stub';
 
 const HOOK_BIN = process.execPath;
 const quotedPath = (value: string): string => (/\s/.test(value) ? `"${value}"` : value);
@@ -141,14 +165,16 @@ function nodeCommand(source: string): string {
 }
 
 function stdinScript(body: string): string {
-  return nodeCommand([
-    'let input = "";',
-    'process.stdin.on("data", (chunk) => { input += chunk; });',
-    'process.stdin.on("end", () => {',
-    '  const parsed = input.length === 0 ? {} : JSON.parse(input);',
-    body,
-    '});',
-  ].join('\n'));
+  return nodeCommand(
+    [
+      'let input = "";',
+      'process.stdin.on("data", (chunk) => { input += chunk; });',
+      'process.stdin.on("end", () => {',
+      '  const parsed = input.length === 0 ? {} : JSON.parse(input);',
+      body,
+      '});',
+    ].join('\n'),
+  );
 }
 
 function makeAfterStep(signal: AbortSignal): AfterStepContext {
@@ -250,19 +276,21 @@ function hookLogPath(): string {
 }
 
 function appendHookLogCommand(path: string): string {
-  return stdinScript([
-    'const fs = require("node:fs");',
-    'fs.appendFileSync(',
-    `  ${JSON.stringify(path)},`,
-    '  JSON.stringify({',
-    '    event: parsed.hook_event_name,',
-    '    source: parsed.source,',
-    '    reason: parsed.reason,',
-    '    sessionId: parsed.session_id,',
-    '    cwd: parsed.cwd,',
-    '  }) + String.fromCharCode(10),',
-    ');',
-  ].join('\n'));
+  return stdinScript(
+    [
+      'const fs = require("node:fs");',
+      'fs.appendFileSync(',
+      `  ${JSON.stringify(path)},`,
+      '  JSON.stringify({',
+      '    event: parsed.hook_event_name,',
+      '    source: parsed.source,',
+      '    reason: parsed.reason,',
+      '    sessionId: parsed.session_id,',
+      '    cwd: parsed.cwd,',
+      '  }) + String.fromCharCode(10),',
+      ');',
+    ].join('\n'),
+  );
 }
 
 function readHookLog(path: string): Array<Record<string, unknown>> {
@@ -331,13 +359,15 @@ describe('IExternalHooksRunnerService integration', () => {
       {
         event: 'PreToolUse',
         matcher: 'Bash',
-        command: stdinScript([
-          'const command = parsed.tool_input?.command ?? "";',
-          'if (String(command).includes("rm -rf")) {',
-          '  process.stderr.write("Blocked: rm -rf");',
-          '  process.exit(2);',
-          '}',
-        ].join('\n')),
+        command: stdinScript(
+          [
+            'const command = parsed.tool_input?.command ?? "";',
+            'if (String(command).includes("rm -rf")) {',
+            '  process.stderr.write("Blocked: rm -rf");',
+            '  process.exit(2);',
+            '}',
+          ].join('\n'),
+        ),
         timeout: 5,
       },
     ]);
@@ -698,12 +728,14 @@ describe('IExternalHooksRunnerService integration', () => {
             get: <T = unknown>(domain: string): T =>
               (domain === HOOKS_SECTION
                 ? [
-                  {
-                    event: 'Stop' as const,
-                    command: nodeCommand('process.stderr.write("loaded stop hook"); process.exit(2);'),
-                    timeout: 5,
-                  },
-                ]
+                    {
+                      event: 'Stop' as const,
+                      command: nodeCommand(
+                        'process.stderr.write("loaded stop hook"); process.exit(2);',
+                      ),
+                      timeout: 5,
+                    },
+                  ]
                 : undefined) as T,
           });
           reg.definePartialInstance(IPluginService, {
@@ -1004,9 +1036,9 @@ describe('IExternalHooksRunnerService integration', () => {
             get: <T = unknown>(domain: string): T =>
               (domain === HOOKS_SECTION
                 ? [
-                  { event: 'SessionStart' as const, command, timeout: 5 },
-                  { event: 'SessionEnd' as const, command, timeout: 5 },
-                ]
+                    { event: 'SessionStart' as const, command, timeout: 5 },
+                    { event: 'SessionEnd' as const, command, timeout: 5 },
+                  ]
                 : undefined) as T,
           });
           reg.definePartialInstance(IPluginService, {
@@ -1173,19 +1205,21 @@ describe('IExternalHooksRunnerService integration', () => {
     try {
       const lifecycle = stubSessionLifecycle();
       const path = hookLogPath();
-      const command = stdinScript([
-        'const fs = require("node:fs");',
-        'fs.appendFileSync(',
-        `  ${JSON.stringify(path)},`,
-        '  JSON.stringify({',
-        '    event: parsed.hook_event_name,',
-        '    model: parsed.model,',
-        '    profile: parsed.profile,',
-        '    sessionTitle: parsed.session_title,',
-        '    clientType: parsed.client_type,',
-        '  }) + String.fromCharCode(10),',
-        ');',
-      ].join('\n'));
+      const command = stdinScript(
+        [
+          'const fs = require("node:fs");',
+          'fs.appendFileSync(',
+          `  ${JSON.stringify(path)},`,
+          '  JSON.stringify({',
+          '    event: parsed.hook_event_name,',
+          '    model: parsed.model,',
+          '    profile: parsed.profile,',
+          '    sessionTitle: parsed.session_title,',
+          '    clientType: parsed.client_type,',
+          '  }) + String.fromCharCode(10),',
+          ');',
+        ].join('\n'),
+      );
 
       ix = createServices(disposables, {
         strict: true,

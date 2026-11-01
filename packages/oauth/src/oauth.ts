@@ -11,13 +11,13 @@
  */
 
 import { extractApiErrorMessage } from './api-error';
-import { redactString } from './redact';
 import {
   OAuthConnectionError,
   OAuthError,
   OAuthUnauthorizedError,
   RetryableRefreshError,
 } from './errors';
+import { redactString } from './redact';
 import type {
   DeviceAuthorization,
   DeviceHeaders,

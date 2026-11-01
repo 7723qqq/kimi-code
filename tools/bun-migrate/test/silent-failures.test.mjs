@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'bun:test';
 /**
  * The four layers that used to fail silently.
  *
@@ -17,8 +18,6 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { describe, expect, it } from 'bun:test';
 
 import { collectRequireBindings, parse } from '../src/ast.mjs';
 import { UsageError, parseArgs } from '../src/cli.mjs';
@@ -191,7 +190,7 @@ describe('vitest config is ported, not discarded', () => {
  */
 describe('testTimeout is migrated into a preload, not merely reported', () => {
   it('reads a literal testTimeout', () => {
-    const ported = portVitestConfig("export default { test: { testTimeout: 10000 } };");
+    const ported = portVitestConfig('export default { test: { testTimeout: 10000 } };');
     expect(ported.files.length).toBe(1);
     expect(ported.files[0].path).toBe(TIMEOUT_PRELOAD);
     expect(ported.files[0].content).toContain('setDefaultTimeout(10000)');
@@ -205,13 +204,17 @@ describe('testTimeout is migrated into a preload, not merely reported', () => {
   });
 
   it('migrates hookTimeout when it agrees with testTimeout', () => {
-    const ported = portVitestConfig('export default { test: { testTimeout: 5000, hookTimeout: 5000 } };');
+    const ported = portVitestConfig(
+      'export default { test: { testTimeout: 5000, hookTimeout: 5000 } };',
+    );
     expect(ported.files[0].content).toContain('setDefaultTimeout(5000)');
     expect(ported.unported.length).toBe(0);
   });
 
   it('refuses to pick one when testTimeout and hookTimeout disagree', () => {
-    const ported = portVitestConfig('export default { test: { testTimeout: 5000, hookTimeout: 30000 } };');
+    const ported = portVitestConfig(
+      'export default { test: { testTimeout: 5000, hookTimeout: 30000 } };',
+    );
     expect(ported.files.length).toBe(0);
     expect(ported.unported.join(' ')).toContain('differ');
     expect(ported.unported.join(' ')).toContain('setDefaultTimeout');
@@ -328,7 +331,9 @@ describe('testTimeout is migrated into a preload, not merely reported', () => {
     try {
       const { journal } = applyAll(root, ['packages']);
       const bunfig = journal.changes.findLast((change) => change.file === 'bunfig.toml');
-      expect(Bun.TOML.parse(bunfig.after).test.preload.join(',')).toBe(`./a.ts,./${TIMEOUT_PRELOAD}`);
+      expect(Bun.TOML.parse(bunfig.after).test.preload.join(',')).toBe(
+        `./a.ts,./${TIMEOUT_PRELOAD}`,
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -368,8 +373,7 @@ describe('maxWorkers becomes --parallel in the test script', () => {
     });
     try {
       const { journal } = applyAll(root, ['config', 'packages']);
-      const manifest = journal.changes
-        .findLast((change) => change.file === 'package.json');
+      const manifest = journal.changes.findLast((change) => change.file === 'package.json');
       expect(manifest).toBeDefined();
       expect(manifest.after).toContain('bun test --parallel=4');
     } finally {
@@ -406,14 +410,18 @@ describe('maxWorkers becomes --parallel in the test script', () => {
   });
 
   it('reports a computed setupFiles or timeout rather than dropping it', () => {
-    const setup = portVitestConfig("const setup = './setup.ts';\nexport default { test: { setupFiles: setup } };");
+    const setup = portVitestConfig(
+      "const setup = './setup.ts';\nexport default { test: { setupFiles: setup } };",
+    );
     expect(setup.unported.join(' ')).toContain('setupFiles');
     const timeout = portVitestConfig('export default { test: { testTimeout: TIMEOUT } };');
     expect(timeout.unported.join(' ')).toContain('testTimeout');
   });
 
   it('carries the unknown setting into the removal reason', () => {
-    const root = project({ 'vitest.config.ts': "export default { test: { exclude: ['**/e2e/**'] } };" });
+    const root = project({
+      'vitest.config.ts': "export default { test: { exclude: ['**/e2e/**'] } };",
+    });
     try {
       const { journal } = applyAll(root, ['packages']);
       const removal = journal.changes.find(
@@ -503,7 +511,8 @@ describe('package imports are mirrored into tsconfig paths', () => {
   it('adds the mapping to an existing tsconfig and preserves its comments', () => {
     const root = project({
       'packages/a/package.json': JSON.stringify({ name: 'a', imports: { '#/*': './src/*.ts' } }),
-      'packages/a/tsconfig.json': '{\n  // keep me\n  "compilerOptions": {\n    "strict": true\n  }\n}\n',
+      'packages/a/tsconfig.json':
+        '{\n  // keep me\n  "compilerOptions": {\n    "strict": true\n  }\n}\n',
       'packages/a/src/foo.ts': 'export const x = 1;\n',
     });
     try {
@@ -518,7 +527,9 @@ describe('package imports are mirrored into tsconfig paths', () => {
       journal.commit(root);
 
       const second = applyAll(root, ['packages']);
-      expect(second.journal.changes.some((item) => item.file === 'packages/a/tsconfig.json')).toBe(false);
+      expect(second.journal.changes.some((item) => item.file === 'packages/a/tsconfig.json')).toBe(
+        false,
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -554,9 +565,9 @@ describe('package imports are mirrored into tsconfig paths', () => {
     try {
       const { journal } = applyAll(root, ['packages']);
       const skipped = journal.layers().flatMap((layer) => layer.skipped);
-      expect(skipped.some((item) => item.reason.includes('compilerOptions.paths already exists'))).toBe(
-        true,
-      );
+      expect(
+        skipped.some((item) => item.reason.includes('compilerOptions.paths already exists')),
+      ).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -633,14 +644,18 @@ describe('node: gap detection resolves a binding instead of matching text', () =
     const hits = findMissingUsages(
       "import { constants } from 'node:http2';\nexport const x = constants.NGHTTP2_HCAT_REQUEST;\n",
       synthetic,
-      parse('probe.ts', "import { constants } from 'node:http2';\nexport const x = constants.NGHTTP2_HCAT_REQUEST;\n"),
+      parse(
+        'probe.ts',
+        "import { constants } from 'node:http2';\nexport const x = constants.NGHTTP2_HCAT_REQUEST;\n",
+      ),
     );
     expect(hits.length).toBe(1);
   });
 
   it('finds a nested constant through a namespace import', () => {
     const synthetic = [{ module: 'node:http2', member: 'constants.NGHTTP2_HCAT_REQUEST' }];
-    const source = "import * as http2 from 'node:http2';\nexport const x = http2.constants.NGHTTP2_HCAT_REQUEST;\n";
+    const source =
+      "import * as http2 from 'node:http2';\nexport const x = http2.constants.NGHTTP2_HCAT_REQUEST;\n";
     const hits = findMissingUsages(source, synthetic, parse('probe.ts', source));
     expect(hits.length).toBe(1);
   });
@@ -662,7 +677,12 @@ describe('node: gap detection resolves a binding instead of matching text', () =
     });
     try {
       const { journal } = applyAll(root, ['source']);
-      const files = new Set(journal.layers().flatMap((layer) => layer.skipped).map((item) => item.file));
+      const files = new Set(
+        journal
+          .layers()
+          .flatMap((layer) => layer.skipped)
+          .map((item) => item.file),
+      );
       expect(files.has('src/real.js')).toBe(true);
       expect(files.has('src/comment.js')).toBe(false);
     } finally {
@@ -736,10 +756,14 @@ describe('the CI workflow layer actually runs', () => {
       const { journal } = applyAll(root, ['config']);
       const after = journal.changes.find((item) => item.file === '.github/workflows/ci.yml').after;
       const parsed = Bun.YAML.parse(after);
-      const checkout = parsed.jobs.test.steps.find((step) => String(step.uses ?? '').includes('checkout'));
+      const checkout = parsed.jobs.test.steps.find((step) =>
+        String(step.uses ?? '').includes('checkout'),
+      );
       expect(checkout).toBeDefined();
       expect(checkout.with).toBeUndefined();
-      const bun = parsed.jobs.test.steps.find((step) => String(step.uses ?? '').includes('setup-bun'));
+      const bun = parsed.jobs.test.steps.find((step) =>
+        String(step.uses ?? '').includes('setup-bun'),
+      );
       expect(bun.with['bun-version']).toBe('latest');
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -834,7 +858,9 @@ describe('the CI workflow layer actually runs', () => {
    * the `pnpm vitest run` shape a script can carry.
    */
   it('rewrites a bare pnpm script invocation the setup step no longer provides', () => {
-    const root = project({ '.github/workflows/ci.yml': WORKFLOW.replace('pnpm run build', 'pnpm build') });
+    const root = project({
+      '.github/workflows/ci.yml': WORKFLOW.replace('pnpm run build', 'pnpm build'),
+    });
     try {
       const { journal } = applyAll(root, ['config']);
       const after = journal.changes.find((item) => item.file === '.github/workflows/ci.yml').after;
@@ -1010,7 +1036,9 @@ describe('an .npmrc key the migration does not map is reported, not dropped', ()
       expect(skipped.some((item) => item.reason.includes('_authToken'))).toBe(true);
       // The removal is still proposed — the point is that the journal now says
       // what was lost instead of deleting the credentials silently.
-      expect(journal.changes.some((item) => item.file === '.npmrc' && item.kind === 'remove')).toBe(true);
+      expect(journal.changes.some((item) => item.file === '.npmrc' && item.kind === 'remove')).toBe(
+        true,
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -1032,7 +1060,9 @@ describe('an .npmrc key the migration does not map is reported, not dropped', ()
     try {
       const { journal } = applyAll(root, ['config']);
       const skipped = journal.layers().flatMap((layer) => layer.skipped);
-      const registryReports = skipped.filter((item) => item.reason.includes('registry:') || item.reason.includes('registry '));
+      const registryReports = skipped.filter(
+        (item) => item.reason.includes('registry:') || item.reason.includes('registry '),
+      );
       expect(registryReports.length).toBe(0);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -1046,18 +1076,27 @@ describe('an .npmrc key the migration does not map is reported, not dropped', ()
       const bunfig = journal.changes.find((item) => item.file === 'bunfig.toml');
       expect(bunfig).toBeDefined();
       expect(Bun.TOML.parse(bunfig.after).install.registry).toBe('https://r.example/');
-      expect(journal.changes.some((item) => item.file === '.npmrc' && item.kind === 'remove')).toBe(true);
+      expect(journal.changes.some((item) => item.file === '.npmrc' && item.kind === 'remove')).toBe(
+        true,
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
 
   it('leaves .npmrc in place when the merged bunfig would be invalid', () => {
-    const root = project({ '.npmrc': 'registry=https://r.example/\n', 'bunfig.toml': '[install\n' });
+    const root = project({
+      '.npmrc': 'registry=https://r.example/\n',
+      'bunfig.toml': '[install\n',
+    });
     try {
       const { journal } = applyAll(root, ['config']);
-      expect(journal.changes.some((item) => item.file === '.npmrc' && item.kind === 'remove')).toBe(false);
-      expect(journal.changes.some((item) => item.file === 'bunfig.toml' && item.kind === 'skip')).toBe(false);
+      expect(journal.changes.some((item) => item.file === '.npmrc' && item.kind === 'remove')).toBe(
+        false,
+      );
+      expect(
+        journal.changes.some((item) => item.file === 'bunfig.toml' && item.kind === 'skip'),
+      ).toBe(false);
       const skipped = journal.layers().flatMap((layer) => layer.skipped);
       expect(skipped.some((item) => item.reason.includes('valid TOML'))).toBe(true);
     } finally {

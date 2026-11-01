@@ -1,4 +1,3 @@
-
 import { basename } from 'pathe';
 
 import { ErrorCodes, Error2 } from '#/errors';

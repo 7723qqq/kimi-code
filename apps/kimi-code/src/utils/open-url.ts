@@ -21,10 +21,18 @@ export function openUrl(
     platform === 'darwin'
       ? ['open', [url]]
       : platform === 'win32'
-        ? ['powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(
-          `try { Start-Process -FilePath '${url.replaceAll("'", "''")}' -ErrorAction Stop } catch { exit 1 }`,
-          'utf16le',
-        ).toString('base64')]]
+        ? [
+            'powershell.exe',
+            [
+              '-NoProfile',
+              '-NonInteractive',
+              '-EncodedCommand',
+              Buffer.from(
+                `try { Start-Process -FilePath '${url.replaceAll("'", "''")}' -ErrorAction Stop } catch { exit 1 }`,
+                'utf16le',
+              ).toString('base64'),
+            ],
+          ]
         : ['xdg-open', [url]];
   const executable = resolve(command[0]);
   if (executable === undefined) {

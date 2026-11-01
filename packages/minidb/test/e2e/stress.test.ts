@@ -12,12 +12,11 @@
 // contract that currently breaks under stress. The "coverage" section holds
 // the stress configurations that behave correctly and must keep behaving.
 
+import { expect, test } from 'bun:test';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import net from 'node:net';
 import path from 'node:path';
-
-import { expect, test } from 'bun:test';
 
 import { MiniDb, TextIndexBuildingError } from '../../src/index.js';
 import { startServer } from '../../src/server.js';
@@ -230,12 +229,7 @@ test(
       const child = spawn(
         process.execPath,
         // Bun executes .ts racers natively; Node needs the tsx loader hook.
-        [
-          RACER,
-          lockPath,
-          dir,
-          String(ROUNDS),
-        ],
+        [RACER, lockPath, dir, String(ROUNDS)],
         {
           stdio: ['ignore', 'pipe', 'ignore'],
         },

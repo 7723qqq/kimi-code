@@ -1,4 +1,3 @@
-
 // test/skiplist.test.ts
 import { expect, test } from 'bun:test';
 
@@ -37,13 +36,17 @@ test('range with gte/lte/gt/lt/offset/count', () => {
   for (let i = 1; i <= 10; i++) sl.insert(i, `v${i}`);
   expect(sl.range({ gte: 3, lte: 7 }).map((n) => n.key)).toStrictEqual([3, 4, 5, 6, 7]);
   expect(sl.range({ gt: 3, lt: 7 }).map((n) => n.key)).toStrictEqual([4, 5, 6]);
-  expect(sl.range({ gte: 1, lte: 10, offset: 2, count: 3 }).map((n) => n.key)).toStrictEqual([3, 4, 5]);
+  expect(sl.range({ gte: 1, lte: 10, offset: 2, count: 3 }).map((n) => n.key)).toStrictEqual([
+    3, 4, 5,
+  ]);
 });
 
 test('reverse range', () => {
   const sl = new SkipList();
   for (let i = 1; i <= 10; i++) sl.insert(i, `v${i}`);
-  expect(sl.range({ gte: 3, lte: 7, reverse: true }).map((n) => n.key)).toStrictEqual([7, 6, 5, 4, 3]);
+  expect(sl.range({ gte: 3, lte: 7, reverse: true }).map((n) => n.key)).toStrictEqual([
+    7, 6, 5, 4, 3,
+  ]);
 });
 
 test('delete removes and keeps ranks consistent', () => {
@@ -59,7 +62,13 @@ test('delete removes and keeps ranks consistent', () => {
 test('string comparator orders keys and supports prefix scans', () => {
   const sl = new SkipList({ compareKey: cmpString });
   ['user:3', 'user:1', 'user:2', 'order:1', 'user:10'].forEach((k) => sl.insert(k, k));
-  expect(sl.toArray().map((n) => n.key)).toStrictEqual(['order:1', 'user:1', 'user:10', 'user:2', 'user:3']);
+  expect(sl.toArray().map((n) => n.key)).toStrictEqual([
+    'order:1',
+    'user:1',
+    'user:10',
+    'user:2',
+    'user:3',
+  ]);
   // prefix scan via range [prefix, prefix+\uFFFF]
   const pref = 'user:';
   const res = sl.range({ gte: pref, lt: pref + '\uFFFF' }).map((n) => n.key);

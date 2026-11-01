@@ -31,42 +31,43 @@ interface NotifyUserNudgeActorContext {
   readonly runtime: AgentActorContext<null>;
 }
 
-const notifyUserNudgeReminders = fromCallback(({
-  input,
-}: {
-  input: {
-    readonly runtime: AgentActorContext<null>;
-  };
-}) => {
-  const runtime = input.runtime;
-  const available = (): boolean =>
-    notifyUserAvailable(runtime.get(IFlagService), runtime.get(IBootstrapService));
-  if (!available()) return () => {};
-  const registration = runtime.get(IAgentReminderService).register(
-    NOTIFY_USER_NUDGE_VARIANT,
-    ({ lastInjectedAt }): string | undefined => {
-      if (!available()) return undefined;
-      if (runtime.get(IAgentToolRegistryService).resolve(NOTIFY_USER_TOOL_NAME) === undefined) {
-        return undefined;
-      }
-      const history = runtime.get(IAgentContextMemoryService).get();
-      const streak = notifyStreak(history);
-      const roundsSinceLastNudge =
-        lastInjectedAt === null ? null : toolCallRoundsSincePosition(history, lastInjectedAt);
-      if (!shouldNudgeNotifyUser(streak.rounds, roundsSinceLastNudge)) return undefined;
-      const properties: NotifyUserNudgeShownEvent = {
-        turn_id: runtime.get(IAgentLoopService).snapshot().activeTurnId,
-        rounds_since_notify: streak.rounds,
-        nudge_index: streak.nudges + 1,
-      };
-      runtime.get(ITelemetryService).track2('notify_user_nudge_shown', properties);
-      return renderNotifyUserNudge(streak.rounds);
-    },
-  );
-  return () => {
-    registration.dispose();
-  };
-});
+const notifyUserNudgeReminders = fromCallback(
+  ({
+    input,
+  }: {
+    input: {
+      readonly runtime: AgentActorContext<null>;
+    };
+  }) => {
+    const runtime = input.runtime;
+    const available = (): boolean =>
+      notifyUserAvailable(runtime.get(IFlagService), runtime.get(IBootstrapService));
+    if (!available()) return () => {};
+    const registration = runtime
+      .get(IAgentReminderService)
+      .register(NOTIFY_USER_NUDGE_VARIANT, ({ lastInjectedAt }): string | undefined => {
+        if (!available()) return undefined;
+        if (runtime.get(IAgentToolRegistryService).resolve(NOTIFY_USER_TOOL_NAME) === undefined) {
+          return undefined;
+        }
+        const history = runtime.get(IAgentContextMemoryService).get();
+        const streak = notifyStreak(history);
+        const roundsSinceLastNudge =
+          lastInjectedAt === null ? null : toolCallRoundsSincePosition(history, lastInjectedAt);
+        if (!shouldNudgeNotifyUser(streak.rounds, roundsSinceLastNudge)) return undefined;
+        const properties: NotifyUserNudgeShownEvent = {
+          turn_id: runtime.get(IAgentLoopService).snapshot().activeTurnId,
+          rounds_since_notify: streak.rounds,
+          nudge_index: streak.nudges + 1,
+        };
+        runtime.get(ITelemetryService).track2('notify_user_nudge_shown', properties);
+        return renderNotifyUserNudge(streak.rounds);
+      });
+    return () => {
+      registration.dispose();
+    };
+  },
+);
 
 const notifyUserNudgeActorLogic = setup({
   types: {} as {

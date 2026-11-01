@@ -7,53 +7,48 @@ import type { IDisposable } from '#/_base/di/lifecycle';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
 import { Event } from '#/_base/event';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import type { ContextMessage } from '#/agent/contextMemory/types';
 import { INHERITED_IN_FLIGHT_TOOL_OUTPUT } from '#/agent/contextMemory/openToolExchange';
+import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentRuntimeBindingSeed } from '#/agent/runtimeBinding/runtimeBinding';
+import { SUBAGENT_BACKGROUND_TASK_NOTICE } from '#/agent/task/taskService';
+import { IAgentToolActivationService } from '#/agent/toolActivation/toolActivation';
+import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
+import { AgentToolContribution } from '#/agent/toolRegistry/toolContribution';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { WAIT_FOR_FLAG_ID } from '#/agent/tools/task/task-wait/flag';
+import { SELECT_TOOLS_TOOL_NAME } from '#/agent/toolSelect/toolSelect';
+import { normalizeAgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import { IAgentProfileRegistry } from '#/app/agentProfileCatalog/agentProfileRegistry';
+import { IWebSearchProviderService } from '#/app/auth/webSearch/webSearch';
+import { IFlagService } from '#/app/flag/flag';
+import { ISessionBtwService } from '#/features/btw/btw';
+import { ISessionNotify } from '#/features/notify/sessionNotify';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
+import { wrapSystemReminder } from '#/features/reminder/systemReminder';
+import { TOWER_WORKER_PROFILE } from '#/features/tower/tower';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IHostProcessService } from '#/os/interface/hostProcess';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { LocalRuntime } from '#/runtime/localRuntime';
-import type {
-  Runtime,
-  RuntimeBinding,
-  RuntimeCapability,
-  RuntimeLease,
-} from '#/runtime/runtime';
+import type { Runtime, RuntimeBinding, RuntimeCapability, RuntimeLease } from '#/runtime/runtime';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { ISessionUsageService } from '#/session/usage/sessionUsage';
-import { inputTotal } from '#human/llm/usage';
-import { IAgentRuntimeBindingSeed } from '#/agent/runtimeBinding/runtimeBinding';
-import { AgentToolContribution } from '#/agent/toolRegistry/toolContribution';
-import { IAgentToolActivationService } from '#/agent/toolActivation/toolActivation';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
-import { SELECT_TOOLS_TOOL_NAME } from '#/agent/toolSelect/toolSelect';
-import { WAIT_FOR_FLAG_ID } from '#/agent/tools/task/task-wait/flag';
-import { IWebSearchProviderService } from '#/app/auth/webSearch/webSearch';
-import { IFlagService } from '#/app/flag/flag';
-import { ISessionNotify } from '#/features/notify/sessionNotify';
-import { ISessionBtwService } from '#/features/btw/btw';
-import { TOWER_WORKER_PROFILE } from '#/features/tower/tower';
-import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { SUBAGENT_FORK_FLAG_ID } from '#/session/subagent/flag';
-import {
-  normalizeAgentProfile,
-} from '#/app/agentProfileCatalog/agentProfileCatalog';
-import { IAgentProfileRegistry } from '#/app/agentProfileCatalog/agentProfileRegistry';
 import { FORK_CONTEXT_NOTICE } from '#/session/subagent/spawn';
-import { SUBAGENT_BACKGROUND_TASK_NOTICE } from '#/agent/task/taskService';
-import { wrapSystemReminder } from '#/features/reminder/systemReminder';
+import { ISessionUsageService } from '#/session/usage/sessionUsage';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
 import {
   IRuntimeResolver,
   IWorkspaceInstanceManager,
   type WorkspaceInstanceChange,
 } from '#/workspace/workspaceInstance/workspaceInstanceManager';
+import { inputTotal } from '#human/llm/usage';
 
+import { stubFlag } from '../../app/flag/stubs';
+import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import {
   appService,
   agentServices,
@@ -62,8 +57,6 @@ import {
   testAgent,
   type TestAgentContext,
 } from '../../harness';
-import { stubFlag } from '../../app/flag/stubs';
-import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 
 class ScopedAppendLogStore implements IAppendLogStore {
   declare readonly _serviceBrand: undefined;
@@ -156,9 +149,13 @@ const ACTIVE_TOOL_NAMES = ['Agent', 'Bash', 'Read'];
 const CHILD_FINAL_TEXT = 'The inherited task is done.';
 
 function taskReminders(history: readonly Pick<ContextMessage, 'content'>[]): string[] {
-  return history.flatMap((message) => message.content).flatMap((part) =>
-    part.type === 'text' && part.text.includes(SUBAGENT_BACKGROUND_TASK_NOTICE) ? [part.text] : [],
-  );
+  return history
+    .flatMap((message) => message.content)
+    .flatMap((part) =>
+      part.type === 'text' && part.text.includes(SUBAGENT_BACKGROUND_TASK_NOTICE)
+        ? [part.text]
+        : [],
+    );
 }
 
 describe('subagent task reminders and fork request parity', () => {
@@ -174,7 +171,10 @@ describe('subagent task reminders and fork request parity', () => {
     const telemetry: TelemetryRecord[] = [];
     ctx = testAgent(
       appService(IAppendLogStore, store),
-      appService(IFlagService, stubFlag((id) => id === SUBAGENT_FORK_FLAG_ID)),
+      appService(
+        IFlagService,
+        stubFlag((id) => id === SUBAGENT_FORK_FLAG_ID),
+      ),
       telemetryServices(recordingTelemetry(telemetry)),
       sessionServices((reg) => {
         reg.defineDescriptor(IRuntimeResolver, new SyncDescriptor(TestRuntimeResolver));
@@ -257,8 +257,7 @@ describe('subagent task reminders and fork request parity', () => {
       .map((agent) => agent.agentId)
       .find((id) => id !== 'parent' && id !== 'main');
     expect(childId).toBeDefined();
-    const scopeOf = (agentId: string) =>
-      `sessions/test-workspace/test-session/agents/${agentId}`;
+    const scopeOf = (agentId: string) => `sessions/test-workspace/test-session/agents/${agentId}`;
     const firstLlmRequest = (agentId: string): WireRecord | undefined =>
       store
         .recordsFor(scopeOf(agentId), AGENT_WIRE_RECORD_KEY)
@@ -340,7 +339,9 @@ describe('subagent task reminders and fork request parity', () => {
     expect((await loop.promptHandle(id)!.completion).state).toBe('completed');
   }
 
-  async function runMainAgentFork(options?: { readonly disallowedTools?: readonly string[] }): Promise<void> {
+  async function runMainAgentFork(options?: {
+    readonly disallowedTools?: readonly string[];
+  }): Promise<void> {
     const profile = ctx.get(IAgentProfileService);
     await profile.bind({ profile: 'agent', model: 'mock-model' });
     profile.update({ activeToolNames: contributedToolNames() });
@@ -474,7 +475,9 @@ describe('subagent task reminders and fork request parity', () => {
       expect(ctx.llmCalls).toHaveLength(3);
       for (const request of ctx.llmCalls) {
         expect(request.tools.some((tool) => tool.name === 'WaitFor')).toBe(true);
-        expect(taskReminders(request.history)).toEqual([wrapSystemReminder(SUBAGENT_BACKGROUND_TASK_NOTICE)]);
+        expect(taskReminders(request.history)).toEqual([
+          wrapSystemReminder(SUBAGENT_BACKGROUND_TASK_NOTICE),
+        ]);
       }
       expect(taskReminders(child.accessor.get(IAgentContextMemoryService).get())).toHaveLength(1);
     },
@@ -509,7 +512,9 @@ describe('subagent task reminders and fork request parity', () => {
       await runPrompt(restored);
 
       expect(taskReminders(ctx.llmCalls[0]!.history)).toHaveLength(1);
-      expect(restored.accessor.get(IAgentContextMemoryService).get().slice(0, history.length)).toEqual([...history]);
+      expect(
+        restored.accessor.get(IAgentContextMemoryService).get().slice(0, history.length),
+      ).toEqual([...history]);
     },
   );
 

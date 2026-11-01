@@ -9,16 +9,15 @@
  * for real so the truncation has to travel the production path.
  */
 
+import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
-import { setGlobal, restoreGlobals } from '#test/helpers/stubs';
-
 import { submitFeedbackWithAttachments } from '#/feedback/feedback-attachments';
-import { getFeedbackStatusCodebaseTruncated } from '#/tui/constant/feedback';
 import type { SlashCommandHost } from '#/tui/commands/dispatch';
+import { getFeedbackStatusCodebaseTruncated } from '#/tui/constant/feedback';
+import { setGlobal, restoreGlobals } from '#test/helpers/stubs';
 
 import * as feedbackCodebase from '../../src/feedback/codebase';
 

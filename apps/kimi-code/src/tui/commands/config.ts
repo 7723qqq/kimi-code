@@ -11,6 +11,16 @@ import {
 
 import type { Locale } from '#/i18n';
 import { getLocale, setLocale, t } from '#/i18n';
+import type { ThemeName } from '#/tui/theme';
+import { currentTheme, isBuiltInTheme, loadCustomThemeMerged } from '#/tui/theme';
+import {
+  matchModelSwitchRule,
+  peekModelSwitchConfirmConfig,
+  resolveModelSwitchHint,
+  type ModelSwitchAction,
+  type ModelSwitchRule,
+} from '#/utils/model-switch-confirm-config';
+
 import { formatTokenCount } from '../../utils/usage/usage-format';
 import {
   AstronSettingsComponent,
@@ -45,18 +55,8 @@ import {
   type TuiConfig,
   type TuiMode,
 } from '../config';
-import type { ThemeName } from '#/tui/theme';
-import { currentTheme, isBuiltInTheme, loadCustomThemeMerged } from '#/tui/theme';
-import {
-  matchModelSwitchRule,
-  peekModelSwitchConfirmConfig,
-  resolveModelSwitchHint,
-  type ModelSwitchAction,
-  type ModelSwitchRule,
-} from '#/utils/model-switch-confirm-config';
 import { getNoActiveSessionMessage, getTuiModeRestartNotice } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
-import { isSessionOccupiedError } from '../utils/session-lock-errors';
 import { setMarkdownMermaidMode, type MermaidRenderMode } from '../utils/markdown-options';
 import {
   effectiveModelForHost,
@@ -65,11 +65,11 @@ import {
   type ModelSwitchPersistence,
 } from '../utils/model-switch';
 import { permissionModeDescription, permissionModeDisplayName } from '../utils/permission-mode';
-import { setExperimentalFeatures } from './experimental-flags';
+import { isSessionOccupiedError } from '../utils/session-lock-errors';
 import type { SlashCommandHost } from './dispatch';
+import { setExperimentalFeatures } from './experimental-flags';
 import { showUsage } from './info';
 import { promptApiKey } from './prompts';
-
 
 /**
  * The picker warning shown when switching would resend context. With a
@@ -584,7 +584,10 @@ export function confirmThenPerformModelSwitch(
   host.state.activeDialog = 'model-switch-confirm';
 }
 
-export function matchedModelSwitchRule(host: SlashCommandHost, alias: string): ModelSwitchRule | undefined {
+export function matchedModelSwitchRule(
+  host: SlashCommandHost,
+  alias: string,
+): ModelSwitchRule | undefined {
   const prevAlias = host.state.appState.model;
   // Effort-only switches and re-picks of the live alias lose no cache. A
   // streaming switch keeps the existing behavior: performModelSwitch rejects
@@ -686,7 +689,6 @@ async function runModelSwitchAction(
     }
   }
 }
-
 
 // ---------------------------------------------------------------------------
 // Secondary model (`/secondary-model`) — persists `[secondary_model] default_model`

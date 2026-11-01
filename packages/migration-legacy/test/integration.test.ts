@@ -1,11 +1,10 @@
 import { mkdir, mkdtemp, writeFile, readFile, rm, chmod } from 'node:fs/promises';
 
 const POSIX_PERMS = process.platform !== 'win32';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { detectMigration, runMigration } from '../src/index.js';
 import { migrationErrorsLogFile } from '../src/paths.js';
@@ -217,12 +216,7 @@ describe('runMigration (end-to-end on multi-workdir fixture)', () => {
       await writeFile(join(src, 'kimi.json'), JSON.stringify({ work_dirs: [{ path: workdir }] }));
       await writeFile(join(bucket, uuid, 'context.jsonl'), '{"role":"user","content":"hi"}\n');
 
-      const foreignDir = join(
-        tgt,
-        'sessions',
-        computeWorkdirBucket(workdir),
-        `ses_${uuid}`,
-      );
+      const foreignDir = join(tgt, 'sessions', computeWorkdirBucket(workdir), `ses_${uuid}`);
       await mkdir(foreignDir, { recursive: true });
       await writeFile(join(foreignDir, 'state.json'), '{}');
 
@@ -276,46 +270,49 @@ describe('runMigration (end-to-end on multi-workdir fixture)', () => {
     }
   });
 
-  it.skipIf(!POSIX_PERMS)('records an unreadable plan file as a step failure without aborting the run', async () => {
-    const src = await mkdtemp(join(tmpdir(), 'plans-e2e-src-'));
-    const plansSource = await mkdtemp(join(tmpdir(), 'plans-e2e-source-'));
-    const broken = join(plansSource, 'broken.md');
-    try {
-      await writeFile(join(plansSource, 'good.md'), 'GOOD');
-      await writeFile(broken, 'SECRET');
-      // Non-root cannot read this file, so copyFile() fails for this entry only.
-      await chmod(broken, 0o000);
+  it.skipIf(!POSIX_PERMS)(
+    'records an unreadable plan file as a step failure without aborting the run',
+    async () => {
+      const src = await mkdtemp(join(tmpdir(), 'plans-e2e-src-'));
+      const plansSource = await mkdtemp(join(tmpdir(), 'plans-e2e-source-'));
+      const broken = join(plansSource, 'broken.md');
+      try {
+        await writeFile(join(plansSource, 'good.md'), 'GOOD');
+        await writeFile(broken, 'SECRET');
+        // Non-root cannot read this file, so copyFile() fails for this entry only.
+        await chmod(broken, 0o000);
 
-      const plan = await detectMigration({ sourcePath: src });
-      const report = await runMigration({
-        plan,
-        scope: { config: true, mcp: true, userHistory: true, skills: true, sessions: true },
-        source: src,
-        target: tgt,
-        plansSourceDir: plansSource,
-      });
+        const plan = await detectMigration({ sourcePath: src });
+        const report = await runMigration({
+          plan,
+          scope: { config: true, mcp: true, userHistory: true, skills: true, sessions: true },
+          source: src,
+          target: tgt,
+          plansSourceDir: plansSource,
+        });
 
-      expect(report.summary.plans.copied).toBe(1);
-      expect(report.summary.plans.failures).toHaveLength(1);
-      expect(report.summary.plans.failures[0]?.sourcePath).toBe(broken);
-      expect(report.summary.plans.failures[0]?.reason.length).toBeGreaterThan(0);
-      await expect(readFile(join(tgt, 'plans', 'good.md'), 'utf-8')).resolves.toBe('GOOD');
+        expect(report.summary.plans.copied).toBe(1);
+        expect(report.summary.plans.failures).toHaveLength(1);
+        expect(report.summary.plans.failures[0]?.sourcePath).toBe(broken);
+        expect(report.summary.plans.failures[0]?.reason.length).toBeGreaterThan(0);
+        await expect(readFile(join(tgt, 'plans', 'good.md'), 'utf-8')).resolves.toBe('GOOD');
 
-      const persisted = JSON.parse(
-        await readFile(join(tgt, 'migration-report.json'), 'utf-8'),
-      ) as MigrationReport;
-      expect(persisted.summary.plans.failures).toEqual([
-        { sourcePath: broken, reason: report.summary.plans.failures[0]!.reason },
-      ]);
+        const persisted = JSON.parse(
+          await readFile(join(tgt, 'migration-report.json'), 'utf-8'),
+        ) as MigrationReport;
+        expect(persisted.summary.plans.failures).toEqual([
+          { sourcePath: broken, reason: report.summary.plans.failures[0]!.reason },
+        ]);
 
-      const log = await readFile(migrationErrorsLogFile(tgt), 'utf-8');
-      expect(log).toContain(broken);
-    } finally {
-      await chmod(broken, 0o600);
-      await rm(src, { recursive: true, force: true });
-      await rm(plansSource, { recursive: true, force: true });
-    }
-  });
+        const log = await readFile(migrationErrorsLogFile(tgt), 'utf-8');
+        expect(log).toContain(broken);
+      } finally {
+        await chmod(broken, 0o600);
+        await rm(src, { recursive: true, force: true });
+        await rm(plansSource, { recursive: true, force: true });
+      }
+    },
+  );
 
   it('surfaces a subagent that could not be migrated while the session still succeeds', async () => {
     const src = await mkdtemp(join(tmpdir(), 'subagent-e2e-src-'));

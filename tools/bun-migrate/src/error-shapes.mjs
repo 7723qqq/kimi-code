@@ -50,7 +50,11 @@ export const ERROR_CASES = [
   { group: 'promises', label: 'readdir a missing dir', expect: null },
   { group: 'promises', label: 'realpath a missing path', expect: null },
   { group: 'promises', label: 'mkdir an existing dir', expect: null },
-  { group: 'promises', label: 'abort a read with an aborted signal', expect: 'abort-error-class-identity' },
+  {
+    group: 'promises',
+    label: 'abort a read with an aborted signal',
+    expect: 'abort-error-class-identity',
+  },
   { group: 'dns', label: 'lookup an unresolvable host', expect: 'dns-error-name' },
   { group: 'zlib', label: 'gunzip a non-gzip buffer', expect: null },
   { group: 'stream', label: 'emit error after end', expect: null },
@@ -89,8 +93,10 @@ export const ERROR_GAPS = [
     observable: 'error.constructor.name for an aborted fs operation',
     node: 'AbortError (a subclass of Error)',
     bun: 'Error, with only .name set to "AbortError"',
-    breaks: 'err instanceof AbortError and err.constructor.name === "AbortError" are both false on Bun',
-    workaround: 'branch on err.name === "AbortError" || err.code === "ABORT_ERR", never on the class',
+    breaks:
+      'err instanceof AbortError and err.constructor.name === "AbortError" are both false on Bun',
+    workaround:
+      'branch on err.name === "AbortError" || err.code === "ABORT_ERR", never on the class',
     severity: 'high',
   },
   {

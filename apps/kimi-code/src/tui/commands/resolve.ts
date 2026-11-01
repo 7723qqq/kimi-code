@@ -1,6 +1,8 @@
 import { t } from '#/i18n';
 
 import type { TUIState } from '../tui-state';
+import type { InlineSkillActivation } from '../types';
+import { extractInlineSkillActivations, findInlineSkillTokens } from '../utils/inline-skill-tokens';
 import { isExperimentalFlagEnabled } from './experimental-flags';
 import { parseSlashInput } from './parse';
 import {
@@ -9,8 +11,6 @@ import {
   type BuiltinSlashCommand,
   type BuiltinSlashCommandName,
 } from './registry';
-import type { InlineSkillActivation } from '../types';
-import { extractInlineSkillActivations, findInlineSkillTokens } from '../utils/inline-skill-tokens';
 import type {
   KimiSlashCommand,
   ParsedSlashInput,
@@ -172,7 +172,9 @@ export function resolveUserInput(options: ResolveSlashCommandInput): {
       if (intent.kind !== 'skill') return { intent, activations: [] };
       return {
         intent,
-        activations: [{ skillName: activations[0]!.skillName, args: text.slice(tokens[0].end).trim() }],
+        activations: [
+          { skillName: activations[0]!.skillName, args: text.slice(tokens[0].end).trim() },
+        ],
       };
     }
   }

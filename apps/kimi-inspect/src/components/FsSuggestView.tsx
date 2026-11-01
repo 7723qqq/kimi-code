@@ -1,4 +1,7 @@
-import { IWorkspaceService, type Workspace } from '@moonshot-ai/agent-core-v2/app/workspace/workspace';
+import {
+  IWorkspaceService,
+  type Workspace,
+} from '@moonshot-ai/agent-core-v2/app/workspace/workspace';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 
@@ -78,7 +81,11 @@ export function FsSuggestView() {
             Workspace
           </div>
           <div title={workspace?.root} className="truncate font-mono text-[11px] text-neutral-300">
-            {workspace === null ? <span className="text-neutral-600 italic">none selected</span> : `${workspace.name} — ${workspace.root}`}
+            {workspace === null ? (
+              <span className="text-neutral-600 italic">none selected</span>
+            ) : (
+              `${workspace.name} — ${workspace.root}`
+            )}
           </div>
           {workspaces.isError ? <ErrorLine error={workspaces.error} /> : null}
         </div>
@@ -94,8 +101,8 @@ export function FsSuggestView() {
             <h1 className="text-sm font-semibold text-neutral-200">Filesystem Suggest</h1>
             <p className="mt-1 text-[11px] text-neutral-500">
               Query file and directory completion candidates via the workspace-independent
-              fs:suggest API — the selected workspace supplies its root, or enter arbitrary
-              roots to override it.
+              fs:suggest API — the selected workspace supplies its root, or enter arbitrary roots to
+              override it.
             </p>
           </div>
           <form
@@ -107,7 +114,8 @@ export function FsSuggestView() {
           >
             <label className="md:col-span-2">
               <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
-                Roots (absolute paths, one per line or comma-separated; overrides the workspace selection)
+                Roots (absolute paths, one per line or comma-separated; overrides the workspace
+                selection)
               </span>
               <textarea
                 className="h-16 w-full resize-y rounded border border-neutral-700 bg-neutral-950 px-2 py-1.5 font-mono text-[12px] text-neutral-100 outline-none focus:border-sky-600"
@@ -182,13 +190,17 @@ export function FsSuggestView() {
             <div className="flex items-end md:col-span-2">
               <button
                 type="submit"
-                disabled={(workspace === null && parseRoots(rootsText).length === 0) || suggest.isPending}
+                disabled={
+                  (workspace === null && parseRoots(rootsText).length === 0) || suggest.isPending
+                }
                 className="rounded bg-sky-600 px-3 py-1.5 text-[12px] font-medium text-white hover:bg-sky-500 disabled:opacity-40"
               >
                 {suggest.isPending ? 'loading…' : 'Suggest'}
               </button>
               {workspace === null && parseRoots(rootsText).length === 0 ? (
-                <span className="ml-3 text-[11px] text-neutral-600">select a workspace or enter roots first</span>
+                <span className="ml-3 text-[11px] text-neutral-600">
+                  select a workspace or enter roots first
+                </span>
               ) : null}
             </div>
           </form>

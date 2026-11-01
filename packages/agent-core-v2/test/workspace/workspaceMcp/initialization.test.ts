@@ -1,44 +1,40 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'pathe';
+import { setTimeout as delay } from 'node:timers/promises';
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { join } from 'pathe';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
 import { Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
-import { McpConnectionManager } from '#/mcpCore/connection-manager';
-import { MCP_SECTION, type McpSection } from '#/app/mcpConfig/configSection';
-import { IMcpOAuthService } from '#/app/mcpConfig/oauthService';
-import { IMcpConfigStore, type McpConfigWriteEvent } from '#/app/mcpConfig/configStore';
-import { McpOAuthService } from '#/mcpCore/oauth/service';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
+import { MCP_SECTION, type McpSection } from '#/app/mcpConfig/configSection';
+import { IMcpConfigStore, type McpConfigWriteEvent } from '#/app/mcpConfig/configStore';
+import { IMcpOAuthService } from '#/app/mcpConfig/oauthService';
 import { IPluginService } from '#/app/plugin/plugin';
 import type { PluginReloadEvent } from '#/app/plugin/types';
 import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
+import { McpConnectionManager } from '#/mcpCore/connection-manager';
+import { McpOAuthService } from '#/mcpCore/oauth/service';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { FakeRuntime } from '#/runtime/fakeRuntime';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import { IRuntimeResolver } from '#/workspace/workspaceInstance/workspaceInstanceManager';
-import { FakeRuntime } from '#/runtime/fakeRuntime';
-import { IWorkspaceTrust } from '#/workspace/workspaceTrust/workspaceTrust';
-import { IWorkspaceMcpConfigService } from '#/workspace/workspaceMcpConfig/workspaceMcpConfig';
-import { WorkspaceMcpConfigService } from '#/workspace/workspaceMcpConfig/workspaceMcpConfigService';
 import { IWorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcp';
 import { WorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcpService';
+import { IWorkspaceMcpConfigService } from '#/workspace/workspaceMcpConfig/workspaceMcpConfig';
+import { WorkspaceMcpConfigService } from '#/workspace/workspaceMcpConfig/workspaceMcpConfigService';
+import { IWorkspaceTrust } from '#/workspace/workspaceTrust/workspaceTrust';
 
 import { stubLog } from '../../_base/log/stubs';
 import { registerAgentIdentityStub } from '../../app/agentIdentity/stubs';
-import {
-  createMemoryMcpOAuthStore,
-  slowToolStdioFixture,
-  stdioFixture,
-} from '../../mcpCore/stubs';
-import { setTimeout as delay } from 'node:timers/promises';
+import { createMemoryMcpOAuthStore, slowToolStdioFixture, stdioFixture } from '../../mcpCore/stubs';
 
 describe('Workspace MCP initialization', () => {
   let cwd: string;
@@ -91,11 +87,15 @@ describe('Workspace MCP initialization', () => {
           ),
           { process: new HostProcessService() },
         );
-        reg.defineInstance(IRuntimeResolver, { _serviceBrand: undefined, inspect: () => runtime, acquire: () => ({ runtime, track: (resource) => resource, dispose: () => {} }) });
+        reg.defineInstance(IRuntimeResolver, {
+          _serviceBrand: undefined,
+          inspect: () => runtime,
+          acquire: () => ({ runtime, track: (resource) => resource, dispose: () => {} }),
+        });
         reg.definePartialInstance(IConfigService, {
           ready,
-          get: (<T = unknown>(domain: string): T =>
-            (domain === MCP_SECTION ? mcpSection : undefined) as T),
+          get: <T = unknown>(domain: string): T =>
+            (domain === MCP_SECTION ? mcpSection : undefined) as T,
         });
         reg.defineInstance(IHostFileSystem, new HostFileSystem());
         reg.definePartialInstance(IWorkspaceTrust, {
@@ -156,10 +156,7 @@ describe('Workspace MCP initialization', () => {
   }, 15000);
 });
 
-async function writeProjectMcpJson(
-  cwd: string,
-  servers: Record<string, unknown>,
-): Promise<void> {
+async function writeProjectMcpJson(cwd: string, servers: Record<string, unknown>): Promise<void> {
   await mkdir(join(cwd, '.kimi-code'), { recursive: true });
   await writeFile(
     join(cwd, '.kimi-code', 'mcp.json'),

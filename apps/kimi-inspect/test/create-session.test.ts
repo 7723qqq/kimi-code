@@ -118,9 +118,7 @@ describe('createSession', () => {
 
     const withCwd = fakeFetch(200, okBody({ id: 's2' }));
     await createSession({ baseUrl: 'http://h:1', cwd: '/tmp/proj', fetchImpl: withCwd.fetchImpl });
-    expect(withCwd.calls[0]!.init?.body).toBe(
-      JSON.stringify({ metadata: { cwd: '/tmp/proj' } }),
-    );
+    expect(withCwd.calls[0]!.init?.body).toBe(JSON.stringify({ metadata: { cwd: '/tmp/proj' } }));
     expect(withCwd.calls[0]!.init?.headers).toEqual({ 'content-type': 'application/json' });
   });
 

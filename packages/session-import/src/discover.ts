@@ -1,16 +1,19 @@
-import { readdir, stat } from 'node:fs/promises';
 import type { Dirent } from 'node:fs';
+import { readdir, stat } from 'node:fs/promises';
 import { basename, join } from 'node:path';
+
 import { readJsonLines } from '#/jsonl';
 import type { FindSessionsOptions, SessionCandidate } from '#/types';
 
 const CLAUDE_HEAD_LINES = 100;
-const CLAUDE_CONTROL_TEXT = /^(?:<command-name>|<local-command|<command-message>|\[Request interrupted by user)/;
+const CLAUDE_CONTROL_TEXT =
+  /^(?:<command-name>|<local-command|<command-message>|\[Request interrupted by user)/;
 const INTERACTIVE_CODEX_SOURCES = new Set(['cli', 'vscode']);
 
 type Row = Record<string, unknown>;
 
-const isRow = (value: unknown): value is Row => value !== null && typeof value === 'object' && !Array.isArray(value);
+const isRow = (value: unknown): value is Row =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
 
 async function entries(directory: string): Promise<Dirent[]> {
   return readdir(directory, { withFileTypes: true }).catch(() => []);
@@ -44,19 +47,37 @@ function isClaudePrompt(row: Row): boolean {
   if (row['type'] !== 'user' || row['isMeta'] === true) return false;
   const message = row['message'];
   const content = isRow(message) ? message['content'] : undefined;
-  const blocks = typeof content === 'string' ? [{ type: 'text', text: content }] : Array.isArray(content) ? content.filter(isRow) : [];
-  return blocks.some(block => block['type'] === 'image'
-    || block['type'] === 'text' && typeof block['text'] === 'string' && block['text'].trim() !== '' && !CLAUDE_CONTROL_TEXT.test(block['text'].trim()));
+  const blocks =
+    typeof content === 'string'
+      ? [{ type: 'text', text: content }]
+      : Array.isArray(content)
+        ? content.filter(isRow)
+        : [];
+  return blocks.some(
+    (block) =>
+      block['type'] === 'image' ||
+      (block['type'] === 'text' &&
+        typeof block['text'] === 'string' &&
+        block['text'].trim() !== '' &&
+        !CLAUDE_CONTROL_TEXT.test(block['text'].trim())),
+  );
 }
 
 async function claudeSession(path: string, since: number): Promise<SessionCandidate | undefined> {
   const modifiedAt = await modifiedSince(path, since);
   if (modifiedAt === undefined) return undefined;
   const rows = await head(path, CLAUDE_HEAD_LINES);
-  const message = rows.find(row => typeof row['cwd'] === 'string' && row['cwd'] !== '');
+  const message = rows.find((row) => typeof row['cwd'] === 'string' && row['cwd'] !== '');
   if (!message || message['isSidechain'] === true || !rows.some(isClaudePrompt)) return undefined;
-  if (typeof message['entrypoint'] === 'string' && message['entrypoint'].startsWith('sdk-')) return undefined;
-  return { source: 'claude-code', path, sourceId: basename(path, '.jsonl'), cwd: message['cwd'] as string, modifiedAt };
+  if (typeof message['entrypoint'] === 'string' && message['entrypoint'].startsWith('sdk-'))
+    return undefined;
+  return {
+    source: 'claude-code',
+    path,
+    sourceId: basename(path, '.jsonl'),
+    cwd: message['cwd'] as string,
+    modifiedAt,
+  };
 }
 
 async function codexMeta(path: string): Promise<Row | undefined> {
@@ -73,9 +94,14 @@ function parentThread(meta: Row): string | undefined {
   return typeof parent === 'string' ? parent : undefined;
 }
 
-async function codexSession(path: string, meta: Row, since: number): Promise<SessionCandidate | undefined> {
+async function codexSession(
+  path: string,
+  meta: Row,
+  since: number,
+): Promise<SessionCandidate | undefined> {
   if (typeof meta['cwd'] !== 'string' || meta['cwd'] === '') return undefined;
-  if (meta['source'] !== undefined && !INTERACTIVE_CODEX_SOURCES.has(meta['source'] as string)) return undefined;
+  if (meta['source'] !== undefined && !INTERACTIVE_CODEX_SOURCES.has(meta['source'] as string))
+    return undefined;
   const modifiedAt = await modifiedSince(path, since);
   if (modifiedAt === undefined) return undefined;
   return { source: 'codex', path, sourceId: meta['id'] as string, cwd: meta['cwd'], modifiedAt };
@@ -84,7 +110,9 @@ async function codexSession(path: string, meta: Row, since: number): Promise<Ses
 async function stateDatabase(codexHome: string): Promise<string | undefined> {
   const databases = (await entries(codexHome)).flatMap((entry) => {
     const version = /^state(?:_(\d+))?\.sqlite$/.exec(entry.name);
-    return entry.isFile() && version ? [{ path: join(codexHome, entry.name), version: Number(version[1] ?? 0) }] : [];
+    return entry.isFile() && version
+      ? [{ path: join(codexHome, entry.name), version: Number(version[1] ?? 0) }]
+      : [];
   });
   return databases.toSorted((a, b) => b.version - a.version)[0]?.path;
 }
@@ -115,16 +143,19 @@ export async function findSessions(options: FindSessionsOptions): Promise<Sessio
     const meta = await codexMeta(path);
     if (!meta) continue;
     const parent = parentThread(meta);
-    if (parent) spawned.set(parent, [...spawned.get(parent) ?? [], { id: meta['id'] as string, path }]);
+    if (parent)
+      spawned.set(parent, [...(spawned.get(parent) ?? []), { id: meta['id'] as string, path }]);
     const session = await codexSession(path, meta, options.since);
     const known = session && threads.get(session.sourceId);
-    if (session && (!known || known.modifiedAt < session.modifiedAt)) threads.set(session.sourceId, session);
+    if (session && (!known || known.modifiedAt < session.modifiedAt))
+      threads.set(session.sourceId, session);
   }
-  const subagentPaths = (id: string, seen: Set<string>): string[] => (spawned.get(id) ?? []).flatMap((child) => {
-    if (seen.has(child.id)) return [child.path];
-    seen.add(child.id);
-    return [child.path, ...subagentPaths(child.id, seen)];
-  });
+  const subagentPaths = (id: string, seen: Set<string>): string[] =>
+    (spawned.get(id) ?? []).flatMap((child) => {
+      if (seen.has(child.id)) return [child.path];
+      seen.add(child.id);
+      return [child.path, ...subagentPaths(child.id, seen)];
+    });
   const stateDatabasePath = await stateDatabase(options.codexHome);
   for (const session of threads.values()) {
     const paths = subagentPaths(session.sourceId, new Set([session.sourceId]));

@@ -81,10 +81,7 @@ describe('decode-rate accuracy against known-truth streams', () => {
     const tokens = 300;
     const produceEndMs = ((tokens - 1) * 1000) / trueRate; // 1495 ms
     for (const bursts of [2, 5, 30, 300]) {
-      const arrivals = Array.from(
-        { length: bursts },
-        (_, i) => (produceEndMs * i) / (bursts - 1),
-      );
+      const arrivals = Array.from({ length: bursts }, (_, i) => (produceEndMs * i) / (bursts - 1));
       const measured = measureStream(arrivals, tokens);
       // Exact: the first and last arrivals still straddle the produce span.
       expect(errorPct(measured, trueRate)).toBe('0.00%');

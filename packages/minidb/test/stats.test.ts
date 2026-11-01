@@ -1,10 +1,9 @@
-import fs from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
-
 // Verifies the SSD-pressure instrumentation on db.stats: WAL bytes written,
 // fsync count, snapshot bytes written, and compaction count.
 import { expect, test } from 'bun:test';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 
 import { MiniDb } from '../src/index.js';
 
@@ -41,7 +40,10 @@ test("walFsyncs counts one fsync per flush under fsyncPolicy 'always'", async ()
     const N = 5;
     for (let i = 0; i < N; i++) await db.set(`k${i}`, `v${i}`);
     // Sequential awaited sets each flush + fsync independently.
-    expect(db.stats.walFsyncs >= N, `expected >= ${N} fsyncs, got ${db.stats.walFsyncs}`).toBeTruthy();
+    expect(
+      db.stats.walFsyncs >= N,
+      `expected >= ${N} fsyncs, got ${db.stats.walFsyncs}`,
+    ).toBeTruthy();
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -90,7 +92,10 @@ test('batch writes a single frame (lower write amplification than per-key sets)'
     // One TYPE_BATCH frame: 26 + (2-byte count + sum of per-op subframes).
     // Just assert it is far less than 10 individual SET frames would be.
     const individual = 10 * (FRAME_OVERHEAD + 2 + 2); // ~10 * 30 = 300
-    expect(db.stats.walBytesWritten < individual, `batch wrote ${db.stats.walBytesWritten} < ${individual}`).toBeTruthy();
+    expect(
+      db.stats.walBytesWritten < individual,
+      `batch wrote ${db.stats.walBytesWritten} < ${individual}`,
+    ).toBeTruthy();
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -216,9 +221,15 @@ test('compaction phase stats break down into snapshot/rotation/postings/total', 
     expect(db.stats.compactionSnapshotDurationMs > 0, 'snapshot phase recorded').toBeTruthy();
     expect(db.stats.compactionRotationDurationMs > 0, 'rotation phase recorded').toBeTruthy();
     expect(db.stats.compactionPostingsDurationMs > 0, 'postings rebuild recorded').toBeTruthy();
-    expect(db.stats.textRebuildDurationMs > 0, 'postings rebuild also counts as a text rebuild').toBeTruthy();
-    expect(db.stats.compactionSnapshotDurationMs + db.stats.compactionRotationDurationMs <=
-        db.stats.compactionDurationMs, 'phases are bounded by the total').toBeTruthy();
+    expect(
+      db.stats.textRebuildDurationMs > 0,
+      'postings rebuild also counts as a text rebuild',
+    ).toBeTruthy();
+    expect(
+      db.stats.compactionSnapshotDurationMs + db.stats.compactionRotationDurationMs <=
+        db.stats.compactionDurationMs,
+      'phases are bounded by the total',
+    ).toBeTruthy();
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -251,7 +262,10 @@ test('query stats count candidates, decodes and sorted rows', async () => {
     const c1 = db.stats.queryCandidates;
     const page = db.query({ filter: { grp: 'x' }, limit: 3 });
     expect(page.length).toBe(3);
-    expect(db.stats.queryCandidates - c1 < 100, 'early exit stops before the full scan').toBeTruthy();
+    expect(
+      db.stats.queryCandidates - c1 < 100,
+      'early exit stops before the full scan',
+    ).toBeTruthy();
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -280,7 +294,9 @@ test('index rebuild stats: values decoded once per record, 0 without value-deriv
   });
   try {
     expect(db.stats.indexRebuildDecoded, 'no decodes without value-derived indexes').toBe(0);
-    expect(db.dtRange('created', { gte: 0 }).length, 'dt index rebuilt from metadata alone').toBe(20);
+    expect(db.dtRange('created', { gte: 0 }).length, 'dt index rebuilt from metadata alone').toBe(
+      20,
+    );
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -311,7 +327,9 @@ test('index rebuild stats: values decoded once per record, 0 without value-deriv
     indexGenerations: false,
   });
   try {
-    expect(db.stats.indexRebuildDecoded, 'one decode per record fanned out to all builders').toBe(20);
+    expect(db.stats.indexRebuildDecoded, 'one decode per record fanned out to all builders').toBe(
+      20,
+    );
     expect(db.search('body', 'b1').length).toBe(1);
     expect(db.search('title', 't2').length).toBe(1);
     expect(db.findEq('byN', 3).length).toBe(1);

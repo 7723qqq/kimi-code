@@ -1,36 +1,31 @@
-import { KIMI_CODE_PROVIDER_NAME } from '@moonshot-ai/kimi-code-oauth';
 import { afterEach, describe, expect, it, jest } from 'bun:test';
-import { setEnv, restoreEnvs, setGlobal, restoreGlobals } from '#test/helpers/stubs';
+
+import { KIMI_CODE_PROVIDER_NAME } from '@moonshot-ai/kimi-code-oauth';
 
 import { createScopedTestHost } from '#/_base/di/test';
 import { isError2 } from '#/_base/errors/errors';
 import { ILogService, type LogPayload } from '#/_base/log/log';
-import { IOAuthService } from '#/app/auth/auth';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
+import { IOAuthService } from '#/app/auth/auth';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { ConfigRegistry } from '#/app/config/configService';
 import { IEventService } from '#/app/event/event';
+import { MODEL_CATALOG_SECTION } from '#/app/kosongConfig/configSection';
 import { IProviderDiscoveryService, type RetiredModel } from '#/app/kosongConfig/discovery';
 import '#/app/kosongConfig/discoveryService';
-import { MODEL_CATALOG_SECTION } from '#/app/kosongConfig/configSection';
 import { IKosongConfigService } from '#/app/kosongConfig/kosongConfig';
+import { IModelService, type ModelRecord } from '#/llm-adapter/model/model';
 import '#/app/kosongConfig/kosongConfigService';
 import '#/llm-adapter/model/errors';
-import {
-  IModelService,
-  type ModelRecord,
-} from '#/llm-adapter/model/model';
+import { IProviderService, type ProviderConfig } from '#/llm-adapter/provider/provider';
 import '#/llm-adapter/model/model-service';
-import {
-  IProviderService,
-  type ProviderConfig,
-} from '#/llm-adapter/provider/provider';
+import { setEnv, restoreEnvs, setGlobal, restoreGlobals } from '#test/helpers/stubs';
 import '#/llm-adapter/provider/provider-service';
 
 import { StubConfigService, stubOAuthService, stubTokenProvider } from '../../stubs';
-import { stubBootstrap } from '../bootstrap/stubs';
 import { stubAgentIdentity } from '../agentIdentity/stubs';
+import { stubBootstrap } from '../bootstrap/stubs';
 
 function stubEvents(): IEventService & { published: Array<{ type: string; payload: unknown }> } {
   const published: Array<{ type: string; payload: unknown }> = [];
@@ -83,10 +78,7 @@ async function createHost(
       IBootstrapService,
       stubBootstrap('/tmp/kimi-home', {}, { requestHeaders: { 'User-Agent': 'kimi-test/1.0' } }),
     ],
-    [
-      IAgentIdentity,
-      stubAgentIdentity({ hostRequestHeaders: { 'User-Agent': 'kimi-test/1.0' } }),
-    ],
+    [IAgentIdentity, stubAgentIdentity({ hostRequestHeaders: { 'User-Agent': 'kimi-test/1.0' } })],
   ]);
   const providers = host.app.accessor.get(IProviderService);
   const models = host.app.accessor.get(IModelService);
@@ -170,7 +162,11 @@ describe('refreshProviderModels modelSource short-circuit', () => {
         acme: {
           type: 'openai',
           apiKey: 'sk-acme',
-          source: { kind: 'apiJson', url: 'https://registry.example.test/api.json', apiKey: 'sk-registry' },
+          source: {
+            kind: 'apiJson',
+            url: 'https://registry.example.test/api.json',
+            apiKey: 'sk-registry',
+          },
         },
       },
       models: staticModels,
@@ -190,9 +186,17 @@ describe('refreshProviderModels modelSource short-circuit', () => {
 
       const providerRecords = providers.list();
       expect(Object.keys(providerRecords).toSorted()).toEqual(['acme', 'static-p']);
-      expect(providerRecords['static-p']).toEqual({ type: 'openai', modelSource: 'static', apiKey: 'sk-static' });
+      expect(providerRecords['static-p']).toEqual({
+        type: 'openai',
+        modelSource: 'static',
+        apiKey: 'sk-static',
+      });
       const modelRecords = models.list();
-      expect(modelRecords['s1']).toEqual({ provider: 'static-p', model: 'static-model', maxContextSize: 1000 });
+      expect(modelRecords['s1']).toEqual({
+        provider: 'static-p',
+        model: 'static-model',
+        maxContextSize: 1000,
+      });
       expect(modelRecords['acme/m1']).toBeDefined();
       expect(config.get<string>('defaultModel')).toBe('s1');
       expect(config.get('thinking')).toEqual({ enabled: true });
@@ -235,7 +239,11 @@ describe('refreshProviderModels modelSource short-circuit', () => {
         acme: {
           type: 'openai',
           apiKey: 'sk-acme',
-          source: { kind: 'apiJson', url: 'https://registry.example.test/api.json', apiKey: 'sk-registry' },
+          source: {
+            kind: 'apiJson',
+            url: 'https://registry.example.test/api.json',
+            apiKey: 'sk-registry',
+          },
         },
       },
       models: {
@@ -308,7 +316,11 @@ describe('refreshProviderModels modelSource short-circuit', () => {
         acme: {
           type: 'openai',
           apiKey: 'sk-acme',
-          source: { kind: 'apiJson', url: 'https://registry.example.test/api.json', apiKey: 'sk-registry' },
+          source: {
+            kind: 'apiJson',
+            url: 'https://registry.example.test/api.json',
+            apiKey: 'sk-registry',
+          },
         },
       },
       models: {
@@ -388,12 +400,10 @@ describe('refreshProviderModels modelSource short-circuit', () => {
   it('throws provider.not_found for an unknown scoped provider', async () => {
     const { host, discovery } = await createHost(staticSections);
     try {
-      const caught = await discovery
-        .refreshProviderModels({ providerId: 'missing' })
-        .then(
-          () => undefined,
-          (error: unknown) => error,
-        );
+      const caught = await discovery.refreshProviderModels({ providerId: 'missing' }).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
       expect(isError2(caught)).toBe(true);
       expect(isError2(caught) ? caught.code : undefined).toBe('provider.not_found');
     } finally {
@@ -792,7 +802,11 @@ describe('refreshProviderModels api_key_env credentials', () => {
         acme: {
           type: 'openai',
           apiKey: 'sk-acme',
-          source: { kind: 'apiJson', url: 'https://registry.example.test/api.json', apiKey: 'sk-registry' },
+          source: {
+            kind: 'apiJson',
+            url: 'https://registry.example.test/api.json',
+            apiKey: 'sk-registry',
+          },
         },
       },
       models: {},
@@ -815,10 +829,10 @@ describe('refreshProviderModels api_key_env credentials', () => {
     setEnv('KIMI_TEST_OPEN_PLATFORM_KEY', 'sk-open-platform');
     const fetchMock = jest.fn(
       async () =>
-        new Response(
-          JSON.stringify({ data: [{ id: 'kimi-k2', context_length: 262144 }] }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
+        new Response(JSON.stringify({ data: [{ id: 'kimi-k2', context_length: 262144 }] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
     );
     setGlobal('fetch', fetchMock);
     const { host, discovery, providers } = await createHost({
@@ -945,30 +959,28 @@ describe('refreshProviderModels defaultModel self-heal', () => {
     try {
       setGlobal(
         'fetch',
-        jest.fn(
-          async () => {
-            await config.set('defaultModel', 'kimi-code/kimi-k3');
-            return new Response(
-              JSON.stringify({
-                data: [
-                  {
-                    id: 'kimi-k2',
-                    limit: { context: 131072 },
-                    reasoning: { type: 'both' },
-                    display_name: 'Kimi K2',
-                  },
-                  {
-                    id: 'kimi-k3',
-                    limit: { context: 131072 },
-                    reasoning: { type: 'both' },
-                    display_name: 'Kimi K3',
-                  },
-                ],
-              }),
-              { status: 200, headers: { 'Content-Type': 'application/json' } },
-            );
-          },
-        ),
+        jest.fn(async () => {
+          await config.set('defaultModel', 'kimi-code/kimi-k3');
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: 'kimi-k2',
+                  limit: { context: 131072 },
+                  reasoning: { type: 'both' },
+                  display_name: 'Kimi K2',
+                },
+                {
+                  id: 'kimi-k3',
+                  limit: { context: 131072 },
+                  reasoning: { type: 'both' },
+                  display_name: 'Kimi K3',
+                },
+              ],
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }),
       );
       const replaceSections = jest.spyOn(config, 'replaceSections');
       const result = await discovery.refreshProviderModels({ scope: 'all' });

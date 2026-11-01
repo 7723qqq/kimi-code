@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test';
-
 import { join } from 'node:path';
 
 import { loadConfig } from '../src/config';

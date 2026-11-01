@@ -1,24 +1,19 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+
 import { join } from 'pathe';
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-
-import {
-  IAgentTaskService,
-  type AgentTaskInfo,
-} from '#/agent/task/task';
+import { IAgentTaskService, type AgentTaskInfo } from '#/agent/task/task';
 import { IEventBus } from '#/app/event/eventBus';
+
 import {
   taskServices,
   createTestAgent,
   homeDirServices,
   type TestAgentContext,
 } from '../../harness';
-import {
-  createAgentTaskPersistence,
-  type TaskServiceTestManager,
-} from './stubs';
+import { createAgentTaskPersistence, type TaskServiceTestManager } from './stubs';
 
 let sessionDir: string;
 let persistence: ReturnType<typeof createAgentTaskPersistence>;
@@ -38,10 +33,7 @@ function runningGhost(taskId: string): Extract<AgentTaskInfo, { kind: 'process' 
 }
 
 beforeEach(async () => {
-  sessionDir = join(
-    tmpdir(),
-    `kimi-hb-stale-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
+  sessionDir = join(tmpdir(), `kimi-hb-stale-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   await mkdir(sessionDir, { recursive: true });
   persistence = createAgentTaskPersistence(sessionDir);
 });
@@ -98,9 +90,7 @@ describe('Background reconcile — stale ghost detection', () => {
     await background.reconcile();
 
     expect(
-      emittedEvents.filter(
-        (event) => (event as { type?: string }).type === 'task.terminated',
-      ),
+      emittedEvents.filter((event) => (event as { type?: string }).type === 'task.terminated'),
     ).toHaveLength(1);
   });
 });

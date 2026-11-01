@@ -1,3 +1,4 @@
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -12,8 +13,6 @@ import {
   type Event2,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
-import { removeTempHome } from './helpers/tempHome';
 import { WebSocket } from 'ws';
 
 import { ErrorCode } from '../src/protocol/error-codes';
@@ -28,8 +27,9 @@ import { type RunningServer, startServer } from '../src/start';
 import { authedFetch, bearerToken } from './helpers/auth';
 import { createFakeClock } from './helpers/fakeClock';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
-import { waitForAssertion } from './helpers/waitFor';
 import { setEnv, restoreEnvs } from './helpers/stubs';
+import { removeTempHome } from './helpers/tempHome';
+import { waitForAssertion } from './helpers/waitFor';
 
 interface Envelope<T> {
   code: number;
@@ -394,7 +394,9 @@ describe('server-v2 config changed WS notifications', () => {
     await config.ready;
     await config.reload();
 
-    await waitForAssertion(() => expect(frames.length).toBeGreaterThanOrEqual(1), { timeout: 10000 });
+    await waitForAssertion(() => expect(frames.length).toBeGreaterThanOrEqual(1), {
+      timeout: 10000,
+    });
     const last = frames.at(-1) as ConfigChangedFrame;
     expect(last.payload.changedFields).toContain('defaultPermissionMode');
     expect(last.payload.config['default_permission_mode']).toBe('yolo');

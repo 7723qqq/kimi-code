@@ -34,7 +34,8 @@ interface EntryRow {
   updated_at: string;
 }
 
-const ENTRY_COLUMNS = 'id,category,title,content,tags,scope,confidence,source,created_at,updated_at';
+const ENTRY_COLUMNS =
+  'id,category,title,content,tags,scope,confidence,source,created_at,updated_at';
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS entries (
@@ -241,7 +242,9 @@ export function knowledgeSearch(
 
   if (query.length > 0 && query !== '*') {
     const ftsQuery = escapeFtsQuery(query);
-    const rows = db.query(FTS_SQL).all(ftsQuery, minConfidence) as Array<EntryRow & { rank: number }>;
+    const rows = db.query(FTS_SQL).all(ftsQuery, minConfidence) as Array<
+      EntryRow & { rank: number }
+    >;
     for (const row of rows) {
       const entry = rowToEntry(row);
       addHit(hits, entry, 2 * (1 / (1 + Math.abs(row.rank))), 'fts');
@@ -363,18 +366,14 @@ export function knowledgeImport(markdown: string): string {
       }
     }
 
-    const content = lines
-      .slice(contentStart)
-      .join('\n')
-      .trim()
-      .replaceAll('\n\\---\n', '\n---\n');
+    const content = lines.slice(contentStart).join('\n').trim().replaceAll('\n\\---\n', '\n---\n');
     if (content.length === 0) continue;
 
     const id = ulid();
     const now = nowIso();
     try {
       db.query(
-        'INSERT INTO entries (id, category, title, content, tags, scope, confidence, source, created_at, updated_at) VALUES (?1,?2,?3,?4,?5,?6,1.0,\'human\',?7,?8)',
+        "INSERT INTO entries (id, category, title, content, tags, scope, confidence, source, created_at, updated_at) VALUES (?1,?2,?3,?4,?5,?6,1.0,'human',?7,?8)",
       ).run(id, category, title, content, tags, scope, now, now);
     } catch {
       continue;

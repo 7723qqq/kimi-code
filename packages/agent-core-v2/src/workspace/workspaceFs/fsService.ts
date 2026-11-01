@@ -209,8 +209,15 @@ export class WorkspaceFsService implements IWorkspaceFsService {
         if (st === undefined || (ancestorOfAllowed && !st.isDirectory)) continue;
         if (
           ancestorOfAllowed &&
-          !(await this.hasAllowedDescendant(childRel, req.allow_ignored_globs!, req.exclude_globs, req.show_hidden, probeBudget))
-        ) continue;
+          !(await this.hasAllowedDescendant(
+            childRel,
+            req.allow_ignored_globs!,
+            req.exclude_globs,
+            req.show_hidden,
+            probeBudget,
+          ))
+        )
+          continue;
         visible.push({ name, relPath: childRel, stat: st });
       }
 

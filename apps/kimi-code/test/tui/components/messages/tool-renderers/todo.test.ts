@@ -27,7 +27,9 @@ function todoCard(todos: readonly TodoItem[], isError = false): ToolCallComponen
     { id: 'call_todo', name: 'TodoList', args: { todos } },
     {
       tool_call_id: 'call_todo',
-      output: isError ? 'Invalid todo list' : `Todo list updated.\n${resultText(todos)}\n\nMark the next item in_progress.`,
+      output: isError
+        ? 'Invalid todo list'
+        : `Todo list updated.\n${resultText(todos)}\n\nMark the next item in_progress.`,
       is_error: isError,
     },
   );
@@ -42,7 +44,11 @@ function cardLines(card: ToolCallComponent): string[] {
 
 describe('TodoList card', () => {
   it('shows every item of a short list and has nothing to expand', () => {
-    const card = todoCard([todo('Read the code', 'done'), todo('Fix it', 'in_progress'), todo('Test', 'pending')]);
+    const card = todoCard([
+      todo('Read the code', 'done'),
+      todo('Fix it', 'in_progress'),
+      todo('Test', 'pending'),
+    ]);
     expect(cardLines(card).slice(1)).toEqual(['  ✓ Read the code', '  ● Fix it', '  ○ Test']);
     expect(card.hasHiddenContent()).toBe(false);
   });
@@ -113,11 +119,7 @@ describe('TodoList card', () => {
       { id: 'call_real', name: 'TodoList', args: { todos: [] } },
       { tool_call_id: 'call_real', output, is_error: false },
     );
-    expect(cardLines(card)).toEqual([
-      '● Used TodoList',
-      '  ○ Read the file',
-      '  ✓ Fix the bug',
-    ]);
+    expect(cardLines(card)).toEqual(['● Used TodoList', '  ○ Read the file', '  ✓ Fix the bug']);
   });
 
   it('parses nested child rows, which are indented one level deeper', () => {
@@ -147,7 +149,12 @@ describe('selectVisibleTodos', () => {
   });
 
   it('pairs the in-progress item with the latest done item', () => {
-    const todos = [todo('d1', 'done'), todo('d2', 'done'), todo('ip', 'in_progress'), todo('p1', 'pending')];
+    const todos = [
+      todo('d1', 'done'),
+      todo('d2', 'done'),
+      todo('ip', 'in_progress'),
+      todo('p1', 'pending'),
+    ];
     const { rows, hidden, hiddenCounts } = selectVisibleTodos(todos);
     expect(rows.map((r) => r.title)).toEqual(['d2', 'ip']);
     expect(hidden).toBe(2);
@@ -155,12 +162,22 @@ describe('selectVisibleTodos', () => {
   });
 
   it('fills with the earliest pending items when nothing is done', () => {
-    const todos = [todo('ip', 'in_progress'), todo('p1', 'pending'), todo('p2', 'pending'), todo('p3', 'pending')];
+    const todos = [
+      todo('ip', 'in_progress'),
+      todo('p1', 'pending'),
+      todo('p2', 'pending'),
+      todo('p3', 'pending'),
+    ];
     expect(selectVisibleTodos(todos).rows.map((r) => r.title)).toEqual(['ip', 'p1']);
   });
 
   it('shows the latest done and the earliest pending item without an in-progress item', () => {
-    const todos = [todo('p0', 'pending'), todo('d0', 'done'), todo('p1', 'pending'), todo('d1', 'done')];
+    const todos = [
+      todo('p0', 'pending'),
+      todo('d0', 'done'),
+      todo('p1', 'pending'),
+      todo('d1', 'done'),
+    ];
     expect(selectVisibleTodos(todos).rows.map((r) => r.title)).toEqual(['p0', 'd1']);
   });
 

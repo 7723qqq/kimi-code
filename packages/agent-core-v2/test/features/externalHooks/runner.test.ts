@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'bun:test';
-
-import { buildHookSpawnOptions, runHook } from '#/features/externalHooks/internal/runHook';
-import { renderUserPromptHookResult } from '#/features/externalHooks/internal/userPrompt';
-import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import { randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { buildHookSpawnOptions, runHook } from '#/features/externalHooks/internal/runHook';
+import { renderUserPromptHookResult } from '#/features/externalHooks/internal/userPrompt';
+import { HostProcessService } from '#/os/backends/host/hostProcessService';
 
 const hostProcess = new HostProcessService();
 
@@ -158,14 +158,16 @@ describe('runHook process runner', () => {
   it('writes the input payload to the hook process stdin as JSON', async () => {
     const result = await runHook(
       hostProcess,
-      nodeCommand([
-        'let input = "";',
-        'process.stdin.on("data", (chunk) => { input += chunk; });',
-        'process.stdin.on("end", () => {',
-        '  const parsed = JSON.parse(input);',
-        '  process.stdout.write(parsed.tool_name);',
-        '});',
-      ].join('\n')),
+      nodeCommand(
+        [
+          'let input = "";',
+          'process.stdin.on("data", (chunk) => { input += chunk; });',
+          'process.stdin.on("end", () => {',
+          '  const parsed = JSON.parse(input);',
+          '  process.stdout.write(parsed.tool_name);',
+          '});',
+        ].join('\n'),
+      ),
       { tool_name: 'Write' },
       { timeout: 5 },
     );
@@ -221,7 +223,9 @@ describe('runHook bounded output accumulation', () => {
   it('reclaims the process on the timeout path even when output was truncated', async () => {
     const result = await runHook(
       hostProcess,
-      nodeCommand('process.stdout.write("x".repeat(5 * 1024 * 1024)); setTimeout(() => {}, 10000);'),
+      nodeCommand(
+        'process.stdout.write("x".repeat(5 * 1024 * 1024)); setTimeout(() => {}, 10000);',
+      ),
       {},
       { timeout: 0.5 },
     );

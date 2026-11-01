@@ -1,7 +1,3 @@
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
 /**
  * Scenario: translating legacy session state into the v2 session metadata file.
  * Responsibilities: user-visible metadata and legacy session-scoped fields survive migration.
@@ -9,6 +5,9 @@ import { join } from 'node:path';
  * Run: bun test packages/migration-legacy/test/sessions/state-writer.test.ts
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { writeSessionState } from '../../src/sessions/state-writer.js';
 

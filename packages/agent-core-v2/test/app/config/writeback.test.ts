@@ -1,8 +1,9 @@
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+
 import { join } from 'pathe';
 import { parse as parseToml } from 'smol-toml';
-import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -177,5 +178,4 @@ describe('config.toml writeback preservation', () => {
 
     disposables.dispose();
   });
-
 });

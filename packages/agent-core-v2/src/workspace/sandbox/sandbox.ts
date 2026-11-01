@@ -9,7 +9,6 @@ export const SANDBOX_SECTION = 'sandbox';
 export type SandboxMode = 'off' | 'read-only' | 'workspace-write';
 
 export interface SandboxExecutionPolicy {
-
   readonly mode: SandboxMode;
 
   readonly workspaceRoot: string;

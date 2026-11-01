@@ -27,7 +27,12 @@ describe('table invariants', () => {
   });
 
   it('a probe that throws is reported, not fatal', () => {
-    const broken = { id: 'x', detect: () => { throw new Error('boom'); } };
+    const broken = {
+      id: 'x',
+      detect: () => {
+        throw new Error('boom');
+      },
+    };
     const { probe } = require('../src/silent-gaps.mjs');
     const result = probe(broken);
     expect(result.ok).toBe(false);
@@ -40,9 +45,15 @@ describe('async_hooks instruments observe nothing', () => {
     const hooks = require('node:async_hooks');
     let fired = 0;
     const hook = hooks.createHook({
-      init() { fired += 1; },
-      before() { fired += 1; },
-      after() { fired += 1; },
+      init() {
+        fired += 1;
+      },
+      before() {
+        fired += 1;
+      },
+      after() {
+        fired += 1;
+      },
     });
     hook.enable();
     void Promise.resolve(1);

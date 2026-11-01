@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 
 import * as sdkModule from '@moonshot-ai/kimi-code-sdk';
-import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
 
 import { createDownloadProgress, runUpdateDownloadCommand } from '#/cli/sub/update-download';
 import type { NativeInstallDetection } from '#/cli/update/source';
+import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
 
 /** Let the promise chains behind a settled clock tick run. */
 async function settle(): Promise<void> {
@@ -18,12 +18,10 @@ async function advanceAsync(clock: FakeClock, byMs: number): Promise<void> {
 }
 
 const mocks = (() => ({
-  detectNativeInstall: mock(
-    (): NativeInstallDetection => ({
-      native: true,
-      kind: 'sea',
-    }),
-  ),
+  detectNativeInstall: mock((): NativeInstallDetection => ({
+    native: true,
+    kind: 'sea',
+  })),
   tryAcquireUpdateInstallLock: mock(),
   readUpdateInstallLockVersion: mock(),
   stageNativeUpdate: mock(),
@@ -180,9 +178,7 @@ describe('runUpdateDownloadCommand', () => {
     mocks.tryAcquireUpdateInstallLock.mockResolvedValue(null);
     mocks.readUpdateInstallLockVersion.mockResolvedValue('0.7.0');
     mocks.readStagedNativeUpdate.mockResolvedValue({ version: '0.7.0', sha256: STAGED_HASH });
-    mocks.promoteStagedUpdateToManual
-      .mockResolvedValueOnce(false)
-      .mockResolvedValueOnce(true);
+    mocks.promoteStagedUpdateToManual.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
     spyOn(process.stdout, 'write').mockImplementation(() => true);
     await expect(runUpdateDownloadCommand('0.7.0', true)).resolves.toBe(0);
     expect(mocks.stageNativeUpdate).not.toHaveBeenCalled();

@@ -1,46 +1,47 @@
+import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, normalize, basename, dirname } from 'pathe';
 
-import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
-import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
+import { join, normalize, basename, dirname } from 'pathe';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { Emitter } from '#/_base/event';
-import { OrderedHookSlot } from '#/hooks';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { IConfigService } from '#/app/config/config';
-import { IEventDispatcher } from '#/state/eventDispatcher';
-import { HostFileSystem } from '#/os/backends/host/hostFsService';
-import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import type { RuntimeLease } from '#/runtime/runtime';
-import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentStateService } from '#/agent/state/agentState';
-import { AgentStateService } from '#/agent/state/agentStateService';
-import { IAgentProfileService, type ProfileData } from '#/agent/profile/profile';
-import { IAgentReminderService } from '#/features/reminder/reminderService';
-import { createReminderStub } from '../../features/reminder/stubs';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
-import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
-import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
-import type { WatchChange } from '#human/utils/watch';
-import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
-import type { SkillCatalog } from '#/features/skill/catalog/types';
-import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
-import type { AgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import type { SecondaryModelConfig } from '#/session/subagent/configSection';
 import { IAgentChangeNotifierService } from '#/agent/changeNotifier/changeNotifier';
-import { AgentChangeNotifierService } from '#/agent/changeNotifier/changeNotifierService';
-import { event2FromRecord } from '#/app/event/event2';
 import {
   ChangeNotifierSnapshotEvent,
   changeNotifierSnapshotKey,
 } from '#/agent/changeNotifier/changeNotifierOps';
+import { AgentChangeNotifierService } from '#/agent/changeNotifier/changeNotifierService';
+import { IAgentProfileService, type ProfileData } from '#/agent/profile/profile';
+import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentStateService } from '#/agent/state/agentState';
+import { AgentStateService } from '#/agent/state/agentStateService';
+import type { AgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IConfigService } from '#/app/config/config';
+import { event2FromRecord } from '#/app/event/event2';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
+import type { SkillCatalog } from '#/features/skill/catalog/types';
+import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
+import { OrderedHookSlot } from '#/hooks';
+import { HostFileSystem } from '#/os/backends/host/hostFsService';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import type { RuntimeLease } from '#/runtime/runtime';
+import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
+import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
+import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
+import type { SecondaryModelConfig } from '#/session/subagent/configSection';
+import { IEventDispatcher } from '#/state/eventDispatcher';
+import type { WatchChange } from '#human/utils/watch';
+import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
+
 import { registerLogServices } from '../../_base/log/stubs';
+import { createReminderStub } from '../../features/reminder/stubs';
 import { stubAgentContext } from '../agentContext/stubs';
 
 let disposables: DisposableStore;
@@ -196,8 +197,7 @@ function createHarness(options: {
       } as unknown as ISessionToolPolicyGate);
       reg.defineInstance(IAgentStateService, agentState);
       reg.defineInstance(IConfigService, {
-        get: (domain: string) =>
-          domain === 'secondaryModel' ? secondaryModel.value : undefined,
+        get: (domain: string) => (domain === 'secondaryModel' ? secondaryModel.value : undefined),
       } as unknown as IConfigService);
       reg.defineInstance(ISessionContext, {
         _serviceBrand: undefined,
@@ -541,7 +541,11 @@ describe('seedBeliefs', () => {
       }),
     });
 
-    await h.notifier.seedBeliefs({ agentsMd: agentsMdPrompt(agentsMdPath, 'line one\nline two\nline three'), agentsMdPaths: [agentsMdPath], skillsListing: LISTING_A });
+    await h.notifier.seedBeliefs({
+      agentsMd: agentsMdPrompt(agentsMdPath, 'line one\nline two\nline three'),
+      agentsMdPaths: [agentsMdPath],
+      skillsListing: LISTING_A,
+    });
 
     await writeFile(agentsMdPath, 'line one\nline two');
     await h.notifier.notifyAgentsMdChanges();
@@ -599,7 +603,11 @@ describe('seedBeliefs', () => {
     expect(h.reminders).toHaveLength(0);
 
     await writeFile(agentsMdPath, 'content B');
-    await h.notifier.seedBeliefs({ agentsMd: agentsMdPrompt(agentsMdPath, 'content B'), agentsMdPaths: [agentsMdPath], skillsListing: '' });
+    await h.notifier.seedBeliefs({
+      agentsMd: agentsMdPrompt(agentsMdPath, 'content B'),
+      agentsMdPaths: [agentsMdPath],
+      skillsListing: '',
+    });
 
     await writeFile(agentsMdPath, 'content A');
     await h.notifier.notifyAgentsMdChanges();
@@ -658,11 +666,11 @@ describe('seedBeliefs', () => {
   });
 });
 
-const LISTING_A = 'DISREGARD any earlier skill listings. Current available skills:\n- skill-a: does A';
+const LISTING_A =
+  'DISREGARD any earlier skill listings. Current available skills:\n- skill-a: does A';
 const LISTING_AB = `${LISTING_A}\n- skill-b: does B`;
 
 describe('notifySkillChanges', () => {
-
   it('does not remind when the prompt listing is current, reminds with the fresh listing on change, then dedups', async () => {
     const h = createHarness({
       profile: makeProfileData({

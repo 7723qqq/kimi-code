@@ -1,10 +1,10 @@
+import { mock, spyOn } from 'bun:test';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { Event, GoalSnapshot } from '@moonshot-ai/kimi-code-sdk';
-import { mock, spyOn } from 'bun:test';
 
 import type { FeedbackPromptResult } from '#/tui/commands/prompts';
 import type { SessionReplayRenderer } from '#/tui/controllers/session-replay';

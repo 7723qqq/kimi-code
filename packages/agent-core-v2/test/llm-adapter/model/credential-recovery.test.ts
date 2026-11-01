@@ -45,9 +45,9 @@ describe('runWithCredentialRecovery', () => {
       canRecover: (error) => error === unauthorized,
       invalidate: () => {},
     };
-    await expect(
-      runWithCredentialRecovery(provider, () => Promise.reject(forbidden)),
-    ).rejects.toBe(forbidden);
+    await expect(runWithCredentialRecovery(provider, () => Promise.reject(forbidden))).rejects.toBe(
+      forbidden,
+    );
 
     const controller = new AbortController();
     controller.abort();

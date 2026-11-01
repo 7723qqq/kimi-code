@@ -10,7 +10,6 @@ import { SpillLocator, type ISpillService, type SpillRef, type SaveTextSpill } f
 import { privateRoot, saveTextFile } from './spillStore';
 
 export interface SpillConfig {
-
   readonly root?: string;
 }
 

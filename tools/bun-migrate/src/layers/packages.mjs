@@ -26,7 +26,8 @@ import { mergeBunfig } from './config.mjs';
  * those two are on `timeoutPreload` below.
  */
 function propertyName(name) {
-  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) return name.text;
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name))
+    return name.text;
   return;
 }
 
@@ -93,7 +94,8 @@ export function portVitestConfig(text) {
   let parallel;
   let timeoutValue;
 
-  const preload = /setupFiles\s*:\s*\[([^\]]*)\]/.exec(text) ?? /setupFiles\s*:\s*(['"][^'"]+['"])/.exec(text);
+  const preload =
+    /setupFiles\s*:\s*\[([^\]]*)\]/.exec(text) ?? /setupFiles\s*:\s*(['"][^'"]+['"])/.exec(text);
   const preloadEntries = [];
   if (preload) {
     for (const match of preload[1].matchAll(/['"]([^'"]+)['"]/g)) preloadEntries.push(match[1]);
@@ -147,12 +149,16 @@ export function portVitestConfig(text) {
     settings.push({ table: 'test', key: 'coverage', line: 'coverage = true' });
     notes.push('coverage -> coverage');
     if (/\b(?:thresholds|reporter|reportsDirectory|include|exclude)\s*:/.test(text)) {
-      unported.push('coverage options beyond enabling (thresholds, reporter, reportsDirectory) are not ported');
+      unported.push(
+        'coverage options beyond enabling (thresholds, reporter, reportsDirectory) are not ported',
+      );
     }
   }
 
   if (/environment\s*:\s*['"]jsdom['"]/.test(text)) {
-    unported.push('environment: jsdom (bun:test runs DOM tests without a jsdom global; use happy-dom preload)');
+    unported.push(
+      'environment: jsdom (bun:test runs DOM tests without a jsdom global; use happy-dom preload)',
+    );
   } else if (/environment\s*:\s*['"]happy-dom['"]/.test(text)) {
     unported.push('environment: happy-dom (register it as a preload instead)');
   }
@@ -243,7 +249,9 @@ function parsePreloadLine(line) {
 function rebasePreloadEntry(project, entry, configFile) {
   if (entry.startsWith('/') || /^[A-Za-z]:[\\/]/.test(entry)) return entry;
   const directory = posix.dirname(configFile.replaceAll('\\', '/'));
-  const candidate = posix.normalize(posix.join(directory === '.' ? '' : directory, entry.replaceAll('\\', '/')));
+  const candidate = posix.normalize(
+    posix.join(directory === '.' ? '' : directory, entry.replaceAll('\\', '/')),
+  );
   if (!existsSync(join(project.root, candidate))) return entry;
   return candidate.startsWith('.') ? candidate : `./${candidate}`;
 }
@@ -354,11 +362,16 @@ export function parsePnpmWorkspace(text) {
     }
   }
   if (parsed.catalog !== undefined) {
-    if (parsed.catalog === null || typeof parsed.catalog !== 'object' || Array.isArray(parsed.catalog)) {
+    if (
+      parsed.catalog === null ||
+      typeof parsed.catalog !== 'object' ||
+      Array.isArray(parsed.catalog)
+    ) {
       unsupported.push('catalog is not a mapping');
     } else {
       for (const [name, version] of Object.entries(parsed.catalog)) {
-        if (typeof version === 'string' || typeof version === 'number') catalog[name] = String(version);
+        if (typeof version === 'string' || typeof version === 'number')
+          catalog[name] = String(version);
         else unsupported.push(`catalog entry "${name}" is not a string`);
       }
     }
@@ -461,7 +474,10 @@ function insertTsconfigPaths(text, mappings, addBaseUrl) {
   const close = matchingBrace(text, braceIndex);
   if (close < 0) return;
   const body = text.slice(braceIndex + 1, close);
-  const stripped = body.replaceAll(/\/\/.*$/gm, '').replaceAll(/\/\*[\s\S]*?\*\//g, '').trim();
+  const stripped = body
+    .replaceAll(/\/\/.*$/gm, '')
+    .replaceAll(/\/\*[\s\S]*?\*\//g, '')
+    .trim();
   const lineStart = text.lastIndexOf('\n', braceIndex) + 1;
   const outerIndent = /^\s*/.exec(text.slice(lineStart))[0];
   const innerIndent = `${outerIndent}  `;
@@ -610,7 +626,8 @@ export function applyPackageLayer(project, journal) {
       const existingCatalog = manifest.workspaces?.catalog ?? {};
       const mergedCatalog = { ...existingCatalog, ...parsed.catalog };
       const listChanged =
-        merged.length !== existing.length || merged.some((value, index) => value !== existing[index]);
+        merged.length !== existing.length ||
+        merged.some((value, index) => value !== existing[index]);
       const catalogChanged =
         Object.keys(mergedCatalog).length !== Object.keys(existingCatalog).length ||
         Object.entries(parsed.catalog).some(([name, version]) => existingCatalog[name] !== version);
@@ -624,7 +641,9 @@ export function applyPackageLayer(project, journal) {
           },
         };
         const detail = [
-          parsed.packages.length > 0 ? `folded ${parsed.packages.length} workspace glob(s)` : undefined,
+          parsed.packages.length > 0
+            ? `folded ${parsed.packages.length} workspace glob(s)`
+            : undefined,
           hasCatalog ? `moved ${Object.keys(parsed.catalog).length} catalog entr(ies)` : undefined,
         ]
           .filter(Boolean)
@@ -647,7 +666,11 @@ export function applyPackageLayer(project, journal) {
         `${unsupported} needs a manual decision: Bun's shape differs from pnpm's`,
       );
     }
-    if (parsed.ok && parsed.unsupported.length === 0 && (parsed.packages.length > 0 || hasCatalog)) {
+    if (
+      parsed.ok &&
+      parsed.unsupported.length === 0 &&
+      (parsed.packages.length > 0 || hasCatalog)
+    ) {
       journal.remove(
         'pnpm-workspace.yaml',
         'packages',
@@ -710,8 +733,10 @@ export function applyPackageLayer(project, journal) {
       }
     }
     const parts = [];
-    if (ported.notes.length > 0) parts.push(`ported to bunfig.toml [test]: ${ported.notes.join(', ')}`);
-    if (ported.unported.length > 0) parts.push(`still needs a manual decision: ${ported.unported.join(', ')}`);
+    if (ported.notes.length > 0)
+      parts.push(`ported to bunfig.toml [test]: ${ported.notes.join(', ')}`);
+    if (ported.unported.length > 0)
+      parts.push(`still needs a manual decision: ${ported.unported.join(', ')}`);
     const reason = parts.length === 0 ? 'bun:test needs no project config' : parts.join('; ');
     journal.remove(file, 'packages', reason, text);
     const own = ported.settings.filter((setting) => setting.key !== 'preload');
@@ -721,7 +746,13 @@ export function applyPackageLayer(project, journal) {
       const merged = mergeBunfig(existing, own);
       // before is the disk bytes (undefined when the migration creates the
       // file), so revert removes a generated bunfig instead of leaving 0 bytes.
-      journal.set('bunfig.toml', merged, 'packages', `test settings recovered from ${file}`, bunfigOnDisk);
+      journal.set(
+        'bunfig.toml',
+        merged,
+        'packages',
+        `test settings recovered from ${file}`,
+        bunfigOnDisk,
+      );
     }
   }
 

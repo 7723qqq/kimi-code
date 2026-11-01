@@ -336,7 +336,9 @@ export class DialogHostController {
       },
       {
         layout:
-          this.host.state.dockContainer === undefined ? undefined : { maxBodyRows: DOCK_APPROVAL_ROWS },
+          this.host.state.dockContainer === undefined
+            ? undefined
+            : { maxBodyRows: DOCK_APPROVAL_ROWS },
         isTerminalFocused: () => this.host.state.terminalState.focused,
         wasTyping: this.isEditorMidComposition(),
       },

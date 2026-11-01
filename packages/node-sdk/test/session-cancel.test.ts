@@ -1,9 +1,9 @@
-import { createRequire } from 'node:module';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
 
 import type * as KosongModule from '@moonshot-ai/kosong';
-import { afterEach, describe, expect, it, mock } from 'bun:test';
 
 import { createKimiHarness, type Event } from '#/index';
 

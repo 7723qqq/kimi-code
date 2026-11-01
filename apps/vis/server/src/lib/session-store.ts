@@ -389,7 +389,9 @@ async function readState(sessionDir: string): Promise<StateJson | null> {
   ]) {
     try {
       return JSON.parse(await readFile(candidate, 'utf8')) as StateJson;
-    } catch { /* try the next candidate */ }
+    } catch {
+      /* try the next candidate */
+    }
   }
   return null;
 }
@@ -462,10 +464,7 @@ async function scanWire(path: string): Promise<{ count: number; protocolVersion:
   return { count, protocolVersion };
 }
 
-function normalizeAgentType(
-  value: unknown,
-  agentId: string,
-): AgentInfo['type'] {
+function normalizeAgentType(value: unknown, agentId: string): AgentInfo['type'] {
   if (value === 'main' || value === 'sub' || value === 'independent') return value;
   return agentId === 'main' ? 'main' : 'sub';
 }

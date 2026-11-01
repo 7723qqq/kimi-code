@@ -267,7 +267,9 @@ ${script}
     const rejectWithReason = (): void => {
       const reason = signal.reason;
       reject(
-        reason instanceof Error ? reason : new Error(reason ? String(reason) : WORKFLOW_CANCELLED_ERROR_MESSAGE),
+        reason instanceof Error
+          ? reason
+          : new Error(reason ? String(reason) : WORKFLOW_CANCELLED_ERROR_MESSAGE),
       );
     };
     if (signal.aborted) {

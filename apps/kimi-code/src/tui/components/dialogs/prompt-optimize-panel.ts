@@ -133,13 +133,10 @@ export class PromptOptimizePanelComponent implements Component, Focusable {
    * letting the transcript take over mid-read would scroll the conversation
    * out from under the panel the pointer is resting on.
    */
-  private readonly mouse = new ScrollMouseRouter(
-    (_direction, delta) => {
-      this.scrollTo(this.scrollTop + delta);
-      return true;
-    },
-    true,
-  );
+  private readonly mouse = new ScrollMouseRouter((_direction, delta) => {
+    this.scrollTo(this.scrollTop + delta);
+    return true;
+  }, true);
 
   constructor(opts: PromptOptimizePanelOptions) {
     this.opts = opts;
@@ -228,10 +225,7 @@ export class PromptOptimizePanelComponent implements Component, Focusable {
         width,
       ),
       truncateToWidth(
-        theme.fg(
-          'textMuted',
-          t('tui.dialogs.promptOptimize.scrollHint', { expand: 'Ctrl+O' }),
-        ),
+        theme.fg('textMuted', t('tui.dialogs.promptOptimize.scrollHint', { expand: 'Ctrl+O' })),
         width,
       ),
       '',

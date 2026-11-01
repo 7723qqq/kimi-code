@@ -420,7 +420,8 @@ export default {
       shells: 'Manage bundled Windows shell payloads (bash, pwsh).',
       shellsStatus: 'Show shell payload status and which shell the agent uses.',
       shellsProvision: 'Download, verify and install the pinned shell payloads.',
-      shellsDownload: 'Download the pinned payload archives, verified, for mirrors or offline installs.',
+      shellsDownload:
+        'Download the pinned payload archives, verified, for mirrors or offline installs.',
       vis: 'Open the visualization server.',
       migrate: 'Run data migration, then exit.',
       serverRotateToken:
@@ -2403,8 +2404,7 @@ export default {
       // utils/clipboard/clipboard-text.ts
       noClipboardCommandAvailable: 'No clipboard command is available.',
       // utils/clipboard/clipboard-image.ts
-      videoExceedsMaxSize:
-        'Video is {{size}} MB; maximum supported size is {{max}} MB.',
+      videoExceedsMaxSize: 'Video is {{size}} MB; maximum supported size is {{max}} MB.',
       // utils/process/fd-detect.ts
       fdDownloadEmptyResponse: 'Failed to download fd: empty response body',
       // main.ts

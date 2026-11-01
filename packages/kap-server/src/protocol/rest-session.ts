@@ -99,10 +99,12 @@ export const startBtwSessionResponseSchema = z.object({
 });
 export type StartBtwSessionResponse = z.infer<typeof startBtwSessionResponseSchema>;
 
-export const optimizePromptSessionRequestSchema = z.object({
-  text: z.string(),
-  recent_turns: z.array(z.string()).optional(),
-}).strict();
+export const optimizePromptSessionRequestSchema = z
+  .object({
+    text: z.string(),
+    recent_turns: z.array(z.string()).optional(),
+  })
+  .strict();
 export type OptimizePromptSessionRequest = z.infer<typeof optimizePromptSessionRequestSchema>;
 
 export const optimizePromptSessionResponseSchema = z.object({
@@ -132,9 +134,11 @@ export type GetSessionGoalResponse = z.infer<typeof getSessionGoalResponseSchema
 
 export const compactSessionRequestSchema = z.preprocess(
   (value) => (value === undefined ? {} : value),
-  z.object({
-    instruction: z.string().optional(),
-  }).strict(),
+  z
+    .object({
+      instruction: z.string().optional(),
+    })
+    .strict(),
 );
 export type CompactSessionRequest = z.infer<typeof compactSessionRequestSchema>;
 
@@ -143,10 +147,12 @@ export type CompactSessionResponse = z.infer<typeof compactSessionResponseSchema
 
 export const undoSessionRequestSchema = z.preprocess(
   (value) => (value === undefined ? {} : value),
-  z.object({
-    count: z.number().int().positive().default(1),
-    page_size: z.number().int().min(1).max(100).optional(),
-  }).strict(),
+  z
+    .object({
+      count: z.number().int().positive().default(1),
+      page_size: z.number().int().min(1).max(100).optional(),
+    })
+    .strict(),
 );
 export type UndoSessionRequest = z.infer<typeof undoSessionRequestSchema>;
 

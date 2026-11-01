@@ -1,4 +1,3 @@
-
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { WarningIssued } from '#/agent/profile/profileOps';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';

@@ -1,5 +1,6 @@
-import { visibleWidth } from '@moonshot-ai/pi-tui';
 import { afterEach, describe, expect, it, mock } from 'bun:test';
+
+import { visibleWidth } from '@moonshot-ai/pi-tui';
 
 import { SessionPickerComponent } from '#/tui/components/dialogs/session-picker';
 import { mouse, pastSettlingWindow } from '#test/helpers/mouse';

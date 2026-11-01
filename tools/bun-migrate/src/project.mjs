@@ -117,8 +117,8 @@ export function loadProject(rootOption) {
     manifest,
     configPath,
     config,
-    files: files.toSorted((a, b) => a < b ? -1 : a > b ? 1 : 0),
-    ciFiles: ciFiles.toSorted((a, b) => a < b ? -1 : a > b ? 1 : 0),
+    files: files.toSorted((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
+    ciFiles: ciFiles.toSorted((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
     declaredDependencies,
     manifestDirectories: [...manifestDirectories].toSorted(),
 
@@ -135,7 +135,8 @@ export function loadProject(rootOption) {
      * a single-line manifest came back five lines long and still showed as
      * modified. The journal entry has to carry the disk bytes.
      */
-    rawText: (path) => (existsSync(join(root, path)) ? readFileSync(join(root, path), 'utf8') : undefined),
+    rawText: (path) =>
+      existsSync(join(root, path)) ? readFileSync(join(root, path), 'utf8') : undefined,
     size: (path) => {
       try {
         return statSync(join(root, path)).size;

@@ -1,15 +1,15 @@
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentTaskService } from '#/agent/task/task';
+import { TOWER_NAME } from '#/features/tower/protocol/index';
 import { IAgentTowerService } from '#/features/tower/tower';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import type { ToolExecution } from '#/tool/toolContract';
 
-import { TOWER_NAME } from '#/features/tower/protocol/index';
 import { newTowerStore, runTowerTool, TOWER_MAIN_AGENT_ONLY } from '../support';
-import DESCRIPTION from './rebase.md?raw';
 import { ITowerRebaseTool, TowerRebaseToolInputSchema, type TowerRebaseToolInput } from './rebase';
+import DESCRIPTION from './rebase.md?raw';
 
 export class TowerRebaseTool implements ITowerRebaseTool {
   declare readonly _serviceBrand: undefined;

@@ -1,31 +1,30 @@
-import * as vscode from "vscode";
-
 import {
   KIMI_CODE_OAUTH_KEY,
   KIMI_REGION_PROFILES,
   kimiRegionProfile,
   OAuthAccessDeniedError,
   type KimiRegion,
-} from "@moonshot-ai/kimi-code-oauth";
-import { resolveKimiHome } from "@moonshot-ai/kimi-code-sdk";
+} from '@moonshot-ai/kimi-code-oauth';
+import { resolveKimiHome } from '@moonshot-ai/kimi-code-sdk';
+import * as vscode from 'vscode';
 
-import { Events, Methods } from "../../shared/bridge";
-import type { LoginResult } from "../../shared/legacy-sdk";
-import type { LoginStatus } from "../../shared/types";
-import { updateLoginContext } from "../utils/context";
-import { readPersistedKimiOAuthRef, resolveExtensionRegion } from "../utils/region";
-import type { Handler } from "./types";
+import { Events, Methods } from '../../shared/bridge';
+import type { LoginResult } from '../../shared/legacy-sdk';
+import type { LoginStatus } from '../../shared/types';
+import { updateLoginContext } from '../utils/context';
+import { readPersistedKimiOAuthRef, resolveExtensionRegion } from '../utils/region';
+import type { Handler } from './types';
 
 function regionForLogin(): KimiRegion | undefined {
   const homeDir = resolveKimiHome();
   const oauth = readPersistedKimiOAuthRef(homeDir);
   if (oauth !== undefined) {
-    if (oauth.key === KIMI_CODE_OAUTH_KEY) return "mainland-cn";
+    if (oauth.key === KIMI_CODE_OAUTH_KEY) return 'mainland-cn';
     if (
       oauth.oauthHost !== undefined &&
-      oauth.oauthHost.replace(/\/+$/, "") === KIMI_REGION_PROFILES.global.oauthHost
+      oauth.oauthHost.replace(/\/+$/, '') === KIMI_REGION_PROFILES.global.oauthHost
     ) {
-      return "global";
+      return 'global';
     }
     return undefined;
   }
@@ -34,7 +33,7 @@ function regionForLogin(): KimiRegion | undefined {
 
 export const authHandlers: Record<string, Handler<any, any>> = {
   [Methods.CheckLoginStatus]: async (_, ctx): Promise<LoginStatus> => {
-    const region = regionForLogin() ?? "mainland-cn";
+    const region = regionForLogin() ?? 'mainland-cn';
     return {
       loggedIn: await updateLoginContext(ctx.harness),
       siteBase: kimiRegionProfile(region).siteBase,
@@ -55,9 +54,9 @@ export const authHandlers: Record<string, Handler<any, any>> = {
       resolveExtensionRegion({ homeDir: resolveKimiHome(), refresh: true });
       return { success: true };
     } catch (error) {
-      ctx.logError("Kimi login failed", error);
+      ctx.logError('Kimi login failed', error);
       await updateLoginContext(ctx.harness).catch((statusError: unknown) => {
-        ctx.logError("Unable to refresh login status after a failed login", statusError);
+        ctx.logError('Unable to refresh login status after a failed login', statusError);
       });
       const message = error instanceof Error ? error.message : String(error);
       return {
@@ -74,9 +73,9 @@ export const authHandlers: Record<string, Handler<any, any>> = {
       resolveExtensionRegion({ homeDir: resolveKimiHome(), refresh: true });
       return { success: true };
     } catch (error) {
-      ctx.logError("Kimi logout failed", error);
+      ctx.logError('Kimi logout failed', error);
       await updateLoginContext(ctx.harness).catch((statusError: unknown) => {
-        ctx.logError("Unable to refresh login status after a failed logout", statusError);
+        ctx.logError('Unable to refresh login status after a failed logout', statusError);
       });
       return {
         success: false,

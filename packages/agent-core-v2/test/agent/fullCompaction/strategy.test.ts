@@ -1,9 +1,9 @@
-import { type Message } from '#/llm-adapter/contract/message';
 import { describe, expect, it } from 'bun:test';
-import { DEFAULT_COMPACTION_CONFIG } from '#/agent/fullCompaction/strategy';
 
-import { estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
+import { DEFAULT_COMPACTION_CONFIG } from '#/agent/fullCompaction/strategy';
 import { DefaultCompactionStrategy } from '#/agent/fullCompaction/strategy';
+import { type Message } from '#/llm-adapter/contract/message';
+import { estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
 
 describe('DefaultCompactionStrategy', () => {
   it('keeps an oversized trailing user message as recent', () => {
@@ -47,11 +47,7 @@ describe('DefaultCompactionStrategy', () => {
     expect(strategy.computeCompactCount([textMessage('user', 'only pending')], 'auto')).toBe(0);
     expect(
       strategy.computeCompactCount(
-        [
-          textMessage('user', 'a'),
-          textMessage('user', 'b'),
-          textMessage('user', 'c'),
-        ],
+        [textMessage('user', 'a'), textMessage('user', 'b'), textMessage('user', 'c')],
         'auto',
       ),
     ).toBe(0);
@@ -223,7 +219,6 @@ describe('DefaultCompactionStrategy', () => {
     expect(() => strategy.computeCompactCount(messages, 'auto')).not.toThrow();
     expect(strategy.computeCompactCount(messages, 'auto')).toBeGreaterThanOrEqual(0);
   });
-
 });
 
 function testCompactionStrategy(maxSize: number = 1_000): DefaultCompactionStrategy {

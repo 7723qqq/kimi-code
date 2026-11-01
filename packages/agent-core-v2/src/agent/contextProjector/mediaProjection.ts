@@ -1,4 +1,3 @@
-
 import { buildMediaPathTag, mediaKindOfPart } from '#/agent/media/mediaRef';
 import type { Message } from '#/llm-adapter/contract/message';
 import type { ContentPart } from '#human/llm/message';

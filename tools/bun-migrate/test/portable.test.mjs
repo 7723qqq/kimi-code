@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'bun:test';
 /**
  * The end-to-end contract: a migrated project must still run.
  *
@@ -14,15 +15,13 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { describe, expect, it } from 'bun:test';
-
+import { parse } from '../src/ast.mjs';
 import { keepsNodePortable, loadProjectOverrides } from '../src/capabilities.mjs';
-import { PAIRINGS } from '../src/pairings.mjs';
 import { createJournal } from '../src/journal.mjs';
 import { applyConfigLayer, rewriteTestRunnerScript } from '../src/layers/config.mjs';
-import { parse } from '../src/ast.mjs';
 import { applySourceLayer, dropUnusedNodeImports } from '../src/layers/source.mjs';
 import { applyTestLayer } from '../src/layers/tests.mjs';
+import { PAIRINGS } from '../src/pairings.mjs';
 import { loadProject } from '../src/project.mjs';
 
 const NODE_AVAILABLE = Bun.spawnSync(['node', '--version']).exitCode === 0;
@@ -71,7 +70,9 @@ describe('rewriteTestRunnerScript', () => {
   });
 
   it('rewrites a runner behind another command', () => {
-    expect(rewriteTestRunnerScript('tsc --noEmit && vitest run').script).toBe('tsc --noEmit && bun test');
+    expect(rewriteTestRunnerScript('tsc --noEmit && vitest run').script).toBe(
+      'tsc --noEmit && bun test',
+    );
   });
 
   it('rewrites after a directory change', () => {
@@ -129,7 +130,8 @@ describe('rewriteTestRunnerScript', () => {
 
 describe('dropUnusedNodeImports', () => {
   it('drops a named import whose only call was rewritten', () => {
-    const original = "import { createHash } from 'node:crypto';\nexport const a = new Bun.CryptoHasher('x');\n";
+    const original =
+      "import { createHash } from 'node:crypto';\nexport const a = new Bun.CryptoHasher('x');\n";
     const rewritten = dropUnusedNodeImports(original, original, ['createHash']);
     expect(rewritten).toBe("export const a = new Bun.CryptoHasher('x');\n");
   });
@@ -142,7 +144,7 @@ describe('dropUnusedNodeImports', () => {
 
   it('handles a multi-line import clause', () => {
     const original = [
-      "import {",
+      'import {',
       '  createHash,',
       '  randomUUID,',
       "} from 'node:crypto';",
@@ -167,7 +169,8 @@ describe('dropUnusedNodeImports', () => {
   });
 
   it('does not treat a comment mentioning the name as a reference', () => {
-    const original = "import { createHash } from 'node:crypto';\n// createHash was replaced\nconst a = 1;\n";
+    const original =
+      "import { createHash } from 'node:crypto';\n// createHash was replaced\nconst a = 1;\n";
     expect(dropUnusedNodeImports(original, original, ['createHash'])).toBe(
       '// createHash was replaced\nconst a = 1;\n',
     );
@@ -175,11 +178,14 @@ describe('dropUnusedNodeImports', () => {
 
   it('does not treat a string literal mentioning the name as a reference', () => {
     const original = "import { createHash } from 'node:crypto';\nconst s = 'createHash';\n";
-    expect(dropUnusedNodeImports(original, original, ['createHash'])).toBe("const s = 'createHash';\n");
+    expect(dropUnusedNodeImports(original, original, ['createHash'])).toBe(
+      "const s = 'createHash';\n",
+    );
   });
 
   it('keeps the import when the name is shadowed by a live local use', () => {
-    const original = "import { createHash } from 'node:crypto';\nfunction f(createHash) { return createHash; }\n";
+    const original =
+      "import { createHash } from 'node:crypto';\nfunction f(createHash) { return createHash; }\n";
     expect(dropUnusedNodeImports(original, original, ['createHash'])).toBe(original);
   });
 
@@ -238,7 +244,8 @@ describe('dropUnusedNodeImports', () => {
   });
 
   it('drops one binding from each of two statements without overlap', () => {
-    const original = "import { a } from 'node:fs';\nimport { c } from 'node:crypto';\nconst x = 1;\n";
+    const original =
+      "import { a } from 'node:fs';\nimport { c } from 'node:crypto';\nconst x = 1;\n";
     expect(dropUnusedNodeImports(original, original, ['a', 'c'])).toBe('const x = 1;\n');
   });
 
@@ -248,7 +255,8 @@ describe('dropUnusedNodeImports', () => {
   });
 
   it('handles an aliased import beside a live binding', () => {
-    const original = "import { a } from 'node:fs';\nimport { a as a2 } from 'node:crypto';\nconst x = 1;\n";
+    const original =
+      "import { a } from 'node:fs';\nimport { a as a2 } from 'node:crypto';\nconst x = 1;\n";
     expect(dropUnusedNodeImports(original, original, ['a', 'a2'])).toBe('const x = 1;\n');
   });
 });
@@ -314,12 +322,16 @@ describe('portable = true in .bun-migrate.toml', () => {
     const root = makeProject({
       'package.json': '{"name":"p","version":"1.0.0"}\n',
       '.bun-migrate.toml': 'portable = true\n',
-      'src/a.js': "import { createHash } from 'node:crypto';\nexport const d = (t) => createHash('sha256').update(t).digest('hex');\n",
+      'src/a.js':
+        "import { createHash } from 'node:crypto';\nexport const d = (t) => createHash('sha256').update(t).digest('hex');\n",
     });
     try {
       const journal = migrate(root, ['source']);
       expect(journal.changes.length).toBe(0);
-      const reasons = journal.layers().flatMap((layer) => layer.skipped).map((item) => item.reason);
+      const reasons = journal
+        .layers()
+        .flatMap((layer) => layer.skipped)
+        .map((item) => item.reason);
       expect(reasons.join(' ')).toContain('portable = true');
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -329,7 +341,8 @@ describe('portable = true in .bun-migrate.toml', () => {
   it('lets the same rewrite through when the project does not opt in', () => {
     const root = makeProject({
       'package.json': '{"name":"p","version":"1.0.0"}\n',
-      'src/a.js': "import { createHash } from 'node:crypto';\nexport const d = (t) => createHash('sha256').update(t).digest('hex');\n",
+      'src/a.js':
+        "import { createHash } from 'node:crypto';\nexport const d = (t) => createHash('sha256').update(t).digest('hex');\n",
     });
     try {
       const journal = migrate(root, ['source']);
@@ -357,7 +370,8 @@ describe('portable = true in .bun-migrate.toml', () => {
     const root = makeProject({
       'package.json': '{"name":"p","version":"1.0.0"}\n',
       '.bun-migrate.toml': 'deny = ["packages/mine"]\n',
-      'packages/transcript/src/a.js': "import { gzipSync } from 'node:zlib';\nexport const a = (b) => gzipSync(b);\n",
+      'packages/transcript/src/a.js':
+        "import { gzipSync } from 'node:zlib';\nexport const a = (b) => gzipSync(b);\n",
       'src/ok.js': "import { gzipSync } from 'node:zlib';\nexport const a = (b) => gzipSync(b);\n",
     });
     try {
@@ -382,13 +396,34 @@ describe('portable = true in .bun-migrate.toml', () => {
  */
 describe('a migrated file still parses', () => {
   const MIGRATION_CASES = [
-    ['nested calls in one module', "import { gzipSync, gunzipSync } from 'node:zlib';\nexport const a = gzipSync(gunzipSync(buf));\n"],
-    ['three levels of nesting', "import { gzipSync, gunzipSync, inflateRawSync } from 'node:zlib';\nexport const a = gzipSync(gunzipSync(inflateRawSync(buf)));\n"],
-    ['nesting across modules', "import { createHash } from 'node:crypto';\nimport { gzipSync } from 'node:zlib';\nexport const a = gzipSync(createHash('sha256').update('x').digest());\n"],
-    ['a rewritten call beside a plain one', "import { gzipSync } from 'node:zlib';\nimport { readFileSync } from 'node:fs';\nexport const a = gzipSync(readFileSync('x'));\n"],
-    ['two calls on one line', "import { gzipSync } from 'node:zlib';\nexport const a = [gzipSync(x), gzipSync(y)];\n"],
-    ['a call inside a template literal argument', "import { gzipSync } from 'node:zlib';\nexport const a = gzipSync(`${'x'}`);\n"],
-    ['a call with a callback argument', "import { gzipSync } from 'node:zlib';\nexport const a = gzipSync([1, 2, 3].map((n) => n + 1));\n"],
+    [
+      'nested calls in one module',
+      "import { gzipSync, gunzipSync } from 'node:zlib';\nexport const a = gzipSync(gunzipSync(buf));\n",
+    ],
+    [
+      'three levels of nesting',
+      "import { gzipSync, gunzipSync, inflateRawSync } from 'node:zlib';\nexport const a = gzipSync(gunzipSync(inflateRawSync(buf)));\n",
+    ],
+    [
+      'nesting across modules',
+      "import { createHash } from 'node:crypto';\nimport { gzipSync } from 'node:zlib';\nexport const a = gzipSync(createHash('sha256').update('x').digest());\n",
+    ],
+    [
+      'a rewritten call beside a plain one',
+      "import { gzipSync } from 'node:zlib';\nimport { readFileSync } from 'node:fs';\nexport const a = gzipSync(readFileSync('x'));\n",
+    ],
+    [
+      'two calls on one line',
+      "import { gzipSync } from 'node:zlib';\nexport const a = [gzipSync(x), gzipSync(y)];\n",
+    ],
+    [
+      'a call inside a template literal argument',
+      "import { gzipSync } from 'node:zlib';\nexport const a = gzipSync(`${'x'}`);\n",
+    ],
+    [
+      'a call with a callback argument',
+      "import { gzipSync } from 'node:zlib';\nexport const a = gzipSync([1, 2, 3].map((n) => n + 1));\n",
+    ],
   ];
 
   for (const [label, source] of MIGRATION_CASES) {
@@ -402,9 +437,7 @@ describe('a migrated file still parses', () => {
         const after = readFileSync(join(root, 'src/a.js'), 'utf8');
         const parsed = parse('src/a.js', after);
         const diagnostics = parsed.parseDiagnostics ?? [];
-        expect(
-          `${label}: ${diagnostics.map((d) => d.messageText).join(' | ')}`,
-        ).toBe(`${label}: `);
+        expect(`${label}: ${diagnostics.map((d) => d.messageText).join(' | ')}`).toBe(`${label}: `);
       } finally {
         rmSync(root, { recursive: true, force: true });
       }
@@ -414,11 +447,15 @@ describe('a migrated file still parses', () => {
   it('leaves no undefined identifier behind after a source rewrite', () => {
     const root = makeProject({
       'package.json': '{"name":"p","version":"1.0.0","type":"module"}\n',
-      'src/a.js': "import { gzipSync } from 'node:zlib';\nexport const a = gzipSync(Buffer.from('x'));\n",
+      'src/a.js':
+        "import { gzipSync } from 'node:zlib';\nexport const a = gzipSync(Buffer.from('x'));\n",
     });
     try {
       migrate(root, ['source']);
-      const result = run(['bun', '-e', "import('./src/a.js').then((m) => console.log(m.a.length > 0))"], root);
+      const result = run(
+        ['bun', '-e', "import('./src/a.js').then((m) => console.log(m.a.length > 0))"],
+        root,
+      );
       expect(result.stderr.trim()).toBe('');
       expect(result.stdout.trim()).toBe('true');
     } finally {
@@ -442,7 +479,8 @@ describe('a migrated project still runs', () => {
         2,
       )}\n`,
       'src/a.js': 'export const add = (a, b) => a + b;\n',
-      'test/a.test.ts': "import { describe, expect, it } from 'vitest';\nimport { add } from '../src/a.js';\ndescribe('a', () => { it('adds', () => expect(add(1, 2)).toBe(3)); });\n",
+      'test/a.test.ts':
+        "import { describe, expect, it } from 'vitest';\nimport { add } from '../src/a.js';\ndescribe('a', () => { it('adds', () => expect(add(1, 2)).toBe(3)); });\n",
     });
     try {
       migrate(root, ['config', 'tests']);
@@ -459,13 +497,17 @@ describe('a migrated project still runs', () => {
   it('leaves no dead node: import behind after a source rewrite', () => {
     const root = makeProject({
       'package.json': '{"name":"p","version":"1.0.0","type":"module"}\n',
-      'src/a.js': "import { createHash } from 'node:crypto';\nexport const d = (t) => createHash('sha256').update(t).digest('hex');\n",
+      'src/a.js':
+        "import { createHash } from 'node:crypto';\nexport const d = (t) => createHash('sha256').update(t).digest('hex');\n",
     });
     try {
       migrate(root, ['source']);
       const after = readFileSync(join(root, 'src/a.js'), 'utf8');
       expect(after.includes("from 'node:crypto'")).toBe(false);
-      const result = run(['bun', '-e', "import('./src/a.js').then((m) => console.log(m.d('a').length))"], root);
+      const result = run(
+        ['bun', '-e', "import('./src/a.js').then((m) => console.log(m.d('a').length))"],
+        root,
+      );
       expect(result.stdout.trim()).toBe('64');
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -473,15 +515,22 @@ describe('a migrated project still runs', () => {
   });
 
   it('keeps the migrated code runnable under Node when portable = true', () => {
-    if (!NODE_AVAILABLE) { expect(String(NODE_AVAILABLE)).toBe('node must be on PATH for the differential cases'); return; }
+    if (!NODE_AVAILABLE) {
+      expect(String(NODE_AVAILABLE)).toBe('node must be on PATH for the differential cases');
+      return;
+    }
     const root = makeProject({
       'package.json': '{"name":"p","version":"1.0.0","type":"module"}\n',
       '.bun-migrate.toml': 'portable = true\n',
-      'src/a.js': "import { createHash } from 'node:crypto';\nexport const d = (t) => createHash('sha256').update(t).digest('hex');\n",
+      'src/a.js':
+        "import { createHash } from 'node:crypto';\nexport const d = (t) => createHash('sha256').update(t).digest('hex');\n",
     });
     try {
       migrate(root, ['source']);
-      const result = run(['node', '-e', "import('./src/a.js').then((m) => console.log(m.d('a').length))"], root);
+      const result = run(
+        ['node', '-e', "import('./src/a.js').then((m) => console.log(m.d('a').length))"],
+        root,
+      );
       expect(result.stderr.includes('Bun is not defined')).toBe(false);
       expect(result.stdout.trim()).toBe('64');
     } finally {

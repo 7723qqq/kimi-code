@@ -1,15 +1,19 @@
+import { describe, expect, it } from 'bun:test';
 import { mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { describe, expect, it } from 'bun:test';
-import { mkdirSync } from 'node:fs';
 
 import { parseDaemonFileUrl, type PromptPart } from '@moonshot-ai/kimi-code-sdk';
 
 import { KIMI_CODE_HOME_ENV } from '#/constant/app';
 import { ImageAttachmentStore } from '#/tui/utils/image-attachment-store';
-import { extractMediaAttachments, omitExpiredVideoFileRefs, resolveOriginalCaptions, rewriteMediaPlaceholders } from '#/tui/utils/image-placeholder';
+import {
+  extractMediaAttachments,
+  omitExpiredVideoFileRefs,
+  resolveOriginalCaptions,
+  rewriteMediaPlaceholders,
+} from '#/tui/utils/image-placeholder';
 import { getCacheDir } from '#/utils/paths';
 
 function storeWith(
@@ -55,9 +59,7 @@ type VideoUrlPart = { type: 'video_url'; videoUrl: { url: string } };
 // bare `kimi-file://` daemon reference (the paste was uploaded at paste
 // time); pull the url out for assertions.
 function videoUrlFromParts(parts: unknown[]): string {
-  const part = parts.find(
-    (p): p is VideoUrlPart => (p as VideoUrlPart).type === 'video_url',
-  );
+  const part = parts.find((p): p is VideoUrlPart => (p as VideoUrlPart).type === 'video_url');
   if (!part) throw new Error(`no video_url part found in: ${JSON.stringify(parts)}`);
   return part.videoUrl.url;
 }
@@ -77,7 +79,10 @@ describe('omitExpiredVideoFileRefs', () => {
       { type: 'image_url', imageUrl: { url: 'data:image/png;base64,AQ==' } },
     ];
     expect(omitExpiredVideoFileRefs(parts, [expired, live])).toEqual([
-      parts[0]!, parts[2]!, parts[3]!, parts[4]!,
+      parts[0]!,
+      parts[2]!,
+      parts[3]!,
+      parts[4]!,
     ]);
     expect(omitExpiredVideoFileRefs(parts, [])).toEqual(parts);
   });
@@ -91,11 +96,21 @@ describe('extractMediaAttachments', () => {
       const original = store.addImage(new Uint8Array([1]), 'image/png', 1, 1);
       const extraction = await extractMediaAttachments(original.placeholder, store);
       store.clear();
-      const current = store.addImage(new Uint8Array([2]), 'image/png', 1, 1, undefined, 'file-current');
+      const current = store.addImage(
+        new Uint8Array([2]),
+        'image/png',
+        1,
+        1,
+        undefined,
+        'file-current',
+      );
       expect(current.id).toBe(original.id);
       const later = store.addImage(new Uint8Array([3]), 'image/png', 1, 1);
       const rewrite = rewriteMediaPlaceholders(
-        `${original.placeholder} ${later.placeholder}`, store, 'plain', extraction.mediaSnapshots,
+        `${original.placeholder} ${later.placeholder}`,
+        store,
+        'plain',
+        extraction.mediaSnapshots,
       );
       expect(rewrite.text).toContain(later.placeholder);
       expect(rewrite.hasMedia).toBe(true);

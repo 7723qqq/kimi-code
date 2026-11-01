@@ -25,7 +25,6 @@ export interface RunCodeInput {
 }
 
 export interface CodeRunOutcome {
-
   readonly logs: readonly string[];
 
   readonly value?: unknown;

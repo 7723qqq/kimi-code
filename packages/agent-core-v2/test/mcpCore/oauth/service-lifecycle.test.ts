@@ -1,11 +1,10 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { createServer, request, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-
-import { McpOAuthService } from '#/mcpCore/oauth/service';
 import type { McpOAuthCredentialsCoordinator } from '#/mcpCore/oauth/coordinator';
 import { McpOAuthClientProvider } from '#/mcpCore/oauth/provider';
+import { McpOAuthService } from '#/mcpCore/oauth/service';
 import { mcpOAuthStoreKey, META_SUFFIX, type McpOAuthStore } from '#/mcpCore/oauth/store';
 
 class MemoryStore implements McpOAuthStore {
@@ -150,7 +149,12 @@ describe('McpOAuthService lifecycle', () => {
       tokenCalls += 1;
       return {
         status: 200,
-        payload: { access_token: 'new', refresh_token: 'rt-2', token_type: 'Bearer', expires_in: 3600 },
+        payload: {
+          access_token: 'new',
+          refresh_token: 'rt-2',
+          token_type: 'Bearer',
+          expires_in: 3600,
+        },
       };
     });
     seedGrant(store, 'srv', oauthServer.url, {
@@ -178,7 +182,9 @@ describe('McpOAuthService lifecycle', () => {
     seedGrant(store, 'srv', oauthServer.url, { access_token: 'old', expires_in: 3600 });
     const service = new McpOAuthService({ store });
 
-    await expect(service.refresh('srv', oauthServer.url)).rejects.toThrow(/no refreshable OAuth grant/);
+    await expect(service.refresh('srv', oauthServer.url)).rejects.toThrow(
+      /no refreshable OAuth grant/,
+    );
     await service.shutdown();
   });
 
@@ -188,7 +194,12 @@ describe('McpOAuthService lifecycle', () => {
       tokenCalls += 1;
       return {
         status: 200,
-        payload: { access_token: 'new', refresh_token: 'rt-2', token_type: 'Bearer', expires_in: 3600 },
+        payload: {
+          access_token: 'new',
+          refresh_token: 'rt-2',
+          token_type: 'Bearer',
+          expires_in: 3600,
+        },
       };
     });
     seedGrant(store, 'srv', oauthServer.url, {

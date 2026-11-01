@@ -1,7 +1,15 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { collectNodeBindings, collectShadowingNames, parse, requiredNodeModuleOf, resolveBuiltinCall, ts, walkCalls } from '../ast.mjs';
+import {
+  collectNodeBindings,
+  collectShadowingNames,
+  parse,
+  requiredNodeModuleOf,
+  resolveBuiltinCall,
+  ts,
+  walkCalls,
+} from '../ast.mjs';
 import {
   denyList,
   isDeniedFile,
@@ -35,7 +43,7 @@ export function applySourceLayer(project, journal) {
     }
     const text = journal.readFile(file) ?? readText(project, file);
     if (!text) continue;
-    if (!text.includes("'node:" ) && !text.includes('"node:')) continue;
+    if (!text.includes("'node:") && !text.includes('"node:')) continue;
     const sourceFile = parse(file, text);
     const bindings = collectNodeBindings(sourceFile);
     if (
@@ -154,13 +162,7 @@ export function applySourceLayer(project, journal) {
     }
     const applied = [...new Set(outermost.map((edit) => edit.pairing.id))].join(', ');
     const skipped = [...new Set(notes)];
-    journal.set(
-      file,
-      next,
-      'source',
-      [`applied ${applied}`, ...skipped].join('; '),
-      text,
-    );
+    journal.set(file, next, 'source', [`applied ${applied}`, ...skipped].join('; '), text);
   }
 }
 
@@ -304,7 +306,12 @@ export function dropUnusedNodeRequires(rewrittenText, candidates) {
       if (!module) continue;
       declarationRanges.push([statement.getStart(), statement.getEnd()]);
       if (ts.isIdentifier(declaration.name)) {
-        candidatesForRemoval.push({ statement, declaration, kind: 'namespace', local: declaration.name.text });
+        candidatesForRemoval.push({
+          statement,
+          declaration,
+          kind: 'namespace',
+          local: declaration.name.text,
+        });
         continue;
       }
       if (!ts.isObjectBindingPattern(declaration.name)) continue;

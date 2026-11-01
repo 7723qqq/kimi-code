@@ -13,9 +13,15 @@ describe('parsePorcelain', () => {
   });
 
   it('classifies modified, untracked, renamed, and deleted entries', () => {
-    const out = ['## dev', ' M src/a.ts', '?? src/b.ts', 'R  new.ts', 'old.ts', 'D  src/c.ts', ''].join(
-      '\0',
-    );
+    const out = [
+      '## dev',
+      ' M src/a.ts',
+      '?? src/b.ts',
+      'R  new.ts',
+      'old.ts',
+      'D  src/c.ts',
+      '',
+    ].join('\0');
     const result = parsePorcelain(out, undefined);
     expect(result.branch).toBe('dev');
     expect(result.entries).toEqual({
@@ -33,7 +39,8 @@ describe('parsePorcelain', () => {
   });
 
   it('keeps non-ASCII paths intact', () => {
-    const path = 'my-ai-workspace/output/2026-08-31-bilibili-BV175t86pEre-26.8.31-总能等到回踩的.md';
+    const path =
+      'my-ai-workspace/output/2026-08-31-bilibili-BV175t86pEre-26.8.31-总能等到回踩的.md';
     const out = ` M ${path}\0`;
     const result = parsePorcelain(out, undefined);
     expect(result.entries).toEqual({ [path]: 'modified' });

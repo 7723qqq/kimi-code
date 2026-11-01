@@ -1,6 +1,5 @@
-import { getEventListeners } from 'node:events';
-
 import { describe, expect, it, mock } from 'bun:test';
+import { getEventListeners } from 'node:events';
 
 import {
   APIConnectionError,
@@ -1180,8 +1179,8 @@ describe('GoogleGenAIChatProvider', () => {
   describe('response parsing (non-stream)', () => {
     it('yields text from non-stream response', async () => {
       const provider = createProvider({ stream: false });
-      ((provider as any)._client.models as Record<string, unknown>)['generateContent'] = mock()
-        .mockResolvedValue(makeGenerateContentResponse());
+      ((provider as any)._client.models as Record<string, unknown>)['generateContent'] =
+        mock().mockResolvedValue(makeGenerateContentResponse());
 
       const stream = await provider.generate(
         '',
@@ -1202,8 +1201,8 @@ describe('GoogleGenAIChatProvider', () => {
 
     it('yields an empty ThinkPart from an explicitly empty thought part', async () => {
       const provider = createProvider({ stream: false });
-      ((provider as any)._client.models as Record<string, unknown>)['generateContent'] = mock()
-        .mockResolvedValue({
+      ((provider as any)._client.models as Record<string, unknown>)['generateContent'] =
+        mock().mockResolvedValue({
           candidates: [
             {
               content: {
@@ -1548,8 +1547,9 @@ describe('GoogleGenAIChatProvider', () => {
         };
       }
 
-      mockModels['generateContentStream'] = mock()
-        .mockImplementation(() => Promise.resolve(mockStream()));
+      mockModels['generateContentStream'] = mock().mockImplementation(() =>
+        Promise.resolve(mockStream()),
+      );
 
       const result = await provider.generate(
         'system',
@@ -1757,8 +1757,9 @@ describe('GoogleGenAIChatProvider', () => {
         yield { candidates: [{ content: { parts: [{ text: 'chunk-2' }] } }] };
       }
 
-      mockModels['generateContentStream'] = mock()
-        .mockImplementation(() => Promise.resolve(mockStream()));
+      mockModels['generateContentStream'] = mock().mockImplementation(() =>
+        Promise.resolve(mockStream()),
+      );
 
       const result = await provider.generate(
         '',
@@ -1826,8 +1827,9 @@ describe('GoogleGenAIChatProvider', () => {
       async function* mockStream() {
         yield { candidates: [{ content: { parts: [{ text: 'ok' }] } }] };
       }
-      mockModels['generateContentStream'] = mock()
-        .mockImplementation(() => Promise.resolve(mockStream()));
+      mockModels['generateContentStream'] = mock().mockImplementation(() =>
+        Promise.resolve(mockStream()),
+      );
 
       // A session-level signal is handed to every `generate()` of the turn: the
       // listener added for the race must be removed when the SDK request wins,

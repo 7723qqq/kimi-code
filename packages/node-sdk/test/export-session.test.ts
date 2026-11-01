@@ -1,3 +1,4 @@
+import { afterEach, describe, expect, it } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -9,7 +10,6 @@ import {
   type ExportSessionDirectorySummary,
 } from '@moonshot-ai/agent-core-v2/app/sessionExport/sessionExportService';
 import { WIRE_PROTOCOL_VERSION } from '@moonshot-ai/agent-core-v2/wire/migration/migration';
-import { afterEach, describe, expect, it } from 'bun:test';
 
 import { createKimiHarness, type KimiError, type KimiHarness, resolveGlobalLogPath } from '#/index';
 

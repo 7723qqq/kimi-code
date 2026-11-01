@@ -1,5 +1,6 @@
-import { ErrorCodes, KimiError } from '@moonshot-ai/kimi-code-sdk';
 import { describe, expect, it } from 'bun:test';
+
+import { ErrorCodes, KimiError } from '@moonshot-ai/kimi-code-sdk';
 
 import { STREAMING_ARGS_PREVIEW_MAX_CHARS } from '#/tui/constant/streaming';
 import {

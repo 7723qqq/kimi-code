@@ -59,7 +59,10 @@ describe('slugifyModel', () => {
   });
 
   test('a slug survives being joined into a report path', () => {
-    const joined = join('/tmp/reports', `bench-${slugifyModel('workbuddy/deepseek-v4.1-flash')}-1.json`);
+    const joined = join(
+      '/tmp/reports',
+      `bench-${slugifyModel('workbuddy/deepseek-v4.1-flash')}-1.json`,
+    );
     expect(basename(joined)).toBe('bench-workbuddy-deepseek-v4.1-flash-1.json');
     expect(joined).toBe(join('/tmp/reports', 'bench-workbuddy-deepseek-v4.1-flash-1.json'));
   });

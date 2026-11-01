@@ -845,9 +845,7 @@ export class KimiTUI {
       const workspaceAdditionalDirs = await Promise.resolve()
         .then(() => this.harness.getWorkspaceAdditionalDirs(workDir))
         .catch((error: unknown) => {
-          this.appendStartupNotice(
-            getWorkspaceDirsUnavailableNotice(formatErrorMessage(error)),
-          );
+          this.appendStartupNotice(getWorkspaceDirsUnavailableNotice(formatErrorMessage(error)));
           return [];
         });
       if (workspaceAdditionalDirs.length > 0) {

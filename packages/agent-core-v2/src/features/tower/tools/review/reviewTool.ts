@@ -1,5 +1,3 @@
-import type { ITowerReviewTool } from './review';
-import { TowerReviewToolInputSchema, type TowerReviewToolInput } from './review';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentTaskService } from '#/agent/task/task';
 import { ISessionEventBus } from '#/app/event/eventBus';
@@ -10,6 +8,8 @@ import type { ToolExecution } from '#/tool/toolContract';
 
 import { deliverTowerMessage } from '../delivery';
 import { callerName, newTowerStore, runTowerTool } from '../support';
+import type { ITowerReviewTool } from './review';
+import { TowerReviewToolInputSchema, type TowerReviewToolInput } from './review';
 import DESCRIPTION from './review.md?raw';
 
 export class TowerReviewTool implements ITowerReviewTool {

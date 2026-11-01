@@ -76,7 +76,9 @@ describe('normalizeContentPart', () => {
       type: 'audio_url',
       audioUrl: { url: 'a' },
     });
-    expect(normalizeContentPart({ type: 'video_url', video_url: { url: 'v', id: 'vid-1' } })).toEqual({
+    expect(
+      normalizeContentPart({ type: 'video_url', video_url: { url: 'v', id: 'vid-1' } }),
+    ).toEqual({
       type: 'video_url',
       videoUrl: { url: 'v', id: 'vid-1' },
     });

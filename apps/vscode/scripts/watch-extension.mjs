@@ -9,14 +9,9 @@ import { extensionRoot, isMainModule } from './vsix-targets.mjs';
 const sourceDirectories = [
   join(extensionRoot, 'src'),
   join(extensionRoot, 'shared'),
-  ...[
-    'kosong',
-    'migration-legacy',
-    'node-sdk',
-    'oauth',
-    'protocol',
-    'telemetry',
-  ].map((name) => resolve(extensionRoot, `../../packages/${name}/src`)),
+  ...['kosong', 'migration-legacy', 'node-sdk', 'oauth', 'protocol', 'telemetry'].map((name) =>
+    resolve(extensionRoot, `../../packages/${name}/src`),
+  ),
 ].filter(existsSync);
 const rootConfigFiles = ['package.json', 'tsconfig.json', 'tsdown.config.ts'].map((name) =>
   join(extensionRoot, name),
@@ -48,7 +43,9 @@ async function main() {
       buildExtension();
       console.log('Extension rebuild complete.');
     } catch (error) {
-      console.error(`Extension watch check failed: ${error instanceof Error ? error.message : String(error)}`);
+      console.error(
+        `Extension watch check failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
     } finally {
       checking = false;
     }
@@ -89,7 +86,9 @@ async function addFileRecord(path, records) {
 
 if (isMainModule(import.meta.url)) {
   main().catch((error) => {
-    console.error(`Extension watch failed: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(
+      `Extension watch failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
     process.exitCode = 1;
   });
 }

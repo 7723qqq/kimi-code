@@ -1,3 +1,4 @@
+import { PlanReviewDecision, reviewDecisionFromLabel } from '#/agent/interaction/reviewDecisions';
 import type { ApprovalResponse, PermissionPolicyResolution } from '#/agent/permissionPolicy/types';
 import type { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import type {
@@ -9,7 +10,6 @@ import type { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 
 import type { IAgentPlanService } from './plan';
-import { PlanReviewDecision, reviewDecisionFromLabel } from '#/agent/interaction/reviewDecisions';
 
 type PlanReviewDisplay = Extract<ToolInputDisplay, { kind: 'plan_review' }>;
 type PlanReviewOption = NonNullable<PlanReviewDisplay['options']>[number];
@@ -41,7 +41,10 @@ export class ExitPlanModeReview {
           has_options: display.options !== undefined,
         },
         resolveApproval: (result) => this.approvalResult(result, display),
-        resolveNonInteractive: () => ({ kind: 'deny', message: PLAN_REVIEW_NON_INTERACTIVE_MESSAGE }),
+        resolveNonInteractive: () => ({
+          kind: 'deny',
+          message: PLAN_REVIEW_NON_INTERACTIVE_MESSAGE,
+        }),
       },
       'exit-plan-mode-review-ask',
     );

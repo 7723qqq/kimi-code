@@ -1,5 +1,6 @@
-import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'bun:test';
+
+import { renderToStaticMarkup } from 'react-dom/server';
 
 import { RootErrorBoundary } from '../src/components/shared/RootErrorBoundary';
 

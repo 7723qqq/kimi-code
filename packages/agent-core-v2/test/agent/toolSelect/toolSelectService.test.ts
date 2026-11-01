@@ -1,33 +1,42 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { DisposableStore, toDisposable, type IDisposable } from '#/_base/di/lifecycle';
-import { createServices, type ServiceRegistration, type TestInstantiationService } from '#/_base/di/test';
-import { OrderedHookSlot } from '#/hooks';
-import { IEventBus } from '#/app/event/eventBus';
-import { Event2, type Event2Class } from '#/app/event/event2';
-import { IFlagService } from '#/app/flag/flag';
-import { type ModelCapability } from '#/llm-adapter/contract/capability';
-import { type ToolCall } from '#human/llm/message';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import { IAgentMcpService } from '#/agent/mcp/mcp';
+import {
+  createServices,
+  type ServiceRegistration,
+  type TestInstantiationService,
+} from '#/_base/di/test';
 import { ContextSpliced } from '#/agent/contextMemory/contextEvents';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { type UndoCut } from '#/agent/contextMemory/contextOps';
-import { type ContextMessage } from '#/agent/contextMemory/types';
 import { type LoopRecordedEvent } from '#/agent/contextMemory/loopEventFold';
-import { IAgentReminderService } from '#/features/reminder/reminderService';
-import { createReminderHarness } from '../../features/reminder/stubs';
+import { type ContextMessage } from '#/agent/contextMemory/types';
 import { CompactionCompleted } from '#/agent/fullCompaction/compactionOps';
-import { IAgentLoopService, type AfterStepContext, type BeforeStepContext, type LoopNotifyHandle, type LoopSnapshot, type PromptSubmitContext } from '#/agent/loop/loop';
+import {
+  IAgentLoopService,
+  type AfterStepContext,
+  type BeforeStepContext,
+  type LoopNotifyHandle,
+  type LoopSnapshot,
+  type PromptSubmitContext,
+} from '#/agent/loop/loop';
 import { TurnStarted } from '#/agent/loop/turnEvents';
+import { IAgentMcpService } from '#/agent/mcp/mcp';
 import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { type ExecutableTool, type ToolDisclosure, type ToolExecution } from '#/tool/toolContract';
-import { IAgentToolExecutorService, type ToolExecutionResult } from '#/agent/toolExecutor/toolExecutor';
+import {
+  IAgentToolExecutorService,
+  type ToolExecutionResult,
+} from '#/agent/toolExecutor/toolExecutor';
 import { AgentToolExecutorService } from '#/agent/toolExecutor/toolExecutorService';
+import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
-import { DYNAMIC_TOOL_SCHEMA_VARIANT, LOADABLE_TOOLS_VARIANT } from '#/agent/toolSelect/dynamicTools';
+import { SelectToolsTool } from '#/agent/tools/select-tools/selectToolsTool';
+import {
+  DYNAMIC_TOOL_SCHEMA_VARIANT,
+  LOADABLE_TOOLS_VARIANT,
+} from '#/agent/toolSelect/dynamicTools';
 import { TOOL_SELECT_FLAG_ID } from '#/agent/toolSelect/flag';
 import { IAgentToolSelectService, SELECT_TOOLS_TOOL_NAME } from '#/agent/toolSelect/toolSelect';
 import { IAgentToolSelectAnnouncementsService } from '#/agent/toolSelect/toolSelectAnnouncements';
@@ -35,12 +44,21 @@ import { AgentToolSelectAnnouncementsService } from '#/agent/toolSelect/toolSele
 import { IAgentToolSelectSchemasService } from '#/agent/toolSelect/toolSelectSchemas';
 import { AgentToolSelectSchemasService } from '#/agent/toolSelect/toolSelectSchemasService';
 import { AgentToolSelectService } from '#/agent/toolSelect/toolSelectService';
-import { SelectToolsTool } from '#/agent/tools/select-tools/selectToolsTool';
+import { Event2, type Event2Class } from '#/app/event/event2';
+import { IEventBus } from '#/app/event/eventBus';
+import { IFlagService } from '#/app/flag/flag';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IWireService } from '#/wire/wire';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
+import { OrderedHookSlot } from '#/hooks';
+import { type ModelCapability } from '#/llm-adapter/contract/capability';
 import { IEventDispatcher } from '#/state/eventDispatcher';
+import { type ExecutableTool, type ToolDisclosure, type ToolExecution } from '#/tool/toolContract';
+import { IWireService } from '#/wire/wire';
+import { type ToolCall } from '#human/llm/message';
+
 import { registerLogServices } from '../../_base/log/stubs';
 import { recordingTelemetry } from '../../app/telemetry/stubs';
+import { createReminderHarness } from '../../features/reminder/stubs';
 import { registerStateServices } from '../../state/stubs';
 import { stubToolExecutor, stubWire } from '../loop/stubs';
 import { registerToolResultTruncationServices } from '../toolResultTruncation/stubs';
@@ -81,10 +99,12 @@ beforeEach(() => {
 
 afterEach(() => disposables.dispose());
 
-function makeCapabilities(overrides: {
-  readonly tool_use?: boolean;
-  readonly dynamically_loaded_tools?: boolean;
-} = {}): ModelCapability {
+function makeCapabilities(
+  overrides: {
+    readonly tool_use?: boolean;
+    readonly dynamically_loaded_tools?: boolean;
+  } = {},
+): ModelCapability {
   return {
     image_in: false,
     video_in: false,
@@ -184,7 +204,8 @@ class RecordingEventBus implements IEventBus {
         if (index >= 0) this.allHandlers.splice(index, 1);
       });
     }
-    const type = typeof typeOrHandler === 'string' ? typeOrHandler : (typeOrHandler as Event2Class).type;
+    const type =
+      typeof typeOrHandler === 'string' ? typeOrHandler : (typeOrHandler as Event2Class).type;
     const list = this.typedHandlers.get(type) ?? [];
     const handler = maybeHandler!;
     list.push(handler);
@@ -345,10 +366,11 @@ function registerSharedServices(
   reg.definePartialInstance(IAgentToolPolicyService, {
     isToolActive: (name: string) => activeToolNames === undefined || activeToolNames.has(name),
     isToolDenied: (name: string) => deniedToolNames.has(name),
-    getPolicyFingerprint: () => JSON.stringify([
-      activeToolNames === undefined ? null : [...activeToolNames].toSorted(),
-      [...deniedToolNames].toSorted(),
-    ]),
+    getPolicyFingerprint: () =>
+      JSON.stringify([
+        activeToolNames === undefined ? null : [...activeToolNames].toSorted(),
+        [...deniedToolNames].toSorted(),
+      ]),
     isToolActiveForDisclosure: () => disclosureToolActive,
   });
   reg.definePartialInstance(IFlagService, {
@@ -362,10 +384,7 @@ function registerSharedServices(
       eventBus.publish(event);
     },
   } as unknown as IEventDispatcher);
-  reg.defineInstance(
-    IAgentReminderService,
-    createReminderHarness(loop, contextMemory, eventBus),
-  );
+  reg.defineInstance(IAgentReminderService, createReminderHarness(loop, contextMemory, eventBus));
   reg.define(IAgentToolRegistryService, AgentToolRegistryService);
   reg.define(IAgentToolSelectService, AgentToolSelectService);
   reg.define(IAgentToolSelectAnnouncementsService, AgentToolSelectAnnouncementsService);
@@ -412,7 +431,10 @@ function createExecutorHarness(): ExecutorHarness {
     additionalServices: (reg) => {
       registerSharedServices(reg, contextMemory, loop, eventBus);
       reg.defineInstance(ITelemetryService, recordingTelemetry([]));
-      reg.defineInstance(IAgentScopeContext, makeAgentScopeContext({ agentId: 'main', agentScope: '' }));
+      reg.defineInstance(
+        IAgentScopeContext,
+        makeAgentScopeContext({ agentId: 'main', agentScope: '' }),
+      );
       reg.define(IAgentToolExecutorService, AgentToolExecutorService);
       registerToolResultTruncationServices(reg);
     },
@@ -444,11 +466,7 @@ function registerBuiltin(h: Harness, tool: EchoTool): void {
   disposables.add(h.registry.register(tool, { source: 'builtin' }));
 }
 
-function registerUser(
-  h: Harness,
-  tool: EchoTool,
-  disclosure?: ToolDisclosure,
-): IDisposable {
+function registerUser(h: Harness, tool: EchoTool, disclosure?: ToolDisclosure): IDisposable {
   const registration = h.registry.register(tool, { source: 'user', disclosure });
   disposables.add(registration);
   return registration;
@@ -478,7 +496,8 @@ async function announce(h: Harness, step = 1): Promise<string | undefined> {
 
 async function announceAfterCompaction(h: Harness): Promise<string | undefined> {
   h.eventBus.publish(
-    new ContextSpliced({ agentId: 'main',
+    new ContextSpliced({
+      agentId: 'main',
       start: 0,
       deleteCount: 1,
       messages: [
@@ -699,10 +718,7 @@ describe('AgentToolSelectService view shaping (gate open)', () => {
     activeToolNames = new Set([MCP_ALPHA]);
 
     const shaped = h.sut.shapeTools(h.registry.list());
-    expect(shaped.map((entry) => entry.name)).toEqual([
-      MCP_ALPHA,
-      SELECT_TOOLS_TOOL_NAME,
-    ]);
+    expect(shaped.map((entry) => entry.name)).toEqual([MCP_ALPHA, SELECT_TOOLS_TOOL_NAME]);
   });
 
   it('hides select_tools when an explicit policy disables disclosure', () => {
@@ -759,9 +775,7 @@ describe('AgentToolSelectService view shaping (gate open)', () => {
       suggestions: {},
       loadable: [],
     });
-    expect(h.contextMemory.get()[0]?.tools?.map((tool) => tool.name)).toEqual([
-      USER_DEFERRED,
-    ]);
+    expect(h.contextMemory.get()[0]?.tools?.map((tool) => tool.name)).toEqual([USER_DEFERRED]);
   });
 
   it('shapeHistory removes a deferred schema after re-registering the user tool inline', () => {
@@ -774,9 +788,7 @@ describe('AgentToolSelectService view shaping (gate open)', () => {
     const inline = h.sut
       .shapeTools(h.registry.list())
       .find((entry) => entry.name === USER_DEFERRED);
-    expect(inline).toEqual(
-      expect.objectContaining({ name: USER_DEFERRED, disclosure: undefined }),
-    );
+    expect(inline).toEqual(expect.objectContaining({ name: USER_DEFERRED, disclosure: undefined }));
     expect(inline?.deferred).toBeUndefined();
     expect(h.sut.load([USER_DEFERRED])).toEqual({
       toLoad: [],
@@ -894,7 +906,8 @@ describe('AgentToolSelectService.load', () => {
 
     h.sut.load([MCP_ALPHA]);
     h.eventBus.publish(
-      new CompactionCompleted({ agentId: 'main',
+      new CompactionCompleted({
+        agentId: 'main',
         result: { summary: '', compactedCount: 0, tokensBefore: 0, tokensAfter: 0 },
       }),
     );
@@ -906,7 +919,9 @@ describe('AgentToolSelectService.load', () => {
     registerMcp(h, new StubMcpTool(MCP_ALPHA));
 
     h.sut.load([MCP_ALPHA]);
-    h.eventBus.publish(new ContextSpliced({ agentId: 'main', start: 0, deleteCount: 2, messages: [] }));
+    h.eventBus.publish(
+      new ContextSpliced({ agentId: 'main', start: 0, deleteCount: 2, messages: [] }),
+    );
     expect(h.sut.load([MCP_ALPHA]).toLoad).toEqual([MCP_ALPHA]);
   });
 
@@ -916,7 +931,8 @@ describe('AgentToolSelectService.load', () => {
 
     h.sut.load([MCP_ALPHA]);
     h.eventBus.publish(
-      new ContextSpliced({ agentId: 'main',
+      new ContextSpliced({
+        agentId: 'main',
         start: 0,
         deleteCount: 2,
         messages: [userMessage('Compacted summary.')],
@@ -941,7 +957,9 @@ describe('AgentToolSelectService.load', () => {
     expect(h.sut.load([MCP_BETA]).alreadyAvailable).toEqual([MCP_BETA]);
 
     h.contextMemory.history.splice(1, 1);
-    h.eventBus.publish(new ContextSpliced({ agentId: 'main', start: 1, deleteCount: 2, messages: [] }));
+    h.eventBus.publish(
+      new ContextSpliced({ agentId: 'main', start: 1, deleteCount: 2, messages: [] }),
+    );
 
     expect(h.sut.load([MCP_ALPHA]).alreadyAvailable).toEqual([MCP_ALPHA]);
     expect(h.sut.load([MCP_BETA]).toLoad).toEqual([MCP_BETA]);
@@ -953,7 +971,12 @@ describe('AgentToolSelectService.load', () => {
 
     h.sut.load([MCP_ALPHA]);
     h.eventBus.publish(
-      new ContextSpliced({ agentId: 'main', start: 3, deleteCount: 0, messages: [userMessage('x')] }),
+      new ContextSpliced({
+        agentId: 'main',
+        start: 3,
+        deleteCount: 0,
+        messages: [userMessage('x')],
+      }),
     );
     expect(h.sut.load([MCP_ALPHA]).alreadyAvailable).toEqual([MCP_ALPHA]);
   });
@@ -986,7 +1009,8 @@ describe('AgentToolSelectService.load', () => {
     expect(await unknownOnly.execute(ctx)).toEqual({
       output:
         `Unknown tool: ${MCP_GONE}. ${UNKNOWN_SELECTION_REASON}` +
-        'No additional tools can be loaded right now; use the tools you already have.' + NO_ALIAS_GUIDANCE,
+        'No additional tools can be loaded right now; use the tools you already have.' +
+        NO_ALIAS_GUIDANCE,
       isError: true,
     });
   });
@@ -1035,7 +1059,8 @@ describe('AgentToolSelectService.load', () => {
     expect(await unknownOnly.execute(ctx)).toEqual({
       output:
         `Unknown tool: some_unavailable_tool. ${UNKNOWN_SELECTION_REASON}` +
-        'No additional tools can be loaded right now; use the tools you already have.' + NO_ALIAS_GUIDANCE,
+        'No additional tools can be loaded right now; use the tools you already have.' +
+        NO_ALIAS_GUIDANCE,
       isError: true,
     });
   });
@@ -1072,7 +1097,7 @@ describe('AgentToolSelectService.load', () => {
       unknown: ['MCP__SRV__ALPHA'],
       escalated: {},
       consecutiveFailures: 1,
-      suggestions: { 'MCP__SRV__ALPHA': [MCP_ALPHA] },
+      suggestions: { MCP__SRV__ALPHA: [MCP_ALPHA] },
       loadable: [MCP_ALPHA],
     });
   });
@@ -1090,7 +1115,7 @@ describe('AgentToolSelectService.load', () => {
       unknown: ['mcp__alpha'],
       escalated: {},
       consecutiveFailures: 1,
-      suggestions: { 'mcp__alpha': [MCP_ALPHA] },
+      suggestions: { mcp__alpha: [MCP_ALPHA] },
       loadable: [MCP_ALPHA],
     });
   });
@@ -1108,7 +1133,7 @@ describe('AgentToolSelectService.load', () => {
       unknown: ['alpha_extra'],
       escalated: {},
       consecutiveFailures: 1,
-      suggestions: { 'alpha_extra': [MCP_ALPHA] },
+      suggestions: { alpha_extra: [MCP_ALPHA] },
       loadable: [MCP_ALPHA],
     });
   });
@@ -1143,48 +1168,62 @@ describe('AgentToolSelectService.load', () => {
   it.each([
     {
       kind: 'policyDenied',
-      reason: `"${MCP_GONE}" is disabled by the current tool policy. select_tools cannot enable it. ` +
+      reason:
+        `"${MCP_GONE}" is disabled by the current tool policy. select_tools cannot enable it. ` +
         'Do not retry unless the policy changes; use an available tool instead.',
     },
     {
       kind: 'staleLoaded',
-      reason: `"${MCP_GONE}" was previously selected or loaded but is no longer registered. ` +
+      reason:
+        `"${MCP_GONE}" was previously selected or loaded but is no longer registered. ` +
         'select_tools cannot restore it. Do not select it again unless a new <tools_added> announcement lists it.',
     },
     {
       kind: 'unknown',
-      reason: `Unknown tool: ${MCP_GONE}. ${UNKNOWN_SELECTION_REASON}` +
-        'No additional tools can be loaded right now; use the tools you already have.' + NO_ALIAS_GUIDANCE,
+      reason:
+        `Unknown tool: ${MCP_GONE}. ${UNKNOWN_SELECTION_REASON}` +
+        'No additional tools can be loaded right now; use the tools you already have.' +
+        NO_ALIAS_GUIDANCE,
     },
-  ] as const)('classifies $kind and preserves its reason on repeated failure', async ({ kind, reason }) => {
-    const h = createHarness();
-    if (kind === 'policyDenied') deniedToolNames = new Set([MCP_GONE]);
-    if (kind === 'staleLoaded') {
-      const registration = registerMcp(h, new StubMcpTool(MCP_GONE));
-      h.contextMemory.history.push(schemaMessage(MCP_GONE));
-      registration.dispose();
-    }
-    expect(h.sut.load([MCP_GONE])).toEqual({
-      toLoad: [],
-      alreadyAvailable: [],
-      alreadyCallable: [],
-      staleLoaded: kind === 'staleLoaded' ? [MCP_GONE] : [],
-      policyDenied: kind === 'policyDenied' ? [MCP_GONE] : [],
-      unknown: kind === 'unknown' ? [MCP_GONE] : [],
-      escalated: {},
-      consecutiveFailures: 1,
-      suggestions: {},
-      loadable: [],
-    });
-    const tool = h.ix.createInstance(SelectToolsTool);
-    const execution = tool.resolveExecution({ names: [MCP_GONE] });
-    if (execution.isError === true) throw new Error('expected a runnable execution');
-    expect(await execution.execute({ turnId: 1, toolCallId: 'call', signal: new AbortController().signal })).toEqual({
-      output: `${reason}\n"${MCP_GONE}" has already failed selection 2 times. ` +
-        'Stop retrying this name until its availability changes.',
-      isError: true,
-    });
-  });
+  ] as const)(
+    'classifies $kind and preserves its reason on repeated failure',
+    async ({ kind, reason }) => {
+      const h = createHarness();
+      if (kind === 'policyDenied') deniedToolNames = new Set([MCP_GONE]);
+      if (kind === 'staleLoaded') {
+        const registration = registerMcp(h, new StubMcpTool(MCP_GONE));
+        h.contextMemory.history.push(schemaMessage(MCP_GONE));
+        registration.dispose();
+      }
+      expect(h.sut.load([MCP_GONE])).toEqual({
+        toLoad: [],
+        alreadyAvailable: [],
+        alreadyCallable: [],
+        staleLoaded: kind === 'staleLoaded' ? [MCP_GONE] : [],
+        policyDenied: kind === 'policyDenied' ? [MCP_GONE] : [],
+        unknown: kind === 'unknown' ? [MCP_GONE] : [],
+        escalated: {},
+        consecutiveFailures: 1,
+        suggestions: {},
+        loadable: [],
+      });
+      const tool = h.ix.createInstance(SelectToolsTool);
+      const execution = tool.resolveExecution({ names: [MCP_GONE] });
+      if (execution.isError === true) throw new Error('expected a runnable execution');
+      expect(
+        await execution.execute({
+          turnId: 1,
+          toolCallId: 'call',
+          signal: new AbortController().signal,
+        }),
+      ).toEqual({
+        output:
+          `${reason}\n"${MCP_GONE}" has already failed selection 2 times. ` +
+          'Stop retrying this name until its availability changes.',
+        isError: true,
+      });
+    },
+  );
 
   it('treats an unregistered MCP name matching the denylist as not available', () => {
     const h = createHarness();
@@ -1242,8 +1281,12 @@ describe('AgentToolSelectService.load', () => {
     if (variants.isError === true) throw new Error('expected a runnable execution');
     const result = await variants.execute(ctx);
     expect(result.output).not.toContain('has already failed selection 2 times');
-    expect(result.output).toContain(`Unknown tool: mcp__Ghost__tool. ${UNKNOWN_SELECTION_REASON}Loadable tools: ${MCP_ALPHA}.${NO_ALIAS_GUIDANCE}`);
-    expect(result.output).toContain(`Unknown tool: mcp__ghost__tool. ${UNKNOWN_SELECTION_REASON}Loadable tools: ${MCP_ALPHA}.${NO_ALIAS_GUIDANCE}`);
+    expect(result.output).toContain(
+      `Unknown tool: mcp__Ghost__tool. ${UNKNOWN_SELECTION_REASON}Loadable tools: ${MCP_ALPHA}.${NO_ALIAS_GUIDANCE}`,
+    );
+    expect(result.output).toContain(
+      `Unknown tool: mcp__ghost__tool. ${UNKNOWN_SELECTION_REASON}Loadable tools: ${MCP_ALPHA}.${NO_ALIAS_GUIDANCE}`,
+    );
     const second = h.sut.load(['mcp__Ghost__tool', 'mcp__ghost__tool']);
     expect(second.consecutiveFailures).toBe(2);
     expect(second.escalated).toEqual({ mcp__Ghost__tool: 2, mcp__ghost__tool: 2 });
@@ -1272,7 +1315,11 @@ describe('AgentToolSelectService consecutive failures', () => {
     const tool = h.ix.createInstance(SelectToolsTool);
     const execution = tool.resolveExecution({ names: ['DisabledTool', MCP_GONE, 'third_guess'] });
     if (execution.isError === true) throw new Error('expected a runnable execution');
-    const result = await execution.execute({ turnId: 1, toolCallId: 'call', signal: new AbortController().signal });
+    const result = await execution.execute({
+      turnId: 1,
+      toolCallId: 'call',
+      signal: new AbortController().signal,
+    });
     expect(result.isError).toBe(true);
     expect(result.output).toContain('disabled by the current tool policy');
     expect(result.output).toContain('no longer registered');
@@ -1283,21 +1330,25 @@ describe('AgentToolSelectService consecutive failures', () => {
     expect(result.output).not.toContain('has already failed selection');
   });
 
-  it.each(['new', 'loaded', 'static', 'mixed'] as const)('resets the call streak but preserves unrelated failures on %s success', (kind) => {
-    const h = createHarness();
-    registerMcp(h, new StubMcpTool(MCP_ALPHA));
-    registerBuiltin(h, new EchoTool());
-    if (kind === 'loaded') h.contextMemory.history.push(schemaMessage(MCP_ALPHA));
-    h.sut.load([MCP_GONE]);
-    expect(h.sut.load([MCP_GONE]).escalated[MCP_GONE]).toBe(2);
-    const names = kind === 'static' ? ['Echo'] : kind === 'mixed' ? [MCP_ALPHA, MCP_GONE] : [MCP_ALPHA];
-    const success = h.sut.load(names);
-    expect(success.consecutiveFailures).toBe(0);
-    expect(success.escalated).toEqual(kind === 'mixed' ? { [MCP_GONE]: 3 } : {});
-    const next = h.sut.load([MCP_GONE]);
-    expect(next.consecutiveFailures).toBe(1);
-    expect(next.escalated).toEqual({ [MCP_GONE]: kind === 'mixed' ? 4 : 3 });
-  });
+  it.each(['new', 'loaded', 'static', 'mixed'] as const)(
+    'resets the call streak but preserves unrelated failures on %s success',
+    (kind) => {
+      const h = createHarness();
+      registerMcp(h, new StubMcpTool(MCP_ALPHA));
+      registerBuiltin(h, new EchoTool());
+      if (kind === 'loaded') h.contextMemory.history.push(schemaMessage(MCP_ALPHA));
+      h.sut.load([MCP_GONE]);
+      expect(h.sut.load([MCP_GONE]).escalated[MCP_GONE]).toBe(2);
+      const names =
+        kind === 'static' ? ['Echo'] : kind === 'mixed' ? [MCP_ALPHA, MCP_GONE] : [MCP_ALPHA];
+      const success = h.sut.load(names);
+      expect(success.consecutiveFailures).toBe(0);
+      expect(success.escalated).toEqual(kind === 'mixed' ? { [MCP_GONE]: 3 } : {});
+      const next = h.sut.load([MCP_GONE]);
+      expect(next.consecutiveFailures).toBe(1);
+      expect(next.escalated).toEqual({ [MCP_GONE]: kind === 'mixed' ? 4 : 3 });
+    },
+  );
 
   it('clears only the successful name from case-insensitive failure history', () => {
     const h = createHarness();
@@ -1310,19 +1361,22 @@ describe('AgentToolSelectService consecutive failures', () => {
     expect(next.escalated).toEqual({ [MCP_GONE]: 2 });
   });
 
-  it.each(['add', 'remove', 'policy', 'disclosure'] as const)('resets both counters when tools change: %s', (change) => {
-    const h = createHarness();
-    const registration = registerMcp(h, new StubMcpTool(MCP_ALPHA));
-    h.sut.load([MCP_GONE]);
-    h.sut.load([MCP_GONE]);
-    if (change === 'add') registerMcp(h, new StubMcpTool(MCP_BETA));
-    if (change === 'remove') registration.dispose();
-    if (change === 'policy') deniedToolNames = new Set(['UnregisteredTool']);
-    if (change === 'disclosure') registerMcp(h, new StubMcpTool(MCP_ALPHA), 'inline');
-    const next = h.sut.load([MCP_GONE]);
-    expect(next.consecutiveFailures).toBe(1);
-    expect(next.escalated).toEqual({});
-  });
+  it.each(['add', 'remove', 'policy', 'disclosure'] as const)(
+    'resets both counters when tools change: %s',
+    (change) => {
+      const h = createHarness();
+      const registration = registerMcp(h, new StubMcpTool(MCP_ALPHA));
+      h.sut.load([MCP_GONE]);
+      h.sut.load([MCP_GONE]);
+      if (change === 'add') registerMcp(h, new StubMcpTool(MCP_BETA));
+      if (change === 'remove') registration.dispose();
+      if (change === 'policy') deniedToolNames = new Set(['UnregisteredTool']);
+      if (change === 'disclosure') registerMcp(h, new StubMcpTool(MCP_ALPHA), 'inline');
+      const next = h.sut.load([MCP_GONE]);
+      expect(next.consecutiveFailures).toBe(1);
+      expect(next.escalated).toEqual({});
+    },
+  );
 
   it('observes changes at announcement boundaries even if tools later revert', () => {
     const h = createHarness();
@@ -1436,8 +1490,7 @@ describe('AgentToolSelectService executor interception', () => {
 
     expect(results).toHaveLength(1);
     expect(results[0]!.result).toEqual({
-      output:
-        `Tool "${MCP_ALPHA}" was loaded but is no longer active. Ask the user to enable it before calling it again.`,
+      output: `Tool "${MCP_ALPHA}" was loaded but is no longer active. Ask the user to enable it before calling it again.`,
       isError: true,
       stopTurn: false,
     });
@@ -1528,7 +1581,9 @@ describe('AgentToolSelectService loadable-tools announcements', () => {
     const h = createHarness();
     registerBuiltin(h, new EchoTool());
     const first = await announce(h);
-    expect(first).toContain('No tools are currently available for dynamic loading in this session.');
+    expect(first).toContain(
+      'No tools are currently available for dynamic loading in this session.',
+    );
     expect(first).toContain('use the tools you already have');
     expect(await announce(h, 2)).toBeUndefined();
 
@@ -1536,21 +1591,28 @@ describe('AgentToolSelectService loadable-tools announcements', () => {
     expect(await announce(h)).toBeUndefined();
   });
 
-  it.each([false, true])('announces emptiness once after legacy removal, with earlier empty announcement: %s', async (earlierEmpty) => {
-    const h = createHarness();
-    if (earlierEmpty) await announce(h);
-    for (const tag of ['tools_added', 'tools_removed']) {
-      h.contextMemory.history.push({
-        role: 'user',
-        content: [{ type: 'text', text: `<${tag}>\n${MCP_ALPHA}\n</${tag}>` }],
-        toolCalls: [],
-        origin: { kind: 'system_trigger', name: LOADABLE_TOOLS_VARIANT },
-      });
-    }
-    h.eventBus.publish(new TurnStarted({ agentId: 'main', turnId: 99, origin: { kind: 'user' } }));
-    expect(await announce(h)).toContain('No tools are currently available for dynamic loading in this session.');
-    expect(await announce(h, 2)).toBeUndefined();
-  });
+  it.each([false, true])(
+    'announces emptiness once after legacy removal, with earlier empty announcement: %s',
+    async (earlierEmpty) => {
+      const h = createHarness();
+      if (earlierEmpty) await announce(h);
+      for (const tag of ['tools_added', 'tools_removed']) {
+        h.contextMemory.history.push({
+          role: 'user',
+          content: [{ type: 'text', text: `<${tag}>\n${MCP_ALPHA}\n</${tag}>` }],
+          toolCalls: [],
+          origin: { kind: 'system_trigger', name: LOADABLE_TOOLS_VARIANT },
+        });
+      }
+      h.eventBus.publish(
+        new TurnStarted({ agentId: 'main', turnId: 99, origin: { kind: 'user' } }),
+      );
+      expect(await announce(h)).toContain(
+        'No tools are currently available for dynamic loading in this session.',
+      );
+      expect(await announce(h, 2)).toBeUndefined();
+    },
+  );
 
   it('announces additions after an empty set and emptiness after the last removal', async () => {
     const h = createHarness();
@@ -1566,7 +1628,9 @@ describe('AgentToolSelectService loadable-tools announcements', () => {
     h.eventBus.publish(new TurnStarted({ agentId: 'main', turnId: 100, origin: { kind: 'user' } }));
     const removed = await announce(h);
     expect(removed).toContain(`<tools_removed>\n${MCP_ALPHA}\n</tools_removed>`);
-    expect(removed).toContain('No tools are currently available for dynamic loading in this session.');
+    expect(removed).toContain(
+      'No tools are currently available for dynamic loading in this session.',
+    );
 
     h.eventBus.publish(new TurnStarted({ agentId: 'main', turnId: 101, origin: { kind: 'user' } }));
     expect(await announce(h)).toBeUndefined();
@@ -1590,7 +1654,9 @@ describe('AgentToolSelectService loadable-tools announcements', () => {
     registerMcp(h, new StubMcpTool(MCP_ALPHA));
     activeToolNames = new Set();
     const first = await announce(h);
-    expect(first).toContain('No tools are currently available for dynamic loading in this session.');
+    expect(first).toContain(
+      'No tools are currently available for dynamic loading in this session.',
+    );
     expect(first).not.toContain(MCP_ALPHA);
   });
 

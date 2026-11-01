@@ -6,14 +6,11 @@ import {
   type ThinkingEffort,
 } from '@moonshot-ai/kimi-code-sdk';
 
-import {
-  confirmThenPerformModelSwitch,
-  matchedModelSwitchRule,
-} from '../commands/config';
+import { confirmThenPerformModelSwitch, matchedModelSwitchRule } from '../commands/config';
 import type { SlashCommandHost } from '../commands/dispatch';
 import { getOauthLoginRequiredStartupNotice } from '../constant/kimi-tui';
-import { thinkingEffortFromConfig } from '../utils/thinking-config';
 import type { AppState, KimiTUIOptions } from '../types';
+import { thinkingEffortFromConfig } from '../utils/thinking-config';
 
 export interface AuthFlowHost {
   session: Session | undefined;

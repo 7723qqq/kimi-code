@@ -125,7 +125,9 @@ describe('gap table matches the enumerated surface', () => {
   it('every recorded entry is still a gap, or says it should be retired', () => {
     for (const gap of KNOWN_NODE_GAPS) {
       if (memberExists(gap.module, gap.member)) {
-        process.stdout.write(`NOTE: ${gap.module}#${gap.member} now exists on this Bun; retire the entry\n`);
+        process.stdout.write(
+          `NOTE: ${gap.module}#${gap.member} now exists on this Bun; retire the entry\n`,
+        );
       }
       expect(typeof gap.workaround).toBe('string');
       expect(gap.workaround.length).toBeGreaterThan(15);
@@ -134,8 +136,12 @@ describe('gap table matches the enumerated surface', () => {
 
   it('no entry names a private member or a constant', () => {
     for (const gap of KNOWN_NODE_GAPS) {
-      expect(`${gap.member} private=${gap.member.startsWith('_')}`).toBe(`${gap.member} private=false`);
-      expect(`${gap.member} constant=${/^[A-Z][A-Z0-9_]*$/.test(gap.member)}`).toBe(`${gap.member} constant=false`);
+      expect(`${gap.member} private=${gap.member.startsWith('_')}`).toBe(
+        `${gap.member} private=false`,
+      );
+      expect(`${gap.member} constant=${/^[A-Z][A-Z0-9_]*$/.test(gap.member)}`).toBe(
+        `${gap.member} constant=false`,
+      );
     }
   });
 });
@@ -163,19 +169,22 @@ describe('the surface diff is reproducible', () => {
     const nodeReport = parse(Bun.spawnSync(['node', script, 'node']).stdout);
     const bunReport = parse(Bun.spawnSync(['bun', script, 'bun']).stdout);
     for (const moduleName of ['node:http2', 'node:crypto', 'node:fs', 'node:zlib']) {
-      expect(`${moduleName} node nested=${nodeReport.modules[moduleName].nested?.constants !== undefined}`).toBe(
-        `${moduleName} node nested=true`,
-      );
-      expect(`${moduleName} bun nested=${bunReport.modules[moduleName].nested?.constants !== undefined}`).toBe(
-        `${moduleName} bun nested=true`,
-      );
+      expect(
+        `${moduleName} node nested=${nodeReport.modules[moduleName].nested?.constants !== undefined}`,
+      ).toBe(`${moduleName} node nested=true`);
+      expect(
+        `${moduleName} bun nested=${bunReport.modules[moduleName].nested?.constants !== undefined}`,
+      ).toBe(`${moduleName} bun nested=true`);
     }
   });
 });
 
 describe('nested constants hide from a naive key listing', () => {
   it('http2 constants are enumerable on Bun and partly hidden on Node', () => {
-    if (!nodeAvailable) throw new Error('node must be on PATH: every differential case compares two runtimes, so skipping it would report a pass that proves nothing');
+    if (!nodeAvailable)
+      throw new Error(
+        'node must be on PATH: every differential case compares two runtimes, so skipping it would report a pass that proves nothing',
+      );
     const script = `
       const c = require('node:http2').constants;
       process.stdout.write(JSON.stringify({

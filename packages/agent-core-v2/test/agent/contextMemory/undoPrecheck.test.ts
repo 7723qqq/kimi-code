@@ -2,12 +2,12 @@ import { describe, expect, it } from 'bun:test';
 
 import { castDraft } from 'immer';
 
+import { ContextUndo } from '#/agent/contextMemory/contextEvents';
 import {
   computeUndoCut,
   contextMemoryKey,
   isFullyUndoable,
 } from '#/agent/contextMemory/contextOps';
-import { ContextUndo } from '#/agent/contextMemory/contextEvents';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { expandedStateFolds, type FoldContext } from '#/state/state';
 
@@ -120,13 +120,7 @@ describe('contextUndo op', () => {
   }
 
   it('slices the history at the cut point, dropping post-cut injections too', () => {
-    const state = [
-      user(USER_ORIGIN),
-      assistant(),
-      user(USER_ORIGIN),
-      injection(),
-      assistant(),
-    ];
+    const state = [user(USER_ORIGIN), assistant(), user(USER_ORIGIN), injection(), assistant()];
     const next = applyContextUndo(state, 1);
     expect(next).toEqual([user(USER_ORIGIN), assistant()]);
   });

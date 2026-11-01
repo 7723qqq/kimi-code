@@ -69,8 +69,12 @@ describe('memory dispatcher specifics', () => {
       // A subscription under a workspace scope fails through `onError`, the
       // same shape the memory transport already uses for scope failures.
       const errors: Error[] = [];
-      const sub = dispatcher.listen({ workspaceId: 'ws_x' }, { kind: 'stream', name: 'events' },
-        () => undefined, (error) => errors.push(error));
+      const sub = dispatcher.listen(
+        { workspaceId: 'ws_x' },
+        { kind: 'stream', name: 'events' },
+        () => undefined,
+        (error) => errors.push(error),
+      );
       await new Promise((resolve) => setTimeout(resolve, 50));
       sub.dispose();
       expect(errors).toHaveLength(1);

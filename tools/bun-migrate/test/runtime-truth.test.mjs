@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'bun:test';
 /**
  * A `report-only` rule means "the Bun-native API is not a drop-in for this call
  * site", not "this call needs Node".
@@ -9,10 +10,8 @@
  * `node:` as a fallback.
  */
 import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-
-import { describe, expect, it } from 'bun:test';
+import { join } from 'node:path';
 
 import { PAIRINGS, REPORT_ONLY } from '../src/pairings.mjs';
 
@@ -35,7 +34,9 @@ describe('the node: layer is Bun implementation, not a fallback', () => {
     // modules works without Node installed.
     for (const [specifier] of BUN_OWN_NODE_LAYER) {
       const loaded = require(specifier);
-      expect(`${specifier} loaded in Bun: ${typeof loaded}`).toBe(`${specifier} loaded in Bun: object`);
+      expect(`${specifier} loaded in Bun: ${typeof loaded}`).toBe(
+        `${specifier} loaded in Bun: object`,
+      );
     }
   });
 

@@ -1,5 +1,6 @@
-import chalk from 'chalk';
 import { afterEach, describe, expect, it } from 'bun:test';
+
+import chalk from 'chalk';
 
 import { CompactionComponent } from '#/tui/components/dialogs/compaction';
 import { currentTheme, darkColors, lightColors } from '#/tui/theme';

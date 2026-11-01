@@ -1,10 +1,8 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { promises as fsp } from 'node:fs';
 import os from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-
-import { LifecycleScope } from '#/app/scopes';
 import {
   ScopeActivation,
   _clearScopedRegistryForTests,
@@ -16,27 +14,31 @@ import { ILogService } from '#/_base/log/log';
 import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
-import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
+import { LifecycleScope } from '#/app/scopes';
 import {
   ISessionIndex,
   ISessionIndexMirror,
   type SessionSummary,
 } from '#/app/sessionIndex/sessionIndex';
+import { markSessionDirty } from '#/app/sessionIndex/sessionIndexDirtyJournal';
+import {
+  drainSessionIndexMirror,
+  SessionIndexMirror,
+} from '#/app/sessionIndex/sessionIndexMirrorService';
 import {
   SESSION_INDEX_MANIFEST,
   recencyColumn,
   sessionCollection,
 } from '#/app/sessionIndex/sessionIndexModel';
-import { markSessionDirty } from '#/app/sessionIndex/sessionIndexDirtyJournal';
 import { FileSessionIndex } from '#/app/sessionIndex/sessionIndexService';
+import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
 import {
-  drainSessionIndexMirror,
-  SessionIndexMirror,
-} from '#/app/sessionIndex/sessionIndexMirrorService';
-import { drainQueryStoreDisposals, MiniDbQueryStore } from '#/persistence/backends/minidb/miniDbQueryStore';
-import { DATABASE_SECTION } from '#/persistence/configSection';
+  drainQueryStoreDisposals,
+  MiniDbQueryStore,
+} from '#/persistence/backends/minidb/miniDbQueryStore';
 import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
+import { DATABASE_SECTION } from '#/persistence/configSection';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import {
   IQueryStore,
@@ -48,17 +50,19 @@ import {
 } from '#/persistence/interface/queryStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
-import { stubSessionIndexMirror } from './stubs';
-import { stubBootstrap } from '../bootstrap/stubs';
-import { stubConfigService } from '../config/stubs';
 import { stubLog } from '../../_base/log/stubs';
 import { stubQueryStore } from '../../persistence/interface/stubs';
+import { stubBootstrap } from '../bootstrap/stubs';
+import { stubConfigService } from '../config/stubs';
+import { stubSessionIndexMirror } from './stubs';
 
 const WORK_DIR = '/home/user/repo';
 
 function canonicalIds(summaries: readonly SessionSummary[]): string[] {
   return [...summaries]
-    .toSorted((a, b) => (a.updatedAt !== b.updatedAt ? b.updatedAt - a.updatedAt : a.id < b.id ? 1 : -1))
+    .toSorted((a, b) =>
+      a.updatedAt !== b.updatedAt ? b.updatedAt - a.updatedAt : a.id < b.id ? 1 : -1,
+    )
     .map((s) => s.id);
 }
 
@@ -88,9 +92,7 @@ describe('FileSessionIndex (legacy)', () => {
     await fsp.rm(homeDir, { recursive: true, force: true });
   });
 
-  function build(
-    fileStorage: FileStorageService = new FileStorageService(homeDir),
-  ): ISessionIndex {
+  function build(fileStorage: FileStorageService = new FileStorageService(homeDir)): ISessionIndex {
     const host = createScopedTestHost([
       stubPair(IFileSystemStorageService, fileStorage),
       stubPair(IAtomicDocumentStore, new JsonAtomicDocumentStore(fileStorage)),
@@ -244,7 +246,10 @@ describe('FileSessionIndex (legacy)', () => {
     const visible = await store.listRecent({ workspaceIds: [workspaceId, otherId] });
     expect(visible.items.map((s) => s.id)).toEqual(['active']);
 
-    const all = await store.listRecent({ workspaceIds: [workspaceId, otherId], includeArchived: true });
+    const all = await store.listRecent({
+      workspaceIds: [workspaceId, otherId],
+      includeArchived: true,
+    });
     expect(all.items.map((s) => s.id).toSorted()).toEqual(['active', 'archived']);
   });
 
@@ -459,7 +464,9 @@ describe('FileSessionIndex (read model)', () => {
     }
 
     snapshotCounts(): Record<string, OpCounts> {
-      return Object.fromEntries([...this.counts.entries()].toSorted(([a], [b]) => (a < b ? -1 : 1)));
+      return Object.fromEntries(
+        [...this.counts.entries()].toSorted(([a], [b]) => (a < b ? -1 : 1)),
+      );
     }
 
     private record(method: string, collection: string, rows: number): void {
@@ -485,10 +492,7 @@ describe('FileSessionIndex (read model)', () => {
       return values;
     }
 
-    override async pageByColumn<T>(
-      collection: string,
-      query: ColumnPageQuery,
-    ): Promise<Page<T>> {
+    override async pageByColumn<T>(collection: string, query: ColumnPageQuery): Promise<Page<T>> {
       const page = await super.pageByColumn<T>(collection, query);
       this.record('pageByColumn', collection, page.items.length);
       return page;
@@ -902,8 +906,7 @@ describe('FileSessionIndex (read model)', () => {
 
     const internal = queryStore as unknown as { dbPromise: Promise<{ batch: unknown }> };
     const db = await internal.dbPromise;
-    db.batch = () =>
-      Promise.reject(Object.assign(new Error('poisoned'), { code: 'WAL_POISONED' }));
+    db.batch = () => Promise.reject(Object.assign(new Error('poisoned'), { code: 'WAL_POISONED' }));
     await store.reprojectNow();
     expect(store.status().state).toBe('degraded');
     expect(await queryStore.getCheckpoint(SESSION_INDEX_MANIFEST)).toBeUndefined();
@@ -1413,8 +1416,7 @@ describe('FileSessionIndex (read model)', () => {
     expect(await queryStore.getCheckpoint(SESSION_INDEX_MANIFEST)).toMatchObject({ seq: 1 });
     const internal = queryStore as unknown as { dbPromise: Promise<{ batch: unknown }> };
     const db = await internal.dbPromise;
-    db.batch = () =>
-      Promise.reject(Object.assign(new Error('poisoned'), { code: 'WAL_POISONED' }));
+    db.batch = () => Promise.reject(Object.assign(new Error('poisoned'), { code: 'WAL_POISONED' }));
     const degraded = await third.prepare();
     expect(degraded.state).toBe('degraded');
     expect(degraded.reason).toBe('prepare failed');

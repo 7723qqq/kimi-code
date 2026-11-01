@@ -32,12 +32,12 @@ sub-1.0 readings were measurement noise, not a case where Bun is slower. The
 
 Median of three runs, 300 iterations per round (30 for 1 MB):
 
-| algorithm | 16 B | 1 KB | 100 KB | 1 MB |
-| --- | --- | --- | --- | --- |
-| sha256 | 1.53x | 1.60x | 1.51x | 1.77x |
-| sha512 | 1.03x | 1.18x | 1.16x | 1.14x |
-| md5 | 1.00x | 1.18x | 1.18x | 1.11x |
-| sha1 | 1.49x | 1.52x | 1.27x | 1.30x |
+| algorithm | 16 B  | 1 KB  | 100 KB | 1 MB  |
+| --------- | ----- | ----- | ------ | ----- |
+| sha256    | 1.53x | 1.60x | 1.51x  | 1.77x |
+| sha512    | 1.03x | 1.18x | 1.16x  | 1.14x |
+| md5       | 1.00x | 1.18x | 1.18x  | 1.11x |
+| sha1      | 1.49x | 1.52x | 1.27x  | 1.30x |
 
 Run-to-run spread at these iteration counts is roughly ±0.15 on the 16 B row and
 ±0.05 above 1 KB; the earlier table in this file reported higher values because
@@ -54,10 +54,10 @@ hashes), because the native path releases the loop better.
 
 Median of three runs, 300 iterations per round (20 for sizes above 200 KB):
 
-| operation | 16 B | 1 KB | 100 KB | 1 MB |
-| --- | --- | --- | --- | --- |
-| gzipSync | 39.6x | 34.5x | 9.4x | 3.0x |
-| gunzipSync | 33.3x | 7.4x | 2.4x | 2.2x |
+| operation  | 16 B  | 1 KB  | 100 KB | 1 MB |
+| ---------- | ----- | ----- | ------ | ---- |
+| gzipSync   | 39.6x | 34.5x | 9.4x   | 3.0x |
+| gunzipSync | 33.3x | 7.4x  | 2.4x   | 2.2x |
 
 The 100 KB and 1 MB rows are lower than the earlier table in this file reported
 (12.3x and 2.5x) by a few tenths, which is inside the run-to-run spread at those
@@ -72,16 +72,16 @@ was "byte identical in both directions". Measured properly, that holds only insi
 one Bun process, where `require('node:zlib').gzipSync` and `Bun.gzipSync` are the
 same implementation. Against a stream produced by real Node they differ:
 
-| payload | node bytes | bun bytes | identical |
-| --- | --- | --- | --- |
-| `'x' * 16` | 23 | 23 | yes |
-| `'x' * 100` | 24 | 24 | yes |
-| `'x' * 1000` | 29 | 30 | no |
-| `'x' * 1024` | 29 | 30 | no |
-| `'x' * 2048` | 35 | 36 | no |
-| `'hello world' * 100` | 41 | 45 | no |
-| `'compressible ' * 1000` | 76 | 125 | no |
-| mixed ASCII | 51 | 53 | no |
+| payload                  | node bytes | bun bytes | identical |
+| ------------------------ | ---------- | --------- | --------- |
+| `'x' * 16`               | 23         | 23        | yes       |
+| `'x' * 100`              | 24         | 24        | yes       |
+| `'x' * 1000`             | 29         | 30        | no        |
+| `'x' * 1024`             | 29         | 30        | no        |
+| `'x' * 2048`             | 35         | 36        | no        |
+| `'hello world' * 100`    | 41         | 45        | no        |
+| `'compressible ' * 1000` | 76         | 125       | no        |
+| mixed ASCII              | 51         | 53        | no        |
 
 Both directions decode to the original bytes, so a migration does not corrupt
 stored data and a Bun-written archive still opens under Node. A checksum over the
@@ -91,10 +91,10 @@ claim drops the word "identical".
 
 ## Raw deflate: format matches, bytes diverge
 
-| payload | bytes equal | both inflate |
-| --- | --- | --- |
-| 0, 1, 5, 13, 20, 32, 43, 64, 100, 200 B | yes | yes |
-| 500 B, 1 KB, 1.8 KB, 10 KB | no | yes |
+| payload                                 | bytes equal | both inflate |
+| --------------------------------------- | ----------- | ------------ |
+| 0, 1, 5, 13, 20, 32, 43, 64, 100, 200 B | yes         | yes          |
+| 500 B, 1 KB, 1.8 KB, 10 KB              | no          | yes          |
 
 Verdict: `report-only`. `Bun.deflateSync` is raw deflate while
 `deflateSync` emits a zlib wrapper, so `deflateSync` and `inflateSync` cannot
@@ -107,11 +107,11 @@ directions at every size.
 
 ## File I/O: measured slower on the Bun side
 
-| operation | 16 B | 1 KB | 100 KB | 2 MB |
-| --- | --- | --- | --- | --- |
-| readFile utf8 | 0.84x | 0.57x | 0.76x | 0.86x |
-| writeFile | 0.75x | 0.78x | 0.59x | 0.34x |
-| copyFile | 0.88x | 1.19x | 0.89x | 0.91x |
+| operation     | 16 B  | 1 KB  | 100 KB | 2 MB  |
+| ------------- | ----- | ----- | ------ | ----- |
+| readFile utf8 | 0.84x | 0.57x | 0.76x  | 0.86x |
+| writeFile     | 0.75x | 0.78x | 0.59x  | 0.34x |
+| copyFile      | 0.88x | 1.19x | 0.89x  | 0.91x |
 
 Verdict: `report-only`. `writeFile` gets worse as the payload grows (0.34x at
 2 MB means Bun takes three times as long). 50 parallel 4 KB reads also favour
@@ -122,10 +122,10 @@ this runtime, on this platform.
 
 ## String and comparison helpers
 
-| operation | 13 B | 260 B | 2.6 KB | 26 KB |
-| --- | --- | --- | --- | --- |
-| stripVTControlCharacters | 15.6x | 16.4x | 14.9x | 14.7x |
-| isDeepStrictEqual | 2.79x | 1.75x | 1.48x | 1.37x |
+| operation                | 13 B  | 260 B | 2.6 KB | 26 KB |
+| ------------------------ | ----- | ----- | ------ | ----- |
+| stripVTControlCharacters | 15.6x | 16.4x | 14.9x  | 14.7x |
+| isDeepStrictEqual        | 2.79x | 1.75x | 1.48x  | 1.37x |
 
 `stripVTControlCharacters` -> `Bun.stripANSI` is `speed`: the 15x holds flat
 across all sizes.
@@ -136,24 +136,24 @@ differ: `isDeepStrictEqual({a: undefined}, {})` is `false` while
 
 ## Glob
 
-| directory size | ratio |
-| --- | --- |
-| 5 files | 2.00x |
-| 50 files | 2.59x |
-| 500 files | 5.05x |
-| 3000 files | 1.53x (whole-process time, directory creation included) |
+| directory size | ratio                                                   |
+| -------------- | ------------------------------------------------------- |
+| 5 files        | 2.00x                                                   |
+| 50 files       | 2.59x                                                   |
+| 500 files      | 5.05x                                                   |
+| 3000 files     | 1.53x (whole-process time, directory creation included) |
 
 Verdict: `speed`. The advantage grows with directory size in the scan itself
 (5.3x at 2000 entries).
 
 ## Whole-process costs
 
-| measurement | node | bun |
-| --- | --- | --- |
-| runtime boot (`-e 0`) | 66.4 ms | 44.7 ms |
-| trivial script | 68.7 ms | 69.3 ms |
-| 2000 hashes | 74.2 ms | 73.0 ms |
-| baseline RSS | 33.8 MB | 81.6 MB |
+| measurement                   | node    | bun     |
+| ----------------------------- | ------- | ------- |
+| runtime boot (`-e 0`)         | 66.4 ms | 44.7 ms |
+| trivial script                | 68.7 ms | 69.3 ms |
+| 2000 hashes                   | 74.2 ms | 73.0 ms |
+| baseline RSS                  | 33.8 MB | 81.6 MB |
 | RSS after 200 x 200 KB hashes | 36.4 MB | 82.0 MB |
 
 Two facts a microbenchmark cannot see:

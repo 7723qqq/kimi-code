@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 
-import { combineSpreads, sampleSpread } from '../src/probe/probe';
-import { runCase } from '../src/benchmark/runner';
 import { getCaseById } from '../src/benchmark/cases';
-import { generateBaselineVariant, loadPrompt } from '../src/prompt-parser';
+import { runCase } from '../src/benchmark/runner';
 import { loadConfig } from '../src/config';
+import { combineSpreads, sampleSpread } from '../src/probe/probe';
+import { generateBaselineVariant, loadPrompt } from '../src/prompt-parser';
 
 describe('sampleSpread', () => {
   test('reports min, max and the sample count', () => {
@@ -25,7 +25,9 @@ describe('sampleSpread', () => {
   });
 
   test('combineSpreads widens to cover both conditions', () => {
-    expect(combineSpreads({ min: 1, max: 1, samples: 3 }, { min: 0, max: 0.5, samples: 3 })).toEqual({
+    expect(
+      combineSpreads({ min: 1, max: 1, samples: 3 }, { min: 0, max: 0.5, samples: 3 }),
+    ).toEqual({
       min: 0,
       max: 1,
       samples: 6,

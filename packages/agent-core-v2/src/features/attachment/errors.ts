@@ -36,7 +36,8 @@ export const AttachmentErrors = {
 
 registerErrorDomain(AttachmentErrors);
 
-export type AttachmentErrorCode = (typeof AttachmentErrors.codes)[keyof typeof AttachmentErrors.codes];
+export type AttachmentErrorCode =
+  (typeof AttachmentErrors.codes)[keyof typeof AttachmentErrors.codes];
 
 export class AttachmentError extends Error2 {
   constructor(code: AttachmentErrorCode, message: string, options?: Error2Options) {

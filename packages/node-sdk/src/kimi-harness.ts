@@ -1,7 +1,7 @@
+import type { KimiAuthFacade } from '#/auth';
 import { ErrorCodes, KimiError } from '#/errors';
 import type { ExperimentalFeatureState } from '#/flag';
 import type { ImageLimits } from '#/image';
-import type { KimiAuthFacade } from '#/auth';
 import type { ConfigSectionChange, SDKRpcClientBase } from '#/rpc';
 import { capabilityRpc, Session } from '#/session';
 import { withTelemetryContext } from '#/telemetry';
@@ -179,10 +179,8 @@ export class KimiHarness {
   async resumeSession(input: ResumeSessionInput): Promise<Session> {
     const id = normalizeSessionId(input.id);
     const active = this.activeSessions.get(id);
-    const {
-      sessionStartedProperties: _sessionStartedProperties,
-      ...resumeInput
-    } = stripLegacyKaosOptions(input);
+    const { sessionStartedProperties: _sessionStartedProperties, ...resumeInput } =
+      stripLegacyKaosOptions(input);
     // A session whose close is in flight (`isClosed` but not yet unmapped)
     // is not a valid resume target — fall through and re-resume fresh, which
     // the engine serializes behind that close.

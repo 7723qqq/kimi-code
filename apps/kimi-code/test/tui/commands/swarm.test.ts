@@ -1,10 +1,10 @@
 import { describe, expect, it, mock, type Mock } from 'bun:test';
-import { waitForAssertion } from '#test/helpers/waitFor';
 
-import { handleSwarmCommand } from '#/tui/commands/index';
 import type { SlashCommandHost } from '#/tui/commands/dispatch';
+import { handleSwarmCommand } from '#/tui/commands/index';
 import { currentTheme } from '#/tui/theme';
 import { permissionModeDescription } from '#/tui/utils/permission-mode';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 const ENTER = '\r';
 const ESCAPE = '\u001B';
@@ -51,7 +51,9 @@ function makeHost(
     },
     session: hasSession ? session : undefined,
     requireSession: () => session,
-    setAppState: mock((patch: Record<string, unknown>) => Object.assign(host.state.appState, patch)),
+    setAppState: mock((patch: Record<string, unknown>) =>
+      Object.assign(host.state.appState, patch),
+    ),
     showError: mock(),
     showNotice: mock(),
     showStatus: mock(),
@@ -249,10 +251,7 @@ describe('handleSwarmCommand', () => {
     expect(host.setAppState).not.toHaveBeenCalledWith({ permissionMode: 'auto' });
     expect(host.setAppState).toHaveBeenCalledWith({ swarmMode: true });
     expect(host.showNotice).not.toHaveBeenCalledWith('Permission mode: Never Ask');
-    expect(host.showStatus).not.toHaveBeenCalledWith(
-      permissionModeDescription('auto'),
-      'warning',
-    );
+    expect(host.showStatus).not.toHaveBeenCalledWith(permissionModeDescription('auto'), 'warning');
     expect(host.state.swarmModeEntry).toBe('task');
     expectSwarmMarker(host, 'Swarm activated');
   });

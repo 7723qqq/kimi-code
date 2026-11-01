@@ -49,9 +49,10 @@ export function registerSessionRatingRoutes(
       const request = req.body;
       if (request.op === 'evaluate') {
         const store = transcripts.forSessionLive(session_id);
-        const items = store === undefined
-          ? (await transcripts.readColdSnapshot(session_id))?.items
-          : store.getAgent('main')?.getItems();
+        const items =
+          store === undefined
+            ? (await transcripts.readColdSnapshot(session_id))?.items
+            : store.getAgent('main')?.getItems();
         const latest = items?.findLast((item) => item.kind === 'turn');
         const completed = latest?.turnId === request.turn_id && latest.state !== 'running';
         if (completed && store === undefined) {
@@ -59,16 +60,23 @@ export function registerSessionRatingRoutes(
           await sessionRating.whenReady(session_id);
         }
         const offer = completed ? sessionRating.evaluate(session_id) : undefined;
-        reply.send(okEnvelope({
-          appearance: offer === undefined
-            ? null
-            : { id: offer.appearanceId, survey: offer.survey },
-        }, req.id));
+        reply.send(
+          okEnvelope(
+            {
+              appearance:
+                offer === undefined ? null : { id: offer.appearanceId, survey: offer.survey },
+            },
+            req.id,
+          ),
+        );
         return;
       }
-      sessionRating.report(session_id, request.op === 'respond'
-        ? { type: 'respond', appearanceId: request.appearance_id, response: request.response }
-        : { type: request.op, appearanceId: request.appearance_id });
+      sessionRating.report(
+        session_id,
+        request.op === 'respond'
+          ? { type: 'respond', appearanceId: request.appearance_id, response: request.response }
+          : { type: request.op, appearanceId: request.appearance_id },
+      );
       reply.send(okEnvelope(null, req.id));
     },
   );

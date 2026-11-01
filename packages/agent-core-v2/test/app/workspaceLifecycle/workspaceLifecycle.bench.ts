@@ -1,5 +1,3 @@
-import { bench, reportBenchResults } from '../../_support/bench';
-
 import type { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { WorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycleService';
 import type { WorkspaceInstance } from '#/workspace/workspaceInstance/workspaceInstance';
@@ -7,6 +5,8 @@ import type {
   IWorkspaceInstanceManager,
   WorkspaceInstanceLease,
 } from '#/workspace/workspaceInstance/workspaceInstanceManager';
+
+import { bench, reportBenchResults } from '../../_support/bench';
 
 const counters = { acquires: 0, disposes: 0, live: 0 };
 

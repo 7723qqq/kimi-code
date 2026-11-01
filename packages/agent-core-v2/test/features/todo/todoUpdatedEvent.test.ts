@@ -32,16 +32,14 @@ describe('TodoUpdated event declaration', () => {
   });
 
   it('rejects a negative or fractional rev', () => {
-    expect(() =>
-      TodoUpdated.schema?.parse({ agentId: 'main', todos: [], rev: -1 }),
-    ).toThrow();
-    expect(() =>
-      TodoUpdated.schema?.parse({ agentId: 'main', todos: [], rev: 1.5 }),
-    ).toThrow();
+    expect(() => TodoUpdated.schema?.parse({ agentId: 'main', todos: [], rev: -1 })).toThrow();
+    expect(() => TodoUpdated.schema?.parse({ agentId: 'main', todos: [], rev: 1.5 })).toThrow();
   });
 
   it('rejects items missing the fields the UI renders', () => {
-    expect(() => TodoUpdated.schema?.parse({ agentId: 'main', todos: [{ title: 'x' }], rev: 1 })).toThrow();
+    expect(() =>
+      TodoUpdated.schema?.parse({ agentId: 'main', todos: [{ title: 'x' }], rev: 1 }),
+    ).toThrow();
   });
 
   it('exposes the shared item schema to the event payload', () => {

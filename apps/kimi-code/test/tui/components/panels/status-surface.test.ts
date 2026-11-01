@@ -1,6 +1,7 @@
+import { describe, expect, it, mock } from 'bun:test';
+
 import type { TuiMouseEvent } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
-import { describe, expect, it, mock } from 'bun:test';
 
 import {
   StatusSurfaceComponent,
@@ -580,7 +581,8 @@ describe('StatusSurfaceComponent', () => {
       expect(updates.expandedCalls).toEqual([true]);
     });
 
-    it('ignores clicks outside every region', () => {      const surface = new StatusSurfaceComponent({ terminalRows: () => 40 });
+    it('ignores clicks outside every region', () => {
+      const surface = new StatusSurfaceComponent({ terminalRows: () => 40 });
       surface.setRegion(new FakeRegion('todo', { want: 2 }));
       surface.render(80);
 

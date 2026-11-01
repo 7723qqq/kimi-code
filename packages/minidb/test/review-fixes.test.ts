@@ -1,9 +1,8 @@
+// Regression tests for the deep-review fixes.
+import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-
-// Regression tests for the deep-review fixes.
-import { expect, test } from 'bun:test';
 
 import { MiniDb } from '../src/index.js';
 import { WAL } from '../src/wal.js';
@@ -68,7 +67,9 @@ for (const policy of ['always', 'everysec', 'no'] as const) {
       const lost: string[] = [];
       for (let i = 0; i < N; i++) if (db2.get(`live${i}`) !== big) lost.push(`live${i}`);
       await db2.close();
-      expect(lost, `lost ${lost.length}/${N} keys: ${lost.slice(0, 5).join(',')}`).toStrictEqual([]);
+      expect(lost, `lost ${lost.length}/${N} keys: ${lost.slice(0, 5).join(',')}`).toStrictEqual(
+        [],
+      );
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }
@@ -113,10 +114,12 @@ test('batch() rejects intra-batch unique violations', async () => {
   try {
     const db = await MiniDb.open({ dir, valueCodec: 'json' });
     await db.createIndex('byMail', { field: 'email', unique: true });
-    await expect(db.batch([
+    await expect(
+      db.batch([
         { op: 'set', key: 'a', value: { email: 'duplicate@example.test' } },
         { op: 'set', key: 'b', value: { email: 'duplicate@example.test' } },
-      ])).rejects.toThrow(/unique/i);
+      ]),
+    ).rejects.toThrow(/unique/i);
     expect(db.get('a'), 'nothing committed on failure').toBe(undefined);
     expect(db.get('b')).toBe(undefined);
     await db.close();

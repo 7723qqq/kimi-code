@@ -1,5 +1,5 @@
-import { createRequire } from 'node:module';
 import { readFileSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 
 const packageRoot = resolve(import.meta.dirname, '..');

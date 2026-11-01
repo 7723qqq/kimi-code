@@ -1,3 +1,4 @@
+import { afterEach, describe, expect, it } from 'bun:test';
 /**
  * Scenario: Node SDK sessions rename through the public harness.
  * Responsibilities: persisting custom titles and emitting the active-session event.
@@ -14,7 +15,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { drainQueryStoreDisposals, drainSessionIndexMirror } from '@moonshot-ai/agent-core-v2';
-import { afterEach, describe, expect, it } from 'bun:test';
 
 import type { KimiError } from '#/index';
 import { createKimiHarness, type Event } from '#/index';

@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'bun:test';
 /**
  * Property tests: for arbitrary well-formed inputs, a rewrite must not change
  * the observable result.
@@ -10,8 +11,6 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { describe, expect, it } from 'bun:test';
 
 const CASES = [];
 
@@ -61,7 +60,10 @@ describe('property: hash digests agree on arbitrary input', () => {
 
   for (const testCase of sample.slice(0, 18)) {
     it(`${testCase.algorithm} ${testCase.encoding} ${testCase.label}`, () => {
-      if (!nodeAvailable) throw new Error('node must be on PATH: a differential case that skips reports a pass it did not earn');
+      if (!nodeAvailable)
+        throw new Error(
+          'node must be on PATH: a differential case that skips reports a pass it did not earn',
+        );
       const escaped = JSON.stringify(testCase.payload);
       const original = run(
         'node',
@@ -118,7 +120,10 @@ describe('property: hmac agrees on arbitrary keys and payloads', () => {
 
   for (const [index, combination] of combinations.entries()) {
     it(`key ${JSON.stringify(combination.key).slice(0, 12)} payload ${combination.payload.length} bytes`, () => {
-      if (!nodeAvailable) throw new Error('node must be on PATH: a differential case that skips reports a pass it did not earn');
+      if (!nodeAvailable)
+        throw new Error(
+          'node must be on PATH: a differential case that skips reports a pass it did not earn',
+        );
       const results = hmacBatch();
       expect(results.original.ok).toBe(true);
       expect(results.migrated.ok).toBe(true);
@@ -139,7 +144,10 @@ describe('property: decompression agrees on arbitrary compressed payloads', () =
 
   for (const payload of PAYLOADS) {
     it(`gunzip round trip for ${payload.length} bytes`, () => {
-      if (!nodeAvailable) throw new Error('node must be on PATH: a differential case that skips reports a pass it did not earn');
+      if (!nodeAvailable)
+        throw new Error(
+          'node must be on PATH: a differential case that skips reports a pass it did not earn',
+        );
       const escaped = JSON.stringify(payload);
       const original = run(
         'node',
@@ -157,7 +165,10 @@ describe('property: decompression agrees on arbitrary compressed payloads', () =
     });
 
     it(`inflateRaw accepts raw deflate from node for ${payload.length} bytes`, () => {
-      if (!nodeAvailable) throw new Error('node must be on PATH: a differential case that skips reports a pass it did not earn');
+      if (!nodeAvailable)
+        throw new Error(
+          'node must be on PATH: a differential case that skips reports a pass it did not earn',
+        );
       const escaped = JSON.stringify(payload);
       const original = run(
         'node',
@@ -175,7 +186,10 @@ describe('property: decompression agrees on arbitrary compressed payloads', () =
     });
 
     it(`raw deflate bytes diverge past the zlib block threshold for ${payload.length} bytes`, () => {
-      if (!nodeAvailable) throw new Error('node must be on PATH: a differential case that skips reports a pass it did not earn');
+      if (!nodeAvailable)
+        throw new Error(
+          'node must be on PATH: a differential case that skips reports a pass it did not earn',
+        );
       const escaped = JSON.stringify(payload);
       const original = run(
         'node',
@@ -197,16 +211,22 @@ describe('property: decompression agrees on arbitrary compressed payloads', () =
   }
 
   it('places the measured divergence boundary at 500 bytes', () => {
-    if (!nodeAvailable) throw new Error('node must be on PATH: a differential case that skips reports a pass it did not earn');
+    if (!nodeAvailable)
+      throw new Error(
+        'node must be on PATH: a differential case that skips reports a pass it did not earn',
+      );
     const hex = (engine, size) => {
       const source =
         engine === 'node'
           ? `const { deflateRawSync } = require('node:zlib');console.log(Buffer.from(deflateRawSync('x'.repeat(${size}))).toString('hex'));`
           : `console.log(Buffer.from(Bun.deflateSync('x'.repeat(${size}))).toString('hex'));`;
       const result = run(engine, source);
-      if (!result.ok) throw new Error(`${engine} failed on ${size} bytes: ${result.detail ?? 'no output'}`);
+      if (!result.ok)
+        throw new Error(`${engine} failed on ${size} bytes: ${result.detail ?? 'no output'}`);
       if (typeof result.value !== 'string' || result.value === '') {
-        throw new Error(`${engine} produced no hex for ${size} bytes, so the comparison would be empty`);
+        throw new Error(
+          `${engine} produced no hex for ${size} bytes, so the comparison would be empty`,
+        );
       }
       return result.value;
     };
@@ -237,7 +257,10 @@ describe('property: zlib-wrapped streams do not cross to Bun deflate', () => {
     });
 
     it(`node inflateSync rejects a Bun.deflateSync stream of ${payload.length} bytes`, () => {
-      if (!nodeAvailable) throw new Error('node must be on PATH: a differential case that skips reports a pass it did not earn');
+      if (!nodeAvailable)
+        throw new Error(
+          'node must be on PATH: a differential case that skips reports a pass it did not earn',
+        );
       const escaped = JSON.stringify(payload);
       const result = run(
         'bun',
@@ -271,17 +294,17 @@ describe('property: ansi stripping agrees on arbitrary escape sequences', () => 
 
   for (const payload of PAYLOADS) {
     it(`strips ${JSON.stringify(payload).slice(0, 24)}`, () => {
-      if (!nodeAvailable) throw new Error('node must be on PATH: a differential case that skips reports a pass it did not earn');
+      if (!nodeAvailable)
+        throw new Error(
+          'node must be on PATH: a differential case that skips reports a pass it did not earn',
+        );
       const escaped = JSON.stringify(payload);
       const original = run(
         'node',
         `const { stripVTControlCharacters } = require('node:util');
          console.log(JSON.stringify(stripVTControlCharacters(${escaped})));`,
       );
-      const migrated = run(
-        'bun',
-        `console.log(JSON.stringify(Bun.stripANSI(${escaped})));`,
-      );
+      const migrated = run('bun', `console.log(JSON.stringify(Bun.stripANSI(${escaped})));`);
       expect(original.ok).toBe(true);
       expect(migrated.ok).toBe(true);
       expect(migrated.value).toBe(original.value);
@@ -309,16 +332,16 @@ describe('property: deep equality agrees on nested structures', () => {
 
   for (const [left, right] of VALUES) {
     it(`${left} vs ${right}`, () => {
-      if (!nodeAvailable) throw new Error('node must be on PATH: a differential case that skips reports a pass it did not earn');
+      if (!nodeAvailable)
+        throw new Error(
+          'node must be on PATH: a differential case that skips reports a pass it did not earn',
+        );
       const original = run(
         'node',
         `const { isDeepStrictEqual } = require('node:util');
          console.log(String(isDeepStrictEqual(${left}, ${right})));`,
       );
-      const migrated = run(
-        'bun',
-        `console.log(String(Bun.deepEquals(${left}, ${right})));`,
-      );
+      const migrated = run('bun', `console.log(String(Bun.deepEquals(${left}, ${right})));`);
       expect(original.ok).toBe(true);
       expect(migrated.ok).toBe(true);
       expect(migrated.value).toBe(original.value);
@@ -326,7 +349,10 @@ describe('property: deep equality agrees on nested structures', () => {
   }
 
   it('diverges on an undefined-valued key, which is why the rule is report-only', () => {
-    if (!nodeAvailable) throw new Error('node must be on PATH: a differential case that skips reports a pass it did not earn');
+    if (!nodeAvailable)
+      throw new Error(
+        'node must be on PATH: a differential case that skips reports a pass it did not earn',
+      );
     const original = run(
       'node',
       `const { isDeepStrictEqual } = require('node:util');
@@ -340,7 +366,10 @@ describe('property: deep equality agrees on nested structures', () => {
 
 describe('property: file URL conversion agrees on representative paths', () => {
   it('round trips the running file through both implementations', () => {
-    if (!nodeAvailable) throw new Error('node must be on PATH: a differential case that skips reports a pass it did not earn');
+    if (!nodeAvailable)
+      throw new Error(
+        'node must be on PATH: a differential case that skips reports a pass it did not earn',
+      );
     const source = `
       const { pathToFileURL, fileURLToPath } = require('node:url');
       const self = pathToFileURL(__filename);

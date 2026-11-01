@@ -1,8 +1,8 @@
 import * as pathe from 'pathe';
 
 import { isError2, unwrapErrorCause } from '#/_base/errors/errors';
-import { OsFsErrors } from '#/os/interface/hostFsErrors';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { OsFsErrors } from '#/os/interface/hostFsErrors';
 import {
   isProjectLocalConfigPath,
   isSensitiveFile,

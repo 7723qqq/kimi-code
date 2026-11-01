@@ -1,10 +1,9 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import Fastify, { type FastifyInstance } from 'fastify';
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { removeTempHome } from './helpers/tempHome';
 
 import {
   createHostCheck,
@@ -16,6 +15,7 @@ import {
 } from '../src/middleware/hostnames';
 import { type RunningServer, startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { removeTempHome } from './helpers/tempHome';
 
 describe('stripPort', () => {
   it('strips the port from a hostname', () => {

@@ -1,9 +1,6 @@
+import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { Readable } from 'node:stream';
 
-import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
-
-import { IEventBus } from '#/app/event/eventBus';
-import { IFileService } from '#/app/file/fileService';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
 import { IAgentLoopService, type PromptHandle } from '#/agent/loop/loop';
@@ -19,6 +16,8 @@ import {
   PromptSteered,
   PromptSubmitted,
 } from '#/agent/prompt/promptEvents';
+import { IEventBus } from '#/app/event/eventBus';
+import { IFileService } from '#/app/file/fileService';
 import type { ContentPart } from '#human/llm/message';
 
 import {
@@ -31,10 +30,20 @@ import {
 } from '../../harness';
 
 function message(text: string): ContextMessage {
-  return { role: 'user', content: [{ type: 'text', text }], toolCalls: [], origin: { kind: 'user' } };
+  return {
+    role: 'user',
+    content: [{ type: 'text', text }],
+    toolCalls: [],
+    origin: { kind: 'user' },
+  };
 }
 
-function bundledMessage(skillName: string, user: string, extra: readonly ContentPart[] = [], marked = false): ContextMessage {
+function bundledMessage(
+  skillName: string,
+  user: string,
+  extra: readonly ContentPart[] = [],
+  marked = false,
+): ContextMessage {
   return {
     role: 'user',
     content: [
@@ -180,7 +189,12 @@ describe('prompt queue', () => {
     const hold = holdNextStep();
     ctx.mockNextResponse({ type: 'text', text: 'active' });
     ctx.mockNextResponse({ type: 'text', text: 'waiting' });
-    const submitted: Array<{ promptId: string; userMessageId: string; status: string; content: readonly ContentPart[] }> = [];
+    const submitted: Array<{
+      promptId: string;
+      userMessageId: string;
+      status: string;
+      content: readonly ContentPart[];
+    }> = [];
     const started: string[] = [];
     ctx.get(IEventBus).subscribe(PromptSubmitted, (event) => {
       submitted.push({
@@ -196,15 +210,30 @@ describe('prompt queue', () => {
 
     const active = await enqueue(loop, { id: 'active', message: message('active') });
     expect(submitted).toEqual([
-      { promptId: 'active', userMessageId: 'active', status: 'running', content: [{ type: 'text', text: 'active' }] },
+      {
+        promptId: 'active',
+        userMessageId: 'active',
+        status: 'running',
+        content: [{ type: 'text', text: 'active' }],
+      },
     ]);
     await active.launched;
     expect(started).toEqual(['active']);
 
     await enqueue(loop, { id: 'waiting', message: message('waiting') });
     expect(submitted).toEqual([
-      { promptId: 'active', userMessageId: 'active', status: 'running', content: [{ type: 'text', text: 'active' }] },
-      { promptId: 'waiting', userMessageId: 'waiting', status: 'queued', content: [{ type: 'text', text: 'waiting' }] },
+      {
+        promptId: 'active',
+        userMessageId: 'active',
+        status: 'running',
+        content: [{ type: 'text', text: 'active' }],
+      },
+      {
+        promptId: 'waiting',
+        userMessageId: 'waiting',
+        status: 'queued',
+        content: [{ type: 'text', text: 'waiting' }],
+      },
     ]);
     expect(started).toEqual(['active']);
 
@@ -221,7 +250,9 @@ describe('prompt queue', () => {
     await enqueue(loop, { message: message('active') });
     await hold.started;
     const queued = await enqueue(loop, { message: message('one') });
-    await expect(loop.steer([queued.id, 'missing'])).rejects.toMatchObject({ code: 'prompt.not_found' });
+    await expect(loop.steer([queued.id, 'missing'])).rejects.toMatchObject({
+      code: 'prompt.not_found',
+    });
     expect(pendingIds(loop)).toEqual([queued.id]);
 
     hold.release();
@@ -296,8 +327,12 @@ describe('prompt queue', () => {
     await hold.started;
     const first = { composer: { version: 1, refId: 'first' } };
     const second = { composer: { version: 1, refId: 'second' } };
-    const one = await enqueue(loop, { message: { ...message('one'), origin: { kind: 'user', clientMetadata: [first] } } });
-    const two = await enqueue(loop, { message: { ...message('two'), origin: { kind: 'user', clientMetadata: [second] } } });
+    const one = await enqueue(loop, {
+      message: { ...message('one'), origin: { kind: 'user', clientMetadata: [first] } },
+    });
+    const two = await enqueue(loop, {
+      message: { ...message('two'), origin: { kind: 'user', clientMetadata: [second] } },
+    });
     await loop.steer([two.id, one.id]);
     await Promise.resolve();
     expect(events).toHaveLength(0);
@@ -334,7 +369,9 @@ describe('prompt queue', () => {
     await hold.started;
     const metadata = { display_text: 'Save button', kimi_code_composer: { version: 1 } };
     const one = await enqueue(loop, { message: message('[literal](example.md)') });
-    const two = await enqueue(loop, { message: { ...message('browser wire'), origin: { kind: 'user', clientMetadata: [metadata] } } });
+    const two = await enqueue(loop, {
+      message: { ...message('browser wire'), origin: { kind: 'user', clientMetadata: [metadata] } },
+    });
     const three = await enqueue(loop, { message: message('last instruction') });
     await loop.steer([three.id, two.id, one.id]);
     await Promise.resolve();
@@ -350,8 +387,18 @@ describe('prompt queue', () => {
           entry.role === 'user' &&
           entry.content.some((part) => part.type === 'text' && part.text === 'browser wire'),
       );
-    expect(merged?.origin).toMatchObject({ clientMetadata: [{ display_text: '[literal](example.md)' }, metadata, { display_text: 'last instruction' }] });
-    expect(merged?.content).toEqual([{ type: 'text', text: '[literal](example.md)' }, { type: 'text', text: 'browser wire' }, { type: 'text', text: 'last instruction' }]);
+    expect(merged?.origin).toMatchObject({
+      clientMetadata: [
+        { display_text: '[literal](example.md)' },
+        metadata,
+        { display_text: 'last instruction' },
+      ],
+    });
+    expect(merged?.content).toEqual([
+      { type: 'text', text: '[literal](example.md)' },
+      { type: 'text', text: 'browser wire' },
+      { type: 'text', text: 'last instruction' },
+    ]);
   });
 
   it('publishes prompt identities before each steered user message', async () => {
@@ -382,7 +429,13 @@ describe('prompt queue', () => {
 
     const materialized = events.filter((event) => event.type === 'turn.steer');
     expect(materialized).toMatchObject([
-      { type: 'turn.steer', input: [{ type: 'text', text: 'same text' }, { type: 'text', text: 'same text' }] },
+      {
+        type: 'turn.steer',
+        input: [
+          { type: 'text', text: 'same text' },
+          { type: 'text', text: 'same text' },
+        ],
+      },
       { type: 'turn.steer', input: [{ type: 'text', text: 'same text' }] },
     ]);
     expect(materialized[0]?.messageId).toBe(reserved[0]?.messageId);
@@ -467,7 +520,9 @@ describe('prompt queue', () => {
 
     const handle = await enqueue(loop, { message: message('blocked') });
     await expect(handle.completion).resolves.toMatchObject({ state: 'blocked' });
-    expect(completed.map((event) => [event.promptId, event.reason])).toEqual([[handle.id, 'blocked']]);
+    expect(completed.map((event) => [event.promptId, event.reason])).toEqual([
+      [handle.id, 'blocked'],
+    ]);
   });
 
   it('exposes the in-flight gate item in the queue snapshot', async () => {
@@ -543,7 +598,9 @@ describe('prompt queue', () => {
 
     const handle = await enqueue(loop, {
       id: 'prompt-caption',
-      message: message('<system>Image compressed to fit model limits: 800x600</system>look at this'),
+      message: message(
+        '<system>Image compressed to fit model limits: 800x600</system>look at this',
+      ),
     });
     await expect(handle.completion).resolves.toMatchObject({ state: 'blocked' });
 
@@ -653,9 +710,9 @@ describe('prompt queue', () => {
 
     const parts = ctx.context.get().flatMap((entry) => entry.content);
     expect(parts.some((part) => part.type === 'image_url')).toBe(false);
-    expect(
-      parts.some((part) => part.type === 'text' && part.text.includes('image/avif')),
-    ).toBe(true);
+    expect(parts.some((part) => part.type === 'text' && part.text.includes('image/avif'))).toBe(
+      true,
+    );
   });
 
   it('materializes daemon-ref media at steer intake', async () => {
@@ -736,7 +793,10 @@ describe('prompt queue', () => {
     await hold.started;
 
     await enqueue(loop, { id: 'bundled', message: bundledMessage('review', 'user text') });
-    await enqueue(loop, { id: 'marked-bundled', message: bundledMessage('security', 'marked text', [], true) });
+    await enqueue(loop, {
+      id: 'marked-bundled',
+      message: bundledMessage('security', 'marked text', [], true),
+    });
 
     expect(queued).toEqual([
       { promptId: 'bundled', content: [{ type: 'text', text: 'user text' }] },
@@ -817,9 +877,11 @@ describe('prompt queue', () => {
     hold.release();
     await loop.settled();
 
-    const merged = ctx.context.get().find(
-      (entry) => entry.origin?.kind === 'user' && entry.origin.skillActivations !== undefined,
-    );
+    const merged = ctx.context
+      .get()
+      .find(
+        (entry) => entry.origin?.kind === 'user' && entry.origin.skillActivations !== undefined,
+      );
     expect(merged?.content).toEqual([
       {
         type: 'text',
@@ -871,9 +933,9 @@ describe('prompt queue', () => {
     hold.release();
     await loop.settled();
 
-    const merged = ctx.context.get().find(
-      (entry) => entry.origin?.kind === 'user' && entry.origin.attachments !== undefined,
-    );
+    const merged = ctx.context
+      .get()
+      .find((entry) => entry.origin?.kind === 'user' && entry.origin.attachments !== undefined);
     expect(merged?.origin?.kind === 'user' && merged.origin.attachments).toEqual([
       { name: 'a.txt', mediaType: 'text/plain', size: 1, path: '/data/a.txt' },
       { name: 'b.txt', mediaType: 'text/plain', size: 2, path: '/data/b.txt' },

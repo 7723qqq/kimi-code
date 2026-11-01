@@ -143,8 +143,7 @@ export async function runCase(
     // served from cache. Counting only `input` measures how often the provider
     // happened to have the prompt cached — which depends on call ordering, not
     // on the variant being compared.
-    tokenEfficiency:
-      response.usage.input + (response.usage.cacheRead ?? 0) + response.usage.output,
+    tokenEfficiency: response.usage.input + (response.usage.cacheRead ?? 0) + response.usage.output,
     toolAccuracy: computeToolAccuracy(benchCase, response.toolCalls),
     outputConciseness: computeConciseness(response.content),
   };
@@ -489,4 +488,3 @@ function computeConciseness(output: string): number {
   if (tokens <= 1000) return 0.4;
   return 0.2;
 }
-

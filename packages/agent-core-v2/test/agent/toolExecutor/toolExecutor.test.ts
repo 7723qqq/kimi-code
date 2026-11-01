@@ -1,17 +1,59 @@
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
-import { Jimp } from 'jimp';
 
-import type { ToolCall } from '#human/llm/message';
-import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { Jimp } from 'jimp';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, TestInstantiationService } from '#/_base/di/test';
+import { ILogService } from '#/_base/log/log';
+import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender';
+import { createMcpTool } from '#/agent/mcp/tools/mcp';
+import type { IMediaReadContext } from '#/agent/media/mediaReadContext';
+import { SessionMediaStoreService } from '#/agent/media/sessionMediaStoreService';
+import type { IAgentProfileService } from '#/agent/profile/profile';
+import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import { makeAgentScopeContext, IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import {
+  ToolCallStarted,
+  ToolProgress,
+  ToolResultEvent,
+} from '#/agent/toolExecutor/toolExecutorEvents';
+import { AgentToolExecutorService } from '#/agent/toolExecutor/toolExecutorService';
+import type { BeforeToolExecuteEvent, ToolExecutionOutcome } from '#/agent/toolExecutor/toolHooks';
+import type { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
+import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
+import { ToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncationService';
+import { GlobTool } from '#/agent/tools/os/glob/globTool';
+import { ReadInputSchema, type ReadInput } from '#/agent/tools/os/read/read';
+import { ReadTool } from '#/agent/tools/os/read/readTool';
+import type { MediaReadContext } from '#/agent/tools/read-media-file/execute-media-read';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IConfigRegistry, IConfigService } from '#/app/config/config';
+import { ConfigRegistry, ConfigService } from '#/app/config/configService';
+import { IEventBus } from '#/app/event/eventBus';
+import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
+import type { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
+import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
+import type { MCPClient } from '#/mcpCore/types';
+import { HostFileSystem } from '#/os/backends/host/hostFsService';
+import { HostProcessService } from '#/os/backends/host/hostProcessService';
+import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
+import { TomlAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
+import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
+import { IAtomicTomlDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { FakeRuntime } from '#/runtime/fakeRuntime';
+import { makeSessionContext } from '#/session/sessionContext/sessionContext';
+import { ToolOutputAccumulator } from '#/tool/output-accumulator';
+import { parseToolCallArguments } from '#/tool/tool-args-parse';
 import {
   ToolAccesses,
   type ExecutableTool,
@@ -21,62 +63,21 @@ import {
   type ToolResult,
   type ToolUpdate,
 } from '#/tool/toolContract';
-import { ToolOutputAccumulator } from '#/tool/output-accumulator';
-import { createMcpTool } from '#/agent/mcp/tools/mcp';
-import type { MCPClient } from '#/mcpCore/types';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import type {
-  BeforeToolExecuteEvent,
-  ToolExecutionOutcome,
-} from '#/agent/toolExecutor/toolHooks';
-import {
-  ToolCallStarted,
-  ToolProgress,
-  ToolResultEvent,
-} from '#/agent/toolExecutor/toolExecutorEvents';
-import { AgentToolExecutorService } from '#/agent/toolExecutor/toolExecutorService';
-import { parseToolCallArguments } from '#/tool/tool-args-parse';
-import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
-import { ToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncationService';
-import { ReadTool } from '#/agent/tools/os/read/readTool';
-import type { IMediaReadContext } from '#/agent/media/mediaReadContext';
-import type { MediaReadContext } from '#/agent/tools/read-media-file/execute-media-read';
-import type { IAgentProfileService } from '#/agent/profile/profile';
-import type { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
-import { SessionMediaStoreService } from '#/agent/media/sessionMediaStoreService';
-import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
-import { makeSessionContext } from '#/session/sessionContext/sessionContext';
-import { GlobTool } from '#/agent/tools/os/glob/globTool';
-import { ReadInputSchema, type ReadInput } from '#/agent/tools/os/read/read';
-import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender';
-import { HostFileSystem } from '#/os/backends/host/hostFsService';
-import { HostProcessService } from '#/os/backends/host/hostProcessService';
-import { FakeRuntime } from '#/runtime/fakeRuntime';
-import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
-import type { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
-import { stubWorkspaceContext } from '../../session/workspaceContext/stub-workspace-context';
-import { ConfigRegistry, ConfigService } from '#/app/config/configService';
-import { IConfigRegistry, IConfigService } from '#/app/config/config';
-import { IAtomicTomlDocumentStore } from '#/persistence/interface/atomicDocumentStore';
-import { TomlAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
-import { ILogService } from '#/_base/log/log';
-import { makeAgentScopeContext, IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
-import { IEventBus } from '#/app/event/eventBus';
-import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
-import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
-import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
+import type { ToolCall } from '#human/llm/message';
+
 import { registerLogServices, stubLog } from '../../_base/log/stubs';
 import { stubBootstrap } from '../../app/bootstrap/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
+import { stubWorkspaceContext } from '../../session/workspaceContext/stub-workspace-context';
 import { registerStateServices } from '../../state/stubs';
 import { registerTestAgentWireServices } from '../../wire/stubs';
 
-type ToolExecutorEvent =
-  | { readonly type: 'tool.result'; readonly toolCallId: string; readonly result: ToolResult };
+type ToolExecutorEvent = {
+  readonly type: 'tool.result';
+  readonly toolCallId: string;
+  readonly result: ToolResult;
+};
 
 type ProtocolEvent = ToolCallStarted | ToolProgress | ToolResultEvent;
 
@@ -104,7 +105,10 @@ beforeEach(() => {
       registerTestAgentWireServices(reg, 'wire/tool-executor');
       reg.define(IAgentToolRegistryService, AgentToolRegistryService);
       reg.define(IAgentToolExecutorService, AgentToolExecutorService);
-      reg.defineInstance(IAgentScopeContext, makeAgentScopeContext({ agentId: 'main', agentScope: '' }));
+      reg.defineInstance(
+        IAgentScopeContext,
+        makeAgentScopeContext({ agentId: 'main', agentScope: '' }),
+      );
       reg.defineInstance(ITelemetryService, recordingTelemetry(telemetryEvents));
       reg.defineInstance(IAgentToolResultTruncationService, {
         _serviceBrand: undefined,
@@ -220,11 +224,9 @@ describe('AgentToolExecutorService', () => {
     const tool = new TestTool('echo');
     registry.register(tool);
 
-    await execute(
-      [toolCall('call_traced', 'echo', { text: 'hi' })],
-      undefined,
-      { traceId: 'trace-tool-1' },
-    );
+    await execute([toolCall('call_traced', 'echo', { text: 'hi' })], undefined, {
+      traceId: 'trace-tool-1',
+    });
 
     expect(telemetryEvents).toContainEqual({
       event: 'tool_call',
@@ -390,9 +392,7 @@ describe('AgentToolExecutorService', () => {
       required: ['value'],
       additionalProperties: false,
     };
-    const accepted = await execute([
-      toolCall('call_open', 'dynamic', { value: 1, model: 'fast' }),
-    ]);
+    const accepted = await execute([toolCall('call_open', 'dynamic', { value: 1, model: 'fast' })]);
 
     expect(accepted).toEqual([expect.objectContaining({ stopTurn: false })]);
     expect(inner.calls).toHaveLength(1);
@@ -465,7 +465,7 @@ describe('AgentToolExecutorService', () => {
     });
   });
 
-  it('preserves an unknown tool\'s valid args in the tool.call.started event', async () => {
+  it("preserves an unknown tool's valid args in the tool.call.started event", async () => {
     const results = await execute([toolCall('call_unknown', 'missing', { x: 1 })]);
 
     expect(results).toEqual([
@@ -533,13 +533,15 @@ describe('AgentToolExecutorService', () => {
     ]);
 
     expect(results).toHaveLength(2);
-    expect(results).toEqual(expect.arrayContaining([
-      expect.objectContaining({ output: 'first result', stopBatchAfterThis: true }),
-      expect.objectContaining({
-        output: 'Tool skipped because a previous tool call stopped the turn.',
-        isError: true,
-      }),
-    ]));
+    expect(results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ output: 'first result', stopBatchAfterThis: true }),
+        expect.objectContaining({
+          output: 'Tool skipped because a previous tool call stopped the turn.',
+          isError: true,
+        }),
+      ]),
+    );
     expect(first.calls).toHaveLength(1);
     expect(second.calls).toEqual([]);
   });
@@ -572,10 +574,7 @@ describe('AgentToolExecutorService', () => {
     const yielded: string[] = [];
     const execution = (async () => {
       for await (const item of executor.execute(
-        [
-          toolCall('call_slow', 'slow', {}),
-          toolCall('call_fast', 'fast', {}),
-        ],
+        [toolCall('call_slow', 'slow', {}), toolCall('call_fast', 'fast', {})],
         { turnId: 0, signal: new AbortController().signal },
       )) {
         const output = item.result.output;
@@ -951,9 +950,7 @@ describe('onBeforeExecuteTool veto semantics', () => {
     const results = await execute([toolCall('call_echo', 'echo', { text: 'hi' })]);
 
     expect(fulfilled).toEqual(['first', 'second']);
-    expect(results).toEqual([
-      expect.objectContaining({ output: 'second-denied', isError: true }),
-    ]);
+    expect(results).toEqual([expect.objectContaining({ output: 'second-denied', isError: true })]);
     expect(tool.calls).toEqual([]);
   });
 
@@ -1077,11 +1074,17 @@ describe('truncation pipeline', () => {
     );
     const storage = new FileStorageService(homeDir);
     truncationContainer.stub(IFileSystemStorageService, storage);
-    attachmentStore = new SessionMediaStoreService(makeSessionContext({
-      sessionId: 'session', workspaceId: 'workspace', cwd: homeDir,
-      sessionDir: join(homeDir, 'sessions/workspace/session'),
-      sessionScope: 'sessions/workspace/session',
-    }), storage, new JsonAtomicDocumentStore(storage));
+    attachmentStore = new SessionMediaStoreService(
+      makeSessionContext({
+        sessionId: 'session',
+        workspaceId: 'workspace',
+        cwd: homeDir,
+        sessionDir: join(homeDir, 'sessions/workspace/session'),
+        sessionScope: 'sessions/workspace/session',
+      }),
+      storage,
+      new JsonAtomicDocumentStore(storage),
+    );
     truncationContainer.set(
       IAgentToolResultTruncationService,
       new SyncDescriptor(ToolResultTruncationService),
@@ -1095,13 +1098,16 @@ describe('truncation pipeline', () => {
     readConfig = truncationContainer.get(IConfigService);
     await readConfig.ready;
     globProcess = new HostProcessService();
-    const runtime = Object.assign(new FakeRuntime(
-      { workspaceId: 'workspace', runtimeId: 'local', generation: 'test' },
-      {
-        capabilities: ['fs', 'process'],
-        pathClass: process.platform === 'win32' ? 'win32' : 'posix',
-      },
-    ), { fs: new HostFileSystem(), process: globProcess });
+    const runtime = Object.assign(
+      new FakeRuntime(
+        { workspaceId: 'workspace', runtimeId: 'local', generation: 'test' },
+        {
+          capabilities: ['fs', 'process'],
+          pathClass: process.platform === 'win32' ? 'win32' : 'posix',
+        },
+      ),
+      { fs: new HostFileSystem(), process: globProcess },
+    );
     const binding: IAgentRuntimeService = {
       _serviceBrand: undefined,
       onDidChange: () => ({ dispose: () => {} }),
@@ -1115,20 +1121,22 @@ describe('truncation pipeline', () => {
       _serviceBrand: undefined,
       getMediaReadContext: () => mediaReadContext,
     };
-    registry.register(new ReadTool(
-      binding,
-      stubWorkspaceContext(homeDir),
-      { catalog: { getSkillRoots: () => [] } } as unknown as ISessionSkillCatalog,
-      mediaRead,
-      truncation,
-      readConfig,
-      {
-        getModelCapabilities: () => ({ image_in: true, video_in: true }),
-      } as unknown as IAgentProfileService,
-      { isToolActive: () => true } as unknown as IAgentToolPolicyService,
-      { resolve: () => ({}) } as unknown as IAgentToolRegistryService,
-      attachmentStore,
-    ));
+    registry.register(
+      new ReadTool(
+        binding,
+        stubWorkspaceContext(homeDir),
+        { catalog: { getSkillRoots: () => [] } } as unknown as ISessionSkillCatalog,
+        mediaRead,
+        truncation,
+        readConfig,
+        {
+          getModelCapabilities: () => ({ image_in: true, video_in: true }),
+        } as unknown as IAgentProfileService,
+        { isToolActive: () => true } as unknown as IAgentToolPolicyService,
+        { resolve: () => ({}) } as unknown as IAgentToolRegistryService,
+        attachmentStore,
+      ),
+    );
     registry.register(new GlobTool(binding, stubWorkspaceContext(homeDir), noopTelemetryService));
   });
 
@@ -1167,18 +1175,23 @@ describe('truncation pipeline', () => {
 
     const outputPath = renderedOutputPath(rendered);
     expect(slashPath(outputPath)).toContain(
-      slashPath(join(homeDir, 'sessions/workspace/session/agents/main/tool-results/noisy-call_noisy-')),
+      slashPath(
+        join(homeDir, 'sessions/workspace/session/agents/main/tool-results/noisy-call_noisy-'),
+      ),
     );
     expect(readFileSync(outputPath, 'utf8')).toBe(fullOutput);
   });
 
   it('recovers every Glob match through spill and Read when the match limit is disabled', async () => {
-    const expected = Array.from({ length: 500 }, (_, index) =>
-      `file-${String(index).padStart(3, '0')}-${'x'.repeat(100)}.ts`,
+    const expected = Array.from(
+      { length: 500 },
+      (_, index) => `file-${String(index).padStart(3, '0')}-${'x'.repeat(100)}.ts`,
     );
     await Promise.all(expected.map((name) => writeFile(join(homeDir, name), '')));
 
-    const [result] = await execute([toolCall('glob_all', 'Glob', { pattern: '*.ts', head_limit: 0 })]);
+    const [result] = await execute([
+      toolCall('glob_all', 'Glob', { pattern: '*.ts', head_limit: 0 }),
+    ]);
 
     expect(result?.isError).not.toBe(true);
     expect(result?.truncated).toBe(true);
@@ -1191,7 +1204,12 @@ describe('truncation pipeline', () => {
       const [page] = await execute([toolCall(`read_glob_${String(pages++)}`, 'Read', args)]);
       expect(page?.isError).not.toBe(true);
       if (typeof page?.output !== 'string') throw new Error('expected Read text');
-      recovered.push(...page.output.replaceAll(/^\d+\t/gm, '').split('\n').filter(Boolean));
+      recovered.push(
+        ...page.output
+          .replaceAll(/^\d+\t/gm, '')
+          .split('\n')
+          .filter(Boolean),
+      );
       const next = /Next Read: (\{[^\n]*\})/.exec(page.note ?? '')?.[1];
       args = next === undefined ? undefined : ReadInputSchema.parse(JSON.parse(next));
     }
@@ -1206,7 +1224,10 @@ describe('truncation pipeline', () => {
     const root = await mkdtemp(join(tmpdir(), 'r'.repeat(180)));
     const rootSlash = slashPath(root);
     try {
-      const names = Array.from({ length: 60_000 }, (_, i) => `file-${String(i).padStart(6, '0')}.ts`);
+      const names = Array.from(
+        { length: 60_000 },
+        (_, i) => `file-${String(i).padStart(6, '0')}.ts`,
+      );
       const stdout = names.map((name) => `./${name}`).join('\n') + '\n';
       spyOn(globProcess, 'spawn').mockImplementation(async () => ({
         _serviceBrand: undefined,
@@ -1223,22 +1244,39 @@ describe('truncation pipeline', () => {
       let offset = 0;
       let globPages = 0;
       do {
-        const [page] = await execute([toolCall(`glob_large_${String(globPages++)}`, 'Glob', {
-          pattern: '*.ts', path: root, head_limit: 0, offset,
-        })]);
+        const [page] = await execute([
+          toolCall(`glob_large_${String(globPages++)}`, 'Glob', {
+            pattern: '*.ts',
+            path: root,
+            head_limit: 0,
+            offset,
+          }),
+        ]);
         expect(page?.isError).not.toBe(true);
         if (typeof page?.output !== 'string') throw new Error('expected Glob output');
         expect(page.output).toContain('the full output was saved to a file');
-        const continuation = /Continue with the same search arguments and offset=(\d+)\./.exec(page.output)?.[1];
+        const continuation = /Continue with the same search arguments and offset=(\d+)\./.exec(
+          page.output,
+        )?.[1];
         if (continuation !== undefined) expect(Number(continuation)).toBeGreaterThan(offset);
         offset = continuation === undefined ? 0 : Number(continuation);
-        let args: ReadInput | undefined = { path: renderedOutputPath(page.output), max_chars: 500_000 };
+        let args: ReadInput | undefined = {
+          path: renderedOutputPath(page.output),
+          max_chars: 500_000,
+        };
         let reads = 0;
         while (args !== undefined && reads < 40) {
-          const [read] = await execute([toolCall(`read_large_${String(globPages)}_${String(reads++)}`, 'Read', args)]);
+          const [read] = await execute([
+            toolCall(`read_large_${String(globPages)}_${String(reads++)}`, 'Read', args),
+          ]);
           expect(read?.isError).not.toBe(true);
           if (typeof read?.output !== 'string') throw new Error('expected Read output');
-          recovered.push(...read.output.replaceAll(/^\d+\t/gm, '').split('\n').filter((line) => line.startsWith(`${rootSlash}/`)));
+          recovered.push(
+            ...read.output
+              .replaceAll(/^\d+\t/gm, '')
+              .split('\n')
+              .filter((line) => line.startsWith(`${rootSlash}/`)),
+          );
           const next = /Next Read: (\{[^\n]*\})/.exec(read.note ?? '')?.[1];
           args = next === undefined ? undefined : ReadInputSchema.parse(JSON.parse(next));
         }
@@ -1255,25 +1293,44 @@ describe('truncation pipeline', () => {
   it('keeps the MCP attachment path visible after text spill without repeating the remote call', async () => {
     const bytes = Buffer.from('%PDF-1.4\nexample report\n%%EOF');
     const client = {
-      async listTools() { return []; },
+      async listTools() {
+        return [];
+      },
       callTool: mock(async () => ({
         isError: false,
         content: [
           { type: 'text', text: 'x'.repeat(100_000) },
-          { type: 'resource', resource: {
-            uri: 'example://report', mimeType: 'application/pdf', blob: bytes.toString('base64'),
-          } },
+          {
+            type: 'resource',
+            resource: {
+              uri: 'example://report',
+              mimeType: 'application/pdf',
+              blob: bytes.toString('base64'),
+            },
+          },
         ],
       })),
       async ping() {},
     } satisfies MCPClient;
-    registry.register(createMcpTool('mcp__example__report', {
-      name: 'report', description: 'Example report', parameters: {},
-    }, client, { attachmentStore }), { source: 'mcp' });
+    registry.register(
+      createMcpTool(
+        'mcp__example__report',
+        {
+          name: 'report',
+          description: 'Example report',
+          parameters: {},
+        },
+        client,
+        { attachmentStore },
+      ),
+      { source: 'mcp' },
+    );
     const [result] = await execute([toolCall('report', 'mcp__example__report', {})]);
     expect(result?.isError).not.toBe(true);
     if (result === undefined) throw new Error('expected MCP result');
-    const visible = renderToolResultForModel(result).map((part) => part.type === 'text' ? part.text : '').join('\n');
+    const visible = renderToolResultForModel(result)
+      .map((part) => (part.type === 'text' ? part.text : ''))
+      .join('\n');
     expect(visible).toContain('output_path:');
     expect(visible.length).toBeLessThan(50_000);
     const encodedPath = /Original attachment saved at: ("[^\n]+")/.exec(visible)?.[1];
@@ -1282,87 +1339,160 @@ describe('truncation pipeline', () => {
     expect(client.callTool).toHaveBeenCalledTimes(1);
   });
 
-  it.each([0, 100_000])('bounds batch attachment notices and recovers every reference with %s text characters', async (textSize) => {
-    const originals = Array.from({ length: 150 }, (_, i) => Buffer.from(`%PDF-1.4\nreport ${String(i)}\n%%EOF`));
-    const client: MCPClient = {
-      async listTools() { return []; },
-      async callTool() { return {
-        isError: false,
-        content: [
-          { type: 'text', text: `${'x'.repeat(100)}\n`.repeat(Math.ceil(textSize / 101)) },
-          ...originals.map((bytes, i) => ({ type: 'resource', resource: {
-            uri: `example://report/${String(i)}`, mimeType: 'application/pdf', blob: bytes.toString('base64'),
-          } })),
-        ],
-      }; },
-      async ping() {},
-    };
-    registry.register(createMcpTool('mcp__example__batch', {
-      name: 'batch', description: 'Example reports', parameters: {},
-    }, client, { attachmentStore }), { source: 'mcp' });
-    const [result] = await execute([toolCall('batch', 'mcp__example__batch', {})]);
-    if (result === undefined) throw new Error('expected batch output');
-    const visible = renderToolResultForModel(result).map((part) => part.type === 'text' ? part.text : '').join('\n');
-    expect(visible.length).toBeLessThan(50_000);
-    const encodedPath = /Attachment details reference: ("[^\n]+")/.exec(visible)?.[1];
-    expect(encodedPath).toBeDefined();
-    let args: ReadInput | undefined = { path: JSON.parse(encodedPath!) as string, max_chars: 8000 };
-    let recovered = '';
-    let pages = 0;
-    while (args !== undefined && pages < 30) {
-      const [read] = await execute([toolCall(`read_batch_${String(pages++)}`, 'Read', args)]);
-      expect(read?.isError).not.toBe(true);
-      if (typeof read?.output !== 'string') throw new Error('expected Read output');
-      recovered += read.output.replaceAll(/^\d+\t/gm, '') + '\n';
-      const next = /Next Read: (\{[^\n]*\})/.exec(read.note ?? '')?.[1];
-      args = next === undefined ? undefined : ReadInputSchema.parse(JSON.parse(next));
-    }
-    expect(args).toBeUndefined();
-    expect(pages).toBeGreaterThan(1);
-    const paths = [...recovered.matchAll(/Original attachment saved at: ("[^\n]+")/g)].map((match) => JSON.parse(match[1]!) as string);
-    expect(paths).toHaveLength(150);
-    for (const [i, path] of paths.entries()) expect(readFileSync(path).equals(originals[i]!)).toBe(true);
-  });
+  it.each([0, 100_000])(
+    'bounds batch attachment notices and recovers every reference with %s text characters',
+    async (textSize) => {
+      const originals = Array.from({ length: 150 }, (_, i) =>
+        Buffer.from(`%PDF-1.4\nreport ${String(i)}\n%%EOF`),
+      );
+      const client: MCPClient = {
+        async listTools() {
+          return [];
+        },
+        async callTool() {
+          return {
+            isError: false,
+            content: [
+              { type: 'text', text: `${'x'.repeat(100)}\n`.repeat(Math.ceil(textSize / 101)) },
+              ...originals.map((bytes, i) => ({
+                type: 'resource',
+                resource: {
+                  uri: `example://report/${String(i)}`,
+                  mimeType: 'application/pdf',
+                  blob: bytes.toString('base64'),
+                },
+              })),
+            ],
+          };
+        },
+        async ping() {},
+      };
+      registry.register(
+        createMcpTool(
+          'mcp__example__batch',
+          {
+            name: 'batch',
+            description: 'Example reports',
+            parameters: {},
+          },
+          client,
+          { attachmentStore },
+        ),
+        { source: 'mcp' },
+      );
+      const [result] = await execute([toolCall('batch', 'mcp__example__batch', {})]);
+      if (result === undefined) throw new Error('expected batch output');
+      const visible = renderToolResultForModel(result)
+        .map((part) => (part.type === 'text' ? part.text : ''))
+        .join('\n');
+      expect(visible.length).toBeLessThan(50_000);
+      const encodedPath = /Attachment details reference: ("[^\n]+")/.exec(visible)?.[1];
+      expect(encodedPath).toBeDefined();
+      let args: ReadInput | undefined = {
+        path: JSON.parse(encodedPath!) as string,
+        max_chars: 8000,
+      };
+      let recovered = '';
+      let pages = 0;
+      while (args !== undefined && pages < 30) {
+        const [read] = await execute([toolCall(`read_batch_${String(pages++)}`, 'Read', args)]);
+        expect(read?.isError).not.toBe(true);
+        if (typeof read?.output !== 'string') throw new Error('expected Read output');
+        recovered += read.output.replaceAll(/^\d+\t/gm, '') + '\n';
+        const next = /Next Read: (\{[^\n]*\})/.exec(read.note ?? '')?.[1];
+        args = next === undefined ? undefined : ReadInputSchema.parse(JSON.parse(next));
+      }
+      expect(args).toBeUndefined();
+      expect(pages).toBeGreaterThan(1);
+      const paths = [...recovered.matchAll(/Original attachment saved at: ("[^\n]+")/g)].map(
+        (match) => JSON.parse(match[1]!) as string,
+      );
+      expect(paths).toHaveLength(150);
+      for (const [i, path] of paths.entries())
+        expect(readFileSync(path).equals(originals[i]!)).toBe(true);
+    },
+  );
 
   it('resolves attachment references for media reads and exposes binary paths for converters', async () => {
     const runtimeFs = mediaRuntime.inspect().fs!;
     spyOn(runtimeFs, 'stat').mockRejectedValue(new Error('client cannot access daemon storage'));
-    spyOn(runtimeFs, 'readBytes').mockRejectedValue(new Error('client cannot access daemon storage'));
+    spyOn(runtimeFs, 'readBytes').mockRejectedValue(
+      new Error('client cannot access daemon storage'),
+    );
     spyOn(runtimeFs, 'readLines').mockImplementation(() => {
       throw new Error('client cannot access daemon storage');
     });
     mediaReadContext = {
       capabilities: {
-        image_in: true, video_in: false, audio_in: false, thinking: false, tool_use: true,
+        image_in: true,
+        video_in: false,
+        audio_in: false,
+        thinking: false,
+        tool_use: true,
         max_context_tokens: 256_000,
       },
       inlineVideoSupported: false,
     };
-    const png = Buffer.from(await new Jimp({ width: 32, height: 32, color: 0x3366ccff }).getBuffer('image/png'));
+    const png = Buffer.from(
+      await new Jimp({ width: 32, height: 32, color: 0x3366ccff }).getBuffer('image/png'),
+    );
     const bytes = [png, Buffer.from('%PDF-1.4\nexample\n%%EOF')];
     const client: MCPClient = {
-      async listTools() { return []; },
-      async callTool() { return { isError: false, content: bytes.map((data, i) => ({ type: 'resource', resource: {
-        uri: `example://file/${String(i)}`, mimeType: 'application/octet-stream', blob: data.toString('base64'),
-      } })) }; },
+      async listTools() {
+        return [];
+      },
+      async callTool() {
+        return {
+          isError: false,
+          content: bytes.map((data, i) => ({
+            type: 'resource',
+            resource: {
+              uri: `example://file/${String(i)}`,
+              mimeType: 'application/octet-stream',
+              blob: data.toString('base64'),
+            },
+          })),
+        };
+      },
       async ping() {},
     };
-    registry.register(createMcpTool('mcp__example__binary', { name: 'binary', description: 'Example files', parameters: {} }, client, { attachmentStore }), { source: 'mcp' });
+    registry.register(
+      createMcpTool(
+        'mcp__example__binary',
+        { name: 'binary', description: 'Example files', parameters: {} },
+        client,
+        { attachmentStore },
+      ),
+      { source: 'mcp' },
+    );
     const [result] = await execute([toolCall('binary', 'mcp__example__binary', {})]);
     if (result === undefined) throw new Error('expected MCP output');
-    const text = renderToolResultForModel(result).map((part) => part.type === 'text' ? part.text : '').join('\n');
-    const refs = [...text.matchAll(/Attachment reference: ("[^\n]+")/g)].map((match) => JSON.parse(match[1]!) as string);
-    const paths = [...text.matchAll(/Original attachment saved at: ("[^\n]+")/g)].map((match) => JSON.parse(match[1]!) as string);
+    const text = renderToolResultForModel(result)
+      .map((part) => (part.type === 'text' ? part.text : ''))
+      .join('\n');
+    const refs = [...text.matchAll(/Attachment reference: ("[^\n]+")/g)].map(
+      (match) => JSON.parse(match[1]!) as string,
+    );
+    const paths = [...text.matchAll(/Original attachment saved at: ("[^\n]+")/g)].map(
+      (match) => JSON.parse(match[1]!) as string,
+    );
     expect(refs).toHaveLength(2);
     const [image] = await execute([toolCall('read_image', 'Read', { path: refs[0] })]);
     expect(image?.isError).not.toBe(true);
-    expect(Array.isArray(image?.output) && image.output.some((part) => part.type === 'image_url')).toBe(true);
+    expect(
+      Array.isArray(image?.output) && image.output.some((part) => part.type === 'image_url'),
+    ).toBe(true);
     if (image === undefined) throw new Error('expected image output');
-    const imageText = renderToolResultForModel(image).map((part) => part.type === 'text' ? part.text : '').join('\n');
+    const imageText = renderToolResultForModel(image)
+      .map((part) => (part.type === 'text' ? part.text : ''))
+      .join('\n');
     expect(imageText).toContain('<image path="attachment.bin">');
-    const [crop] = await execute([toolCall('read_crop', 'Read', {
-      path: refs[0], region: { x: 0, y: 0, width: 16, height: 16 },
-    })]);
+    const [crop] = await execute([
+      toolCall('read_crop', 'Read', {
+        path: refs[0],
+        region: { x: 0, y: 0, width: 16, height: 16 },
+      }),
+    ]);
     expect(crop?.isError).not.toBe(true);
     const [pdf] = await execute([toolCall('read_pdf', 'Read', { path: refs[1] })]);
     expect(pdf?.isError).toBe(true);
@@ -1379,21 +1509,47 @@ describe('truncation pipeline', () => {
     await writeFile(workspaceFile, 'disk content\n');
     const bytes = Buffer.from('session attachment\n');
     const client: MCPClient = {
-      async listTools() { return []; },
-      async callTool() { return { isError: false, content: [{ type: 'resource', resource: {
-        uri: 'example://text', mimeType: 'text/plain', blob: bytes.toString('base64'),
-      } }] }; },
+      async listTools() {
+        return [];
+      },
+      async callTool() {
+        return {
+          isError: false,
+          content: [
+            {
+              type: 'resource',
+              resource: {
+                uri: 'example://text',
+                mimeType: 'text/plain',
+                blob: bytes.toString('base64'),
+              },
+            },
+          ],
+        };
+      },
       async ping() {},
     };
-    registry.register(createMcpTool('mcp__example__text', { name: 'text', description: 'Example text', parameters: {} }, client, { attachmentStore }), { source: 'mcp' });
+    registry.register(
+      createMcpTool(
+        'mcp__example__text',
+        { name: 'text', description: 'Example text', parameters: {} },
+        client,
+        { attachmentStore },
+      ),
+      { source: 'mcp' },
+    );
     const [result] = await execute([toolCall('text', 'mcp__example__text', {})]);
     if (result === undefined) throw new Error('expected MCP output');
-    const text = renderToolResultForModel(result).map((part) => part.type === 'text' ? part.text : '').join('\n');
+    const text = renderToolResultForModel(result)
+      .map((part) => (part.type === 'text' ? part.text : ''))
+      .join('\n');
     const reference = JSON.parse(/Attachment reference: ("[^\n]+")/.exec(text)![1]!) as string;
     const [attachment] = await execute([toolCall('read_attachment', 'Read', { path: reference })]);
     expect(attachment?.output).toBe('1\tsession attachment');
     expect(clientRead).not.toHaveBeenCalled();
-    const [workspace] = await execute([toolCall('read_workspace', 'Read', { path: workspaceFile })]);
+    const [workspace] = await execute([
+      toolCall('read_workspace', 'Read', { path: workspaceFile }),
+    ]);
     expect(workspace?.output).toBe('1\tunsaved client buffer');
     expect(clientRead).toHaveBeenCalledTimes(1);
   });
@@ -1407,7 +1563,9 @@ describe('truncation pipeline', () => {
       literal: 'a</mcp-result-extras>b',
     };
     const client = {
-      async listTools() { return []; },
+      async listTools() {
+        return [];
+      },
       callTool: mock(async () => ({
         content: [{ type: 'text', text: 'Found 1200 rows.' }],
         isError: false,
@@ -1415,11 +1573,14 @@ describe('truncation pipeline', () => {
       })),
       async ping() {},
     } satisfies MCPClient;
-    registry.register(createMcpTool(
-      'mcp__example__rows',
-      { name: 'rows', description: 'Example records', parameters: {} },
-      client,
-    ), { source: 'mcp' });
+    registry.register(
+      createMcpTool(
+        'mcp__example__rows',
+        { name: 'rows', description: 'Example records', parameters: {} },
+        client,
+      ),
+      { source: 'mcp' },
+    );
 
     const [result] = await execute([toolCall('call_rows', 'mcp__example__rows', {})]);
 
@@ -1427,7 +1588,8 @@ describe('truncation pipeline', () => {
     expect(result?.truncated).toBe(true);
     if (result === undefined) throw new Error('expected MCP result');
     const visible = renderToolResultForModel(result)
-      .map((part) => part.type === 'text' ? part.text : '').join('\n');
+      .map((part) => (part.type === 'text' ? part.text : ''))
+      .join('\n');
     expect(visible.length).toBeLessThan(50_000);
     const path = renderedOutputPath(visible);
     let args: ReadInput | undefined = { path, max_chars: 16_000 };
@@ -1438,7 +1600,8 @@ describe('truncation pipeline', () => {
       expect(page?.isError).not.toBe(true);
       if (typeof page?.output !== 'string') throw new Error('expected Read text');
       const pageText = renderToolResultForModel(page)
-        .map((part) => part.type === 'text' ? part.text : '').join('\n');
+        .map((part) => (part.type === 'text' ? part.text : ''))
+        .join('\n');
       expect(pageText.length).toBeLessThanOrEqual(16_000);
       if (recovered.length > 0 && (args.column_offset ?? 0) === 0) recovered += '\n';
       recovered += page.output.replaceAll(/^\d+\t/gm, '');
@@ -1566,12 +1729,16 @@ describe('truncation pipeline', () => {
       if (typeof result?.output !== 'string') throw new TypeError('expected Read text');
       expect(result.output.startsWith('1\t')).toBe(true);
       const visible = renderToolResultForModel(result)
-        .map((part) => part.type === 'text' ? part.text : '').join('');
+        .map((part) => (part.type === 'text' ? part.text : ''))
+        .join('');
       expect(visible.length).toBeLessThanOrEqual(100_000);
       if (page === 0) expect(result.output.length).toBeGreaterThan(50_000);
       fragments.push(result.output.slice(2));
       const next = result.note?.match(/Next Read: (\{[^\n]*\})/);
-      args = next === undefined || next === null ? undefined : ReadInputSchema.parse(JSON.parse(next[1]!));
+      args =
+        next === undefined || next === null
+          ? undefined
+          : ReadInputSchema.parse(JSON.parse(next[1]!));
     }
 
     expect(args).toBeUndefined();
@@ -1581,19 +1748,25 @@ describe('truncation pipeline', () => {
 
   it('keeps valid lines readable and exposes the warning when later UTF-16 bytes are malformed', async () => {
     const path = join(homeDir, 'malformed.txt');
-    await writeFile(path, Buffer.concat([
-      Buffer.from([0xff, 0xfe]),
-      Buffer.from('good\n', 'utf16le'),
-      Buffer.from([0x00, 0xd8]),
-    ]));
+    await writeFile(
+      path,
+      Buffer.concat([
+        Buffer.from([0xff, 0xfe]),
+        Buffer.from('good\n', 'utf16le'),
+        Buffer.from([0x00, 0xd8]),
+      ]),
+    );
 
-    const [result] = await execute([toolCall('read_lossy', 'Read', { path, n_lines: 1, max_chars: 1200 })]);
+    const [result] = await execute([
+      toolCall('read_lossy', 'Read', { path, n_lines: 1, max_chars: 1200 }),
+    ]);
 
     expect(result?.isError).not.toBe(true);
     expect(result?.output).toBe('1\tgood');
     if (result === undefined) throw new Error('expected a Read result');
     const visible = renderToolResultForModel(result)
-      .map((part) => part.type === 'text' ? part.text : '').join('');
+      .map((part) => (part.type === 'text' ? part.text : ''))
+      .join('');
     expect(visible).toContain('Lossy UTF-16 decoding');
     expect(visible).toContain('may differ from the original file');
     expect(visible.length).toBeLessThanOrEqual(1200);
@@ -1606,18 +1779,28 @@ describe('truncation pipeline', () => {
     await writeFile(path, `${'x'.repeat(100)}\n`.repeat(100));
 
     const [defaultResult] = await execute([toolCall('read_default', 'Read', { path })]);
-    const [largerResult] = await execute([toolCall('read_larger', 'Read', { path, max_chars: 10_000 })]);
+    const [largerResult] = await execute([
+      toolCall('read_larger', 'Read', { path, max_chars: 10_000 }),
+    ]);
 
     expect(defaultResult?.isError).not.toBe(true);
     expect(largerResult?.isError).not.toBe(true);
     if (typeof defaultResult?.output !== 'string' || typeof largerResult?.output !== 'string') {
       throw new TypeError('expected Read text');
     }
-    expect(defaultResult.output.length + 1 + (defaultResult.note?.length ?? 0)).toBeLessThanOrEqual(1500);
-    expect(largerResult.output.length + 1 + (largerResult.note?.length ?? 0)).toBeLessThanOrEqual(3000);
+    expect(defaultResult.output.length + 1 + (defaultResult.note?.length ?? 0)).toBeLessThanOrEqual(
+      1500,
+    );
+    expect(largerResult.output.length + 1 + (largerResult.note?.length ?? 0)).toBeLessThanOrEqual(
+      3000,
+    );
     expect(largerResult.output.length).toBeGreaterThan(defaultResult.output.length);
-    expect(largerResult.note).toContain('Requested max_chars=10000 was capped at the configured maximum 3000.');
-    expect(readFileSync(join(homeDir, 'config.toml'), 'utf8')).toContain('default_max_chars = 1500');
+    expect(largerResult.note).toContain(
+      'Requested max_chars=10000 was capped at the configured maximum 3000.',
+    );
+    expect(readFileSync(join(homeDir, 'config.toml'), 'utf8')).toContain(
+      'default_max_chars = 1500',
+    );
   });
 });
 
@@ -1669,16 +1852,10 @@ function protocolEventTypes(): string[] {
 function pairedToolCallIds(): { readonly calls: string[]; readonly results: string[] } {
   return {
     calls: protocolEvents
-      .filter(
-        (event): event is ToolCallStarted =>
-          event.type === 'tool.call.started',
-      )
+      .filter((event): event is ToolCallStarted => event.type === 'tool.call.started')
       .map((event) => event.toolCallId),
     results: protocolEvents
-      .filter(
-        (event): event is ToolResultEvent =>
-          event.type === 'tool.result',
-      )
+      .filter((event): event is ToolResultEvent => event.type === 'tool.result')
       .map((event) => event.toolCallId),
   };
 }
@@ -1732,9 +1909,11 @@ class TestTool implements ExecutableTool<Record<string, unknown>> {
         if (this.options.execute !== undefined) {
           return this.options.execute(ctx, args);
         }
-        return this.options.result ?? {
-          output: typeof args['text'] === 'string' ? args['text'] : `${this.name} result`,
-        };
+        return (
+          this.options.result ?? {
+            output: typeof args['text'] === 'string' ? args['text'] : `${this.name} result`,
+          }
+        );
       },
     };
   }

@@ -1,8 +1,8 @@
 import { IInstantiationService, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { LifecycleScope } from '#/app/scopes';
-import { EnvironmentRegistry } from '#/environment/environmentRegistry';
 import type { EnvironmentProviderFactory } from '#/environment/environmentProvider';
+import { EnvironmentRegistry } from '#/environment/environmentRegistry';
 import { LocalEnvironment } from '#/environment/localEnvironment';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
@@ -35,18 +35,24 @@ export class EnvironmentService extends EnvironmentRegistry implements IEnvironm
 
   async addProvider(factory: EnvironmentProviderFactory): Promise<{ dispose(): Promise<void> }> {
     if (this.stopped) throw new Error('environment service is disposed');
-    if (this.providers.has(factory.id)) throw new Error(`environment provider ${factory.id} already exists`);
+    if (this.providers.has(factory.id))
+      throw new Error(`environment provider ${factory.id} already exists`);
     const pending = this.attach(factory);
-    const settled = pending.then(() => undefined, () => undefined);
+    const settled = pending.then(
+      () => undefined,
+      () => undefined,
+    );
     this.providerSettled = Promise.all([this.providerSettled, settled]).then(() => undefined);
     this.providers.set(factory.id, pending);
     try {
       const attachment = await pending;
-      return { dispose: async () => {
-        if (this.providers.get(factory.id) !== pending) return;
-        this.providers.delete(factory.id);
-        await attachment.dispose();
-      } };
+      return {
+        dispose: async () => {
+          if (this.providers.get(factory.id) !== pending) return;
+          this.providers.delete(factory.id);
+          await attachment.dispose();
+        },
+      };
     } catch (error) {
       if (this.providers.get(factory.id) === pending) this.providers.delete(factory.id);
       throw error;
@@ -58,20 +64,23 @@ export class EnvironmentService extends EnvironmentRegistry implements IEnvironm
     const handles: Array<{ remove(): Promise<void> }> = [];
     try {
       const attachment = await factory.attach({
-        get: <T>(id: ServiceIdentifier<T>): T => this.instantiation.invokeFunction((accessor) => accessor.get(id)),
+        get: <T>(id: ServiceIdentifier<T>): T =>
+          this.instantiation.invokeFunction((accessor) => accessor.get(id)),
         registerEnvironment: (environment) => {
           const handle = this.register(environment);
           handles.push(handle);
           return handle;
         },
       });
-      return { dispose: async () => {
-        try {
-          await attachment.dispose();
-        } finally {
-          for (const handle of handles.toReversed()) await handle.remove();
-        }
-      } };
+      return {
+        dispose: async () => {
+          try {
+            await attachment.dispose();
+          } finally {
+            for (const handle of handles.toReversed()) await handle.remove();
+          }
+        },
+      };
     } catch (error) {
       for (const handle of handles.toReversed()) await handle.remove();
       throw error;
@@ -84,11 +93,18 @@ export class EnvironmentService extends EnvironmentRegistry implements IEnvironm
     const attachments = [...this.providers.values()];
     this.providers.clear();
     try {
-      for (const pending of attachments.toReversed()) await (await pending.catch(() => undefined))?.dispose();
+      for (const pending of attachments.toReversed())
+        await (await pending.catch(() => undefined))?.dispose();
     } finally {
       await super.dispose();
     }
   }
 }
 
-registerScopedService(LifecycleScope.App, IEnvironmentService, EnvironmentService, ScopeActivation.OnScopeCreated, 'environment');
+registerScopedService(
+  LifecycleScope.App,
+  IEnvironmentService,
+  EnvironmentService,
+  ScopeActivation.OnScopeCreated,
+  'environment',
+);

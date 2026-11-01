@@ -1,9 +1,4 @@
 import {
-  loadRuntimeConfigSafe,
-  resolveConfigPath,
-  resolveKimiHome,
-} from '@moonshot-ai/kimi-code-sdk';
-import {
   createKimiRegionResolver,
   KIMI_CODE_OAUTH_KEY,
   KIMI_REGION_PROFILES,
@@ -13,6 +8,11 @@ import {
   type KimiRegionResolution,
   type KimiRegionResolver,
 } from '@moonshot-ai/kimi-code-oauth';
+import {
+  loadRuntimeConfigSafe,
+  resolveConfigPath,
+  resolveKimiHome,
+} from '@moonshot-ai/kimi-code-sdk';
 
 const MANAGED_KIMI_CODE_PROVIDER_KEY = 'managed:kimi-code';
 

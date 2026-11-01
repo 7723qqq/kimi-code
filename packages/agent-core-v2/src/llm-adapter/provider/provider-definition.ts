@@ -7,8 +7,8 @@ import {
   kimiResponsesTrait,
   KIMI_DEFAULT_BASE_URL,
 } from '#human/llm-kimi/trait';
-import { resolveModelFamily } from '#human/llm/modelFamily';
 import type { ModelCapability as HumanModelCapability } from '#human/llm/capability';
+import { resolveModelFamily } from '#human/llm/modelFamily';
 import type { ProtocolEndpoint, ProviderConnection } from '#human/llm/protocol/connection';
 import type { ProtocolTraitFor } from '#human/llm/provider/definition';
 import type { LlmErrorClassifier } from '#human/llm/requester/requester';
@@ -313,4 +313,3 @@ registerProviderDefinitionIfAbsent({
   endpoint: deepseekEndpoint,
   capability: deepseekCapability,
 });
-

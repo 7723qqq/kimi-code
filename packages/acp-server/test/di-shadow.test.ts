@@ -20,6 +20,8 @@
  * the collections exactly the way `buildCollection` / `createChild` do.
  */
 
+import { describe, expect, it } from 'bun:test';
+
 import {
   createDecorator,
   InstantiationService,
@@ -27,7 +29,6 @@ import {
   SyncDescriptor,
   type ServiceIdentifier,
 } from '@moonshot-ai/agent-core-v2';
-import { describe, expect, it } from 'bun:test';
 
 interface IShadowProbe {
   readonly _serviceBrand: undefined;

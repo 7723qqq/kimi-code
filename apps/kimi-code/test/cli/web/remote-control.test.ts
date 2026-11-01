@@ -1,10 +1,7 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 
-import {
-  formatRemoteControlOutput,
-  formatRemoteControlStatus,
-} from '#/cli/sub/web/remote-control';
+import { formatRemoteControlOutput, formatRemoteControlStatus } from '#/cli/sub/web/remote-control';
+import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 
 afterEach(() => {
   restoreEnvs();

@@ -1,11 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { IAgentLoopService } from '#/agent/loop/loop';
-
-import { type ExecutableTool, type ExecutableToolContext, type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
+import {
+  type ExecutableTool,
+  type ExecutableToolContext,
+  type ExecutableToolResult,
+  type ToolExecution,
+} from '#/tool/toolContract';
 
 import { permissionModeServices, type TestAgentContext } from '../../harness';
-import { createLoopTestAgent, makeEchoTool, nextTurnMessage, registerTool, submitTurn } from './helpers';
+import {
+  createLoopTestAgent,
+  makeEchoTool,
+  nextTurnMessage,
+  registerTool,
+  submitTurn,
+} from './helpers';
 
 function rpcEvents(ctx: TestAgentContext, event: string): Array<Record<string, unknown>> {
   return ctx.allEvents

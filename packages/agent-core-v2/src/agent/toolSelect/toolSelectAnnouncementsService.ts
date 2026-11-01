@@ -1,8 +1,8 @@
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
+import { IAgentMcpService } from '#/agent/mcp/mcp';
 import { LifecycleScope } from '#/app/scopes';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
-import { IAgentMcpService } from '#/agent/mcp/mcp';
 
 import { LOADABLE_TOOLS_VARIANT } from './dynamicTools';
 import { IAgentToolSelectService } from './toolSelect';

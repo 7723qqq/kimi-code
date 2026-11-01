@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'bun:test';
 /**
  * Regressions found by running the tool against a real upstream checkout.
  *
@@ -6,11 +7,17 @@
  * cannot resolve. They are kept as whole-project tests because the failure only
  * appears after every layer has run in order.
  */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { describe, expect, it } from 'bun:test';
 
 const CLI = join(import.meta.dir, '..', 'src', 'cli.mjs');
 
@@ -55,7 +62,8 @@ const PNPM_MONOREPO = {
   '.npmrc': 'registry=https://example.test\n',
   '.nvmrc': '20.11.0\n',
   'packages/a/package.json': `${JSON.stringify({ name: 'a', version: '1.0.0', dependencies: { zod: 'catalog:' } }, null, 2)}\n`,
-  'packages/a/src/x.ts': "import { createHash } from 'node:crypto';\nexport const x = createHash('sha256').update('a').digest('hex');\n",
+  'packages/a/src/x.ts':
+    "import { createHash } from 'node:crypto';\nexport const x = createHash('sha256').update('a').digest('hex');\n",
 };
 
 describe('package manager is replaced, not just added', () => {
@@ -75,7 +83,10 @@ describe('package manager is replaced, not just added', () => {
     try {
       apply(root);
       const journalDir = join(root, '.bun-migrate');
-      const name = readdirSync(journalDir).filter((item) => item.endsWith('.md')).toSorted().pop();
+      const name = readdirSync(journalDir)
+        .filter((item) => item.endsWith('.md'))
+        .toSorted()
+        .pop();
       const markdown = readFileSync(join(journalDir, name), 'utf8');
       expect(markdown).toContain('pnpm@10.33.0');
       expect(markdown).toContain(`bun@${Bun.version}`);
@@ -114,7 +125,9 @@ describe('pnpm catalog survives the workspace removal', () => {
     try {
       expect(apply(root).code).toBe(0);
       const rootManifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-      const memberManifest = JSON.parse(readFileSync(join(root, 'packages/a/package.json'), 'utf8'));
+      const memberManifest = JSON.parse(
+        readFileSync(join(root, 'packages/a/package.json'), 'utf8'),
+      );
       expect(rootManifest.dependencies.zod).toBe('catalog:');
       expect(memberManifest.dependencies.zod).toBe('catalog:');
       expect(rootManifest.workspaces.catalog.zod).toBeDefined();
@@ -182,7 +195,8 @@ describe('a monorepo member declares the dependency, not the root', () => {
     const root = makeProject({
       'package.json': '{"name":"root","version":"1.0.0"}\n',
       'pnpm-workspace.yaml': "packages:\n  - 'packages/*'\n",
-      'packages/a/package.json': '{"name":"a","version":"1.0.0","dependencies":{"yaml":"^2.0.0"}}\n',
+      'packages/a/package.json':
+        '{"name":"a","version":"1.0.0","dependencies":{"yaml":"^2.0.0"}}\n',
       'packages/a/src/x.ts': "import { parse } from 'yaml';\nexport const x = parse('a: 1');\n",
     });
     try {

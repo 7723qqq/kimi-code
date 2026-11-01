@@ -1,15 +1,20 @@
 // apps/vis/server/test/lib/context-projector.test.ts
 import { afterEach, describe, expect, it } from 'bun:test';
-import { estimateTokensForMessages } from '@moonshot-ai/agent-core-v2/llm-adapter/contract/tokens';
+import { join } from 'node:path';
+
 import { buildCompactionContinuationText } from '@moonshot-ai/agent-core-v2/agent/contextMemory/compactionHandoff';
-import { buildSessionFixture } from '../fixtures/build';
+import { estimateTokensForMessages } from '@moonshot-ai/agent-core-v2/llm-adapter/contract/tokens';
+
 import { projectContext } from '../../src/lib/context-projector';
 import { readAgentWire } from '../../src/lib/wire-reader';
-import { join } from 'node:path';
+import { buildSessionFixture } from '../fixtures/build';
 
 describe('context-projector', () => {
   let cleanup: (() => Promise<void>) | null = null;
-  afterEach(async () => { if (cleanup) await cleanup(); cleanup = null; });
+  afterEach(async () => {
+    if (cleanup) await cleanup();
+    cleanup = null;
+  });
 
   it('projects messages and aggregates usage', async () => {
     const { sessionDir, cleanup: c } = await buildSessionFixture('sample-main');
@@ -25,10 +30,16 @@ describe('context-projector', () => {
     expect(proj.messages[1]!.message.content).toEqual([{ type: 'text', text: 'hello' }]);
 
     expect(proj.usage.byScope.turn).toEqual({
-      inputOther: 10, output: 5, inputCacheRead: 0, inputCacheCreation: 0,
+      inputOther: 10,
+      output: 5,
+      inputCacheRead: 0,
+      inputCacheCreation: 0,
     });
     expect(proj.usage.byModel['kimi-k2']).toEqual({
-      inputOther: 10, output: 5, inputCacheRead: 0, inputCacheCreation: 0,
+      inputOther: 10,
+      output: 5,
+      inputCacheRead: 0,
+      inputCacheCreation: 0,
     });
 
     expect(proj.config.systemPrompt).toBe('You are Kimi.');
@@ -65,7 +76,10 @@ describe('context-projector', () => {
           type: 'context.append_loop_event' as const,
           event: {
             type: 'content.part' as const,
-            uuid: 'c1', turnId: 't1', step: 0, stepUuid: 's1',
+            uuid: 'c1',
+            turnId: 't1',
+            step: 0,
+            stepUuid: 's1',
             part: { type: 'text' as const, text: 'Let me check' },
           },
         },
@@ -77,8 +91,13 @@ describe('context-projector', () => {
           type: 'context.append_loop_event' as const,
           event: {
             type: 'tool.call' as const,
-            uuid: 'tc1', turnId: 't1', step: 0, stepUuid: 's1',
-            toolCallId: 'call_1', name: 'LS', args: { path: '/' },
+            uuid: 'tc1',
+            turnId: 't1',
+            step: 0,
+            stepUuid: 's1',
+            toolCallId: 'call_1',
+            name: 'LS',
+            args: { path: '/' },
           },
         },
         raw: {},
@@ -131,10 +150,22 @@ describe('context-projector', () => {
 
   it('drops a vacuous assistant when a step ends without output', () => {
     const entries = [
-      { lineNo: 1, data: { type: 'context.append_loop_event' as const,
-          event: { type: 'step.begin' as const, uuid: 's1' } }, raw: {} },
-      { lineNo: 2, data: { type: 'context.append_loop_event' as const,
-          event: { type: 'step.end' as const, uuid: 's1' } }, raw: {} },
+      {
+        lineNo: 1,
+        data: {
+          type: 'context.append_loop_event' as const,
+          event: { type: 'step.begin' as const, uuid: 's1' },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 2,
+        data: {
+          type: 'context.append_loop_event' as const,
+          event: { type: 'step.end' as const, uuid: 's1' },
+        },
+        raw: {},
+      },
     ];
 
     expect(projectContext(entries as any).messages).toEqual([]);
@@ -144,13 +175,34 @@ describe('context-projector', () => {
     'keeps a %s step open until the next attempt settles it',
     (finishReason) => {
       const entries: Array<{ lineNo: number; data: Record<string, unknown>; raw: object }> = [
-        { lineNo: 1, data: { type: 'context.append_loop_event' as const,
-            event: { type: 'step.begin' as const, uuid: 's1' } }, raw: {} },
-        { lineNo: 2, data: { type: 'context.append_loop_event' as const,
-            event: { type: 'content.part' as const, stepUuid: 's1',
-              part: { type: 'text' as const, text: 'partial' } } }, raw: {} },
-        { lineNo: 3, data: { type: 'context.append_loop_event' as const,
-            event: { type: 'step.end' as const, uuid: 's1', finishReason } }, raw: {} },
+        {
+          lineNo: 1,
+          data: {
+            type: 'context.append_loop_event' as const,
+            event: { type: 'step.begin' as const, uuid: 's1' },
+          },
+          raw: {},
+        },
+        {
+          lineNo: 2,
+          data: {
+            type: 'context.append_loop_event' as const,
+            event: {
+              type: 'content.part' as const,
+              stepUuid: 's1',
+              part: { type: 'text' as const, text: 'partial' },
+            },
+          },
+          raw: {},
+        },
+        {
+          lineNo: 3,
+          data: {
+            type: 'context.append_loop_event' as const,
+            event: { type: 'step.end' as const, uuid: 's1', finishReason },
+          },
+          raw: {},
+        },
       ];
 
       const interrupted = projectContext(entries as any);
@@ -158,13 +210,34 @@ describe('context-projector', () => {
       expect(interrupted.messages[0]!.message.partial).toBe(true);
 
       entries.push(
-        { lineNo: 4, data: { type: 'context.append_loop_event' as const,
-            event: { type: 'step.begin' as const, uuid: 's2' } }, raw: {} },
-        { lineNo: 5, data: { type: 'context.append_loop_event' as const,
-            event: { type: 'content.part' as const, stepUuid: 's2',
-              part: { type: 'text' as const, text: 'recovered' } } }, raw: {} },
-        { lineNo: 6, data: { type: 'context.append_loop_event' as const,
-            event: { type: 'step.end' as const, uuid: 's2' } }, raw: {} },
+        {
+          lineNo: 4,
+          data: {
+            type: 'context.append_loop_event' as const,
+            event: { type: 'step.begin' as const, uuid: 's2' },
+          },
+          raw: {},
+        },
+        {
+          lineNo: 5,
+          data: {
+            type: 'context.append_loop_event' as const,
+            event: {
+              type: 'content.part' as const,
+              stepUuid: 's2',
+              part: { type: 'text' as const, text: 'recovered' },
+            },
+          },
+          raw: {},
+        },
+        {
+          lineNo: 6,
+          data: {
+            type: 'context.append_loop_event' as const,
+            event: { type: 'step.end' as const, uuid: 's2' },
+          },
+          raw: {},
+        },
       );
       const recovered = projectContext(entries as any);
       expect(recovered.messages.map((message) => message.message.partial)).toEqual([
@@ -180,13 +253,36 @@ describe('context-projector', () => {
 
   it('closes a pending tool call with an interrupted result at step end', () => {
     const entries = [
-      { lineNo: 1, data: { type: 'context.append_loop_event' as const,
-          event: { type: 'step.begin' as const, uuid: 's1' } }, raw: {} },
-      { lineNo: 2, data: { type: 'context.append_loop_event' as const,
-          event: { type: 'tool.call' as const, stepUuid: 's1', toolCallId: 'c1',
-            name: 'Bash', args: {} } }, raw: {} },
-      { lineNo: 3, data: { type: 'context.append_loop_event' as const,
-          event: { type: 'step.end' as const, uuid: 's1' } }, raw: {} },
+      {
+        lineNo: 1,
+        data: {
+          type: 'context.append_loop_event' as const,
+          event: { type: 'step.begin' as const, uuid: 's1' },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 2,
+        data: {
+          type: 'context.append_loop_event' as const,
+          event: {
+            type: 'tool.call' as const,
+            stepUuid: 's1',
+            toolCallId: 'c1',
+            name: 'Bash',
+            args: {},
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 3,
+        data: {
+          type: 'context.append_loop_event' as const,
+          event: { type: 'step.end' as const, uuid: 's1' },
+        },
+        raw: {},
+      },
     ];
 
     const proj = projectContext(entries as any);
@@ -200,18 +296,57 @@ describe('context-projector', () => {
 
   it('defers appended messages until a pending tool result arrives while preserving line metadata', () => {
     const entries = [
-      { lineNo: 1, data: { type: 'context.append_loop_event' as const,
-          event: { type: 'step.begin' as const, uuid: 's1' } }, raw: {} },
-      { lineNo: 2, data: { type: 'context.append_loop_event' as const,
-          event: { type: 'tool.call' as const, stepUuid: 's1', toolCallId: 'c1',
-            name: 'Read', args: { path: '/tmp/a' } } }, raw: {} },
-      { lineNo: 3, data: { type: 'context.append_message' as const,
-          message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'reminder' }],
-            toolCalls: [], origin: { kind: 'injection' as const, variant: 'test' } } }, raw: {} },
-      { lineNo: 4, data: { type: 'context.append_loop_event' as const,
-          event: { type: 'tool.result' as const, toolCallId: 'c1', result: { output: 'ok' } } }, raw: {} },
-      { lineNo: 5, data: { type: 'context.append_loop_event' as const,
-          event: { type: 'step.end' as const, uuid: 's1' } }, raw: {} },
+      {
+        lineNo: 1,
+        data: {
+          type: 'context.append_loop_event' as const,
+          event: { type: 'step.begin' as const, uuid: 's1' },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 2,
+        data: {
+          type: 'context.append_loop_event' as const,
+          event: {
+            type: 'tool.call' as const,
+            stepUuid: 's1',
+            toolCallId: 'c1',
+            name: 'Read',
+            args: { path: '/tmp/a' },
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 3,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: 'reminder' }],
+            toolCalls: [],
+            origin: { kind: 'injection' as const, variant: 'test' },
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 4,
+        data: {
+          type: 'context.append_loop_event' as const,
+          event: { type: 'tool.result' as const, toolCallId: 'c1', result: { output: 'ok' } },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 5,
+        data: {
+          type: 'context.append_loop_event' as const,
+          event: { type: 'step.end' as const, uuid: 's1' },
+        },
+        raw: {},
+      },
     ];
 
     const proj = projectContext(entries as any);
@@ -226,11 +361,52 @@ describe('context-projector', () => {
 
   it('does not reset contextTokens on a zero-usage step.end', () => {
     const entries = [
-      { lineNo: 1, data: { type: 'context.append_loop_event', event: { type: 'step.begin', uuid: 's1', turnId: 'T', step: 0 } }, raw: {} },
-      { lineNo: 2, data: { type: 'context.append_loop_event', event: { type: 'step.end', uuid: 's1', turnId: 'T', step: 0, usage: { inputOther: 100, output: 20, inputCacheRead: 80, inputCacheCreation: 0 } } }, raw: {} },
-      { lineNo: 3, data: { type: 'context.append_loop_event', event: { type: 'step.begin', uuid: 's2', turnId: 'T', step: 1 } }, raw: {} },
+      {
+        lineNo: 1,
+        data: {
+          type: 'context.append_loop_event',
+          event: { type: 'step.begin', uuid: 's1', turnId: 'T', step: 0 },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 2,
+        data: {
+          type: 'context.append_loop_event',
+          event: {
+            type: 'step.end',
+            uuid: 's1',
+            turnId: 'T',
+            step: 0,
+            usage: { inputOther: 100, output: 20, inputCacheRead: 80, inputCacheCreation: 0 },
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 3,
+        data: {
+          type: 'context.append_loop_event',
+          event: { type: 'step.begin', uuid: 's2', turnId: 'T', step: 1 },
+        },
+        raw: {},
+      },
       // content-filtered response: usage all zero — must NOT reset the fill to 0.
-      { lineNo: 4, data: { type: 'context.append_loop_event', event: { type: 'step.end', uuid: 's2', turnId: 'T', step: 1, finishReason: 'filtered', usage: { inputOther: 0, output: 0, inputCacheRead: 0, inputCacheCreation: 0 } } }, raw: {} },
+      {
+        lineNo: 4,
+        data: {
+          type: 'context.append_loop_event',
+          event: {
+            type: 'step.end',
+            uuid: 's2',
+            turnId: 'T',
+            step: 1,
+            finishReason: 'filtered',
+            usage: { inputOther: 0, output: 0, inputCacheRead: 0, inputCacheCreation: 0 },
+          },
+        },
+        raw: {},
+      },
     ];
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const proj = projectContext(entries as any);
@@ -271,8 +447,13 @@ describe('context-projector', () => {
           type: 'context.append_loop_event' as const,
           event: {
             type: 'tool.call' as const,
-            uuid: 'tc1', turnId: 't1', step: 0, stepUuid: 's1',
-            toolCallId: 'call_1', name: 'Bash', args: '{}',
+            uuid: 'tc1',
+            turnId: 't1',
+            step: 0,
+            stepUuid: 's1',
+            toolCallId: 'call_1',
+            name: 'Bash',
+            args: '{}',
           },
         },
         raw: {},
@@ -352,16 +533,41 @@ describe('context-projector', () => {
   });
 
   it('tool.result: non-error array output is passed through as-is', () => {
-    const parts = [{ type: 'text' as const, text: 'a' }, { type: 'text' as const, text: 'b' }];
+    const parts = [
+      { type: 'text' as const, text: 'a' },
+      { type: 'text' as const, text: 'b' },
+    ];
     const msg = projectToolResult({ output: parts });
     expect(msg.content).toEqual(parts);
   });
 
   it('clears messages on context.clear', async () => {
     const entries = [
-      { lineNo: 2, data: { type: 'context.append_message' as const, message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'a' }], toolCalls: [] } }, raw: {} },
+      {
+        lineNo: 2,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: 'a' }],
+            toolCalls: [],
+          },
+        },
+        raw: {},
+      },
       { lineNo: 3, data: { type: 'context.clear' as const }, raw: {} },
-      { lineNo: 4, data: { type: 'context.append_message' as const, message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'b' }], toolCalls: [] } }, raw: {} },
+      {
+        lineNo: 4,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: 'b' }],
+            toolCalls: [],
+          },
+        },
+        raw: {},
+      },
     ];
     const proj = projectContext(entries as any);
     expect(proj.messages).toHaveLength(1);
@@ -370,17 +576,47 @@ describe('context-projector', () => {
 
   it('applies compaction summary as a synthetic message', async () => {
     const entries = [
-      { lineNo: 2, data: { type: 'context.append_message' as const, message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'old' }], toolCalls: [] } }, raw: {} },
-      { lineNo: 3, data: { type: 'context.apply_compaction' as const, summary: 'old stuff', compactedCount: 1, tokensBefore: 100, tokensAfter: 30 }, raw: {} },
-      { lineNo: 4, data: { type: 'context.append_message' as const, message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'new' }], toolCalls: [] } }, raw: {} },
+      {
+        lineNo: 2,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: 'old' }],
+            toolCalls: [],
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 3,
+        data: {
+          type: 'context.apply_compaction' as const,
+          summary: 'old stuff',
+          compactedCount: 1,
+          tokensBefore: 100,
+          tokensAfter: 30,
+        },
+        raw: {},
+      },
+      {
+        lineNo: 4,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: 'new' }],
+            toolCalls: [],
+          },
+        },
+        raw: {},
+      },
     ];
     const proj = projectContext(entries as any);
     // Model view: a legacy record (no keptUserMessageCount) rebuilds the
     // history as `[summary, ...history.slice(compactedCount)]` — 'old' is
     // compacted away — then the new prompt is appended.
-    expect(proj.messages.map((m) => m.source)).toEqual([
-      'compaction_summary', 'append_message',
-    ]);
+    expect(proj.messages.map((m) => m.source)).toEqual(['compaction_summary', 'append_message']);
     // The compaction summary is a user message (the engine's own
     // representation), not a synthetic system message.
     expect(proj.messages[0]!.message.role).toBe('user');
@@ -391,12 +627,35 @@ describe('context-projector', () => {
 
   it('ignores a malformed compaction record like core-v2 restore', () => {
     const entries = [
-      { lineNo: 1, data: { type: 'context.append_message' as const,
-          message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'before' }], toolCalls: [] } }, raw: {} },
-      { lineNo: 2, data: { type: 'context.apply_compaction' as const,
-          summary: 'missing compactedCount' }, raw: {} },
-      { lineNo: 3, data: { type: 'context.append_message' as const,
-          message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'after' }], toolCalls: [] } }, raw: {} },
+      {
+        lineNo: 1,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: 'before' }],
+            toolCalls: [],
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 2,
+        data: { type: 'context.apply_compaction' as const, summary: 'missing compactedCount' },
+        raw: {},
+      },
+      {
+        lineNo: 3,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: 'after' }],
+            toolCalls: [],
+          },
+        },
+        raw: {},
+      },
     ];
 
     const projection = projectContext(entries as any);
@@ -409,10 +668,30 @@ describe('context-projector', () => {
 
   it('uses contextSummary only for the model view and raw summary for full history', () => {
     const entries = [
-      { lineNo: 1, data: { type: 'context.append_message' as const,
-          message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'old' }], toolCalls: [] } }, raw: {} },
-      { lineNo: 2, data: { type: 'context.apply_compaction' as const,
-          summary: 'raw summary', contextSummary: 'prefixed summary', compactedCount: 1, tokensBefore: 100, tokensAfter: 10 }, raw: {} },
+      {
+        lineNo: 1,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: 'old' }],
+            toolCalls: [],
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 2,
+        data: {
+          type: 'context.apply_compaction' as const,
+          summary: 'raw summary',
+          contextSummary: 'prefixed summary',
+          compactedCount: 1,
+          tokensBefore: 100,
+          tokensAfter: 10,
+        },
+        raw: {},
+      },
     ];
 
     const model = projectContext(entries as any);
@@ -431,26 +710,72 @@ describe('context-projector', () => {
 
   it('apply_compaction keeps the most recent user messages and drops the assistant/tool tail', () => {
     const entries = [
-      { lineNo: 1, data: { type: 'context.append_message' as const,
-          message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'm0' }], toolCalls: [] } }, raw: {} },
-      { lineNo: 2, data: { type: 'context.append_message' as const,
-          message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'm1' }], toolCalls: [] } }, raw: {} },
-      { lineNo: 3, data: { type: 'context.append_message' as const,
-          message: { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'm2 (dropped)' }], toolCalls: [] } }, raw: {} },
-      { lineNo: 4, data: { type: 'context.apply_compaction' as const,
-          summary: 'sum', compactedCount: 3, tokensBefore: 100, tokensAfter: 10,
-          keptUserMessageCount: 2 }, raw: {} },
+      {
+        lineNo: 1,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: 'm0' }],
+            toolCalls: [],
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 2,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: 'm1' }],
+            toolCalls: [],
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 3,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'assistant' as const,
+            content: [{ type: 'text' as const, text: 'm2 (dropped)' }],
+            toolCalls: [],
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 4,
+        data: {
+          type: 'context.apply_compaction' as const,
+          summary: 'sum',
+          compactedCount: 3,
+          tokensBefore: 100,
+          tokensAfter: 10,
+          keptUserMessageCount: 2,
+        },
+        raw: {},
+      },
     ];
     const proj = projectContext(entries as any);
     // [m0, m1, summary, anchor] — real user prompts are kept verbatim, the
     // assistant tail is dropped, and the continuation anchor follows the summary.
     expect(proj.messages).toHaveLength(4);
     expect(proj.messages.map((m) => m.source)).toEqual([
-      'append_message', 'append_message', 'compaction_summary', 'append_message',
+      'append_message',
+      'append_message',
+      'compaction_summary',
+      'append_message',
     ]);
     expect(proj.messages[0]!.message.content[0]).toMatchObject({ text: 'm0' });
     expect(proj.messages[1]!.message.content[0]).toMatchObject({ text: 'm1' });
-    expect(proj.messages[2]!.compaction).toEqual({ compactedCount: 3, tokensBefore: 100, tokensAfter: 10 });
+    expect(proj.messages[2]!.compaction).toEqual({
+      compactedCount: 3,
+      tokensBefore: 100,
+      tokensAfter: 10,
+    });
     expect(proj.messages[2]!.message.content[0]).toMatchObject({ text: 'sum' });
     expect(proj.messages[3]!.message.origin).toEqual({
       kind: 'injection',
@@ -468,26 +793,81 @@ describe('context-projector', () => {
     // kept-user selection — otherwise it would hide the assistant tail the resumed
     // agent still has, and surface a pre-compaction user message the agent dropped.
     const entries = [
-      { lineNo: 1, data: { type: 'context.append_message' as const,
-          message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'u0 (compacted away)' }], toolCalls: [], origin: { kind: 'user' as const } } }, raw: {} },
-      { lineNo: 2, data: { type: 'context.append_message' as const,
-          message: { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'a1' }], toolCalls: [] } }, raw: {} },
-      { lineNo: 3, data: { type: 'context.append_message' as const,
-          message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'u2 (tail)' }], toolCalls: [], origin: { kind: 'user' as const } } }, raw: {} },
-      { lineNo: 4, data: { type: 'context.append_message' as const,
-          message: { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'a3 (tail)' }], toolCalls: [] } }, raw: {} },
+      {
+        lineNo: 1,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: 'u0 (compacted away)' }],
+            toolCalls: [],
+            origin: { kind: 'user' as const },
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 2,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'assistant' as const,
+            content: [{ type: 'text' as const, text: 'a1' }],
+            toolCalls: [],
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 3,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: 'u2 (tail)' }],
+            toolCalls: [],
+            origin: { kind: 'user' as const },
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 4,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'assistant' as const,
+            content: [{ type: 'text' as const, text: 'a3 (tail)' }],
+            toolCalls: [],
+          },
+        },
+        raw: {},
+      },
       // Legacy record: no keptUserMessageCount, compactedCount(2) < history(4).
-      { lineNo: 5, data: { type: 'context.apply_compaction' as const,
-          summary: 'sum', compactedCount: 2, tokensBefore: 100, tokensAfter: 10 }, raw: {} },
+      {
+        lineNo: 5,
+        data: {
+          type: 'context.apply_compaction' as const,
+          summary: 'sum',
+          compactedCount: 2,
+          tokensBefore: 100,
+          tokensAfter: 10,
+        },
+        raw: {},
+      },
     ];
 
     const model = projectContext(entries as any);
     // [summary, u2, a3] — the verbatim tail beyond compactedCount, summary first.
     expect(model.messages.map((m) => m.source)).toEqual([
-      'compaction_summary', 'append_message', 'append_message',
+      'compaction_summary',
+      'append_message',
+      'append_message',
     ]);
     expect(model.messages.map((m) => m.message.content[0])).toMatchObject([
-      { text: 'sum' }, { text: 'u2 (tail)' }, { text: 'a3 (tail)' },
+      { text: 'sum' },
+      { text: 'u2 (tail)' },
+      { text: 'a3 (tail)' },
     ]);
   });
 
@@ -496,15 +876,58 @@ describe('context-projector', () => {
     const middle = 'b'.repeat(88_000); // ~22k tokens, over the 20k budget on its own
     const last = `LAST ${'c'.repeat(4_000)}`; // ~1k tokens
     const entries = [
-      { lineNo: 1, data: { type: 'context.append_message' as const,
-          message: { role: 'user' as const, content: [{ type: 'text' as const, text: first }], toolCalls: [], origin: { kind: 'user' as const } } }, raw: {} },
-      { lineNo: 2, data: { type: 'context.append_message' as const,
-          message: { role: 'user' as const, content: [{ type: 'text' as const, text: middle }], toolCalls: [], origin: { kind: 'user' as const } } }, raw: {} },
-      { lineNo: 3, data: { type: 'context.append_message' as const,
-          message: { role: 'user' as const, content: [{ type: 'text' as const, text: last }], toolCalls: [], origin: { kind: 'user' as const } } }, raw: {} },
-      { lineNo: 4, data: { type: 'context.apply_compaction' as const,
-          summary: 'sum', compactedCount: 3, tokensBefore: 24_000, tokensAfter: 20_000,
-          keptUserMessageCount: 4, keptHeadUserMessageCount: 2 }, raw: {} },
+      {
+        lineNo: 1,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: first }],
+            toolCalls: [],
+            origin: { kind: 'user' as const },
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 2,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: middle }],
+            toolCalls: [],
+            origin: { kind: 'user' as const },
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 3,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: last }],
+            toolCalls: [],
+            origin: { kind: 'user' as const },
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 4,
+        data: {
+          type: 'context.apply_compaction' as const,
+          summary: 'sum',
+          compactedCount: 3,
+          tokensBefore: 24_000,
+          tokensAfter: 20_000,
+          keptUserMessageCount: 4,
+          keptHeadUserMessageCount: 2,
+        },
+        raw: {},
+      },
     ];
 
     const proj = projectContext(entries as any);
@@ -539,39 +962,133 @@ describe('context-projector', () => {
 
   it('apply_compaction drops shell/local-command/background messages in model mode only', () => {
     const entries = [
-      { lineNo: 1, data: { type: 'context.append_message' as const,
-          message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'real user' }], toolCalls: [], origin: { kind: 'user' as const } } }, raw: {} },
-      { lineNo: 2, data: { type: 'context.append_message' as const,
-          message: { role: 'user' as const, content: [{ type: 'text' as const, text: '! pwd' }], toolCalls: [], origin: { kind: 'shell_command' as const, phase: 'input' as const } } }, raw: {} },
-      { lineNo: 3, data: { type: 'context.append_message' as const,
-          message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'local output' }], toolCalls: [], origin: { kind: 'injection' as const, variant: 'local-command-stdout' } } }, raw: {} },
-      { lineNo: 4, data: { type: 'context.append_message' as const,
-          message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'background done' }], toolCalls: [], origin: { kind: 'background_task' as const, taskId: 'task', status: 'completed' as const, notificationId: 'notification' } } }, raw: {} },
-      { lineNo: 5, data: { type: 'context.append_message' as const,
-          message: { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'assistant reply' }], toolCalls: [] } }, raw: {} },
-      { lineNo: 6, data: { type: 'context.apply_compaction' as const,
-          summary: 'sum', compactedCount: 5, tokensBefore: 100, tokensAfter: 10,
-          keptUserMessageCount: 1 }, raw: {} },
-      { lineNo: 7, data: { type: 'context.append_message' as const,
-          message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'new' }], toolCalls: [], origin: { kind: 'user' as const } } }, raw: {} },
+      {
+        lineNo: 1,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: 'real user' }],
+            toolCalls: [],
+            origin: { kind: 'user' as const },
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 2,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: '! pwd' }],
+            toolCalls: [],
+            origin: { kind: 'shell_command' as const, phase: 'input' as const },
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 3,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: 'local output' }],
+            toolCalls: [],
+            origin: { kind: 'injection' as const, variant: 'local-command-stdout' },
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 4,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: 'background done' }],
+            toolCalls: [],
+            origin: {
+              kind: 'background_task' as const,
+              taskId: 'task',
+              status: 'completed' as const,
+              notificationId: 'notification',
+            },
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 5,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'assistant' as const,
+            content: [{ type: 'text' as const, text: 'assistant reply' }],
+            toolCalls: [],
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 6,
+        data: {
+          type: 'context.apply_compaction' as const,
+          summary: 'sum',
+          compactedCount: 5,
+          tokensBefore: 100,
+          tokensAfter: 10,
+          keptUserMessageCount: 1,
+        },
+        raw: {},
+      },
+      {
+        lineNo: 7,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: 'new' }],
+            toolCalls: [],
+            origin: { kind: 'user' as const },
+          },
+        },
+        raw: {},
+      },
     ];
 
     const model = projectContext(entries as any);
     expect(model.messages.map((m) => m.source)).toEqual([
-      'append_message', 'compaction_summary', 'append_message', 'append_message',
+      'append_message',
+      'compaction_summary',
+      'append_message',
+      'append_message',
     ]);
     expect(model.messages.map((m) => m.message.content[0])).toMatchObject([
-      { text: 'real user' }, { text: 'sum' }, { text: buildCompactionContinuationText() }, { text: 'new' },
+      { text: 'real user' },
+      { text: 'sum' },
+      { text: buildCompactionContinuationText() },
+      { text: 'new' },
     ]);
 
     const full = projectContext(entries as any, 'full');
     expect(full.messages.map((m) => m.source)).toEqual([
-      'append_message', 'append_message', 'append_message', 'append_message',
-      'append_message', 'compaction_summary', 'append_message',
+      'append_message',
+      'append_message',
+      'append_message',
+      'append_message',
+      'append_message',
+      'compaction_summary',
+      'append_message',
     ]);
     expect(full.messages.map((m) => m.message.content[0])).toMatchObject([
-      { text: 'real user' }, { text: '! pwd' }, { text: 'local output' },
-      { text: 'background done' }, { text: 'assistant reply' }, { text: 'sum' },
+      { text: 'real user' },
+      { text: '! pwd' },
+      { text: 'local output' },
+      { text: 'background done' },
+      { text: 'assistant reply' },
+      { text: 'sum' },
       { text: 'new' },
     ]);
   });
@@ -585,7 +1102,9 @@ describe('context-projector', () => {
 
   it('apply_compaction keeps user messages across a preceding undo marker (model)', () => {
     const userMsg = (text: string) => ({
-      role: 'user' as const, content: [{ type: 'text' as const, text }], toolCalls: [],
+      role: 'user' as const,
+      content: [{ type: 'text' as const, text }],
+      toolCalls: [],
       origin: { kind: 'user' as const },
     });
     // Step 1: append u1, u2 then undo(1) → removes u2, leaves [u1, <undo marker>].
@@ -596,23 +1115,55 @@ describe('context-projector', () => {
     // This pins that the marker does not offset the kept-user selection — a naive
     // array-slice would have retained the wrong prompts.
     const entries = [
-      { lineNo: 1, data: { type: 'context.append_message' as const, message: userMsg('u1') }, raw: {} },
-      { lineNo: 2, data: { type: 'context.append_message' as const, message: userMsg('u2') }, raw: {} },
+      {
+        lineNo: 1,
+        data: { type: 'context.append_message' as const, message: userMsg('u1') },
+        raw: {},
+      },
+      {
+        lineNo: 2,
+        data: { type: 'context.append_message' as const, message: userMsg('u2') },
+        raw: {},
+      },
       { lineNo: 3, data: { type: 'context.undo' as const, count: 1 }, raw: {} },
-      { lineNo: 4, data: { type: 'context.append_message' as const, message: userMsg('u3') }, raw: {} },
-      { lineNo: 5, data: { type: 'context.append_message' as const, message: userMsg('u4') }, raw: {} },
-      { lineNo: 6, data: { type: 'context.apply_compaction' as const,
-          summary: 'sum', compactedCount: 3, tokensBefore: 100, tokensAfter: 10,
-          keptUserMessageCount: 3 }, raw: {} },
+      {
+        lineNo: 4,
+        data: { type: 'context.append_message' as const, message: userMsg('u3') },
+        raw: {},
+      },
+      {
+        lineNo: 5,
+        data: { type: 'context.append_message' as const, message: userMsg('u4') },
+        raw: {},
+      },
+      {
+        lineNo: 6,
+        data: {
+          type: 'context.apply_compaction' as const,
+          summary: 'sum',
+          compactedCount: 3,
+          tokensBefore: 100,
+          tokensAfter: 10,
+          keptUserMessageCount: 3,
+        },
+        raw: {},
+      },
     ];
     const proj = projectContext(entries as any);
     // Correct: [u1, u3, u4, summary, anchor]. The marker is gone, all real
     // prompts kept, and the continuation anchor follows the summary.
     expect(proj.messages.map((m) => m.source)).toEqual([
-      'append_message', 'append_message', 'append_message', 'compaction_summary', 'append_message',
+      'append_message',
+      'append_message',
+      'append_message',
+      'compaction_summary',
+      'append_message',
     ]);
     expect(proj.messages.map((m) => m.message.content[0])).toMatchObject([
-      { text: 'u1' }, { text: 'u3' }, { text: 'u4' }, { text: 'sum' },
+      { text: 'u1' },
+      { text: 'u3' },
+      { text: 'u4' },
+      { text: 'sum' },
       { text: buildCompactionContinuationText() },
     ]);
   });
@@ -620,10 +1171,15 @@ describe('context-projector', () => {
   it('micro-blanking uses the history index, skipping a preceding undo marker (model)', () => {
     const bigText = 'x'.repeat(2000);
     const toolMsg = (id: string, text: string) => ({
-      role: 'tool' as const, content: [{ type: 'text' as const, text }], toolCalls: [], toolCallId: id,
+      role: 'tool' as const,
+      content: [{ type: 'text' as const, text }],
+      toolCalls: [],
+      toolCallId: id,
     });
     const userMsg = (text: string) => ({
-      role: 'user' as const, content: [{ type: 'text' as const, text }], toolCalls: [],
+      role: 'user' as const,
+      content: [{ type: 'text' as const, text }],
+      toolCalls: [],
       origin: { kind: 'user' as const },
     });
     // Step 1: append tool c0, user u1 then undo(1) → removes u1, leaves
@@ -638,34 +1194,78 @@ describe('context-projector', () => {
     // c1 WRONGLY un-blanked. This pins the history-aware behaviour and FAILS
     // against the naive array-index pass.
     const entries = [
-      { lineNo: 1, data: { type: 'context.append_message' as const, message: toolMsg('c0', bigText) }, raw: {} },
-      { lineNo: 2, data: { type: 'context.append_message' as const, message: userMsg('u1') }, raw: {} },
+      {
+        lineNo: 1,
+        data: { type: 'context.append_message' as const, message: toolMsg('c0', bigText) },
+        raw: {},
+      },
+      {
+        lineNo: 2,
+        data: { type: 'context.append_message' as const, message: userMsg('u1') },
+        raw: {},
+      },
       { lineNo: 3, data: { type: 'context.undo' as const, count: 1 }, raw: {} },
-      { lineNo: 4, data: { type: 'context.append_message' as const, message: toolMsg('c1', bigText) }, raw: {} },
+      {
+        lineNo: 4,
+        data: { type: 'context.append_message' as const, message: toolMsg('c1', bigText) },
+        raw: {},
+      },
       { lineNo: 5, data: { type: 'micro_compaction.apply' as const, cutoff: 2 }, raw: {} },
     ];
     const proj = projectContext(entries as any);
-    expect(proj.messages.map((m) => m.source)).toEqual(['append_message', 'undo', 'append_message']);
+    expect(proj.messages.map((m) => m.source)).toEqual([
+      'append_message',
+      'undo',
+      'append_message',
+    ]);
     // Both real tool results are within the first 2 history entries → both blanked.
-    expect(proj.messages[0]!.message.content).toEqual([{ type: 'text', text: '[Old tool result content cleared]' }]);
-    expect(proj.messages[2]!.message.content).toEqual([{ type: 'text', text: '[Old tool result content cleared]' }]);
+    expect(proj.messages[0]!.message.content).toEqual([
+      { type: 'text', text: '[Old tool result content cleared]' },
+    ]);
+    expect(proj.messages[2]!.message.content).toEqual([
+      { type: 'text', text: '[Old tool result content cleared]' },
+    ]);
   });
 
   it('context.undo removes back to the Nth real user prompt and leaves an undo marker', () => {
     const userMsg = (text: string) => ({
-      role: 'user' as const, content: [{ type: 'text' as const, text }], toolCalls: [],
+      role: 'user' as const,
+      content: [{ type: 'text' as const, text }],
+      toolCalls: [],
       origin: { kind: 'user' as const },
     });
     const entries = [
-      { lineNo: 1, data: { type: 'context.append_message' as const, message: userMsg('u1') }, raw: {} },
-      { lineNo: 2, data: { type: 'context.append_message' as const,
-          message: { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'a1' }], toolCalls: [] } }, raw: {} },
-      { lineNo: 3, data: { type: 'context.append_message' as const, message: userMsg('u2') }, raw: {} },
+      {
+        lineNo: 1,
+        data: { type: 'context.append_message' as const, message: userMsg('u1') },
+        raw: {},
+      },
+      {
+        lineNo: 2,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'assistant' as const,
+            content: [{ type: 'text' as const, text: 'a1' }],
+            toolCalls: [],
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 3,
+        data: { type: 'context.append_message' as const, message: userMsg('u2') },
+        raw: {},
+      },
       { lineNo: 4, data: { type: 'context.undo' as const, count: 1 }, raw: {} },
     ];
     const proj = projectContext(entries as any);
     // count=1 removes u2 (the last real user prompt). u1 + a1 remain, then an undo marker.
-    expect(proj.messages.map((m) => m.source)).toEqual(['append_message', 'append_message', 'undo']);
+    expect(proj.messages.map((m) => m.source)).toEqual([
+      'append_message',
+      'append_message',
+      'undo',
+    ]);
     expect(proj.messages[0]!.message.content[0]).toMatchObject({ text: 'u1' });
     expect(proj.messages[1]!.message.content[0]).toMatchObject({ text: 'a1' });
     expect(proj.messages[2]!.undo).toEqual({ count: 1, removedMessageCount: 1 });
@@ -674,11 +1274,15 @@ describe('context-projector', () => {
 
   it('context.undo removes injection messages inside the undo window', () => {
     const userMsg = (text: string) => ({
-      role: 'user' as const, content: [{ type: 'text' as const, text }], toolCalls: [],
+      role: 'user' as const,
+      content: [{ type: 'text' as const, text }],
+      toolCalls: [],
       origin: { kind: 'user' as const },
     });
     const injectionMsg = (text: string) => ({
-      role: 'user' as const, content: [{ type: 'text' as const, text }], toolCalls: [],
+      role: 'user' as const,
+      content: [{ type: 'text' as const, text }],
+      toolCalls: [],
       origin: { kind: 'injection' as const },
     });
     // Layout: [u1, a1, u2, INJECTION, a2]. undo(1) walks from the end:
@@ -688,19 +1292,53 @@ describe('context-projector', () => {
     // Once u2 is the cut anchor, the engine slices the whole suffix, so the
     // injection inside that suffix is removed together with u2 and a2.
     const entries = [
-      { lineNo: 1, data: { type: 'context.append_message' as const, message: userMsg('u1') }, raw: {} },
-      { lineNo: 2, data: { type: 'context.append_message' as const,
-          message: { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'a1' }], toolCalls: [] } }, raw: {} },
-      { lineNo: 3, data: { type: 'context.append_message' as const, message: userMsg('u2') }, raw: {} },
-      { lineNo: 4, data: { type: 'context.append_message' as const, message: injectionMsg('inj') }, raw: {} },
-      { lineNo: 5, data: { type: 'context.append_message' as const,
-          message: { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'a2' }], toolCalls: [] } }, raw: {} },
+      {
+        lineNo: 1,
+        data: { type: 'context.append_message' as const, message: userMsg('u1') },
+        raw: {},
+      },
+      {
+        lineNo: 2,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'assistant' as const,
+            content: [{ type: 'text' as const, text: 'a1' }],
+            toolCalls: [],
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 3,
+        data: { type: 'context.append_message' as const, message: userMsg('u2') },
+        raw: {},
+      },
+      {
+        lineNo: 4,
+        data: { type: 'context.append_message' as const, message: injectionMsg('inj') },
+        raw: {},
+      },
+      {
+        lineNo: 5,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'assistant' as const,
+            content: [{ type: 'text' as const, text: 'a2' }],
+            toolCalls: [],
+          },
+        },
+        raw: {},
+      },
       { lineNo: 6, data: { type: 'context.undo' as const, count: 1 }, raw: {} },
     ];
     const proj = projectContext(entries as any);
     // u1 and a1 remain; u2, the injection, and a2 are removed; marker last.
     expect(proj.messages.map((m) => m.source)).toEqual([
-      'append_message', 'append_message', 'undo',
+      'append_message',
+      'append_message',
+      'undo',
     ]);
     expect(proj.messages[0]!.message.content[0]).toMatchObject({ text: 'u1' });
     expect(proj.messages[1]!.message.content[0]).toMatchObject({ text: 'a1' });
@@ -709,25 +1347,59 @@ describe('context-projector', () => {
 
   it('context.undo includes a prompt-owned injection immediately before its prompt', () => {
     const entries = [
-      { lineNo: 1, data: { type: 'context.append_message' as const, message: {
-          id: 'p1', role: 'user' as const,
-          content: [{ type: 'text' as const, text: 'u1' }], toolCalls: [],
-          origin: { kind: 'user' as const },
-        } }, raw: {} },
-      { lineNo: 2, data: { type: 'context.append_message' as const, message: {
-          role: 'user' as const,
-          content: [{ type: 'text' as const, text: 'owned reminder' }], toolCalls: [],
-          origin: { kind: 'injection' as const, variant: 'prompt-context', ownerPromptId: 'p2' },
-        } }, raw: {} },
-      { lineNo: 3, data: { type: 'context.append_message' as const, message: {
-          id: 'p2', role: 'user' as const,
-          content: [{ type: 'text' as const, text: 'u2' }], toolCalls: [],
-          origin: { kind: 'user' as const },
-        } }, raw: {} },
-      { lineNo: 4, data: { type: 'context.append_message' as const, message: {
-          role: 'assistant' as const,
-          content: [{ type: 'text' as const, text: 'a2' }], toolCalls: [],
-        } }, raw: {} },
+      {
+        lineNo: 1,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            id: 'p1',
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: 'u1' }],
+            toolCalls: [],
+            origin: { kind: 'user' as const },
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 2,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: 'owned reminder' }],
+            toolCalls: [],
+            origin: { kind: 'injection' as const, variant: 'prompt-context', ownerPromptId: 'p2' },
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 3,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            id: 'p2',
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: 'u2' }],
+            toolCalls: [],
+            origin: { kind: 'user' as const },
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 4,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'assistant' as const,
+            content: [{ type: 'text' as const, text: 'a2' }],
+            toolCalls: [],
+          },
+        },
+        raw: {},
+      },
       { lineNo: 5, data: { type: 'context.undo' as const, count: 1 }, raw: {} },
     ];
 
@@ -740,16 +1412,29 @@ describe('context-projector', () => {
   it('micro_compaction.apply blanks tool-result content before the cutoff', () => {
     const bigText = 'x'.repeat(2000); // comfortably above the 100-token min
     const toolMsg = (id: string, text: string) => ({
-      role: 'tool' as const, content: [{ type: 'text' as const, text }], toolCalls: [], toolCallId: id,
+      role: 'tool' as const,
+      content: [{ type: 'text' as const, text }],
+      toolCalls: [],
+      toolCallId: id,
     });
     const entries = [
-      { lineNo: 1, data: { type: 'context.append_message' as const, message: toolMsg('c0', bigText) }, raw: {} },
-      { lineNo: 2, data: { type: 'context.append_message' as const, message: toolMsg('c1', bigText) }, raw: {} },
+      {
+        lineNo: 1,
+        data: { type: 'context.append_message' as const, message: toolMsg('c0', bigText) },
+        raw: {},
+      },
+      {
+        lineNo: 2,
+        data: { type: 'context.append_message' as const, message: toolMsg('c1', bigText) },
+        raw: {},
+      },
       { lineNo: 3, data: { type: 'micro_compaction.apply' as const, cutoff: 1 }, raw: {} },
     ];
     const proj = projectContext(entries as any);
     // index 0 < cutoff(1) and is a large tool message → blanked; index 1 kept.
-    expect(proj.messages[0]!.message.content).toEqual([{ type: 'text', text: '[Old tool result content cleared]' }]);
+    expect(proj.messages[0]!.message.content).toEqual([
+      { type: 'text', text: '[Old tool result content cleared]' },
+    ]);
     expect(proj.messages[1]!.message.content[0]).toMatchObject({ text: bigText });
   });
 
@@ -758,17 +1443,28 @@ describe('context-projector', () => {
     // min-content gate and be blanked — mirroring the engine's token estimator,
     // which counts both text and think parts.
     const entries = [
-      { lineNo: 1, data: { type: 'context.append_message' as const, message: {
-          role: 'tool' as const, toolCallId: 'c0', toolCalls: [],
-          content: [
-            { type: 'text' as const, text: 'ok' },
-            { type: 'think' as const, think: 'y'.repeat(2000) },
-          ],
-        } }, raw: {} },
+      {
+        lineNo: 1,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'tool' as const,
+            toolCallId: 'c0',
+            toolCalls: [],
+            content: [
+              { type: 'text' as const, text: 'ok' },
+              { type: 'think' as const, think: 'y'.repeat(2000) },
+            ],
+          },
+        },
+        raw: {},
+      },
       { lineNo: 2, data: { type: 'micro_compaction.apply' as const, cutoff: 1 }, raw: {} },
     ];
     const proj = projectContext(entries as any);
-    expect(proj.messages[0]!.message.content).toEqual([{ type: 'text', text: '[Old tool result content cleared]' }]);
+    expect(proj.messages[0]!.message.content).toEqual([
+      { type: 'text', text: '[Old tool result content cleared]' },
+    ]);
   });
 
   it('micro_compaction.apply weights non-ASCII (CJK) chars as full tokens', () => {
@@ -778,27 +1474,53 @@ describe('context-projector', () => {
     // Chinese-heavy tool result diverges from the engine no longer.
     const cjk = '中'.repeat(150);
     const entries = [
-      { lineNo: 1, data: { type: 'context.append_message' as const, message: {
-          role: 'tool' as const, toolCallId: 'c0', toolCalls: [],
-          content: [{ type: 'text' as const, text: cjk }],
-        } }, raw: {} },
+      {
+        lineNo: 1,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'tool' as const,
+            toolCallId: 'c0',
+            toolCalls: [],
+            content: [{ type: 'text' as const, text: cjk }],
+          },
+        },
+        raw: {},
+      },
       { lineNo: 2, data: { type: 'micro_compaction.apply' as const, cutoff: 1 }, raw: {} },
     ];
     const proj = projectContext(entries as any);
-    expect(proj.messages[0]!.message.content).toEqual([{ type: 'text', text: '[Old tool result content cleared]' }]);
+    expect(proj.messages[0]!.message.content).toEqual([
+      { type: 'text', text: '[Old tool result content cleared]' },
+    ]);
   });
 
   it('context.clear resets the micro-compaction cutoff (no stale blanking)', () => {
     const bigText = 'x'.repeat(2000);
     const toolMsg = (id: string, text: string) => ({
-      role: 'tool' as const, content: [{ type: 'text' as const, text }], toolCalls: [], toolCallId: id,
+      role: 'tool' as const,
+      content: [{ type: 'text' as const, text }],
+      toolCalls: [],
+      toolCallId: id,
     });
     const entries = [
-      { lineNo: 1, data: { type: 'context.append_message' as const, message: toolMsg('c0', bigText) }, raw: {} },
+      {
+        lineNo: 1,
+        data: { type: 'context.append_message' as const, message: toolMsg('c0', bigText) },
+        raw: {},
+      },
       { lineNo: 2, data: { type: 'micro_compaction.apply' as const, cutoff: 1 }, raw: {} },
       { lineNo: 3, data: { type: 'context.clear' as const }, raw: {} },
-      { lineNo: 4, data: { type: 'context.append_message' as const, message: toolMsg('n0', bigText) }, raw: {} },
-      { lineNo: 5, data: { type: 'context.append_message' as const, message: toolMsg('n1', bigText) }, raw: {} },
+      {
+        lineNo: 4,
+        data: { type: 'context.append_message' as const, message: toolMsg('n0', bigText) },
+        raw: {},
+      },
+      {
+        lineNo: 5,
+        data: { type: 'context.append_message' as const, message: toolMsg('n1', bigText) },
+        raw: {},
+      },
     ];
     const proj = projectContext(entries as any);
     // clear() ran reset() → cutoff back to 0, so the new tool messages must NOT be blanked.
@@ -810,14 +1532,34 @@ describe('context-projector', () => {
   it('context.apply_compaction resets the micro-compaction cutoff', () => {
     const bigText = 'x'.repeat(2000);
     const toolMsg = (id: string, text: string) => ({
-      role: 'tool' as const, content: [{ type: 'text' as const, text }], toolCalls: [], toolCallId: id,
+      role: 'tool' as const,
+      content: [{ type: 'text' as const, text }],
+      toolCalls: [],
+      toolCallId: id,
     });
     const entries = [
-      { lineNo: 1, data: { type: 'context.append_message' as const, message: toolMsg('c0', bigText) }, raw: {} },
+      {
+        lineNo: 1,
+        data: { type: 'context.append_message' as const, message: toolMsg('c0', bigText) },
+        raw: {},
+      },
       { lineNo: 2, data: { type: 'micro_compaction.apply' as const, cutoff: 1 }, raw: {} },
-      { lineNo: 3, data: { type: 'context.apply_compaction' as const,
-          summary: 'sum', compactedCount: 1, tokensBefore: 100, tokensAfter: 10 }, raw: {} },
-      { lineNo: 4, data: { type: 'context.append_message' as const, message: toolMsg('n0', bigText) }, raw: {} },
+      {
+        lineNo: 3,
+        data: {
+          type: 'context.apply_compaction' as const,
+          summary: 'sum',
+          compactedCount: 1,
+          tokensBefore: 100,
+          tokensAfter: 10,
+        },
+        raw: {},
+      },
+      {
+        lineNo: 4,
+        data: { type: 'context.append_message' as const, message: toolMsg('n0', bigText) },
+        raw: {},
+      },
     ];
     const proj = projectContext(entries as any);
     // applyCompaction() ran reset() → cutoff back to 0. Result: [summary, n0].
@@ -830,10 +1572,15 @@ describe('context-projector', () => {
   it('context.undo clamps the micro-compaction cutoff to the post-undo length', () => {
     const bigText = 'x'.repeat(2000);
     const toolMsg = (id: string, text: string) => ({
-      role: 'tool' as const, content: [{ type: 'text' as const, text }], toolCalls: [], toolCallId: id,
+      role: 'tool' as const,
+      content: [{ type: 'text' as const, text }],
+      toolCalls: [],
+      toolCallId: id,
     });
     const userMsg = (text: string) => ({
-      role: 'user' as const, content: [{ type: 'text' as const, text }], toolCalls: [],
+      role: 'user' as const,
+      content: [{ type: 'text' as const, text }],
+      toolCalls: [],
       origin: { kind: 'user' as const },
     });
     // Layout: [tool c0, user u1, tool c2]. cutoff=3 covers all three. undo(1)
@@ -843,30 +1590,57 @@ describe('context-projector', () => {
     // clamped to min(3, postLen) so a LATER appended tool message is not blanked
     // by the stale large cutoff.
     const entries = [
-      { lineNo: 1, data: { type: 'context.append_message' as const, message: toolMsg('c0', bigText) }, raw: {} },
-      { lineNo: 2, data: { type: 'context.append_message' as const, message: userMsg('u1') }, raw: {} },
-      { lineNo: 3, data: { type: 'context.append_message' as const, message: toolMsg('c2', bigText) }, raw: {} },
+      {
+        lineNo: 1,
+        data: { type: 'context.append_message' as const, message: toolMsg('c0', bigText) },
+        raw: {},
+      },
+      {
+        lineNo: 2,
+        data: { type: 'context.append_message' as const, message: userMsg('u1') },
+        raw: {},
+      },
+      {
+        lineNo: 3,
+        data: { type: 'context.append_message' as const, message: toolMsg('c2', bigText) },
+        raw: {},
+      },
       { lineNo: 4, data: { type: 'micro_compaction.apply' as const, cutoff: 3 }, raw: {} },
       { lineNo: 5, data: { type: 'context.undo' as const, count: 1 }, raw: {} },
       // appended AFTER undo: index 2 in the final list ([c0, undo-marker, n0]).
-      { lineNo: 6, data: { type: 'context.append_message' as const, message: toolMsg('n0', bigText) }, raw: {} },
+      {
+        lineNo: 6,
+        data: { type: 'context.append_message' as const, message: toolMsg('n0', bigText) },
+        raw: {},
+      },
     ];
     const proj = projectContext(entries as any);
     // After undo: [c0, undo-marker]; then n0 appended → [c0, undo-marker, n0].
     // Clamp made cutoff = min(3, 2) = 2, so n0 (index 2) is NOT blanked.
     // c0 (index 0 < 2) IS still blanked (the still-valid prefix).
-    expect(proj.messages.map((m) => m.source)).toEqual(['append_message', 'undo', 'append_message']);
-    expect(proj.messages[0]!.message.content).toEqual([{ type: 'text', text: '[Old tool result content cleared]' }]);
+    expect(proj.messages.map((m) => m.source)).toEqual([
+      'append_message',
+      'undo',
+      'append_message',
+    ]);
+    expect(proj.messages[0]!.message.content).toEqual([
+      { type: 'text', text: '[Old tool result content cleared]' },
+    ]);
     expect(proj.messages[2]!.message.content[0]).toMatchObject({ text: bigText });
   });
 
   it('context.undo clamps the micro-compaction cutoff by history-entry count, not array length (surviving marker)', () => {
     const bigText = 'x'.repeat(2000);
     const toolMsg = (id: string, text: string) => ({
-      role: 'tool' as const, content: [{ type: 'text' as const, text }], toolCalls: [], toolCallId: id,
+      role: 'tool' as const,
+      content: [{ type: 'text' as const, text }],
+      toolCalls: [],
+      toolCallId: id,
     });
     const userMsg = (text: string) => ({
-      role: 'user' as const, content: [{ type: 'text' as const, text }], toolCalls: [],
+      role: 'user' as const,
+      content: [{ type: 'text' as const, text }],
+      toolCalls: [],
       origin: { kind: 'user' as const },
     });
     // A PRIOR undo must leave a surviving marker so that, at a LATER undo's clamp,
@@ -895,18 +1669,37 @@ describe('context-projector', () => {
     // So this is RED (n0 blanked) under the messages.length clamp and GREEN under
     // the history-count clamp.
     const entries = [
-      { lineNo: 1, data: { type: 'context.append_message' as const, message: userMsg('u1') }, raw: {} },
-      { lineNo: 2, data: { type: 'context.append_message' as const, message: userMsg('u2') }, raw: {} },
+      {
+        lineNo: 1,
+        data: { type: 'context.append_message' as const, message: userMsg('u1') },
+        raw: {},
+      },
+      {
+        lineNo: 2,
+        data: { type: 'context.append_message' as const, message: userMsg('u2') },
+        raw: {},
+      },
       { lineNo: 3, data: { type: 'context.undo' as const, count: 1 }, raw: {} },
-      { lineNo: 4, data: { type: 'context.append_message' as const, message: userMsg('u3') }, raw: {} },
+      {
+        lineNo: 4,
+        data: { type: 'context.append_message' as const, message: userMsg('u3') },
+        raw: {},
+      },
       { lineNo: 5, data: { type: 'micro_compaction.apply' as const, cutoff: 5 }, raw: {} },
       { lineNo: 6, data: { type: 'context.undo' as const, count: 1 }, raw: {} },
       // appended AFTER the second undo, at history index 1.
-      { lineNo: 7, data: { type: 'context.append_message' as const, message: toolMsg('n0', bigText) }, raw: {} },
+      {
+        lineNo: 7,
+        data: { type: 'context.append_message' as const, message: toolMsg('n0', bigText) },
+        raw: {},
+      },
     ];
     const proj = projectContext(entries as any);
     expect(proj.messages.map((m) => m.source)).toEqual([
-      'append_message', 'undo', 'undo', 'append_message',
+      'append_message',
+      'undo',
+      'undo',
+      'append_message',
     ]);
     // u1 (history index 0 < cutoff) is blanked-eligible but is a user message, so
     // unchanged. n0 (history index 1) must NOT be blanked: its original content
@@ -916,18 +1709,42 @@ describe('context-projector', () => {
 
   it('accumulates goal state from goal.create/update and clears on goal.clear', () => {
     const base = [
-      { lineNo: 1, data: { type: 'goal.create' as const, goalId: 'g1', objective: 'ship it', completionCriterion: 'tests green' }, raw: {} },
-      { lineNo: 2, data: { type: 'goal.update' as const, status: 'active', turnsUsed: 3, actor: 'model' }, raw: {} },
+      {
+        lineNo: 1,
+        data: {
+          type: 'goal.create' as const,
+          goalId: 'g1',
+          objective: 'ship it',
+          completionCriterion: 'tests green',
+        },
+        raw: {},
+      },
+      {
+        lineNo: 2,
+        data: { type: 'goal.update' as const, status: 'active', turnsUsed: 3, actor: 'model' },
+        raw: {},
+      },
     ];
     const proj = projectContext(base as any);
-    expect(proj.goal).toMatchObject({ goalId: 'g1', objective: 'ship it', status: 'active', turnsUsed: 3, actor: 'model' });
+    expect(proj.goal).toMatchObject({
+      goalId: 'g1',
+      objective: 'ship it',
+      status: 'active',
+      turnsUsed: 3,
+      actor: 'model',
+    });
 
-    const cleared = projectContext([...base, { lineNo: 3, data: { type: 'goal.clear' as const }, raw: {} }] as any);
+    const cleared = projectContext([
+      ...base,
+      { lineNo: 3, data: { type: 'goal.clear' as const }, raw: {} },
+    ] as any);
     expect(cleared.goal).toBeNull();
   });
 
   it('tracks swarm mode enter/exit', () => {
-    const enter = projectContext([{ lineNo: 1, data: { type: 'swarm_mode.enter' as const, trigger: 'task' }, raw: {} }] as any);
+    const enter = projectContext([
+      { lineNo: 1, data: { type: 'swarm_mode.enter' as const, trigger: 'task' }, raw: {} },
+    ] as any);
     expect(enter.swarm).toEqual({ active: true, trigger: 'task' });
     const exit = projectContext([
       { lineNo: 1, data: { type: 'swarm_mode.enter' as const, trigger: 'task' }, raw: {} },
@@ -938,11 +1755,28 @@ describe('context-projector', () => {
 
   it('uses the latest step.end usage as the absolute context-token snapshot', () => {
     const entries = [
-      { lineNo: 1, data: { type: 'context.append_loop_event' as const,
-          event: { type: 'step.begin' as const, uuid: 's1', turnId: 't1', step: 0 } }, raw: {} },
-      { lineNo: 2, data: { type: 'context.append_loop_event' as const,
-          event: { type: 'step.end' as const, uuid: 's1', turnId: 't1', step: 0,
-            usage: { inputOther: 10, output: 5, inputCacheRead: 2, inputCacheCreation: 3 } } }, raw: {} },
+      {
+        lineNo: 1,
+        data: {
+          type: 'context.append_loop_event' as const,
+          event: { type: 'step.begin' as const, uuid: 's1', turnId: 't1', step: 0 },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 2,
+        data: {
+          type: 'context.append_loop_event' as const,
+          event: {
+            type: 'step.end' as const,
+            uuid: 's1',
+            turnId: 't1',
+            step: 0,
+            usage: { inputOther: 10, output: 5, inputCacheRead: 2, inputCacheCreation: 3 },
+          },
+        },
+        raw: {},
+      },
     ];
     const proj = projectContext(entries as any);
     expect(proj.contextTokens).toBe(20); // 10+5+2+3, absolute (not summed across usage.record)
@@ -966,11 +1800,28 @@ describe('context-projector', () => {
   for (const mode of ['model', 'full'] as const) {
     it(`resets contextTokens to 0 after a context.clear (mode=${mode})`, () => {
       const entries = [
-        { lineNo: 1, data: { type: 'context.append_loop_event' as const,
-            event: { type: 'step.begin' as const, uuid: 's1', turnId: 't1', step: 0 } }, raw: {} },
-        { lineNo: 2, data: { type: 'context.append_loop_event' as const,
-            event: { type: 'step.end' as const, uuid: 's1', turnId: 't1', step: 0,
-              usage: { inputOther: 10, output: 5, inputCacheRead: 2, inputCacheCreation: 3 } } }, raw: {} },
+        {
+          lineNo: 1,
+          data: {
+            type: 'context.append_loop_event' as const,
+            event: { type: 'step.begin' as const, uuid: 's1', turnId: 't1', step: 0 },
+          },
+          raw: {},
+        },
+        {
+          lineNo: 2,
+          data: {
+            type: 'context.append_loop_event' as const,
+            event: {
+              type: 'step.end' as const,
+              uuid: 's1',
+              turnId: 't1',
+              step: 0,
+              usage: { inputOther: 10, output: 5, inputCacheRead: 2, inputCacheCreation: 3 },
+            },
+          },
+          raw: {},
+        },
         // clear() is the last token-affecting event → contextTokens must be 0.
         { lineNo: 3, data: { type: 'context.clear' as const }, raw: {} },
       ];
@@ -980,15 +1831,41 @@ describe('context-projector', () => {
 
     it(`sets contextTokens to tokensAfter after a context.apply_compaction (mode=${mode})`, () => {
       const entries = [
-        { lineNo: 1, data: { type: 'context.append_loop_event' as const,
-            event: { type: 'step.begin' as const, uuid: 's1', turnId: 't1', step: 0 } }, raw: {} },
-        { lineNo: 2, data: { type: 'context.append_loop_event' as const,
-            event: { type: 'step.end' as const, uuid: 's1', turnId: 't1', step: 0,
-              usage: { inputOther: 100, output: 0, inputCacheRead: 0, inputCacheCreation: 0 } } }, raw: {} },
+        {
+          lineNo: 1,
+          data: {
+            type: 'context.append_loop_event' as const,
+            event: { type: 'step.begin' as const, uuid: 's1', turnId: 't1', step: 0 },
+          },
+          raw: {},
+        },
+        {
+          lineNo: 2,
+          data: {
+            type: 'context.append_loop_event' as const,
+            event: {
+              type: 'step.end' as const,
+              uuid: 's1',
+              turnId: 't1',
+              step: 0,
+              usage: { inputOther: 100, output: 0, inputCacheRead: 0, inputCacheCreation: 0 },
+            },
+          },
+          raw: {},
+        },
         // applyCompaction is the last token-affecting event → contextTokens must
         // be tokensAfter (30), not the pre-compaction step.end snapshot (100).
-        { lineNo: 3, data: { type: 'context.apply_compaction' as const,
-            summary: 'sum', compactedCount: 0, tokensBefore: 100, tokensAfter: 30 }, raw: {} },
+        {
+          lineNo: 3,
+          data: {
+            type: 'context.apply_compaction' as const,
+            summary: 'sum',
+            compactedCount: 0,
+            tokensBefore: 100,
+            tokensAfter: 30,
+          },
+          raw: {},
+        },
       ];
       const proj = projectContext(entries as any, mode);
       expect(proj.contextTokens).toBe(30);
@@ -1002,66 +1879,167 @@ describe('context-projector', () => {
 
   it("defaults to 'model' mode when no 2nd arg is passed (keeps recent user messages + summary)", () => {
     const entries = [
-      { lineNo: 1, data: { type: 'context.append_message' as const,
-          message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'm0' }], toolCalls: [] } }, raw: {} },
-      { lineNo: 2, data: { type: 'context.append_message' as const,
-          message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'm1' }], toolCalls: [] } }, raw: {} },
-      { lineNo: 3, data: { type: 'context.apply_compaction' as const,
-          summary: 'sum', compactedCount: 2, tokensBefore: 100, tokensAfter: 10,
-          keptUserMessageCount: 2 }, raw: {} },
+      {
+        lineNo: 1,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: 'm0' }],
+            toolCalls: [],
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 2,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: 'm1' }],
+            toolCalls: [],
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 3,
+        data: {
+          type: 'context.apply_compaction' as const,
+          summary: 'sum',
+          compactedCount: 2,
+          tokensBefore: 100,
+          tokensAfter: 10,
+          keptUserMessageCount: 2,
+        },
+        raw: {},
+      },
     ];
     // No 2nd arg → 'model' default: the real user prompts are kept verbatim and
     // the summary is appended after them, followed by the continuation anchor.
     const proj = projectContext(entries as any);
     expect(proj.messages.map((m) => m.source)).toEqual([
-      'append_message', 'append_message', 'compaction_summary', 'append_message',
+      'append_message',
+      'append_message',
+      'compaction_summary',
+      'append_message',
     ]);
     expect(proj.messages[0]!.message.content[0]).toMatchObject({ text: 'm0' });
     expect(proj.messages[1]!.message.content[0]).toMatchObject({ text: 'm1' });
   });
 
-  it("full mode keeps the pre-compaction messages plus the summary marker plus the tail", () => {
+  it('full mode keeps the pre-compaction messages plus the summary marker plus the tail', () => {
     const entries = [
-      { lineNo: 1, data: { type: 'context.append_message' as const,
-          message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'm0' }], toolCalls: [] } }, raw: {} },
-      { lineNo: 2, data: { type: 'context.append_message' as const,
-          message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'm1' }], toolCalls: [] } }, raw: {} },
-      { lineNo: 3, data: { type: 'context.apply_compaction' as const,
-          summary: 'sum', compactedCount: 2, tokensBefore: 100, tokensAfter: 10 }, raw: {} },
-      { lineNo: 4, data: { type: 'context.append_message' as const,
-          message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'm3' }], toolCalls: [] } }, raw: {} },
+      {
+        lineNo: 1,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: 'm0' }],
+            toolCalls: [],
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 2,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: 'm1' }],
+            toolCalls: [],
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 3,
+        data: {
+          type: 'context.apply_compaction' as const,
+          summary: 'sum',
+          compactedCount: 2,
+          tokensBefore: 100,
+          tokensAfter: 10,
+        },
+        raw: {},
+      },
+      {
+        lineNo: 4,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: 'm3' }],
+            toolCalls: [],
+          },
+        },
+        raw: {},
+      },
     ];
     const proj = projectContext(entries as any, 'full');
     // m0, m1 are KEPT (not dropped), then the summary marker is appended inline,
     // then the post-compaction tail (m3). Contrast the model-mode test above
     // which drops the first compactedCount messages.
     expect(proj.messages.map((m) => m.source)).toEqual([
-      'append_message', 'append_message', 'compaction_summary', 'append_message',
+      'append_message',
+      'append_message',
+      'compaction_summary',
+      'append_message',
     ]);
     expect(proj.messages[0]!.message.content[0]).toMatchObject({ text: 'm0' });
     expect(proj.messages[1]!.message.content[0]).toMatchObject({ text: 'm1' });
-    expect(proj.messages[2]!.compaction).toEqual({ compactedCount: 2, tokensBefore: 100, tokensAfter: 10 });
+    expect(proj.messages[2]!.compaction).toEqual({
+      compactedCount: 2,
+      tokensBefore: 100,
+      tokensAfter: 10,
+    });
     expect(proj.messages[2]!.message.origin).toEqual({ kind: 'compaction_summary' });
     expect(proj.messages[3]!.message.content[0]).toMatchObject({ text: 'm3' });
   });
 
-  it("full mode keeps the undone messages and only appends an undo marker (no splice)", () => {
+  it('full mode keeps the undone messages and only appends an undo marker (no splice)', () => {
     const userMsg = (text: string) => ({
-      role: 'user' as const, content: [{ type: 'text' as const, text }], toolCalls: [],
+      role: 'user' as const,
+      content: [{ type: 'text' as const, text }],
+      toolCalls: [],
       origin: { kind: 'user' as const },
     });
     const entries = [
-      { lineNo: 1, data: { type: 'context.append_message' as const, message: userMsg('u1') }, raw: {} },
-      { lineNo: 2, data: { type: 'context.append_message' as const,
-          message: { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'a1' }], toolCalls: [] } }, raw: {} },
-      { lineNo: 3, data: { type: 'context.append_message' as const, message: userMsg('u2') }, raw: {} },
+      {
+        lineNo: 1,
+        data: { type: 'context.append_message' as const, message: userMsg('u1') },
+        raw: {},
+      },
+      {
+        lineNo: 2,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'assistant' as const,
+            content: [{ type: 'text' as const, text: 'a1' }],
+            toolCalls: [],
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 3,
+        data: { type: 'context.append_message' as const, message: userMsg('u2') },
+        raw: {},
+      },
       { lineNo: 4, data: { type: 'context.undo' as const, count: 1 }, raw: {} },
     ];
     const proj = projectContext(entries as any, 'full');
     // All three messages are KEPT, then an undo marker is appended. The
     // removedMessageCount still reflects what WOULD have been removed (u2 → 1).
     expect(proj.messages.map((m) => m.source)).toEqual([
-      'append_message', 'append_message', 'append_message', 'undo',
+      'append_message',
+      'append_message',
+      'append_message',
+      'undo',
     ]);
     expect(proj.messages[0]!.message.content[0]).toMatchObject({ text: 'u1' });
     expect(proj.messages[1]!.message.content[0]).toMatchObject({ text: 'a1' });
@@ -1072,29 +2050,64 @@ describe('context-projector', () => {
 
   it("full mode keeps pre-clear messages and inserts a 'clear' marker (not emptied)", () => {
     const entries = [
-      { lineNo: 2, data: { type: 'context.append_message' as const,
-          message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'a' }], toolCalls: [] } }, raw: {} },
+      {
+        lineNo: 2,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: 'a' }],
+            toolCalls: [],
+          },
+        },
+        raw: {},
+      },
       { lineNo: 3, data: { type: 'context.clear' as const }, raw: {} },
-      { lineNo: 4, data: { type: 'context.append_message' as const,
-          message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'b' }], toolCalls: [] } }, raw: {} },
+      {
+        lineNo: 4,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: 'b' }],
+            toolCalls: [],
+          },
+        },
+        raw: {},
+      },
     ];
     const proj = projectContext(entries as any, 'full');
     // 'a' KEPT, then a 'clear' marker, then 'b' — not emptied.
-    expect(proj.messages.map((m) => m.source)).toEqual(['append_message', 'clear', 'append_message']);
+    expect(proj.messages.map((m) => m.source)).toEqual([
+      'append_message',
+      'clear',
+      'append_message',
+    ]);
     expect(proj.messages[0]!.message.content[0]).toMatchObject({ text: 'a' });
     expect(proj.messages[1]!.source).toBe('clear');
     expect(proj.messages[1]!.lineNo).toBe(3);
     expect(proj.messages[2]!.message.content[0]).toMatchObject({ text: 'b' });
   });
 
-  it("full mode does NOT blank the tool result on micro-compaction (shows original content)", () => {
+  it('full mode does NOT blank the tool result on micro-compaction (shows original content)', () => {
     const bigText = 'x'.repeat(2000); // comfortably above the 100-token min
     const toolMsg = (id: string, text: string) => ({
-      role: 'tool' as const, content: [{ type: 'text' as const, text }], toolCalls: [], toolCallId: id,
+      role: 'tool' as const,
+      content: [{ type: 'text' as const, text }],
+      toolCalls: [],
+      toolCallId: id,
     });
     const entries = [
-      { lineNo: 1, data: { type: 'context.append_message' as const, message: toolMsg('c0', bigText) }, raw: {} },
-      { lineNo: 2, data: { type: 'context.append_message' as const, message: toolMsg('c1', bigText) }, raw: {} },
+      {
+        lineNo: 1,
+        data: { type: 'context.append_message' as const, message: toolMsg('c0', bigText) },
+        raw: {},
+      },
+      {
+        lineNo: 2,
+        data: { type: 'context.append_message' as const, message: toolMsg('c1', bigText) },
+        raw: {},
+      },
       { lineNo: 3, data: { type: 'micro_compaction.apply' as const, cutoff: 1 }, raw: {} },
     ];
     const proj = projectContext(entries as any, 'full');
@@ -1106,8 +2119,27 @@ describe('context-projector', () => {
 
   it('folds v2 token_counting records into the context-window fill', () => {
     const entries = [
-      { lineNo: 1, data: { type: 'token_counting.measured' as const, agentId: 'main', length: 10, tokens: 12345 }, raw: {} },
-      { lineNo: 2, data: { type: 'token_counting.turn_recorded' as const, agentId: 'main', turnId: 1, length: 12, tokens: 13000 }, raw: {} },
+      {
+        lineNo: 1,
+        data: {
+          type: 'token_counting.measured' as const,
+          agentId: 'main',
+          length: 10,
+          tokens: 12345,
+        },
+        raw: {},
+      },
+      {
+        lineNo: 2,
+        data: {
+          type: 'token_counting.turn_recorded' as const,
+          agentId: 'main',
+          turnId: 1,
+          length: 12,
+          tokens: 13000,
+        },
+        raw: {},
+      },
     ];
     const proj = projectContext(entries as any);
     expect(proj.contextTokens).toBe(13000);
@@ -1115,7 +2147,17 @@ describe('context-projector', () => {
 
   it('resets the context-window fill on context.clear after token_counting', () => {
     const entries = [
-      { lineNo: 1, data: { type: 'token_counting.rebased' as const, agentId: 'main', length: 3, tokens: 5000, measured: true }, raw: {} },
+      {
+        lineNo: 1,
+        data: {
+          type: 'token_counting.rebased' as const,
+          agentId: 'main',
+          length: 3,
+          tokens: 5000,
+          measured: true,
+        },
+        raw: {},
+      },
       { lineNo: 2, data: { type: 'context.clear' as const, agentId: 'main' }, raw: {} },
     ];
     const proj = projectContext(entries as any);
@@ -1124,21 +2166,43 @@ describe('context-projector', () => {
 
   it('reads the config snapshot from v2 profile.bind', () => {
     const entries = [
-      { lineNo: 1, data: { type: 'profile.bind' as const, agentId: 'main',
-          modelAlias: 'k2', profileName: 'agent', thinkingEffort: 'high', systemPrompt: 'You are Kimi.',
-          environmentDisclosure: { cwd: '/repo' }, disallowedTools: [] }, raw: {} },
+      {
+        lineNo: 1,
+        data: {
+          type: 'profile.bind' as const,
+          agentId: 'main',
+          modelAlias: 'k2',
+          profileName: 'agent',
+          thinkingEffort: 'high',
+          systemPrompt: 'You are Kimi.',
+          environmentDisclosure: { cwd: '/repo' },
+          disallowedTools: [],
+        },
+        raw: {},
+      },
     ];
     const proj = projectContext(entries as any);
     expect(proj.config).toEqual({
-      cwd: '/repo', modelAlias: 'k2', profileName: 'agent',
-      thinkingEffort: 'high', systemPrompt: 'You are Kimi.',
+      cwd: '/repo',
+      modelAlias: 'k2',
+      profileName: 'agent',
+      thinkingEffort: 'high',
+      systemPrompt: 'You are Kimi.',
     });
   });
 
   it('accepts v2 config.update with environmentDisclosure cwd and thinkingLevel', () => {
     const entries = [
-      { lineNo: 1, data: { type: 'config.update' as const, agentId: 'main',
-          environmentDisclosure: { cwd: '/other' }, thinkingLevel: 'medium' }, raw: {} },
+      {
+        lineNo: 1,
+        data: {
+          type: 'config.update' as const,
+          agentId: 'main',
+          environmentDisclosure: { cwd: '/other' },
+          thinkingLevel: 'medium',
+        },
+        raw: {},
+      },
     ];
     const proj = projectContext(entries as any);
     expect(proj.config.cwd).toBe('/other');
@@ -1152,9 +2216,26 @@ describe('context-projector', () => {
       toolCalls: [],
     };
     const entries = [
-      { lineNo: 1, data: { type: 'token_counting.measured' as const, agentId: 'main', length: 5, tokens: 7777 }, raw: {} },
-      { lineNo: 2, data: { type: 'context.apply_compaction' as const, agentId: 'main',
-          summary: summaryMessage, count: 2 }, raw: {} },
+      {
+        lineNo: 1,
+        data: {
+          type: 'token_counting.measured' as const,
+          agentId: 'main',
+          length: 5,
+          tokens: 7777,
+        },
+        raw: {},
+      },
+      {
+        lineNo: 2,
+        data: {
+          type: 'context.apply_compaction' as const,
+          agentId: 'main',
+          summary: summaryMessage,
+          count: 2,
+        },
+        raw: {},
+      },
     ];
     const proj = projectContext(entries as any);
     const bubble = proj.messages.at(-1)!;
@@ -1167,7 +2248,9 @@ describe('context-projector', () => {
     expect(proj.contextTokens).toBe(expected);
     expect(proj.contextTokens).not.toBe(7777);
     expect(bubble.compaction).toEqual({
-      compactedCount: 2, tokensBefore: undefined, tokensAfter: expected,
+      compactedCount: 2,
+      tokensBefore: undefined,
+      tokensAfter: expected,
     });
   });
 
@@ -1176,12 +2259,41 @@ describe('context-projector', () => {
     // compactedCount compares to the current history length — the engine's
     // restore is always `[summary, ...history.slice(compactedCount)]`.
     const entries = [
-      { lineNo: 1, data: { type: 'context.append_message' as const,
-          message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'u1' }], toolCalls: [], origin: { kind: 'user' as const } } }, raw: {} },
-      { lineNo: 2, data: { type: 'context.append_message' as const,
-          message: { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'a1' }], toolCalls: [] } }, raw: {} },
-      { lineNo: 3, data: { type: 'context.apply_compaction' as const,
-          summary: 'sum', compactedCount: 99, tokensAfter: 50 }, raw: {} },
+      {
+        lineNo: 1,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: 'u1' }],
+            toolCalls: [],
+            origin: { kind: 'user' as const },
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 2,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'assistant' as const,
+            content: [{ type: 'text' as const, text: 'a1' }],
+            toolCalls: [],
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 3,
+        data: {
+          type: 'context.apply_compaction' as const,
+          summary: 'sum',
+          compactedCount: 99,
+          tokensAfter: 50,
+        },
+        raw: {},
+      },
     ];
     const proj = projectContext(entries as any);
     expect(proj.messages.map((m) => m.source)).toEqual(['compaction_summary']);
@@ -1191,13 +2303,43 @@ describe('context-projector', () => {
 
   it('honors an explicit legacyTail flag even when keptUserMessageCount is present', () => {
     const entries = [
-      { lineNo: 1, data: { type: 'context.append_message' as const,
-          message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'u1' }], toolCalls: [], origin: { kind: 'user' as const } } }, raw: {} },
-      { lineNo: 2, data: { type: 'context.append_message' as const,
-          message: { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'a2 (tail)' }], toolCalls: [] } }, raw: {} },
-      { lineNo: 3, data: { type: 'context.apply_compaction' as const,
-          summary: 'sum', compactedCount: 1, tokensAfter: 5,
-          keptUserMessageCount: 1, legacyTail: true }, raw: {} },
+      {
+        lineNo: 1,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: 'u1' }],
+            toolCalls: [],
+            origin: { kind: 'user' as const },
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 2,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'assistant' as const,
+            content: [{ type: 'text' as const, text: 'a2 (tail)' }],
+            toolCalls: [],
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 3,
+        data: {
+          type: 'context.apply_compaction' as const,
+          summary: 'sum',
+          compactedCount: 1,
+          tokensAfter: 5,
+          keptUserMessageCount: 1,
+          legacyTail: true,
+        },
+        raw: {},
+      },
     ];
     const proj = projectContext(entries as any);
     // Verbatim tail [summary, a2], not the kept-user selection.
@@ -1208,9 +2350,20 @@ describe('context-projector', () => {
 
   it('normalizes the legacy background_task origin to task', () => {
     const entries = [
-      { lineNo: 1, data: { type: 'context.append_message' as const, agentId: 'main',
-          message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'bg done' }], toolCalls: [],
-            origin: { kind: 'background_task', status: 'completed' } } }, raw: {} },
+      {
+        lineNo: 1,
+        data: {
+          type: 'context.append_message' as const,
+          agentId: 'main',
+          message: {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: 'bg done' }],
+            toolCalls: [],
+            origin: { kind: 'background_task', status: 'completed' },
+          },
+        },
+        raw: {},
+      },
     ];
     const proj = projectContext(entries as any);
     expect(proj.messages[0]!.message.origin).toMatchObject({ kind: 'task', status: 'completed' });
@@ -1218,23 +2371,115 @@ describe('context-projector', () => {
 
   it('ignores v2 lifecycle/task bookkeeping records for context state', () => {
     const entries = [
-      { lineNo: 1, data: { type: 'turn.prompt' as const, agentId: 'main', input: [{ type: 'text' as const, text: 'hi' }], origin: { kind: 'user' as const } }, raw: {} },
-      { lineNo: 2, data: { type: 'turn.ended' as const, agentId: 'main', turnId: 1, reason: 'completed' as const }, raw: {} },
-      { lineNo: 3, data: { type: 'prompt.completed' as const, agentId: 'main', promptId: 'p1', finishedAt: '2026-09-01T00:00:00Z', reason: 'completed' as const }, raw: {} },
-      { lineNo: 4, data: { type: 'interaction.request' as const, agentId: 'main', id: 'i1', kind: 'approval' as const, request: {} }, raw: {} },
-      { lineNo: 5, data: { type: 'task.started' as const, agentId: 'main', info: { taskId: 'bash-abc12345', description: 'x', status: 'running' as const, startedAt: 1, endedAt: null } }, raw: {} },
-      { lineNo: 6, data: { type: 'cron.add' as const, agentId: 'main', task: { id: '01ARZ3NDEKTSV4RRFFQ69G5FAV', cron: '* * * * *', prompt: 'p', createdAt: 1 } }, raw: {} },
-      { lineNo: 7, data: { type: 'plan.revision' as const, agentId: 'main', id: 'plan1', version: 2, key: 'k', sha256: 's', bytes: 10 }, raw: {} },
-      { lineNo: 8, data: { type: 'runtime.set_binding' as const, agentId: 'main', workspaceId: 'w', runtimeId: 'r' }, raw: {} },
-      { lineNo: 9, data: { type: 'staleGuard.recorded' as const, path: '/x', mtimeMs: 1 }, raw: {} },
-      { lineNo: 10, data: { type: 'interruptionReminder.recorded' as const, agentId: 'main', turnId: 1 }, raw: {} },
+      {
+        lineNo: 1,
+        data: {
+          type: 'turn.prompt' as const,
+          agentId: 'main',
+          input: [{ type: 'text' as const, text: 'hi' }],
+          origin: { kind: 'user' as const },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 2,
+        data: {
+          type: 'turn.ended' as const,
+          agentId: 'main',
+          turnId: 1,
+          reason: 'completed' as const,
+        },
+        raw: {},
+      },
+      {
+        lineNo: 3,
+        data: {
+          type: 'prompt.completed' as const,
+          agentId: 'main',
+          promptId: 'p1',
+          finishedAt: '2026-09-01T00:00:00Z',
+          reason: 'completed' as const,
+        },
+        raw: {},
+      },
+      {
+        lineNo: 4,
+        data: {
+          type: 'interaction.request' as const,
+          agentId: 'main',
+          id: 'i1',
+          kind: 'approval' as const,
+          request: {},
+        },
+        raw: {},
+      },
+      {
+        lineNo: 5,
+        data: {
+          type: 'task.started' as const,
+          agentId: 'main',
+          info: {
+            taskId: 'bash-abc12345',
+            description: 'x',
+            status: 'running' as const,
+            startedAt: 1,
+            endedAt: null,
+          },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 6,
+        data: {
+          type: 'cron.add' as const,
+          agentId: 'main',
+          task: { id: '01ARZ3NDEKTSV4RRFFQ69G5FAV', cron: '* * * * *', prompt: 'p', createdAt: 1 },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 7,
+        data: {
+          type: 'plan.revision' as const,
+          agentId: 'main',
+          id: 'plan1',
+          version: 2,
+          key: 'k',
+          sha256: 's',
+          bytes: 10,
+        },
+        raw: {},
+      },
+      {
+        lineNo: 8,
+        data: {
+          type: 'runtime.set_binding' as const,
+          agentId: 'main',
+          workspaceId: 'w',
+          runtimeId: 'r',
+        },
+        raw: {},
+      },
+      {
+        lineNo: 9,
+        data: { type: 'staleGuard.recorded' as const, path: '/x', mtimeMs: 1 },
+        raw: {},
+      },
+      {
+        lineNo: 10,
+        data: { type: 'interruptionReminder.recorded' as const, agentId: 'main', turnId: 1 },
+        raw: {},
+      },
     ];
     const proj = projectContext(entries as any);
     // None of these append messages or move derived context state.
     expect(proj.messages).toEqual([]);
     expect(proj.contextTokens).toBe(0);
     expect(proj.usage.byScope.session).toEqual({
-      inputOther: 0, output: 0, inputCacheRead: 0, inputCacheCreation: 0,
+      inputOther: 0,
+      output: 0,
+      inputCacheRead: 0,
+      inputCacheCreation: 0,
     });
   });
 
@@ -1247,33 +2492,72 @@ describe('context-projector', () => {
 
   it('folds an unknown usageScope into session instead of throwing (a37/F3)', () => {
     const entries = [
-      { lineNo: 1, data: { type: 'usage.record' as const, model: 'm',
+      {
+        lineNo: 1,
+        data: {
+          type: 'usage.record' as const,
+          model: 'm',
           usage: { inputOther: 1, output: 2, inputCacheRead: 3, inputCacheCreation: 4 },
-          usageScope: 'x' }, raw: {} },
-      { lineNo: 2, data: { type: 'usage.record' as const, model: 'm',
-          usage: { inputOther: 10, output: 20, inputCacheRead: 30, inputCacheCreation: 40 } }, raw: {} },
-      { lineNo: 3, data: { type: 'usage.record' as const, model: 'm',
+          usageScope: 'x',
+        },
+        raw: {},
+      },
+      {
+        lineNo: 2,
+        data: {
+          type: 'usage.record' as const,
+          model: 'm',
+          usage: { inputOther: 10, output: 20, inputCacheRead: 30, inputCacheCreation: 40 },
+        },
+        raw: {},
+      },
+      {
+        lineNo: 3,
+        data: {
+          type: 'usage.record' as const,
+          model: 'm',
           usage: { inputOther: 100, output: 200, inputCacheRead: 300, inputCacheCreation: 400 },
-          usageScope: 'turn' }, raw: {} },
+          usageScope: 'turn',
+        },
+        raw: {},
+      },
     ];
 
     const proj = projectContext(entries as any);
 
     // The two 'session' records accumulate; the explicit 'turn' one stays out.
     expect(proj.usage.byScope.session).toEqual({
-      inputOther: 11, output: 22, inputCacheRead: 33, inputCacheCreation: 44,
+      inputOther: 11,
+      output: 22,
+      inputCacheRead: 33,
+      inputCacheCreation: 44,
     });
     expect(proj.usage.byScope.turn).toEqual({
-      inputOther: 100, output: 200, inputCacheRead: 300, inputCacheCreation: 400,
+      inputOther: 100,
+      output: 200,
+      inputCacheRead: 300,
+      inputCacheCreation: 400,
     });
     expect(proj.warnings).toEqual([]);
   });
 
   it('counts a usage.record with missing / non-numeric usage as 0 and warns (a37/F3)', () => {
     const entries = [
-      { lineNo: 1, data: { type: 'usage.record' as const, model: 'm', usageScope: 'session' }, raw: {} },
-      { lineNo: 2, data: { type: 'usage.record' as const, model: 'm',
-          usage: { inputOther: 'many', output: 5 }, usageScope: 'session' }, raw: {} },
+      {
+        lineNo: 1,
+        data: { type: 'usage.record' as const, model: 'm', usageScope: 'session' },
+        raw: {},
+      },
+      {
+        lineNo: 2,
+        data: {
+          type: 'usage.record' as const,
+          model: 'm',
+          usage: { inputOther: 'many', output: 5 },
+          usageScope: 'session',
+        },
+        raw: {},
+      },
     ];
 
     const proj = projectContext(entries as any);
@@ -1281,7 +2565,10 @@ describe('context-projector', () => {
     // Line 1 contributes nothing but is reported; line 2 keeps its one known
     // field so a real amount is never silently dropped.
     expect(proj.usage.byScope.session).toEqual({
-      inputOther: 0, output: 5, inputCacheRead: 0, inputCacheCreation: 0,
+      inputOther: 0,
+      output: 5,
+      inputCacheRead: 0,
+      inputCacheCreation: 0,
     });
     expect(proj.warnings).toHaveLength(1);
     expect(proj.warnings[0]).toMatch(/line 1: usage\.record had no numeric usage fields/);
@@ -1290,35 +2577,67 @@ describe('context-projector', () => {
   it('replaces a tool result from a string / part-array output (a37/F4)', () => {
     const base = (lineNo: number) => ({
       lineNo,
-      data: { type: 'context.append_message' as const,
-        message: { role: 'tool' as const, toolCallId: 'call-1',
-          content: [{ type: 'text' as const, text: 'predicted' }] } },
+      data: {
+        type: 'context.append_message' as const,
+        message: {
+          role: 'tool' as const,
+          toolCallId: 'call-1',
+          content: [{ type: 'text' as const, text: 'predicted' }],
+        },
+      },
       raw: {},
     });
 
     const asString = projectContext([
       base(1),
-      { lineNo: 2, data: { type: 'context.replace_tool_result' as const, toolCallId: 'call-1',
-          result: { output: 'precise' } }, raw: {} },
+      {
+        lineNo: 2,
+        data: {
+          type: 'context.replace_tool_result' as const,
+          toolCallId: 'call-1',
+          result: { output: 'precise' },
+        },
+        raw: {},
+      },
     ] as any);
     expect(asString.messages[0]!.message.content).toEqual([{ type: 'text', text: 'precise' }]);
     expect(asString.warnings).toEqual([]);
 
     const asParts = projectContext([
       base(1),
-      { lineNo: 2, data: { type: 'context.replace_tool_result' as const, toolCallId: 'call-1',
-          result: { output: [{ type: 'text' as const, text: 'a' }, { type: 'text' as const, text: 'b' }] } }, raw: {} },
+      {
+        lineNo: 2,
+        data: {
+          type: 'context.replace_tool_result' as const,
+          toolCallId: 'call-1',
+          result: {
+            output: [
+              { type: 'text' as const, text: 'a' },
+              { type: 'text' as const, text: 'b' },
+            ],
+          },
+        },
+        raw: {},
+      },
     ] as any);
     expect(asParts.messages[0]!.message.content).toEqual([
-      { type: 'text', text: 'a' }, { type: 'text', text: 'b' },
+      { type: 'text', text: 'a' },
+      { type: 'text', text: 'b' },
     ]);
     expect(asParts.warnings).toEqual([]);
 
     // An empty part array is a legitimate replacement (not a malformed one).
     const asEmpty = projectContext([
       base(1),
-      { lineNo: 2, data: { type: 'context.replace_tool_result' as const, toolCallId: 'call-1',
-          result: { output: [] } }, raw: {} },
+      {
+        lineNo: 2,
+        data: {
+          type: 'context.replace_tool_result' as const,
+          toolCallId: 'call-1',
+          result: { output: [] },
+        },
+        raw: {},
+      },
     ] as any);
     expect(asEmpty.messages[0]!.message.content).toEqual([]);
     expect(asEmpty.warnings).toEqual([]);
@@ -1331,13 +2650,25 @@ describe('context-projector', () => {
     ['object output', { output: { text: 'nope' } }],
     ['missing output', {}],
   ])('keeps the predicted content for a replace_tool_result with %s (a37/F4)', (_label, result) => {
-    const record: Record<string, unknown> = { type: 'context.replace_tool_result', toolCallId: 'call-1' };
+    const record: Record<string, unknown> = {
+      type: 'context.replace_tool_result',
+      toolCallId: 'call-1',
+    };
     if (result !== undefined) record['result'] = result;
 
     const proj = projectContext([
-      { lineNo: 1, data: { type: 'context.append_message' as const,
-          message: { role: 'tool' as const, toolCallId: 'call-1',
-            content: [{ type: 'text' as const, text: 'predicted' }] } }, raw: {} },
+      {
+        lineNo: 1,
+        data: {
+          type: 'context.append_message' as const,
+          message: {
+            role: 'tool' as const,
+            toolCallId: 'call-1',
+            content: [{ type: 'text' as const, text: 'predicted' }],
+          },
+        },
+        raw: {},
+      },
       { lineNo: 2, data: record, raw: {} },
     ] as any);
 

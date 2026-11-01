@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+
 import type { WebSocket } from 'ws';
 
 import type { IConnectionRegistry } from '../src/transport/ws/connectionRegistry';
@@ -346,12 +347,10 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
       reason: 'session_recreated',
       current_seq: 7,
     });
-    const ack = (socket.frames() as Array<{ type: string; payload?: Record<string, unknown> }>).find(
-      (frame) => frame.type === 'ack',
-    );
-    expect(
-      ack?.payload?.['not_found'] ?? ack?.payload?.['resync_required'],
-    ).toEqual(['s1']);
+    const ack = (
+      socket.frames() as Array<{ type: string; payload?: Record<string, unknown> }>
+    ).find((frame) => frame.type === 'ack');
+    expect(ack?.payload?.['not_found'] ?? ack?.payload?.['resync_required']).toEqual(['s1']);
   });
 
   it('acks (and logs) when a control-frame task rejects instead of leaving the client waiting', async () => {
@@ -652,7 +651,9 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
       controlFrame('subscribe_v2', { session_id: 's1', transcript: { '*': 'delta' } }),
     );
     socket.emit('message', controlFrame('unsubscribe_v2', { session_id: 's1' }));
-    await waitForAssertion(() => expect(conn.subscriptions.get('s1')?.transcriptGrades).toBeUndefined());
+    await waitForAssertion(() =>
+      expect(conn.subscriptions.get('s1')?.transcriptGrades).toBeUndefined(),
+    );
 
     socket.emit(
       'message',

@@ -22,25 +22,15 @@ import type { IAgentScopeHandle } from '@moonshot-ai/agent-core-v2';
 import { IAgentLoopService } from '@moonshot-ai/agent-core-v2';
 import { getLiveSessionById } from '@moonshot-ai/agent-core-v2';
 import { ISessionManager } from '@moonshot-ai/agent-core-v2';
-import type {
-  FileMeta,
-  GetResult,
-  SaveOptions,
-} from '@moonshot-ai/agent-core-v2';
+import type { FileMeta, GetResult, SaveOptions } from '@moonshot-ai/agent-core-v2';
 import { IAgentLifecycleService } from '@moonshot-ai/agent-core-v2';
 import { MAIN_AGENT_ID } from '@moonshot-ai/agent-core-v2';
 import { ensureMainAgent } from '@moonshot-ai/agent-core-v2';
 import { getOrRestoreAgent } from '@moonshot-ai/agent-core-v2';
 import { agentContextOf } from '@moonshot-ai/agent-core-v2';
-import { IEventBus } from '@moonshot-ai/agent-core-v2/app/event/eventBus';
-import { FileErrors } from '@moonshot-ai/agent-core-v2/errors';
 import { ITelemetryService } from '@moonshot-ai/agent-core-v2';
-import type {
-  PromptWithSkillsInput,
-  SkillActivationInput,
-} from '@moonshot-ai/agent-core-v2';
-import {Error2} from '@moonshot-ai/agent-core-v2';
-import { ErrorCodes } from '@moonshot-ai/agent-core-v2/errors';
+import type { PromptWithSkillsInput, SkillActivationInput } from '@moonshot-ai/agent-core-v2';
+import { Error2 } from '@moonshot-ai/agent-core-v2';
 import type { SkillActivationOrigin } from '@moonshot-ai/agent-core-v2';
 import { IAgentSkillService } from '@moonshot-ai/agent-core-v2';
 import { interactions } from '@moonshot-ai/agent-core-v2';
@@ -51,6 +41,9 @@ import {
   type InteractionKind,
   type InteractionRequest,
 } from '@moonshot-ai/agent-core-v2';
+import { IEventBus } from '@moonshot-ai/agent-core-v2/app/event/eventBus';
+import { FileErrors } from '@moonshot-ai/agent-core-v2/errors';
+import { ErrorCodes } from '@moonshot-ai/agent-core-v2/errors';
 
 import type { CallOptions, EventSourceRef, IDisposable, ScopeRef } from '../../core/channel.js';
 import { RPCError } from '../../core/errors.js';

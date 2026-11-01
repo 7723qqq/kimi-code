@@ -1,3 +1,4 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 /**
  * Regression suite for `scan-test-residue.mjs`.
  *
@@ -11,8 +12,6 @@
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 const SCANNER = join(import.meta.dirname, 'scan-test-residue.mjs');
 
@@ -73,7 +72,7 @@ function hits(report: any, ruleId: string): string[] {
 describe('scan-test-residue', () => {
   it('scans tools/ and plugins/, which were outside the walk', async () => {
     await write('tools/review/check.mjs', fixture(`import { test } from '${NODE_TEST}';`));
-    await write('plugins/official/x/bin/x.mjs', "#!/usr/bin/env node\n");
+    await write('plugins/official/x/bin/x.mjs', '#!/usr/bin/env node\n');
 
     const { report } = await scan(['--json']);
     expect(report.scannedRoots).toContain('tools');
@@ -93,7 +92,10 @@ describe('scan-test-residue', () => {
   });
 
   it('reads a module specifier even though it is a string literal', async () => {
-    await write('packages/a/test/import-form.test.ts', fixture(`import { expect } from '${VITEST}';`));
+    await write(
+      'packages/a/test/import-form.test.ts',
+      fixture(`import { expect } from '${VITEST}';`),
+    );
 
     const { report } = await scan(['--json']);
     expect(hits(report, 'vitest-import')).toContain('packages/a/test/import-form.test.ts');
@@ -139,7 +141,9 @@ describe('scan-test-residue', () => {
 
     const withReason = await scan(['--json', '--baseline=.baseline.json']);
     expect(withReason.code).toBe(0);
-    const accepted = withReason.report.rules.find((rule: any) => rule.id === 'vitest-import').accepted;
+    const accepted = withReason.report.rules.find(
+      (rule: any) => rule.id === 'vitest-import',
+    ).accepted;
     expect(accepted).toEqual([
       { path: 'packages/a/test/keep.test.ts', reason: 'cannot be changed' },
     ]);

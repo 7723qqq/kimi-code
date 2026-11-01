@@ -201,12 +201,7 @@ export class McpManagementService extends Disposable implements IMcpManagementSe
         workspaceId = `mcp-probe-${randomUUID()}`;
         transientRuntimes = new RuntimeRegistry(workspaceId);
         transientRuntimes.register(
-          new LocalRuntime(
-            workspaceId,
-            this.hostEnvironment,
-            undefined,
-            this.hostProcess,
-          ),
+          new LocalRuntime(workspaceId, this.hostEnvironment, undefined, this.hostProcess),
         );
         runtimeResolver = {
           _serviceBrand: undefined,

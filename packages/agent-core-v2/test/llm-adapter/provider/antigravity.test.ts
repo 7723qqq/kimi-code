@@ -1,4 +1,4 @@
-
+import { describe, expect, it, mock } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -6,10 +6,16 @@ import * as nodeOs from 'node:os';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { describe, expect, it, mock } from 'bun:test';
-
 import { type Message, type StreamedMessagePart } from '#human/llm/message';
-import { AntigravityChatProvider, AntigravityStreamedMessage, buildAntigravityEnv, buildAntigravityPrompt, detectAntigravityBinary, getAntigravityModelCapability, mapModelToAntigravity } from '#human/llm/requester/bases/antigravity/antigravity';
+import {
+  AntigravityChatProvider,
+  AntigravityStreamedMessage,
+  buildAntigravityEnv,
+  buildAntigravityPrompt,
+  detectAntigravityBinary,
+  getAntigravityModelCapability,
+  mapModelToAntigravity,
+} from '#human/llm/requester/bases/antigravity/antigravity';
 import { createAntigravityRequester } from '#human/llm/requester/bases/antigravity/requester';
 
 const osState = (() => ({ home: undefined as string | undefined }))();
@@ -179,7 +185,7 @@ function fakeAgyScript(options: FakeAgyOptions): string {
       'while (template.length < perWrite) template += alphabet;',
       'while (remaining > 0) {',
       '  const size = Math.min(remaining, perWrite);',
-      "  fs.writeSync(2, template.slice(0, size));",
+      '  fs.writeSync(2, template.slice(0, size));',
       '  remaining -= size;',
       '}',
     );
@@ -220,13 +226,28 @@ async function writeFakeAgy(binDir: string, options: FakeAgyOptions): Promise<st
   return binary;
 }
 
-async function writeTranscript(home: string, conversationId: string, lines: string[]): Promise<void> {
-  const dir = join(home, '.gemini', 'antigravity-cli', 'brain', conversationId, '.system_generated', 'logs');
+async function writeTranscript(
+  home: string,
+  conversationId: string,
+  lines: string[],
+): Promise<void> {
+  const dir = join(
+    home,
+    '.gemini',
+    'antigravity-cli',
+    'brain',
+    conversationId,
+    '.system_generated',
+    'logs',
+  );
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, 'transcript.jsonl'), lines.map((line) => `${line}\n`).join(''));
 }
 
-const userMessage = (text: string): Message => ({ role: 'user', content: [{ type: 'text', text }] });
+const userMessage = (text: string): Message => ({
+  role: 'user',
+  content: [{ type: 'text', text }],
+});
 const assistantMessage = (text: string): Message => ({
   role: 'assistant',
   content: [{ type: 'text', text }],
@@ -390,7 +411,13 @@ describe('createAntigravityRequester conversation continuity', () => {
     messages: Message[],
   ): Promise<void> => {
     await requester.generate(
-      { model: { provider: 'antigravity', model: 'gemini-3.7-flash', capability: getAntigravityModelCapability() } },
+      {
+        model: {
+          provider: 'antigravity',
+          model: 'gemini-3.7-flash',
+          capability: getAntigravityModelCapability(),
+        },
+      },
       { messages },
       { signal: new AbortController().signal },
     );

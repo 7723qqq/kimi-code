@@ -12,14 +12,13 @@
  *     original recorded
  */
 
+import { beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
 import { mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { ImageLimits, IMAGE_BYTE_BUDGET, type KimiHarness } from '@moonshot-ai/kimi-code-sdk';
 import { Jimp } from 'jimp';
-import { beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
-import { waitForAssertion } from '#test/helpers/waitFor';
 
 import {
   EditorKeyboardController,
@@ -27,11 +26,11 @@ import {
 } from '#/tui/controllers/editor-keyboard';
 import { ImageAttachmentStore } from '#/tui/utils/image-attachment-store';
 import { extractMediaAttachments, resolveOriginalCaptions } from '#/tui/utils/image-placeholder';
-import { parseImageMeta } from '#/utils/image/image-mime';
-
 // The module under test pulls in `readClipboardMedia` at import time, so the
 // swap happens on the real namespace captured here.
 import * as clipboardImageModule from '#/utils/clipboard/clipboard-image';
+import { parseImageMeta } from '#/utils/image/image-mime';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 const { readClipboardMedia } = (() => ({ readClipboardMedia: mock() }))();
 
@@ -134,7 +133,10 @@ async function solidJpeg(width: number, height: number): Promise<Uint8Array<Arra
 /** Typed `uploadFile` stub so `mock.calls` keeps the (data, options) tuple. */
 function uploadFileMock(id: string) {
   return mock(
-    async (_data: Uint8Array, _opts: { name: string; mimeType?: string; expiresInSec?: number }) => ({
+    async (
+      _data: Uint8Array,
+      _opts: { name: string; mimeType?: string; expiresInSec?: number },
+    ) => ({
       id,
       expires_at: '2030-01-02T03:04:05.000Z',
     }),

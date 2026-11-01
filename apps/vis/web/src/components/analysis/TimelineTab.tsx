@@ -57,7 +57,8 @@ export function TimelineTab({ sessionId }: TimelineTabProps) {
             {agents.length === 0 ? <option value={agentId}>{agentId}</option> : null}
             {agents.map((a) => (
               <option key={a.agentId} value={a.agentId}>
-                {a.agentId} ({a.type}{a.profileName ? ` · ${a.profileName}` : ''})
+                {a.agentId} ({a.type}
+                {a.profileName ? ` · ${a.profileName}` : ''})
               </option>
             ))}
           </select>

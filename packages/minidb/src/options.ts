@@ -1,16 +1,8 @@
-import type {
-  ValueCodecName,
-  ValueModeSetting,
-  OpenOptions,
-} from './types.js';
+import type { ValueCodecName, ValueModeSetting, OpenOptions } from './types.js';
 import { CODECS } from './value-codec.js';
 import type { FsyncPolicy } from './wal.js';
 
-const FSYNC_POLICIES: ReadonlySet<FsyncPolicy> = new Set<FsyncPolicy>([
-  'always',
-  'everysec',
-  'no',
-]);
+const FSYNC_POLICIES: ReadonlySet<FsyncPolicy> = new Set<FsyncPolicy>(['always', 'everysec', 'no']);
 type MaxMemoryPolicy = 'reject' | 'evict-lru';
 type RecoveryModeValue = 'resync' | 'strict';
 const MAX_MEMORY_POLICIES: ReadonlySet<MaxMemoryPolicy> = new Set<MaxMemoryPolicy>([
@@ -64,11 +56,7 @@ function positiveFinite(label: string, value: number | undefined, fallback: numb
   return value;
 }
 
-function nonNegativeFinite(
-  label: string,
-  value: number | undefined,
-  fallback: number,
-): number {
+function nonNegativeFinite(label: string, value: number | undefined, fallback: number): number {
   if (value === undefined) {
     if (!Number.isFinite(fallback)) {
       throw new RangeError(`${label} must be a finite number >= 0`);
@@ -121,11 +109,7 @@ export function parseMiniDbOptions(opts: OpenOptions): ParsedMiniDbOptions {
             );
           })();
   const requestedMode: ValueModeSetting = opts.valueMode ?? 'memory';
-  if (
-    requestedMode !== 'memory' &&
-    requestedMode !== 'disk' &&
-    requestedMode !== 'auto'
-  ) {
+  if (requestedMode !== 'memory' && requestedMode !== 'disk' && requestedMode !== 'auto') {
     throw new RangeError(`unknown valueMode: ${String(requestedMode)}`);
   }
   const resolvedMode: ValueModeSetting = requestedMode;

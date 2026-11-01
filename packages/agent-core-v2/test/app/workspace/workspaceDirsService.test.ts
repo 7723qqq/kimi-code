@@ -1,22 +1,21 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { expectRejection } from '#test/helpers/assertions';
-
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { ILogService } from '#/_base/log/log';
-import { ErrorCodes, Error2 } from '#/errors';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IProjectLocalConfigService } from '#/app/projectLocalConfig/projectLocalConfig';
+import { ErrorCodes, Error2 } from '#/errors';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { FileProjectLocalConfigService } from '#/persistence/backends/node-fs/projectLocalConfigService';
+import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
 import { WorkspaceDirsService } from '#/workspace/workspaceDirs/workspaceDirsService';
-import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
+import { expectRejection } from '#test/helpers/assertions';
 
 import { stubBootstrap } from '../../app/bootstrap/stubs';
 import { registerStateServices } from '../../state/stubs';
@@ -78,7 +77,10 @@ describe('WorkspaceDirsService session sandbox', () => {
     const before = dirs.additionalDirs;
 
     for (const candidate of ['/', '~', dirs.additionalDirs.length === 0 ? root : root]) {
-      await expectRejection(dirs.mergeAdditionalDirs(workspaceDir, [candidate]), (error: unknown) => error instanceof Error2 && error.code === ErrorCodes.CONFIG_INVALID);
+      await expectRejection(
+        dirs.mergeAdditionalDirs(workspaceDir, [candidate]),
+        (error: unknown) => error instanceof Error2 && error.code === ErrorCodes.CONFIG_INVALID,
+      );
     }
     expect(dirs.additionalDirs).toEqual(before);
   });
@@ -96,7 +98,7 @@ describe('WorkspaceDirsService session sandbox', () => {
 
     const release = await dirs.mergeAdditionalDirs(workspaceDir, [outsideDir]);
 
-    expect(dirs.additionalDirs).toEqual([outsideDir.split(sep).join("/")]);
+    expect(dirs.additionalDirs).toEqual([outsideDir.split(sep).join('/')]);
     release.dispose();
     expect(dirs.additionalDirs).toEqual([]);
   });
@@ -106,22 +108,25 @@ describe('WorkspaceDirsService session sandbox', () => {
 
     const first = await dirs.mergeAdditionalDirs(workspaceDir, [outsideDir]);
     const second = await dirs.mergeAdditionalDirs(workspaceDir, [outsideDir]);
-    expect(dirs.additionalDirs).toEqual([outsideDir.split(sep).join("/")]);
+    expect(dirs.additionalDirs).toEqual([outsideDir.split(sep).join('/')]);
 
     first.dispose();
-    expect(dirs.additionalDirs).toEqual([outsideDir.split(sep).join("/")]);
+    expect(dirs.additionalDirs).toEqual([outsideDir.split(sep).join('/')]);
 
     second.dispose();
     expect(dirs.additionalDirs).toEqual([]);
   });
 
-  it.skipIf(process.platform === 'win32')('keeps the project-local config channel permissive', async () => {
-    const dirs = await service();
-    const config = ix.get(IProjectLocalConfigService);
+  it.skipIf(process.platform === 'win32')(
+    'keeps the project-local config channel permissive',
+    async () => {
+      const dirs = await service();
+      const config = ix.get(IProjectLocalConfigService);
 
-    await expect(config.resolveAdditionalDirs(workspaceDir, ['/etc'], 'config')).resolves.toEqual([
-      '/etc',
-    ]);
-    expect(dirs.additionalDirs).toEqual([]);
-  });
+      await expect(config.resolveAdditionalDirs(workspaceDir, ['/etc'], 'config')).resolves.toEqual(
+        ['/etc'],
+      );
+      expect(dirs.additionalDirs).toEqual([]);
+    },
+  );
 });

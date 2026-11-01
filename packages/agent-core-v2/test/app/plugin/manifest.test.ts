@@ -1,8 +1,7 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { parseManifest, PLUGIN_SYSTEM_PROMPT_MAX_BYTES } from '#/app/plugin/manifest';
 import { supportsSymlinks } from '#test/helpers/symlinks';
@@ -272,23 +271,26 @@ describe('plugin manifest parser', () => {
     ]);
   });
 
-  it.skipIf(!supportsSymlinks())('rejects a systemPromptPath symlink that leaves the plugin root', async () => {
-    const outsideDir = await mkdtemp(join(tmpdir(), 'plugin-outside-'));
-    await writeFile(join(outsideDir, 'secret.md'), 'outside content', 'utf8');
-    await symlink(join(outsideDir, 'secret.md'), join(dir, 'linked.md'));
-    await writeFile(
-      join(dir, 'kimi.plugin.json'),
-      JSON.stringify({ name: 'demo', systemPromptPath: './linked.md' }),
-      'utf8',
-    );
+  it.skipIf(!supportsSymlinks())(
+    'rejects a systemPromptPath symlink that leaves the plugin root',
+    async () => {
+      const outsideDir = await mkdtemp(join(tmpdir(), 'plugin-outside-'));
+      await writeFile(join(outsideDir, 'secret.md'), 'outside content', 'utf8');
+      await symlink(join(outsideDir, 'secret.md'), join(dir, 'linked.md'));
+      await writeFile(
+        join(dir, 'kimi.plugin.json'),
+        JSON.stringify({ name: 'demo', systemPromptPath: './linked.md' }),
+        'utf8',
+      );
 
-    const linked = await parseManifest(dir);
-    expect(linked.manifest?.systemPrompt).toBeUndefined();
-    expect(linked.diagnostics.map((d) => d.message)).toEqual([
-      '"systemPromptPath" path resolves outside the plugin (./linked.md)',
-    ]);
-    await rm(outsideDir, { recursive: true, force: true });
-  });
+      const linked = await parseManifest(dir);
+      expect(linked.manifest?.systemPrompt).toBeUndefined();
+      expect(linked.diagnostics.map((d) => d.message)).toEqual([
+        '"systemPromptPath" path resolves outside the plugin (./linked.md)',
+      ]);
+      await rm(outsideDir, { recursive: true, force: true });
+    },
+  );
 
   it('ignores an oversized inline systemPrompt with a warning', async () => {
     const oversized = 'x'.repeat(PLUGIN_SYSTEM_PROMPT_MAX_BYTES + 1);

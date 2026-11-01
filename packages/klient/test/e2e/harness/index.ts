@@ -18,10 +18,7 @@
  * `@moonshot-ai/kap-server/protocol/*` or agent-core-v2 directly.
  */
 export { DaemonClient } from './client.js';
-export type {
-  DaemonClientOptions,
-  SubmitAndWaitOptions,
-} from './client.js';
+export type { DaemonClientOptions, SubmitAndWaitOptions } from './client.js';
 
 export { HttpClient } from './http.js';
 export type { HttpClientOptions } from './http.js';

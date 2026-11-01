@@ -6,12 +6,12 @@
  * stderr, and exits with the right code on success / failure.
  */
 
-import { Command } from 'commander';
 import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import type { Mock } from 'bun:test';
 
 import { OAuthAccessDeniedError } from '@moonshot-ai/kimi-code-oauth';
 import * as sdkModule from '@moonshot-ai/kimi-code-sdk';
+import { Command } from 'commander';
 
 const mockLogin = mock();
 
@@ -195,20 +195,26 @@ describe('kimi login', () => {
     const writtenChunks = stderrSpy.mock.calls.map((call: unknown[]) => String(call[0]));
     expect(
       writtenChunks.some((chunk: string) =>
-        chunk.includes('Login cancelled: Authorization denied: The resource owner denied the request'),
+        chunk.includes(
+          'Login cancelled: Authorization denied: The resource owner denied the request',
+        ),
       ),
     ).toBe(true);
     expect(exitSpy).toHaveBeenCalledWith(1);
   });
 
   it('drives Google login flow when --provider google is passed', async () => {
-    const mockStartLoginFlow = mock().mockImplementation(async (options: { onAuthUrl?: (data: { authUrl: string }) => void }) => {
-      options.onAuthUrl?.({ authUrl: 'https://accounts.google.com/o/oauth2/auth?test=1' });
-      return { providerName: 'google-gemini', ok: true };
-    });
+    const mockStartLoginFlow = mock().mockImplementation(
+      async (options: { onAuthUrl?: (data: { authUrl: string }) => void }) => {
+        options.onAuthUrl?.({ authUrl: 'https://accounts.google.com/o/oauth2/auth?test=1' });
+        return { providerName: 'google-gemini', ok: true };
+      },
+    );
 
     const oauthModule = await import('@moonshot-ai/kimi-code-oauth');
-    spyOn(oauthModule.GoogleOAuthManager, 'detectAntigravityCredentials').mockReturnValue({ available: false });
+    spyOn(oauthModule.GoogleOAuthManager, 'detectAntigravityCredentials').mockReturnValue({
+      available: false,
+    });
     // Keep the real class (the static above lives on it) and stub the one
     // instance method the flow drives.
     spyOn(oauthModule.GoogleOAuthManager.prototype, 'startLoginFlow').mockImplementation(
@@ -235,9 +241,10 @@ describe('kimi login', () => {
       credsPath: '/mock/creds.json',
     });
     const mockImport = mock().mockResolvedValue({ accessToken: 'test-token' });
-    spyOn(oauthModule.GoogleOAuthManager.prototype, 'importAntigravityCredentials').mockImplementation(
-      mockImport as unknown as () => never,
-    );
+    spyOn(
+      oauthModule.GoogleOAuthManager.prototype,
+      'importAntigravityCredentials',
+    ).mockImplementation(mockImport as unknown as () => never);
 
     const program = new Command('kimi').exitOverride();
     registerLoginCommand(program);
@@ -250,5 +257,3 @@ describe('kimi login', () => {
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 });
-
-

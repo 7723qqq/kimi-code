@@ -11,14 +11,14 @@
  *   KIMI_E2E_WORKDIR  — workspace directory (default: /tmp/kimi-e2e)
  */
 
+import { describe, expect, test } from 'bun:test';
 import { mkdirSync } from 'node:fs';
 import process from 'node:process';
 
 import { createKimiHarness, type Event } from '@moonshot-ai/kimi-code-sdk';
-import { describe, expect, test } from 'bun:test';
-import { readE2EFlags } from '#test/helpers/e2e-flags';
 
 import { createKimiCodeHostIdentity, getVersion } from '#/cli/version';
+import { readE2EFlags } from '#test/helpers/e2e-flags';
 
 const DEFAULT_PROMPT = 'Reply with a single word: hi';
 const DEFAULT_WORKDIR = '/tmp/kimi-e2e';

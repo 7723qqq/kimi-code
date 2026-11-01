@@ -1,23 +1,23 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 import { createHash } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
-import type { ToolCall } from '#human/llm/message';
 import { dirname, join } from 'pathe';
-import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentLoopService } from '#/agent/loop/loop';
-import { runWillBeginStepHooks, type StubLoop } from '../../agent/loop/stubs';
-import { IAgentPlanService, type PlanData } from '#/features/plan/plan';
 import { IAgentPermissionRulesService } from '#/agent/permissionRules/permissionRules';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentPlanService, type PlanData } from '#/features/plan/plan';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import type { IHostProcessService } from '#/os/interface/hostProcess';
 import { IBlobStore } from '#/persistence/interface/blobStore';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import type { IHostProcessService } from '#/os/interface/hostProcess';
-import { createFakeHostFs, createFakeProcessRunner } from '../../tools/fixtures/fake-exec';
+import type { ToolCall } from '#human/llm/message';
+
+import { runWillBeginStepHooks, type StubLoop } from '../../agent/loop/stubs';
 import {
   createCommandRunner,
   createTestAgent,
@@ -25,6 +25,7 @@ import {
   renderSnapshot,
   type TestAgentContext,
 } from '../../harness';
+import { createFakeHostFs, createFakeProcessRunner } from '../../tools/fixtures/fake-exec';
 
 interface PlanFakes {
   readonly fs: IHostFileSystem;
@@ -187,9 +188,11 @@ describe('Plan service', () => {
     });
 
     it('derives the plan path from the agent homedir on enter and restore', async () => {
-      useFakes(createPlanFakes({
-        writeText: jest.fn(async (_path: string, _content: string): Promise<void> => {}),
-      }));
+      useFakes(
+        createPlanFakes({
+          writeText: jest.fn(async (_path: string, _content: string): Promise<void> => {}),
+        }),
+      );
       await plan.enter('stable-plan');
 
       const livePath = await expectActivePlanPath();
@@ -714,7 +717,9 @@ describe('Plan service', () => {
         expect(files.get(planPath)).toBe(expectedContent);
         expect(writeText).toHaveBeenCalledWith(planPath, expectedContent);
         expect(
-          ctx.allEvents.some((event) => event.type === '[rpc]' && event.event === 'requestApproval'),
+          ctx.allEvents.some(
+            (event) => event.type === '[rpc]' && event.event === 'requestApproval',
+          ),
         ).toBe(false);
       },
     );
@@ -931,9 +936,11 @@ describe('Plan service', () => {
     });
 
     it('emits a reentry reminder when restored plan mode already has plan content', async () => {
-      useFakes(createPlanFakes({
-        readText: jest.fn(async () => '# Existing Plan\n\n- Keep this context'),
-      }));
+      useFakes(
+        createPlanFakes({
+          readText: jest.fn(async () => '# Existing Plan\n\n- Keep this context'),
+        }),
+      );
       await ctx.dispatch({
         type: 'plan_mode.enter',
         id: 'restored-plan',

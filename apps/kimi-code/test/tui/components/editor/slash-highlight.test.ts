@@ -1,7 +1,11 @@
-import chalk from 'chalk';
 import { beforeAll, describe, expect, it } from 'bun:test';
 
-import { highlightFirstSlashToken, highlightInlineSkillTokens } from '#/tui/components/editor/custom-editor';
+import chalk from 'chalk';
+
+import {
+  highlightFirstSlashToken,
+  highlightInlineSkillTokens,
+} from '#/tui/components/editor/custom-editor';
 
 beforeAll(() => {
   // Vitest runs without a TTY so chalk auto-detects colour support as
@@ -111,17 +115,14 @@ describe('highlightInlineSkillTokens', () => {
 
   it('skips the excluded leading command range', () => {
     const visible = '/skill:review args';
-    const out = highlightInlineSkillTokens(
-      visible,
-      SKILLS,
-      { start: 0, end: 13 },
-      'primary',
-    );
+    const out = highlightInlineSkillTokens(visible, SKILLS, { start: 0, end: 13 }, 'primary');
     expect(out).toBeUndefined();
   });
 
   it('ignores unknown tokens and plain slashes', () => {
-    expect(highlightInlineSkillTokens('and /not-a-skill or /tmp', SKILLS, null, 'primary')).toBeUndefined();
+    expect(
+      highlightInlineSkillTokens('and /not-a-skill or /tmp', SKILLS, null, 'primary'),
+    ).toBeUndefined();
   });
 
   it('supports the skill: prefix fallback for bare names', () => {

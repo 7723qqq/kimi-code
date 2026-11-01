@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { join, resolve } from 'node:path';
+
 import { resolveLegacySourceHome, sameLegacyPath } from '#/migration/legacy-source';
 
 // Resolve the fixtures through `node:path` so the expectations hold on Windows

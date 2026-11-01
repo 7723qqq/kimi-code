@@ -102,7 +102,10 @@ export class SubAgentEventHandler {
    */
   private noteBackgroundHelper(agentId: string, event: Event): void {
     if (event.type !== 'turn.started') return;
-    if (event.origin?.kind === 'system_trigger' && event.origin.backgroundHelper === PROMPT_OPTIMIZER_AGENT_HELPER) {
+    if (
+      event.origin?.kind === 'system_trigger' &&
+      event.origin.backgroundHelper === PROMPT_OPTIMIZER_AGENT_HELPER
+    ) {
       this.backgroundHelperAgents.add(agentId);
       return;
     }
@@ -395,7 +398,9 @@ export class SubAgentEventHandler {
       if (taskId !== undefined) {
         this.deps.backgroundTaskTranscriptedTerminal.add(taskId);
       }
-      const entry = this.appendBackgroundAgentEntry('failed', backgroundMeta, { error: event.error });
+      const entry = this.appendBackgroundAgentEntry('failed', backgroundMeta, {
+        error: event.error,
+      });
       if (taskId !== undefined) {
         this.deps.backgroundTaskTerminalEntries.set(taskId, entry);
       }

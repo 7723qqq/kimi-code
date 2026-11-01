@@ -7,15 +7,15 @@
 // a worker failure never breaks the currently published generation, and the
 // inline fallback produces byte-identical artifacts.
 
+import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 
-import { afterEach, describe, expect, spyOn, test } from 'bun:test';
-
 import { MiniDb } from '../src/index.js';
 import { WorkerSlots, MaintenanceCancelledError, defaultWorkerSlots } from '../src/maintenance.js';
+import { encodePostingList, encodeRecord } from '../src/text-postings.js';
 import {
   configureTextBuildWorkerRuntime,
   getTextBuildWorkerRuntimeState,
@@ -23,7 +23,6 @@ import {
 } from '../src/worker-runtime.js';
 import { buildTextArtifacts, SegmentReader } from '../src/worker/text-build-core.js';
 import type { TextBuildCoreSpec } from '../src/worker/text-build-core.js';
-import { encodePostingList, encodeRecord } from '../src/text-postings.js';
 import {
   startWorkerTextBuild,
   WorkerTextBuildError,
@@ -481,9 +480,7 @@ describe('build core (segmented external merge)', () => {
         expect(reader.current!.payload.length).toBe(payloadLen);
         expect(reader.current!.payload.subarray(0, payload.length)).toEqual(payload);
         // Every byte past the encoded pairs is the pad actually staged on disk.
-        expect(
-          reader.current!.payload.subarray(payload.length).every((b) => b === 3),
-        ).toBe(true);
+        expect(reader.current!.payload.subarray(payload.length).every((b) => b === 3)).toBe(true);
         await reader.advance();
         expect(reader.current).toBeNull();
       } finally {
@@ -1023,7 +1020,9 @@ describe('single-file deployment (worker entry absent)', () => {
     // answers false. Spy on the real module namespace (Bun has no
     // importActual): every importer reads the export live.
     const textBuild = await import('../src/worker/text-build.js');
-    const unavailable = spyOn(textBuild, 'textBuildWorkerAvailable').mockImplementation(() => false);
+    const unavailable = spyOn(textBuild, 'textBuildWorkerAvailable').mockImplementation(
+      () => false,
+    );
     try {
       const dir = await openTmp('sea-inline');
       // Open EMPTY first (see the deterministic-stats note above).

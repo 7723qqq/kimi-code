@@ -56,8 +56,10 @@ const child = spawn(
   'concurrently',
   [
     '-k',
-    '-n', 'server,web',
-    '-c', 'cyan,magenta',
+    '-n',
+    'server,web',
+    '-c',
+    'cyan,magenta',
     'bun --cwd ../../apps/vis/server run dev',
     'bun --cwd ../../apps/vis/web run dev',
   ],

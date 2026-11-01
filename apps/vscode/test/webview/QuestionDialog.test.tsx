@@ -1,8 +1,10 @@
 import './setup';
 import { beforeEach, describe, expect, it, jest } from 'bun:test';
+
+import type { QuestionItem } from 'shared/legacy-sdk';
+
 import { QuestionDialog } from '@/components/QuestionDialog';
 import { useChatStore } from '@/stores';
-import type { QuestionItem } from 'shared/legacy-sdk';
 
 const { act, fireEvent, render, screen, waitFor, within } = await import('@testing-library/react');
 
@@ -353,10 +355,10 @@ describe('QuestionDialog', () => {
   });
 
   it('resets navigation, answers, and custom drafts when a new question request arrives', async () => {
-    renderQuestion([
-      makeQuestion('Old first', ['One']),
-      makeQuestion('Old second', ['Two']),
-    ], 'old-request');
+    renderQuestion(
+      [makeQuestion('Old first', ['One']), makeQuestion('Old second', ['Two'])],
+      'old-request',
+    );
     fireEvent.click(optionButton('One'));
     expect(screen.getByText('Old second')).toBeTruthy();
     fireEvent.click(customResponseButton());

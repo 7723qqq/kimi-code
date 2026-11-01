@@ -1,6 +1,5 @@
-import { z } from 'zod';
-
 import type { ClientConfigFetchOptions } from '@moonshot-ai/kimi-code-product/client-configs/node';
+import { z } from 'zod';
 
 import { clientConfigs } from '#/utils/client-configs';
 

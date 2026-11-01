@@ -117,12 +117,7 @@ export class MemoryRepo extends Disposable implements IMemoryRepo {
   }
 
   async logCommits(limit: number): Promise<readonly MemoryCommit[]> {
-    const result = await this.run([
-      'log',
-      `-${limit}`,
-      '--date=short',
-      '--format=%H%x09%ad%x09%s',
-    ]);
+    const result = await this.run(['log', `-${limit}`, '--date=short', '--format=%H%x09%ad%x09%s']);
     if (!result.ok) return [];
     const commits: MemoryCommit[] = [];
     for (const line of result.stdout.split('\n')) {

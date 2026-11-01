@@ -1,15 +1,14 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-
+import { readUpdateCache, writeUpdateCache } from '#/cli/update/cache';
 import {
   emptyUpdateInstallState,
   readUpdateInstallState,
   writeUpdateInstallState,
 } from '#/cli/update/install-state';
-import { readUpdateCache, writeUpdateCache } from '#/cli/update/cache';
 import { emptyUpdateCache, type UpdateInstallState } from '#/cli/update/types';
 import { getUpdateInstallStateFile, getUpdateStateFile } from '#/utils/paths';
 

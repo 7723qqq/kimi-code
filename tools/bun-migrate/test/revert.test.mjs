@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'bun:test';
 /**
  * Revert must restore every kind of change, including deleted files.
  *
@@ -5,11 +6,17 @@
  * printed a note and left the file gone. That is worse than not having revert at
  * all, because it looks like it worked. These tests pin the content round trip.
  */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { describe, expect, it } from 'bun:test';
 
 const CLI = join(import.meta.dir, '..', 'src', 'cli.mjs');
 
@@ -24,7 +31,9 @@ function makeProject(files) {
 }
 
 function run(...args) {
-  const result = Bun.spawnSync(['bun', CLI, ...args], { cwd: join(import.meta.dir, '..', '..', '..') });
+  const result = Bun.spawnSync(['bun', CLI, ...args], {
+    cwd: join(import.meta.dir, '..', '..', '..'),
+  });
   return { code: result.exitCode, out: result.stdout.toString(), err: result.stderr.toString() };
 }
 
@@ -44,8 +53,10 @@ const LEGACY = {
   '.nvmrc': '20.11.0\n',
   'pnpm-lock.yaml': 'lockfileVersion: 5.4\n',
   'pnpm-workspace.yaml': "packages:\n  - 'packages/*'\n",
-  'vitest.config.ts': "import { defineConfig } from 'vitest/config';\nexport default defineConfig({ test: { include: ['src/**/*.test.ts'] } });\n",
-  'src/a.ts': "import { createHash } from 'node:crypto';\nexport const a = createHash('sha256').update('x').digest('hex');\n",
+  'vitest.config.ts':
+    "import { defineConfig } from 'vitest/config';\nexport default defineConfig({ test: { include: ['src/**/*.test.ts'] } });\n",
+  'src/a.ts':
+    "import { createHash } from 'node:crypto';\nexport const a = createHash('sha256').update('x').digest('hex');\n",
 };
 
 describe('revert restores removed files', () => {
@@ -77,7 +88,8 @@ describe('revert restores removed files', () => {
    */
   it('restores a reformatted package.json byte for byte', () => {
     const root = makeProject({
-      'package.json': '{ "name": "r", "version": "1.0.0", "scripts": { "build": "pnpm -r build" } }\n',
+      'package.json':
+        '{ "name": "r", "version": "1.0.0", "scripts": { "build": "pnpm -r build" } }\n',
     });
     try {
       const before = readFileSync(join(root, 'package.json'), 'utf8');
@@ -102,7 +114,7 @@ describe('revert restores removed files', () => {
   it('removes a file the migration created through an edit entry', () => {
     const root = makeProject({
       'package.json': `${JSON.stringify({ name: 'r', version: '1.0.0' }, null, 2)}\n`,
-      'vitest.config.ts': "export default { test: { testTimeout: 10000, hookTimeout: 10000 } };\n",
+      'vitest.config.ts': 'export default { test: { testTimeout: 10000, hookTimeout: 10000 } };\n',
       '.npmrc': 'registry=https://example.test\nstrict-ssl=false\n',
     });
     try {
@@ -123,7 +135,7 @@ describe('revert restores removed files', () => {
   it('keeps a staged edit when removing a file the migration created through an edit entry', () => {
     const root = makeProject({
       'package.json': `${JSON.stringify({ name: 'r', version: '1.0.0' }, null, 2)}\n`,
-      'vitest.config.ts': "export default { test: { testTimeout: 10000, hookTimeout: 10000 } };\n",
+      'vitest.config.ts': 'export default { test: { testTimeout: 10000, hookTimeout: 10000 } };\n',
     });
     try {
       const git = (...args) => Bun.spawnSync(['git', ...args], { cwd: root });
@@ -150,7 +162,13 @@ describe('revert restores removed files', () => {
     const root = makeProject(LEGACY);
     try {
       const originals = new Map();
-      for (const path of ['.npmrc', '.nvmrc', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'vitest.config.ts']) {
+      for (const path of [
+        '.npmrc',
+        '.nvmrc',
+        'pnpm-lock.yaml',
+        'pnpm-workspace.yaml',
+        'vitest.config.ts',
+      ]) {
         originals.set(path, readFileSync(join(root, path), 'utf8'));
       }
       expect(run('apply', '--root', root, '--allow-dirty').code).toBe(0);
@@ -261,7 +279,11 @@ describe('removal leaves a recoverable git state', () => {
   it('restores an uncommitted edit through revert', () => {
     const { root } = makeRepo();
     try {
-      writeFileSync(join(root, 'pnpm-lock.yaml'), 'lockfileVersion: 5.4\n# NEVER COMMITTED\n', 'utf8');
+      writeFileSync(
+        join(root, 'pnpm-lock.yaml'),
+        'lockfileVersion: 5.4\n# NEVER COMMITTED\n',
+        'utf8',
+      );
       expect(run('apply', '--root', root, '--allow-dirty', '--only', 'packages').code).toBe(0);
       const journal = newestJournal(root, '.json');
       expect(run('revert', '--root', root, journal).code).toBe(0);
@@ -363,7 +385,13 @@ describe('removal leaves a recoverable git state', () => {
         journalPath,
         JSON.stringify({
           changes: [
-            { kind: 'edit', layer: 'config', file: '../escape-bun-migrate.txt', before: 'outside', after: 'x' },
+            {
+              kind: 'edit',
+              layer: 'config',
+              file: '../escape-bun-migrate.txt',
+              before: 'outside',
+              after: 'x',
+            },
           ],
         }),
         'utf8',

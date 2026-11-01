@@ -1,23 +1,23 @@
+import { describe, expect, test } from 'bun:test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { ContentBlockSchema } from '@modelcontextprotocol/sdk/types.js';
 import { Jimp } from 'jimp';
-import { describe, expect, test } from 'bun:test';
-import { unlink } from 'node:fs/promises';
 
+import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender';
 import { convertMCPContentBlock, mcpResultToExecutableOutput } from '#/agent/mcp/output';
 import { createMcpTool } from '#/agent/mcp/tools/mcp';
 import { sniffImageDimensions } from '#/agent/media/file-type';
-import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender';
 import { ITelemetryService, type TelemetryProperties } from '#/app/telemetry/telemetry';
-import { type ContentPart } from '#human/llm/message';
 import { StdioMcpClient } from '#/mcpCore/client-stdio';
+import { type MCPClient, type MCPContentBlock, type MCPToolResult } from '#/mcpCore/types';
 import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
-import { type MCPClient, type MCPContentBlock, type MCPToolResult } from '#/mcpCore/types';
 import { type ToolExecution } from '#/tool/toolContract';
+import { type ContentPart } from '#human/llm/message';
 
 function modelText(result: Awaited<ReturnType<typeof mcpResultToExecutableOutput>>): string {
   return renderToolResultForModel(result)
@@ -32,9 +32,10 @@ function isPromiseLike(
 }
 
 function parseResultExtras(output: string | ContentPart[]): Record<string, unknown> {
-  const text = typeof output === 'string'
-    ? output
-    : output.map((part) => part.type === 'text' ? part.text : '').join('\n');
+  const text =
+    typeof output === 'string'
+      ? output
+      : output.map((part) => (part.type === 'text' ? part.text : '')).join('\n');
   const json = /<mcp-result-extras>\n([\s\S]*?)\n<\/mcp-result-extras>/.exec(text)?.[1];
   if (json === undefined) throw new Error('Expected model-visible MCP result extras');
   return JSON.parse(json) as Record<string, unknown>;
@@ -408,11 +409,14 @@ describe('mcpResultToExecutableOutput', () => {
 
   test('preserves both values when parsing the text would round a number', async () => {
     const text = '{"id":9007199254740993}';
-    const out = await mcpResultToExecutableOutput({
-      content: [{ type: 'text', text }],
-      isError: false,
-      structuredContent: { id: 9007199254740992 },
-    }, 'mcp__s__t');
+    const out = await mcpResultToExecutableOutput(
+      {
+        content: [{ type: 'text', text }],
+        isError: false,
+        structuredContent: { id: 9007199254740992 },
+      },
+      'mcp__s__t',
+    );
 
     expect(out.output).toContainEqual({ type: 'text', text });
     expect(parseResultExtras(out.output)['structuredContent']).toEqual({ id: 9007199254740992 });
@@ -424,17 +428,27 @@ describe('mcpResultToExecutableOutput', () => {
     { difference: 'array order', text: '{"ids":[2,1]}', structuredContent: { ids: [1, 2] } },
     { difference: 'extra field', text: '{"id":1}', structuredContent: { id: 1, name: 'Example' } },
     { difference: 'null', text: '{"value":"none"}', structuredContent: { value: null } },
-    { difference: 'non-JSON wrapper', text: '```json\n{"id":1}\n```', structuredContent: { id: 1 } },
-  ])('keeps text and structured data with a $difference difference', async ({ text, structuredContent }) => {
-    const out = await mcpResultToExecutableOutput({
-      content: [{ type: 'text', text }],
-      isError: false,
-      structuredContent,
-    }, 'mcp__s__t');
+    {
+      difference: 'non-JSON wrapper',
+      text: '```json\n{"id":1}\n```',
+      structuredContent: { id: 1 },
+    },
+  ])(
+    'keeps text and structured data with a $difference difference',
+    async ({ text, structuredContent }) => {
+      const out = await mcpResultToExecutableOutput(
+        {
+          content: [{ type: 'text', text }],
+          isError: false,
+          structuredContent,
+        },
+        'mcp__s__t',
+      );
 
-    expect(out.output).toContainEqual({ type: 'text', text });
-    expect(parseResultExtras(out.output)['structuredContent']).toEqual(structuredContent);
-  });
+      expect(out.output).toContainEqual({ type: 'text', text });
+      expect(parseResultExtras(out.output)['structuredContent']).toEqual(structuredContent);
+    },
+  );
 
   test('keeps explanatory blocks when another text block contains the complete JSON', async () => {
     const content: { type: 'text'; text: string }[] = [
@@ -442,34 +456,44 @@ describe('mcpResultToExecutableOutput', () => {
       { type: 'text', text: '{"rows":[1]}' },
       { type: 'text', text: 'More rows are available.' },
     ];
-    const out = await mcpResultToExecutableOutput({
-      content,
-      isError: false,
-      structuredContent: { rows: [1] },
-    }, 'mcp__s__t');
+    const out = await mcpResultToExecutableOutput(
+      {
+        content,
+        isError: false,
+        structuredContent: { rows: [1] },
+      },
+      'mcp__s__t',
+    );
 
     expect(out.output).toEqual(content);
   });
 
   test('keeps structured error details and the tool error status', async () => {
-    const out = await mcpResultToExecutableOutput({
-      content: [{ type: 'text', text: 'Request failed.' }],
-      isError: true,
-      structuredContent: { code: 'EXAMPLE_ERROR', retryable: false },
-    }, 'mcp__s__t');
+    const out = await mcpResultToExecutableOutput(
+      {
+        content: [{ type: 'text', text: 'Request failed.' }],
+        isError: true,
+        structuredContent: { code: 'EXAMPLE_ERROR', retryable: false },
+      },
+      'mcp__s__t',
+    );
 
     expect(out.isError).toBe(true);
     expect(parseResultExtras(out.output)['structuredContent']).toEqual({
-      code: 'EXAMPLE_ERROR', retryable: false,
+      code: 'EXAMPLE_ERROR',
+      retryable: false,
     });
   });
 
   test('does not let a dropped-content notice hide structured data', async () => {
-    const out = await mcpResultToExecutableOutput({
-      content: [{ type: 'example-unsupported' }],
-      isError: false,
-      structuredContent: { id: 'EXAMPLE_RECORD' },
-    }, 'mcp__s__t');
+    const out = await mcpResultToExecutableOutput(
+      {
+        content: [{ type: 'example-unsupported' }],
+        isError: false,
+        structuredContent: { id: 'EXAMPLE_RECORD' },
+      },
+      'mcp__s__t',
+    );
 
     expect(parseResultExtras(out.output)['structuredContent']).toEqual({ id: 'EXAMPLE_RECORD' });
     expect(JSON.stringify(out.output)).toContain('MCP content dropped');
@@ -715,9 +739,7 @@ describe('mcpResultToExecutableOutput', () => {
     expect(out.spill?.suffix).toContain('image_url dropped');
     const parts = out.output as ContentPart[];
     expect(parts[0]).toEqual({ type: 'text', text: 'x'.repeat(100_001) });
-    expect(
-      parts.some((p) => p.type === 'text' && p.text.includes('image_url dropped')),
-    ).toBe(true);
+    expect(parts.some((p) => p.type === 'text' && p.text.includes('image_url dropped'))).toBe(true);
   });
 
   test('attaches binary drop notices via spill.suffix even without text truncation', async () => {
@@ -932,18 +954,29 @@ describe('createMcpTool', () => {
     const reason = new Error('stop attachment processing');
     let calls = 0;
     const client: MCPClient = {
-      async listTools() { return []; },
+      async listTools() {
+        return [];
+      },
       async callTool() {
         calls++;
         controller.abort(reason);
-        return { isError: false, content: [{ type: 'audio', mimeType: 'audio/wav', data: 'YXVkaW8=' }] };
+        return {
+          isError: false,
+          content: [{ type: 'audio', mimeType: 'audio/wav', data: 'YXVkaW8=' }],
+        };
       },
       async ping() {},
     };
-    const tool = createMcpTool('mcp__example__audio', { name: 'audio', description: 'Example audio', parameters: {} }, client);
+    const tool = createMcpTool(
+      'mcp__example__audio',
+      { name: 'audio', description: 'Example audio', parameters: {} },
+      client,
+    );
     const execution = await tool.resolveExecution({});
     if (execution.isError === true) throw new Error('expected tool execution');
-    await expect(execution.execute({ turnId: 1, toolCallId: 'audio', signal: controller.signal })).rejects.toBe(reason);
+    await expect(
+      execution.execute({ turnId: 1, toolCallId: 'audio', signal: controller.signal }),
+    ).rejects.toBe(reason);
     expect(calls).toBe(1);
   });
 
@@ -1073,7 +1106,10 @@ describe('createMcpTool', () => {
 });
 
 describe('mcpResultToExecutableOutput over a real stdio server', () => {
-  const fixture = join(import.meta.dirname, '../../mcpCore/fixtures/structured-content-stdio-server.mjs');
+  const fixture = join(
+    import.meta.dirname,
+    '../../mcpCore/fixtures/structured-content-stdio-server.mjs',
+  );
 
   async function callFixtureTool(name: string) {
     const runtime = Object.assign(
@@ -1139,7 +1175,10 @@ describe('mcpResultToExecutableOutput over a real stdio server', () => {
     const out = await callFixtureTool('prose_plus_structured');
     const text = joinedText(out.output);
     expect(text).toContain('Found 1 row.');
-    expect(parseResultExtras(out.output)['structuredContent']).toEqual({ rows: [{ id: 1 }], total: 1 });
+    expect(parseResultExtras(out.output)['structuredContent']).toEqual({
+      rows: [{ id: 1 }],
+      total: 1,
+    });
   }, 15000);
 
   test('a human-readable rendering retains its structured values over stdio', async () => {

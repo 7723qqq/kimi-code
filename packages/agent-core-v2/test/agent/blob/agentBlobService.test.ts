@@ -1,9 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
-import type { ContentPart } from '#human/llm/message';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { type ServiceIdentifier } from '#/_base/di/instantiation';
-import { LifecycleScope } from '#/app/scopes';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import {
   BLOBREF_PROTOCOL,
@@ -12,10 +10,12 @@ import {
 } from '#/agent/blob/agentBlobService';
 import { AgentBlobServiceImpl } from '#/agent/blob/agentBlobServiceImpl';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { BlobStoreService } from '#/persistence/backends/node-fs/blobStoreService';
+import { LifecycleScope } from '#/app/scopes';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { BlobStoreService } from '#/persistence/backends/node-fs/blobStoreService';
 import { IBlobStore } from '#/persistence/interface/blobStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import type { ContentPart } from '#human/llm/message';
 
 const LARGE = 'A'.repeat(5000);
 const SMALL = 'AQID';

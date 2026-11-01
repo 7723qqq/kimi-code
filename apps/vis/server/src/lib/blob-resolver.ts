@@ -97,7 +97,13 @@ function rehydrateRecord(
         rehydrateParts(asContentParts(output, warnings), sessionId, agentId, baseUrl, warnings);
       }
     } else if (eventRecord['type'] === 'content.part') {
-      rehydrateParts(asContentParts([eventRecord['part']], warnings), sessionId, agentId, baseUrl, warnings);
+      rehydrateParts(
+        asContentParts([eventRecord['part']], warnings),
+        sessionId,
+        agentId,
+        baseUrl,
+        warnings,
+      );
     }
     return;
   }
@@ -133,17 +139,20 @@ function rehydrateParts(
     switch (part.type) {
       case 'image_url': {
         const url = readNestedUrl(part.imageUrl, warnings, 'image_url');
-        if (url !== undefined) part.imageUrl.url = resolveBlobRefUrl(url, sessionId, agentId, baseUrl);
+        if (url !== undefined)
+          part.imageUrl.url = resolveBlobRefUrl(url, sessionId, agentId, baseUrl);
         break;
       }
       case 'audio_url': {
         const url = readNestedUrl(part.audioUrl, warnings, 'audio_url');
-        if (url !== undefined) part.audioUrl.url = resolveBlobRefUrl(url, sessionId, agentId, baseUrl);
+        if (url !== undefined)
+          part.audioUrl.url = resolveBlobRefUrl(url, sessionId, agentId, baseUrl);
         break;
       }
       case 'video_url': {
         const url = readNestedUrl(part.videoUrl, warnings, 'video_url');
-        if (url !== undefined) part.videoUrl.url = resolveBlobRefUrl(url, sessionId, agentId, baseUrl);
+        if (url !== undefined)
+          part.videoUrl.url = resolveBlobRefUrl(url, sessionId, agentId, baseUrl);
         break;
       }
       case 'document_url': {

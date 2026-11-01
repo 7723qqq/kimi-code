@@ -5,11 +5,10 @@
  * 0600 is enforced; corrupted files return undefined rather than throwing.
  */
 
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { chmodSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { FileTokenStorage } from '../src/storage';
 import type { TokenInfo } from '../src/types';

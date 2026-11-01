@@ -1,9 +1,9 @@
+import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { SkillSummary } from '@moonshot-ai/agent-core-v2';
-import { afterEach, describe, expect, it } from 'bun:test';
 
 import { ACP_BUILTIN_SLASH_COMMANDS } from '../src/builtin-commands';
 import { buildAcpSkillSlashCommands } from '../src/slash';

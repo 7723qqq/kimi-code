@@ -1,5 +1,6 @@
-import { Hono } from 'hono';
 import { join } from 'node:path';
+
+import { Hono } from 'hono';
 
 import { KIMI_CODE_HOME } from '../config';
 import { discoverLogFiles, readLogs } from '../lib/log-reader';

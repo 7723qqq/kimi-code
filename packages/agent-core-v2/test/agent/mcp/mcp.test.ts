@@ -1,21 +1,22 @@
-import { type ContentPart, type ToolDescription as KosongTool } from '#human/llm/message';
-import { Jimp } from 'jimp';
-import { CallToolResultSchema, ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { CallToolResultSchema, ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
+import { Jimp } from 'jimp';
+
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { ILogService } from '#/_base/log/log';
-
 import { abortError } from '#/_base/utils/abort';
+import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentMcpService } from '#/agent/mcp/mcp';
-
 import { AgentMcpService } from '#/agent/mcp/mcpService';
+import { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
+import { SessionMediaStoreService } from '#/agent/media/sessionMediaStoreService';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
@@ -27,26 +28,28 @@ import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/
 import { Event2 } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { McpConnectionManager, type McpServerEntry } from '#/mcpCore/connection-manager';
 import { type McpServerConfig } from '#/mcpCore/config-schema';
-import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender';
-import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
-import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
-import { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
-import { SessionMediaStoreService } from '#/agent/media/sessionMediaStoreService';
-import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
-import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
+import { McpConnectionManager, type McpServerEntry } from '#/mcpCore/connection-manager';
 import { McpOAuthService } from '#/mcpCore/oauth/service';
 import { type MCPClient, type MCPToolDefinition } from '#/mcpCore/types';
+import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
+import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
+import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
+import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { type WireRecord } from '#/wire/record';
 import { IWireService } from '#/wire/wire';
+import { type ContentPart, type ToolDescription as KosongTool } from '#human/llm/message';
 
 import { stubLog } from '../../_base/log/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import { createTestAgent, mcpServices, type TestAgentContext } from '../../harness';
 import { discoverTools, executeTool, fakeMcpClient } from '../../mcpCore/stubs';
-import { recordingWireLog, registerTestAgentWire, registerTestEventDispatcher } from '../../wire/stubs';
+import {
+  recordingWireLog,
+  registerTestAgentWire,
+  registerTestEventDispatcher,
+} from '../../wire/stubs';
 import { stubLoopWithHooks } from '../loop/stubs';
 import { stubToolResultTruncationService } from '../toolResultTruncation/stubs';
 
@@ -358,16 +361,38 @@ describe('AgentMcpService', () => {
     try {
       const storage = new FileStorageService(home);
       const context = makeSessionContext({
-        sessionId: 'session', workspaceId: 'workspace', cwd: home,
-        sessionDir: join(home, 'sessions/session'), sessionScope: 'sessions/session',
+        sessionId: 'session',
+        workspaceId: 'workspace',
+        cwd: home,
+        sessionDir: join(home, 'sessions/session'),
+        sessionScope: 'sessions/session',
       });
-      ix.stub(ISessionMediaStore, new SessionMediaStoreService(context, storage, new JsonAtomicDocumentStore(storage)));
+      ix.stub(
+        ISessionMediaStore,
+        new SessionMediaStoreService(context, storage, new JsonAtomicDocumentStore(storage)),
+      );
       const bytes = Buffer.from('%PDF-1.4\nexample\n%%EOF');
       const client: MCPClient = {
-        async listTools() { return [{ name: 'report', description: 'Example report', inputSchema: { type: 'object' } }]; },
-        async callTool() { return { isError: false, content: [{ type: 'resource', resource: {
-          uri: 'example://report', mimeType: 'application/pdf', blob: bytes.toString('base64'),
-        } }] }; },
+        async listTools() {
+          return [
+            { name: 'report', description: 'Example report', inputSchema: { type: 'object' } },
+          ];
+        },
+        async callTool() {
+          return {
+            isError: false,
+            content: [
+              {
+                type: 'resource',
+                resource: {
+                  uri: 'example://report',
+                  mimeType: 'application/pdf',
+                  blob: bytes.toString('base64'),
+                },
+              },
+            ],
+          };
+        },
         async ping() {},
       };
       const manager = new FakeMcpManager();
@@ -376,9 +401,14 @@ describe('AgentMcpService', () => {
       manager.connect('example');
       const tool = ix.get(IAgentToolRegistryService).resolve('mcp__example__report');
       const output = await executeTool(tool!, {
-        turnId: 1, toolCallId: 'report', args: {}, signal: new AbortController().signal,
+        turnId: 1,
+        toolCallId: 'report',
+        args: {},
+        signal: new AbortController().signal,
       });
-      const text = renderToolResultForModel(output).map((part) => part.type === 'text' ? part.text : '').join('\n');
+      const text = renderToolResultForModel(output)
+        .map((part) => (part.type === 'text' ? part.text : ''))
+        .join('\n');
       const path = /Original attachment saved at: ("[^\n]+")/.exec(text)?.[1];
       expect(path).toBeDefined();
       expect((await readFile(JSON.parse(path!) as string)).equals(bytes)).toBe(true);
@@ -395,7 +425,10 @@ describe('AgentMcpService', () => {
 
     manager.connect('s');
 
-    const infos = ix.get(IAgentToolRegistryService).list().filter((tool) => tool.source === 'mcp');
+    const infos = ix
+      .get(IAgentToolRegistryService)
+      .list()
+      .filter((tool) => tool.source === 'mcp');
     expect(infos.length).toBeGreaterThan(0);
     expect(infos.every((info) => info.disclosure === 'deferred')).toBe(true);
   });

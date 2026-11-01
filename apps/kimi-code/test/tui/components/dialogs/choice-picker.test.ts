@@ -1,7 +1,7 @@
+import { describe, expect, it, mock, onTestFinished, setSystemTime } from 'bun:test';
 import { stripVTControlCharacters } from 'node:util';
 
 import { visibleWidth, type TuiMouseEvent } from '@moonshot-ai/pi-tui';
-import { describe, expect, it, mock, onTestFinished, setSystemTime } from 'bun:test';
 
 import { ChoicePickerComponent, type ChoiceOption } from '#/tui/components/dialogs/choice-picker';
 import { EditorSelectorComponent } from '#/tui/components/dialogs/editor-selector';
@@ -62,7 +62,10 @@ describe('ChoicePickerComponent', () => {
   it.each([24, 100])('renders Markdown notices and preserves paragraphs at width %s', (width) => {
     const picker = new ChoicePickerComponent({
       title: 'Migration',
-      notice: { markdown: '### Upgrade\n\nUse **next** model.\n\n- Faster replies\n- [Details](https://example.com/upgrade)' },
+      notice: {
+        markdown:
+          '### Upgrade\n\nUse **next** model.\n\n- Faster replies\n- [Details](https://example.com/upgrade)',
+      },
       options: [{ value: 'keep', label: 'Keep current' }],
       onSelect: mock(),
       onCancel: mock(),
@@ -255,8 +258,14 @@ describe('ChoicePickerComponent', () => {
       return picker.render(120).find((line) => strip(line).includes('Include your codebase'));
     };
 
-    const warningLine = currentTheme.fg('warning', '    Include your codebase for deeper diagnosis.');
-    const mutedLine = currentTheme.fg('textMuted', '    Include your codebase for deeper diagnosis.');
+    const warningLine = currentTheme.fg(
+      'warning',
+      '    Include your codebase for deeper diagnosis.',
+    );
+    const mutedLine = currentTheme.fg(
+      'textMuted',
+      '    Include your codebase for deeper diagnosis.',
+    );
 
     // Selected option: description uses the configured tone.
     expect(renderDescLine('logs+codebase')).toBe(warningLine);
@@ -280,13 +289,17 @@ describe('ChoicePickerComponent', () => {
     const before = picker.render(80).map(strip);
     const descriptionRow = before.findIndex((line) => line.includes('Second description'));
 
-    expect(picker.handleMouse(mouse('move', descriptionRow))).toEqual({ handled: true, render: true });
+    expect(picker.handleMouse(mouse('move', descriptionRow))).toEqual({
+      handled: true,
+      render: true,
+    });
     const hovered = picker.render(80).map(strip);
     expect(hovered).toContain('  ❯ Beta');
     expect(hovered.find((line) => line.includes('Alpha'))).not.toContain('❯');
     expect(onSelect).not.toHaveBeenCalled();
 
-    for (const type of ['press', 'release', 'click'] as const) picker.handleMouse(mouse(type, descriptionRow));
+    for (const type of ['press', 'release', 'click'] as const)
+      picker.handleMouse(mouse(type, descriptionRow));
     expect(onSelect).toHaveBeenCalledWith('b');
   });
 
@@ -323,5 +336,4 @@ describe('ChoicePickerComponent', () => {
     for (const type of ['press', 'release', 'click'] as const) picker.handleMouse(mouse(type, row));
     expect(onSelect).toHaveBeenCalledWith('a');
   });
-
 });

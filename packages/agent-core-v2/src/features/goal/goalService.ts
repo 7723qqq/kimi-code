@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 
 import { assign, fromCallback, sendTo, setup, type Snapshot } from 'xstate';
 
-import { GoalPauseReason } from '#/agent/interaction/engineMessages';
 import { createDecorator, IInstantiationService } from '#/_base/di/instantiation';
 import { MutableDisposable, type IDisposable } from '#/_base/di/lifecycle';
 import { abortError } from '#/_base/utils/abort';
@@ -16,6 +15,7 @@ import type { AgentContext } from '#/agent/agentContext/agentContext';
 import { ContextAppendMessage } from '#/agent/contextMemory/contextEvents';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
+import { GoalPauseReason } from '#/agent/interaction/engineMessages';
 import { LOOP_CONTROL_SECTION, type LoopControl } from '#/agent/loop/configSection';
 import { LoopErrors } from '#/agent/loop/errors';
 import {
@@ -36,7 +36,6 @@ import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { WAIT_FOR_FLAG_ID } from '#/agent/tools/task/task-wait/flag';
 import { type UsageRecordedContext } from '#/agent/usage/usage';
-import { chargeableTokens } from '#human/llm/usage';
 import { IConfigService } from '#/app/config/config';
 import { registerEvent2Class } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
@@ -51,6 +50,7 @@ import { Forked } from '#/session/agentLifecycle/forked';
 import { ISessionUsageService } from '#/session/usage/sessionUsage';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import type { ExecutableToolResult } from '#/tool/toolContract';
+import { chargeableTokens } from '#human/llm/usage';
 
 import type { GoalReasonInput, ResumeGoalInput } from './goal';
 import { IGoalDeadlineScheduler } from './goalDeadlineScheduler';

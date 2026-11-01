@@ -3,6 +3,13 @@ import { join } from 'node:path';
 
 import { kimiCodeEnvBaseUrl } from './managed-kimi-code';
 import {
+  KIMI_REGION_MARKER_FILENAME,
+  readKimiRegionMarker,
+  resolveKimiRegionFromParts,
+  type KimiRegion,
+  type KimiRegionResolution,
+} from './region';
+import {
   clearKimiRegionCache,
   KIMI_REGION_CACHE_FILENAME,
   readKimiRegionCache,
@@ -15,13 +22,6 @@ import {
   type LocalRegionDetection,
   type LocalRegionSignals,
 } from './region-local';
-import {
-  KIMI_REGION_MARKER_FILENAME,
-  readKimiRegionMarker,
-  resolveKimiRegionFromParts,
-  type KimiRegion,
-  type KimiRegionResolution,
-} from './region';
 
 export interface KimiRegionOAuthRef {
   readonly key: string;

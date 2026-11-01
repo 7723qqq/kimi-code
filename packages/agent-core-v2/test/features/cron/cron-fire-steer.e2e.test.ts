@@ -1,8 +1,7 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService } from '#/agent/loop/loop';
@@ -70,9 +69,8 @@ describe('cron-fired steer turn context', () => {
     const fireRequest = ctx.llmCalls.at(-1)!;
 
     const lastUser = fireRequest.history.filter((m) => m.role === 'user').at(-1);
-    const lastUserText = lastUser?.content
-      .map((part) => (part.type === 'text' ? part.text : ''))
-      .join('') ?? '';
+    const lastUserText =
+      lastUser?.content.map((part) => (part.type === 'text' ? part.text : '')).join('') ?? '';
     expect(lastUserText).toContain('fire me');
 
     const requestToolTexts = fireRequest.history

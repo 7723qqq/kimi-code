@@ -5,9 +5,8 @@
 // mp-worker.ts` under Bun) that open the same cluster directory concurrently,
 // and verifies data integrity afterwards.
 
-import path from 'node:path';
-
 import { expect, test } from 'bun:test';
+import path from 'node:path';
 
 import { ClusterDb, shardDirName } from '../../src/cluster/index.js';
 import { ShardLockPool } from '../../src/cluster/lock-pool.js';
@@ -76,7 +75,10 @@ test(
       const db = await ClusterDb.open<{ key: string }>({ dir, shardCount: shards, readOnly: true });
       const allKeys = keysPerProc.flat();
       const got = await db.mget(allKeys);
-      expect(got.map((v) => v?.key), `no lost writes on a hot shard (retries: ${retries.join('/')})`).toStrictEqual(allKeys);
+      expect(
+        got.map((v) => v?.key),
+        `no lost writes on a hot shard (retries: ${retries.join('/')})`,
+      ).toStrictEqual(allKeys);
       await db.close();
     } finally {
       await rmrf(dir);
@@ -154,13 +156,19 @@ async function assertSameAsFreshOpen(db: ClusterDb<Doc>, dir: string, hot: numbe
   });
   try {
     expect(await db.scan(), 'scan equality with a fresh full open').toStrictEqual(ref.scan());
-    expect((await db.findEq('c', 'c3')).toSorted(sortByKey), 'findEq equality').toStrictEqual(ref.findEq('c', 'c3').toSorted(sortByKey));
+    expect((await db.findEq('c', 'c3')).toSorted(sortByKey), 'findEq equality').toStrictEqual(
+      ref.findEq('c', 'c3').toSorted(sortByKey),
+    );
     const [crange, rrange] = [
       await db.findRange('n', { min: 100, max: 900 }),
       ref.findRange('n', { min: 100, max: 900 }),
     ];
-    expect(crange.toSorted(sortByKey), 'findRange equality').toStrictEqual(rrange.toSorted(sortByKey));
-    expect(await db.findEq('u', 'pre-u42'), 'unique-index equality').toStrictEqual(ref.findEq('u', 'pre-u42'));
+    expect(crange.toSorted(sortByKey), 'findRange equality').toStrictEqual(
+      rrange.toSorted(sortByKey),
+    );
+    expect(await db.findEq('u', 'pre-u42'), 'unique-index equality').toStrictEqual(
+      ref.findEq('u', 'pre-u42'),
+    );
     const [cs, rs] = [await db.search('t', 'alpha'), ref.search('t', 'alpha')];
     expect(cs.toSorted(sortByKey), 'text search equality').toStrictEqual(rs.toSorted(sortByKey));
   } finally {
@@ -227,8 +235,14 @@ test(
       await db.get(pre[1]!);
       const stats1 = db.stats();
       expect(stats1.incrementalCatchups > 0, 'incremental catch-up happened').toBeTruthy();
-      expect(stats1.readerReopens - stats0.readerReopens, 'no full reopen on the pure-append path').toBe(0);
-      expect(stats1.catchupFramesApplied - stats0.catchupFramesApplied, 'every storm frame applied exactly once').toBe(report.frames);
+      expect(
+        stats1.readerReopens - stats0.readerReopens,
+        'no full reopen on the pure-append path',
+      ).toBe(0);
+      expect(
+        stats1.catchupFramesApplied - stats0.catchupFramesApplied,
+        'every storm frame applied exactly once',
+      ).toBe(report.frames);
 
       // Every view equals a from-scratch full open of the shard.
       await assertSameAsFreshOpen(db, dir, hot);
@@ -239,7 +253,9 @@ test(
       const stats2 = db.stats();
       for (let k = 0; k < 200; k++) expect(await db.get(quiet)).toBe(undefined);
       const stats3 = db.stats();
-      expect(stats3.incrementalCatchups, 'no catch-ups without writes').toBe(stats2.incrementalCatchups);
+      expect(stats3.incrementalCatchups, 'no catch-ups without writes').toBe(
+        stats2.incrementalCatchups,
+      );
       expect(stats3.readerReopens, 'no reopens without writes').toBe(stats2.readerReopens);
       await db.close();
     } finally {
@@ -294,8 +310,14 @@ test(
 
       await db.get(pre[1]!);
       const stats1 = db.stats();
-      expect(stats1.readerReopens - stats0.readerReopens >= 1, 'rotation forced a full reopen').toBeTruthy();
-      expect(stats1.incrementalCatchups - stats0.incrementalCatchups, 'no incremental progress across a rotation').toBe(0);
+      expect(
+        stats1.readerReopens - stats0.readerReopens >= 1,
+        'rotation forced a full reopen',
+      ).toBeTruthy();
+      expect(
+        stats1.incrementalCatchups - stats0.incrementalCatchups,
+        'no incremental progress across a rotation',
+      ).toBe(0);
       await assertSameAsFreshOpen(db, dir, hot);
 
       // A follow-up append-only storm is caught incrementally again.
@@ -306,9 +328,15 @@ test(
       await sleep(150);
       await db.get(pre[2]!);
       const stats2 = db.stats();
-      expect(stats2.incrementalCatchups - stats1.incrementalCatchups > 0, 'incremental catch-up resumed after the reopen').toBeTruthy();
+      expect(
+        stats2.incrementalCatchups - stats1.incrementalCatchups > 0,
+        'incremental catch-up resumed after the reopen',
+      ).toBeTruthy();
       expect(stats2.readerReopens - stats1.readerReopens, 'no further reopen').toBe(0);
-      expect(stats2.catchupFramesApplied - stats1.catchupFramesApplied, 'second storm applied frame-exactly').toBe(report2.frames);
+      expect(
+        stats2.catchupFramesApplied - stats1.catchupFramesApplied,
+        'second storm applied frame-exactly',
+      ).toBe(report2.frames);
       await assertSameAsFreshOpen(db, dir, hot);
       await db.close();
     } finally {
@@ -369,9 +397,18 @@ test(
       // carry a definition change. (Before the fingerprint tracked
       // db.compound-indexes.json this change was invisible forever.)
       await runWorkerOk(['compound-defs', dir, String(shards), 'create'], { timeoutMs: 120_000 });
-      expect(await compoundNames(), 'the refreshed reader sees the new compound index').toStrictEqual(['cg']);
-      expect(pool.stats.readerReopens - stats0.readerReopens, 'the sidecar change forced a full reopen').toBe(1);
-      expect(pool.stats.incrementalCatchups - stats0.incrementalCatchups, 'no incremental catch-up on a def-only change').toBe(0);
+      expect(
+        await compoundNames(),
+        'the refreshed reader sees the new compound index',
+      ).toStrictEqual(['cg']);
+      expect(
+        pool.stats.readerReopens - stats0.readerReopens,
+        'the sidecar change forced a full reopen',
+      ).toBe(1);
+      expect(
+        pool.stats.incrementalCatchups - stats0.incrementalCatchups,
+        'no incremental catch-up on a def-only change',
+      ).toBe(0);
       // The refreshed instance still serves data correctly.
       const v = await pool.withReader(hot, shardDir, (db) => db.get(pre[0]!));
       expect((v as Doc | undefined)?.n).toBe(0);

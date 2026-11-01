@@ -1,3 +1,4 @@
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { createHash } from 'node:crypto';
 import fs, {
   appendFile,
@@ -24,8 +25,8 @@ import type {
 import { DATABASE_SECTION } from '@moonshot-ai/agent-core-v2';
 import { MiniDb } from '@moonshot-ai/minidb';
 import { TranscriptStore, type TranscriptOperation } from '@moonshot-ai/transcript';
-import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 
+import { SYSTEM_CLOCK, type Clock } from '../../src/lib/clock';
 import {
   SearchIndexCore,
   setSearchStatOverride,
@@ -41,7 +42,6 @@ import {
 } from '../../src/search/searchService';
 import { SearchWorkerError, SearchWorkerHost } from '../../src/search/worker/host';
 import type { SearchWorkerRequest } from '../../src/search/worker/protocol';
-import { SYSTEM_CLOCK, type Clock } from '../../src/lib/clock';
 import { createFakeClock } from '../helpers/fakeClock';
 import { waitForAssertion } from '../helpers/waitFor';
 
@@ -2583,8 +2583,9 @@ describe('GlobalSearchService', () => {
       await writeWire(home!, 's1', 'main', [userLine('苹果 recovery', T1)]);
       const service = track(makeInlineService(home!, staticIndex([s1])));
 
-      const spy = spyOn(MiniDb.prototype, 'createTextIndex')
-        .mockRejectedValueOnce(new Error('injected createTextIndex failure'));
+      const spy = spyOn(MiniDb.prototype, 'createTextIndex').mockRejectedValueOnce(
+        new Error('injected createTextIndex failure'),
+      );
       await expect(service.reindex()).rejects.toThrow('injected createTextIndex failure');
       spy.mockRestore();
 

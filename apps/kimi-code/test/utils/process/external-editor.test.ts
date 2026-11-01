@@ -1,6 +1,6 @@
+import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import * as fsPromises from 'node:fs/promises';
 
-import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { editInExternalEditor, resolveEditorCommand } from '#/utils/process/external-editor';
 import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 
@@ -35,9 +35,9 @@ describe('external-editor helpers', () => {
       return { exited: writeFile(tmpFile, 'edited text', 'utf8').then(() => 0) };
     });
 
-    await expect(
-      editInExternalEditor('seed', 'code --wait', { spawn: spawnEditor }),
-    ).resolves.toBe('edited text');
+    await expect(editInExternalEditor('seed', 'code --wait', { spawn: spawnEditor })).resolves.toBe(
+      'edited text',
+    );
     expect(spawnEditor).toHaveBeenCalledWith(
       expect.arrayContaining([expect.stringContaining('code --wait')]),
       { stdio: ['inherit', 'inherit', 'inherit'], windowsVerbatimArguments: true },

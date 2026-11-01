@@ -30,7 +30,15 @@ import type { TokenUsage } from '#/usage';
 
 import type { ToolCallIdPolicy } from '../provider';
 import { usesOpenAIResponsesDeveloperRole } from './capability-registry';
-import { TOOL_RESULT_MEDIA_PLACEHOLDER, TOOL_RESULT_MEDIA_PROMPT, convertOpenAIError, isMediaPart, isOpenAIInsufficientQuotaCode, resolveDeepSeekCacheSplit, type ToolMessageConversion } from './openai-common';
+import {
+  TOOL_RESULT_MEDIA_PLACEHOLDER,
+  TOOL_RESULT_MEDIA_PROMPT,
+  convertOpenAIError,
+  isMediaPart,
+  isOpenAIInsufficientQuotaCode,
+  resolveDeepSeekCacheSplit,
+  type ToolMessageConversion,
+} from './openai-common';
 import {
   mergeRequestHeaders,
   requireProviderApiKey,

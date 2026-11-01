@@ -1,5 +1,6 @@
-import type { ContextMessage } from '@moonshot-ai/agent-core-v2';
 import { describe, expect, it } from 'bun:test';
+
+import type { ContextMessage } from '@moonshot-ai/agent-core-v2';
 
 import {
   projectPromptContentParts,

@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import { UNKNOWN_CAPABILITY } from '#/llm/capability';
-import {
-  createAssistantMessage,
-  createUserMessage,
-  type ToolDescription,
-} from '#/llm/message';
+import { createAssistantMessage, createUserMessage, type ToolDescription } from '#/llm/message';
 import type { LlmModel } from '#/llm/model';
 import type { FormatRequestInput } from '#/llm/protocol/format';
 import { prepareOpenAIRequest } from '#/llm/requester/bases/openai/requester';

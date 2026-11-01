@@ -1,19 +1,19 @@
-import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { Service } from '#/_base/di/service';
+import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { ILogService } from '#/_base/log/log';
 import { IAgentBlobService } from '#/agent/blob/agentBlobService';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import type { ContentPart } from '#human/llm/message';
-import {
-  type AppendLogTruncation,
-  IAppendLogStore,
-} from '#/persistence/interface/appendLogStore';
-import { IFileSystemStorageService, StorageError, StorageErrors } from '#/persistence/interface/storage';
+import { type AppendLogTruncation, IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { ISessionLockService } from '#/persistence/interface/sessionLock';
+import {
+  IFileSystemStorageService,
+  StorageError,
+  StorageErrors,
+} from '#/persistence/interface/storage';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import type { ContentPart } from '#human/llm/message';
 
-import { IWireService, type WireRestoreChains } from './wire';
 import { WireError, WireErrors } from './errors';
 import { isHumanRecordType } from './human';
 import {
@@ -22,20 +22,6 @@ import {
   type SwitchedBranch,
   type SwitchBranchInput,
 } from './journal';
-import { repairWireJournal } from './repair';
-import {
-  activeChain,
-  AGENT_SWITCHED_TYPE,
-  branchForLine,
-  buildUndoSwitchRecords,
-  computeForkLine,
-  MAIN_BRANCH,
-  parseTree,
-  restorableChain,
-  type UndoSwitchRecords,
-  type WireLine,
-  type WireTree,
-} from './tree';
 import {
   WIRE_PROTOCOL_VERSION,
   isNewerWireVersion,
@@ -53,6 +39,21 @@ import {
   type RecordDehydrator,
   type WireRecord,
 } from './record';
+import { repairWireJournal } from './repair';
+import {
+  activeChain,
+  AGENT_SWITCHED_TYPE,
+  branchForLine,
+  buildUndoSwitchRecords,
+  computeForkLine,
+  MAIN_BRANCH,
+  parseTree,
+  restorableChain,
+  type UndoSwitchRecords,
+  type WireLine,
+  type WireTree,
+} from './tree';
+import { IWireService, type WireRestoreChains } from './wire';
 
 export class WireService extends Service implements IWireService, IAgentJournal {
   declare readonly _serviceBrand: undefined;
@@ -118,9 +119,7 @@ export class WireService extends Service implements IWireService, IAgentJournal 
       return;
     }
     const transform: PartsTransformer = (parts) =>
-      this.blobService.offloadParts(
-        parts as readonly ContentPart[],
-      ) as Promise<readonly unknown[]>;
+      this.blobService.offloadParts(parts as readonly ContentPart[]) as Promise<readonly unknown[]>;
     const queued = (this.persistQueue ?? Promise.resolve())
       .then(async () => {
         if (this.pendingRepair !== undefined) {
@@ -418,7 +417,11 @@ export class WireService extends Service implements IWireService, IAgentJournal 
         this.pendingRewrite = rewrittenRecords;
       }
     }
-    this.mergeModeTwoEntries(modeTwoEntries, this.modeTwoEntries.slice(modeTwoLengthAtStart), lineCount);
+    this.mergeModeTwoEntries(
+      modeTwoEntries,
+      this.modeTwoEntries.slice(modeTwoLengthAtStart),
+      lineCount,
+    );
     this.lastReadLineCount = lineCount;
   }
 
@@ -454,10 +457,7 @@ export class WireService extends Service implements IWireService, IAgentJournal 
   }
 
   private async rewriteMigratedJournal(records: WireRecord[]): Promise<boolean> {
-    if (
-      !this.sessionLocks.tryHold(this.sessionContext.sessionId) ||
-      this.externallyModified()
-    ) {
+    if (!this.sessionLocks.tryHold(this.sessionContext.sessionId) || this.externallyModified()) {
       return false;
     }
     await this.log.rewrite(this.wireScope, AGENT_WIRE_RECORD_KEY, records);
@@ -495,10 +495,7 @@ export class WireService extends Service implements IWireService, IAgentJournal 
         records.push(record);
       }
     }
-    if (
-      !this.sessionLocks.tryHold(this.sessionContext.sessionId) ||
-      this.externallyModified()
-    ) {
+    if (!this.sessionLocks.tryHold(this.sessionContext.sessionId) || this.externallyModified()) {
       this.pendingRepair = { records, truncation };
       return;
     }
@@ -658,7 +655,9 @@ function extractLegacyPlanRevisionKey(path: string, agentId: string): string | u
     segments[0] !== 'sessions' ||
     segments[3] !== 'agents' ||
     segments[4] !== agentId ||
-    segments.slice(1, 3).some((segment) => segment.length === 0 || segment === '.' || segment === '..')
+    segments
+      .slice(1, 3)
+      .some((segment) => segment.length === 0 || segment === '.' || segment === '..')
   ) {
     return undefined;
   }

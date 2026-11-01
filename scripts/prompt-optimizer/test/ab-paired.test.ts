@@ -119,8 +119,14 @@ describe('estimatePower', () => {
   });
 
   test('a larger sample detects a smaller effect', () => {
-    const small = estimatePower(Array.from({ length: 10 }, (_, i) => i / 10), undefined);
-    const large = estimatePower(Array.from({ length: 200 }, (_, i) => i / 200), undefined);
+    const small = estimatePower(
+      Array.from({ length: 10 }, (_, i) => i / 10),
+      undefined,
+    );
+    const large = estimatePower(
+      Array.from({ length: 200 }, (_, i) => i / 200),
+      undefined,
+    );
     expect(large.detectableDelta).toBeLessThan(small.detectableDelta);
   });
 

@@ -6,13 +6,8 @@
  */
 
 import { BENCHMARK_CASES } from '../benchmark/cases';
-import { avg, formatNum, padRight } from '../format';
-import {
-  estimatePower,
-  pairedDifferences,
-  pairedPermutationP,
-} from './statistics';
 import { runSuite, aggregateResults, type LLMCaller, type RunnerConfig } from '../benchmark/runner';
+import { avg, formatNum, padRight } from '../format';
 import type {
   ABComparison,
   ABExperiment,
@@ -21,6 +16,7 @@ import type {
   BenchmarkResult,
   BenchmarkScores,
 } from '../types';
+import { estimatePower, pairedDifferences, pairedPermutationP } from './statistics';
 
 export interface ABConfig {
   runner: RunnerConfig;
@@ -192,7 +188,3 @@ function getScore(scores: BenchmarkScores, dim: keyof BenchmarkScores): number {
   if (typeof val === 'boolean') return val ? 1 : 0;
   return val;
 }
-
-
-
-

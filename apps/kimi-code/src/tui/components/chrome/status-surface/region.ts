@@ -260,9 +260,7 @@ export function sortRegions(regions: readonly StatusRegion[]): StatusRegion[] {
 }
 
 /** The region that declared {@link StatusRegion.defaultFocusTarget}, if any. */
-export function defaultFocusRegion(
-  regions: readonly StatusRegion[],
-): StatusRegion | undefined {
+export function defaultFocusRegion(regions: readonly StatusRegion[]): StatusRegion | undefined {
   return regions.find((region) => region.defaultFocusTarget === true);
 }
 

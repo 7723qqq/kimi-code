@@ -1,9 +1,8 @@
+import { describe, expect, it, mock } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { access, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { describe, expect, it, mock } from 'bun:test';
 
 import {
   createMsys2PromptDeps,

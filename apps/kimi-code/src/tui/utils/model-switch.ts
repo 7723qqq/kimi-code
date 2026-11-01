@@ -5,10 +5,11 @@ import {
   type ThinkingEffort,
 } from '@moonshot-ai/kimi-code-sdk';
 
+import { t } from '#/i18n';
+
 import type { SlashCommandHost } from '../commands/dispatch';
 import { defaultThinkingEffortFor, modelDisplayName } from '../components/dialogs/model-selector';
 import type { AppState } from '../types';
-import { t } from '#/i18n';
 import { formatErrorMessage } from './event-payload';
 import { thinkingEffortFromConfig, thinkingEffortToConfig } from './thinking-config';
 
@@ -19,9 +20,7 @@ export const MODEL_SWITCH_CACHE_WARNING = (): string => t('tui.messages.configMo
  * echoes are also 'user' transcript entries but carry an empty `bullet`, so
  * they're excluded. */
 export function hasConversationHistory(host: SlashCommandHost): boolean {
-  return host.state.transcriptEntries.some(
-    (entry) => entry.kind === 'user' && entry.bullet !== '',
-  );
+  return host.state.transcriptEntries.some((entry) => entry.kind === 'user' && entry.bullet !== '');
 }
 
 export function effectiveModelForHost(host: SlashCommandHost, model: ModelAlias): ModelAlias {
@@ -163,15 +162,24 @@ export async function performModelSwitch(
   if (effectiveModelChanged) {
     status = saveDefault
       ? t('tui.messages.configModelSwitched', { name: displayName, effort: effectiveEffort })
-      : t('tui.messages.configModelSwitchedSession', { name: displayName, effort: effectiveEffort });
+      : t('tui.messages.configModelSwitchedSession', {
+          name: displayName,
+          effort: effectiveEffort,
+        });
   } else if (effectiveEffortChanged) {
     status = saveDefault
       ? t('tui.messages.configThinkingSet', { effort: effectiveEffort })
       : t('tui.messages.configThinkingSetSession', { effort: effectiveEffort });
   } else if (saveDefault && persisted) {
-    status = t('tui.messages.configModelSavedDefault', { name: displayName, effort: effectiveEffort });
+    status = t('tui.messages.configModelSavedDefault', {
+      name: displayName,
+      effort: effectiveEffort,
+    });
   } else {
-    status = t('tui.messages.configModelAlreadyUsing', { name: displayName, effort: effectiveEffort });
+    status = t('tui.messages.configModelAlreadyUsing', {
+      name: displayName,
+      effort: effectiveEffort,
+    });
   }
   host.showStatus(status, 'success');
   return true;

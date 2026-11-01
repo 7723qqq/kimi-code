@@ -38,7 +38,10 @@ export interface ImportSessionsScreenOptions {
   readonly scan: () => Promise<ImportScan>;
   readonly run: (
     candidates: readonly ImportCandidate[],
-    hooks: { readonly onProgress: (progress: ImportProgress) => void; readonly shouldStop: () => boolean },
+    hooks: {
+      readonly onProgress: (progress: ImportProgress) => void;
+      readonly shouldStop: () => boolean;
+    },
   ) => Promise<ImportReport>;
   /** Called once when the page closes; `report` is absent when nothing was imported. */
   readonly onClose: (report: ImportReport | undefined) => void;
@@ -83,7 +86,8 @@ export class ImportSessionsScreenComponent extends Container implements Focusabl
       (scan) => {
         this.scan = scan;
         this.phase = 'choose';
-        this.selectedIndex = this.count(IMPORT_WINDOW_DAYS[0]) === 0 && this.count(IMPORT_WINDOW_DAYS[1]) > 0 ? 1 : 0;
+        this.selectedIndex =
+          this.count(IMPORT_WINDOW_DAYS[0]) === 0 && this.count(IMPORT_WINDOW_DAYS[1]) > 0 ? 1 : 0;
         this.settle();
       },
       (error: unknown) => {
@@ -148,7 +152,9 @@ export class ImportSessionsScreenComponent extends Container implements Focusabl
   private body(colors: ColorPalette): string[] {
     const text = chalk.hex(colors.text);
     const muted = chalk.hex(colors.textMuted);
-    const spinner = chalk.hex(colors.accent)(SPINNER_FRAMES[this.spinnerFrame] ?? SPINNER_FRAMES[0]);
+    const spinner = chalk.hex(colors.accent)(
+      SPINNER_FRAMES[this.spinnerFrame] ?? SPINNER_FRAMES[0],
+    );
     switch (this.phase) {
       case 'scanning':
         return [
@@ -205,7 +211,9 @@ export class ImportSessionsScreenComponent extends Container implements Focusabl
     ];
     const lines = choices.map((choice, index) => {
       const selected = index === this.selectedIndex;
-      const pointer = chalk.hex(selected ? colors.primary : colors.textDim)(`  ${selected ? '❯' : ' '} `);
+      const pointer = chalk.hex(selected ? colors.primary : colors.textDim)(
+        `  ${selected ? '❯' : ' '} `,
+      );
       const label = (selected ? chalk.hex(colors.primary).bold : text)(choice.label.padEnd(14));
       if (choice.days === undefined) return pointer + label;
       const count = this.count(choice.days);
@@ -231,7 +239,10 @@ export class ImportSessionsScreenComponent extends Container implements Focusabl
     const bySource = (['claude-code', 'codex'] as const)
       .map(
         (source) =>
-          [t(SOURCE_LABEL_KEYS[source]), recent.filter((candidate) => candidate.source === source).length] as const,
+          [
+            t(SOURCE_LABEL_KEYS[source]),
+            recent.filter((candidate) => candidate.source === source).length,
+          ] as const,
       )
       .filter(([, count]) => count > 0)
       .map(([label, count]) => `${label} ${String(count)}`);
@@ -273,7 +284,9 @@ export class ImportSessionsScreenComponent extends Container implements Focusabl
       [report.alreadyImported, t('tui.messages.importSessions.alreadyImported')],
     ] as const;
     const skippedTotal = skipped.reduce((total, [count]) => total + count, 0);
-    const lines = [chalk.hex(report.imported.length > 0 ? colors.success : colors.text)(` ${headline}`)];
+    const lines = [
+      chalk.hex(report.imported.length > 0 ? colors.success : colors.text)(` ${headline}`),
+    ];
     if (skippedTotal > 0) {
       lines.push(text(` ${t('tui.messages.importSessions.skipped', { count: skippedTotal })}`));
       for (const [count, reason] of skipped) {

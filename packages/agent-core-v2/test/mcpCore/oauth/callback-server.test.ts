@@ -1,7 +1,6 @@
+import { afterEach, describe, expect, it } from 'bun:test';
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
 import type { AddressInfo as HttpAddress } from 'node:net';
-
-import { afterEach, describe, expect, it } from 'bun:test';
 
 import {
   type CallbackServer,
@@ -142,7 +141,7 @@ describe('McpOAuthService cancellation', () => {
 
     const flow = await service.beginAuthorization('example', 'https://mcp.example.test/rpc');
     const completion = flow.complete({ timeoutMs: 10_000 });
-    
+
     await flow.cancel();
 
     await expect(completion).rejects.toThrow('OAuth callback listener closed');

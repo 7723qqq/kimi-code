@@ -5,9 +5,11 @@
  * Run: cd apps/vscode && bun test --isolate test/replay-resume.integration.test.ts
  */
 
+import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import {
   createKimiHarness,
@@ -15,14 +17,12 @@ import {
   type KimiHarness,
   type Session,
 } from '@moonshot-ai/kimi-code-sdk';
-import { afterEach, describe, expect, it } from 'bun:test';
 
 import {
   createFakeProviderHarness,
   type FakeProviderHarness,
 } from '../../../packages/kosong/test/e2e/fake-provider-harness';
 import { replaySessionToWebviewEvents } from '../src/runtime/replay-adapter';
-import { setTimeout as delay } from 'node:timers/promises';
 
 const MODEL_ALIAS = 'vscode-replay-test';
 
@@ -87,7 +87,7 @@ async function removeTempDir(dir: string): Promise<void> {
       return;
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
-      if (code !== "ENOTEMPTY" && code !== "EBUSY" && code !== "EPERM") {
+      if (code !== 'ENOTEMPTY' && code !== 'EBUSY' && code !== 'EPERM') {
         throw error;
       }
       await delay(10);

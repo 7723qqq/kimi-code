@@ -49,7 +49,12 @@ function slashSkillPrompt(): ContextMessage {
     role: 'user',
     content: [{ type: 'text', text: '/review' }],
     toolCalls: [],
-    origin: { kind: 'skill_activation', activationId: 'a1', skillName: 'review', trigger: 'user-slash' },
+    origin: {
+      kind: 'skill_activation',
+      activationId: 'a1',
+      skillName: 'review',
+      trigger: 'user-slash',
+    },
   };
 }
 
@@ -58,7 +63,12 @@ function modelSkillPrompt(): ContextMessage {
     role: 'user',
     content: [{ type: 'text', text: 'skill content' }],
     toolCalls: [],
-    origin: { kind: 'skill_activation', activationId: 'a2', skillName: 'pdf', trigger: 'model-tool' },
+    origin: {
+      kind: 'skill_activation',
+      activationId: 'a2',
+      skillName: 'pdf',
+      trigger: 'model-tool',
+    },
   };
 }
 
@@ -286,9 +296,9 @@ describe('shouldNudgeNotifyUser', () => {
 
   it('spaces nudges by the threshold while a silent streak continues', () => {
     expect(shouldNudgeNotifyUser(NOTIFY_USER_NUDGE_THRESHOLD * 2, 3)).toBe(false);
-    expect(shouldNudgeNotifyUser(NOTIFY_USER_NUDGE_THRESHOLD * 2, NOTIFY_USER_NUDGE_THRESHOLD)).toBe(
-      true,
-    );
+    expect(
+      shouldNudgeNotifyUser(NOTIFY_USER_NUDGE_THRESHOLD * 2, NOTIFY_USER_NUDGE_THRESHOLD),
+    ).toBe(true);
   });
 
   it('re-arms at the threshold after the model notified (streak reset)', () => {

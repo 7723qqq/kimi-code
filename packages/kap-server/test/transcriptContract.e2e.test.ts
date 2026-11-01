@@ -1,11 +1,9 @@
-
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
-import { WebSocket, type RawData } from 'ws';
 import {
   IAgentLifecycleService,
   IAgentPlanService,
@@ -15,11 +13,11 @@ import {
   getLiveSessionById,
   resumeSessionById,
 } from '@moonshot-ai/agent-core-v2';
+import { WebSocket, type RawData } from 'ws';
 
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders, bearerToken } from './helpers/auth';
-
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 function sseLines(...events: readonly string[]): string {
   return events.map((event) => `data: ${event}\n\n`).join('') + 'data: [DONE]\n\n';
@@ -86,7 +84,10 @@ interface MockLlm {
   readonly close: () => Promise<void>;
 }
 
-async function startMockLlm(routes: readonly LlmRoute[], fallback: () => string = () => sseText('ok')): Promise<MockLlm> {
+async function startMockLlm(
+  routes: readonly LlmRoute[],
+  fallback: () => string = () => sseText('ok'),
+): Promise<MockLlm> {
   const hits: string[] = [];
   const server: Server = createServer((req: IncomingMessage, res: ServerResponse) => {
     const chunks: Buffer[] = [];
@@ -106,14 +107,13 @@ async function startMockLlm(routes: readonly LlmRoute[], fallback: () => string 
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
-  if (address === null || typeof address === 'object' === false) throw new Error('no llm port');
+  if (address === null || (typeof address === 'object') === false) throw new Error('no llm port');
   return {
     port: address.port,
     hits,
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
 }
-
 
 function configToml(llmPort: number): string {
   return [
@@ -138,14 +138,23 @@ interface Envelope<T> {
   data: T;
 }
 
-async function rest<T>(server: RunningServer, base: string, path: string, init?: { method?: string; body?: unknown }): Promise<T> {
+async function rest<T>(
+  server: RunningServer,
+  base: string,
+  path: string,
+  init?: { method?: string; body?: unknown },
+): Promise<T> {
   const res = await fetch(`${base}${path}`, {
     method: init?.method ?? 'GET',
-    headers: authHeaders(server, init?.body !== undefined ? { 'content-type': 'application/json' } : {}),
+    headers: authHeaders(
+      server,
+      init?.body !== undefined ? { 'content-type': 'application/json' } : {},
+    ),
     body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
   });
   const envelope = (await res.json()) as Envelope<T> & { data: T };
-  if (envelope.code !== 0) throw new Error(`REST ${path} failed: ${JSON.stringify(envelope).slice(0, 300)}`);
+  if (envelope.code !== 0)
+    throw new Error(`REST ${path} failed: ${JSON.stringify(envelope).slice(0, 300)}`);
   return envelope.data;
 }
 
@@ -160,9 +169,17 @@ interface TxSnapshot {
 }
 
 const getTranscript = (server: RunningServer, base: string, sid: string): Promise<TxSnapshot> =>
-  rest<TxSnapshot>(server, base, `/api/v1/sessions/${encodeURIComponent(sid)}/transcript?agent_id=main`);
+  rest<TxSnapshot>(
+    server,
+    base,
+    `/api/v1/sessions/${encodeURIComponent(sid)}/transcript?agent_id=main`,
+  );
 
-const getSessionFacts = (server: RunningServer, base: string, sid: string): Promise<{ busy: boolean; pending_interaction?: string }> =>
+const getSessionFacts = (
+  server: RunningServer,
+  base: string,
+  sid: string,
+): Promise<{ busy: boolean; pending_interaction?: string }> =>
   rest(server, base, `/api/v1/sessions/${encodeURIComponent(sid)}`);
 
 async function createSession(server: RunningServer, base: string): Promise<string> {
@@ -173,14 +190,30 @@ async function createSession(server: RunningServer, base: string): Promise<strin
   return data.id;
 }
 
-function submitPrompt(server: RunningServer, base: string, sid: string, text: string, permissionMode: 'manual' | 'yolo' | 'auto' = 'yolo'): Promise<{ prompt_id: string }> {
-  return rest<{ prompt_id: string }>(server, base, `/api/v1/sessions/${encodeURIComponent(sid)}/prompts`, {
-    method: 'POST',
-    body: { content: [{ type: 'text', text }], model: 'stub', permission_mode: permissionMode },
-  });
+function submitPrompt(
+  server: RunningServer,
+  base: string,
+  sid: string,
+  text: string,
+  permissionMode: 'manual' | 'yolo' | 'auto' = 'yolo',
+): Promise<{ prompt_id: string }> {
+  return rest<{ prompt_id: string }>(
+    server,
+    base,
+    `/api/v1/sessions/${encodeURIComponent(sid)}/prompts`,
+    {
+      method: 'POST',
+      body: { content: [{ type: 'text', text }], model: 'stub', permission_mode: permissionMode },
+    },
+  );
 }
 
-async function until(label: string, fn: () => Promise<boolean> | boolean, timeoutMs = 30000, intervalMs = 150): Promise<void> {
+async function until(
+  label: string,
+  fn: () => Promise<boolean> | boolean,
+  timeoutMs = 30000,
+  intervalMs = 150,
+): Promise<void> {
   const start = Date.now();
   for (;;) {
     if (await fn()) return;
@@ -204,7 +237,9 @@ function rawToString(data: RawData): string {
 }
 
 async function subscribeTranscript(server: RunningServer, sid: string): Promise<TranscriptChannel> {
-  const ws = new WebSocket(`ws://127.0.0.1:${server.port}/api/v1/ws`, [`kimi-code.bearer.${bearerToken(server)}`]);
+  const ws = new WebSocket(`ws://127.0.0.1:${server.port}/api/v1/ws`, [
+    `kimi-code.bearer.${bearerToken(server)}`,
+  ]);
   const frames: any[] = [];
   const ops: any[] = [];
   let resetFrame: any;
@@ -217,10 +252,15 @@ async function subscribeTranscript(server: RunningServer, sid: string): Promise<
     }
     frames.push(frame);
     const payload = frame.payload as { agent_id?: string; ops?: any[] } | undefined;
-    if (frame.type === 'transcript.reset' && payload?.agent_id === 'main' && resetFrame === undefined) {
+    if (
+      frame.type === 'transcript.reset' &&
+      payload?.agent_id === 'main' &&
+      resetFrame === undefined
+    ) {
       resetFrame = frame;
     }
-    if (frame.type === 'transcript.ops' && payload?.agent_id === 'main') ops.push(...(payload.ops ?? []));
+    if (frame.type === 'transcript.ops' && payload?.agent_id === 'main')
+      ops.push(...(payload.ops ?? []));
   });
   await new Promise<void>((resolve, reject) => {
     ws.once('open', () => {
@@ -228,7 +268,13 @@ async function subscribeTranscript(server: RunningServer, sid: string): Promise<
     });
     ws.once('error', reject);
   });
-  ws.send(JSON.stringify({ type: 'subscribe_v2', id: 'sub-1', payload: { session_id: sid, transcript: { '*': 'delta' } } }));
+  ws.send(
+    JSON.stringify({
+      type: 'subscribe_v2',
+      id: 'sub-1',
+      payload: { session_id: sid, transcript: { '*': 'delta' } },
+    }),
+  );
   await until('transcript.reset', () => resetFrame !== undefined, 15000);
   return {
     frames,
@@ -238,463 +284,594 @@ async function subscribeTranscript(server: RunningServer, sid: string): Promise<
   };
 }
 
+const describeWithTimeout = describe as unknown as (
+  label: string,
+  fn: () => void,
+  timeout?: number,
+) => void;
 
-const describeWithTimeout = describe as unknown as (label: string, fn: () => void, timeout?: number) => void;
+describeWithTimeout(
+  'transcript contract e2e',
+  () => {
+    let home: string | undefined;
+    let server: RunningServer | undefined;
+    let llm: MockLlm | undefined;
+    let base: string;
 
-describeWithTimeout('transcript contract e2e', () => {
-  let home: string | undefined;
-  let server: RunningServer | undefined;
-  let llm: MockLlm | undefined;
-  let base: string;
+    beforeAll(async () => {
+      home = await mkdtemp(join(tmpdir(), 'kimi-transcript-contract-'));
+      server = await startServer({
+        hostIdentity: TEST_HOST_IDENTITY,
+        host: '127.0.0.1',
+        port: 0,
+        homeDir: home,
+        logLevel: 'silent',
+      });
+      base = `http://127.0.0.1:${server.port}`;
+    });
 
-  beforeAll(async () => {
-    home = await mkdtemp(join(tmpdir(), 'kimi-transcript-contract-'));
-    server = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
-    base = `http://127.0.0.1:${server.port}`;
-  });
+    afterEach(async () => {
+      await llm?.close();
+      llm = undefined;
+    });
 
-  afterEach(async () => {
-    await llm?.close();
-    llm = undefined;
-  });
+    afterAll(async () => {
+      await server?.close();
+      server = undefined;
+      if (home !== undefined) await rm(home, { recursive: true, force: true });
+      home = undefined;
+    });
 
-  afterAll(async () => {
-    await server?.close();
-    server = undefined;
-    if (home !== undefined) await rm(home, { recursive: true, force: true });
-    home = undefined;
-  });
-
-  async function boot(routes: readonly LlmRoute[]): Promise<void> {
-    llm = await startMockLlm(routes);
-    await writeFile(join(home!, 'config.toml'), configToml(llm.port), 'utf-8');
-    await server!.core.accessor.get(IConfigService).reload();
-  }
-
-  const idle = (server: RunningServer, base: string, sid: string) =>
-    until('session idle', async () => !(await getSessionFacts(server, base, sid)).busy);
-
-  function dumpState(tx: TxSnapshot, hits: string[]): string {
-    const turns = tx.items
-      .filter((i) => i.kind === 'turn')
-      .map((t: any) => ({
-        id: t.turnId,
-        state: t.state,
-        origin: t.origin?.kind,
-        steps: t.steps.map((s: any) => ({
-          ordinal: s.ordinal,
-          state: s.state,
-          frames: s.frames.map((f: any) => `${f.kind}:${f.role ?? ''}:${f.name ?? ''}:${f.state ?? ''}`),
-        })),
-      }));
-    const markers = hits
-      .map((hit) => /"content":"([^"]{0,60})/.exec(hit)?.[1] ?? hit.slice(0, 60))
-      .slice(0, 8);
-    return `${JSON.stringify({ meta: tx.meta, prompts: tx.prompts, turns, interactions: tx.interactions })}\nllm hits (${hits.length}): ${JSON.stringify(markers)}`;
-  }
-
-  const idleOrDump = async (server: RunningServer, base: string, sid: string): Promise<void> => {
-    try {
-      await idle(server, base, sid);
-    } catch (error) {
-      const tx = await getTranscript(server, base, sid);
-      throw new Error(`${(error as Error).message}\ntranscript at timeout: ${dumpState(tx, llm?.hits ?? [])}`, { cause: error });
+    async function boot(routes: readonly LlmRoute[]): Promise<void> {
+      llm = await startMockLlm(routes);
+      await writeFile(join(home!, 'config.toml'), configToml(llm.port), 'utf-8');
+      await server!.core.accessor.get(IConfigService).reload();
     }
-  };
 
-  it('S1: turn lifecycle produces activity, prompts and turn frames on both channels', async () => {
-    await boot([{ match: () => true, respond: () => sseText('hello world'), delayMs: 3000 }]);
-    const sid = await createSession(server!, base);
-    await submitPrompt(server!, base, sid, 'say hello');
-    const channel = await subscribeTranscript(server!, sid);
+    const idle = (server: RunningServer, base: string, sid: string) =>
+      until('session idle', async () => !(await getSessionFacts(server, base, sid)).busy);
 
-    await until('turn running + prompt tracked', async () => {
-      const tx = await getTranscript(server!, base, sid);
-      return (
-        tx.meta.activity === 'turn' &&
-        tx.prompts.some((p) => p.status === 'running') &&
-        tx.items.some((i) => i.kind === 'turn' && i.state === 'running')
+    function dumpState(tx: TxSnapshot, hits: string[]): string {
+      const turns = tx.items
+        .filter((i) => i.kind === 'turn')
+        .map((t: any) => ({
+          id: t.turnId,
+          state: t.state,
+          origin: t.origin?.kind,
+          steps: t.steps.map((s: any) => ({
+            ordinal: s.ordinal,
+            state: s.state,
+            frames: s.frames.map(
+              (f: any) => `${f.kind}:${f.role ?? ''}:${f.name ?? ''}:${f.state ?? ''}`,
+            ),
+          })),
+        }));
+      const markers = hits
+        .map((hit) => /"content":"([^"]{0,60})/.exec(hit)?.[1] ?? hit.slice(0, 60))
+        .slice(0, 8);
+      return `${JSON.stringify({ meta: tx.meta, prompts: tx.prompts, turns, interactions: tx.interactions })}\nllm hits (${hits.length}): ${JSON.stringify(markers)}`;
+    }
+
+    const idleOrDump = async (server: RunningServer, base: string, sid: string): Promise<void> => {
+      try {
+        await idle(server, base, sid);
+      } catch (error) {
+        const tx = await getTranscript(server, base, sid);
+        throw new Error(
+          `${(error as Error).message}\ntranscript at timeout: ${dumpState(tx, llm?.hits ?? [])}`,
+          { cause: error },
+        );
+      }
+    };
+
+    it('S1: turn lifecycle produces activity, prompts and turn frames on both channels', async () => {
+      await boot([{ match: () => true, respond: () => sseText('hello world'), delayMs: 3000 }]);
+      const sid = await createSession(server!, base);
+      await submitPrompt(server!, base, sid, 'say hello');
+      const channel = await subscribeTranscript(server!, sid);
+
+      await until('turn running + prompt tracked', async () => {
+        const tx = await getTranscript(server!, base, sid);
+        return (
+          tx.meta.activity === 'turn' &&
+          tx.prompts.some((p) => p.status === 'running') &&
+          tx.items.some((i) => i.kind === 'turn' && i.state === 'running')
+        );
+      });
+      const mid = await getTranscript(server!, base, sid);
+      expect(mid.meta.activity).toBe('turn');
+      expect(mid.prompts.length).toBeGreaterThan(0);
+      expect(mid.prompts[0]!.promptId.length).toBeGreaterThan(0);
+
+      await idle(server!, base, sid);
+
+      const end = await getTranscript(server!, base, sid);
+      expect(end.meta.activity).toBe('idle');
+      const turn = end.items.find((i) => i.kind === 'turn');
+      expect(turn).toMatchObject({ state: 'completed' });
+      expect(typeof turn.endedAt).toBe('string');
+      const frameKinds = turn.steps.flatMap((s: any) => s.frames).map((f: any) => f.kind);
+      expect(frameKinds).toContain('text');
+      const promptStatuses = end.prompts.map((p) => p.status);
+      expect(promptStatuses.every((s) => s === 'completed')).toBe(true);
+
+      const reset = channel.reset();
+      expect(reset.snapshot.meta.activity).toBe('turn');
+      const opTypes = new Set(channel.ops.map((o: any) => o.op));
+      expect(opTypes.has('turn.upsert')).toBe(true);
+      expect(opTypes.has('step.upsert')).toBe(true);
+      expect(opTypes.has('frame.upsert') || opTypes.has('append')).toBe(true);
+      expect(opTypes.has('prompt.upsert')).toBe(true);
+      const activityMerges = channel.ops.filter(
+        (o: any) => o.op === 'meta.merge' && o.meta?.activity !== undefined,
+      );
+      expect(activityMerges.map((o: any) => o.meta.activity)).toContain('idle');
+      channel.close();
+    });
+
+    it('S2: a prompt submitted mid-turn is tracked as queued through settlement', async () => {
+      await boot([
+        {
+          match: (body) => body.includes('first prompt'),
+          respond: () => sseText('first done'),
+          delayMs: 2500,
+        },
+        { match: () => true, respond: () => sseText('second done') },
+      ]);
+      const sid = await createSession(server!, base);
+      await submitPrompt(server!, base, sid, 'first prompt');
+      await until('first prompt running', async () =>
+        (await getTranscript(server!, base, sid)).prompts.some((p) => p.status === 'running'),
+      );
+
+      await submitPrompt(server!, base, sid, 'second prompt');
+      await until('second prompt queued', async () => {
+        const tx = await getTranscript(server!, base, sid);
+        return (
+          tx.prompts.some((p) => p.status === 'queued') &&
+          tx.prompts.some((p) => p.status === 'running')
+        );
+      });
+      const mid = await getTranscript(server!, base, sid);
+      expect(mid.prompts.map((p) => p.status).toSorted()).toEqual(['queued', 'running']);
+
+      await until(
+        'both settled',
+        async () => {
+          const tx = await getTranscript(server!, base, sid);
+          return tx.prompts.length > 0 && tx.prompts.every((p) => p.status === 'completed');
+        },
+        45000,
       );
     });
-    const mid = await getTranscript(server!, base, sid);
-    expect(mid.meta.activity).toBe('turn');
-    expect(mid.prompts.length).toBeGreaterThan(0);
-    expect(mid.prompts[0]!.promptId.length).toBeGreaterThan(0);
 
-    await idle(server!, base, sid);
-
-    const end = await getTranscript(server!, base, sid);
-    expect(end.meta.activity).toBe('idle');
-    const turn = end.items.find((i) => i.kind === 'turn');
-    expect(turn).toMatchObject({ state: 'completed' });
-    expect(typeof turn.endedAt).toBe('string');
-    const frameKinds = turn.steps.flatMap((s: any) => s.frames).map((f: any) => f.kind);
-    expect(frameKinds).toContain('text');
-    const promptStatuses = end.prompts.map((p) => p.status);
-    expect(promptStatuses.every((s) => s === 'completed')).toBe(true);
-
-    const reset = channel.reset();
-    expect(reset.snapshot.meta.activity).toBe('turn');
-    const opTypes = new Set(channel.ops.map((o: any) => o.op));
-    expect(opTypes.has('turn.upsert')).toBe(true);
-    expect(opTypes.has('step.upsert')).toBe(true);
-    expect(opTypes.has('frame.upsert') || opTypes.has('append')).toBe(true);
-    expect(opTypes.has('prompt.upsert')).toBe(true);
-    const activityMerges = channel.ops.filter((o: any) => o.op === 'meta.merge' && o.meta?.activity !== undefined);
-    expect(activityMerges.map((o: any) => o.meta.activity)).toContain('idle');
-    channel.close();
-  });
-
-  it('S2: a prompt submitted mid-turn is tracked as queued through settlement', async () => {
-    await boot([
-      { match: (body) => body.includes('first prompt'), respond: () => sseText('first done'), delayMs: 2500 },
-      { match: () => true, respond: () => sseText('second done') },
-    ]);
-    const sid = await createSession(server!, base);
-    await submitPrompt(server!, base, sid, 'first prompt');
-    await until('first prompt running', async () =>
-      (await getTranscript(server!, base, sid)).prompts.some((p) => p.status === 'running'),
-    );
-
-    await submitPrompt(server!, base, sid, 'second prompt');
-    await until('second prompt queued', async () => {
-      const tx = await getTranscript(server!, base, sid);
-      return tx.prompts.some((p) => p.status === 'queued') && tx.prompts.some((p) => p.status === 'running');
-    });
-    const mid = await getTranscript(server!, base, sid);
-    expect(mid.prompts.map((p) => p.status).toSorted()).toEqual(['queued', 'running']);
-
-    await until('both settled', async () => {
-      const tx = await getTranscript(server!, base, sid);
-      return tx.prompts.length > 0 && tx.prompts.every((p) => p.status === 'completed');
-    }, 45000);
-  });
-
-  it('undo rebuilds a steered turn consistently over REST and WebSocket', async () => {
-    await boot([
-      { match: (body) => body.includes('steered request'), respond: () => sseText('answer after steer') },
-      { match: (body) => body.includes('original request'), respond: () => sseText('answer before steer'), delayMs: 1500 },
-    ]);
-    const sid = await createSession(server!, base);
-    await submitPrompt(server!, base, sid, 'original request');
-    await until('original request reaches model', () => llm!.hits.length > 0);
-    const channel = await subscribeTranscript(server!, sid);
-    try {
-      const steer = await submitPrompt(server!, base, sid, 'steered request');
-      await rest(server!, base, `/api/v1/sessions/${sid}/prompts/${steer.prompt_id}:steer`, { method: 'POST', body: {} });
-      await idle(server!, base, sid);
-      const before = await getTranscript(server!, base, sid);
-      expect(JSON.stringify(before.items)).toContain('answer after steer');
-      expect(before.items.filter((item) => item.kind === 'turn')).toHaveLength(1);
-      expect(before.prompts.some((prompt) => prompt.promptId === steer.prompt_id)).toBe(true);
-      await rest(server!, base, `/api/v1/sessions/${sid}:undo`, { method: 'POST', body: { count: 1 } });
-      const after = await getTranscript(server!, base, sid);
-      expect(after.items.filter((item) => item.kind === 'turn')).toEqual([]);
-      expect(JSON.stringify(after.items)).not.toContain('original request');
-      expect(JSON.stringify(after.items)).not.toContain('answer before steer');
-      expect(JSON.stringify(after.items)).not.toContain('steered request');
-      expect(JSON.stringify(after.items)).not.toContain('answer after steer');
-      expect(after.prompts).toEqual([]);
-      await until('undo reset reaches subscriber', () => channel.ops.some((op) => op.op === 'reset'));
-      expect(channel.ops.find((op) => op.op === 'reset').snapshot.items).toEqual(after.items);
-      const reconnected = await subscribeTranscript(server!, sid);
+    it('undo rebuilds a steered turn consistently over REST and WebSocket', async () => {
+      await boot([
+        {
+          match: (body) => body.includes('steered request'),
+          respond: () => sseText('answer after steer'),
+        },
+        {
+          match: (body) => body.includes('original request'),
+          respond: () => sseText('answer before steer'),
+          delayMs: 1500,
+        },
+      ]);
+      const sid = await createSession(server!, base);
+      await submitPrompt(server!, base, sid, 'original request');
+      await until('original request reaches model', () => llm!.hits.length > 0);
+      const channel = await subscribeTranscript(server!, sid);
       try {
-        expect((await getTranscript(server!, base, sid)).items).toEqual(after.items);
-        expect(reconnected.reset().snapshot.prompts).toEqual([]);
+        const steer = await submitPrompt(server!, base, sid, 'steered request');
+        await rest(server!, base, `/api/v1/sessions/${sid}/prompts/${steer.prompt_id}:steer`, {
+          method: 'POST',
+          body: {},
+        });
+        await idle(server!, base, sid);
+        const before = await getTranscript(server!, base, sid);
+        expect(JSON.stringify(before.items)).toContain('answer after steer');
+        expect(before.items.filter((item) => item.kind === 'turn')).toHaveLength(1);
+        expect(before.prompts.some((prompt) => prompt.promptId === steer.prompt_id)).toBe(true);
+        await rest(server!, base, `/api/v1/sessions/${sid}:undo`, {
+          method: 'POST',
+          body: { count: 1 },
+        });
+        const after = await getTranscript(server!, base, sid);
+        expect(after.items.filter((item) => item.kind === 'turn')).toEqual([]);
+        expect(JSON.stringify(after.items)).not.toContain('original request');
+        expect(JSON.stringify(after.items)).not.toContain('answer before steer');
+        expect(JSON.stringify(after.items)).not.toContain('steered request');
+        expect(JSON.stringify(after.items)).not.toContain('answer after steer');
+        expect(after.prompts).toEqual([]);
+        await until('undo reset reaches subscriber', () =>
+          channel.ops.some((op) => op.op === 'reset'),
+        );
+        expect(channel.ops.find((op) => op.op === 'reset').snapshot.items).toEqual(after.items);
+        const reconnected = await subscribeTranscript(server!, sid);
+        try {
+          expect((await getTranscript(server!, base, sid)).items).toEqual(after.items);
+          expect(reconnected.reset().snapshot.prompts).toEqual([]);
+        } finally {
+          reconnected.close();
+        }
+        await submitPrompt(server!, base, sid, 'steered request');
+        await idle(server!, base, sid);
+        const resent = await getTranscript(server!, base, sid);
+        expect(
+          resent.items.filter((item) => item.kind === 'turn').map((turn) => turn.prompt),
+        ).toEqual(['steered request']);
+        expect(resent.prompts.some((prompt) => prompt.promptId === steer.prompt_id)).toBe(false);
+        await closeSessionById(server!.core.accessor, sid);
+        const reopened = await getTranscript(server!, base, sid);
+        expect(
+          reopened.items.filter((item) => item.kind === 'turn').map((turn) => turn.prompt),
+        ).toEqual(['steered request']);
+        await rest(server!, base, `/api/v1/sessions/${sid}:undo`, {
+          method: 'POST',
+          body: { count: 1 },
+        });
+        const empty = await getTranscript(server!, base, sid);
+        expect(empty.items.filter((item) => item.kind === 'turn')).toEqual([]);
+        expect(empty.prompts).toEqual([]);
       } finally {
-        reconnected.close();
+        channel.close();
       }
-      await submitPrompt(server!, base, sid, 'steered request');
-      await idle(server!, base, sid);
-      const resent = await getTranscript(server!, base, sid);
-      expect(resent.items.filter((item) => item.kind === 'turn').map((turn) => turn.prompt)).toEqual(['steered request']);
-      expect(resent.prompts.some((prompt) => prompt.promptId === steer.prompt_id)).toBe(false);
-      await closeSessionById(server!.core.accessor, sid);
-      const reopened = await getTranscript(server!, base, sid);
-      expect(reopened.items.filter((item) => item.kind === 'turn').map((turn) => turn.prompt)).toEqual(['steered request']);
-      await rest(server!, base, `/api/v1/sessions/${sid}:undo`, { method: 'POST', body: { count: 1 } });
-      const empty = await getTranscript(server!, base, sid);
-      expect(empty.items.filter((item) => item.kind === 'turn')).toEqual([]);
-      expect(empty.prompts).toEqual([]);
-    } finally {
-      channel.close();
-    }
-  }, 30000);
+    }, 30000);
 
-  it('S3: a pending approval appears as an interaction with tool linkage, then resolves', async () => {
-    await boot([
-      { match: (body) => !body.includes('echo contract-hi'), respond: () => sseToolCall('call_1', 'Bash', '{"command":"echo contract-hi"}') },
-      { match: () => true, respond: () => sseText('tool done') },
-    ]);
-    const sid = await createSession(server!, base);
-    await submitPrompt(server!, base, sid, 'run the echo', 'manual');
+    it('S3: a pending approval appears as an interaction with tool linkage, then resolves', async () => {
+      await boot([
+        {
+          match: (body) => !body.includes('echo contract-hi'),
+          respond: () => sseToolCall('call_1', 'Bash', '{"command":"echo contract-hi"}'),
+        },
+        { match: () => true, respond: () => sseText('tool done') },
+      ]);
+      const sid = await createSession(server!, base);
+      await submitPrompt(server!, base, sid, 'run the echo', 'manual');
 
-    await until('approval pending', async () => {
-      const tx = await getTranscript(server!, base, sid);
-      return tx.interactions.some((x: any) => x.interactionKind === 'approval' && x.state === 'pending');
-    });
-    const mid = await getTranscript(server!, base, sid);
-    const approval = mid.interactions.find((x: any) => x.interactionKind === 'approval' && x.state === 'pending');
-    expect(approval).toBeDefined();
-    expect(approval.toolCallId).toBe('call_1');
-    expect((approval.request as any)?.toolName).toBe('Bash');
-    expect(mid.meta.agent).toBeDefined();
+      await until('approval pending', async () => {
+        const tx = await getTranscript(server!, base, sid);
+        return tx.interactions.some(
+          (x: any) => x.interactionKind === 'approval' && x.state === 'pending',
+        );
+      });
+      const mid = await getTranscript(server!, base, sid);
+      const approval = mid.interactions.find(
+        (x: any) => x.interactionKind === 'approval' && x.state === 'pending',
+      );
+      expect(approval).toBeDefined();
+      expect(approval.toolCallId).toBe('call_1');
+      expect((approval.request as any)?.toolName).toBe('Bash');
+      expect(mid.meta.agent).toBeDefined();
 
-    await rest(server!, base, `/api/v1/sessions/${encodeURIComponent(sid)}/approvals/${encodeURIComponent(approval.interactionId)}`, {
-      method: 'POST',
-      body: { decision: 'approved' },
-    });
-    await idle(server!, base, sid);
-
-    const end = await getTranscript(server!, base, sid);
-    expect(end.interactions.every((x: any) => x.state !== 'pending')).toBe(true);
-    expect(end.meta.activity).toBe('idle');
-    const toolFrame = end.items
-      .filter((i) => i.kind === 'turn')
-      .flatMap((t: any) => t.steps)
-      .flatMap((s: any) => s.frames)
-      .find((f: any) => f.kind === 'tool' && f.name === 'Bash');
-    expect(toolFrame).toMatchObject({ state: 'done' });
-    expect(String(toolFrame.output)).toContain('contract-hi');
-  });
-
-  it.each([
-    ['approved', { decision: 'approved' }, false, 'Exited plan mode'],
-    ['revised', { decision: 'rejected', feedback: 'Cover the error path too.' }, true, 'Cover the error path too.'],
-    ['dismissed', { decision: 'cancelled' }, true, 'Plan approval dismissed'],
-  ] as const)('S8: in Never Ask, a plan waits for review over REST and is %s', async (_label, response, staysInPlan, output) => {
-    await boot([
-      {
-        match: (body) => body.includes('Plan the greeting change') && !body.includes('call_exit_plan'),
-        respond: () => sseToolCall('call_exit_plan', 'ExitPlanMode', '{}'),
-      },
-      { match: () => true, respond: () => sseText('done') },
-    ]);
-    const sid = await createSession(server!, base);
-    await rest(server!, base, `/api/v1/sessions/${encodeURIComponent(sid)}/profile`, {
-      method: 'POST',
-      body: { agent_config: { plan_mode: true, permission_mode: 'auto' } },
-    });
-    const planService = getLiveSessionById(server!.core.accessor, sid)!
-      .accessor.get(IAgentLifecycleService)
-      .handleOf(MAIN_AGENT_ID)!
-      .accessor.get(IAgentPlanService);
-    const planPath = (await planService.status())!.path;
-    await mkdir(dirname(planPath), { recursive: true });
-    await writeFile(planPath, '# Plan\n\n- Change the greeting\n- Add a test', 'utf-8');
-
-    await submitPrompt(server!, base, sid, 'Plan the greeting change', 'auto');
-
-    let approvalId = '';
-    await until('plan review pending', async () => {
-      const { items } = await rest<{ items: any[] }>(server!, base, `/api/v1/sessions/${encodeURIComponent(sid)}/approvals?status=pending`);
-      const review = items.find((item) => item.tool_name === 'ExitPlanMode');
-      approvalId = review?.approval_id ?? '';
-      return review !== undefined;
-    });
-    const { items } = await rest<{ items: any[] }>(server!, base, `/api/v1/sessions/${encodeURIComponent(sid)}/approvals?status=pending`);
-    expect(items.find((item) => item.approval_id === approvalId)?.tool_input_display).toMatchObject({
-      kind: 'plan_review',
-      plan: '# Plan\n\n- Change the greeting\n- Add a test',
-      path: planPath,
-    });
-    expect((await getSessionFacts(server!, base, sid)).pending_interaction).toBe('approval');
-    const mid = await getTranscript(server!, base, sid);
-    expect(mid.interactions.some((x: any) => x.interactionId === approvalId && x.state === 'pending')).toBe(true);
-    expect(await planService.status()).not.toBeNull();
-
-    await rest(server!, base, `/api/v1/sessions/${encodeURIComponent(sid)}/approvals/${encodeURIComponent(approvalId)}`, {
-      method: 'POST',
-      body: response,
-    });
-    await idleOrDump(server!, base, sid);
-
-    expect((await planService.status()) !== null).toBe(staysInPlan);
-    const end = await getTranscript(server!, base, sid);
-    expect(end.interactions.every((x: any) => x.state !== 'pending')).toBe(true);
-    const toolFrame = end.items
-      .filter((i) => i.kind === 'turn')
-      .flatMap((t: any) => t.steps)
-      .flatMap((s: any) => s.frames)
-      .find((f: any) => f.kind === 'tool' && f.name === 'ExitPlanMode');
-    expect(String(toolFrame.output)).toContain(output);
-  });
-
-  it('S4: a background subagent produces task entities and a task-origin notification turn', async () => {
-    await boot([
-      {
-        match: (body) => body.includes('spawn-bg') && !body.includes('"role":"tool"'),
-        respond: () => sseToolCall('call_a', 'Agent', '{"prompt":"bg-answer-42","description":"bg ans","run_in_background":true}'),
-      },
-      { match: (body) => body.includes('bg-answer-42'), respond: () => sseText('42'), delayMs: 2500 },
-      { match: () => true, respond: () => sseText('noted') },
-    ]);
-    const sid = await createSession(server!, base);
-    await submitPrompt(server!, base, sid, 'spawn-bg one background agent');
-
-    await until('background task running', async () => {
-      const tx = await getTranscript(server!, base, sid);
-      return tx.tasks.some((t: any) => t.kind === 'subagent' && t.state === 'running');
-    });
-    const mid = await getTranscript(server!, base, sid);
-    const task = mid.tasks.find((t: any) => t.kind === 'subagent');
-    expect(task).toMatchObject({ state: 'running', detached: true });
-    expect(typeof task.agentId).toBe('string');
-
-    await until('task completed', async () => {
-      const tx = await getTranscript(server!, base, sid);
-      return tx.tasks.some((t: any) => t.taskId === task.taskId && t.state === 'completed');
-    }, 45000).catch(async (error) => {
-      const tx = await getTranscript(server!, base, sid);
-      const opsData = await rest<{ batches: { seq: number; ops: any[] }[] }>(
+      await rest(
         server!,
         base,
-        `/api/v1/sessions/${encodeURIComponent(sid)}/transcript/ops?agent_id=main&since_seq=0`,
-      );
-      const taskOps = opsData.batches.flatMap((b) =>
-        b.ops
-          .filter((o: any) => o.op === 'task.upsert')
-          .map((o: any) => `${b.seq}:${o.task.taskId}:${o.task.state}`),
-      );
-      throw new Error(`${(error as Error).message}\ntasks: ${JSON.stringify(tx.tasks)}\ntaskOps: ${JSON.stringify(taskOps)}`, { cause: error });
-    });
-    await until('notification turn exists', async () => {
-      const tx = await getTranscript(server!, base, sid);
-      return tx.items.some((i: any) => i.kind === 'turn' && i.origin?.kind === 'task');
-    }, 45000);
-
-    const end = await getTranscript(server!, base, sid);
-    const taskTurn = end.items.find((i: any) => i.kind === 'turn' && i.origin?.kind === 'task');
-    expect(taskTurn).toBeDefined();
-    expect(JSON.stringify(taskTurn)).toContain('notification');
-    await idleOrDump(server!, base, sid);
-    expect((await getTranscript(server!, base, sid)).meta.activity).toBe('idle');
-  });
-
-  it('S5: late attach backfills liveness and the prompt queue from the live loop', async () => {
-    await boot([{ match: () => true, respond: () => sseText('slow answer'), delayMs: 4000 }]);
-    const sid = await createSession(server!, base);
-    await submitPrompt(server!, base, sid, 'take your time');
-
-    const tx = await getTranscript(server!, base, sid);
-    expect(tx.meta.activity).toBe('turn');
-    expect(tx.items.some((i: any) => i.kind === 'turn' && i.state === 'running')).toBe(true);
-    expect(tx.prompts.some((p) => p.status === 'running')).toBe(true);
-
-    const channel = await subscribeTranscript(server!, sid);
-    expect(channel.reset().snapshot.meta.activity).toBe('turn');
-    await idle(server!, base, sid);
-    expect((await getTranscript(server!, base, sid)).meta.activity).toBe('idle');
-    channel.close();
-  });
-
-  it('S6: REST snapshot and WS reset agree on every global entity', async () => {
-    await boot([
-      { match: (body) => !body.includes('echo s6'), respond: () => sseToolCall('call_s6', 'Bash', '{"command":"echo s6"}') },
-      { match: () => true, respond: () => sseText('s6 done') },
-    ]);
-    const sid = await createSession(server!, base);
-    await submitPrompt(server!, base, sid, 'run echo for s6');
-    await idle(server!, base, sid);
-
-    const snapshot = await getTranscript(server!, base, sid);
-    const channel = await subscribeTranscript(server!, sid);
-    const reset = channel.reset().snapshot;
-
-    expect(reset.meta).toEqual(snapshot.meta);
-    const byId = (xs: any[], key: string): Record<string, unknown> =>
-      Object.fromEntries(xs.map((x) => [x[key], x]));
-    expect(Object.keys(byId(reset.tasks ?? [], 'taskId')).toSorted()).toEqual(
-      Object.keys(byId(snapshot.tasks, 'taskId')).toSorted(),
-    );
-    expect(Object.keys(byId(reset.interactions ?? [], 'interactionId')).toSorted()).toEqual(
-      Object.keys(byId(snapshot.interactions, 'interactionId')).toSorted(),
-    );
-    expect(Object.keys(byId(reset.prompts ?? [], 'promptId')).toSorted()).toEqual(
-      Object.keys(byId(snapshot.prompts, 'promptId')).toSorted(),
-    );
-    expect(Object.keys(byId(reset.todos ?? [], 'todoId')).toSorted()).toEqual(
-      Object.keys(byId(snapshot.todos, 'todoId')).toSorted(),
-    );
-    channel.close();
-  });
-
-  it('S7: a foreground subagent resumes with its prior context after a server restart', async () => {
-    let childAgentId: string | undefined;
-    let resumedChildRequest: string | undefined;
-    await boot([
-      {
-        match: (body) => body.includes('spawn-child') && !body.includes('"role":"tool"'),
-        respond: () =>
-          sseToolCall(
-            'call_spawn',
-            'Agent',
-            JSON.stringify({ prompt: 'remember the token quartz-7731 and reply with ok', description: 'child' }),
-          ),
-      },
-      {
-        match: (body) =>
-          body.includes('remember the token') && !body.includes('spawn-child') && !body.includes('recall the token'),
-        respond: () => sseText('ok, remembered'),
-      },
-      {
-        match: (body) => body.includes('resume-child') && !body.includes('recall the token'),
-        respond: () =>
-          sseToolCall(
-            'call_resume',
-            'Agent',
-            JSON.stringify({ prompt: 'recall the token', description: 'child again', resume: childAgentId }),
-          ),
-      },
-      {
-        match: (body) => {
-          const hit = body.includes('recall the token') && !body.includes('resume-child');
-          if (hit) resumedChildRequest = body;
-          return hit;
+        `/api/v1/sessions/${encodeURIComponent(sid)}/approvals/${encodeURIComponent(approval.interactionId)}`,
+        {
+          method: 'POST',
+          body: { decision: 'approved' },
         },
-        respond: () => sseText('the token is quartz-7731'),
+      );
+      await idle(server!, base, sid);
+
+      const end = await getTranscript(server!, base, sid);
+      expect(end.interactions.every((x: any) => x.state !== 'pending')).toBe(true);
+      expect(end.meta.activity).toBe('idle');
+      const toolFrame = end.items
+        .filter((i) => i.kind === 'turn')
+        .flatMap((t: any) => t.steps)
+        .flatMap((s: any) => s.frames)
+        .find((f: any) => f.kind === 'tool' && f.name === 'Bash');
+      expect(toolFrame).toMatchObject({ state: 'done' });
+      expect(String(toolFrame.output)).toContain('contract-hi');
+    });
+
+    it.each([
+      ['approved', { decision: 'approved' }, false, 'Exited plan mode'],
+      [
+        'revised',
+        { decision: 'rejected', feedback: 'Cover the error path too.' },
+        true,
+        'Cover the error path too.',
+      ],
+      ['dismissed', { decision: 'cancelled' }, true, 'Plan approval dismissed'],
+    ] as const)(
+      'S8: in Never Ask, a plan waits for review over REST and is %s',
+      async (_label, response, staysInPlan, output) => {
+        await boot([
+          {
+            match: (body) =>
+              body.includes('Plan the greeting change') && !body.includes('call_exit_plan'),
+            respond: () => sseToolCall('call_exit_plan', 'ExitPlanMode', '{}'),
+          },
+          { match: () => true, respond: () => sseText('done') },
+        ]);
+        const sid = await createSession(server!, base);
+        await rest(server!, base, `/api/v1/sessions/${encodeURIComponent(sid)}/profile`, {
+          method: 'POST',
+          body: { agent_config: { plan_mode: true, permission_mode: 'auto' } },
+        });
+        const planService = getLiveSessionById(server!.core.accessor, sid)!
+          .accessor.get(IAgentLifecycleService)
+          .handleOf(MAIN_AGENT_ID)!
+          .accessor.get(IAgentPlanService);
+        const planPath = (await planService.status())!.path;
+        await mkdir(dirname(planPath), { recursive: true });
+        await writeFile(planPath, '# Plan\n\n- Change the greeting\n- Add a test', 'utf-8');
+
+        await submitPrompt(server!, base, sid, 'Plan the greeting change', 'auto');
+
+        let approvalId = '';
+        await until('plan review pending', async () => {
+          const { items } = await rest<{ items: any[] }>(
+            server!,
+            base,
+            `/api/v1/sessions/${encodeURIComponent(sid)}/approvals?status=pending`,
+          );
+          const review = items.find((item) => item.tool_name === 'ExitPlanMode');
+          approvalId = review?.approval_id ?? '';
+          return review !== undefined;
+        });
+        const { items } = await rest<{ items: any[] }>(
+          server!,
+          base,
+          `/api/v1/sessions/${encodeURIComponent(sid)}/approvals?status=pending`,
+        );
+        expect(
+          items.find((item) => item.approval_id === approvalId)?.tool_input_display,
+        ).toMatchObject({
+          kind: 'plan_review',
+          plan: '# Plan\n\n- Change the greeting\n- Add a test',
+          path: planPath,
+        });
+        expect((await getSessionFacts(server!, base, sid)).pending_interaction).toBe('approval');
+        const mid = await getTranscript(server!, base, sid);
+        expect(
+          mid.interactions.some(
+            (x: any) => x.interactionId === approvalId && x.state === 'pending',
+          ),
+        ).toBe(true);
+        expect(await planService.status()).not.toBeNull();
+
+        await rest(
+          server!,
+          base,
+          `/api/v1/sessions/${encodeURIComponent(sid)}/approvals/${encodeURIComponent(approvalId)}`,
+          {
+            method: 'POST',
+            body: response,
+          },
+        );
+        await idleOrDump(server!, base, sid);
+
+        expect((await planService.status()) !== null).toBe(staysInPlan);
+        const end = await getTranscript(server!, base, sid);
+        expect(end.interactions.every((x: any) => x.state !== 'pending')).toBe(true);
+        const toolFrame = end.items
+          .filter((i) => i.kind === 'turn')
+          .flatMap((t: any) => t.steps)
+          .flatMap((s: any) => s.frames)
+          .find((f: any) => f.kind === 'tool' && f.name === 'ExitPlanMode');
+        expect(String(toolFrame.output)).toContain(output);
       },
-      { match: () => true, respond: () => sseText('noted') },
-    ]);
-    const sid = await createSession(server!, base);
-    await submitPrompt(server!, base, sid, 'spawn-child now');
-    await idle(server!, base, sid);
+    );
 
-    const liveBefore = getLiveSessionById(server!.core.accessor, sid);
-    expect(liveBefore).toBeDefined();
-    const childIds = liveBefore!.accessor
-      .get(IAgentLifecycleService)
-      .list()
-      .map((agent) => agent.agentId)
-      .filter((id) => id !== MAIN_AGENT_ID);
-    expect(childIds).toHaveLength(1);
-    childAgentId = childIds[0];
+    it('S4: a background subagent produces task entities and a task-origin notification turn', async () => {
+      await boot([
+        {
+          match: (body) => body.includes('spawn-bg') && !body.includes('"role":"tool"'),
+          respond: () =>
+            sseToolCall(
+              'call_a',
+              'Agent',
+              '{"prompt":"bg-answer-42","description":"bg ans","run_in_background":true}',
+            ),
+        },
+        {
+          match: (body) => body.includes('bg-answer-42'),
+          respond: () => sseText('42'),
+          delayMs: 2500,
+        },
+        { match: () => true, respond: () => sseText('noted') },
+      ]);
+      const sid = await createSession(server!, base);
+      await submitPrompt(server!, base, sid, 'spawn-bg one background agent');
 
-    await server!.close();
-    server = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home!, logLevel: 'silent' });
-    base = `http://127.0.0.1:${server.port}`;
+      await until('background task running', async () => {
+        const tx = await getTranscript(server!, base, sid);
+        return tx.tasks.some((t: any) => t.kind === 'subagent' && t.state === 'running');
+      });
+      const mid = await getTranscript(server!, base, sid);
+      const task = mid.tasks.find((t: any) => t.kind === 'subagent');
+      expect(task).toMatchObject({ state: 'running', detached: true });
+      expect(typeof task.agentId).toBe('string');
 
-    const resumed = await resumeSessionById(server.core.accessor, sid);
-    expect(resumed).toBeDefined();
-    const agents = resumed!.accessor.get(IAgentLifecycleService);
-    expect(agents.handleOf(childAgentId!)).toBeUndefined();
+      await until(
+        'task completed',
+        async () => {
+          const tx = await getTranscript(server!, base, sid);
+          return tx.tasks.some((t: any) => t.taskId === task.taskId && t.state === 'completed');
+        },
+        45000,
+      ).catch(async (error) => {
+        const tx = await getTranscript(server!, base, sid);
+        const opsData = await rest<{ batches: { seq: number; ops: any[] }[] }>(
+          server!,
+          base,
+          `/api/v1/sessions/${encodeURIComponent(sid)}/transcript/ops?agent_id=main&since_seq=0`,
+        );
+        const taskOps = opsData.batches.flatMap((b) =>
+          b.ops
+            .filter((o: any) => o.op === 'task.upsert')
+            .map((o: any) => `${b.seq}:${o.task.taskId}:${o.task.state}`),
+        );
+        throw new Error(
+          `${(error as Error).message}\ntasks: ${JSON.stringify(tx.tasks)}\ntaskOps: ${JSON.stringify(taskOps)}`,
+          { cause: error },
+        );
+      });
+      await until(
+        'notification turn exists',
+        async () => {
+          const tx = await getTranscript(server!, base, sid);
+          return tx.items.some((i: any) => i.kind === 'turn' && i.origin?.kind === 'task');
+        },
+        45000,
+      );
 
-    await submitPrompt(server, base, sid, 'resume-child now');
-    await idle(server, base, sid);
+      const end = await getTranscript(server!, base, sid);
+      const taskTurn = end.items.find((i: any) => i.kind === 'turn' && i.origin?.kind === 'task');
+      expect(taskTurn).toBeDefined();
+      expect(JSON.stringify(taskTurn)).toContain('notification');
+      await idleOrDump(server!, base, sid);
+      expect((await getTranscript(server!, base, sid)).meta.activity).toBe('idle');
+    });
 
-    expect(resumedChildRequest).toBeDefined();
-    expect(resumedChildRequest).toContain('quartz-7731');
-    expect(resumedChildRequest).toContain('ok, remembered');
-    expect(agents.handleOf(childAgentId!)).toBeDefined();
+    it('S5: late attach backfills liveness and the prompt queue from the live loop', async () => {
+      await boot([{ match: () => true, respond: () => sseText('slow answer'), delayMs: 4000 }]);
+      const sid = await createSession(server!, base);
+      await submitPrompt(server!, base, sid, 'take your time');
 
-    const end = await getTranscript(server, base, sid);
-    const agentFrames = end.items
-      .filter((i) => i.kind === 'turn')
-      .flatMap((t: any) => t.steps)
-      .flatMap((s: any) => s.frames)
-      .filter((f: any) => f.kind === 'tool' && f.name === 'Agent');
-    expect(agentFrames).toHaveLength(2);
-    expect(String(agentFrames[1].output)).toContain(`agent_id: ${childAgentId}`);
-    expect(String(agentFrames[1].output)).toContain('the token is quartz-7731');
-  }, 60000);
-}, 90000);
+      const tx = await getTranscript(server!, base, sid);
+      expect(tx.meta.activity).toBe('turn');
+      expect(tx.items.some((i: any) => i.kind === 'turn' && i.state === 'running')).toBe(true);
+      expect(tx.prompts.some((p) => p.status === 'running')).toBe(true);
+
+      const channel = await subscribeTranscript(server!, sid);
+      expect(channel.reset().snapshot.meta.activity).toBe('turn');
+      await idle(server!, base, sid);
+      expect((await getTranscript(server!, base, sid)).meta.activity).toBe('idle');
+      channel.close();
+    });
+
+    it('S6: REST snapshot and WS reset agree on every global entity', async () => {
+      await boot([
+        {
+          match: (body) => !body.includes('echo s6'),
+          respond: () => sseToolCall('call_s6', 'Bash', '{"command":"echo s6"}'),
+        },
+        { match: () => true, respond: () => sseText('s6 done') },
+      ]);
+      const sid = await createSession(server!, base);
+      await submitPrompt(server!, base, sid, 'run echo for s6');
+      await idle(server!, base, sid);
+
+      const snapshot = await getTranscript(server!, base, sid);
+      const channel = await subscribeTranscript(server!, sid);
+      const reset = channel.reset().snapshot;
+
+      expect(reset.meta).toEqual(snapshot.meta);
+      const byId = (xs: any[], key: string): Record<string, unknown> =>
+        Object.fromEntries(xs.map((x) => [x[key], x]));
+      expect(Object.keys(byId(reset.tasks ?? [], 'taskId')).toSorted()).toEqual(
+        Object.keys(byId(snapshot.tasks, 'taskId')).toSorted(),
+      );
+      expect(Object.keys(byId(reset.interactions ?? [], 'interactionId')).toSorted()).toEqual(
+        Object.keys(byId(snapshot.interactions, 'interactionId')).toSorted(),
+      );
+      expect(Object.keys(byId(reset.prompts ?? [], 'promptId')).toSorted()).toEqual(
+        Object.keys(byId(snapshot.prompts, 'promptId')).toSorted(),
+      );
+      expect(Object.keys(byId(reset.todos ?? [], 'todoId')).toSorted()).toEqual(
+        Object.keys(byId(snapshot.todos, 'todoId')).toSorted(),
+      );
+      channel.close();
+    });
+
+    it('S7: a foreground subagent resumes with its prior context after a server restart', async () => {
+      let childAgentId: string | undefined;
+      let resumedChildRequest: string | undefined;
+      await boot([
+        {
+          match: (body) => body.includes('spawn-child') && !body.includes('"role":"tool"'),
+          respond: () =>
+            sseToolCall(
+              'call_spawn',
+              'Agent',
+              JSON.stringify({
+                prompt: 'remember the token quartz-7731 and reply with ok',
+                description: 'child',
+              }),
+            ),
+        },
+        {
+          match: (body) =>
+            body.includes('remember the token') &&
+            !body.includes('spawn-child') &&
+            !body.includes('recall the token'),
+          respond: () => sseText('ok, remembered'),
+        },
+        {
+          match: (body) => body.includes('resume-child') && !body.includes('recall the token'),
+          respond: () =>
+            sseToolCall(
+              'call_resume',
+              'Agent',
+              JSON.stringify({
+                prompt: 'recall the token',
+                description: 'child again',
+                resume: childAgentId,
+              }),
+            ),
+        },
+        {
+          match: (body) => {
+            const hit = body.includes('recall the token') && !body.includes('resume-child');
+            if (hit) resumedChildRequest = body;
+            return hit;
+          },
+          respond: () => sseText('the token is quartz-7731'),
+        },
+        { match: () => true, respond: () => sseText('noted') },
+      ]);
+      const sid = await createSession(server!, base);
+      await submitPrompt(server!, base, sid, 'spawn-child now');
+      await idle(server!, base, sid);
+
+      const liveBefore = getLiveSessionById(server!.core.accessor, sid);
+      expect(liveBefore).toBeDefined();
+      const childIds = liveBefore!.accessor
+        .get(IAgentLifecycleService)
+        .list()
+        .map((agent) => agent.agentId)
+        .filter((id) => id !== MAIN_AGENT_ID);
+      expect(childIds).toHaveLength(1);
+      childAgentId = childIds[0];
+
+      await server!.close();
+      server = await startServer({
+        hostIdentity: TEST_HOST_IDENTITY,
+        host: '127.0.0.1',
+        port: 0,
+        homeDir: home!,
+        logLevel: 'silent',
+      });
+      base = `http://127.0.0.1:${server.port}`;
+
+      const resumed = await resumeSessionById(server.core.accessor, sid);
+      expect(resumed).toBeDefined();
+      const agents = resumed!.accessor.get(IAgentLifecycleService);
+      expect(agents.handleOf(childAgentId!)).toBeUndefined();
+
+      await submitPrompt(server, base, sid, 'resume-child now');
+      await idle(server, base, sid);
+
+      expect(resumedChildRequest).toBeDefined();
+      expect(resumedChildRequest).toContain('quartz-7731');
+      expect(resumedChildRequest).toContain('ok, remembered');
+      expect(agents.handleOf(childAgentId!)).toBeDefined();
+
+      const end = await getTranscript(server, base, sid);
+      const agentFrames = end.items
+        .filter((i) => i.kind === 'turn')
+        .flatMap((t: any) => t.steps)
+        .flatMap((s: any) => s.frames)
+        .filter((f: any) => f.kind === 'tool' && f.name === 'Agent');
+      expect(agentFrames).toHaveLength(2);
+      expect(String(agentFrames[1].output)).toContain(`agent_id: ${childAgentId}`);
+      expect(String(agentFrames[1].output)).toContain('the token is quartz-7731');
+    }, 60000);
+  },
+  90000,
+);

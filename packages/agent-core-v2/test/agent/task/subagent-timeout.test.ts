@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { IAgentTaskService } from '#/agent/task/task';
 import { SubagentTask } from '#/agent/tools/agent/subagent-task';
 import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
+
 import { appService, createTestAgent, type TestAgentContext } from '../../harness';
 
 interface FakeHostTimerHandle extends IHostTimerHandle {
@@ -77,10 +78,7 @@ async function advanceHostTime(timers: FakeHostTimers, byMs: number): Promise<vo
   await flushHostWork();
 }
 
-function agentTask(
-  completion: Promise<{ result: string }>,
-  description: string,
-): SubagentTask {
+function agentTask(completion: Promise<{ result: string }>, description: string): SubagentTask {
   return new SubagentTask(
     { agentId: 'agent-child', profileName: 'coder', completion },
     description,
@@ -152,10 +150,9 @@ describe('SubagentTask — timeoutMs', () => {
     const completion = new Promise<{ result: string }>((res) => {
       resolveFn = res;
     });
-    const taskId = background.registerTask(
-      agentTask(completion, 'persist timeout'),
-      { timeoutMs: 1_800_000 },
-    );
+    const taskId = background.registerTask(agentTask(completion, 'persist timeout'), {
+      timeoutMs: 1_800_000,
+    });
     const info = background.getTask(taskId);
     expect((info as unknown as { timeoutMs?: number }).timeoutMs).toBe(1_800_000);
     resolveFn({ result: 'finished' });
@@ -188,10 +185,13 @@ describe('SubagentTask — timeoutMs', () => {
     const waiting = background.wait(taskId, 5);
     await advanceHostTime(timers, 5);
     const info = await waiting;
-    const raced = info === undefined ? undefined : {
-      status: info.status,
-      stopReason: info.stopReason,
-    };
+    const raced =
+      info === undefined
+        ? undefined
+        : {
+            status: info.status,
+            stopReason: info.stopReason,
+          };
     expect(raced?.status).toBe('running');
     expect(raced?.stopReason).toBeUndefined();
     resolveFn({ result: 'finished' });

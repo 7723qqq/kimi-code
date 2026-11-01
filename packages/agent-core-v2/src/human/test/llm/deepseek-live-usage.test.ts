@@ -102,7 +102,12 @@ describe('deepseek-v4.1-flash payloads captured from the live endpoint', () => {
     const warnings: string[] = [];
     const log = { warn: (message: string) => warnings.push(message) };
     parseOpenAIUsage(
-      { prompt_tokens: 2011, completion_tokens: 1, prompt_cache_hit_tokens: 1792, prompt_cache_miss_tokens: 219 },
+      {
+        prompt_tokens: 2011,
+        completion_tokens: 1,
+        prompt_cache_hit_tokens: 1792,
+        prompt_cache_miss_tokens: 219,
+      },
       log,
     );
     parseOpenAIUsage({

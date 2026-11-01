@@ -1,3 +1,4 @@
+import { afterEach, describe, expect, it } from 'bun:test';
 /**
  * Scenario: a host manages and checks user-global MCP servers without a session.
  * Responsibilities: global-only CRUD, safe malformed-file handling, standalone
@@ -11,7 +12,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { mcpOAuthStoreKey } from '@moonshot-ai/agent-core-v2/mcpCore/oauth/store';
-import { afterEach, describe, expect, it } from 'bun:test';
 
 import { createKimiHarness, KimiHarness, SDKRpcClientBase } from '#/index';
 

@@ -2,14 +2,14 @@ import { z } from 'zod';
 
 const keySchema = z.string().min(1).max(256);
 
-export const guiStoreGetItemQuerySchema = z
-  .object({ key: keySchema })
-  .strict();
+export const guiStoreGetItemQuerySchema = z.object({ key: keySchema }).strict();
 
-export const guiStoreSetItemBodySchema = z.object({
-  key: keySchema,
-  value: z.string(),
-}).strict();
+export const guiStoreSetItemBodySchema = z
+  .object({
+    key: keySchema,
+    value: z.string(),
+  })
+  .strict();
 
 export const guiStoreRemoveItemBodySchema = z.object({ key: keySchema }).strict();
 

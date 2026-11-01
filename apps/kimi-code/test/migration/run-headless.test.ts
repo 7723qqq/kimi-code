@@ -1,9 +1,8 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createHash } from 'node:crypto';
-
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { t } from '#/i18n';
 import { MIGRATE_HEADLESS_EXIT, runHeadlessMigrate } from '#/migration/run-headless';
@@ -119,7 +118,13 @@ describe('runHeadlessMigrate', () => {
     await writeRealSession(workdir, '11111111-aaaa-4bbb-8ccc-111111111111');
     const bucket = createHash('md5').update(workdir).digest('hex');
     await writeFile(
-      join(sourceHome(), 'sessions', bucket, '11111111-aaaa-4bbb-8ccc-111111111111', 'context.jsonl'),
+      join(
+        sourceHome(),
+        'sessions',
+        bucket,
+        '11111111-aaaa-4bbb-8ccc-111111111111',
+        'context.jsonl',
+      ),
       '"broken\x00line\nnot json at all\n',
       'utf-8',
     );
@@ -131,9 +136,7 @@ describe('runHeadlessMigrate', () => {
     const out = lines.join('\n');
     expect(out).toContain('failed=');
     expect(out).toContain(t('tui.migration.headlessResultIncomplete'));
-    await expect(
-      readFile(join(sourceHome(), '.migrated-to-kimi-code'), 'utf-8'),
-    ).rejects.toThrow();
+    await expect(readFile(join(sourceHome(), '.migrated-to-kimi-code'), 'utf-8')).rejects.toThrow();
   });
 
   it('honors KIMI_SHARE_DIR as the source and keeps skills on the default home', async () => {

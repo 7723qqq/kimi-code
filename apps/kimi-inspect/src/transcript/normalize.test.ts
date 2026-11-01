@@ -7,8 +7,9 @@
  * they reach model-typed structures: both statuses fold into `paused`.
  */
 
-import { transcriptMetaSchema, transcriptOperationSchema } from '@moonshot-ai/transcript';
 import { describe, expect, it } from 'bun:test';
+
+import { transcriptMetaSchema, transcriptOperationSchema } from '@moonshot-ai/transcript';
 
 import { toModelMeta, toModelOperation } from './normalize';
 

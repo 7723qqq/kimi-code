@@ -1,12 +1,14 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { normalize } from 'pathe';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
+import { Event } from '#/_base/event';
 import { IGitService } from '#/app/git/git';
 import { GitService } from '#/app/git/gitService';
 import { findGitWorkTree } from '#/app/git/workTree';
@@ -15,10 +17,12 @@ import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IHostProcessService } from '#/os/interface/hostProcess';
-import { IRuntimeResolver, IWorkspaceInstanceManager, type WorkspaceInstanceChange } from '#/workspace/workspaceInstance/workspaceInstanceManager';
-import { Event } from '#/_base/event';
 import type { Runtime } from '#/runtime/runtime';
-import { normalize } from 'pathe';
+import {
+  IRuntimeResolver,
+  IWorkspaceInstanceManager,
+  type WorkspaceInstanceChange,
+} from '#/workspace/workspaceInstance/workspaceInstanceManager';
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', args, {
@@ -55,7 +59,7 @@ describe('GitService', () => {
           acquire: () => ({ runtime, track: (resource) => resource, dispose: () => {} }),
         });
         reg.definePartialInstance(IWorkspaceInstanceManager, {
-          findByRoot: () => ({ id: 'workspace-1' } as never),
+          findByRoot: () => ({ id: 'workspace-1' }) as never,
           onDidChange: Event.None as Event<WorkspaceInstanceChange>,
         });
         reg.define(IGitService, GitService);

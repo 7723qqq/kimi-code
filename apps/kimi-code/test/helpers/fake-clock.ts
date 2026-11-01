@@ -17,7 +17,11 @@ export function createFakeClock(startMs = 0): FakeClock {
   let nowMs = startMs;
   const timers: ScheduledTimer[] = [];
 
-  const schedule = (callback: () => void, delayMs: number, intervalMs?: number): RenderTimerHandle => {
+  const schedule = (
+    callback: () => void,
+    delayMs: number,
+    intervalMs?: number,
+  ): RenderTimerHandle => {
     const timer: ScheduledTimer = {
       due: nowMs + delayMs,
       callback,

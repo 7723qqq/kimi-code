@@ -9,11 +9,10 @@
 // their dynamic imports + query-string cache busting do not distort the
 // coverage report of this file (Node's coverage keys scripts by URL).
 
+import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-
-import { expect, test } from 'bun:test';
 
 import { copyFileRange, fsyncDir } from '../src/compaction.js';
 
@@ -135,7 +134,9 @@ test('copyFileRange in append mode appends the range to existing content', async
 });
 
 test('copyFileRange rejects end < start', async () => {
-  await expect((() => copyFileRange('/tmp/a', '/tmp/b', 10, 5))()).rejects.toThrow(/end \(5\) < start \(10\)/);
+  await expect((() => copyFileRange('/tmp/a', '/tmp/b', 10, 5))()).rejects.toThrow(
+    /end \(5\) < start \(10\)/,
+  );
 });
 
 // --- fsyncDir ----------------------------------------------------------------

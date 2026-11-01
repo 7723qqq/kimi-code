@@ -1,16 +1,21 @@
-import { Command } from 'commander';
 import { describe, expect, it, mock } from 'bun:test';
 
 import type { KimiRegionProfile } from '@moonshot-ai/kimi-code-oauth';
+import { Command } from 'commander';
 
-import * as regionModule from '#/utils/region';
 import { registerInstallDesktopCommand } from '#/cli/sub/install-desktop';
+import * as regionModule from '#/utils/region';
 
 const mocks = (() => ({
-  currentKimiProfile: mock(() => ({ siteBase: 'https://example.com' }) as unknown as KimiRegionProfile),
+  currentKimiProfile: mock(
+    () => ({ siteBase: 'https://example.com' }) as unknown as KimiRegionProfile,
+  ),
 }))();
 
-void mock.module('#/utils/region', () => ({ ...regionModule, currentKimiProfile: mocks.currentKimiProfile }));
+void mock.module('#/utils/region', () => ({
+  ...regionModule,
+  currentKimiProfile: mocks.currentKimiProfile,
+}));
 
 type Write = Pick<NodeJS.WriteStream, 'write'>;
 

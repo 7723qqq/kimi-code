@@ -44,12 +44,10 @@ interface TasksRouteHost {
   ): unknown;
 }
 
-
 const sessionAndTaskIdParamSchema = z.object({
   session_id: z.string().min(1),
   task_id: z.string().min(1),
 });
-
 
 export function registerTasksRoutes(app: TasksRouteHost, core: Scope): void {
   const listRoute = defineRoute(
@@ -126,16 +124,16 @@ export function registerTasksRoutes(app: TasksRouteHost, core: Scope): void {
             output = { preview, bytes: Buffer.byteLength(preview, 'utf-8') };
           }
         } catch (error) {
-  requestLog(req)?.error({ err: error, session_id, task_id }, 'task output read failed');
-  reply.send(
-    errEnvelope(
-      ErrorCode.PERSISTENCE_FAILURE,
-      `task ${task_id} output unavailable: ${error instanceof Error ? error.message : String(error)}`,
-      req.id,
-    ),
-  );
-  return;
-}
+          requestLog(req)?.error({ err: error, session_id, task_id }, 'task output read failed');
+          reply.send(
+            errEnvelope(
+              ErrorCode.PERSISTENCE_FAILURE,
+              `task ${task_id} output unavailable: ${error instanceof Error ? error.message : String(error)}`,
+              req.id,
+            ),
+          );
+          return;
+        }
       }
 
       reply.send(okEnvelope(toWireTask(session_id, found, output), req.id));

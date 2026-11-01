@@ -1,5 +1,3 @@
-import { toLlmSyntaxErrorMessage } from '#/llm/syntax-errors';
-import { encodeReasoningEffortFallback } from '#/llm/thinking';
 import OpenAI from 'openai';
 import { assign, shake } from 'radashi';
 
@@ -24,6 +22,8 @@ import {
   getLlmHeadersTimeoutDispatcher,
   resolveLlmHeadersTimeoutMs,
 } from '#/llm/requester/timeout';
+import { toLlmSyntaxErrorMessage } from '#/llm/syntax-errors';
+import { encodeReasoningEffortFallback } from '#/llm/thinking';
 
 import { convertOpenAIError } from '../openai/format';
 import { normalizeToolCallIdsForProvider, sanitizeOpenAIResponsesCallId } from '../tool-call-id';

@@ -1,6 +1,7 @@
+import { describe, expect, it, mock } from 'bun:test';
+
 import { visibleWidth, type TuiMouseEvent, type TuiMouseEventType } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
-import { describe, expect, it, mock } from 'bun:test';
 
 import { StickyUserMessageComponent } from '#/tui/components/messages/sticky-user-message';
 import { UserMessageComponent } from '#/tui/components/messages/user-message';

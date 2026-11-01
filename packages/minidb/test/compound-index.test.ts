@@ -1,9 +1,8 @@
+// test/compound-index.test.ts
+import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-
-// test/compound-index.test.ts
-import { expect, test } from 'bun:test';
 
 import { MiniDb } from '../src/index.js';
 
@@ -179,7 +178,9 @@ test('concurrent createCompoundIndex calls are serialized: zero failures; memory
       db.createCompoundIndex('byWsCreated', { groupBy: 'workspaceId', orderBy: 'createdAt' }),
       db.dropCompoundIndex('neverThere'),
     ]);
-    expect(results.map((r) => (r.status === 'rejected' ? String(r.reason) : r.status))).toStrictEqual(['fulfilled', 'fulfilled', 'fulfilled']);
+    expect(
+      results.map((r) => (r.status === 'rejected' ? String(r.reason) : r.status)),
+    ).toStrictEqual(['fulfilled', 'fulfilled', 'fulfilled']);
     const memory = db
       .listCompoundIndexes()
       .map((x) => x.name)
@@ -191,10 +192,12 @@ test('concurrent createCompoundIndex calls are serialized: zero failures; memory
     expect(db.compoundRange('byWsCreated', 'W1').map((r) => r.key)).toStrictEqual(['a']);
     await db.close();
     db = await MiniDb.open({ dir, valueCodec: 'json', fsyncPolicy: 'no', autoCompact: false });
-    expect(db
+    expect(
+      db
         .listCompoundIndexes()
         .map((x) => x.name)
-        .toSorted()).toStrictEqual(memory);
+        .toSorted(),
+    ).toStrictEqual(memory);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });

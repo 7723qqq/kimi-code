@@ -1,8 +1,8 @@
 /* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { z } from 'zod';
 
-import { AgentEvent2 } from '#/app/event/event2';
 import { ContextApplyCompaction, ContextClear } from '#/agent/contextMemory/contextEvents';
+import { AgentEvent2 } from '#/app/event/event2';
 import { defineState } from '#/state/state';
 
 import type { SubagentModelPoolSnapshot } from './changeNotifier';

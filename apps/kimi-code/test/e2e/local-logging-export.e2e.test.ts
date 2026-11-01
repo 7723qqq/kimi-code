@@ -1,15 +1,15 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { readFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as zlib from 'node:zlib';
 
+import { createKimiHarness } from '@moonshot-ai/kimi-code-sdk';
 import { Command } from 'commander';
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { readE2EFlags } from '#test/helpers/e2e-flags';
 
 import { registerExportCommand } from '#/cli/sub/export';
 import { createKimiCodeHostIdentity } from '#/cli/version';
-import { createKimiHarness } from '@moonshot-ai/kimi-code-sdk';
+import { readE2EFlags } from '#test/helpers/e2e-flags';
 
 const GLOBAL_LOG = 'logs/global/kimi-code.log';
 const MAIN_WIRE = 'agents/main/wire.jsonl';

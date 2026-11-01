@@ -1,6 +1,7 @@
+import { afterAll, beforeAll, describe, expect, it, mock, type Mock } from 'bun:test';
+
 import type { ModelAlias } from '@moonshot-ai/kimi-code-sdk';
 import chalk from 'chalk';
-import { afterAll, beforeAll, describe, expect, it, mock, type Mock } from 'bun:test';
 
 import { TabbedModelSelectorComponent } from '#/tui/components/dialogs/tabbed-model-selector';
 import { currentTheme } from '#/tui/theme';

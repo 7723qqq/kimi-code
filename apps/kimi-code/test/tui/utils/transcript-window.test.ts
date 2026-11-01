@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 
 import type { TranscriptEntry } from '#/tui/types';
-import { expandCutoffIndex, groupTurns, readEnvInt, turnsToTrim } from '#/tui/utils/transcript-window';
+import {
+  expandCutoffIndex,
+  groupTurns,
+  readEnvInt,
+  turnsToTrim,
+} from '#/tui/utils/transcript-window';
 
 let seq = 0;
 function makeEntry(

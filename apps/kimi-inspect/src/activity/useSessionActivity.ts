@@ -15,7 +15,12 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 
 import { useConnection } from '../connection';
 import { t } from '../i18n';
-import { SessionActivityHub, SessionActivityStore, type SeedFailure, type SessionWorkFacts } from './store';
+import {
+  SessionActivityHub,
+  SessionActivityStore,
+  type SeedFailure,
+  type SessionWorkFacts,
+} from './store';
 
 const EMPTY_STORE = new SessionActivityStore();
 

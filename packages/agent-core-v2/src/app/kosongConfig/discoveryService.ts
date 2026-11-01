@@ -5,16 +5,17 @@ import {
   type RefreshProviderHost,
   type RefreshResult,
 } from '@moonshot-ai/kimi-code-oauth';
-import { LifecycleScope } from '#/app/scopes';
+
 import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { Emitter, type Event } from '#/_base/event';
 import { Error2 } from '#/_base/errors/errors';
+import { Emitter, type Event } from '#/_base/event';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IOAuthService } from '#/app/auth/auth';
 import { AuthErrors } from '#/app/auth/errors';
 import { IConfigService } from '#/app/config/config';
 import { IEventService } from '#/app/event/event';
+import { LifecycleScope } from '#/app/scopes';
 import { ModelCatalogErrors } from '#/llm-adapter/model/errors';
 import { type ModelRecord } from '#/llm-adapter/model/model';
 import { effectiveModelConfig } from '#/llm-adapter/model/model-auth';
@@ -105,10 +106,13 @@ export class ProviderDiscoveryService extends Disposable implements IProviderDis
 
     const exclusion = this.computeStaticExclusion();
     const { outboundUserAgent } = await this.identity.resolved();
-    const result = await refreshProviderModels(this.buildRefreshHost(exclusion, outboundUserAgent), {
-      scope: options.scope,
-      providerId: options.providerId,
-    });
+    const result = await refreshProviderModels(
+      this.buildRefreshHost(exclusion, outboundUserAgent),
+      {
+        scope: options.scope,
+        providerId: options.providerId,
+      },
+    );
     const retired = result.retiredDefault;
     if (retired !== undefined) {
       for (const [alias, replacement] of this.retiredModels) {

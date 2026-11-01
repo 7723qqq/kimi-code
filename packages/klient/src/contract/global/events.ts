@@ -14,7 +14,6 @@ import type { IProviderDiscoveryService } from '@moonshot-ai/agent-core-v2/app/k
 import type { ReloadSummary } from '@moonshot-ai/agent-core-v2/app/plugin/types';
 import type { ModelsChangedEvent } from '@moonshot-ai/agent-core-v2/llm-adapter/model/model';
 import type { ProvidersChangedEvent } from '@moonshot-ai/agent-core-v2/llm-adapter/provider/provider';
-
 import { z } from 'zod';
 
 import { stringDeltaSchema } from '../helpers.js';

@@ -1,16 +1,36 @@
 import { describe, expect, it } from 'bun:test';
 
 import { isError2 } from '#/_base/errors/errors';
-import { createOAuthCredentialProvider, createStaticCredentialProvider } from '#human/credentials/credentials';
-import { type ProviderMediaContribution } from '#human/llm/media/upload';
-import { type LlmModel } from '#human/llm/model';
-import { type LlmRequestConfig, type LlmRequestContent, type LlmRequestControl, type LlmRequestEvent, type LlmRequester } from '#human/llm/requester/requester';
-import { APIEmptyResponseError, ChatProviderError, PROVIDER_API_ERROR_CODE, PROVIDER_AUTH_ERROR_CODE, isAbortError } from '#/llm-adapter/contract/errors';
+import {
+  APIEmptyResponseError,
+  ChatProviderError,
+  PROVIDER_API_ERROR_CODE,
+  PROVIDER_AUTH_ERROR_CODE,
+  isAbortError,
+} from '#/llm-adapter/contract/errors';
 import { type Message } from '#/llm-adapter/contract/message';
 import { type Model } from '#/llm-adapter/model/catalog';
 import { type ModelRequestEvent } from '#/llm-adapter/model/model-requester';
 import { effectiveMaxCompletionTokens } from '#/llm-adapter/model/model-requester';
-import { buildStreamTiming, carriesOutputTokens, ModelRequesterImpl, type ModelLlmGateway } from '#/llm-adapter/model/model-requester-impl';
+import {
+  buildStreamTiming,
+  carriesOutputTokens,
+  ModelRequesterImpl,
+  type ModelLlmGateway,
+} from '#/llm-adapter/model/model-requester-impl';
+import {
+  createOAuthCredentialProvider,
+  createStaticCredentialProvider,
+} from '#human/credentials/credentials';
+import { type ProviderMediaContribution } from '#human/llm/media/upload';
+import { type LlmModel } from '#human/llm/model';
+import {
+  type LlmRequestConfig,
+  type LlmRequestContent,
+  type LlmRequestControl,
+  type LlmRequestEvent,
+  type LlmRequester,
+} from '#human/llm/requester/requester';
 
 class FakeLlmRequester implements LlmRequester {
   readonly calls: Array<{
@@ -62,7 +82,10 @@ function textStream(emit: (event: LlmRequestEvent) => void, text = 'hello'): voi
   emitAll(emit, [
     { type: 'llm.sent' },
     { type: 'llm.streaming.part', part: { type: 'text', text } },
-    { type: 'llm.streaming.finish', finish: { finishReason: 'completed', rawFinishReason: 'stop' } },
+    {
+      type: 'llm.streaming.finish',
+      finish: { finishReason: 'completed', rawFinishReason: 'stop' },
+    },
     { type: 'llm.done' },
   ]);
 }
@@ -202,10 +225,16 @@ describe('ModelRequesterImpl request execution', () => {
           type: 'llm.streaming.part',
           part: { type: 'function', id: 'call-1', name: 'do', arguments: '{"a"', _streamIndex: 0 },
         },
-        { type: 'llm.streaming.part', part: { type: 'tool_call_part', argumentsPart: ':1}', index: 0 } },
+        {
+          type: 'llm.streaming.part',
+          part: { type: 'tool_call_part', argumentsPart: ':1}', index: 0 },
+        },
         { type: 'llm.streaming.usage', usage: { inputOther: 10 } },
         { type: 'llm.streaming.usage', usage: { output: 7 } },
-        { type: 'llm.streaming.finish', finish: { finishReason: 'tool_calls', rawFinishReason: 'tool_calls' } },
+        {
+          type: 'llm.streaming.finish',
+          finish: { finishReason: 'tool_calls', rawFinishReason: 'tool_calls' },
+        },
         { type: 'llm.streaming.message_id', messageId: 'msg-42' },
         { type: 'llm.done' },
       ]);
@@ -363,7 +392,10 @@ describe('ModelRequesterImpl request execution', () => {
       gatewayReturning(requester, media),
     );
     const part = await withMedia.uploadVideo({ data: new Uint8Array([1]), mimeType: 'video/mp4' });
-    expect(part).toEqual({ type: 'video_url', videoUrl: { url: 'https://cdn.example.test/v.mp4' } });
+    expect(part).toEqual({
+      type: 'video_url',
+      videoUrl: { url: 'https://cdn.example.test/v.mp4' },
+    });
     expect(seen).toEqual(['sk-1']);
   });
 
@@ -404,7 +436,10 @@ describe('ModelRequesterImpl request execution', () => {
       const spinUntil = Date.now() + 150;
       while (Date.now() < spinUntil) {}
       emit({ type: 'llm.streaming.part', part: { type: 'text', text: 'b' } });
-      emit({ type: 'llm.streaming.finish', finish: { finishReason: 'completed', rawFinishReason: 'stop' } });
+      emit({
+        type: 'llm.streaming.finish',
+        finish: { finishReason: 'completed', rawFinishReason: 'stop' },
+      });
       emit({ type: 'llm.done' });
     };
     const impl = new ModelRequesterImpl(
@@ -437,9 +472,15 @@ describe('carriesOutputTokens', () => {
   });
 
   it('rejects media parts, which describe the input side', () => {
-    expect(carriesOutputTokens({ type: 'image_url', imageUrl: { url: 'kimi-file://a' } })).toBe(false);
-    expect(carriesOutputTokens({ type: 'audio_url', audioUrl: { url: 'kimi-file://b' } })).toBe(false);
-    expect(carriesOutputTokens({ type: 'video_url', videoUrl: { url: 'kimi-file://c' } })).toBe(false);
+    expect(carriesOutputTokens({ type: 'image_url', imageUrl: { url: 'kimi-file://a' } })).toBe(
+      false,
+    );
+    expect(carriesOutputTokens({ type: 'audio_url', audioUrl: { url: 'kimi-file://b' } })).toBe(
+      false,
+    );
+    expect(carriesOutputTokens({ type: 'video_url', videoUrl: { url: 'kimi-file://c' } })).toBe(
+      false,
+    );
   });
 });
 

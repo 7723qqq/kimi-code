@@ -3,10 +3,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import {
-  ContextAppendMessage,
-  ContextUndo,
-} from '#/agent/contextMemory/contextEvents';
+import { ContextAppendMessage, ContextUndo } from '#/agent/contextMemory/contextEvents';
+import { IAgentStateService } from '#/agent/state/agentState';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
 import {
@@ -16,15 +14,14 @@ import {
   planKey,
   PlanRevision,
 } from '#/features/plan/planOps';
-import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { IAgentStateService } from '#/agent/state/agentState';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { IEventDispatcher } from '#/state/eventDispatcher';
-import { IWireService } from '#/wire/wire';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
+import { IWireService } from '#/wire/wire';
 
 import {
   registerTestAgentWire,
@@ -62,7 +59,13 @@ function buildHost(key: string, agentId: string = MAIN_AGENT_ID): Host {
   const dispatcher = registerTestEventDispatcher(ix);
   const agentState = ix.get(IAgentStateService);
   agentState.contributeState(planKey);
-  return { wire, dispatcher, agentState, log: ix.get(IAppendLogStore), eventBus: ix.get(IEventBus) };
+  return {
+    wire,
+    dispatcher,
+    agentState,
+    log: ix.get(IAppendLogStore),
+    eventBus: ix.get(IEventBus),
+  };
 }
 
 beforeEach(() => {
@@ -78,7 +81,10 @@ afterEach(() => disposables.dispose());
 async function readRecords(key = KEY): Promise<WireRecord[]> {
   await dispatcher.flush();
   const out: WireRecord[] = [];
-  for await (const record of log.read<WireRecord>(testWireScope(SCOPE, key), AGENT_WIRE_RECORD_KEY)) {
+  for await (const record of log.read<WireRecord>(
+    testWireScope(SCOPE, key),
+    AGENT_WIRE_RECORD_KEY,
+  )) {
     out.push(record);
   }
   return out;
@@ -222,8 +228,8 @@ describe('plan ops (wire-backed)', () => {
       cancelled.log,
       testWireScope(SCOPE, 'plan-replay-cancel'),
       [
-      { type: 'plan_mode.enter', id: 'p1', planFilePath: '/w/plan/p1.md' },
-      { type: 'plan_mode.cancel', id: 'p1' },
+        { type: 'plan_mode.enter', id: 'p1', planFilePath: '/w/plan/p1.md' },
+        { type: 'plan_mode.cancel', id: 'p1' },
       ],
     );
     expect(cancelled.agentState.get(planKey).active).toBe(false);
@@ -341,9 +347,7 @@ describe('plan ops (wire-backed)', () => {
     await host.dispatcher.dispatch(new PlanModeEnter({ agentId: MAIN_AGENT_ID, id: 'p1' }));
     expect(host.agentState.get(planKey).revisionCount).toEqual({ p1: 1 });
 
-    expect(
-      emissions.filter((e) => (e as { type: string }).type === 'plan.revision'),
-    ).toEqual([
+    expect(emissions.filter((e) => (e as { type: string }).type === 'plan.revision')).toEqual([
       expect.objectContaining({
         type: 'plan.revision',
         id: 'p1',

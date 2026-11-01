@@ -3,10 +3,9 @@
 // Matrix of recovery scenarios: WAL corruption at head/mid/tail under
 // 'resync' vs 'strict', and snapshot + WAL combinations.
 
+import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-
-import { expect, test } from 'bun:test';
 
 import { HEADER_SIZE, CRC_SIZE } from '../../src/codec.js';
 import { MiniDb } from '../../src/index.js';

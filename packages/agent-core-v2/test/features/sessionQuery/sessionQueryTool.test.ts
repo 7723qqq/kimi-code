@@ -1,12 +1,20 @@
 import { describe, expect, it, mock } from 'bun:test';
 
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-
 import { type SessionEventSearchHit, type SessionSearchHit } from '#/features/sessionQuery/events';
 import { ISessionQueryService } from '#/features/sessionQuery/sessionQueryService';
 import { SessionQueryTool } from '#/features/sessionQuery/sessionQueryTool';
-import { buildEventFilters, buildSessionFilters, normalizeQuery, sessionSearchInputSchema } from '#/features/sessionQuery/toolInput';
-import { formatEventSearch, formatSessionSearch, formatSessionTrace } from '#/features/sessionQuery/toolPresentation';
+import {
+  buildEventFilters,
+  buildSessionFilters,
+  normalizeQuery,
+  sessionSearchInputSchema,
+} from '#/features/sessionQuery/toolInput';
+import {
+  formatEventSearch,
+  formatSessionSearch,
+  formatSessionTrace,
+} from '#/features/sessionQuery/toolPresentation';
 import { type SessionLineageTrace } from '#/features/sessionQuery/types';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { type ExecutableToolContext } from '#/tool/toolContract';

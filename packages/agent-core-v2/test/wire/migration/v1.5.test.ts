@@ -1,37 +1,40 @@
 import { describe, expect, it } from 'bun:test';
 
 import { migrateV1_4ToV1_5 } from '#/wire/migration/migration';
-import { runMigration } from './utils';
+
 import { renderSnapshot } from '../../harness/snapshots';
+import { runMigration } from './utils';
 
 describe('1.4 to 1.5 active wall-clock anchor migration', () => {
   it('backfills missing anchors from create and resume record timestamps', () => {
-    expect(renderSnapshot(
-      runMigration(migrateV1_4ToV1_5, [
-        {
-          type: 'metadata',
-          protocol_version: '1.4',
-          created_at: 1,
-        },
-        {
-          type: 'goal.create',
-          goalId: 'goal-1',
-          objective: 'ship the feature',
-          time: 10,
-        },
-        {
-          type: 'goal.update',
-          status: 'paused',
-          wallClockMs: 20,
-          time: 30,
-        },
-        {
-          type: 'goal.update',
-          status: 'active',
-          time: 40,
-        },
-      ]),
-    )).toMatchInlineSnapshot(`
+    expect(
+      renderSnapshot(
+        runMigration(migrateV1_4ToV1_5, [
+          {
+            type: 'metadata',
+            protocol_version: '1.4',
+            created_at: 1,
+          },
+          {
+            type: 'goal.create',
+            goalId: 'goal-1',
+            objective: 'ship the feature',
+            time: 10,
+          },
+          {
+            type: 'goal.update',
+            status: 'paused',
+            wallClockMs: 20,
+            time: 30,
+          },
+          {
+            type: 'goal.update',
+            status: 'active',
+            time: 40,
+          },
+        ]),
+      ),
+    ).toMatchInlineSnapshot(`
       "[wire] metadata      { "protocol_version": "<protocol-version>", "created_at": "<time>" }
       [wire] goal.create   { "goalId": "goal-1", "objective": "ship the feature", "time": "<time>", "wallClockResumedAt": 10 }
       [wire] goal.update   { "status": "paused", "wallClockMs": 20, "time": "<time>" }
@@ -40,28 +43,34 @@ describe('1.4 to 1.5 active wall-clock anchor migration', () => {
   });
 
   it('preserves an existing active wall-clock anchor', () => {
-    expect(renderSnapshot(
-      runMigration(migrateV1_4ToV1_5, [
-        {
-          type: 'goal.update',
-          status: 'active',
-          wallClockResumedAt: 35,
-          time: 40,
-        },
-      ]),
-    )).toMatchInlineSnapshot(`"[wire] goal.update   { "status": "active", "wallClockResumedAt": 35, "time": "<time>" }"`);
+    expect(
+      renderSnapshot(
+        runMigration(migrateV1_4ToV1_5, [
+          {
+            type: 'goal.update',
+            status: 'active',
+            wallClockResumedAt: 35,
+            time: 40,
+          },
+        ]),
+      ),
+    ).toMatchInlineSnapshot(
+      `"[wire] goal.update   { "status": "active", "wallClockResumedAt": 35, "time": "<time>" }"`,
+    );
   });
 
   it('advances a missing anchor from a wall-clock checkpoint timestamp', () => {
-    expect(renderSnapshot(
-      runMigration(migrateV1_4ToV1_5, [
-        {
-          type: 'goal.update',
-          wallClockMs: 3_000,
-          time: 4_000,
-        },
-      ]),
-    )).toMatchInlineSnapshot(
+    expect(
+      renderSnapshot(
+        runMigration(migrateV1_4ToV1_5, [
+          {
+            type: 'goal.update',
+            wallClockMs: 3_000,
+            time: 4_000,
+          },
+        ]),
+      ),
+    ).toMatchInlineSnapshot(
       `"[wire] goal.update   { "wallClockMs": 3000, "time": "<time>", "wallClockResumedAt": 4000 }"`,
     );
   });

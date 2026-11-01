@@ -1,6 +1,6 @@
-import { visibleWidth } from '@moonshot-ai/pi-tui';
 import { describe, expect, it, mock, spyOn } from 'bun:test';
-import { waitForAssertion } from '#test/helpers/waitFor';
+
+import { visibleWidth } from '@moonshot-ai/pi-tui';
 
 import {
   GoalQueueEditDialogComponent,
@@ -9,6 +9,7 @@ import {
 } from '#/tui/components/dialogs/goal-queue-manager';
 import type { GoalQueueSnapshot, UpcomingGoal } from '#/tui/goal-queue-store';
 import { mouse, pastSettlingWindow } from '#test/helpers/mouse';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 const ANSI = /\u001B\[[0-9;]*m/g;
 const strip = (s: string): string => s.replaceAll(ANSI, '');

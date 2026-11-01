@@ -1,8 +1,9 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+
 import { join } from 'pathe';
 import { parse as parseToml } from 'smol-toml';
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -34,10 +35,18 @@ describe('planConfigWriteback', () => {
   }
 
   it('rewrites only the changed statement and keeps adjacent comments and key formatting', () => {
-    const text = ['[image]', '# keep me', 'max_edge_px   =   1500', 'quality = "high"', ''].join('\n');
-    const result = edit(text, 'image', { max_edge_px: 1500, quality: 'high' }, { max_edge_px: 2000, quality: 'high' }, {
-      image: { max_edge_px: 2000, quality: 'high' },
-    });
+    const text = ['[image]', '# keep me', 'max_edge_px   =   1500', 'quality = "high"', ''].join(
+      '\n',
+    );
+    const result = edit(
+      text,
+      'image',
+      { max_edge_px: 1500, quality: 'high' },
+      { max_edge_px: 2000, quality: 'high' },
+      {
+        image: { max_edge_px: 2000, quality: 'high' },
+      },
+    );
     expect(result).toBe('[image]\n# keep me\nmax_edge_px   =   2000\nquality = "high"\n');
   });
 
@@ -49,9 +58,15 @@ describe('planConfigWriteback', () => {
 
   it('appends a new key after the last statement of its block, before trailing trivia', () => {
     const text = ['[image]', 'max_edge_px = 1500', '# tail note', ''].join('\n');
-    const result = edit(text, 'image', { max_edge_px: 1500 }, { max_edge_px: 1500, read_byte_budget: 5000 }, {
-      image: { max_edge_px: 1500, read_byte_budget: 5000 },
-    });
+    const result = edit(
+      text,
+      'image',
+      { max_edge_px: 1500 },
+      { max_edge_px: 1500, read_byte_budget: 5000 },
+      {
+        image: { max_edge_px: 1500, read_byte_budget: 5000 },
+      },
+    );
     expect(result).toBe('[image]\nmax_edge_px = 1500\nread_byte_budget = 5000\n# tail note\n');
   });
 
@@ -62,10 +77,18 @@ describe('planConfigWriteback', () => {
   });
 
   it('deletes only the removed key line and keeps surrounding comments', () => {
-    const text = ['[image]', '# about edge', 'max_edge_px = 1500', 'quality = "high"', ''].join('\n');
-    const result = edit(text, 'image', { max_edge_px: 1500, quality: 'high' }, { quality: 'high' }, {
-      image: { quality: 'high' },
-    });
+    const text = ['[image]', '# about edge', 'max_edge_px = 1500', 'quality = "high"', ''].join(
+      '\n',
+    );
+    const result = edit(
+      text,
+      'image',
+      { max_edge_px: 1500, quality: 'high' },
+      { quality: 'high' },
+      {
+        image: { quality: 'high' },
+      },
+    );
     expect(result).toBe('[image]\n# about edge\nquality = "high"\n');
   });
 
@@ -136,9 +159,14 @@ describe('planConfigWriteback', () => {
       { providers: { acme: { limits: { rpm: 200 }, base_url: 'https://acme.example.com' } } },
     );
     expect(result).toBe(
-      ['[providers.acme.limits]', 'rpm = 200', '', '[providers.acme]', 'base_url = "https://acme.example.com"', ''].join(
-        '\n',
-      ),
+      [
+        '[providers.acme.limits]',
+        'rpm = 200',
+        '',
+        '[providers.acme]',
+        'base_url = "https://acme.example.com"',
+        '',
+      ].join('\n'),
     );
   });
 
@@ -154,7 +182,19 @@ describe('planConfigWriteback', () => {
       models: [{ name: 'm1' }, { name: 'm2' }],
       pinned: [{ x: 1 }],
     });
-    expect(result).toBe(['[[models]]', 'name = "m1"', '', '[[models]]', 'name = "m2"', '', '[[pinned]]', 'x = 1', ''].join('\n'));
+    expect(result).toBe(
+      [
+        '[[models]]',
+        'name = "m1"',
+        '',
+        '[[models]]',
+        'name = "m2"',
+        '',
+        '[[pinned]]',
+        'x = 1',
+        '',
+      ].join('\n'),
+    );
   });
 
   it('does not treat multiline string bodies or bracketed array items as table headers', () => {
@@ -169,10 +209,16 @@ describe('planConfigWriteback', () => {
       'max_edge_px = 1500',
       '',
     ].join('\n');
-    const result = edit(text, 'image', { max_edge_px: 1500 }, { max_edge_px: 2000 }, {
-      custom: { notes: '[fake]\n', list: [']', '['] },
-      image: { max_edge_px: 2000 },
-    });
+    const result = edit(
+      text,
+      'image',
+      { max_edge_px: 1500 },
+      { max_edge_px: 2000 },
+      {
+        custom: { notes: '[fake]\n', list: [']', '['] },
+        image: { max_edge_px: 2000 },
+      },
+    );
     expect(result).toBe(
       [
         '[custom]',
@@ -190,38 +236,67 @@ describe('planConfigWriteback', () => {
 
   it('preserves CRLF everywhere and writes the edited statement with CRLF', () => {
     const text = '# note\r\n[image]\r\nmax_edge_px = 1500\r\n';
-    const result = edit(text, 'image', { max_edge_px: 1500 }, { max_edge_px: 2000 }, {
-      image: { max_edge_px: 2000 },
-    });
+    const result = edit(
+      text,
+      'image',
+      { max_edge_px: 1500 },
+      { max_edge_px: 2000 },
+      {
+        image: { max_edge_px: 2000 },
+      },
+    );
     expect(result).toBe('# note\r\n[image]\r\nmax_edge_px = 2000\r\n');
   });
 
   it('returns the original text unchanged when nothing differs', () => {
     const text = '[image]\nmax_edge_px = 1500\n';
-    const result = edit(text, 'image', { max_edge_px: 1500 }, { max_edge_px: 1500 }, {
-      image: { max_edge_px: 1500 },
-    });
+    const result = edit(
+      text,
+      'image',
+      { max_edge_px: 1500 },
+      { max_edge_px: 1500 },
+      {
+        image: { max_edge_px: 1500 },
+      },
+    );
     expect(result).toBe(text);
   });
 
   it('appends a new domain to a file without a trailing newline', () => {
     const text = '[image]\nmax_edge_px = 1500';
-    const result = edit(text, 'thinking', undefined, { effort: 'high' }, {
-      image: { max_edge_px: 1500 },
-      thinking: { effort: 'high' },
-    });
+    const result = edit(
+      text,
+      'thinking',
+      undefined,
+      { effort: 'high' },
+      {
+        image: { max_edge_px: 1500 },
+        thinking: { effort: 'high' },
+      },
+    );
     expect(result).toBe('[image]\nmax_edge_px = 1500\n[thinking]\neffort = "high"\n');
   });
 
   it('removes a deleted domain region and keeps neighboring trivia', () => {
-    const text = ['# head', '[image]', 'max_edge_px = 1500', '', '# tail', '[tail]', 'x = 1', ''].join('\n');
+    const text = [
+      '# head',
+      '[image]',
+      'max_edge_px = 1500',
+      '',
+      '# tail',
+      '[tail]',
+      'x = 1',
+      '',
+    ].join('\n');
     const result = edit(text, 'image', { max_edge_px: 1500 }, undefined, { tail: { x: 1 } });
     expect(result).toBe('# head\n\n# tail\n[tail]\nx = 1\n');
   });
 
   it('replaces a multiline array statement wholesale', () => {
     const text = 'override_models = [\n  "a",\n  "b",\n]\n';
-    const result = edit(text, 'override_models', ['a', 'b'], ['a', 'c'], { override_models: ['a', 'c'] });
+    const result = edit(text, 'override_models', ['a', 'b'], ['a', 'c'], {
+      override_models: ['a', 'c'],
+    });
     expect(result).toBe('override_models = [ "a", "c" ]\n');
   });
 
@@ -232,35 +307,60 @@ describe('planConfigWriteback', () => {
 
   it('declines to plan when the data and the text disagree about a domain', () => {
     const text = '[image]\nmax_edge_px = 1500\n';
-    expect(edit(text, 'image', undefined, { max_edge_px: 2000 }, { image: { max_edge_px: 2000 } })).toBeUndefined();
+    expect(
+      edit(text, 'image', undefined, { max_edge_px: 2000 }, { image: { max_edge_px: 2000 } }),
+    ).toBeUndefined();
   });
 
   it('preserves a quoted sub-table header and its comments on an unrelated write', () => {
     const text = '[models."acme/m1"]\n# model note\nname = "m1"\n\n[image]\nmax_edge_px = 1500\n';
-    const result = edit(text, 'image', { max_edge_px: 1500 }, { max_edge_px: 2000 }, {
-      models: { 'acme/m1': { name: 'm1' } },
-      image: { max_edge_px: 2000 },
-    });
-    expect(result).toBe('[models."acme/m1"]\n# model note\nname = "m1"\n\n[image]\nmax_edge_px = 2000\n');
+    const result = edit(
+      text,
+      'image',
+      { max_edge_px: 1500 },
+      { max_edge_px: 2000 },
+      {
+        models: { 'acme/m1': { name: 'm1' } },
+        image: { max_edge_px: 2000 },
+      },
+    );
+    expect(result).toBe(
+      '[models."acme/m1"]\n# model note\nname = "m1"\n\n[image]\nmax_edge_px = 2000\n',
+    );
   });
 
   it('preserves a literal-quoted sub-table header on an unrelated write', () => {
-    const text = "[models.'acme/m1']\nname = \"m1\"\n\n[image]\nmax_edge_px = 1500\n";
-    const result = edit(text, 'image', { max_edge_px: 1500 }, { max_edge_px: 2000 }, {
-      models: { 'acme/m1': { name: 'm1' } },
-      image: { max_edge_px: 2000 },
-    });
-    expect(result).toBe("[models.'acme/m1']\nname = \"m1\"\n\n[image]\nmax_edge_px = 2000\n");
+    const text = '[models.\'acme/m1\']\nname = "m1"\n\n[image]\nmax_edge_px = 1500\n';
+    const result = edit(
+      text,
+      'image',
+      { max_edge_px: 1500 },
+      { max_edge_px: 2000 },
+      {
+        models: { 'acme/m1': { name: 'm1' } },
+        image: { max_edge_px: 2000 },
+      },
+    );
+    expect(result).toBe('[models.\'acme/m1\']\nname = "m1"\n\n[image]\nmax_edge_px = 2000\n');
   });
 
   it('preserves a whitespace-padded quoted header and a quoted root key holding a dot', () => {
-    const text = '[ models . "acme/m1" ]\nname = "m1"\n\n["x.y"]\nv = 1\n\n[image]\nmax_edge_px = 1500\n';
-    const result = edit(text, 'image', { max_edge_px: 1500 }, { max_edge_px: 2000 }, {
-      models: { 'acme/m1': { name: 'm1' } },
-      'x.y': { v: 1 },
-      image: { max_edge_px: 2000 },
-    });
-    expect(result).toBe('[ models . "acme/m1" ]\nname = "m1"\n\n["x.y"]\nv = 1\n\n[image]\nmax_edge_px = 2000\n');
+    const text =
+      '[ models . "acme/m1" ]\nname = "m1"\n\n["x.y"]\nv = 1\n\n[image]\nmax_edge_px = 1500\n';
+    const result = edit(
+      text,
+      'image',
+      { max_edge_px: 1500 },
+      { max_edge_px: 2000 },
+      {
+        models: { 'acme/m1': { name: 'm1' } },
+        'x.y': { v: 1 },
+        image: { max_edge_px: 2000 },
+      },
+    );
+    expect(result).toBe(
+      '[ models . "acme/m1" ]\nname = "m1"\n\n["x.y"]\nv = 1\n\n[image]\nmax_edge_px = 2000\n',
+    );
   });
 
   it('edits inside a quoted sub-table region at key level', () => {
@@ -277,18 +377,30 @@ describe('planConfigWriteback', () => {
 
   it('removes one quoted model entry and appends another with a quoted header', () => {
     const text = '[models."acme/m1"]\nname = "m1"\n';
-    const result = edit(text, 'models', { 'acme/m1': { name: 'm1' } }, { 'beta/m2': { name: 'm2' } }, {
-      models: { 'beta/m2': { name: 'm2' } },
-    });
+    const result = edit(
+      text,
+      'models',
+      { 'acme/m1': { name: 'm1' } },
+      { 'beta/m2': { name: 'm2' } },
+      {
+        models: { 'beta/m2': { name: 'm2' } },
+      },
+    );
     expect(result).toBe('[models."beta/m2"]\nname = "m2"\n');
   });
 
   it('handles escaped quotes inside quoted header segments', () => {
     const text = '[models."a\\"b"]\nname = "m1"\n\n[image]\nmax_edge_px = 1500\n';
-    const preserved = edit(text, 'image', { max_edge_px: 1500 }, { max_edge_px: 2000 }, {
-      models: { 'a"b': { name: 'm1' } },
-      image: { max_edge_px: 2000 },
-    });
+    const preserved = edit(
+      text,
+      'image',
+      { max_edge_px: 1500 },
+      { max_edge_px: 2000 },
+      {
+        models: { 'a"b': { name: 'm1' } },
+        image: { max_edge_px: 2000 },
+      },
+    );
     expect(preserved).toBe('[models."a\\"b"]\nname = "m1"\n\n[image]\nmax_edge_px = 2000\n');
     const result = edit(
       '[models."a\\"b"]\nname = "m1"\n',
@@ -302,12 +414,26 @@ describe('planConfigWriteback', () => {
 
   it('declines to plan on malformed quoted headers', () => {
     const expected = { image: { max_edge_px: 2000 } };
-    expect(edit('[""]\nv = 1\n', 'image', { max_edge_px: 1500 }, { max_edge_px: 2000 }, expected)).toBeUndefined();
     expect(
-      edit('[models."unterminated]\nname = "m1"\n', 'image', { max_edge_px: 1500 }, { max_edge_px: 2000 }, expected),
+      edit('[""]\nv = 1\n', 'image', { max_edge_px: 1500 }, { max_edge_px: 2000 }, expected),
     ).toBeUndefined();
     expect(
-      edit('[models."a\\qb"]\nname = "m1"\n', 'image', { max_edge_px: 1500 }, { max_edge_px: 2000 }, expected),
+      edit(
+        '[models."unterminated]\nname = "m1"\n',
+        'image',
+        { max_edge_px: 1500 },
+        { max_edge_px: 2000 },
+        expected,
+      ),
+    ).toBeUndefined();
+    expect(
+      edit(
+        '[models."a\\qb"]\nname = "m1"\n',
+        'image',
+        { max_edge_px: 1500 },
+        { max_edge_px: 2000 },
+        expected,
+      ),
     ).toBeUndefined();
   });
 });
@@ -327,7 +453,9 @@ describe('ConfigService key-level writeback', () => {
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     const storage = new InMemoryStorageService();
-    const seed = ['[image]', '# do not touch', 'max_edge_px   =   1500', 'extra = "keep"', ''].join('\n');
+    const seed = ['[image]', '# do not touch', 'max_edge_px   =   1500', 'extra = "keep"', ''].join(
+      '\n',
+    );
     await storage.write('', 'config.toml', new TextEncoder().encode(seed));
     ix.stub(ILogService, stubLog());
     ix.stub(IBootstrapService, stubBootstrap(homeDir));

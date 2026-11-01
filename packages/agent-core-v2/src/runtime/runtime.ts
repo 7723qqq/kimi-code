@@ -3,7 +3,13 @@ import type { HostEnvironmentInfo } from '#/os/interface/hostEnvironment';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { IHostProcessService } from '#/os/interface/hostProcess';
 
-export type RuntimeStatus = 'connecting' | 'ready' | 'degraded' | 'disconnected' | 'draining' | 'disposed';
+export type RuntimeStatus =
+  | 'connecting'
+  | 'ready'
+  | 'degraded'
+  | 'disconnected'
+  | 'draining'
+  | 'disposed';
 export type RuntimeCapability = 'fs' | 'process';
 
 export interface RuntimeBinding {

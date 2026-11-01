@@ -1,9 +1,9 @@
 import { describe, expect, it, mock } from 'bun:test';
-import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
-import { setGlobal, restoreGlobals } from '#test/helpers/stubs';
 
 import { refreshUpdateCache } from '#/cli/update/refresh';
 import type { UpdateManifest } from '#/cli/update/types';
+import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
+import { setGlobal, restoreGlobals } from '#test/helpers/stubs';
 
 /** Let the promise chains behind a settled clock tick run. */
 async function settle(): Promise<void> {
@@ -82,9 +82,13 @@ describe('refreshUpdateCache', () => {
       'fetch',
       mock(async (_input: string | URL, init?: RequestInit) => {
         return new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener('abort', () => {
-            reject(new Error('aborted'));
-          }, { once: true });
+          init?.signal?.addEventListener(
+            'abort',
+            () => {
+              reject(new Error('aborted'));
+            },
+            { once: true },
+          );
         });
       }),
     );

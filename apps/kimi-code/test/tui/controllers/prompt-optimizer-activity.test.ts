@@ -1,7 +1,6 @@
 import { describe, expect, it, mock } from 'bun:test';
 
 import type { Event } from '@moonshot-ai/kimi-code-sdk';
-
 import { Container } from '@moonshot-ai/pi-tui';
 
 import { PromptOptimizerActivityController } from '#/tui/controllers/prompt-optimizer-activity';
@@ -40,8 +39,7 @@ function makeHarness() {
     },
   };
   const controller = new PromptOptimizerActivityController(host as never);
-  const rows = (): readonly string[] =>
-    activityContainer.render(80).map((line) => strip(line));
+  const rows = (): readonly string[] => activityContainer.render(80).map((line) => strip(line));
   return { controller, activityContainer, rows, requestRender };
 }
 
@@ -86,7 +84,11 @@ describe('PromptOptimizerActivityController', () => {
     h.controller.begin();
 
     h.controller.applyEvent(
-      event('tool.call.started', { name: 'Grep', args: { pattern: 'optimize(' }, toolCallId: 'c1' }),
+      event('tool.call.started', {
+        name: 'Grep',
+        args: { pattern: 'optimize(' },
+        toolCallId: 'c1',
+      }),
     );
 
     expect(h.rows().join('\n')).toContain('checking Grep optimize(…');
@@ -96,7 +98,9 @@ describe('PromptOptimizerActivityController', () => {
     const h = makeHarness();
     h.controller.begin();
 
-    h.controller.applyEvent(event('tool.call.started', { name: 'Glob', args: {}, toolCallId: 'c1' }));
+    h.controller.applyEvent(
+      event('tool.call.started', { name: 'Glob', args: {}, toolCallId: 'c1' }),
+    );
 
     expect(h.rows().join('\n')).toContain('checking Glob…');
   });

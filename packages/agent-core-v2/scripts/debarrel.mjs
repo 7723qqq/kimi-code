@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
-import { Project } from 'ts-morph';
-import path from 'node:path';
 import fs from 'node:fs';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { Project } from 'ts-morph';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PKG = path.resolve(__dirname, '..');
@@ -61,8 +62,7 @@ function expandBarrelClauses(barrel) {
       continue;
     }
     const file = target.getFilePath();
-    const isStar =
-      ed.getNamedExports().length === 0 && !ed.getNamespaceExport();
+    const isStar = ed.getNamedExports().length === 0 && !ed.getNamespaceExport();
     if (isStar) {
       clauses.push({ kind: 'star', file });
     } else if (ed.getNamespaceExport()) {
@@ -137,7 +137,12 @@ function rewriteConsumerFile(sf, onlyBarrelPath) {
 
     if (hasDefault) {
       const r = resolveName(barrel, 'default');
-      if (!r) report.manuals.push({ sf: sf.getFilePath(), text: decl.getText(), why: 'default import unresolved' });
+      if (!r)
+        report.manuals.push({
+          sf: sf.getFilePath(),
+          text: decl.getText(),
+          why: 'default import unresolved',
+        });
       else add(r.leafFile, { default: decl.getDefaultImport().getText() });
     }
     for (const s of named) {
@@ -145,7 +150,11 @@ function rewriteConsumerFile(sf, onlyBarrelPath) {
       const local = s.getAliasNode()?.getText() || s.getName();
       const r = resolveName(barrel, lookup);
       if (!r) {
-        report.manuals.push({ sf: sf.getFilePath(), text: s.getText(), why: 'named import unresolved' });
+        report.manuals.push({
+          sf: sf.getFilePath(),
+          text: s.getText(),
+          why: 'named import unresolved',
+        });
         continue;
       }
       add(r.leafFile, {
@@ -184,7 +193,11 @@ function rewriteConsumerFile(sf, onlyBarrelPath) {
       const exportedAs = s.getAliasNode()?.getText() || s.getName();
       const r = resolveName(barrel, lookup);
       if (!r) {
-        report.manuals.push({ sf: sf.getFilePath(), text: s.getText(), why: 'named export unresolved' });
+        report.manuals.push({
+          sf: sf.getFilePath(),
+          text: s.getText(),
+          why: 'named export unresolved',
+        });
         continue;
       }
       if (!groups.has(r.leafFile)) groups.set(r.leafFile, { specs: [], allType: true });
@@ -235,7 +248,10 @@ function buildImportStructures(groups) {
 
 function renderNamedExport(spec, specs, allType) {
   const body = specs
-    .map((s) => `${allType ? '' : s.isTypeOnly ? 'type ' : ''}${s.name}${s.alias ? ' as ' + s.alias : ''}`)
+    .map(
+      (s) =>
+        `${allType ? '' : s.isTypeOnly ? 'type ' : ''}${s.name}${s.alias ? ' as ' + s.alias : ''}`,
+    )
     .join(', ');
   return `${allType ? 'export type' : 'export'} { ${body} } from '${spec}';`;
 }
@@ -394,7 +410,9 @@ function verifyCoverage() {
   const regs = findRegisterFiles();
   const reached = reachedFromEntry();
   const missing = regs.filter((f) => !reached.has(f));
-  console.log(`register files: ${regs.length}; reachable from entry: ${reached.size}; missing: ${missing.length}`);
+  console.log(
+    `register files: ${regs.length}; reachable from entry: ${reached.size}; missing: ${missing.length}`,
+  );
   if (missing.length > 0) {
     console.log('MISSING (not reachable from src/index.ts):');
     for (const m of missing) console.log('  ' + path.relative(PKG, m));
@@ -425,7 +443,9 @@ function main() {
   }
   if (ENTRY_ONLY) {
     const r = regenerateEntry();
-    console.log(`entry regenerated: ${r.publicLines} public lines, ${r.loadingLines} loading lines${DRY ? ' (dry-run)' : ''}`);
+    console.log(
+      `entry regenerated: ${r.publicLines} public lines, ${r.loadingLines} loading lines${DRY ? ' (dry-run)' : ''}`,
+    );
     return;
   }
 
@@ -462,7 +482,9 @@ function main() {
   if (totals.manuals.length > 0) {
     console.log(`MANUAL (${totals.manuals.length}) — could not auto-split:`);
     for (const m of totals.manuals)
-      console.log(`  ${path.relative(PKG, m.sf)} :: ${m.why} :: ${m.text.replaceAll(/\s+/g, ' ').slice(0, 120)}`);
+      console.log(
+        `  ${path.relative(PKG, m.sf)} :: ${m.why} :: ${m.text.replaceAll(/\s+/g, ' ').slice(0, 120)}`,
+      );
   }
 
   if (DELETE_BARRELS) {

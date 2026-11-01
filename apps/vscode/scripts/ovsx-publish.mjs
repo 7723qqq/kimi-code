@@ -45,7 +45,9 @@ async function verifyInputs(options) {
 
 if (isMainModule(import.meta.url)) {
   main().catch((error) => {
-    console.error(`Open VSX publish failed: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(
+      `Open VSX publish failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
     process.exitCode = 1;
   });
 }

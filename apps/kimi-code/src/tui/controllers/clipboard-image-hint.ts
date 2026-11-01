@@ -5,7 +5,11 @@ import { clipboardHasImage } from '#/utils/clipboard/clipboard-has-image';
 
 import type { FooterComponent } from '../components/chrome/footer';
 import { FOCUS_DEBOUNCE_MS, HINT_DISPLAY_MS } from '../constant/clipboard-image-hint';
-import { SYSTEM_RENDER_CLOCK, type RenderClock, type RenderTimerHandle } from '../utils/render-clock';
+import {
+  SYSTEM_RENDER_CLOCK,
+  type RenderClock,
+  type RenderTimerHandle,
+} from '../utils/render-clock';
 import { TERMINAL_FOCUS_IN, TERMINAL_FOCUS_OUT } from '../utils/terminal-focus';
 
 export interface ClipboardImageHintHost {

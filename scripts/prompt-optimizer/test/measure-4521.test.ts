@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test';
-
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -11,8 +10,8 @@ const SCRIPT = join(ROOT, 'scripts/prompt-optimizer/src/measure-4521.ts');
 describe('the #4521 measurement harness', () => {
   test('reads both sides from published tags, not the working tree', () => {
     const source = readFileSync(SCRIPT, 'utf8');
-    expect(source).toContain("@moonshot-ai/kimi-code@2.4.0");
-    expect(source).toContain("@moonshot-ai/kimi-code@2.4.1");
+    expect(source).toContain('@moonshot-ai/kimi-code@2.4.0');
+    expect(source).toContain('@moonshot-ai/kimi-code@2.4.1');
     // The before side cannot come from disk: those files no longer exist.
     expect(source).toContain('git');
   });
@@ -43,7 +42,9 @@ describe('the #4521 measurement harness', () => {
 
   test('the tags it measures exist in this repository', () => {
     for (const tag of ['@moonshot-ai/kimi-code@2.4.0', '@moonshot-ai/kimi-code@2.4.1']) {
-      const sha = execFileSync('git', ['-C', ROOT, 'rev-parse', `${tag}^{commit}`], { encoding: 'utf8' }).trim();
+      const sha = execFileSync('git', ['-C', ROOT, 'rev-parse', `${tag}^{commit}`], {
+        encoding: 'utf8',
+      }).trim();
       expect(sha).toMatch(/^[0-9a-f]{40}$/);
     }
   });

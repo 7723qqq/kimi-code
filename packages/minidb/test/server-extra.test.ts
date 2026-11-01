@@ -1,10 +1,9 @@
+// Covers the RESP commands and parser paths not exercised by server.test.ts.
+import { describe, expect, it, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-
-// Covers the RESP commands and parser paths not exercised by server.test.ts.
-import { describe, expect, it, test } from 'bun:test';
 
 import { ParsedCommand, RespParser, startServer } from '../src/server.js';
 
@@ -92,7 +91,9 @@ test('RESP: MSET rejects an odd argument count without writing anything', async 
     // A trailing key without a value used to be dropped silently and the
     // command still answered +OK, so a truncated pipeline looked like a
     // successful atomic batch. Nothing may be written when the arity is wrong.
-    expect(String(await send(sock, encode('MSET', 'k1', 'v1', 'k2')))).toMatch(/^-ERR wrong number of arguments/);
+    expect(String(await send(sock, encode('MSET', 'k1', 'v1', 'k2')))).toMatch(
+      /^-ERR wrong number of arguments/,
+    );
     expect(await send(sock, encode('GET', 'k1'))).toBe('$-1\r\n');
     expect(await send(sock, encode('GET', 'k2'))).toBe('$-1\r\n');
     expect(String(await send(sock, encode('MSET')))).toMatch(/^-ERR wrong number of arguments/);
@@ -233,7 +234,10 @@ test(
       const data = await collectUntil(sock, (s) => s.includes('+PONG'));
       const tooLarge = data.indexOf('too large');
       const pong = data.indexOf('+PONG');
-      expect(tooLarge !== -1, `expected a too-large -ERR, got ${JSON.stringify(data.slice(0, 120))}`).toBeTruthy();
+      expect(
+        tooLarge !== -1,
+        `expected a too-large -ERR, got ${JSON.stringify(data.slice(0, 120))}`,
+      ).toBeTruthy();
       expect(pong > tooLarge, 'PING after the oversized request must be answered').toBeTruthy();
       sock.end();
     } finally {

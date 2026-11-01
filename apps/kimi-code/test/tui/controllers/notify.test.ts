@@ -1,3 +1,5 @@
+import { describe, expect, it, spyOn } from 'bun:test';
+
 import type { Event, ResumedSessionState } from '@moonshot-ai/kimi-code-sdk';
 import {
   Container,
@@ -9,7 +11,6 @@ import {
   type Component,
   type Terminal,
 } from '@moonshot-ai/pi-tui';
-import { describe, expect, it, spyOn } from 'bun:test';
 
 import { NotifyPanelComponent } from '#/tui/components/chrome/notify-panel';
 import { StatusSurfaceComponent } from '#/tui/components/chrome/status-surface/index';
@@ -657,7 +658,8 @@ describe('NotifyController', () => {
         expect(h.ui.getFocusedComponent()).toBe(h.editor);
         expect(h.editor.getText()).toBe('unsent draft');
         expect(h.editor.getCursor()).toEqual(editorCursor);
-        if (h.ui instanceof TuiAltScreen) expect(h.ui.getLayoutRoot()).toBe(root as Component | undefined);
+        if (h.ui instanceof TuiAltScreen)
+          expect(h.ui.getLayoutRoot()).toBe(root as Component | undefined);
         else expect(h.ui.children).toEqual(root as Component[]);
         h.input('\u001B');
         expect(h.rendered()).toContain('ctrl+n');

@@ -1,9 +1,12 @@
+import { describe, expect, it, mock, spyOn } from 'bun:test';
 import { PassThrough, Readable, type Writable } from 'node:stream';
 
 import { createControlledPromise } from '@antfu/utils';
-import { describe, expect, it, mock, spyOn } from 'bun:test';
-import { waitForAssertion } from '#test/helpers/waitFor';
 
+import { abortError } from '#/_base/utils/abort';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import {
   IAgentTaskService,
   type AgentTask,
@@ -16,7 +19,12 @@ import {
   type RegisterAgentTaskOptions,
 } from '#/agent/task/task';
 import { type AgentTaskStatus, TERMINAL_STATUSES } from '#/agent/task/types';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { ToolProgress } from '#/agent/toolExecutor/toolExecutorEvents';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { SubagentTask } from '#/agent/tools/agent/subagent-task';
+import type { SubagentTaskInfo } from '#/agent/tools/agent/subagent-task';
+import { ProcessTask, type ProcessTaskInfo } from '#/agent/tools/os/bash/process-task';
 import { TaskListInputSchema } from '#/agent/tools/task/task-list/task-list';
 import { TaskListTool } from '#/agent/tools/task/task-list/taskListTool';
 import { TaskOutputInputSchema } from '#/agent/tools/task/task-output/task-output';
@@ -24,35 +32,28 @@ import { TaskOutputTool } from '#/agent/tools/task/task-output/taskOutputTool';
 import { TaskStopInputSchema } from '#/agent/tools/task/task-stop/task-stop';
 import { TaskStopTool } from '#/agent/tools/task/task-stop/taskStopTool';
 import { WaitForInputSchema } from '#/agent/tools/task/task-wait/task-wait';
-import { WaitForTool, startWaitProgress, waitForProgressUpdate } from '#/agent/tools/task/task-wait/taskWaitTool';
-import { abortError } from '#/_base/utils/abort';
+import { IWaitForTool } from '#/agent/tools/task/task-wait/task-wait';
+import {
+  WaitForTool,
+  startWaitProgress,
+  waitForProgressUpdate,
+} from '#/agent/tools/task/task-wait/taskWaitTool';
+import { IEventBus } from '#/app/event/eventBus';
 import type { ITaskHandle } from '#/app/task/task';
 import type { IHostProcess } from '#/os/interface/hostProcess';
 import { compileToolArgsValidator, validateToolArgs } from '#/tool/args-validator';
-import { ProcessTask, type ProcessTaskInfo } from '#/agent/tools/os/bash/process-task';
-import { SubagentTask } from '#/agent/tools/agent/subagent-task';
-import type { SubagentTaskInfo } from '#/agent/tools/agent/subagent-task';
-import { IWaitForTool } from '#/agent/tools/task/task-wait/task-wait';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { ToolProgress } from '#/agent/toolExecutor/toolExecutorEvents';
-import { IEventBus } from '#/app/event/eventBus';
-import { executeTool } from '../../../tools/fixtures/execute-tool';
+import { waitForAssertion } from '#test/helpers/waitFor';
+
 import { stubFlag } from '../../../app/flag/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../../../app/telemetry/stubs';
 import { stubGoal } from '../../../features/goal/stubs';
-import { makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { agentService, createTestAgent, telemetryServices } from '../../../harness';
+import { executeTool } from '../../../tools/fixtures/execute-tool';
 import { stubLoopWithHooks } from '../../loop/stubs';
 
 const signal = new AbortController().signal;
 
-function context<Input>(
-  toolCallId: string,
-  args: Input,
-  executionSignal: AbortSignal = signal,
-) {
+function context<Input>(toolCallId: string, args: Input, executionSignal: AbortSignal = signal) {
   return { turnId: 0, toolCallId, args, signal: executionSignal };
 }
 
@@ -65,9 +66,7 @@ function outputString(result: { readonly output: string | readonly unknown[] }):
   return result.output as string;
 }
 
-function processTask(
-  overrides: Partial<ProcessTaskInfo> = {},
-): ProcessTaskInfo {
+function processTask(overrides: Partial<ProcessTaskInfo> = {}): ProcessTaskInfo {
   return {
     taskId: 'bash-abc12345',
     kind: 'process',
@@ -83,9 +82,7 @@ function processTask(
   };
 }
 
-function agentTaskInfo(
-  overrides: Partial<SubagentTaskInfo> = {},
-): SubagentTaskInfo {
+function agentTaskInfo(overrides: Partial<SubagentTaskInfo> = {}): SubagentTaskInfo {
   return {
     taskId: 'agent-abc12345',
     kind: 'agent',
@@ -137,10 +134,7 @@ class FakeTaskService implements IAgentTaskService {
 
   private readonly entries = new Map<string, FakeTaskEntry>();
 
-  add(
-    info: AgentTaskInfo,
-    output: AgentTaskOutputSnapshot = outputSnapshot(),
-  ): string {
+  add(info: AgentTaskInfo, output: AgentTaskOutputSnapshot = outputSnapshot()): string {
     this.entries.set(info.taskId, { info, output });
     return info.taskId;
   }
@@ -272,9 +266,7 @@ class FakeTaskService implements IAgentTaskService {
     return this.entries.get(taskId)?.info;
   }
 
-  async waitForForegroundRelease(
-    taskId: string,
-  ): Promise<ForegroundTaskReleaseReason | undefined> {
+  async waitForForegroundRelease(taskId: string): Promise<ForegroundTaskReleaseReason | undefined> {
     return this.entries.has(taskId) ? 'detached' : undefined;
   }
 }
@@ -334,41 +326,38 @@ describe('TaskListTool', () => {
     expect(output).not.toMatch(/^started_at:/m);
   });
 
-  it(
-    'excludes terminal tasks from active_only=true and includes them when all tasks are listed',
-    async () => {
-      const tasks = new FakeTaskService();
-      const taskId = tasks.add(
-        processTask({
-          taskId: 'bash-failed01',
-          command: 'exit 7',
-          description: 'exit code test',
-          status: 'failed',
-          endedAt: 1_700_000_001_000,
-          exitCode: 7,
-        }),
-      );
+  it('excludes terminal tasks from active_only=true and includes them when all tasks are listed', async () => {
+    const tasks = new FakeTaskService();
+    const taskId = tasks.add(
+      processTask({
+        taskId: 'bash-failed01',
+        command: 'exit 7',
+        description: 'exit code test',
+        status: 'failed',
+        endedAt: 1_700_000_001_000,
+        exitCode: 7,
+      }),
+    );
 
-      const active = await executeTool(
-        new TaskListTool(tasks),
-        context('task_list_active_terminal', { active_only: true }),
-      );
-      expect(outputString(active)).toContain(
-        'active_background_tasks: 0\nNo background tasks found.',
-      );
+    const active = await executeTool(
+      new TaskListTool(tasks),
+      context('task_list_active_terminal', { active_only: true }),
+    );
+    expect(outputString(active)).toContain(
+      'active_background_tasks: 0\nNo background tasks found.',
+    );
 
-      const all = await executeTool(
-        new TaskListTool(tasks),
-        context('task_list_all_terminal', { active_only: false }),
-      );
-      const output = outputString(all);
+    const all = await executeTool(
+      new TaskListTool(tasks),
+      context('task_list_all_terminal', { active_only: false }),
+    );
+    const output = outputString(all);
 
-      expect(output).toMatch(/^background_tasks:\s*1/);
-      expect(output).toContain(taskId);
-      expect(output).toContain('status: failed');
-      expect(output).toContain('exit_code: 7');
-    },
-  );
+    expect(output).toMatch(/^background_tasks:\s*1/);
+    expect(output).toContain(taskId);
+    expect(output).toContain('status: failed');
+    expect(output).toContain('exit_code: 7');
+  });
 
   it('honours the limit parameter', async () => {
     const tasks = new FakeTaskService();
@@ -544,7 +533,9 @@ describe('TaskOutputTool', () => {
   });
 
   it('rejects stale block/timeout args at the validator instead of waiting', () => {
-    const validator = compileToolArgsValidator(new TaskOutputTool(new FakeTaskService()).parameters);
+    const validator = compileToolArgsValidator(
+      new TaskOutputTool(new FakeTaskService()).parameters,
+    );
 
     expect(validateToolArgs(validator, { task_id: 'bash-1' })).toBeNull();
     const stale = validateToolArgs(validator, { task_id: 'bash-1', block: true, timeout: 1 });
@@ -776,7 +767,10 @@ describe('TaskStopTool', () => {
 });
 
 describe('WaitForTool', () => {
-  function waitTelemetry(): { records: TelemetryRecord[]; telemetry: ReturnType<typeof recordingTelemetry> } {
+  function waitTelemetry(): {
+    records: TelemetryRecord[];
+    telemetry: ReturnType<typeof recordingTelemetry>;
+  } {
     const records: TelemetryRecord[] = [];
     return { records, telemetry: recordingTelemetry(records) };
   }
@@ -786,7 +780,13 @@ describe('WaitForTool', () => {
   }
 
   it('has name and accepts the current schema', () => {
-    const tool = new WaitForTool(new FakeTaskService(), recordingTelemetry([]), stubFlag(true), stubGoal(), agentScope());
+    const tool = new WaitForTool(
+      new FakeTaskService(),
+      recordingTelemetry([]),
+      stubFlag(true),
+      stubGoal(),
+      agentScope(),
+    );
 
     expect(tool.name).toBe('WaitFor');
     expect(WaitForInputSchema.safeParse({ timeout: 60 }).success).toBe(true);
@@ -874,22 +874,33 @@ describe('WaitForTool', () => {
   it('reports no progress for a wait that returns at once', async () => {
     const tasks = new FakeTaskService();
     const taskId = tasks.add(
-      processTask({ taskId: 'bash-done0003', status: 'completed', endedAt: 1_700_000_001_000, exitCode: 0 }),
+      processTask({
+        taskId: 'bash-done0003',
+        status: 'completed',
+        endedAt: 1_700_000_001_000,
+        exitCode: 0,
+      }),
       outputSnapshot('DONE\n'),
     );
     const onUpdate = mock();
 
-    await executeTool(new WaitForTool(tasks, recordingTelemetry([]), stubFlag(true), stubGoal(), agentScope()), {
-      ...context('wait_done_at_once', { timeout: 10, task_id: taskId }),
-      onUpdate,
-    });
+    await executeTool(
+      new WaitForTool(tasks, recordingTelemetry([]), stubFlag(true), stubGoal(), agentScope()),
+      {
+        ...context('wait_done_at_once', { timeout: 10, task_id: taskId }),
+        onUpdate,
+      },
+    );
 
     expect(onUpdate).not.toHaveBeenCalled();
   });
 
   it('reports tasks that finished during the wait and marks all of them delivered', async () => {
     const tasks = new FakeTaskService();
-    tasks.add(processTask({ taskId: 'bash-wait001', description: 'main wait' }), outputSnapshot('WAITED-OUT\n'));
+    tasks.add(
+      processTask({ taskId: 'bash-wait001', description: 'main wait' }),
+      outputSnapshot('WAITED-OUT\n'),
+    );
     tasks.add(processTask({ taskId: 'bash-extra001', description: 'side task' }));
     tasks.waitDelegate = async (taskId) => {
       tasks.settle('bash-wait001');
@@ -1177,168 +1188,241 @@ describe('WaitForTool (harness)', () => {
     throw new Error(`Timed out waiting for task to terminate: ${taskId}`);
   }
 
-  it.each(['specific', 'any'] as const)('steers out of a running %s wait without losing tool history or stopping the background task', async (target) => {
-    const ctx = createTestAgent();
-    const slow = controllableProcess();
-    try {
-      await ctx.restorePersisted();
-      ctx.get(IAgentProfileService).update({ activeToolNames: ['TaskList', 'WaitFor'] });
-      const tasks = ctx.get(IAgentTaskService);
-      const taskId = tasks.registerTask(new ProcessTask(slow.proc, 'sleep 60', 'background work'));
-      ctx.mockNextResponse(
-        { type: 'function', id: 'list-before-wait', name: 'TaskList', arguments: '{}' },
-        { type: 'function', id: 'wait-for-task', name: 'WaitFor', arguments: JSON.stringify({ timeout: 90, task_id: target === 'specific' ? taskId : undefined }) },
-      );
-      ctx.mockNextResponse({ type: 'text', text: 'Handling the new request.' });
-
-      const waiting = ctx.once('tool.progress');
-      await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Wait for the background work.' }] });
-      await waiting;
-      await ctx.rpc.steer({ input: [{ type: 'text', text: 'Handle this new request first.' }] });
-
-      await waitForAssertion(() => {
-        expect(ctx.llmCalls).toHaveLength(2);
-      }, { timeout: 1_000 });
-      const history = ctx.llmCalls[1]!.history;
-      expect(history.filter((message) => message.role === 'tool')).toMatchObject([
-        { toolCallId: 'list-before-wait', content: [{ type: 'text', text: expect.stringContaining(taskId) }] },
-        { toolCallId: 'wait-for-task', content: [{ type: 'text', text: expect.stringContaining('wait_status: interrupted') }] },
-      ]);
-      expect(history.at(-1)).toMatchObject({
-        role: 'user',
-        content: [{ type: 'text', text: 'Handle this new request first.' }],
-      });
-      expect(ctx.allEvents).not.toContainEqual(expect.objectContaining({
-        event: 'tool.result',
-        args: expect.objectContaining({ toolCallId: 'wait-for-task', isError: true }),
-      }));
-      expect(tasks.getTask(taskId)?.status).toBe('running');
-      expect(slow.proc.kill).not.toHaveBeenCalled();
-      await ctx.get(IAgentLoopService).settled();
-      ctx.mockNextResponse({ type: 'text', text: 'The background work has finished.' });
-      const notified = ctx.once('task.notified');
-      slow.resolveWait(0);
-      await notified;
-      await ctx.get(IAgentLoopService).settled();
-      expect(tasks.getTask(taskId)?.status).toBe('completed');
-      expect(ctx.allEvents.filter((event) => event.event === 'task.notified')).toHaveLength(1);
-      await ctx.expectResumeMatches();
-    } finally {
-      slow.resolveWait(0);
-      await ctx.dispose();
-    }
-  });
-
-  it.each(['before-request', 'before-tool'] as const)('interrupts every wait after %s steering and can wait again after consuming the new input', async (timing) => {
-    const ctx = createTestAgent();
-    const slow = controllableProcess();
-    try {
-      await ctx.restorePersisted();
-      ctx.get(IAgentProfileService).update({ activeToolNames: ['WaitFor'] });
-      const tasks = ctx.get(IAgentTaskService);
-      const taskId = tasks.registerTask(new ProcessTask(slow.proc, 'sleep 60', 'background work'));
-      ctx.mockNextResponse(
-        { type: 'function', id: 'wait-specific', name: 'WaitFor', arguments: JSON.stringify({ timeout: 90, task_id: taskId }) },
-        { type: 'function', id: 'wait-any', name: 'WaitFor', arguments: '{"timeout":90}' },
-      );
-      ctx.mockNextResponse({
-        type: 'function', id: 'wait-again', name: 'WaitFor',
-        arguments: JSON.stringify({ timeout: 90, task_id: taskId }),
-      });
-      ctx.mockNextResponse({ type: 'text', text: 'The background work has finished.' });
-      const steer = async () => {
-        await ctx.rpc.steer({ input: [{ type: 'text', text: 'Check this message before waiting again.' }] });
-        await ctx.rpc.steer({ input: [{ type: 'text', text: 'Keep the background task running.' }] });
-      };
-      if (timing === 'before-request') {
-        ctx.get(IAgentLoopService).hooks.onWillBeginStep.register('steer-before-request', async (event, next) => {
-          if (event.step === 1) await steer();
-          await next();
-        });
-      } else {
-        ctx.get(IAgentToolExecutorService).onWillExecuteTool((event) => {
-          if (event.toolCall.id === 'wait-specific') event.waitUntil(steer());
-        });
-      }
-      const waitingAgain = createControlledPromise<void>();
-      ctx.get(IEventBus).subscribe(ToolProgress, (event) => {
-        if (event.toolCallId === 'wait-again') waitingAgain.resolve();
-      });
-
-      await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Wait for the background work.' }] });
-      await waitingAgain;
-
-      expect(ctx.llmCalls[1]?.history.filter((message) => message.role === 'tool')).toMatchObject([
-        { toolCallId: 'wait-specific', content: [{ text: expect.stringContaining('wait_status: interrupted') }] },
-        { toolCallId: 'wait-any', content: [{ text: expect.stringContaining('wait_status: interrupted') }] },
-      ]);
-      expect(ctx.llmCalls[1]?.history.at(-1)).toMatchObject({
-        role: 'user',
-        content: [{ text: 'Check this message before waiting again.\n\nKeep the background task running.' }],
-      });
-      expect(tasks.getTask(taskId)?.status).toBe('running');
-      slow.resolveWait(0);
-      await ctx.get(IAgentLoopService).settled();
-      expect(ctx.llmCalls).toHaveLength(3);
-      expect(ctx.llmCalls[2]?.history.find((message) => message.toolCallId === 'wait-again')).toMatchObject({
-        content: [{ text: expect.stringContaining('wait_status: completed') }],
-      });
-      expect(ctx.allEvents.filter((event) => event.event === 'task.notified')).toHaveLength(0);
-      await ctx.expectResumeMatches();
-    } finally {
-      slow.resolveWait(0);
-      await ctx.dispose();
-    }
-  });
-
-  it.each(['steer-first', 'completion-first'] as const)('reports task completion once when it races with steering (%s)', async (order) => {
-    const ctx = createTestAgent();
-    const slow = controllableProcess();
-    try {
-      await ctx.restorePersisted();
-      ctx.get(IAgentProfileService).update({ activeToolNames: ['WaitFor'] });
-      const tasks = ctx.get(IAgentTaskService);
-      const taskId = tasks.registerTask(new ProcessTask(slow.proc, 'sleep 60', 'background work'));
-      ctx.mockNextResponse({
-        type: 'function', id: 'racing-wait', name: 'WaitFor',
-        arguments: JSON.stringify({ timeout: 90, task_id: taskId }),
-      });
-      ctx.mockNextResponse({ type: 'text', text: 'Handling the new request.' });
-      ctx.mockNextResponse({ type: 'text', text: 'The background work has finished.' });
-      const waiting = ctx.once('tool.progress');
-      await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Wait for the background work.' }] });
-      await waiting;
-
-      slow.pushOutput('BACKGROUND-RESULT');
-      if (order === 'completion-first') slow.resolveWait(0);
-      const steered = ctx.rpc.steer({ input: [{ type: 'text', text: 'Handle the new request too.' }] });
-      if (order === 'steer-first') slow.resolveWait(0);
-      await steered;
-      await waitForTerminal(tasks, taskId);
-      await waitForAssertion(() => {
-        const deliveries = ctx.context.get().filter((message) =>
-          (message.origin?.kind === 'task' && message.origin.taskId === taskId) ||
-          (message.toolCallId === 'racing-wait' && message.content.some((part) =>
-            part.type === 'text' && part.text.includes('wait_status: completed'),
-          )),
+  it.each(['specific', 'any'] as const)(
+    'steers out of a running %s wait without losing tool history or stopping the background task',
+    async (target) => {
+      const ctx = createTestAgent();
+      const slow = controllableProcess();
+      try {
+        await ctx.restorePersisted();
+        ctx.get(IAgentProfileService).update({ activeToolNames: ['TaskList', 'WaitFor'] });
+        const tasks = ctx.get(IAgentTaskService);
+        const taskId = tasks.registerTask(
+          new ProcessTask(slow.proc, 'sleep 60', 'background work'),
         );
-        expect(deliveries).toHaveLength(1);
-      });
-      await ctx.get(IAgentLoopService).settled();
+        ctx.mockNextResponse(
+          { type: 'function', id: 'list-before-wait', name: 'TaskList', arguments: '{}' },
+          {
+            type: 'function',
+            id: 'wait-for-task',
+            name: 'WaitFor',
+            arguments: JSON.stringify({
+              timeout: 90,
+              task_id: target === 'specific' ? taskId : undefined,
+            }),
+          },
+        );
+        ctx.mockNextResponse({ type: 'text', text: 'Handling the new request.' });
 
-      const history = ctx.context.get();
-      expect(await tasks.readOutput(taskId)).toBe('BACKGROUND-RESULT');
-      expect(history.filter((message) => message.content.some((part) =>
-        part.type === 'text' && part.text === 'Handle the new request too.',
-      ))).toHaveLength(1);
-      expect(tasks.getTask(taskId)?.status).toBe('completed');
-      expect(slow.proc.kill).not.toHaveBeenCalled();
-      await ctx.expectResumeMatches();
-    } finally {
-      slow.resolveWait(0);
-      await ctx.dispose();
-    }
-  });
+        const waiting = ctx.once('tool.progress');
+        await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Wait for the background work.' }] });
+        await waiting;
+        await ctx.rpc.steer({ input: [{ type: 'text', text: 'Handle this new request first.' }] });
+
+        await waitForAssertion(
+          () => {
+            expect(ctx.llmCalls).toHaveLength(2);
+          },
+          { timeout: 1_000 },
+        );
+        const history = ctx.llmCalls[1]!.history;
+        expect(history.filter((message) => message.role === 'tool')).toMatchObject([
+          {
+            toolCallId: 'list-before-wait',
+            content: [{ type: 'text', text: expect.stringContaining(taskId) }],
+          },
+          {
+            toolCallId: 'wait-for-task',
+            content: [{ type: 'text', text: expect.stringContaining('wait_status: interrupted') }],
+          },
+        ]);
+        expect(history.at(-1)).toMatchObject({
+          role: 'user',
+          content: [{ type: 'text', text: 'Handle this new request first.' }],
+        });
+        expect(ctx.allEvents).not.toContainEqual(
+          expect.objectContaining({
+            event: 'tool.result',
+            args: expect.objectContaining({ toolCallId: 'wait-for-task', isError: true }),
+          }),
+        );
+        expect(tasks.getTask(taskId)?.status).toBe('running');
+        expect(slow.proc.kill).not.toHaveBeenCalled();
+        await ctx.get(IAgentLoopService).settled();
+        ctx.mockNextResponse({ type: 'text', text: 'The background work has finished.' });
+        const notified = ctx.once('task.notified');
+        slow.resolveWait(0);
+        await notified;
+        await ctx.get(IAgentLoopService).settled();
+        expect(tasks.getTask(taskId)?.status).toBe('completed');
+        expect(ctx.allEvents.filter((event) => event.event === 'task.notified')).toHaveLength(1);
+        await ctx.expectResumeMatches();
+      } finally {
+        slow.resolveWait(0);
+        await ctx.dispose();
+      }
+    },
+  );
+
+  it.each(['before-request', 'before-tool'] as const)(
+    'interrupts every wait after %s steering and can wait again after consuming the new input',
+    async (timing) => {
+      const ctx = createTestAgent();
+      const slow = controllableProcess();
+      try {
+        await ctx.restorePersisted();
+        ctx.get(IAgentProfileService).update({ activeToolNames: ['WaitFor'] });
+        const tasks = ctx.get(IAgentTaskService);
+        const taskId = tasks.registerTask(
+          new ProcessTask(slow.proc, 'sleep 60', 'background work'),
+        );
+        ctx.mockNextResponse(
+          {
+            type: 'function',
+            id: 'wait-specific',
+            name: 'WaitFor',
+            arguments: JSON.stringify({ timeout: 90, task_id: taskId }),
+          },
+          { type: 'function', id: 'wait-any', name: 'WaitFor', arguments: '{"timeout":90}' },
+        );
+        ctx.mockNextResponse({
+          type: 'function',
+          id: 'wait-again',
+          name: 'WaitFor',
+          arguments: JSON.stringify({ timeout: 90, task_id: taskId }),
+        });
+        ctx.mockNextResponse({ type: 'text', text: 'The background work has finished.' });
+        const steer = async () => {
+          await ctx.rpc.steer({
+            input: [{ type: 'text', text: 'Check this message before waiting again.' }],
+          });
+          await ctx.rpc.steer({
+            input: [{ type: 'text', text: 'Keep the background task running.' }],
+          });
+        };
+        if (timing === 'before-request') {
+          ctx
+            .get(IAgentLoopService)
+            .hooks.onWillBeginStep.register('steer-before-request', async (event, next) => {
+              if (event.step === 1) await steer();
+              await next();
+            });
+        } else {
+          ctx.get(IAgentToolExecutorService).onWillExecuteTool((event) => {
+            if (event.toolCall.id === 'wait-specific') event.waitUntil(steer());
+          });
+        }
+        const waitingAgain = createControlledPromise<void>();
+        ctx.get(IEventBus).subscribe(ToolProgress, (event) => {
+          if (event.toolCallId === 'wait-again') waitingAgain.resolve();
+        });
+
+        await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Wait for the background work.' }] });
+        await waitingAgain;
+
+        expect(ctx.llmCalls[1]?.history.filter((message) => message.role === 'tool')).toMatchObject(
+          [
+            {
+              toolCallId: 'wait-specific',
+              content: [{ text: expect.stringContaining('wait_status: interrupted') }],
+            },
+            {
+              toolCallId: 'wait-any',
+              content: [{ text: expect.stringContaining('wait_status: interrupted') }],
+            },
+          ],
+        );
+        expect(ctx.llmCalls[1]?.history.at(-1)).toMatchObject({
+          role: 'user',
+          content: [
+            {
+              text: 'Check this message before waiting again.\n\nKeep the background task running.',
+            },
+          ],
+        });
+        expect(tasks.getTask(taskId)?.status).toBe('running');
+        slow.resolveWait(0);
+        await ctx.get(IAgentLoopService).settled();
+        expect(ctx.llmCalls).toHaveLength(3);
+        expect(
+          ctx.llmCalls[2]?.history.find((message) => message.toolCallId === 'wait-again'),
+        ).toMatchObject({
+          content: [{ text: expect.stringContaining('wait_status: completed') }],
+        });
+        expect(ctx.allEvents.filter((event) => event.event === 'task.notified')).toHaveLength(0);
+        await ctx.expectResumeMatches();
+      } finally {
+        slow.resolveWait(0);
+        await ctx.dispose();
+      }
+    },
+  );
+
+  it.each(['steer-first', 'completion-first'] as const)(
+    'reports task completion once when it races with steering (%s)',
+    async (order) => {
+      const ctx = createTestAgent();
+      const slow = controllableProcess();
+      try {
+        await ctx.restorePersisted();
+        ctx.get(IAgentProfileService).update({ activeToolNames: ['WaitFor'] });
+        const tasks = ctx.get(IAgentTaskService);
+        const taskId = tasks.registerTask(
+          new ProcessTask(slow.proc, 'sleep 60', 'background work'),
+        );
+        ctx.mockNextResponse({
+          type: 'function',
+          id: 'racing-wait',
+          name: 'WaitFor',
+          arguments: JSON.stringify({ timeout: 90, task_id: taskId }),
+        });
+        ctx.mockNextResponse({ type: 'text', text: 'Handling the new request.' });
+        ctx.mockNextResponse({ type: 'text', text: 'The background work has finished.' });
+        const waiting = ctx.once('tool.progress');
+        await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Wait for the background work.' }] });
+        await waiting;
+
+        slow.pushOutput('BACKGROUND-RESULT');
+        if (order === 'completion-first') slow.resolveWait(0);
+        const steered = ctx.rpc.steer({
+          input: [{ type: 'text', text: 'Handle the new request too.' }],
+        });
+        if (order === 'steer-first') slow.resolveWait(0);
+        await steered;
+        await waitForTerminal(tasks, taskId);
+        await waitForAssertion(() => {
+          const deliveries = ctx.context
+            .get()
+            .filter(
+              (message) =>
+                (message.origin?.kind === 'task' && message.origin.taskId === taskId) ||
+                (message.toolCallId === 'racing-wait' &&
+                  message.content.some(
+                    (part) => part.type === 'text' && part.text.includes('wait_status: completed'),
+                  )),
+            );
+          expect(deliveries).toHaveLength(1);
+        });
+        await ctx.get(IAgentLoopService).settled();
+
+        const history = ctx.context.get();
+        expect(await tasks.readOutput(taskId)).toBe('BACKGROUND-RESULT');
+        expect(
+          history.filter((message) =>
+            message.content.some(
+              (part) => part.type === 'text' && part.text === 'Handle the new request too.',
+            ),
+          ),
+        ).toHaveLength(1);
+        expect(tasks.getTask(taskId)?.status).toBe('completed');
+        expect(slow.proc.kill).not.toHaveBeenCalled();
+        await ctx.expectResumeMatches();
+      } finally {
+        slow.resolveWait(0);
+        await ctx.dispose();
+      }
+    },
+  );
 
   it('still cancels a wait when execution is aborted together with steering', async () => {
     const ctx = createTestAgent();

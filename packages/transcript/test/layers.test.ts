@@ -2,7 +2,6 @@ import { describe, expect, it } from 'bun:test';
 
 import { transcriptEventSchema } from '#/contract/events';
 import { projectTranscriptUserOrigin } from '#/contract/origin';
-import type { ModesMeta, ModesMetaMerge } from '#/model/meta';
 import {
   agentTranscriptSnapshotSchema,
   isPlainAgentId,
@@ -24,6 +23,7 @@ import { foldWireRecordFacts, type HistoryWireRecord } from '#/history/foldFacts
 import { groupMessagesIntoSnapshot, type HistoryContentPart } from '#/history/groupTurns';
 import { compareTurnIds, frameId, stepId, turnId, turnOrdinal } from '#/model/ids';
 import type { TranscriptItem } from '#/model/item';
+import type { ModesMeta, ModesMetaMerge } from '#/model/meta';
 import type { AgentTranscriptSnapshot, TranscriptOperation } from '#/ops/operation';
 import { paginateTurns } from '#/pagination/paginate';
 import { ViewRegistry } from '#/view/registry';
@@ -2727,11 +2727,7 @@ describe('foldWireRecordFacts (cold facts)', () => {
 
   it('folds hello_world_run.updated into the hello-world stage with hello-world.stage markers', () => {
     const base = baseWithMarker();
-    const runUpdate = (
-      stage: string,
-      time: number,
-      done: boolean = false,
-    ): HistoryWireRecord => ({
+    const runUpdate = (stage: string, time: number, done: boolean = false): HistoryWireRecord => ({
       type: 'hello_world_run.updated',
       agentId: 'main',
       stage,
@@ -3165,9 +3161,21 @@ describe('foldWireRecordFacts (cold facts)', () => {
 
   it('realigns rebuilt turns to wire turn ids with holes and restores startedAt', () => {
     const base = groupMessagesIntoSnapshot([
-      { role: 'user', id: 'p5', content: [{ type: 'text', text: 'one' }], toolCalls: [], origin: { kind: 'user' } },
+      {
+        role: 'user',
+        id: 'p5',
+        content: [{ type: 'text', text: 'one' }],
+        toolCalls: [],
+        origin: { kind: 'user' },
+      },
       { role: 'assistant', content: [{ type: 'text', text: 'reply one' }], toolCalls: [] },
-      { role: 'user', id: 'p7', content: [{ type: 'text', text: 'two' }], toolCalls: [], origin: { kind: 'user' } },
+      {
+        role: 'user',
+        id: 'p7',
+        content: [{ type: 'text', text: 'two' }],
+        toolCalls: [],
+        origin: { kind: 'user' },
+      },
       { role: 'assistant', content: [{ type: 'text', text: 'reply two' }], toolCalls: [] },
     ]);
     expect(base.items.map((item) => item.kind === 'turn' && item.turnId)).toEqual(['t0', 't1']);
@@ -3203,11 +3211,29 @@ describe('foldWireRecordFacts (cold facts)', () => {
 
   it('marks a turn without terminal events as wedged once a later turn starts, and wedgifies a dangling tail unless it is live', () => {
     const base = groupMessagesIntoSnapshot([
-      { role: 'user', id: 'p5', content: [{ type: 'text', text: 'one' }], toolCalls: [], origin: { kind: 'user' } },
+      {
+        role: 'user',
+        id: 'p5',
+        content: [{ type: 'text', text: 'one' }],
+        toolCalls: [],
+        origin: { kind: 'user' },
+      },
       { role: 'assistant', content: [{ type: 'text', text: 'reply one' }], toolCalls: [] },
-      { role: 'user', id: 'p6', content: [{ type: 'text', text: 'two' }], toolCalls: [], origin: { kind: 'user' } },
+      {
+        role: 'user',
+        id: 'p6',
+        content: [{ type: 'text', text: 'two' }],
+        toolCalls: [],
+        origin: { kind: 'user' },
+      },
       { role: 'assistant', content: [{ type: 'text', text: 'reply two' }], toolCalls: [] },
-      { role: 'user', id: 'p7', content: [{ type: 'text', text: 'three' }], toolCalls: [], origin: { kind: 'user' } },
+      {
+        role: 'user',
+        id: 'p7',
+        content: [{ type: 'text', text: 'three' }],
+        toolCalls: [],
+        origin: { kind: 'user' },
+      },
       { role: 'assistant', content: [{ type: 'text', text: 'reply three' }], toolCalls: [] },
     ]);
     const records: HistoryWireRecord[] = [

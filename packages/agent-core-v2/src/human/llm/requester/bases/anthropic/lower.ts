@@ -74,10 +74,7 @@ function videoUrlPartToAnthropic(url: string): AnthropicWireVideoBlock {
   };
 }
 
-function documentUrlPartToAnthropic(
-  url: string,
-  mimeType: string,
-): AnthropicWireDocumentBlock {
+function documentUrlPartToAnthropic(url: string, mimeType: string): AnthropicWireDocumentBlock {
   if (url.startsWith('data:')) {
     const withoutScheme = url.slice(5);
     const parts = withoutScheme.split(';base64,', 2);
@@ -87,7 +84,11 @@ function documentUrlPartToAnthropic(
     const declared = parts[0].trim();
     return {
       type: 'document',
-      source: { type: 'base64', media_type: declared.length > 0 ? declared : mimeType, data: parts[1] },
+      source: {
+        type: 'base64',
+        media_type: declared.length > 0 ? declared : mimeType,
+        data: parts[1],
+      },
     };
   }
 
@@ -139,9 +140,7 @@ export function lowerMessage(
       } else if (part.type === 'video_url') {
         blocks.push(videoUrlPartToAnthropic(part.videoUrl.url));
       } else if (part.type === 'document_url') {
-        blocks.push(
-          documentUrlPartToAnthropic(part.documentUrl.url, part.documentUrl.mimeType),
-        );
+        blocks.push(documentUrlPartToAnthropic(part.documentUrl.url, part.documentUrl.mimeType));
       }
     }
     content.push({
@@ -164,9 +163,7 @@ export function lowerMessage(
       } else if (part.type === 'video_url') {
         content.push(videoUrlPartToAnthropic(part.videoUrl.url));
       } else if (part.type === 'document_url') {
-        content.push(
-          documentUrlPartToAnthropic(part.documentUrl.url, part.documentUrl.mimeType),
-        );
+        content.push(documentUrlPartToAnthropic(part.documentUrl.url, part.documentUrl.mimeType));
       }
     }
     if (message.role === 'assistant') {

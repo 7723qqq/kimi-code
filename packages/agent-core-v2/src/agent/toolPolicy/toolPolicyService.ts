@@ -1,15 +1,15 @@
 import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IAgentProfileService, ProfileError, ProfileErrors } from '#/agent/profile/profile';
-import { TOOLS_SECTION, type ToolsConfig } from './configSection';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { SELECT_TOOLS_TOOL_NAME } from '#/agent/toolSelect/toolSelect';
 import { IConfigService } from '#/app/config/config';
+import { LifecycleScope } from '#/app/scopes';
 import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
 import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
-import { SELECT_TOOLS_TOOL_NAME } from '#/agent/toolSelect/toolSelect';
 import { isMcpToolName, type ToolSource } from '#/tool/toolContract';
 
+import { TOOLS_SECTION, type ToolsConfig } from './configSection';
 import { isToolActive, isToolActiveComposed, type ToolActivationPolicy } from './evaluate';
 import { IAgentToolPolicyService } from './toolPolicy';
 
@@ -38,9 +38,7 @@ export class AgentToolPolicyService extends Disposable implements IAgentToolPoli
           name === SELECT_TOOLS_TOOL_NAME
             ? this.isToolActiveForDisclosure(name, source)
             : this.isToolActive(name, source);
-        return active
-          ? undefined
-          : `Tool "${name}" is disabled by the active tool policy`;
+        return active ? undefined : `Tool "${name}" is disabled by the active tool policy`;
       }),
     );
   }
@@ -57,7 +55,10 @@ export class AgentToolPolicyService extends Disposable implements IAgentToolPoli
     );
   }
 
-  isToolDenied(name: string, source: ToolSource = isMcpToolName(name) ? 'mcp' : 'builtin'): boolean {
+  isToolDenied(
+    name: string,
+    source: ToolSource = isMcpToolName(name) ? 'mcp' : 'builtin',
+  ): boolean {
     const deniedBy = (list: readonly string[] | undefined): boolean =>
       list !== undefined && !isToolActive({ disallowedTools: list }, name, source);
     return (
@@ -70,14 +71,16 @@ export class AgentToolPolicyService extends Disposable implements IAgentToolPoli
 
   getPolicyFingerprint(): string {
     const profile = this.profile.data();
-    return JSON.stringify([
-      this.toolPolicyGate.disabledTools,
-      profile.activeToolNames,
-      profile.disallowedTools,
-      this.globalPolicy?.enabled,
-      this.globalPolicy?.disabled,
-      this.sessionToolPolicy.disabledTools(),
-    ].map((names) => names === undefined ? null : [...new Set(names)].toSorted()));
+    return JSON.stringify(
+      [
+        this.toolPolicyGate.disabledTools,
+        profile.activeToolNames,
+        profile.disallowedTools,
+        this.globalPolicy?.enabled,
+        this.globalPolicy?.disabled,
+        this.sessionToolPolicy.disabledTools(),
+      ].map((names) => (names === undefined ? null : [...new Set(names)].toSorted())),
+    );
   }
 
   isToolActiveForDisclosure(name: string, source: ToolSource = 'builtin'): boolean {

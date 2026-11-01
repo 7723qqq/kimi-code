@@ -3,8 +3,8 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { InMemorySkillCatalog } from '#/features/skill/catalog/registry';
 
-import { stubSkill } from './catalog/stubs';
 import { createTestAgent, skillServices, type TestAgentContext } from '../../harness';
+import { stubSkill } from './catalog/stubs';
 
 describe('activateSkill', () => {
   let ctx: TestAgentContext;
@@ -72,17 +72,16 @@ describe('promptWithSkills', () => {
       releaseGate = resolve;
     });
     let armed = true;
-    ctx.get(IAgentLoopService).hooks.onWillBeginStep.register(
-      'test-hold-step',
-      async (_hookCtx, next) => {
+    ctx
+      .get(IAgentLoopService)
+      .hooks.onWillBeginStep.register('test-hold-step', async (_hookCtx, next) => {
         if (armed) {
           armed = false;
           markStarted();
           await gate;
         }
         await next();
-      },
-    );
+      });
     return { started, release: releaseGate };
   }
 
@@ -132,9 +131,7 @@ describe('promptWithSkills', () => {
       'turn.started',
     ]);
     expect(
-      events
-        .slice(0, 2)
-        .map((event) => (event.args as { readonly skillName?: string }).skillName),
+      events.slice(0, 2).map((event) => (event.args as { readonly skillName?: string }).skillName),
     ).toEqual(['review', 'security']);
     const started = events[2]?.args as { readonly prompt?: string };
     expect(started.prompt).toBe('Review this change.');
@@ -179,9 +176,7 @@ describe('promptWithSkills', () => {
       inTurn: true,
       skillActivations: [{ skillName: 'review', skillArgs: 'src/app.ts' }],
     });
-    const texts = bundled?.content
-      .filter((part) => part.type === 'text')
-      .map((part) => part.text);
+    const texts = bundled?.content.filter((part) => part.type === 'text').map((part) => part.text);
     expect(texts?.[0]).toContain('# Review body');
     expect(texts?.[1]).toBe('/review src/app.ts');
 

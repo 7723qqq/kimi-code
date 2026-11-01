@@ -499,8 +499,10 @@ export class ApprovalPanelComponent extends DockSection implements Focusable {
     const dim = (text: string) => currentTheme.fg('textDim', text);
     const strong = (text: string) => currentTheme.fg('textStrong', text);
     const indent = (s: string): string => `  ${s}`;
-    const fade = (text: string): string => (this.isTerminalFocused() ? text : currentTheme.fg('textDim', text));
-    const clipped = (lines: string[]): string[] => lines.map((line) => truncateToWidth(line, width));
+    const fade = (text: string): string =>
+      this.isTerminalFocused() ? text : currentTheme.fg('textDim', text);
+    const clipped = (lines: string[]): string[] =>
+      lines.map((line) => truncateToWidth(line, width));
 
     const dedupedBlocks = data.display.filter(
       (block) => !isDuplicateBriefBlock(block, data.description),
@@ -519,7 +521,9 @@ export class ApprovalPanelComponent extends DockSection implements Focusable {
 
     if (part === 'head') {
       return clipped([
-        fade(`  ${currentTheme.boldFg('borderFocus', '▶')} ${currentTheme.boldFg('borderFocus', headerFor(data.tool_name))}`),
+        fade(
+          `  ${currentTheme.boldFg('borderFocus', '▶')} ${currentTheme.boldFg('borderFocus', headerFor(data.tool_name))}`,
+        ),
       ]);
     }
 

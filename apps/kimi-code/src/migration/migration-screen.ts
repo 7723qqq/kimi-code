@@ -29,7 +29,11 @@ import chalk from 'chalk';
 import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
 import type { ColorPalette } from '#/tui/theme/colors';
-import { SYSTEM_RENDER_CLOCK, type RenderClock, type RenderTimerHandle } from '#/tui/utils/render-clock';
+import {
+  SYSTEM_RENDER_CLOCK,
+  type RenderClock,
+  type RenderTimerHandle,
+} from '#/tui/utils/render-clock';
 
 type Phase = 'ask1' | 'ask2' | 'progress' | 'result';
 
@@ -359,12 +363,10 @@ export class MigrationScreenComponent extends Container implements Focusable {
         const { count, directory } = r.notices.plansCopied;
         lines.push(
           chalk.hex(colors.textMuted)(
-            t(
-              count === 1
-                ? 'tui.migration.plansCopied_one'
-                : 'tui.migration.plansCopied_other',
-              { count: String(count), path: directory },
-            ),
+            t(count === 1 ? 'tui.migration.plansCopied_one' : 'tui.migration.plansCopied_other', {
+              count: String(count),
+              path: directory,
+            }),
           ),
         );
       }
@@ -573,10 +575,13 @@ function formatMigrationFailureReason(error: unknown): string | undefined {
         break;
       case 'symbol':
         reason =
-          error.description !== undefined ? `Symbol(${error.description})` : t('tui.migration.reasonSymbolRejection');
+          error.description !== undefined
+            ? `Symbol(${error.description})`
+            : t('tui.migration.reasonSymbolRejection');
         break;
       case 'function':
-        reason = error.name !== '' ? `Function ${error.name}` : t('tui.migration.reasonFunctionRejection');
+        reason =
+          error.name !== '' ? `Function ${error.name}` : t('tui.migration.reasonFunctionRejection');
         break;
       case 'object':
         if (error !== null) reason = t('tui.migration.reasonObjectRejection');

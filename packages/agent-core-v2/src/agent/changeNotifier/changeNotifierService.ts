@@ -1,29 +1,33 @@
 import { normalize } from 'pathe';
 
 import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
-import { IConfigService } from '#/app/config/config';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { IEventDispatcher } from '#/state/eventDispatcher';
-import { IAgentReminderService } from '#/features/reminder/reminderService';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentStateService } from '#/agent/state/agentState';
+import {
+  loadAgentsMdForRoots,
+  splitAgentsMdFiles,
+  type LoadedAgentsMd,
+} from '#/agent/profile/context';
 import { IAgentProfileService, type ProfileData } from '#/agent/profile/profile';
 import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentStateService } from '#/agent/state/agentState';
+import { TOOLS_SECTION, type ToolsConfig } from '#/agent/toolPolicy/configSection';
+import { isToolActiveComposed } from '#/agent/toolPolicy/evaluate';
+import { DEFAULT_AGENT_PROFILE_NAME } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IConfigService } from '#/app/config/config';
+import { LifecycleScope } from '#/app/scopes';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
+import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
+import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
+import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
-import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
-import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
-import { DEFAULT_AGENT_PROFILE_NAME } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
-import { loadAgentsMdForRoots, splitAgentsMdFiles, type LoadedAgentsMd } from '#/agent/profile/context';
-import { resolveSubagentModelPool, type SubagentModelPool } from '#/session/subagent/configSection';
-import { isToolActiveComposed } from '#/agent/toolPolicy/evaluate';
-import { TOOLS_SECTION, type ToolsConfig } from '#/agent/toolPolicy/configSection';
 import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
 import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
+import { resolveSubagentModelPool, type SubagentModelPool } from '#/session/subagent/configSection';
+import { IEventDispatcher } from '#/state/eventDispatcher';
 
 import {
   IAgentChangeNotifierService,
@@ -197,7 +201,10 @@ export class AgentChangeNotifierService extends Disposable implements IAgentChan
   }
 
   private boundExplicitAllowlist(profileData: ProfileData): readonly string[] | undefined {
-    if (profileData.profileName === undefined || profileData.profileName === DEFAULT_AGENT_PROFILE_NAME) {
+    if (
+      profileData.profileName === undefined ||
+      profileData.profileName === DEFAULT_AGENT_PROFILE_NAME
+    ) {
       return undefined;
     }
     const declared = profileData.subagents;
@@ -346,7 +353,9 @@ function sameStringSet(left: readonly string[], right: readonly string[]): boole
   return left.length === right.length && left.every((item) => right.includes(item));
 }
 
-function snapshotModelPool(pool: SubagentModelPool | undefined): SubagentModelPoolSnapshot | undefined {
+function snapshotModelPool(
+  pool: SubagentModelPool | undefined,
+): SubagentModelPoolSnapshot | undefined {
   if (pool === undefined) return undefined;
   return { defaultModel: pool.defaultModel, models: { ...pool.models } };
 }
@@ -480,7 +489,8 @@ function subagentsChangeText(diff: {
     lines.push(`- Profiles removed: ${diff.profilesRemoved.join(', ')}`);
   }
   if (diff.modelsAdded.length > 0) lines.push(`- Models added: ${diff.modelsAdded.join(', ')}`);
-  if (diff.modelsRemoved.length > 0) lines.push(`- Models removed: ${diff.modelsRemoved.join(', ')}`);
+  if (diff.modelsRemoved.length > 0)
+    lines.push(`- Models removed: ${diff.modelsRemoved.join(', ')}`);
   if (diff.modelsUpdated.length > 0) {
     lines.push(`- Model descriptions updated: ${diff.modelsUpdated.join(', ')}`);
   }
@@ -494,7 +504,9 @@ function subagentsChangeText(diff: {
       lines.push(`- Default model cleared (was ${from})`);
     }
   }
-  lines.push('You can use them right away — the Agent tool validates subagent_type against the live catalog.');
+  lines.push(
+    'You can use them right away — the Agent tool validates subagent_type against the live catalog.',
+  );
   return lines.join('\n');
 }
 

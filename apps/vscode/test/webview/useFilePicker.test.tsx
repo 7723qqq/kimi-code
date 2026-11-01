@@ -1,8 +1,10 @@
 import './setup';
-import { act, renderHook, waitFor } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
+
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { act, renderHook, waitFor } from '@testing-library/react';
+import type { ReactNode } from 'react';
+
 import { useFilePicker } from '@/components/inputarea/hooks/useFilePicker';
 import { useChatStore } from '@/stores';
 
@@ -45,17 +47,29 @@ describe('enabled gating', () => {
 describe('search', () => {
   it('searches with the current query and returns results', async () => {
     getProjectFiles.mockResolvedValue([{ name: 'app.ts', path: 'src/app.ts', isDirectory: false }]);
-    const { result } = renderHook(() => useFilePicker(at('app'), noop, noop, noop), { wrapper: createWrapper() });
-    await waitFor(() => { expect(result.current.fileItems).toHaveLength(1); });
+    const { result } = renderHook(() => useFilePicker(at('app'), noop, noop, noop), {
+      wrapper: createWrapper(),
+    });
+    await waitFor(() => {
+      expect(result.current.fileItems).toHaveLength(1);
+    });
     expect(result.current.fileItems[0]).toMatchObject({ name: 'app.ts', path: 'src/app.ts' });
   });
 
   it('caps the displayed items at 50', async () => {
     getProjectFiles.mockResolvedValue(
-      Array.from({ length: 60 }, (_, i) => ({ name: `f${i}.ts`, path: `f${i}.ts`, isDirectory: false })),
+      Array.from({ length: 60 }, (_, i) => ({
+        name: `f${i}.ts`,
+        path: `f${i}.ts`,
+        isDirectory: false,
+      })),
     );
-    const { result } = renderHook(() => useFilePicker(at('f'), noop, noop, noop), { wrapper: createWrapper() });
-    await waitFor(() => { expect(result.current.fileItems).toHaveLength(50); });
+    const { result } = renderHook(() => useFilePicker(at('f'), noop, noop, noop), {
+      wrapper: createWrapper(),
+    });
+    await waitFor(() => {
+      expect(result.current.fileItems).toHaveLength(50);
+    });
   });
 
   it('debounces rapid query changes into a single request after 100ms', async () => {
@@ -63,7 +77,9 @@ describe('search', () => {
       initialProps: { token: at('') as Token },
       wrapper: createWrapper(),
     });
-    await waitFor(() => { expect(getProjectFiles).toHaveBeenCalledTimes(1); });
+    await waitFor(() => {
+      expect(getProjectFiles).toHaveBeenCalledTimes(1);
+    });
     getProjectFiles.mockClear();
 
     rerender({ token: at('a') });
@@ -71,7 +87,9 @@ describe('search', () => {
     rerender({ token: at('app') });
     expect(getProjectFiles).not.toHaveBeenCalled();
 
-    await waitFor(() => { expect(getProjectFiles).toHaveBeenCalledTimes(1); });
+    await waitFor(() => {
+      expect(getProjectFiles).toHaveBeenCalledTimes(1);
+    });
     expect(getProjectFiles).toHaveBeenCalledWith({ query: 'app' });
   });
 });
@@ -93,7 +111,9 @@ describe('media option', () => {
 
   it('hides the media option when media cannot be added', () => {
     useChatStore.setState({ isStreaming: true });
-    const { result } = renderHook(() => useFilePicker(at(''), noop, noop, noop), { wrapper: createWrapper() });
+    const { result } = renderHook(() => useFilePicker(at(''), noop, noop, noop), {
+      wrapper: createWrapper(),
+    });
     expect(result.current.showMediaOption).toBe(false);
     expect(result.current.fileMenuHeaderCount).toBe(1);
   });
@@ -102,7 +122,10 @@ describe('media option', () => {
 describe('keyboard navigation', () => {
   const key = (result: { current: ReturnType<typeof useFilePicker> }, k: string) => {
     act(() => {
-      result.current.handleFileMenuKey({ key: k, preventDefault: mock() } as unknown as React.KeyboardEvent);
+      result.current.handleFileMenuKey({
+        key: k,
+        preventDefault: mock(),
+      } as unknown as React.KeyboardEvent);
     });
   };
 
@@ -111,8 +134,12 @@ describe('keyboard navigation', () => {
       { name: 'a.ts', path: 'a.ts', isDirectory: false },
       { name: 'b.ts', path: 'b.ts', isDirectory: false },
     ]);
-    const { result } = renderHook(() => useFilePicker(at('a'), noop, noop, noop), { wrapper: createWrapper() });
-    await waitFor(() => { expect(result.current.fileItems).toHaveLength(2); });
+    const { result } = renderHook(() => useFilePicker(at('a'), noop, noop, noop), {
+      wrapper: createWrapper(),
+    });
+    await waitFor(() => {
+      expect(result.current.fileItems).toHaveLength(2);
+    });
 
     const maxIndex = result.current.fileMenuHeaderCount + result.current.fileItems.length - 1;
     expect(result.current.selectedIndex).toBe(0);
@@ -128,13 +155,20 @@ describe('keyboard navigation', () => {
 
   it('routes Enter to the browse row when there is no selectable entry', async () => {
     getProjectFiles.mockResolvedValue([]);
-    const { result } = renderHook(() => useFilePicker(at('zzz'), noop, noop, noop), { wrapper: createWrapper() });
-    await waitFor(() => { expect(result.current.isLoading).toBe(false); });
+    const { result } = renderHook(() => useFilePicker(at('zzz'), noop, noop, noop), {
+      wrapper: createWrapper(),
+    });
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
 
     // The fork keeps a "Browse folders" row, so Enter still has a target.
     let handled = false;
     act(() => {
-      handled = result.current.handleFileMenuKey({ key: 'Enter', preventDefault: mock() } as unknown as React.KeyboardEvent);
+      handled = result.current.handleFileMenuKey({
+        key: 'Enter',
+        preventDefault: mock(),
+      } as unknown as React.KeyboardEvent);
     });
     expect(handled).toBe(true);
     expect(result.current.filePickerMode).toBe('folder');
@@ -149,18 +183,26 @@ describe('keyboard navigation', () => {
       initialProps: { token: at('a') as Token },
       wrapper: createWrapper(),
     });
-    await waitFor(() => { expect(result.current.fileItems).toHaveLength(2); });
+    await waitFor(() => {
+      expect(result.current.fileItems).toHaveLength(2);
+    });
 
     getProjectFiles.mockResolvedValue([{ name: 'app.ts', path: 'app.ts', isDirectory: false }]);
     rerender({ token: at('ap') });
-    act(() => { result.current.setSelectedIndex(1); });
-    await waitFor(() => { expect(result.current.fileItems).toHaveLength(1); });
+    act(() => {
+      result.current.setSelectedIndex(1);
+    });
+    await waitFor(() => {
+      expect(result.current.fileItems).toHaveLength(1);
+    });
     expect(result.current.selectedIndex).toBe(result.current.fileMenuHeaderCount);
   });
 
   it('calls onPickMedia when Enter selects the media option', async () => {
     const onPickMedia = mock();
-    const { result } = renderHook(() => useFilePicker(at(''), noop, onPickMedia, noop), { wrapper: createWrapper() });
+    const { result } = renderHook(() => useFilePicker(at(''), noop, onPickMedia, noop), {
+      wrapper: createWrapper(),
+    });
 
     expect(result.current.selectedIndex).toBe(0);
     key(result, 'Enter');
@@ -170,24 +212,42 @@ describe('keyboard navigation', () => {
   it('ignores confirmation while results are stale for the current query', async () => {
     getProjectFiles.mockResolvedValue([{ name: 'a.ts', path: 'src/a.ts', isDirectory: false }]);
     const onInsertFile = mock();
-    const { result, rerender } = renderHook(({ token }) => useFilePicker(token, onInsertFile, noop, noop), {
-      initialProps: { token: at('a') as Token },
-      wrapper: createWrapper(),
+    const { result, rerender } = renderHook(
+      ({ token }) => useFilePicker(token, onInsertFile, noop, noop),
+      {
+        initialProps: { token: at('a') as Token },
+        wrapper: createWrapper(),
+      },
+    );
+    await waitFor(() => {
+      expect(result.current.fileItems).toHaveLength(1);
     });
-    await waitFor(() => { expect(result.current.fileItems).toHaveLength(1); });
 
     let resolveNext: (value: unknown) => void = noop;
-    getProjectFiles.mockImplementation(() => new Promise((resolve) => { resolveNext = resolve; }));
+    getProjectFiles.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveNext = resolve;
+        }),
+    );
     rerender({ token: at('ap') });
     expect(result.current.isStale).toBe(true);
 
     key(result, 'Enter');
-    act(() => { result.current.handleSelectItem(result.current.fileItems[0]!); });
+    act(() => {
+      result.current.handleSelectItem(result.current.fileItems[0]!);
+    });
     expect(onInsertFile).not.toHaveBeenCalled();
 
-    await waitFor(() => { expect(getProjectFiles).toHaveBeenCalledWith({ query: 'ap' }); });
-    act(() => { resolveNext([{ name: 'app.ts', path: 'src/app.ts', isDirectory: false }]); });
-    await waitFor(() => { expect(result.current.fileItems[0]?.name).toBe('app.ts'); });
+    await waitFor(() => {
+      expect(getProjectFiles).toHaveBeenCalledWith({ query: 'ap' });
+    });
+    act(() => {
+      resolveNext([{ name: 'app.ts', path: 'src/app.ts', isDirectory: false }]);
+    });
+    await waitFor(() => {
+      expect(result.current.fileItems[0]?.name).toBe('app.ts');
+    });
     expect(result.current.isStale).toBe(false);
 
     act(() => {
@@ -200,8 +260,12 @@ describe('keyboard navigation', () => {
   it('calls onInsertFile when Enter selects a file', async () => {
     getProjectFiles.mockResolvedValue([{ name: 'a.ts', path: 'src/a.ts', isDirectory: false }]);
     const onInsertFile = mock();
-    const { result } = renderHook(() => useFilePicker(at('a'), onInsertFile, noop, noop), { wrapper: createWrapper() });
-    await waitFor(() => { expect(result.current.fileItems).toHaveLength(1); });
+    const { result } = renderHook(() => useFilePicker(at('a'), onInsertFile, noop, noop), {
+      wrapper: createWrapper(),
+    });
+    await waitFor(() => {
+      expect(result.current.fileItems).toHaveLength(1);
+    });
 
     act(() => {
       result.current.setSelectedIndex(result.current.fileMenuHeaderCount);
@@ -213,8 +277,12 @@ describe('keyboard navigation', () => {
   it('enters the directory when Enter selects one, instead of inserting it', async () => {
     getProjectFiles.mockResolvedValue([{ name: 'src', path: 'src', isDirectory: true }]);
     const onInsertFile = mock();
-    const { result } = renderHook(() => useFilePicker(at('sr'), onInsertFile, noop, noop), { wrapper: createWrapper() });
-    await waitFor(() => { expect(result.current.fileItems).toHaveLength(1); });
+    const { result } = renderHook(() => useFilePicker(at('sr'), onInsertFile, noop, noop), {
+      wrapper: createWrapper(),
+    });
+    await waitFor(() => {
+      expect(result.current.fileItems).toHaveLength(1);
+    });
 
     act(() => {
       result.current.setSelectedIndex(result.current.fileMenuHeaderCount);

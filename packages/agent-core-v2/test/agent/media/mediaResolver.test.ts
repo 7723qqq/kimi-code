@@ -1,9 +1,8 @@
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { mkdtemp, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
-
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import {
@@ -11,9 +10,7 @@ import {
   _clearScopedRegistryForTests,
   registerScopedService,
 } from '#/_base/di/scope';
-import { LifecycleScope } from '#/app/scopes';
 import { createScopedTestHost, createServices, stubPair } from '#/_base/di/test';
-import type { Event2 } from '#/app/event/event2';
 import { buildKimiFileUrl } from '#/agent/media/kimiFileUrl';
 import { IAgentMediaResolverService } from '#/agent/media/mediaResolver';
 import { AgentMediaResolverService } from '#/agent/media/mediaResolverService';
@@ -21,20 +18,22 @@ import { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
-import { IEventDispatcher } from '#/state/eventDispatcher';
+import type { Event2 } from '#/app/event/event2';
 import { type GetResult, IFileService } from '#/app/file/fileService';
+import { LifecycleScope } from '#/app/scopes';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { ModelCapability } from '#/llm-adapter/contract/capability';
+import { ImageUploadUnsupportedError } from '#/llm-adapter/contract/errors';
 import type { Message } from '#/llm-adapter/contract/message';
-import type { ContentPart, ImageURLPart, VideoURLPart } from '#human/llm/message';
-import type { LlmCredentialProvider } from '#human/llm/requester/requester';
 import type { ModelRequester } from '#/llm-adapter/model/model-requester';
 import type { Protocol } from '#/llm-adapter/protocol/protocol';
 import { IBlobStore } from '#/persistence/interface/blobStore';
+import { IEventDispatcher } from '#/state/eventDispatcher';
+import { createStaticCredentialProvider } from '#human/credentials/credentials';
+import type { ContentPart, ImageURLPart, VideoURLPart } from '#human/llm/message';
+import type { LlmCredentialProvider } from '#human/llm/requester/requester';
 
 import { registerStateServices } from '../../state/stubs';
-import { createStaticCredentialProvider } from '#human/credentials/credentials';
-import { ImageUploadUnsupportedError } from '#/llm-adapter/contract/errors';
 
 const FILE_ID = 'file_abc';
 const VIDEO_BYTES = Buffer.from('tiny fake mp4 bytes');
@@ -281,7 +280,10 @@ describe('AgentMediaResolverService video strategy', () => {
   it('degrades to the path tag when the current model cannot accept video, ignoring a memoized upload', async () => {
     const upload = mock(async (): Promise<VideoURLPart> => msPart('prov-1'));
     const canonical = await plantCanonical(FILE_ID, '.mp4', VIDEO_BYTES);
-    const res = resolver(new Map([[FILE_ID, { name: 'clip.mp4', bytes: VIDEO_BYTES }]]), sessionDir);
+    const res = resolver(
+      new Map([[FILE_ID, { name: 'clip.mp4', bytes: VIDEO_BYTES }]]),
+      sessionDir,
+    );
     const message = videoMessage(buildKimiFileUrl(FILE_ID));
 
     const capable = await res.resolve([message], requester({ uploadVideo: upload }));
@@ -304,16 +306,26 @@ describe('AgentMediaResolverService video strategy', () => {
     const message = videoMessage(buildKimiFileUrl(FILE_ID));
 
     const upload1 = mock(async (): Promise<VideoURLPart> => msPart('prov-1'));
-    await new AgentMediaResolverService(fileService(files), blobs, telemetry, new AgentStateService(), stubMediaStore(), stubDispatcher, stubScopeContext).resolve(
-      [message],
-      requester({ uploadVideo: upload1 }),
-    );
+    await new AgentMediaResolverService(
+      fileService(files),
+      blobs,
+      telemetry,
+      new AgentStateService(),
+      stubMediaStore(),
+      stubDispatcher,
+      stubScopeContext,
+    ).resolve([message], requester({ uploadVideo: upload1 }));
 
     const upload2 = mock(async (): Promise<VideoURLPart> => msPart('prov-2'));
-    const out = await new AgentMediaResolverService(fileService(files), blobs, telemetry, new AgentStateService(), stubMediaStore(), stubDispatcher, stubScopeContext).resolve(
-      [message],
-      requester({ uploadVideo: upload2 }),
-    );
+    const out = await new AgentMediaResolverService(
+      fileService(files),
+      blobs,
+      telemetry,
+      new AgentStateService(),
+      stubMediaStore(),
+      stubDispatcher,
+      stubScopeContext,
+    ).resolve([message], requester({ uploadVideo: upload2 }));
 
     expect(firstPart(out)).toEqual(msPart('prov-1'));
     expect(upload1).toHaveBeenCalledTimes(1);
@@ -363,7 +375,8 @@ describe('AgentMediaResolverService video strategy', () => {
 
     expect(firstPart(out)).toEqual({
       type: 'text',
-      text: canonical === undefined ? VIDEO_UNAVAILABLE_TEXT : `<video path="${canonical}"></video>`,
+      text:
+        canonical === undefined ? VIDEO_UNAVAILABLE_TEXT : `<video path="${canonical}"></video>`,
     });
     expect(upload).not.toHaveBeenCalled();
   });
@@ -429,7 +442,10 @@ describe('AgentMediaResolverService video strategy', () => {
       return msPart('prov-1');
     });
     const canonical = await plantCanonical(FILE_ID, '.mp4', VIDEO_BYTES);
-    const res = resolver(new Map([[FILE_ID, { name: 'clip.mp4', bytes: VIDEO_BYTES }]]), sessionDir);
+    const res = resolver(
+      new Map([[FILE_ID, { name: 'clip.mp4', bytes: VIDEO_BYTES }]]),
+      sessionDir,
+    );
     const message = videoMessage(buildKimiFileUrl(FILE_ID));
     const req = requester({ uploadVideo: upload });
 
@@ -460,13 +476,19 @@ describe('AgentMediaResolverService video strategy', () => {
     const upload = mock(async (): Promise<VideoURLPart> => msPart('prov-1'));
     const res = resolver(new Map([[FILE_ID, { name: 'clip.mp4', bytes: VIDEO_BYTES }]]));
     const message = videoMessage(buildKimiFileUrl(FILE_ID));
-    const accountA = requester({ uploadVideo: upload, credentialProvider: createStaticCredentialProvider('key-a') });
+    const accountA = requester({
+      uploadVideo: upload,
+      credentialProvider: createStaticCredentialProvider('key-a'),
+    });
 
     await res.resolve([message], accountA);
     await res.resolve([message], accountA);
     expect(upload).toHaveBeenCalledTimes(1);
 
-    const accountB = requester({ uploadVideo: upload, credentialProvider: createStaticCredentialProvider('key-b') });
+    const accountB = requester({
+      uploadVideo: upload,
+      credentialProvider: createStaticCredentialProvider('key-b'),
+    });
     const out = await res.resolve([message], accountB);
 
     expect(firstPart(out)).toEqual(msPart('prov-1'));
@@ -488,11 +510,29 @@ describe('AgentMediaResolverService video strategy', () => {
     const tokenB = fakeJwt({ ...base, sub: 'user-1', token_id: 'tok-2', iat: 300, exp: 400 });
     const tokenC = fakeJwt({ ...base, sub: 'user-2', token_id: 'tok-3', iat: 500, exp: 600 });
 
-    await res.resolve([message], requester({ uploadVideo: upload, credentialProvider: createStaticCredentialProvider(tokenA) }));
-    await res.resolve([message], requester({ uploadVideo: upload, credentialProvider: createStaticCredentialProvider(tokenB) }));
+    await res.resolve(
+      [message],
+      requester({
+        uploadVideo: upload,
+        credentialProvider: createStaticCredentialProvider(tokenA),
+      }),
+    );
+    await res.resolve(
+      [message],
+      requester({
+        uploadVideo: upload,
+        credentialProvider: createStaticCredentialProvider(tokenB),
+      }),
+    );
     expect(upload).toHaveBeenCalledTimes(1);
 
-    await res.resolve([message], requester({ uploadVideo: upload, credentialProvider: createStaticCredentialProvider(tokenC) }));
+    await res.resolve(
+      [message],
+      requester({
+        uploadVideo: upload,
+        credentialProvider: createStaticCredentialProvider(tokenC),
+      }),
+    );
     expect(upload).toHaveBeenCalledTimes(2);
   });
 
@@ -612,11 +652,7 @@ describe('AgentMediaResolverService image strategy', () => {
     );
 
     await expect(
-      res.resolve(
-        [imageMessage(buildKimiFileUrl(FILE_ID))],
-        requester({}),
-        controller.signal,
-      ),
+      res.resolve([imageMessage(buildKimiFileUrl(FILE_ID))], requester({}), controller.signal),
     ).rejects.toMatchObject({ name: 'AbortError' });
   });
 
@@ -868,16 +904,26 @@ describe('AgentMediaResolverService image upload', () => {
     const message = imageMessage(buildKimiFileUrl(FILE_ID));
 
     const upload1 = mock(async (): Promise<ImageURLPart> => msImagePart('img-1'));
-    await new AgentMediaResolverService(fileService(files), blobs, telemetry, new AgentStateService(), stubMediaStore(), stubDispatcher, stubScopeContext).resolve(
-      [message],
-      requester({ uploadImage: upload1 }),
-    );
+    await new AgentMediaResolverService(
+      fileService(files),
+      blobs,
+      telemetry,
+      new AgentStateService(),
+      stubMediaStore(),
+      stubDispatcher,
+      stubScopeContext,
+    ).resolve([message], requester({ uploadImage: upload1 }));
 
     const upload2 = mock(async (): Promise<ImageURLPart> => msImagePart('img-2'));
-    const out = await new AgentMediaResolverService(fileService(files), blobs, telemetry, new AgentStateService(), stubMediaStore(), stubDispatcher, stubScopeContext).resolve(
-      [message],
-      requester({ uploadImage: upload2 }),
-    );
+    const out = await new AgentMediaResolverService(
+      fileService(files),
+      blobs,
+      telemetry,
+      new AgentStateService(),
+      stubMediaStore(),
+      stubDispatcher,
+      stubScopeContext,
+    ).resolve([message], requester({ uploadImage: upload2 }));
 
     expect(firstPart(out)).toEqual(msImagePart('img-1'));
     expect(upload1).toHaveBeenCalledTimes(1);
@@ -936,13 +982,19 @@ describe('AgentMediaResolverService image upload', () => {
     const upload = mock(async (): Promise<ImageURLPart> => msImagePart('img-1'));
     const res = resolver(new Map([[FILE_ID, { name: 'pic.png', bytes: PNG_BYTES }]]));
     const message = imageMessage(buildKimiFileUrl(FILE_ID));
-    const accountA = requester({ uploadImage: upload, credentialProvider: createStaticCredentialProvider('key-a') });
+    const accountA = requester({
+      uploadImage: upload,
+      credentialProvider: createStaticCredentialProvider('key-a'),
+    });
 
     await res.resolve([message], accountA);
     await res.resolve([message], accountA);
     expect(upload).toHaveBeenCalledTimes(1);
 
-    const accountB = requester({ uploadImage: upload, credentialProvider: createStaticCredentialProvider('key-b') });
+    const accountB = requester({
+      uploadImage: upload,
+      credentialProvider: createStaticCredentialProvider('key-b'),
+    });
     const out = await res.resolve([message], accountB);
 
     expect(firstPart(out)).toEqual(msImagePart('img-1'));
@@ -1057,7 +1109,10 @@ describe('AgentMediaResolverService session-canonical display path', () => {
     const canonical = plant ? await plantCanonical(FILE_ID, '.png', PNG_BYTES) : undefined;
     const message = imageMessage(buildKimiFileUrl(FILE_ID));
 
-    const out = await resolver(new Map(), sessionDir).resolve([message], requester({ imageIn: false }));
+    const out = await resolver(new Map(), sessionDir).resolve(
+      [message],
+      requester({ imageIn: false }),
+    );
 
     expect(out[0]!.content).toEqual([
       {
@@ -1078,7 +1133,10 @@ describe('AgentMediaResolverService session-canonical display path', () => {
 
     const canonical = await plantCanonical(FILE_ID, '.mp4', VIDEO_BYTES);
     const second = await res.resolve([message], req);
-    expect(firstPart(second)).toEqual({ type: 'text', text: `<video path="${canonical}"></video>` });
+    expect(firstPart(second)).toEqual({
+      type: 'text',
+      text: `<video path="${canonical}"></video>`,
+    });
   });
 
   it('keeps a legacy persisted tag as text and degrades the reference with a synthesized tag', async () => {
@@ -1107,9 +1165,7 @@ describe('AgentMediaResolverService session-canonical display path', () => {
     const bare: Message = {
       role: 'user',
       toolCalls: [],
-      content: [
-        { type: 'video_url', videoUrl: { url: buildKimiFileUrl(FILE_ID) } },
-      ],
+      content: [{ type: 'video_url', videoUrl: { url: buildKimiFileUrl(FILE_ID) } }],
     };
     const first = await res.resolve([bare], req);
     expect(firstPart(first)).toEqual({ type: 'text', text: VIDEO_UNAVAILABLE_TEXT });
@@ -1139,7 +1195,9 @@ describe('AgentMediaResolverService request media budget', () => {
     return Buffer.concat([PNG_BYTES, Buffer.alloc(size - PNG_BYTES.length)]);
   }
 
-  function imageFiles(entries: Array<[string, number]>): Map<string, { name: string; bytes: Buffer }> {
+  function imageFiles(
+    entries: Array<[string, number]>,
+  ): Map<string, { name: string; bytes: Buffer }> {
     return new Map(entries.map(([id, size]) => [id, { name: `${id}.png`, bytes: bigPng(size) }]));
   }
 
@@ -1224,10 +1282,7 @@ describe('AgentMediaResolverService request media budget', () => {
     const first3 = imageMessages(['f1', 'f2', 'f3']);
 
     const first = await res.resolve(first3, requester({}));
-    const second = await res.resolve(
-      [...first3, ...imageMessages(['f4'])],
-      requester({}),
-    );
+    const second = await res.resolve([...first3, ...imageMessages(['f4'])], requester({}));
 
     const head: readonly Message[] = second.slice(0, 3);
     expect(head).toEqual(first);
@@ -1326,10 +1381,7 @@ describe('AgentMediaResolverService scoped registration', () => {
     const agent = agentScope(new Map([[FILE_ID, { name: 'pic.png', bytes: PNG_BYTES }]]));
 
     const svc = agent.accessor.get(IAgentMediaResolverService);
-    const out = await svc.resolve(
-      [imageMessage(buildKimiFileUrl(FILE_ID))],
-      requester({}),
-    );
+    const out = await svc.resolve([imageMessage(buildKimiFileUrl(FILE_ID))], requester({}));
 
     expect(firstPart(out)).toEqual({ type: 'image_url', imageUrl: { url: PNG_DATA_URL } });
   });

@@ -8,7 +8,7 @@ import { SettingsSelectorComponent } from '#/tui/components/dialogs/settings-sel
 void mock.module('#/i18n', () => ({
   t: (key: string) =>
     (
-      {
+      ({
         'tui.dialogs.mermaidPreferenceSelector.title': 'Mermaid diagrams',
         'tui.dialogs.mermaidPreferenceSelector.on': 'On',
         'tui.dialogs.mermaidPreferenceSelector.off': 'Off',
@@ -20,7 +20,7 @@ void mock.module('#/i18n', () => ({
         'tui.dialogs.settingsSelector.mermaid': 'Mermaid diagrams',
         'tui.dialogs.settingsSelector.editor': 'Editor',
         'tui.labels.current': '← current',
-      } as Record<string, string>
+      }) as Record<string, string>
     )[key] ?? key,
   setLocale: mock(),
   getLocale: () => 'en',

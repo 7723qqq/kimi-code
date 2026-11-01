@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'bun:test';
 
-import { createTurnMachine, createUserEntry, type CreateTurnMachineOptions, type TurnEvent, type TurnInput, type TurnLlmEvent, type TurnOutput } from '#/agent/turn';
+import {
+  createTurnMachine,
+  createUserEntry,
+  type CreateTurnMachineOptions,
+  type TurnEvent,
+  type TurnInput,
+  type TurnLlmEvent,
+  type TurnOutput,
+} from '#/agent/turn';
 import { credentialsRecovery } from '#/credentials/credentials';
 import { UNKNOWN_CAPABILITY } from '#/llm/capability';
 import { LlmErrorMessage } from '#/llm/errors';
@@ -8,9 +16,7 @@ import { createMediaDegradeRecovery } from '#/llm/media/degrade';
 import { ContentPart, Message, UserMessage } from '#/llm/message';
 import { LlmModel } from '#/llm/model';
 import { createRequestActor, type LlmEvent } from '#/llm/requester/actor';
-
 import { LlmCredentialProvider, LlmRequester } from '#/llm/requester/requester';
-
 import { assign, createActor, emit, setup, SimulatedClock } from '#/xstate2';
 
 const model: LlmModel = { provider: 'test', model: 'test-model', capability: UNKNOWN_CAPABILITY };
@@ -333,7 +339,9 @@ describe('turn machine llm retry', () => {
 
   it('retries a non-retryable error when infiniteRetry is on', async () => {
     const { requester, calls } = createStubRequester([statusError(400, 'bad request'), 'ok']);
-    const { actor, clock, retrying } = startTurnActor(requester, { retry: { infiniteRetry: true } });
+    const { actor, clock, retrying } = startTurnActor(requester, {
+      retry: { infiniteRetry: true },
+    });
 
     await flush();
     expect(retrying).toHaveLength(1);

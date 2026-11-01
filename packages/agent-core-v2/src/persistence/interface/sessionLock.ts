@@ -2,7 +2,6 @@ import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiatio
 import { Disposable } from '#/_base/di/lifecycle';
 import { Error2, isError2 } from '#/_base/errors/errors';
 import { Emitter, type Event } from '#/_base/event';
-
 import { SessionErrors } from '#/session/errors';
 
 export interface SessionLockHolder {

@@ -193,7 +193,6 @@ export class CloudTransport {
     }
   }
 
-
   readonly maxDiskFiles: number = DISK_EVENT_MAX_FILES;
   readonly maxDiskBytes: number = DISK_EVENT_MAX_BYTES;
 

@@ -7,7 +7,12 @@ import type {
 
 import type { AgentContextData } from '#/context';
 import { ErrorCodes, KimiError, type KimiErrorCode } from '#/errors';
-import { type ApprovalHandler, type Event, type QuestionHandler, type StaleReloadHandler } from '#/events';
+import {
+  type ApprovalHandler,
+  type Event,
+  type QuestionHandler,
+  type StaleReloadHandler,
+} from '#/events';
 import type { SDKRpcClientBase } from '#/rpc';
 import type {
   AddAdditionalDirOptions,
@@ -367,7 +372,11 @@ export class Session {
     }
   }
 
-  async setHelloWorldMode(enabled: boolean, trigger: HelloWorldModeTrigger, task?: string): Promise<void> {
+  async setHelloWorldMode(
+    enabled: boolean,
+    trigger: HelloWorldModeTrigger,
+    task?: string,
+  ): Promise<void> {
     this.ensureOpen();
     if (typeof enabled !== 'boolean') {
       throw new KimiError(ErrorCodes.REQUEST_INVALID, 'Session hello-world mode must be a boolean');

@@ -38,7 +38,11 @@ for (const [moduleName, nodeEntry] of Object.entries(node.modules)) {
     continue;
   }
   if (nodeEntry.load !== 'ok' && bunEntry.load === 'ok') {
-    extra.push({ module: moduleName, member: '(whole module)', note: 'Bun provides, Node does not' });
+    extra.push({
+      module: moduleName,
+      member: '(whole module)',
+      note: 'Bun provides, Node does not',
+    });
     continue;
   }
   if (nodeEntry.load === 'ok' && bunEntry.load !== 'ok') {
@@ -103,23 +107,29 @@ for (const gap of moduleLoadGaps) lines.push(`  ${gap.module}: ${gap.reason}`);
 
 lines.push('');
 lines.push(`## missing in Bun (${missing.length})`);
-for (const item of missing) lines.push(`  ${item.module}#${item.member}  (node: ${typeLabel(item.nodeType)})`);
+for (const item of missing)
+  lines.push(`  ${item.module}#${item.member}  (node: ${typeLabel(item.nodeType)})`);
 
 lines.push('');
 lines.push(`## missing nested members (${nestedMissing.length})`);
 for (const item of nestedMissing) {
-  lines.push(`  ${item.module}#${item.path}.${item.member}  (node: ${typeLabel(item.nodeType ?? 'object')})`);
+  lines.push(
+    `  ${item.module}#${item.path}.${item.member}  (node: ${typeLabel(item.nodeType ?? 'object')})`,
+  );
 }
 
 lines.push('');
 lines.push(`## type mismatch (${typeMismatch.length})`);
 for (const item of typeMismatch) {
-  lines.push(`  ${item.module}#${item.member}: node ${typeLabel(item.nodeType)} vs bun ${typeLabel(item.bunType)}`);
+  lines.push(
+    `  ${item.module}#${item.member}: node ${typeLabel(item.nodeType)} vs bun ${typeLabel(item.bunType)}`,
+  );
 }
 
 lines.push('');
 lines.push(`## extra in Bun (${extra.length})`);
-for (const item of extra) lines.push(`  ${item.module}#${item.member}  (bun: ${typeLabel(item.bunType ?? item.note)})`);
+for (const item of extra)
+  lines.push(`  ${item.module}#${item.member}  (bun: ${typeLabel(item.bunType ?? item.note)})`);
 
 lines.push('');
 lines.push(`## extra nested members in Bun (${nestedExtra.length})`);

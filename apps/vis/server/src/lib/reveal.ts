@@ -7,7 +7,10 @@ export interface RevealCommand {
 
 /** Resolve the platform-specific "reveal in file manager" command for
  *  the given absolute path. Kept pure (no IO) so it can be unit-tested. */
-export function revealCommandFor(path: string, platform: NodeJS.Platform = process.platform): RevealCommand {
+export function revealCommandFor(
+  path: string,
+  platform: NodeJS.Platform = process.platform,
+): RevealCommand {
   switch (platform) {
     case 'darwin':
       return { command: 'open', args: [path] };

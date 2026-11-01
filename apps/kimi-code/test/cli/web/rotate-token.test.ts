@@ -8,12 +8,12 @@
  * module-cache reset is needed.
  */
 
+import { afterAll, describe, expect, it, spyOn } from 'bun:test';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { Command } from 'commander';
-import { afterAll, describe, expect, it, spyOn } from 'bun:test';
 
 const dir = mkdtempSync(join(tmpdir(), 'kimi-rotate-'));
 process.env['KIMI_CODE_HOME'] = dir;

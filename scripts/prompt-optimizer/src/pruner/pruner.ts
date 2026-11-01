@@ -8,15 +8,10 @@
 import { basename } from 'node:path';
 
 import { getCasesBySection } from '../benchmark/cases';
-import { padRight } from '../format';
 import { runSuite, aggregateResults, type LLMCaller, type RunnerConfig } from '../benchmark/runner';
+import { padRight } from '../format';
 import { generateBaselineVariant, generatePruneVariant } from '../prompt-parser';
-import type {
-  BenchmarkCase,
-  PromptSectionBundle,
-  PruneReport,
-  PruneResult,
-} from '../types';
+import type { BenchmarkCase, PromptSectionBundle, PruneReport, PruneResult } from '../types';
 
 export interface PrunerConfig {
   /** Minimum score delta to consider "significant" */
@@ -175,8 +170,7 @@ export async function runPruner(
 export function formatPruneReport(report: PruneReport): string {
   const pct = (part: number): string =>
     report.totalTokens > 0 ? ((part / report.totalTokens) * 100).toFixed(1) : '0.0';
-  const source = (path: string | undefined): string =>
-    path === undefined ? '-' : basename(path);
+  const source = (path: string | undefined): string => (path === undefined ? '-' : basename(path));
   const lines: string[] = [
     'Prompt Health Report',
     '═'.repeat(80),
@@ -212,4 +206,3 @@ export function formatPruneReport(report: PruneReport): string {
   lines.push('─'.repeat(80));
   return lines.join('\n');
 }
-

@@ -55,10 +55,7 @@ export function deliverTowerMessage(
   return `${steerIntoRunningAgent(services, sent)}${note}`;
 }
 
-function steerIntoRunningAgent(
-  services: TowerDeliveryServices,
-  sent: TowerSendResult,
-): string {
+function steerIntoRunningAgent(services: TowerDeliveryServices, sent: TowerSendResult): string {
   const { item } = sent;
   if (item.to === TOWER_NAME || item.to === BROADCAST_NAME) return '';
   const entry = services.state.roster.agents.find((agent) => agent.name === item.to);

@@ -1,3 +1,4 @@
+import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { mkdtemp, mkdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
@@ -5,7 +6,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
-import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { setGlobal, restoreGlobals } from '#test/helpers/stubs';
 
 import { removeStaleFeedbackUploads } from '../../../src/feedback/archive';
@@ -118,21 +118,22 @@ describe('uploadArchive', () => {
     const archivePath = join(workRoot, 'repo.zip');
     await writeFile(archivePath, 'hello');
 
-    const fetchMock = mock((_url: string, init?: RequestInit) =>
-      new Promise<Response>((_resolve, reject) => {
-        const signal = init?.signal;
-        if (signal?.aborted) {
-          reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
-          return;
-        }
-        signal?.addEventListener(
-          'abort',
-          () => {
+    const fetchMock = mock(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          if (signal?.aborted) {
             reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
-          },
-          { once: true },
-        );
-      }),
+            return;
+          }
+          signal?.addEventListener(
+            'abort',
+            () => {
+              reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+            },
+            { once: true },
+          );
+        }),
     );
     setGlobal('fetch', fetchMock);
     const api = {
@@ -232,7 +233,6 @@ describe('packageCodebase', () => {
     }
   });
 });
-
 
 describe('scanCodebase filtering', () => {
   it('rejects when the scan signal is already aborted', async () => {

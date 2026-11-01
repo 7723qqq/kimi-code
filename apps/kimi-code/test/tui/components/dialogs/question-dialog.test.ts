@@ -1,11 +1,12 @@
-import { CURSOR_MARKER } from '@moonshot-ai/pi-tui';
-import chalk from 'chalk';
 import { beforeAll, describe, expect, it } from 'bun:test';
 
-import { mouse, pastSettlingWindow } from '#test/helpers/mouse';
+import { CURSOR_MARKER } from '@moonshot-ai/pi-tui';
+import chalk from 'chalk';
+
 import { QuestionDialogComponent } from '#/tui/components/dialogs/question-dialog';
 import type { PendingQuestion } from '#/tui/reverse-rpc/types';
 import { currentTheme } from '#/tui/theme';
+import { mouse, pastSettlingWindow } from '#test/helpers/mouse';
 
 function strip(text: string): string {
   return text.replaceAll(/\u001B\[[0-9;]*m/g, '');
@@ -88,9 +89,7 @@ describe('QuestionDialogComponent', () => {
     expect(review).toContain('Ready to submit your answers?');
     expect(review).not.toContain('? Ready to submit your answers?');
     expect(review).not.toContain('Please answer all questions before submitting.');
-    expect(reviewRaw).toContain(
-      currentTheme.boldFg('text', ' Review your answer before submit'),
-    );
+    expect(reviewRaw).toContain(currentTheme.boldFg('text', ' Review your answer before submit'));
     expect(reviewRaw).toContain(currentTheme.fg('text', ' Ready to submit your answers?'));
     expect(review).toContain('B1');
     expect(review).toContain('A2');
@@ -464,24 +463,26 @@ describe('QuestionDialogComponent', () => {
       { question: 'Pick one?', multi_select: false, options: [{ label: 'A' }, { label: 'B' }] },
     ]);
     let terminalFocused = true;
-    const dialog = new QuestionDialogComponent(
-      pending,
-      () => undefined,
-      6,
-      undefined,
-      { isTerminalFocused: () => terminalFocused },
-    );
+    const dialog = new QuestionDialogComponent(pending, () => undefined, 6, undefined, {
+      isTerminalFocused: () => terminalFocused,
+    });
     const faint = '[2m';
 
     dialog.focused = true;
-    expect(dialog.render(80).every((line) => line.length === 0 || !line.startsWith(faint))).toBe(true);
+    expect(dialog.render(80).every((line) => line.length === 0 || !line.startsWith(faint))).toBe(
+      true,
+    );
 
     dialog.focused = false;
-    expect(dialog.render(80).every((line) => line.length === 0 || line.startsWith(faint))).toBe(true);
+    expect(dialog.render(80).every((line) => line.length === 0 || line.startsWith(faint))).toBe(
+      true,
+    );
 
     dialog.focused = true;
     terminalFocused = false;
-    expect(dialog.render(80).every((line) => line.length === 0 || line.startsWith(faint))).toBe(true);
+    expect(dialog.render(80).every((line) => line.length === 0 || line.startsWith(faint))).toBe(
+      true,
+    );
   });
 
   it('forwards ctrl+o to the global tool-output toggle without answering', () => {
@@ -520,7 +521,9 @@ describe('QuestionDialogComponent', () => {
 
       expect(joined).not.toContain('…');
       // Question text should span multiple physical lines.
-      expect(joined.split('\n').filter((l) => l.includes('?') || /Please|workspace|side/.test(l)).length).toBeGreaterThan(1);
+      expect(
+        joined.split('\n').filter((l) => l.includes('?') || /Please|workspace|side/.test(l)).length,
+      ).toBeGreaterThan(1);
       // And the full content should still be reconstructable.
       expect(flat).toContain(longQuestion);
     });
@@ -636,9 +639,7 @@ describe('QuestionDialogComponent', () => {
       pastSettlingWindow();
 
       dialog.handleMouse(mouse('click', rowOf(dialog, '[2] Other')));
-      expect(strip(dialog.render(80).join('\n'))).toContain(
-        'Type your answer, then press Enter',
-      );
+      expect(strip(dialog.render(80).join('\n'))).toContain('Type your answer, then press Enter');
 
       dialog.handleInput('custom answer');
       dialog.handleInput('\r');

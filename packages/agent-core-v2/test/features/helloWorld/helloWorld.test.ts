@@ -1,5 +1,6 @@
-import { setLocale } from '@moonshot-ai/kimi-i18n';
 import { afterEach, beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
+
+import { setLocale } from '@moonshot-ai/kimi-i18n';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
@@ -32,13 +33,13 @@ import type {
   ContextInjectionProvider,
   ContextInjectionResult,
 } from '#/features/reminder/types';
-import type { ToolCall } from '#human/llm/message';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
+import type { ToolCall } from '#human/llm/message';
 
 import HELLO_WORLD_MODE_ENTER_REMINDER from '../../../src/features/helloWorld/agent/enter-reminder.md?raw';
 import HELLO_WORLD_MODE_EXIT_REMINDER from '../../../src/features/helloWorld/agent/exit-reminder.md?raw';
@@ -52,12 +53,12 @@ import {
   stubToolExecutorEvents,
   type ToolExecutorEventStubs,
 } from '../../agent/toolExecutor/stubs';
-import { createReminderStub } from '../reminder/stubs';
 import {
   registerTestAgentWire,
   registerTestEventDispatcher,
   testWireScope,
 } from '../../wire/stubs';
+import { createReminderStub } from '../reminder/stubs';
 
 const signal = new AbortController().signal;
 
@@ -191,13 +192,11 @@ describe('AgentHelloWorldService', () => {
     return stages;
   }
 
-  function reminder(
-    lastDisclosure?: {
-      readonly kind: 'hello_world_mode';
-      readonly state: 'active' | 'inactive';
-      readonly stage: HelloWorldStage;
-    },
-  ): ContextInjectionResult | undefined {
+  function reminder(lastDisclosure?: {
+    readonly kind: 'hello_world_mode';
+    readonly state: 'active' | 'inactive';
+    readonly stage: HelloWorldStage;
+  }): ContextInjectionResult | undefined {
     return provider?.({
       injectedPositions: [],
       lastInjectedAt: null,
@@ -321,9 +320,7 @@ describe('AgentHelloWorldService', () => {
   it('renders the exit reminder when the mode leaves a trailing enter disclosure', () => {
     void ix.get(IAgentHelloWorldService);
 
-    expect(
-      reminder({ kind: 'hello_world_mode', state: 'active', stage: 'design' }),
-    ).toEqual({
+    expect(reminder({ kind: 'hello_world_mode', state: 'active', stage: 'design' })).toEqual({
       content: HELLO_WORLD_MODE_EXIT_REMINDER,
       disclosure: { kind: 'hello_world_mode', state: 'inactive', stage: 'design' },
     });
@@ -454,9 +451,7 @@ describe('AgentHelloWorldService', () => {
     const helloWorld = ix.get(IAgentHelloWorldService);
     helloWorld.enter('manual');
 
-    await fireDidExecute(
-      makeDidExecuteContext('Write', { path: 'specs/medusa/requirements.md' }),
-    );
+    await fireDidExecute(makeDidExecuteContext('Write', { path: 'specs/medusa/requirements.md' }));
 
     expect(helloWorld.run?.stage).toBe('design');
     expect(helloWorld.run?.items.find((item) => item.id === 'requirements-approved')).toEqual({
@@ -475,9 +470,7 @@ describe('AgentHelloWorldService', () => {
     helloWorld.enter('manual');
     helloWorld.advance('design');
 
-    await fireDidExecute(
-      makeDidExecuteContext('Edit', { path: 'specs/medusa/design.md' }),
-    );
+    await fireDidExecute(makeDidExecuteContext('Edit', { path: 'specs/medusa/design.md' }));
     await fireDidExecute(makeDidExecuteContext('Write', { path: 'specs/medusa/tasks.md' }));
 
     expect(helloWorld.run?.stage).toBe('implement');
@@ -499,9 +492,7 @@ describe('AgentHelloWorldService', () => {
     );
     expect(helloWorld.run?.stage).toBe('test');
 
-    await fireDidExecute(
-      makeDidExecuteContext('Bash', { command: 'bun run typecheck' }),
-    );
+    await fireDidExecute(makeDidExecuteContext('Bash', { command: 'bun run typecheck' }));
     expect(helloWorld.run?.stage).toBe('review');
     expect(helloWorld.run?.items.find((item) => item.id === 'tests-green')).toEqual({
       id: 'tests-green',
@@ -515,9 +506,7 @@ describe('AgentHelloWorldService', () => {
     helloWorld.enter('manual');
     helloWorld.advance('review');
 
-    await fireDidExecute(
-      makeDidExecuteContext('Write', { path: 'docs/en/guides/hello-world.md' }),
-    );
+    await fireDidExecute(makeDidExecuteContext('Write', { path: 'docs/en/guides/hello-world.md' }));
     expect(helloWorld.run?.stage).toBe('docs');
     expect(helloWorld.run?.items.find((item) => item.id === 'review-done')?.done).toBe(true);
 
@@ -555,12 +544,8 @@ describe('AgentHelloWorldService', () => {
     expect(helloWorld.run?.stage).toBe('requirements');
     expect(await runUpdatedStages()).toEqual([]);
 
-    await fireDidExecute(
-      makeDidExecuteContext('Write', { path: 'specs/medusa/requirements.md' }),
-    );
-    await fireDidExecute(
-      makeDidExecuteContext('Write', { path: 'specs/medusa/requirements.md' }),
-    );
+    await fireDidExecute(makeDidExecuteContext('Write', { path: 'specs/medusa/requirements.md' }));
+    await fireDidExecute(makeDidExecuteContext('Write', { path: 'specs/medusa/requirements.md' }));
     expect(helloWorld.run?.stage).toBe('design');
     expect(await runUpdatedStages()).toEqual(['design']);
 

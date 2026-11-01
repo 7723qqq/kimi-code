@@ -1,43 +1,43 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+
 import { join } from 'pathe';
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-
-import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
-import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
-import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
-import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
+import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
+import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
+import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import { WORKSPACE_TRUST_SECTION } from '#/workspace/workspaceTrust/configSection';
-import {
-  IWorkspaceTrust,
-  type WorkspaceTrustChange,
-} from '#/workspace/workspaceTrust/workspaceTrust';
-import { stubConfigService } from '../../app/config/stubs';
-import {
-  TRUST_WORKSPACE_ENV,
-  WorkspaceTrustService,
-  workspaceTrustTrustedKey,
-} from '#/workspace/workspaceTrust/workspaceTrustService';
 import {
   deleteWorkspaceTrust,
   readWorkspaceTrust,
   writeWorkspaceTrust,
 } from '#/workspace/workspaceTrust/trustRecord';
 import {
+  IWorkspaceTrust,
+  type WorkspaceTrustChange,
+} from '#/workspace/workspaceTrust/workspaceTrust';
+import {
+  TRUST_WORKSPACE_ENV,
+  WorkspaceTrustService,
+  workspaceTrustTrustedKey,
+} from '#/workspace/workspaceTrust/workspaceTrustService';
+import {
   IWorkspaceTrustStore,
   WorkspaceTrustStore,
 } from '#/workspace/workspaceTrust/workspaceTrustStore';
 
 import { stubBootstrap } from '../../app/bootstrap/stubs';
+import { stubConfigService } from '../../app/config/stubs';
 import { registerStateServices } from '../../state/stubs';
 
 describe('WorkspaceTrustService', () => {
@@ -64,7 +64,11 @@ describe('WorkspaceTrustService', () => {
     events?: WorkspaceTrustChange[],
     env: NodeJS.ProcessEnv = {},
     sharedStore?: IWorkspaceTrustStore,
-  ): { service: IWorkspaceTrust; states: IWorkspaceStateService; trustStore: IWorkspaceTrustStore } {
+  ): {
+    service: IWorkspaceTrust;
+    states: IWorkspaceStateService;
+    trustStore: IWorkspaceTrustStore;
+  } {
     const ix = createServices(disposables, {
       strict: true,
       additionalServices: (reg) => {
@@ -236,12 +240,14 @@ describe('WorkspaceTrustService', () => {
       if (unavailable) throw failure;
       return read<T>(scope, key);
     };
-    const trustStore = disposables.add(new WorkspaceTrustStore(
-      docs,
-      noopTelemetryService,
-      stubBootstrap(homeDir),
-      stubConfigService(),
-    ));
+    const trustStore = disposables.add(
+      new WorkspaceTrustStore(
+        docs,
+        noopTelemetryService,
+        stubBootstrap(homeDir),
+        stubConfigService(),
+      ),
+    );
     const entry = trustStore.forRoot(cwd);
 
     await expect(entry.get()).rejects.toBe(failure);
@@ -266,12 +272,14 @@ describe('WorkspaceTrustService', () => {
       if (unavailable) throw failure;
       return read<T>(scope, key);
     };
-    const store = disposables.add(new WorkspaceTrustStore(
-      docs,
-      noopTelemetryService,
-      stubBootstrap(homeDir),
-      stubConfigService(),
-    ));
+    const store = disposables.add(
+      new WorkspaceTrustStore(
+        docs,
+        noopTelemetryService,
+        stubBootstrap(homeDir),
+        stubConfigService(),
+      ),
+    );
     const entry = store.forRoot(cwd);
     const events: WorkspaceTrustChange[] = [];
     entry.onDidChange((change) => events.push(change));
@@ -378,12 +386,14 @@ describe('WorkspaceTrustService', () => {
       '{',
       'utf8',
     );
-    const store = disposables.add(new WorkspaceTrustStore(
-      docs,
-      noopTelemetryService,
-      stubBootstrap(homeDir),
-      stubConfigService(),
-    ));
+    const store = disposables.add(
+      new WorkspaceTrustStore(
+        docs,
+        noopTelemetryService,
+        stubBootstrap(homeDir),
+        stubConfigService(),
+      ),
+    );
     const entry = store.forRoot(firstRoot);
 
     await entry.ready;
@@ -406,12 +416,14 @@ describe('WorkspaceTrustService', () => {
       await blocked;
       return read<T>(scope, key);
     };
-    const store = disposables.add(new WorkspaceTrustStore(
-      docs,
-      noopTelemetryService,
-      stubBootstrap(homeDir),
-      stubConfigService(),
-    ));
+    const store = disposables.add(
+      new WorkspaceTrustStore(
+        docs,
+        noopTelemetryService,
+        stubBootstrap(homeDir),
+        stubConfigService(),
+      ),
+    );
     const entry = store.forRoot(cwd);
     const events: WorkspaceTrustChange[] = [];
     entry.onDidChange((change) => events.push(change));
@@ -433,12 +445,14 @@ describe('WorkspaceTrustService', () => {
         if (event === 'workspace_trust_changed') changes.push(properties);
       },
     };
-    const store = disposables.add(new WorkspaceTrustStore(
-      new JsonAtomicDocumentStore(new FileStorageService(homeDir)),
-      telemetry,
-      stubBootstrap(homeDir),
-      stubConfigService(),
-    ));
+    const store = disposables.add(
+      new WorkspaceTrustStore(
+        new JsonAtomicDocumentStore(new FileStorageService(homeDir)),
+        telemetry,
+        stubBootstrap(homeDir),
+        stubConfigService(),
+      ),
+    );
     const entry = store.forRoot(cwd);
 
     await entry.trust();

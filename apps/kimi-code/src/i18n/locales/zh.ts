@@ -1270,8 +1270,7 @@ export default {
           },
           prompt_optimizer: {
             title: '提示词优化器',
-            description:
-              '让输入框通过当前模型重写草稿提示词，可从 TUI 快捷键和会话 API 触发。',
+            description: '让输入框通过当前模型重写草稿提示词，可从 TUI 快捷键和会话 API 触发。',
           },
           subagent_backends: {
             title: '外部子代理后端',
@@ -3144,8 +3143,10 @@ export default {
       containsHooks_one: '{{count}} 个 hook',
       containsHooks_other: '{{count}} 个 hook',
       listSeparator: '、',
-      plansCopied_one: '  ⓘ {{count}} 个 plan 文件已复制到 {{path}} — 只是普通文件，未接入 plan 模式。',
-      plansCopied_other: '  ⓘ {{count}} 个 plan 文件已复制到 {{path}} — 只是普通文件，未接入 plan 模式。',
+      plansCopied_one:
+        '  ⓘ {{count}} 个 plan 文件已复制到 {{path}} — 只是普通文件，未接入 plan 模式。',
+      plansCopied_other:
+        '  ⓘ {{count}} 个 plan 文件已复制到 {{path}} — 只是普通文件，未接入 plan 模式。',
       headlessRelogin: '提示：请为以下账号重新执行 /login：{{names}}',
       headlessMcpReauth: '提示：请重新认证 MCP 服务器：{{names}}',
       headlessSource: '来源：{{path}}（{{origin}}）',
@@ -3165,8 +3166,7 @@ export default {
       headlessResultIncomplete: '结果：未完成 — 没有完成标记，下次启动会再次提示迁移',
       headlessConfigSibling:
         '配置：当前 config.toml 无法解析 — 迁移副本位于 config.migrated-from-kimi-cli.toml（{{providers}} 个 provider、{{models}} 个 model、{{hooks}} 个 hook）',
-      headlessTuiSibling:
-        '配置：tui.toml 存在冲突 — 迁移副本位于 tui.migrated-from-kimi-cli.toml',
+      headlessTuiSibling: '配置：tui.toml 存在冲突 — 迁移副本位于 tui.migrated-from-kimi-cli.toml',
       headlessDetected:
         '检测到：{{sessions}} 个会话，分布在 {{workdirs}} 个工作目录 · config={{config}} · mcp={{mcp}} · user-history={{userHistory}} · skills={{skills}}',
       headlessDetectedUnreadable: ' · {{count}} 个不可读的会话存储',
@@ -3174,8 +3174,10 @@ export default {
       headlessFailedSession: '  失败：{{path}} — {{reason}}',
       headlessConflictSession: '  冲突：{{path}} — 目标已存在：{{target}}',
       headlessPluginsNotMigrated: 'kimi-cli 插件（未迁移）：{{names}}',
-      headlessConfigConflict: '提示：config.toml 无法解析，迁移副本已保存到 {{path}} — 请手动检查并合并。',
-      headlessTuiConflict: '提示：tui.toml 有用户修改，迁移副本已保存到 {{path}} — 请手动检查并合并。',
+      headlessConfigConflict:
+        '提示：config.toml 无法解析，迁移副本已保存到 {{path}} — 请手动检查并合并。',
+      headlessTuiConflict:
+        '提示：tui.toml 有用户修改，迁移副本已保存到 {{path}} — 请手动检查并合并。',
       headlessPlansCopied_one:
         '提示：{{count}} 个 plan 文件已复制到 {{path}} — 只是普通文件，未接入 plan 模式，可自行复用或删除。',
       headlessPlansCopied_other:

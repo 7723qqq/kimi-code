@@ -16,10 +16,7 @@ import { open, readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 
-import type {
-  BackgroundTaskInfo,
-  BackgroundTaskStatus,
-} from './agent-record-types';
+import type { BackgroundTaskInfo, BackgroundTaskStatus } from './agent-record-types';
 
 /** Task id format: `{prefix}-{8 chars of [0-9a-z]}`. Mirror of the engine's
  *  `VALID_TASK_ID` (`agent/task/persist.ts`). Enforced before deriving any
@@ -386,10 +383,7 @@ function legacyStatusToCurrent(task: ReadablePersistedTask): unknown {
 }
 
 function isReadablePersistedTask(obj: unknown): obj is ReadablePersistedTask {
-  return (
-    isRecord(obj) &&
-    (typeof obj['taskId'] === 'string' || typeof obj['task_id'] === 'string')
-  );
+  return isRecord(obj) && (typeof obj['taskId'] === 'string' || typeof obj['task_id'] === 'string');
 }
 
 function isLegacyPersistedTask(
@@ -429,8 +423,5 @@ function isNullableFiniteNumber(value: unknown): value is number | null {
 }
 
 function isCurrentTaskStatus(value: unknown): value is BackgroundTaskStatus {
-  return (
-    typeof value === 'string' &&
-    CURRENT_TASK_STATUSES.has(value as BackgroundTaskStatus)
-  );
+  return typeof value === 'string' && CURRENT_TASK_STATUSES.has(value as BackgroundTaskStatus);
 }

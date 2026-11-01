@@ -1,11 +1,13 @@
-import { emptyUsage } from '#human/llm/usage';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 
 import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { ModelRecord } from '#/llm-adapter/model/model';
+import { emptyUsage } from '#human/llm/usage';
+import { setEnv, restoreEnvs } from '#test/helpers/stubs';
+
+import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import {
   configServices,
   createTestAgent,
@@ -18,7 +20,6 @@ import {
   type LegacyGenerateFn,
   type TestAgentContext,
 } from '../../harness';
-import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 
 type TestKimiConfig = ReturnType<Parameters<typeof configServices>[0]>;
 type TestProtocolModelConfig = NonNullable<TestKimiConfig['models']>[string] &
@@ -305,16 +306,18 @@ describe('ConfigState model capabilities', () => {
         },
       },
     };
-    generate = requesterFromGenerateFn(async (_provider, _systemPrompt, _tools, _history, _callbacks, options) => {
-      requestMaxTokens = options?.maxCompletionTokens;
-      return {
-        id: 'response-1',
-        message: { role: 'assistant', content: [], toolCalls: [] },
-        usage: emptyUsage(),
-        finishReason: 'completed',
-        rawFinishReason: 'stop',
-      };
-    });
+    generate = requesterFromGenerateFn(
+      async (_provider, _systemPrompt, _tools, _history, _callbacks, options) => {
+        requestMaxTokens = options?.maxCompletionTokens;
+        return {
+          id: 'response-1',
+          message: { role: 'assistant', content: [], toolCalls: [] },
+          usage: emptyUsage(),
+          finishReason: 'completed',
+          rawFinishReason: 'stop',
+        };
+      },
+    );
 
     profile.update({
       modelAlias: 'deepseek/deepseek-v4-flash',
@@ -383,7 +386,9 @@ describe('ConfigState thinking clamp for always-thinking models', () => {
 
   beforeEach(() => {
     kimiConfig = {
-      providers: { kimi: { type: 'kimi', apiKey: 'test-key', baseUrl: 'https://api.example.test/v1' } },
+      providers: {
+        kimi: { type: 'kimi', apiKey: 'test-key', baseUrl: 'https://api.example.test/v1' },
+      },
       models: {
         'kimi-code/deep': {
           provider: 'kimi',
@@ -428,16 +433,20 @@ describe('ConfigState thinking clamp for always-thinking models', () => {
     capturedThinking = undefined;
     ctx = createTestAgent(
       configServices(() => kimiConfig),
-      llmGenerateServices(requesterFromGenerateFn(async (_provider, _systemPrompt, _tools, _history, _callbacks, options) => {
-        capturedThinking = options?.thinking;
-        return {
-          id: 'response-1',
-          message: { role: 'assistant', content: [], toolCalls: [] },
-          usage: emptyUsage(),
-          finishReason: 'completed',
-          rawFinishReason: 'stop',
-        };
-      })),
+      llmGenerateServices(
+        requesterFromGenerateFn(
+          async (_provider, _systemPrompt, _tools, _history, _callbacks, options) => {
+            capturedThinking = options?.thinking;
+            return {
+              id: 'response-1',
+              message: { role: 'assistant', content: [], toolCalls: [] },
+              usage: emptyUsage(),
+              finishReason: 'completed',
+              rawFinishReason: 'stop',
+            };
+          },
+        ),
+      ),
     );
     profile = ctx.get(IAgentProfileService);
     requester = ctx.get(IAgentLLMRequesterService);
@@ -506,9 +515,7 @@ describe('ConfigState thinking clamp for always-thinking models', () => {
 
     expect(() => {
       profile.setThinking('ultra');
-    }).toThrow(
-      'Thinking effort "ultra" is not supported by model "kimi-code/custom"',
-    );
+    }).toThrow('Thinking effort "ultra" is not supported by model "kimi-code/custom"');
   });
 
   it.each([
@@ -568,7 +575,9 @@ describe('ConfigState.provider applies global KIMI_MODEL_* request config', () =
 
   beforeEach(() => {
     kimiConfig = {
-      providers: { kimi: { type: 'kimi', apiKey: 'test-key', baseUrl: 'https://api.example.test/v1' } },
+      providers: {
+        kimi: { type: 'kimi', apiKey: 'test-key', baseUrl: 'https://api.example.test/v1' },
+      },
       models: {
         'kimi-code': {
           provider: 'kimi',
@@ -602,17 +611,21 @@ describe('ConfigState.provider applies global KIMI_MODEL_* request config', () =
   function createAgentWithEnv(): void {
     ctx = createTestAgent(
       configServices(() => kimiConfig),
-      llmGenerateServices(requesterFromGenerateFn(async (provider, _systemPrompt, _tools, _history, _callbacks, options) => {
-        capturedProvider = provider;
-        capturedOptions = options;
-        return {
-          id: 'response-1',
-          message: { role: 'assistant', content: [], toolCalls: [] },
-          usage: emptyUsage(),
-          finishReason: 'completed',
-          rawFinishReason: 'stop',
-        };
-      })),
+      llmGenerateServices(
+        requesterFromGenerateFn(
+          async (provider, _systemPrompt, _tools, _history, _callbacks, options) => {
+            capturedProvider = provider;
+            capturedOptions = options;
+            return {
+              id: 'response-1',
+              message: { role: 'assistant', content: [], toolCalls: [] },
+              usage: emptyUsage(),
+              finishReason: 'completed',
+              rawFinishReason: 'stop',
+            };
+          },
+        ),
+      ),
     );
     profile = ctx.get(IAgentProfileService);
     requester = ctx.get(IAgentLLMRequesterService);

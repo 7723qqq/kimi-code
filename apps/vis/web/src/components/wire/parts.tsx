@@ -327,9 +327,7 @@ export function LoopEventDetail({ event }: { event: LoopRecordedEvent }) {
             ) : null}
             {result.message !== undefined ? (
               <FieldRow label="message" wide>
-                <pre className="whitespace-pre-wrap break-words text-fg-1">
-                  {result.message}
-                </pre>
+                <pre className="whitespace-pre-wrap break-words text-fg-1">{result.message}</pre>
               </FieldRow>
             ) : null}
             {result.note !== undefined ? (

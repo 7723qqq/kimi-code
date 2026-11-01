@@ -50,11 +50,12 @@ async function captureRequestBody(
 ): Promise<Record<string, unknown>> {
   let capturedBody: Record<string, unknown> | undefined;
 
-  (provider as any)._client.chat.completions.create = mock()
-    .mockImplementation((params: unknown) => {
+  (provider as any)._client.chat.completions.create = mock().mockImplementation(
+    (params: unknown) => {
       capturedBody = params as Record<string, unknown>;
       return Promise.resolve(makeChatCompletionResponse());
-    });
+    },
+  );
 
   const stream = await provider.generate(systemPrompt, tools, history, options);
   for await (const part of stream) {
@@ -777,8 +778,8 @@ describe('OpenAILegacyChatProvider', () => {
     it('echoes thinking under the dialect detected from the response', async () => {
       const provider = createProvider();
       const captured: Array<Record<string, unknown>> = [];
-      (provider as any)._client.chat.completions.create = mock()
-        .mockImplementation((params: unknown) => {
+      (provider as any)._client.chat.completions.create = mock().mockImplementation(
+        (params: unknown) => {
           captured.push(params as Record<string, unknown>);
           return Promise.resolve({
             id: 'chatcmpl-r',
@@ -790,7 +791,8 @@ describe('OpenAILegacyChatProvider', () => {
               },
             ],
           });
-        });
+        },
+      );
 
       // Detection happens while draining the first response.
       const first = await provider.generate('', [], []);
@@ -816,8 +818,8 @@ describe('OpenAILegacyChatProvider', () => {
     it('explicit reasoningKey pins the dialect against detection', async () => {
       const provider = createProvider({ reasoningKey: 'custom_reasoning' });
       const captured: Array<Record<string, unknown>> = [];
-      (provider as any)._client.chat.completions.create = mock()
-        .mockImplementation((params: unknown) => {
+      (provider as any)._client.chat.completions.create = mock().mockImplementation(
+        (params: unknown) => {
           captured.push(params as Record<string, unknown>);
           return Promise.resolve({
             id: 'chatcmpl-r',
@@ -829,7 +831,8 @@ describe('OpenAILegacyChatProvider', () => {
               },
             ],
           });
-        });
+        },
+      );
 
       // With an explicit key, only that key is read inbound: a `reasoning`
       // field is not picked up, and detection stays out of the way.
@@ -858,8 +861,8 @@ describe('OpenAILegacyChatProvider', () => {
     it('dialect detected on a per-step clone steers the original provider', async () => {
       const original = createProvider();
       const captured: Array<Record<string, unknown>> = [];
-      (original as any)._client.chat.completions.create = mock()
-        .mockImplementation((params: unknown) => {
+      (original as any)._client.chat.completions.create = mock().mockImplementation(
+        (params: unknown) => {
           captured.push(params as Record<string, unknown>);
           return Promise.resolve({
             id: 'chatcmpl-r',
@@ -871,7 +874,8 @@ describe('OpenAILegacyChatProvider', () => {
               },
             ],
           });
-        });
+        },
+      );
 
       // The per-step clone shares `_client` (mocked above) and must also share
       // the dialect cell: learning on the clone steers the original.
@@ -1874,8 +1878,9 @@ describe('OpenAILegacyChatProvider', () => {
     ];
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (provider as any)._client.chat.completions.create = mock()
-      .mockResolvedValue(mockStream(chunks));
+    (provider as any)._client.chat.completions.create = mock().mockResolvedValue(
+      mockStream(chunks),
+    );
 
     const stream = await provider.generate(
       '',
@@ -1916,8 +1921,9 @@ describe('OpenAILegacyChatProvider', () => {
     ];
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (provider as any)._client.chat.completions.create = mock()
-      .mockResolvedValue(mockStream(chunks));
+    (provider as any)._client.chat.completions.create = mock().mockResolvedValue(
+      mockStream(chunks),
+    );
 
     const result = await generate(
       provider,

@@ -89,7 +89,13 @@ export function mapError(
       );
     }
     const details = PUBLIC_DETAIL_CODES.has(err.code) ? err.details : undefined;
-    return errEnvelope(mapped ?? ErrorCode.INTERNAL_ERROR, err.message, requestId, err.stack, details);
+    return errEnvelope(
+      mapped ?? ErrorCode.INTERNAL_ERROR,
+      err.message,
+      requestId,
+      err.stack,
+      details,
+    );
   }
   if (err instanceof TimeoutError) {
     return errEnvelope(ErrorCode.INTERNAL_ERROR, err.message, requestId, err.stack);

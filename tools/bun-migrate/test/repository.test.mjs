@@ -79,7 +79,13 @@ describe('scanning this repository', () => {
 
   it('never touches a package that must run outside Bun', () => {
     const layer = layerOf('source');
-    const denied = ['packages/pi-tui', 'packages/transcript', 'packages/i18n-shared', 'apps/vscode', 'apps/vis'];
+    const denied = [
+      'packages/pi-tui',
+      'packages/transcript',
+      'packages/i18n-shared',
+      'apps/vscode',
+      'apps/vis',
+    ];
     const offenders = layer.changes
       .map((change) => change.file)
       .filter((file) => denied.some((prefix) => file === prefix || file.startsWith(`${prefix}/`)));

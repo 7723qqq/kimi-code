@@ -1,7 +1,13 @@
 import { serve } from '@hono/node-server';
 
 import { createApp } from './app';
-import { hostForUrl, resolveHost, resolveKimiCodeHome, resolvePort, resolveVisAuthToken } from './config';
+import {
+  hostForUrl,
+  resolveHost,
+  resolveKimiCodeHome,
+  resolvePort,
+  resolveVisAuthToken,
+} from './config';
 import type { WebAsset } from './lib/web-asset';
 
 export interface StartVisServerOptions {
@@ -21,9 +27,7 @@ export interface StartedVisServer {
   readonly close: () => Promise<void>;
 }
 
-export async function startVisServer(
-  opts: StartVisServerOptions = {},
-): Promise<StartedVisServer> {
+export async function startVisServer(opts: StartVisServerOptions = {}): Promise<StartedVisServer> {
   const host = opts.host ?? resolveHost();
   const authToken = opts.authToken ?? resolveVisAuthToken(host);
   const homeDir = opts.homeDir ?? resolveKimiCodeHome();

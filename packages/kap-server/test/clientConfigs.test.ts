@@ -1,11 +1,11 @@
-import { createServer, type Server } from 'node:http';
+import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
+import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { KIMI_REGION_PROFILES } from '@moonshot-ai/kimi-code-oauth';
-import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 
 import {
   clientConfigsBaseUrl,

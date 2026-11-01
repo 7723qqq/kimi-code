@@ -1,9 +1,10 @@
-import { Container } from '@moonshot-ai/pi-tui';
-import { NotifyPanelComponent } from '#/tui/components/chrome/notify-panel';
-import { UpdatesRegion } from '#/tui/components/chrome/status-surface/regions/updates-region';
-import type { Event } from '@moonshot-ai/kimi-code-sdk';
 import { describe, expect, it, mock } from 'bun:test';
 
+import type { Event } from '@moonshot-ai/kimi-code-sdk';
+import { Container } from '@moonshot-ai/pi-tui';
+
+import { NotifyPanelComponent } from '#/tui/components/chrome/notify-panel';
+import { UpdatesRegion } from '#/tui/components/chrome/status-surface/regions/updates-region';
 import { SessionEventHandler } from '#/tui/controllers/session-event-handler';
 import { getBuiltInPalette } from '#/tui/theme';
 
@@ -98,25 +99,69 @@ function turnEnded(): Event {
 }
 
 describe('SessionEventHandler — update panel lifecycle', () => {
-  it.each(['user', 'cron_job', 'background_task'])('clears old updates at a new main %s turn', (kind) => {
-    const { host } = makeHost();
-    const handler = new SessionEventHandler(host);
-    handler.notifications.setEnabled(true);
-    handler.notifications.handleEvent({ type: 'tool.call.started', sessionId: 's1', agentId: 'main', turnId: 0, toolCallId: 'n1', name: 'NotifyUser', args: { message: 'Earlier finding' } } as Event);
-    handler.notifications.handleEvent({ type: 'tool.result', sessionId: 's1', agentId: 'main', turnId: 0, toolCallId: 'n1', output: 'Update shown to the user.' } as Event);
-    handler.handleEvent(turnStarted({ kind }), mock());
-    handler.handleEvent(turnEnded(), mock());
-    expect(host.state.notifyPanel.getEntries().map((entry: { text: string }) => entry.text)).toEqual([]);
-    expect(host.streamingUI.clearNotifyPanel).not.toHaveBeenCalled();
-  });
+  it.each(['user', 'cron_job', 'background_task'])(
+    'clears old updates at a new main %s turn',
+    (kind) => {
+      const { host } = makeHost();
+      const handler = new SessionEventHandler(host);
+      handler.notifications.setEnabled(true);
+      handler.notifications.handleEvent({
+        type: 'tool.call.started',
+        sessionId: 's1',
+        agentId: 'main',
+        turnId: 0,
+        toolCallId: 'n1',
+        name: 'NotifyUser',
+        args: { message: 'Earlier finding' },
+      } as Event);
+      handler.notifications.handleEvent({
+        type: 'tool.result',
+        sessionId: 's1',
+        agentId: 'main',
+        turnId: 0,
+        toolCallId: 'n1',
+        output: 'Update shown to the user.',
+      } as Event);
+      handler.handleEvent(turnStarted({ kind }), mock());
+      handler.handleEvent(turnEnded(), mock());
+      expect(
+        host.state.notifyPanel.getEntries().map((entry: { text: string }) => entry.text),
+      ).toEqual([]);
+      expect(host.streamingUI.clearNotifyPanel).not.toHaveBeenCalled();
+    },
+  );
 
   it('collects child notifications before child routing without changing the main turn', () => {
     const { host } = makeHost();
     const handler = new SessionEventHandler(host);
     handler.notifications.setEnabled(true);
-    handler.handleEvent({ type: 'tool.call.started', sessionId: 's1', agentId: 'worker-1', turnId: 9, toolCallId: 'n1', name: 'NotifyUser', args: { message: 'Child finding' } } as Event, mock());
-    handler.handleEvent({ type: 'tool.result', sessionId: 's1', agentId: 'worker-1', turnId: 9, toolCallId: 'n1', output: 'Update shown to the user.' } as Event, mock());
-    expect(host.state.notifyPanel.getEntries()[0]).toMatchObject({ agentId: 'worker-1', text: 'Child finding' });
+    handler.handleEvent(
+      {
+        type: 'tool.call.started',
+        sessionId: 's1',
+        agentId: 'worker-1',
+        turnId: 9,
+        toolCallId: 'n1',
+        name: 'NotifyUser',
+        args: { message: 'Child finding' },
+      } as Event,
+      mock(),
+    );
+    handler.handleEvent(
+      {
+        type: 'tool.result',
+        sessionId: 's1',
+        agentId: 'worker-1',
+        turnId: 9,
+        toolCallId: 'n1',
+        output: 'Update shown to the user.',
+      } as Event,
+      mock(),
+    );
+    expect(host.state.notifyPanel.getEntries()[0]).toMatchObject({
+      agentId: 'worker-1',
+      text: 'Child finding',
+    });
     expect(host.streamingUI.setTurnId).not.toHaveBeenCalled();
     expect(host.streamingUI.completeToolResult).not.toHaveBeenCalled();
   });

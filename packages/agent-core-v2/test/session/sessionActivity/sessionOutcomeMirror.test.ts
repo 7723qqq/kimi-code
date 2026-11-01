@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import {
   _clearScopedRegistryForTests,
   ScopeActivation,
@@ -10,18 +9,16 @@ import {
   type Scope,
 } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair, type ScopedTestHost } from '#/_base/di/test';
-import { ILogService } from '#/_base/log/log';
 import { Emitter, Event } from '#/_base/event';
-import { IEventBus } from '#/app/event/eventBus';
-import type { Event2, Event2Class } from '#/app/event/event2';
+import { ILogService } from '#/_base/log/log';
 import type { AgentContext } from '#/agent/agentContext/agentContext';
 import { TurnStarted } from '#/agent/loop/turnEvents';
 import { TurnEnded, turnKey, type TurnModelState } from '#/agent/loop/turnOps';
-import { ContextUndone } from '#/agent/undo/undoService';
 import { IAgentStateService } from '#/agent/state/agentState';
-import { IEventDispatcher } from '#/state/eventDispatcher';
-import type { SessionMeta } from '#/session/sessionMetadata/sessionMetadata';
-import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
+import { ContextUndone } from '#/agent/undo/undoService';
+import type { Event2, Event2Class } from '#/app/event/event2';
+import { IEventBus } from '#/app/event/eventBus';
+import { LifecycleScope } from '#/app/scopes';
 import {
   IAgentLifecycleService,
   MAIN_AGENT_ID,
@@ -29,6 +26,10 @@ import {
 } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionOutcomeMirror } from '#/session/sessionActivity/sessionOutcomeMirror';
 import { SessionOutcomeMirror } from '#/session/sessionActivity/sessionOutcomeMirrorService';
+import type { SessionMeta } from '#/session/sessionMetadata/sessionMetadata';
+import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
+import { IEventDispatcher } from '#/state/eventDispatcher';
+
 import { stubAgentContext } from '../../agent/agentContext/stubs';
 
 class FakeBus {
@@ -39,13 +40,18 @@ class FakeBus {
   }
 
   subscribe(typeOrClass: unknown, handler?: unknown) {
-    const type =
-      typeof typeOrClass === 'string' ? typeOrClass : (typeOrClass as Event2Class).type;
+    const type = typeof typeOrClass === 'string' ? typeOrClass : (typeOrClass as Event2Class).type;
     const list = this.handlers.get(type) ?? [];
     const fn = handler as (e: Event2) => void;
     list.push(fn);
     this.handlers.set(type, list);
-    return { dispose: () => this.handlers.set(type, list.filter((h) => h !== fn)) };
+    return {
+      dispose: () =>
+        this.handlers.set(
+          type,
+          list.filter((h) => h !== fn),
+        ),
+    };
   }
 }
 
@@ -66,7 +72,10 @@ class FakeAgentLifecycle implements IAgentLifecycleService {
   private readonly dispatcher = {
     hooks: {
       onDidRestore: {
-        register: (_id: string, fn: (ctx: undefined, next: () => Promise<void>) => Promise<void>) => {
+        register: (
+          _id: string,
+          fn: (ctx: undefined, next: () => Promise<void>) => Promise<void>,
+        ) => {
           this.restoreHooks.push(fn);
           return { dispose: () => {} };
         },
@@ -142,7 +151,7 @@ describe('SessionOutcomeMirror (Session scope)', () => {
   let host: ScopedTestHost;
   let session: Scope;
   let lifecycle: FakeAgentLifecycle;
-  let writes: (SessionMeta['lastTurnReason'])[];
+  let writes: SessionMeta['lastTurnReason'][];
   let touches: boolean[];
   let failNextWrite: boolean;
   const logged: unknown[] = [];
@@ -159,8 +168,20 @@ describe('SessionOutcomeMirror (Session scope)', () => {
 
   beforeEach(() => {
     _clearScopedRegistryForTests();
-    registerScopedService(LifecycleScope.Session, IAgentLifecycleService, FakeAgentLifecycle, ScopeActivation.OnDemand, 'agentLifecycle');
-    registerScopedService(LifecycleScope.Session, ISessionOutcomeMirror, SessionOutcomeMirror, ScopeActivation.OnScopeCreated, 'sessionActivity');
+    registerScopedService(
+      LifecycleScope.Session,
+      IAgentLifecycleService,
+      FakeAgentLifecycle,
+      ScopeActivation.OnDemand,
+      'agentLifecycle',
+    );
+    registerScopedService(
+      LifecycleScope.Session,
+      ISessionOutcomeMirror,
+      SessionOutcomeMirror,
+      ScopeActivation.OnScopeCreated,
+      'sessionActivity',
+    );
 
     writes = [];
     touches = [];
@@ -197,8 +218,11 @@ describe('SessionOutcomeMirror (Session scope)', () => {
 
   const started = (turnId = 1) =>
     lifecycle.bus.publish(new TurnStarted({ agentId: 'main', turnId, origin: { kind: 'user' } }));
-  const ended = (reason: TurnEnded['reason'], interruptReason?: TurnEnded['interruptReason'], turnId = 1) =>
-    lifecycle.bus.publish(new TurnEnded({ agentId: 'main', turnId, reason, interruptReason }));
+  const ended = (
+    reason: TurnEnded['reason'],
+    interruptReason?: TurnEnded['interruptReason'],
+    turnId = 1,
+  ) => lifecycle.bus.publish(new TurnEnded({ agentId: 'main', turnId, reason, interruptReason }));
 
   it('persists completed/failed/user-cancelled, never programmatic aborts', async () => {
     lifecycle.addMain();
@@ -248,7 +272,9 @@ describe('SessionOutcomeMirror (Session scope)', () => {
         },
       } as unknown as ISessionMetadata),
     ]);
-    const secondLifecycle = second.accessor.get(IAgentLifecycleService) as unknown as FakeAgentLifecycle;
+    const secondLifecycle = second.accessor.get(
+      IAgentLifecycleService,
+    ) as unknown as FakeAgentLifecycle;
     second.accessor.get(ISessionOutcomeMirror);
     secondLifecycle.addMain();
     await tick();
@@ -348,7 +374,9 @@ describe('SessionOutcomeMirror (Session scope)', () => {
         },
       } as unknown as ISessionMetadata),
     ]);
-    const staleLifecycle = stale.accessor.get(IAgentLifecycleService) as unknown as FakeAgentLifecycle;
+    const staleLifecycle = stale.accessor.get(
+      IAgentLifecycleService,
+    ) as unknown as FakeAgentLifecycle;
     stale.accessor.get(ISessionOutcomeMirror);
     staleLifecycle.addMain();
     await tick();
@@ -368,7 +396,9 @@ describe('SessionOutcomeMirror (Session scope)', () => {
         },
       } as unknown as ISessionMetadata),
     ]);
-    const freshLifecycle = fresh.accessor.get(IAgentLifecycleService) as unknown as FakeAgentLifecycle;
+    const freshLifecycle = fresh.accessor.get(
+      IAgentLifecycleService,
+    ) as unknown as FakeAgentLifecycle;
     fresh.accessor.get(ISessionOutcomeMirror);
     freshLifecycle.addMain();
     freshLifecycle.lastEnded = { turnId: 3, reason: 'cancelled', durationMs: 5 };

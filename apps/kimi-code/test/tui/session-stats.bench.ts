@@ -1,10 +1,10 @@
-import { bench, describe, reportBenchResults } from './bench-harness';
-
 import {
   accumulateStepCompleted,
   createEmptySessionStats,
   firstTokenAverageMs,
 } from '#/tui/utils/session-stats';
+
+import { bench, describe, reportBenchResults } from './bench-harness';
 
 interface OldStats {
   firstTokenSamples: number[];
@@ -15,8 +15,10 @@ function oldAccumulate(stats: OldStats, sample: number): OldStats {
 }
 
 function oldAverage(stats: OldStats): number {
-  return stats.firstTokenSamples.reduce((sum, sample) => sum + sample, 0) /
-    stats.firstTokenSamples.length;
+  return (
+    stats.firstTokenSamples.reduce((sum, sample) => sum + sample, 0) /
+    stats.firstTokenSamples.length
+  );
 }
 
 function buildOld(steps: number): OldStats {

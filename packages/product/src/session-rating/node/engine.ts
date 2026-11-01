@@ -2,27 +2,26 @@ import { randomUUID } from 'node:crypto';
 
 import type { PromptOrigin } from '@moonshot-ai/agent-core-v2';
 
-import { isSurveyTurnOrigin, type SurveyTurnRecovery } from './survey-turns';
-
+import {
+  evaluateSurveyGate,
+  type LongContextArmGateInput,
+  type SessionArmGateInput,
+} from '../common/gates';
+import {
+  resolveSurveyPopupConfig,
+  type SurveyPopupConfig,
+  type SurveyPopupPayload,
+} from '../common/survey-popup-config';
+import type { RatingOffer, SurveyAppearance, SurveyKind } from '../common/types';
 import type { RatingCooldownStore } from './cooldown-store';
 import {
   buildSurveyEventProperties,
   SURVEY_EVENT_NAMES,
   type SurveyEventEnvironmentFields,
 } from './event-properties';
-import {
-  evaluateSurveyGate,
-  type LongContextArmGateInput,
-  type SessionArmGateInput,
-} from '../common/gates';
 import { kfcModelIdOf, type RatingModelRoute } from './kfc';
 import { SessionRatingLedger, type RatingTracker } from './ledger';
-import type { RatingOffer, SurveyAppearance, SurveyKind } from '../common/types';
-import {
-  resolveSurveyPopupConfig,
-  type SurveyPopupConfig,
-  type SurveyPopupPayload,
-} from '../common/survey-popup-config';
+import { isSurveyTurnOrigin, type SurveyTurnRecovery } from './survey-turns';
 
 const SESSION_RATING_IDLE_MS = 2000;
 const SESSION_INIT_PARENT_TOOL_CALL_ID = 'generate-agents-md';
@@ -170,7 +169,8 @@ class SessionRatingMountImpl implements SessionRatingMount {
   }
 
   recover(recovery: SurveyTurnRecovery): void {
-    if (this.ended || this.turnInProgress || this.evaluationPending || this.userTurnsSinceMount > 0) return;
+    if (this.ended || this.turnInProgress || this.evaluationPending || this.userTurnsSinceMount > 0)
+      return;
     this.recoveredUserTurns = recovery.userTurnCount;
     this.userTurnsSinceMount = recovery.userTurnCount;
     if (recovery.firstPromptAt !== undefined) {
@@ -179,9 +179,10 @@ class SessionRatingMountImpl implements SessionRatingMount {
     if (isSurveyTurnOrigin(recovery.origin) !== true) return;
     this.evaluationPending = true;
     this.pendingTraceId = recovery.traceId;
-    this.idleSince = recovery.endedAt === undefined
-      ? this.now()
-      : this.now() - Math.max(0, this.wallNow() - recovery.endedAt);
+    this.idleSince =
+      recovery.endedAt === undefined
+        ? this.now()
+        : this.now() - Math.max(0, this.wallNow() - recovery.endedAt);
   }
 
   evaluate(): RatingOffer | undefined {

@@ -1,3 +1,13 @@
+/**
+ * `SessionEventWiring` — the in-process v1 edge over the v2 per-agent event
+ * bus. Covers the status-snapshot fold: v2 emits `agent.status.updated` in
+ * slices and the model slice rides only the bind-time emission, so the
+ * wiring merges a consistent usage + context + model snapshot into every
+ * status event (mirrors kap-server's broadcaster bridge).
+ * Run: bun test test/session-event-wiring.test.ts
+ */
+import { describe, expect, it } from 'bun:test';
+
 import {
   IAgentLifecycleService,
   IAgentProfileService,
@@ -8,15 +18,6 @@ import {
   makeAgentScopeContext,
   type ISessionScopeHandle,
 } from '@moonshot-ai/agent-core-v2';
-/**
- * `SessionEventWiring` — the in-process v1 edge over the v2 per-agent event
- * bus. Covers the status-snapshot fold: v2 emits `agent.status.updated` in
- * slices and the model slice rides only the bind-time emission, so the
- * wiring merges a consistent usage + context + model snapshot into every
- * status event (mirrors kap-server's broadcaster bridge).
- * Run: bun test test/session-event-wiring.test.ts
- */
-import { describe, expect, it } from 'bun:test';
 
 import type { Event } from '#/index';
 import { SessionEventWiring, type SessionEventSink } from '#/v2/session-wiring';

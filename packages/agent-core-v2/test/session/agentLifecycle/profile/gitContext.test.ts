@@ -1,15 +1,14 @@
+import { describe, expect, it, mock } from 'bun:test';
 import { Readable, type Writable } from 'node:stream';
 
-import { describe, expect, it, mock } from 'bun:test';
-
+import type { ILogger } from '#/_base/log/log';
+import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
+import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
 import {
   collectGitContext,
   parseProjectName,
   sanitizeRemoteUrl,
 } from '#/session/agentLifecycle/profile/gitContext';
-import type { ILogger } from '#/_base/log/log';
-import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
-import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
 
 interface FakeHostTimerHandle extends IHostTimerHandle {
   readonly id: number;
@@ -106,7 +105,10 @@ function processWith(stdout: string, exitCode: number, stderr = ''): IHostProces
 
 type GitScript = Record<string, { stdout?: string; exitCode?: number; stderr?: string }>;
 
-function gitRunner(script: GitScript): { process: IHostProcessService; spawn: ReturnType<typeof mock> } {
+function gitRunner(script: GitScript): {
+  process: IHostProcessService;
+  spawn: ReturnType<typeof mock>;
+} {
   const spawn = mock(async (_command: string, args: readonly string[]) => {
     const key = args.slice(2).join(' ');
     const out = script[key];

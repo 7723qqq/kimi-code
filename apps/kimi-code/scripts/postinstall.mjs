@@ -98,11 +98,7 @@ import {
   ownPackageRoot,
   postinstallPaths,
 } from './postinstall/reach.mjs';
-import {
-  executeTakeover,
-  planTakeover,
-  verifyTakeover,
-} from './postinstall/takeover.mjs';
+import { executeTakeover, planTakeover, verifyTakeover } from './postinstall/takeover.mjs';
 import {
   logForeignKimiInTheWay,
   logMigrationBlocked,
@@ -135,12 +131,7 @@ async function main() {
   const paths = await postinstallPaths();
 
   // Step 4: plan against the whole detected shim set without writing.
-  const plan = await planTakeover(
-    ownRoot,
-    paths.detection,
-    paths.reachability,
-    process.platform,
-  );
+  const plan = await planTakeover(ownRoot, paths.detection, paths.reachability, process.platform);
   if (plan.kind === 'noop') return;
   if (plan.kind === 'blocked') {
     logMigrationBlocked(plan.blocked, plan.actionable, pm);

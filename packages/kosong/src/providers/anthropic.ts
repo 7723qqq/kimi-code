@@ -52,7 +52,6 @@ import type { TokenUsage } from '#/usage';
 
 import type { ToolCallIdPolicy } from '../provider';
 import { CACHE_CONTROL, injectCacheControlOnLastBlock } from './anthropic-cache-breakpoints';
-import { extractAnthropicUsage, type AnthropicRawUsage } from './anthropic-usage';
 import {
   BUDGET_THINKING_EFFORTS,
   inferAnthropicModelProfile,
@@ -61,6 +60,7 @@ import {
   type AnthropicModelProfile,
   type AnthropicModelVersion,
 } from './anthropic-profile';
+import { extractAnthropicUsage, type AnthropicRawUsage } from './anthropic-usage';
 import { mergeConsecutiveUserMessages } from './merge-user-messages';
 import { AuthClientLRU, mergeRequestHeaders, resolveAuthBackedClient } from './request-auth';
 import { normalizeToolCallIdsForProvider, sanitizeToolCallId } from './tool-call-id';
@@ -500,9 +500,7 @@ function toolResultToBlock(toolCallId: string, content: ContentPart[]): ToolResu
     } else if (part.type === 'video_url') {
       blocks.push(videoUrlPartToAnthropic(part.videoUrl.url));
     } else if (part.type === 'document_url') {
-      blocks.push(
-        documentUrlPartToAnthropic(part.documentUrl.url, part.documentUrl.mimeType),
-      );
+      blocks.push(documentUrlPartToAnthropic(part.documentUrl.url, part.documentUrl.mimeType));
     } else if (part.type === 'audio_url') {
       const placeholder = OMITTED_MEDIA_PLACEHOLDER[part.type];
       const last = blocks.at(-1);

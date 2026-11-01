@@ -1,10 +1,12 @@
 import { z } from 'zod';
 
 export const sessionRatingResultSchema = z.object({
-  appearance: z.object({
-    id: z.string(),
-    survey: z.enum(['session', 'long_context']),
-  }).nullable(),
+  appearance: z
+    .object({
+      id: z.string(),
+      survey: z.enum(['session', 'long_context']),
+    })
+    .nullable(),
 });
 export type SessionRatingResult = z.infer<typeof sessionRatingResultSchema>;
 

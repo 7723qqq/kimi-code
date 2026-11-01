@@ -5,6 +5,7 @@
  * differs per file.
  */
 
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -16,7 +17,6 @@ import {
   resetModelsDevUpstreamForTest,
   setModelsDevUpstreamForTest,
 } from '@moonshot-ai/agent-core-v2/app/kosongConfig/modelsDevUpstream';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 
 import type { Klient } from '../../src/index.js';
 import type { TestEngine } from './engine.js';

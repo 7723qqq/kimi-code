@@ -1,11 +1,11 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, mkdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import { join } from 'pathe';
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { expectRejection } from '#test/helpers/assertions';
 
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
+import { expectRejection } from '#test/helpers/assertions';
 
 const isWin = process.platform === 'win32';
 const encoder = new TextEncoder();

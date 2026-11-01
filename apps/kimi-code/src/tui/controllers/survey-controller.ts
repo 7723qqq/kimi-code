@@ -1,4 +1,4 @@
-import type { TurnStartedEvent } from '@moonshot-ai/kimi-code-sdk';
+import type { RatingOffer, RatingResponse } from '@moonshot-ai/kimi-code-product/session-rating';
 import {
   cloudSurveyPopupConfigFeed,
   mountSessionRating,
@@ -10,7 +10,7 @@ import {
   type ResumedAgentSeed,
   type SessionRatingMount,
 } from '@moonshot-ai/kimi-code-product/session-rating/node';
-import type { RatingOffer, RatingResponse } from '@moonshot-ai/kimi-code-product/session-rating';
+import type { TurnStartedEvent } from '@moonshot-ai/kimi-code-sdk';
 import { isTelemetryDisabledByEnv } from '@moonshot-ai/kimi-telemetry';
 import { Key, matchesKey, Spacer } from '@moonshot-ai/pi-tui';
 
@@ -141,7 +141,8 @@ export class SurveyController {
     this.clearIdleTimer();
     this.idleTimer = this.setT(() => {
       this.idleTimer = undefined;
-      if (this.ratingView.phase !== 'closed' || surveyUiVeto(this.uiVetoInput()) !== undefined) return;
+      if (this.ratingView.phase !== 'closed' || surveyUiVeto(this.uiVetoInput()) !== undefined)
+        return;
       const offer = this.rating.evaluate();
       if (offer === undefined) return;
       this.ratingSessionId = this.host.state.appState.sessionId ?? '';
@@ -397,12 +398,17 @@ export class SurveyController {
     this.syncView({ phase: 'closed' });
     if (view.phase === 'pending') {
       this.ledger.report(this.ratingSessionId, {
-        type: 'respond', appearanceId: view.appearanceId, response: view.response,
+        type: 'respond',
+        appearanceId: view.appearanceId,
+        response: view.response,
       });
     } else if (view.phase === 'open') {
-      this.ledger.report(this.ratingSessionId, type === 'dismiss'
-        ? { type: 'respond', appearanceId: view.appearanceId, response: 'dismissed' }
-        : { type: 'abandon', appearanceId: view.appearanceId });
+      this.ledger.report(
+        this.ratingSessionId,
+        type === 'dismiss'
+          ? { type: 'respond', appearanceId: view.appearanceId, response: 'dismissed' }
+          : { type: 'abandon', appearanceId: view.appearanceId },
+      );
     }
   }
 
@@ -415,7 +421,9 @@ export class SurveyController {
       this.phaseTimer = undefined;
       this.syncView({ ...view, phase: 'thanks', response });
       this.ledger.report(this.ratingSessionId, {
-        type: 'respond', appearanceId: view.appearanceId, response,
+        type: 'respond',
+        appearanceId: view.appearanceId,
+        response,
       });
       this.phaseTimer = this.setT(() => {
         this.phaseTimer = undefined;
@@ -493,7 +501,9 @@ export class SurveyController {
     const current = this.view.hoverIndex;
     this.view.hoverIndex =
       current === undefined
-        ? (delta > 0 ? 0 : SURVEY_OPTION_COUNT - 1)
+        ? delta > 0
+          ? 0
+          : SURVEY_OPTION_COUNT - 1
         : (current + delta + SURVEY_OPTION_COUNT) % SURVEY_OPTION_COUNT;
     this.host.state.ui.requestRender();
   }
@@ -522,10 +532,9 @@ export class SurveyController {
   }
 
   private setT(fn: () => void, ms: number): unknown {
-    return (this.deps.setTimer ?? ((callback: () => void, delay: number) => setTimeout(callback, delay)))(
-      fn,
-      ms,
-    );
+    return (
+      this.deps.setTimer ?? ((callback: () => void, delay: number) => setTimeout(callback, delay))
+    )(fn, ms);
   }
 
   private clearT(handle: unknown): void {

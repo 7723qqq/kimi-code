@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'bun:test';
 
-import { surveyUiVeto, type SurveyUiVetoInput, type SurveyUiVetoReason } from '#/tui/utils/survey-policy';
+import {
+  surveyUiVeto,
+  type SurveyUiVetoInput,
+  type SurveyUiVetoReason,
+} from '#/tui/utils/survey-policy';
 
 function passing(overrides: Partial<SurveyUiVetoInput> = {}): SurveyUiVetoInput {
   return {

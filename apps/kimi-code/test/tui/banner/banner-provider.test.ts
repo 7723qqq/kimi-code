@@ -26,7 +26,14 @@ function select(json: unknown, random: () => number = () => 0): BannerState | nu
 }
 
 function selectWithSystem(json: unknown, system: string): BannerState | null {
-  return selectBannerState({ json, clientVersion: '0.14.0', now, random: () => 0, audience, system });
+  return selectBannerState({
+    json,
+    clientVersion: '0.14.0',
+    now,
+    random: () => 0,
+    audience,
+    system,
+  });
 }
 
 describe('selectBannerState', () => {
@@ -93,7 +100,11 @@ describe('selectBannerState', () => {
         tip({ banner_maintext: 'Too new', banner_min_version: '0.15.0' }),
         tip({ banner_maintext: 'Too old', banner_max_version: '0.14.0' }),
         tip({ banner_maintext: 'Pinned elsewhere', banner_version: '0.13.0' }),
-        tip({ banner_maintext: 'Matching', banner_min_version: '0.13.0', banner_max_version: '0.15.0' }),
+        tip({
+          banner_maintext: 'Matching',
+          banner_min_version: '0.13.0',
+          banner_max_version: '0.15.0',
+        }),
       ],
     });
     expect(result).toMatchObject({ mainText: 'Matching' });
@@ -135,7 +146,9 @@ describe('selectBannerState', () => {
   });
 
   it('ignores non-string banner_system entries', () => {
-    expect(selectWithSystem({ banner_tips: [tip({ banner_system: [42, 'mac'] })] }, 'mac')).not.toBeNull();
+    expect(
+      selectWithSystem({ banner_tips: [tip({ banner_system: [42, 'mac'] })] }, 'mac'),
+    ).not.toBeNull();
     expect(selectWithSystem({ banner_tips: [tip({ banner_system: [42] })] }, 'win')).not.toBeNull();
   });
 
@@ -209,10 +222,16 @@ describe('selectBannerState', () => {
   it('skips entries whose audience does not match the context', () => {
     const result = select({
       banner_tips: [
-        tip({ banner_maintext: 'Other tiers', kfc_audience: { login: 'all', tiers: [15, 20], region: 'all' } }),
+        tip({
+          banner_maintext: 'Other tiers',
+          kfc_audience: { login: 'all', tiers: [15, 20], region: 'all' },
+        }),
         tip({ banner_maintext: 'Anonymous only', kfc_audience: { login: 'anonymous' } }),
         tip({ banner_maintext: 'Oversea only', kfc_audience: { region: 'oversea' } }),
-        tip({ banner_maintext: 'Mine', kfc_audience: { login: 'logged_in', tiers: [27], region: 'cn' } }),
+        tip({
+          banner_maintext: 'Mine',
+          kfc_audience: { login: 'logged_in', tiers: [27], region: 'cn' },
+        }),
       ],
     });
     expect(result).toMatchObject({ mainText: 'Mine' });
@@ -449,7 +468,9 @@ describe('selectDisplayableBanner', () => {
   it('returns null when every matching entry was already shown', () => {
     const result = selectDisplayable(
       {
-        banner_tips: [tip({ banner_id: 'shown-once', banner_maintext: 'Shown', banner_display: 'once' })],
+        banner_tips: [
+          tip({ banner_id: 'shown-once', banner_maintext: 'Shown', banner_display: 'once' }),
+        ],
       },
       {
         version: 1,

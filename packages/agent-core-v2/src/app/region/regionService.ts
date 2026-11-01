@@ -48,8 +48,8 @@ export class RegionService extends Disposable implements IRegionService {
       homeDir: bootstrap.homeDir,
       env: kimiRegionEnv(bootstrap),
       readMarker:
-        (bootstrap.getEnv('KIMI_CODE_REGION_MARKER') ??
-          process.env['KIMI_CODE_REGION_MARKER']) !== 'off',
+        (bootstrap.getEnv('KIMI_CODE_REGION_MARKER') ?? process.env['KIMI_CODE_REGION_MARKER']) !==
+        'off',
       readAuth: () => {
         if (!this.providerHydrated) return { status: 'unreadable' };
         const ref = this.providers.get(KIMI_CODE_PROVIDER_NAME)?.oauth;

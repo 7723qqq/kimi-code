@@ -192,15 +192,12 @@ class HostProcess implements IHostProcess {
         }
         ended.then(
           () => callback(),
-          (error: unknown) =>
-            callback(error instanceof Error ? error : new Error(String(error))),
+          (error: unknown) => callback(error instanceof Error ? error : new Error(String(error))),
         );
       },
     });
     this.stdout = new BufferedReadable(streamToReadable(proc.stdout));
-    this.stderr = mergeStderr
-      ? this.stdout
-      : new BufferedReadable(streamToReadable(proc.stderr));
+    this.stderr = mergeStderr ? this.stdout : new BufferedReadable(streamToReadable(proc.stderr));
     this.pid = proc.pid;
 
     this._exitPromise = proc.exited.then(

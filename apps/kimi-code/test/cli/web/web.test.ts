@@ -7,25 +7,27 @@
  * subcommands against fake deps.
  */
 
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import * as childProcessModule from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { resetCapabilitiesCache } from '@moonshot-ai/pi-tui';
 import chalk, { Chalk } from 'chalk';
 import { Command } from 'commander';
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
-import { setEnv, restoreEnvs } from '#test/helpers/stubs';
-import { waitForAssertion } from '#test/helpers/waitFor';
-
-import * as childProcessModule from 'node:child_process';
-import { resetCapabilitiesCache } from '@moonshot-ai/pi-tui';
 
 import { registerWebCommand } from '#/cli/sub/web';
 import { type LegacyKillDeps } from '#/cli/sub/web/legacy-kill';
-import { type RemoteControlCloseReason, type RemoteControlStatus } from '#/cli/sub/web/remote-control';
+import {
+  type RemoteControlCloseReason,
+  type RemoteControlStatus,
+} from '#/cli/sub/web/remote-control';
 import { type WebCommandDeps } from '#/cli/sub/web/run';
 import { type ParsedServerOptions } from '#/cli/sub/web/shared';
 import { darkColors } from '#/tui/theme/colors';
+import { setEnv, restoreEnvs } from '#test/helpers/stubs';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 void mock.module('node:child_process', () => ({ ...childProcessModule, spawn: mock() }));
 
@@ -1095,9 +1097,7 @@ describe('buildWebUrl', () => {
 
   it('normalizes a trailing slash', async () => {
     const { buildWebUrl } = await import('#/cli/sub/web/run');
-    expect(buildWebUrl('http://127.0.0.1:58627/', 't')).toBe(
-      'http://127.0.0.1:58627/#token=t',
-    );
+    expect(buildWebUrl('http://127.0.0.1:58627/', 't')).toBe('http://127.0.0.1:58627/#token=t');
   });
 });
 
@@ -1116,9 +1116,7 @@ describe('accessUrlLines', () => {
   it('returns a single Local line for a loopback bind', async () => {
     const { accessUrlLines } = await import('#/cli/sub/web/access-urls');
     const lines = accessUrlLines('127.0.0.1', 58627, 'tok');
-    expect(lines).toEqual([
-      { label: 'Local:    ', url: 'http://127.0.0.1:58627/#token=tok' },
-    ]);
+    expect(lines).toEqual([{ label: 'Local:    ', url: 'http://127.0.0.1:58627/#token=tok' }]);
   });
 
   it('returns a single URL line for a specific host (no token)', async () => {

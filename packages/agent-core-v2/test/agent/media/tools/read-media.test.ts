@@ -1,8 +1,7 @@
+import { afterEach, describe, expect, it, mock } from 'bun:test';
 import * as posixPath from 'node:path/posix';
 
 import { Jimp } from 'jimp';
-import { afterEach, describe, expect, it, mock } from 'bun:test';
-import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { sniffImageDimensions } from '#/agent/media/file-type';
 import {
@@ -15,8 +14,6 @@ import {
   MediaReadContextService,
 } from '#/agent/media/mediaReadContext';
 import type { IAgentProfileService } from '#/agent/profile/profile';
-import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import type { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import type { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
@@ -25,16 +22,14 @@ import { ReadTool } from '#/agent/tools/os/read/readTool';
 import type { MediaReadContext } from '#/agent/tools/read-media-file/execute-media-read';
 import { type VideoUploader } from '#/agent/tools/read-media-file/read-media-file';
 import type { ITelemetryService, TelemetryProperties } from '#/app/telemetry/telemetry';
-import {
-  UNKNOWN_CAPABILITY,
-  type ModelCapability,
-} from '#/llm-adapter/contract/capability';
+import type { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
+import { UNKNOWN_CAPABILITY, type ModelCapability } from '#/llm-adapter/contract/capability';
 import { VideoUploadUnsupportedError } from '#/llm-adapter/contract/errors';
-import type { ContentPart } from '#human/llm/message';
 import type { IModelCatalog } from '#/llm-adapter/model/catalog';
 import type { ModelRequester } from '#/llm-adapter/model/model-requester';
+import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { Runtime } from '#/runtime/runtime';
-import type { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import type { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import type { WorkspaceConfig } from '#/tool/path-access';
 import {
@@ -42,6 +37,9 @@ import {
   type ExecutableToolContext,
   type ExecutableToolResult,
 } from '#/tool/toolContract';
+import type { ContentPart } from '#human/llm/message';
+import { waitForAssertion } from '#test/helpers/waitFor';
+
 import { stubConfigService } from '../../../app/config/stubs';
 import { stubToolResultTruncationService } from '../../toolResultTruncation/stubs';
 
@@ -842,16 +840,17 @@ describe('Read tool media reads', () => {
 
   it('passes the execution abort signal to the video uploader', async () => {
     const controller = new AbortController();
-    const videoUploader = mock<VideoUploader>((_input, options) =>
-      new Promise((_resolve, reject) => {
-        options?.signal?.addEventListener(
-          'abort',
-          () => {
-            reject(new Error('upload cancelled'));
-          },
-          { once: true },
-        );
-      }),
+    const videoUploader = mock<VideoUploader>(
+      (_input, options) =>
+        new Promise((_resolve, reject) => {
+          options?.signal?.addEventListener(
+            'abort',
+            () => {
+              reject(new Error('upload cancelled'));
+            },
+            { once: true },
+          );
+        }),
     );
     const tool = makeTool(
       { '/workspace/clip.mp4': { data: mp4Buffer() } },
@@ -876,8 +875,7 @@ describe('Read tool media reads', () => {
   });
 
   it('falls back to an inline base64 video part when the upload fails', async () => {
-    const videoUploader = mock<VideoUploader>()
-      .mockRejectedValue(new Error('404 route not found'));
+    const videoUploader = mock<VideoUploader>().mockRejectedValue(new Error('404 route not found'));
     const result = await execute(
       makeTool({ '/workspace/clip.mp4': { data: mp4Buffer() } }, capabilities(), videoUploader),
       { path: '/workspace/clip.mp4' },
@@ -892,8 +890,9 @@ describe('Read tool media reads', () => {
   });
 
   it('surfaces auth rejections from the upload channel instead of falling back', async () => {
-    const videoUploader = mock<VideoUploader>()
-      .mockRejectedValue(Object.assign(new Error('401 Unauthorized'), { statusCode: 401 }));
+    const videoUploader = mock<VideoUploader>().mockRejectedValue(
+      Object.assign(new Error('401 Unauthorized'), { statusCode: 401 }),
+    );
     const result = await execute(
       makeTool({ '/workspace/clip.mp4': { data: mp4Buffer() } }, capabilities(), videoUploader),
       { path: '/workspace/clip.mp4' },
@@ -903,12 +902,11 @@ describe('Read tool media reads', () => {
   });
 
   it('surfaces the by-design no-hook error instead of falling back to inline', async () => {
-    const videoUploader = mock<VideoUploader>()
-      .mockRejectedValue(
-        new VideoUploadUnsupportedError(
-          'Model "stub" (protocol=openai) does not support video upload',
-        ),
-      );
+    const videoUploader = mock<VideoUploader>().mockRejectedValue(
+      new VideoUploadUnsupportedError(
+        'Model "stub" (protocol=openai) does not support video upload',
+      ),
+    );
     const result = await execute(
       makeTool({ '/workspace/clip.mp4': { data: mp4Buffer() } }, capabilities(), videoUploader),
       { path: '/workspace/clip.mp4' },
@@ -918,12 +916,11 @@ describe('Read tool media reads', () => {
   });
 
   it('falls back to inline for a no-hook provider whose wire carries video', async () => {
-    const videoUploader = mock<VideoUploader>()
-      .mockRejectedValue(
-        new VideoUploadUnsupportedError(
-          'Model "gemini-stub" (protocol=google-genai) does not support video upload',
-        ),
-      );
+    const videoUploader = mock<VideoUploader>().mockRejectedValue(
+      new VideoUploadUnsupportedError(
+        'Model "gemini-stub" (protocol=google-genai) does not support video upload',
+      ),
+    );
     const result = await execute(
       makeTool(
         { '/workspace/clip.mp4': { data: mp4Buffer() } },

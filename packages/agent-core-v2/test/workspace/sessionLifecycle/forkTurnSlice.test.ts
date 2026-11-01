@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
-import { sliceMainRecordsAtTurn } from '#/workspace/sessionLifecycle/internal/forkTurnSlice';
 import type { WireRecord } from '#/wire/record';
+import { sliceMainRecordsAtTurn } from '#/workspace/sessionLifecycle/internal/forkTurnSlice';
 
 function userTurnRecord(text: string, time: number): WireRecord {
   return {
@@ -17,8 +17,24 @@ function userTurnRecord(text: string, time: number): WireRecord {
 
 describe('sliceMainRecordsAtTurn', () => {
   it('derives a fork last prompt from readable client metadata while retaining the original message', () => {
-    const record: WireRecord = { type: 'context.append_message', message: { role: 'user', content: [{ type: 'text', text: '<browser_ref>serialized</browser_ref>' }], origin: { kind: 'user', clientMetadata: [{ display_text: 'Save button · Rename it' }] } }, time: 2 };
-    const slice = sliceMainRecordsAtTurn([{ type: 'metadata', protocol_version: '1.5', created_at: 1 }, record, userTurnRecord('next', 3)], 'example-source', 0);
+    const record: WireRecord = {
+      type: 'context.append_message',
+      message: {
+        role: 'user',
+        content: [{ type: 'text', text: '<browser_ref>serialized</browser_ref>' }],
+        origin: { kind: 'user', clientMetadata: [{ display_text: 'Save button · Rename it' }] },
+      },
+      time: 2,
+    };
+    const slice = sliceMainRecordsAtTurn(
+      [
+        { type: 'metadata', protocol_version: '1.5', created_at: 1 },
+        record,
+        userTurnRecord('next', 3),
+      ],
+      'example-source',
+      0,
+    );
     expect(slice.lastPrompt).toBe('Save button · Rename it');
     expect(slice.records).toContainEqual(record);
   });
@@ -34,7 +50,11 @@ describe('sliceMainRecordsAtTurn', () => {
       userTurnRecord('hello', 3),
       { type: 'cron.cursor', id: 'aa11bb22', lastFiredAt: 4, time: 4 },
       userTurnRecord('second turn', 5),
-      { type: 'cron.add', task: { id: 'bb22cc33', cron: '0 10 * * *', prompt: 'late', createdAt: 6 }, time: 6 },
+      {
+        type: 'cron.add',
+        task: { id: 'bb22cc33', cron: '0 10 * * *', prompt: 'late', createdAt: 6 },
+        time: 6,
+      },
     ];
 
     const slice = sliceMainRecordsAtTurn(records, 'ses_source', 0);
@@ -42,9 +62,7 @@ describe('sliceMainRecordsAtTurn', () => {
     const types = slice.records.map((record) => record.type);
     expect(types).toContain('cron.add');
     expect(types).toContain('cron.cursor');
-    expect(
-      slice.records.filter((record) => record.type === 'cron.add'),
-    ).toHaveLength(1);
+    expect(slice.records.filter((record) => record.type === 'cron.add')).toHaveLength(1);
     expect(types).toContain('metadata');
     expect(types).toContain('context.append_message');
   });

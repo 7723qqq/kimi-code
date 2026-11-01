@@ -1,10 +1,9 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 
 const resolve = createRequire(import.meta.url).resolve;
 const sourceRoot = fileURLToPath(new URL('../src/', import.meta.url));
@@ -40,7 +39,10 @@ function runTsc(configPath: string): CheckResult {
   const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
   expect(result.error, output).toBeUndefined();
   expect(result.status, output).toBe(0);
-  const lines = output.split('\n').map((line) => line.trim()).filter((line) => line.length > 0);
+  const lines = output
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
   return {
     diagnostics: lines.filter((line) => line.includes('error TS')),
     files: lines.filter((line) => line.startsWith('/') || /^[A-Za-z]:[\\/]/.test(line)),
@@ -67,10 +69,13 @@ describe('product entry points', () => {
 
   function writeConfig(name: string, files: string[], types: string[]): string {
     const configPath = join(tempDir, name);
-    writeFileSync(configPath, JSON.stringify({
-      compilerOptions: { ...baseCompilerOptions, types },
-      files,
-    }));
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        compilerOptions: { ...baseCompilerOptions, types },
+        files,
+      }),
+    );
     return configPath;
   }
 
@@ -82,9 +87,14 @@ describe('product entry points', () => {
     expect(resolve(`@moonshot-ai/kimi-code-product/${subpath}`)).toBe(join(sourceRoot, source));
   });
 
-  it('typechecks the public contract and all common modules without Node types', { timeout: 60_000 }, () => {
-    const consumerPath = join(tempDir, 'common-consumer.ts');
-    writeFileSync(consumerPath, `
+  it(
+    'typechecks the public contract and all common modules without Node types',
+    { timeout: 60_000 },
+    () => {
+      const consumerPath = join(tempDir, 'common-consumer.ts');
+      writeFileSync(
+        consumerPath,
+        `
       import type {
         RatingOffer, RatingReport, RatingResponse, SurveyKind, SurveyResponse,
       } from '@moonshot-ai/kimi-code-product/session-rating';
@@ -95,19 +105,27 @@ describe('product entry points', () => {
       export const report: RatingReport = {
         type: 'respond', appearanceId: offer.appearanceId, response,
       };
-    `);
-    const configPath = writeConfig('tsconfig.contract.json', [
-      ...sourceFiles(join(sourceRoot, 'session-rating/common')),
-      consumerPath,
-    ], []);
-    const { diagnostics, files } = runTsc(configPath);
+    `,
+      );
+      const configPath = writeConfig(
+        'tsconfig.contract.json',
+        [...sourceFiles(join(sourceRoot, 'session-rating/common')), consumerPath],
+        [],
+      );
+      const { diagnostics, files } = runTsc(configPath);
 
-    expect(diagnostics).toEqual([]);
-    expect(productSources(files).filter((path) =>
-      !path.startsWith('session-rating/common/') && !path.startsWith('shared/common/'),
-    )).toEqual([]);
-    expect(files.filter((file) => file.replaceAll('\\', '/').includes('/@types/node/'))).toEqual([]);
-  });
+      expect(diagnostics).toEqual([]);
+      expect(
+        productSources(files).filter(
+          (path) =>
+            !path.startsWith('session-rating/common/') && !path.startsWith('shared/common/'),
+        ),
+      ).toEqual([]);
+      expect(files.filter((file) => file.replaceAll('\\', '/').includes('/@types/node/'))).toEqual(
+        [],
+      );
+    },
+  );
 
   it('keeps shared helpers independent of product domains', { timeout: 60_000 }, () => {
     const configPath = writeConfig(

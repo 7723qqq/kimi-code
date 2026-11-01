@@ -1,10 +1,5 @@
+import { classifyShim, deleteShim, detectLegacyShims, renameInPlace } from './migrate.mjs';
 import { findFirstResolvableKimi } from './reach.mjs';
-import {
-  classifyShim,
-  deleteShim,
-  detectLegacyShims,
-  renameInPlace,
-} from './migrate.mjs';
 
 export async function planTakeover(ownRoot, detectionPath, reachabilityPath, platform) {
   const detections = await detectLegacyShims(ownRoot, detectionPath, platform);
@@ -28,7 +23,13 @@ export async function planTakeover(ownRoot, detectionPath, reachabilityPath, pla
   );
 
   if (blocker.kind === 'own') {
-    return { kind: /** @type {const} */ ('proceed'), detections, classifications, actionable, blocked };
+    return {
+      kind: /** @type {const} */ ('proceed'),
+      detections,
+      classifications,
+      actionable,
+      blocked,
+    };
   }
   if (blocker.kind === 'blocked-legacy') {
     return { kind: /** @type {const} */ ('blocked'), blocked, actionable };

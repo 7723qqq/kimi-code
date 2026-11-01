@@ -1,41 +1,56 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { IHostProcessService } from '#/os/interface/hostProcess';
-import { type Turn } from '#/agent/loop/loop';
-import { IAgentProfileService } from '#/agent/profile/profile';
-import { createTestAgent, execEnvServices, telemetryServices } from '../../harness';
-import { createFakeProcessRunner } from '../../tools/fixtures/fake-exec';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { IEventBus } from '#/app/event/eventBus';
-import { type ToolCall } from '#human/llm/message';
-import { emptyUsage } from '#human/llm/usage';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
-
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { type Turn } from '#/agent/loop/loop';
 import { IAgentLoopService } from '#/agent/loop/loop';
-
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
-import { type ExecutableTool, type ExecutableToolContext, type ExecutableToolResult, type ToolExecution, type ToolResult } from '#/tool/toolContract';
-import { type ToolDidExecuteContext, type ResolvedToolExecutionHookContext, type BeforeExecuteDecision } from '#/agent/toolExecutor/toolHooks';
 import { IAgentToolDedupeService, type ToolDedupeResult } from '#/agent/toolDedupe/toolDedupe';
-import { AgentToolDedupeService, REPEAT_BREAKER_ENV, __testing as toolDedupeTesting } from '#/agent/toolDedupe/toolDedupeService';
-import { IAgentToolExecutorService, type ToolExecutionResult } from '#/agent/toolExecutor/toolExecutor';
+import {
+  AgentToolDedupeService,
+  REPEAT_BREAKER_ENV,
+  __testing as toolDedupeTesting,
+} from '#/agent/toolDedupe/toolDedupeService';
+import {
+  IAgentToolExecutorService,
+  type ToolExecutionResult,
+} from '#/agent/toolExecutor/toolExecutor';
 import { AgentToolExecutorService } from '#/agent/toolExecutor/toolExecutorService';
+import {
+  type ToolDidExecuteContext,
+  type ResolvedToolExecutionHookContext,
+  type BeforeExecuteDecision,
+} from '#/agent/toolExecutor/toolHooks';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IEventBus } from '#/app/event/eventBus';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { IHostProcessService } from '#/os/interface/hostProcess';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import {
+  type ExecutableTool,
+  type ExecutableToolContext,
+  type ExecutableToolResult,
+  type ToolExecution,
+  type ToolResult,
+} from '#/tool/toolContract';
+import { type ToolCall } from '#human/llm/message';
+import { emptyUsage } from '#human/llm/usage';
+
 import { registerLogServices } from '../../_base/log/stubs';
-import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import { stubBootstrap } from '../../app/bootstrap/stubs';
+import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
+import { createTestAgent, execEnvServices, telemetryServices } from '../../harness';
+import { createFakeProcessRunner } from '../../tools/fixtures/fake-exec';
+import { registerTestAgentWireServices } from '../../wire/stubs';
+import { stubAgentContext } from '../agentContext/stubs';
 import { stubLoopWithHooks, type StubLoop } from '../loop/stubs';
 import { stubToolExecutorEvents } from '../toolExecutor/stubs';
 import { registerToolResultTruncationServices } from '../toolResultTruncation/stubs';
-import { registerTestAgentWireServices } from '../../wire/stubs';
-
-import { stubAgentContext } from '../agentContext/stubs';
 
 const { REMINDER_TEXT_1, REMINDER_TEXT_3, makeReminderText2 } = toolDedupeTesting;
 const ZERO_USAGE = emptyUsage();
@@ -158,7 +173,9 @@ class EchoTool implements ExecutableTool<Record<string, unknown>> {
 
   constructor(
     readonly name = 'Echo',
-    private readonly resultFor: (args: Record<string, unknown>) => ExecutableToolResult = (args) => ({
+    private readonly resultFor: (args: Record<string, unknown>) => ExecutableToolResult = (
+      args,
+    ) => ({
       output: typeof args['text'] === 'string' ? args['text'] : '',
     }),
   ) {}
@@ -1127,7 +1144,19 @@ describe('AgentToolDedupeService', () => {
       const actions = telemetryEvents
         .filter((e) => e.event === 'tool_call_repeat')
         .map((e) => e.properties?.['action']);
-      expect(actions).toEqual(['none', 'r1', 'r1', 'r2', 'r2', 'r2', 'r3', 'r3', 'r3', 'r3', 'stop']);
+      expect(actions).toEqual([
+        'none',
+        'r1',
+        'r1',
+        'r2',
+        'r2',
+        'r2',
+        'r3',
+        'r3',
+        'r3',
+        'r3',
+        'stop',
+      ]);
     });
 
     it('does not double-register a call that already went through onBeforeExecuteTool', async () => {
@@ -1171,7 +1200,12 @@ describe('AgentToolDedupeService', () => {
     }
 
     function malformedBashCallWithId(id: string, variant: number): ToolCall {
-      return { type: 'function', id, name: 'Bash', arguments: `{"command_${String(variant)}: "ls"` };
+      return {
+        type: 'function',
+        id,
+        name: 'Bash',
+        arguments: `{"command_${String(variant)}: "ls"`,
+      };
     }
 
     function rejectedBashAgent(
@@ -1181,14 +1215,20 @@ describe('AgentToolDedupeService', () => {
       readonly ctx: ReturnType<typeof createTestAgent>;
       readonly exec: ReturnType<typeof mock>;
     } {
-      const exec = mock<IHostProcessService['spawn']>().mockRejectedValue(new Error('Bash should not execute'));
+      const exec = mock<IHostProcessService['spawn']>().mockRejectedValue(
+        new Error('Bash should not execute'),
+      );
       const previousRepeatBreaker = process.env[REPEAT_BREAKER_ENV];
       process.env[REPEAT_BREAKER_ENV] = '1';
       let ctx: ReturnType<typeof createTestAgent>;
       try {
         ctx = createTestAgent(
           telemetryServices(recordingTelemetry(records)),
-          execEnvServices({ processRunner: createFakeProcessRunner({ spawn: exec as unknown as IHostProcessService['spawn'] }) }),
+          execEnvServices({
+            processRunner: createFakeProcessRunner({
+              spawn: exec as unknown as IHostProcessService['spawn'],
+            }),
+          }),
           { initialConfig: { providers: {}, loopControl: { maxStepsPerTurn } } },
         );
       } finally {
@@ -1207,11 +1247,15 @@ describe('AgentToolDedupeService', () => {
       for (let i = 0; i < 12; i += 1) {
         ctx.mockNextResponse(invalidBashCallWithId(`call_bad_${String(i)}`));
       }
-      ctx.mockNextResponse({ type: 'text', text: 'Handoff: the bash call keeps failing validation.' });
+      ctx.mockNextResponse({
+        type: 'text',
+        text: 'Handoff: the bash call keeps failing validation.',
+      });
       ctx.mockNextResponse({ type: 'text', text: 'must never be generated' });
 
       await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Repeat the bad call' }] });
-      const turn = (ctx.get(IAgentLoopService) as unknown as { active?: { turn: Turn } }).active?.turn;
+      const turn = (ctx.get(IAgentLoopService) as unknown as { active?: { turn: Turn } }).active
+        ?.turn;
       await ctx.untilTurnEnd();
 
       expect(exec).not.toHaveBeenCalled();
@@ -1219,7 +1263,19 @@ describe('AgentToolDedupeService', () => {
       const actions = records
         .filter((entry) => entry.event === 'tool_call_repeat')
         .map((entry) => entry.properties?.['action']);
-      expect(actions).toEqual(['none', 'r1', 'r1', 'r2', 'r2', 'r2', 'r3', 'r3', 'r3', 'r3', 'stop']);
+      expect(actions).toEqual([
+        'none',
+        'r1',
+        'r1',
+        'r2',
+        'r2',
+        'r2',
+        'r3',
+        'r3',
+        'r3',
+        'r3',
+        'stop',
+      ]);
       await expect(turn!.result).resolves.toMatchObject({
         type: 'completed',
         stopReason: 'repeat_breaker',
@@ -1239,7 +1295,8 @@ describe('AgentToolDedupeService', () => {
       ctx.mockNextResponse({ type: 'text', text: 'must never be generated' });
 
       await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Repeat the bad call' }] });
-      const turn = (ctx.get(IAgentLoopService) as unknown as { active?: { turn: Turn } }).active?.turn;
+      const turn = (ctx.get(IAgentLoopService) as unknown as { active?: { turn: Turn } }).active
+        ?.turn;
       await ctx.untilTurnEnd();
 
       expect(exec).not.toHaveBeenCalled();
@@ -1269,7 +1326,8 @@ describe('AgentToolDedupeService', () => {
       ctx.mockNextResponse({ type: 'text', text: 'Handoff: still blocked on the same call.' });
 
       await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Repeat the bad call' }] });
-      const turn = (ctx.get(IAgentLoopService) as unknown as { active?: { turn: Turn } }).active?.turn;
+      const turn = (ctx.get(IAgentLoopService) as unknown as { active?: { turn: Turn } }).active
+        ?.turn;
       await ctx.untilTurnEnd();
 
       expect(exec).not.toHaveBeenCalled();
@@ -1291,7 +1349,8 @@ describe('AgentToolDedupeService', () => {
       ctx.mockNextResponse({ type: 'text', text: 'must never be generated' });
 
       await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Repeat the bad call' }] });
-      const turn = (ctx.get(IAgentLoopService) as unknown as { active?: { turn: Turn } }).active?.turn;
+      const turn = (ctx.get(IAgentLoopService) as unknown as { active?: { turn: Turn } }).active
+        ?.turn;
       await ctx.untilTurnEnd();
 
       expect(exec).not.toHaveBeenCalled();

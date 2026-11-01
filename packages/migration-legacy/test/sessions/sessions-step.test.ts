@@ -1,9 +1,8 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { targetSessionIndex } from '../../src/paths.js';
 import { migrateSessionsStep } from '../../src/sessions/index.js';
@@ -234,14 +233,8 @@ describe('migrateSessionsStep (multi-workdir fixture)', () => {
         join(src, 'kimi.json'),
         JSON.stringify({ work_dirs: [{ path: workdir, kaos: 'local' }] }),
       );
-      await writeFile(
-        join(bucket, 'flat-1.jsonl'),
-        '{"role":"user","content":"session one"}\n',
-      );
-      await writeFile(
-        join(bucket, 'flat-2.jsonl'),
-        '{"role":"user","content":"session two"}\n',
-      );
+      await writeFile(join(bucket, 'flat-1.jsonl'), '{"role":"user","content":"session one"}\n');
+      await writeFile(join(bucket, 'flat-2.jsonl'), '{"role":"user","content":"session two"}\n');
 
       const report = await migrateSessionsStep({ sourceHome: src, targetHome });
 

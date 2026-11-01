@@ -131,9 +131,7 @@ export function resolveModel(explicit?: string): string {
   const { defaultModel } = extractProvidersFromConfig(configPath);
   if (defaultModel !== undefined && defaultModel.trim().length > 0) return defaultModel.trim();
 
-  throw new Error(
-    `No model to run: pass --model, or set default_model in ${configPath}.`,
-  );
+  throw new Error(`No model to run: pass --model, or set default_model in ${configPath}.`);
 }
 
 /**
@@ -162,9 +160,7 @@ export function resolveCredentials(config: RunnerConfig): {
 
   const model = config.model || defaultModel || '';
   if (model.length === 0) {
-    throw new Error(
-      `No model to run. Pass --model, or set default_model in ${configPath}.`,
-    );
+    throw new Error(`No model to run. Pass --model, or set default_model in ${configPath}.`);
   }
 
   const providerName = providerNameForModel(model);

@@ -9,14 +9,14 @@
  * `assistant.delta` → ACP `session/update` translation, and turn settlement.
  */
 
+import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import {IEventBus, getLiveSessionById, IAgentLifecycleService} from '@moonshot-ai/agent-core-v2';
+import { IEventBus, getLiveSessionById, IAgentLifecycleService } from '@moonshot-ai/agent-core-v2';
 import { ToolProgress } from '@moonshot-ai/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
-import { afterEach, describe, expect, it } from 'bun:test';
 
 import { IAcpConnection } from '../src/acp-fs';
 import { mapPromptLaunchError } from '../src/session';

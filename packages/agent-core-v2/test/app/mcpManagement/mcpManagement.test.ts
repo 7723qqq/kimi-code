@@ -37,12 +37,12 @@ import { InMemoryStorageService } from '#/persistence/backends/memory/inMemorySt
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
-import { IWorkspaceTrustStore } from '#/workspace/workspaceTrust/workspaceTrustStore';
 import { WorkspaceInstance } from '#/workspace/workspaceInstance/workspaceInstance';
 import {
   IRuntimeResolver,
   IWorkspaceInstanceManager,
 } from '#/workspace/workspaceInstance/workspaceInstanceManager';
+import { IWorkspaceTrustStore } from '#/workspace/workspaceTrust/workspaceTrustStore';
 import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 
 import { stubLog } from '../../_base/log/stubs';

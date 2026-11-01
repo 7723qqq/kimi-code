@@ -1,14 +1,12 @@
-import { type BackgroundTaskInfo } from '@moonshot-ai/kimi-code-sdk';
 import { describe, expect, it, mock } from 'bun:test';
 
-import {
-  TasksPanelComponent,
-  type TasksPanelProps,
-} from '@/tui/components/dialogs/tasks-browser';
-import { SubagentActivityStore } from '@/tui/controllers/subagent-activity-store';
-import { TasksBrowserController } from '@/tui/controllers/tasks-browser';
-import type { SubagentActivityRecord } from '@/tui/controllers/subagent-activity-store';
+import { type BackgroundTaskInfo } from '@moonshot-ai/kimi-code-sdk';
+
 import { mouse, pastSettlingWindow } from '#test/helpers/mouse';
+import { TasksPanelComponent, type TasksPanelProps } from '@/tui/components/dialogs/tasks-browser';
+import { SubagentActivityStore } from '@/tui/controllers/subagent-activity-store';
+import type { SubagentActivityRecord } from '@/tui/controllers/subagent-activity-store';
+import { TasksBrowserController } from '@/tui/controllers/tasks-browser';
 
 const ANSI_SGR = /\[[0-9;]*m/g;
 function strip(text: string): string {
@@ -248,8 +246,9 @@ describe('TasksPanelComponent — output section', () => {
   });
 
   it('follows the tail of a long output', () => {
-    const output = Array.from({ length: 200 }, (_, i) =>
-      `line-${String(i + 1).padStart(3, '0')}`,
+    const output = Array.from(
+      { length: 200 },
+      (_, i) => `line-${String(i + 1).padStart(3, '0')}`,
     ).join('\n');
     const out = render({
       tasks: [task({ taskId: 'bash-aaaaaaaa' })],

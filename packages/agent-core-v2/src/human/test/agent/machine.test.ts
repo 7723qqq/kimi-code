@@ -1,5 +1,4 @@
 import { describe, expect, it, mock } from 'bun:test';
-import { waitForAssertion } from '../../../../test/helpers/waitFor';
 
 import { estimateMessageTokens, estimateTextTokens } from '#/agent/context-usage';
 import { MaxStepsExceededError } from '#/agent/errors';
@@ -48,6 +47,8 @@ import { defineTool, type ToolDefinition } from '#/tool/tool';
 import { waitForTool } from '#/tool/wait-for';
 import { createActor, waitFor } from '#/xstate2';
 import { xstateInspectionCollector } from '#/xstateInspection';
+
+import { waitForAssertion } from '../../../../test/helpers/waitFor';
 
 const model: LlmModel = { provider: 'test', model: 'test-model', capability: UNKNOWN_CAPABILITY };
 

@@ -1,12 +1,6 @@
-import type { ToolExecution } from '#/tool/toolContract';
-import { toInputJsonSchema } from '#/tool/input-schema';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { TodoListWrittenEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-
-import {
-  IAgentTodoService,
-} from '#/features/todo/todoService';
 import {
   TODO_LIST_TOOL_NAME,
   renderTodoList,
@@ -15,12 +9,11 @@ import {
   type TodoProgress,
 } from '#/features/todo/todoItem';
 import { todoListWriteStatsBefore } from '#/features/todo/todoListReminder';
+import { IAgentTodoService } from '#/features/todo/todoService';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import type { ToolExecution } from '#/tool/toolContract';
 
-import {
-  ITodoListTool,
-  TodoListInputSchema,
-  type TodoListInput,
-} from './todo-list';
+import { ITodoListTool, TodoListInputSchema, type TodoListInput } from './todo-list';
 import DESCRIPTION from './todo-list.md?raw';
 
 export class TodoListTool implements ITodoListTool {

@@ -1,5 +1,6 @@
-import type { TUI } from '@moonshot-ai/pi-tui';
 import { describe, expect, it, mock, spyOn, type Mock } from 'bun:test';
+
+import type { TUI } from '@moonshot-ai/pi-tui';
 
 import { AgentGroupComponent } from '#/tui/components/messages/agent-group';
 import { ToolCallComponent } from '#/tui/components/messages/tool-call';

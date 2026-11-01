@@ -1,16 +1,16 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, mkdir, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import { join } from 'pathe';
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
+import { HostFileSystem } from '#/os/backends/host/hostFsService';
+import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
 import {
   configuredAgentRoots,
   projectAgentRoots,
   userAgentRoots,
 } from '#/workspace/workspaceAgentProfileLoader/internal/agentRoots';
-import { HostFileSystem } from '#/os/backends/host/hostFsService';
-import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
 
 const hostFs = new HostFileSystem();
 
@@ -159,10 +159,7 @@ describe('agentRoots', () => {
             return (path: string) =>
               path === blockedDir
                 ? Promise.reject(
-                    new HostFsError(
-                      OsFsErrors.codes.OS_FS_PERMISSION_DENIED,
-                      'permission denied',
-                    ),
+                    new HostFsError(OsFsErrors.codes.OS_FS_PERMISSION_DENIED, 'permission denied'),
                   )
                 : target.realpath(path);
           }

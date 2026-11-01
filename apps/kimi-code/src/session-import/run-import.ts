@@ -12,7 +12,12 @@ import { dirname, join } from 'node:path';
 
 import { effectiveModelAlias, type KimiConfig } from '@moonshot-ai/kimi-code-sdk';
 import { importedSessionDir, writeImportedSession } from '@moonshot-ai/migration-legacy';
-import { convertSession, DEFAULT_IMPORT_RATIO, findSessions, type SessionCandidate } from '@moonshot-ai/session-import';
+import {
+  convertSession,
+  DEFAULT_IMPORT_RATIO,
+  findSessions,
+  type SessionCandidate,
+} from '@moonshot-ai/session-import';
 
 import { t } from '#/i18n';
 
@@ -102,8 +107,11 @@ export function importedSessionId(session: SessionCandidate): string {
  * imported session does not start by compacting it away. The import
  * estimator undercounts code and JSON by about a quarter, hence the divisor.
  */
-export function importBudget(config: Pick<KimiConfig, 'defaultModel' | 'models' | 'loopControl'>): ImportBudget {
-  const alias = config.defaultModel === undefined ? undefined : config.models?.[config.defaultModel];
+export function importBudget(
+  config: Pick<KimiConfig, 'defaultModel' | 'models' | 'loopControl'>,
+): ImportBudget {
+  const alias =
+    config.defaultModel === undefined ? undefined : config.models?.[config.defaultModel];
   const model = alias === undefined ? undefined : effectiveModelAlias(alias);
   const limit = Math.min(model?.maxInputSize ?? Infinity, model?.maxContextSize ?? Infinity);
   const contextWindow = Number.isFinite(limit) ? limit : FALLBACK_CONTEXT_WINDOW;
@@ -112,8 +120,14 @@ export function importBudget(config: Pick<KimiConfig, 'defaultModel' | 'models' 
     contextWindow * (config.loopControl?.compactionTriggerRatio ?? COMPACTION_TRIGGER_RATIO),
     reserved > 0 && reserved < contextWindow ? contextWindow - reserved : contextWindow,
   );
-  const allowance = Math.max(MIN_IMPORT_BUDGET, (threshold - CONTINUATION_MARGIN) / ESTIMATE_UNDERCOUNT);
-  return { contextWindow, tokenBudget: Math.floor(Math.min(contextWindow * DEFAULT_IMPORT_RATIO, allowance)) };
+  const allowance = Math.max(
+    MIN_IMPORT_BUDGET,
+    (threshold - CONTINUATION_MARGIN) / ESTIMATE_UNDERCOUNT,
+  );
+  return {
+    contextWindow,
+    tokenBudget: Math.floor(Math.min(contextWindow * DEFAULT_IMPORT_RATIO, allowance)),
+  };
 }
 
 function isImported(kimiHome: string, workDir: string, sessionId: string): boolean {
@@ -138,7 +152,11 @@ export async function scanImportableSessions(input: {
   const candidates: ImportCandidate[] = [];
   let alreadyImported = 0;
   let missingFolder = 0;
-  for (const session of await findSessions({ claudeHome: input.claudeHome, codexHome: input.codexHome, since })) {
+  for (const session of await findSessions({
+    claudeHome: input.claudeHome,
+    codexHome: input.codexHome,
+    since,
+  })) {
     const sessionId = importedSessionId(session);
     if (isImported(input.kimiHome, session.cwd, sessionId)) alreadyImported++;
     else if (!isDirectory(session.cwd)) missingFolder++;
@@ -156,7 +174,14 @@ async function discard(sessionDir: string): Promise<void> {
   await rmdir(dirname(sessionDir)).catch(() => undefined);
 }
 
-type Outcome = 'imported' | 'alreadyImported' | 'missingFolder' | 'inUse' | 'empty' | 'unsupported' | ImportFailure;
+type Outcome =
+  | 'imported'
+  | 'alreadyImported'
+  | 'missingFolder'
+  | 'inUse'
+  | 'empty'
+  | 'unsupported'
+  | ImportFailure;
 
 async function importOne(candidate: ImportCandidate, options: ImportOptions): Promise<Outcome> {
   if (!isDirectory(candidate.cwd)) return 'missingFolder';
@@ -200,7 +225,10 @@ async function importOne(candidate: ImportCandidate, options: ImportOptions): Pr
     return 'imported';
   } catch (error) {
     await discard(sessionDir);
-    return { path: candidate.path, message: error instanceof Error ? error.message : String(error) };
+    return {
+      path: candidate.path,
+      message: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
@@ -209,7 +237,16 @@ export async function importSessions(
   candidates: readonly ImportCandidate[],
   options: ImportOptions,
 ): Promise<ImportReport> {
-  const report: ImportReport = { imported: [], alreadyImported: 0, missingFolder: 0, inUse: 0, empty: 0, unsupported: 0, failed: [], stopped: false };
+  const report: ImportReport = {
+    imported: [],
+    alreadyImported: 0,
+    missingFolder: 0,
+    inUse: 0,
+    empty: 0,
+    unsupported: 0,
+    failed: [],
+    stopped: false,
+  };
   const batch = candidates.slice(0, IMPORT_BATCH_LIMIT);
   for (const [index, candidate] of batch.entries()) {
     if (options.shouldStop?.() === true) {

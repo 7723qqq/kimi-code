@@ -1,21 +1,20 @@
-import { extractKeyArgument } from '#/tui/components/messages/tool-call';
-import { createFakeClock } from '../../../helpers/fake-clock';
-import { captureProcessWrite } from '../../../helpers/process';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+
 import { visibleWidth, type TUI } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { SUBAGENT_TOOL_OUTPUT_MAX_CHARS } from '../../../../src/tui/constant/rendering';
-import { MAX_SUB_TOOL_ACTIVITIES } from '../../../../src/tui/constant/rendering';
-import { MAX_SUBAGENT_STREAM_TEXT_CHARS } from '../../../../src/tui/constant/rendering';
 
 import { setLocale } from '#/i18n';
 import { setExperimentalFeatures } from '#/tui/commands/experimental-flags';
+import { extractKeyArgument } from '#/tui/components/messages/tool-call';
 import { ToolCallComponent } from '#/tui/components/messages/tool-call';
-
 import { NOTIFY_USER_MARK, STATUS_BULLET } from '#/tui/constant/symbols';
 import { darkColors } from '#/tui/theme/colors';
 
-
+import { SUBAGENT_TOOL_OUTPUT_MAX_CHARS } from '../../../../src/tui/constant/rendering';
+import { MAX_SUB_TOOL_ACTIVITIES } from '../../../../src/tui/constant/rendering';
+import { MAX_SUBAGENT_STREAM_TEXT_CHARS } from '../../../../src/tui/constant/rendering';
+import { createFakeClock } from '../../../helpers/fake-clock';
+import { captureProcessWrite } from '../../../helpers/process';
 
 void mock.module('#/i18n', () => {
   let locale = 'en';
@@ -631,10 +630,17 @@ describe('ToolCallComponent', () => {
           name: 'NotifyUser',
           args: { title: 'Root cause found', message },
         },
-        { tool_call_id: 'call_notify_titled', output: 'Update shown to the user.', is_error: false },
+        {
+          tool_call_id: 'call_notify_titled',
+          output: 'Update shown to the user.',
+          is_error: false,
+        },
       );
 
-      const collapsed = component.render(100).map(strip).filter((line) => line.trim().length > 0);
+      const collapsed = component
+        .render(100)
+        .map(strip)
+        .filter((line) => line.trim().length > 0);
       expect(collapsed).toHaveLength(1);
       expect(collapsed[0]).toBe(`${NOTIFY_USER_MARK} Root cause found`);
       expect(collapsed[0]).not.toContain('Sent you an update');
@@ -658,7 +664,6 @@ describe('ToolCallComponent', () => {
       expect(output).toContain('Update shown to the user.');
     });
 
-
     it("wraps an expanded title using each row's own available width", () => {
       const title = 'x'.repeat(114);
       const component = new ToolCallComponent(
@@ -670,13 +675,19 @@ describe('ToolCallComponent', () => {
         },
       );
 
-      const collapsed = component.render(60).map(strip).filter((line) => line.trim().length > 0);
+      const collapsed = component
+        .render(60)
+        .map(strip)
+        .filter((line) => line.trim().length > 0);
       expect(collapsed).toHaveLength(1);
       expect(collapsed[0]).toContain('…');
       expect(visibleWidth(collapsed[0]!)).toBeLessThanOrEqual(60);
 
       component.setExpanded(true);
-      const rows = component.render(60).map(strip).filter((line) => line.trim().length > 0);
+      const rows = component
+        .render(60)
+        .map(strip)
+        .filter((line) => line.trim().length > 0);
       const titleRows = rows.filter((line) => line.includes('x'));
       expect(titleRows).toHaveLength(3);
       expect(titleRows[0]!.replace(`${NOTIFY_USER_MARK} `, '')).toHaveLength(51);

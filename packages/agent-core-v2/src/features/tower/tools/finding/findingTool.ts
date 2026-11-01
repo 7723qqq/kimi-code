@@ -1,11 +1,11 @@
-import type { ITowerFindingTool } from './finding';
-import { TowerFindingToolInputSchema, type TowerFindingToolInput } from './finding';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import type { ToolExecution } from '#/tool/toolContract';
 
 import { callerName, newTowerStore, runTowerTool } from '../support';
+import type { ITowerFindingTool } from './finding';
+import { TowerFindingToolInputSchema, type TowerFindingToolInput } from './finding';
 import DESCRIPTION from './finding.md?raw';
 
 export class TowerFindingTool implements ITowerFindingTool {

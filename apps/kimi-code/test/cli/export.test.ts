@@ -5,25 +5,26 @@
  * error reporting, and delegation to the session export implementation.
  */
 
+import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { createKimiDeviceId as createKimiDeviceIdFn } from '@moonshot-ai/kimi-code-oauth';
-import { Command } from 'commander';
-import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
-import { setEnv, restoreEnvs } from '../helpers/stubs';
-
-import { handleExport, registerExportCommand } from '#/cli/sub/export';
-import { resetKimiRegionCache } from '#/utils/region';
-import type { ExportDeps } from '#/cli/sub/export';
 import type {
   ExportSessionInput,
   ExportSessionManifest,
   ExportSessionResult,
   SessionSummary,
 } from '@moonshot-ai/kimi-code-sdk';
+import { Command } from 'commander';
+
+import { handleExport, registerExportCommand } from '#/cli/sub/export';
+import type { ExportDeps } from '#/cli/sub/export';
+import { resetKimiRegionCache } from '#/utils/region';
+
+import { setEnv, restoreEnvs } from '../helpers/stubs';
 
 let tmp: string;
 
@@ -233,7 +234,16 @@ describe('kimi export', () => {
     expect(exitCodes).toEqual([]);
     expect(stderr).toEqual([]);
     expect(listedWorkDirs).toEqual([]);
-    expect(exportInputs).toEqual([{ id: 'ses_test123456', outputPath: output, includeGlobalLog: true, version: '1.0.0-test', installSource: 'npm-global', shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' } }]);
+    expect(exportInputs).toEqual([
+      {
+        id: 'ses_test123456',
+        outputPath: output,
+        includeGlobalLog: true,
+        version: '1.0.0-test',
+        installSource: 'npm-global',
+        shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' },
+      },
+    ]);
     expect(stdout.join('').trim()).toBe(output);
   });
 
@@ -242,7 +252,15 @@ describe('kimi export', () => {
 
     await runExport(deps, { sessionId: 'session_default_output' });
 
-    expect(exportInputs).toEqual([{ id: 'session_default_output', includeGlobalLog: true, version: '1.0.0-test', installSource: 'npm-global', shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' } }]);
+    expect(exportInputs).toEqual([
+      {
+        id: 'session_default_output',
+        includeGlobalLog: true,
+        version: '1.0.0-test',
+        installSource: 'npm-global',
+        shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' },
+      },
+    ]);
     expect(stdout.join('').trim()).toBe(join(tmp, 'session_default_output.zip'));
   });
 
@@ -280,7 +298,16 @@ describe('kimi export', () => {
     await runExport(deps, { output });
 
     expect(exitCodes).toEqual([]);
-    expect(exportInputs).toEqual([{ id: 'ses_fallback', outputPath: output, includeGlobalLog: true, version: '1.0.0-test', installSource: 'npm-global', shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' } }]);
+    expect(exportInputs).toEqual([
+      {
+        id: 'ses_fallback',
+        outputPath: output,
+        includeGlobalLog: true,
+        version: '1.0.0-test',
+        installSource: 'npm-global',
+        shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' },
+      },
+    ]);
     expect(stdout.join('').trim()).toBe(output);
   });
 
@@ -322,7 +349,16 @@ describe('kimi export', () => {
     await runExport(deps, { output: join(tmp, 'yes.zip'), yes: true });
 
     expect(exitCodes).toEqual([]);
-    expect(exportInputs).toEqual([{ id: 'ses_yes', outputPath: join(tmp, 'yes.zip'), includeGlobalLog: true, version: '1.0.0-test', installSource: 'npm-global', shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' } }]);
+    expect(exportInputs).toEqual([
+      {
+        id: 'ses_yes',
+        outputPath: join(tmp, 'yes.zip'),
+        includeGlobalLog: true,
+        version: '1.0.0-test',
+        installSource: 'npm-global',
+        shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' },
+      },
+    ]);
   });
 
   it('describes the user-facing command without implementation details', () => {
@@ -348,7 +384,14 @@ describe('kimi export', () => {
     await program.parseAsync(['node', 'kimi', 'export', '--no-include-global-log', '-y']);
 
     expect(exitCodes).toEqual([]);
-    expect(exportInputs).toEqual([{ id: 'ses_global_log', version: '1.0.0-test', installSource: 'npm-global', shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' } }]);
+    expect(exportInputs).toEqual([
+      {
+        id: 'ses_global_log',
+        version: '1.0.0-test',
+        installSource: 'npm-global',
+        shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' },
+      },
+    ]);
     expect(stdout.join('').trim()).toBe(join(tmp, 'ses_global_log.zip'));
   });
 
@@ -371,7 +414,13 @@ describe('kimi export', () => {
 
     expect(exitCodes).toEqual([]);
     expect(exportInputs).toEqual([
-      { id: 'ses_after_id', outputPath: output, version: '1.0.0-test', installSource: 'npm-global', shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' } },
+      {
+        id: 'ses_after_id',
+        outputPath: output,
+        version: '1.0.0-test',
+        installSource: 'npm-global',
+        shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' },
+      },
     ]);
   });
 

@@ -38,7 +38,8 @@ const baselineArg = args.find((a) => a.startsWith('--baseline='))?.slice(11);
 // scanner always walked the real repo and could only be tested by mutating it.
 const rootArg = args.find((a) => a.startsWith('--root='))?.slice(7);
 
-const ROOT = rootArg !== undefined ? resolve(process.cwd(), rootArg) : join(import.meta.dirname, '..');
+const ROOT =
+  rootArg !== undefined ? resolve(process.cwd(), rootArg) : join(import.meta.dirname, '..');
 
 const TEST_FILE = /\.(test|spec|e2e|integration)\.(ts|tsx|mts|cts|js|mjs|cjs)$/;
 const SOURCE_FILE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
@@ -165,7 +166,8 @@ const RULES = [
     why: 'A `#!/usr/bin/env node` entry point enters the file through Node semantics; Bun is the repository runtime.',
     pattern: /^#!.*\bnode\b/m,
     keepComments: true,
-  },  {
+  },
+  {
     id: 'done-callback',
     severity: 'error',
     scope: 'test',
@@ -273,7 +275,9 @@ const RULES = [
   },
 ];
 
-const files = SCAN_ROOT.flatMap((dir) => (existsSync(join(ROOT, dir)) ? walk(join(ROOT, dir)) : []));
+const files = SCAN_ROOT.flatMap((dir) =>
+  existsSync(join(ROOT, dir)) ? walk(join(ROOT, dir)) : [],
+);
 // The repository root's own manifests were never walked: `SCAN_ROOT` only holds
 // subdirectories, so a root `package.json` script could launch Node unnoticed.
 for (const name of ['package.json']) {
@@ -282,9 +286,10 @@ for (const name of ['package.json']) {
 }
 const SELF = 'scripts/scan-test-residue.mjs';
 
-const baseline = baselineArg !== undefined && existsSync(join(ROOT, baselineArg))
-  ? JSON.parse(readFileSync(join(ROOT, baselineArg), 'utf8'))
-  : {};
+const baseline =
+  baselineArg !== undefined && existsSync(join(ROOT, baselineArg))
+    ? JSON.parse(readFileSync(join(ROOT, baselineArg), 'utf8'))
+    : {};
 
 // A reasonless exception would hide residue instead of documenting it, so a
 // baseline entry without one fails the run as loudly as the raw hit did.
@@ -296,7 +301,8 @@ for (const [ruleId, entries] of Object.entries(baseline)) {
     continue;
   }
   for (const [path, reason] of Object.entries(entries)) {
-    if (typeof reason !== 'string' || reason.trim() === '') missingReasons.push(`${ruleId}: ${path}`);
+    if (typeof reason !== 'string' || reason.trim() === '')
+      missingReasons.push(`${ruleId}: ${path}`);
   }
 }
 
@@ -327,10 +333,15 @@ for (const rule of RULES) {
 }
 
 const configLeftovers = ['vitest.config.ts', 'vitest.projects.ts', 'vitest.bench.config.ts']
-  .map((name) => ({ name, present: files.some((f) => f.endsWith(`/${name}`)) || existsSync(join(ROOT, name)) }))
+  .map((name) => ({
+    name,
+    present: files.some((f) => f.endsWith(`/${name}`)) || existsSync(join(ROOT, name)),
+  }))
   .filter((entry) => entry.present);
 
-const errorCount = results.filter((r) => r.severity === 'error').reduce((sum, r) => sum + r.hits.length, 0);
+const errorCount = results
+  .filter((r) => r.severity === 'error')
+  .reduce((sum, r) => sum + r.hits.length, 0);
 
 if (json) {
   console.log(
@@ -351,16 +362,23 @@ if (json) {
 } else {
   const roots = SCAN_ROOT.filter((dir) => existsSync(join(ROOT, dir)));
   console.log(`scanned ${files.length} files under ${roots.join('/ ')}/`);
-  console.log('string literals blanked before matching; comments kept only for the rules that key on them\n');
+  console.log(
+    'string literals blanked before matching; comments kept only for the rules that key on them\n',
+  );
   console.log('severity  rule                       hits  accepted  why');
   console.log('--------  -------------------------  ----  --------  ---');
   for (const rule of results) {
     const sev = rule.severity === 'error' ? 'error   ' : 'warn    ';
     const acceptedCount = String(rule.accepted.length).padStart(8);
-    console.log(`${sev}  ${rule.id.padEnd(25)}  ${String(rule.hits.length).padStart(4)}  ${acceptedCount}  ${rule.why}`);
-    for (const file of rule.hits.slice(0, listLimit)) console.log(`                                 ${file}`);
+    console.log(
+      `${sev}  ${rule.id.padEnd(25)}  ${String(rule.hits.length).padStart(4)}  ${acceptedCount}  ${rule.why}`,
+    );
+    for (const file of rule.hits.slice(0, listLimit))
+      console.log(`                                 ${file}`);
     if (listLimit > 0 && rule.hits.length > listLimit) {
-      console.log(`                                 … +${rule.hits.length - listLimit} more (--list=${rule.hits.length})`);
+      console.log(
+        `                                 … +${rule.hits.length - listLimit} more (--list=${rule.hits.length})`,
+      );
     }
     for (const entry of rule.accepted) {
       console.log(`                                 accepted ${entry.path}`);
@@ -371,7 +389,10 @@ if (json) {
   if (assertRule !== undefined && assertRule.hits.length > 0) {
     const byPackage = new Map();
     for (const file of assertRule.hits) {
-      const pkg = file.split('/').slice(0, file.startsWith('apps/') ? 2 : 2).join('/');
+      const pkg = file
+        .split('/')
+        .slice(0, file.startsWith('apps/') ? 2 : 2)
+        .join('/');
       byPackage.set(pkg, (byPackage.get(pkg) ?? 0) + 1);
     }
     console.log(`\nnode-assert breakdown by package (${assertRule.hits.length} files):`);
@@ -380,7 +401,9 @@ if (json) {
     }
   }
   const acceptedTotal = results.reduce((sum, rule) => sum + rule.accepted.length, 0);
-  console.log(`\nconfig leftovers: ${configLeftovers.length === 0 ? 'none' : configLeftovers.map((c) => c.name).join(', ')}`);
+  console.log(
+    `\nconfig leftovers: ${configLeftovers.length === 0 ? 'none' : configLeftovers.map((c) => c.name).join(', ')}`,
+  );
   console.log(`accepted by baseline: ${acceptedTotal}`);
   if (missingReasons.length > 0) {
     console.log('\nbaseline entries missing a reason (rejected):');

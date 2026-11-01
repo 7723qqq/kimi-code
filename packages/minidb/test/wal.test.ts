@@ -1,9 +1,8 @@
+// test/wal.test.ts
+import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-
-// test/wal.test.ts
-import { expect, test } from 'bun:test';
 
 import { encodeFrame, FrameParser, CorruptFrameError, TYPE_SET, TYPE_DEL } from '../src/codec.js';
 import { WAL } from '../src/wal.js';
@@ -170,7 +169,9 @@ test('seal(): rejects new appends with WAL_SEALED, queued frames stay flushable'
     expect(frames.length).toBe(1);
     expect(frames[0].key.toString()).toBe('a');
     // after close the legacy "WAL is closed" rejection is preserved
-    await expect(wal.append(encodeFrame({ type: TYPE_SET, key: B('c'), value: B('3') }))).rejects.toThrow(/WAL is closed/);
+    await expect(
+      wal.append(encodeFrame({ type: TYPE_SET, key: B('c'), value: B('3') })),
+    ).rejects.toThrow(/WAL is closed/);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -300,7 +301,10 @@ test('close() waits for an in-flight background sync before closing the fd (revi
     gate.release();
     await bg;
     await closing;
-    expect(events, 'the fd closes only after the background sync settled').toStrictEqual(['bg-sync-settled', 'fd-close']);
+    expect(events, 'the fd closes only after the background sync settled').toStrictEqual([
+      'bg-sync-settled',
+      'fd-close',
+    ]);
     expect(stats.walFsyncs, 'the background sync plus close() final sync').toBe(2);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -330,7 +334,10 @@ test('queue depth and group-commit counters track the append buffer', async () =
     }
     await Promise.all(ops);
     expect(stats.walGroupCommitFrames).toBe(5 + N);
-    expect(stats.walGroupCommits < 5 + N, `expected coalescing, got ${stats.walGroupCommits} commits`).toBeTruthy();
+    expect(
+      stats.walGroupCommits < 5 + N,
+      `expected coalescing, got ${stats.walGroupCommits} commits`,
+    ).toBeTruthy();
     expect(stats.walMaxQueuedBytes > 0, 'high-water mark recorded the burst').toBeTruthy();
     expect(stats.walQueuedBytes).toBe(0);
     await wal.close();
@@ -406,7 +413,10 @@ test('a failed flush poisons the WAL: WAL_POISONED rejections until truncate + r
       },
       () => {},
     );
-    expect(order, 'queued frames reject first so group rollbacks unwind newest-first').toStrictEqual(['queued', 'batch']);
+    expect(
+      order,
+      'queued frames reject first so group rollbacks unwind newest-first',
+    ).toStrictEqual(['queued', 'batch']);
     expect(stats.walWriteErrors, 'writev-class failure counted').toBe(1);
     expect(stats.walFsyncErrors, 'not an fsync-class failure').toBe(0);
 
@@ -433,7 +443,9 @@ test('a failed flush poisons the WAL: WAL_POISONED rejections until truncate + r
     // In-place recovery (what MiniDb does): truncate the un-acked tail,
     // re-sync bookkeeping, clear the poison — then the write path resumes.
     const sizeBefore = (await fs.stat(file)).size;
-    expect(poison.failedAtOffset, 'the injected writev threw before writing a byte').toBe(sizeBefore);
+    expect(poison.failedAtOffset, 'the injected writev threw before writing a byte').toBe(
+      sizeBefore,
+    );
     await fs.truncate(file, poison.failedAtOffset);
     await wal.refreshSize();
     wal.clearPoison();
@@ -442,7 +454,10 @@ test('a failed flush poisons the WAL: WAL_POISONED rejections until truncate + r
     await wal.close();
 
     const frames = parseAll(await fs.readFile(file));
-    expect(frames.map((f) => f.key.toString()), 'rejected frames never reach the file').toStrictEqual(['ok', 'c']);
+    expect(
+      frames.map((f) => f.key.toString()),
+      'rejected frames never reach the file',
+    ).toStrictEqual(['ok', 'c']);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -457,7 +472,9 @@ test("an fsync failure with fsyncPolicy 'always' poisons the WAL and counts as w
     const fh = (wal as unknown as { fh: { sync: () => Promise<void> } }).fh;
     fh.sync = () => Promise.reject(new Error('injected fsync failure'));
 
-    await expect(wal.append(encodeFrame({ type: TYPE_SET, key: B('k'), value: B('v') }))).rejects.toThrow(/injected fsync failure/);
+    await expect(
+      wal.append(encodeFrame({ type: TYPE_SET, key: B('k'), value: B('v') })),
+    ).rejects.toThrow(/injected fsync failure/);
     expect(stats.walFsyncErrors, 'fsync-class failure counted by sync() itself').toBe(1);
     expect(stats.walWriteErrors, 'not a writev-class failure').toBe(0);
     expect(wal.poison, 'an unacknowledged batch poisons even though its bytes landed').toBeTruthy();

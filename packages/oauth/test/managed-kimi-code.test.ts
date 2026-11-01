@@ -1,5 +1,6 @@
 import { describe, expect, it, jest } from 'bun:test';
 
+import { OAuthUnauthorizedError } from '../src/errors';
 import {
   applyManagedApiKeyProviderModels,
   applyManagedKimiCodeLogoutConfig,
@@ -17,7 +18,6 @@ import {
   type ManagedKimiCodeModelInfo,
   type ManagedKimiConfigShape,
 } from '../src/managed-kimi-code';
-import { OAuthUnauthorizedError } from '../src/errors';
 
 function makeModelsResponse(): Response {
   return new Response(

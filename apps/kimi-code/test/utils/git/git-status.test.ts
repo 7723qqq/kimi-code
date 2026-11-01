@@ -1,7 +1,6 @@
+import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 /* eslint-disable import/first -- jest.mock setup must run before the imports it stubs out. */
 import { join } from 'node:path';
-
-import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 
 const mocks = (() => ({
   exec: jest.fn(),

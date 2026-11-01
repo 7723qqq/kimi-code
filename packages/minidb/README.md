@@ -84,18 +84,18 @@ import { MiniDb } from '@moonshot-ai/minidb';
 
 const db = await MiniDb.open({
   dir: './data',
-  valueCodec: 'string',     // 'buffer' | 'string' | 'json'
-  fsyncPolicy: 'everysec',  // 'always' | 'everysec' | 'no'
+  valueCodec: 'string', // 'buffer' | 'string' | 'json'
+  fsyncPolicy: 'everysec', // 'always' | 'everysec' | 'no'
 });
 
 await db.set('hello', 'world');
-db.get('hello');            // 'world'
+db.get('hello'); // 'world'
 
 await db.set('temp', 'x', { ttl: 5000 }); // expires in 5s
-db.ttl('temp');             // remaining ms (-1 none, -2 missing)
+db.ttl('temp'); // remaining ms (-1 none, -2 missing)
 
 await db.del('hello');
-await db.close();           // flush + fsync + close
+await db.close(); // flush + fsync + close
 ```
 
 > Within this repo, import from `./src/index.ts` (run with `tsx`). As an installed
@@ -108,7 +108,11 @@ Re-open the same `dir` and your data is recovered from the snapshot + WAL.
 `MiniDb` is generic over the value type:
 
 ```ts
-interface User { name: string; age: number; city: string }
+interface User {
+  name: string;
+  age: number;
+  city: string;
+}
 const db = await MiniDb.open<User>({ dir: './data', valueCodec: 'json' });
 await db.set('u1', { name: 'Ann', age: 30, city: 'Paris' });
 const u = db.get('u1'); // User | undefined
@@ -119,14 +123,14 @@ const u = db.get('u1'); // User | undefined
 ```js
 const db = await MiniDb.open({ dir: './data', valueCodec: 'json' });
 
-await db.createIndex('byCity', { field: 'city' });                 // equality
-await db.createIndex('byAge',  { field: 'age',  type: 'range' });  // range (skip list)
-await db.createIndex('byMail', { field: 'email', unique: true });  // unique
+await db.createIndex('byCity', { field: 'city' }); // equality
+await db.createIndex('byAge', { field: 'age', type: 'range' }); // range (skip list)
+await db.createIndex('byMail', { field: 'email', unique: true }); // unique
 
 await db.set('u1', { name: 'Ann', city: 'Paris', age: 30, email: 'ann@example.com' });
 await db.set('u2', { name: 'Bob', city: 'Paris', age: 41, email: 'bob@example.com' });
 
-db.findEq('byCity', 'Paris');          // [{ key:'u1', value:{...} }, { key:'u2', ... }]
+db.findEq('byCity', 'Paris'); // [{ key:'u1', value:{...} }, { key:'u2', ... }]
 db.findRange('byAge', { min: 30, max: 40, count: 10 });
 ```
 
@@ -152,14 +156,14 @@ A record is:
 
 ```js
 db.scan({ gte: 'user:1', lte: 'user:9', limit: 100 }); // range in key order
-db.prefix('user:');                                    // prefix scan
+db.prefix('user:'); // prefix scan
 ```
 
 ### Datetime column queries
 
 ```js
 await db.set('a', { n: 1 }, { dt: { created: '2024-01-01' } });
-db.dtColumns();                              // ['created']
+db.dtColumns(); // ['created']
 db.dtRange('created', { gte: t0, lte: t1 }); // O(log N), [{ key, value, dt, dtValue }]
 ```
 
@@ -169,13 +173,14 @@ db.dtRange('created', { gte: t0, lte: t1 }); // O(log N), [{ key, value, dt, dtV
 
 ```js
 db.query({
-  key:    { prefix: 'post:' },
-  dt:     { created: { gte: t0, lte: t1 } },
-  text:   { index: 'body', q: '北京', op: 'AND' },
+  key: { prefix: 'post:' },
+  dt: { created: { gte: t0, lte: t1 } },
+  text: { index: 'body', q: '北京', op: 'AND' },
   filter: { age: { $gte: 18 }, $or: [{ city: 'Paris' }, { city: 'London' }] },
-  sort:   { age: -1 },
+  sort: { age: -1 },
   project: ['name', 'age'],
-  skip: 0, limit: 20,
+  skip: 0,
+  limit: 20,
 });
 ```
 
@@ -192,7 +197,7 @@ $type`, plus `$and $or $nor $not`. Paths use dot/bracket notation
 
 ```js
 await db.createTextIndex('body', { fields: ['bio'] }); // fields optional (default: all strings)
-db.search('body', 'hello 世界', { op: 'AND' });         // [{ key, value, score }]
+db.search('body', 'hello 世界', { op: 'AND' }); // [{ key, value, score }]
 ```
 
 Latin words + CJK unigram/bigram tokenization (no dictionary, zero deps), with
@@ -200,41 +205,41 @@ TF-IDF ranking.
 
 ## API
 
-| Method | Description |
-|---|---|
-| `MiniDb.open({ dir, valueCodec?, valueMode?, fsyncPolicy?, compactThresholdBytes?, autoCompact?, activeExpireIntervalMs?, recovery?, readOnly?, onLockFail?, maxMemoryBytes?, maxMemoryPolicy? })` | Open / create a database |
-| `MiniDb.restore(srcDir, destDir, opts?)` | Restore a `db.backup()` directory and open it |
-| `MiniDb.openOrRebuild(opts, { onRebuild?, allowDestructiveRebuild? })` | Open; on corruption, repair the derived sidecars, and only with `allowDestructiveRebuild: true` discard + reopen empty (cache use). Never deletes a live-locked db |
-| `get(key)` | Decoded value or `undefined` |
-| `set(key, value, { ttl? })` | Set; `ttl` in ms. Resolves per fsync policy |
-| `del(key)` | Delete; returns `true` if it existed |
-| `has(key)`, `size` | Membership / live key count |
-| `mget([keys])`, `mset([[k,v],...])` | Batch read / write |
-| `batch([{op:'set'|'del', key, value?, ttl?, dt?}])` | Atomically commit multiple ops (all-or-nothing) |
-| `expire(key, ttlMs)`, `ttl(key)` | Set / read TTL |
-| `createIndex(name, { field, type?, unique?, sparse? })` | Secondary index (json codec) |
-| `dropIndex(name)`, `listIndexes()` | Manage indexes |
-| `findEq(name, value)`, `findRange(name, opts)` | Query value indexes |
-| `createCompoundIndex(name, { groupBy, orderBy, orderType? })` | Compound index (group + order, e.g. workspace + updatedAt) |
-| `compoundRange(name, groupValue, opts)` | Ordered range within a group, O(log N + limit), no full sort |
-| `dropCompoundIndex(name)`, `listCompoundIndexes()` | Manage compound indexes |
-| `scan({ gte, gt, lte, lt, limit, reverse })` | Ordered key range scan |
-| `prefix(p, limit?)` | Key prefix scan |
-| `dtColumns()`, `dtRange(col, opts)` | Datetime column range query |
-| `query({ key, dt, text, filter, project, sort, skip, limit })` | Unified Mongo-like query |
-| `createTextIndex(name, { fields? })`, `dropTextIndex(name)` | Full-text index |
-| `search(name, q, { op?, limit? })` | Full-text search |
-| `compact()` | Force a snapshot + WAL rewrite now |
-| `backup(destDir, { compact? })` | Write a consistent online backup directory |
-| `close()` | Flush, fsync, close |
+| Method                                                                                                                                                                                             | Description                                                                                                                                                        |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `MiniDb.open({ dir, valueCodec?, valueMode?, fsyncPolicy?, compactThresholdBytes?, autoCompact?, activeExpireIntervalMs?, recovery?, readOnly?, onLockFail?, maxMemoryBytes?, maxMemoryPolicy? })` | Open / create a database                                                                                                                                           |
+| `MiniDb.restore(srcDir, destDir, opts?)`                                                                                                                                                           | Restore a `db.backup()` directory and open it                                                                                                                      |
+| `MiniDb.openOrRebuild(opts, { onRebuild?, allowDestructiveRebuild? })`                                                                                                                             | Open; on corruption, repair the derived sidecars, and only with `allowDestructiveRebuild: true` discard + reopen empty (cache use). Never deletes a live-locked db |
+| `get(key)`                                                                                                                                                                                         | Decoded value or `undefined`                                                                                                                                       |
+| `set(key, value, { ttl? })`                                                                                                                                                                        | Set; `ttl` in ms. Resolves per fsync policy                                                                                                                        |
+| `del(key)`                                                                                                                                                                                         | Delete; returns `true` if it existed                                                                                                                               |
+| `has(key)`, `size`                                                                                                                                                                                 | Membership / live key count                                                                                                                                        |
+| `mget([keys])`, `mset([[k,v],...])`                                                                                                                                                                | Batch read / write                                                                                                                                                 |
+| `batch([{op:'set'                                                                                                                                                                                  | 'del', key, value?, ttl?, dt?}])`                                                                                                                                  | Atomically commit multiple ops (all-or-nothing) |
+| `expire(key, ttlMs)`, `ttl(key)`                                                                                                                                                                   | Set / read TTL                                                                                                                                                     |
+| `createIndex(name, { field, type?, unique?, sparse? })`                                                                                                                                            | Secondary index (json codec)                                                                                                                                       |
+| `dropIndex(name)`, `listIndexes()`                                                                                                                                                                 | Manage indexes                                                                                                                                                     |
+| `findEq(name, value)`, `findRange(name, opts)`                                                                                                                                                     | Query value indexes                                                                                                                                                |
+| `createCompoundIndex(name, { groupBy, orderBy, orderType? })`                                                                                                                                      | Compound index (group + order, e.g. workspace + updatedAt)                                                                                                         |
+| `compoundRange(name, groupValue, opts)`                                                                                                                                                            | Ordered range within a group, O(log N + limit), no full sort                                                                                                       |
+| `dropCompoundIndex(name)`, `listCompoundIndexes()`                                                                                                                                                 | Manage compound indexes                                                                                                                                            |
+| `scan({ gte, gt, lte, lt, limit, reverse })`                                                                                                                                                       | Ordered key range scan                                                                                                                                             |
+| `prefix(p, limit?)`                                                                                                                                                                                | Key prefix scan                                                                                                                                                    |
+| `dtColumns()`, `dtRange(col, opts)`                                                                                                                                                                | Datetime column range query                                                                                                                                        |
+| `query({ key, dt, text, filter, project, sort, skip, limit })`                                                                                                                                     | Unified Mongo-like query                                                                                                                                           |
+| `createTextIndex(name, { fields? })`, `dropTextIndex(name)`                                                                                                                                        | Full-text index                                                                                                                                                    |
+| `search(name, q, { op?, limit? })`                                                                                                                                                                 | Full-text search                                                                                                                                                   |
+| `compact()`                                                                                                                                                                                        | Force a snapshot + WAL rewrite now                                                                                                                                 |
+| `backup(destDir, { compact? })`                                                                                                                                                                    | Write a consistent online backup directory                                                                                                                         |
+| `close()`                                                                                                                                                                                          | Flush, fsync, close                                                                                                                                                |
 
 ### Durability (`fsyncPolicy`)
 
-| Policy | Guarantees | Relative speed |
-|---|---|---|
-| `always` | fsync after every flush | slowest (safest) |
-| `everysec` | fsync once per second (default) | fast, ≤1s loss window |
-| `no` | OS decides when to flush | fastest, may lose seconds on power loss |
+| Policy     | Guarantees                      | Relative speed                          |
+| ---------- | ------------------------------- | --------------------------------------- |
+| `always`   | fsync after every flush         | slowest (safest)                        |
+| `everysec` | fsync once per second (default) | fast, ≤1s loss window                   |
+| `no`       | OS decides when to flush        | fastest, may lose seconds on power loss |
 
 ### Value storage mode (`valueMode`)
 
@@ -356,15 +361,15 @@ from `EXISTS` + `SET` is racy across connections.
 
 Measured on Node v24, 100-byte values (`bun run bench`, `N=100000`):
 
-| Operation | Throughput |
-|---|---|
-| Raw `Map` set (baseline) | ~8.6 M ops/s |
-| Raw `Map` get (baseline) | ~20 M ops/s |
-| **DB get** (in-memory) | **~8.0 M ops/s** |
+| Operation                                             | Throughput       |
+| ----------------------------------------------------- | ---------------- |
+| Raw `Map` set (baseline)                              | ~8.6 M ops/s     |
+| Raw `Map` get (baseline)                              | ~20 M ops/s      |
+| **DB get** (in-memory)                                | **~8.0 M ops/s** |
 | **DB set, fsync=everysec** (concurrent, group commit) | **~725 k ops/s** |
-| **DB set, fsync=no** (concurrent, group commit) | **~396 k ops/s** |
-| DB set, fsync=always (sequential, 1 fsync/op) | ~328 ops/s |
-| Compact snapshot of 100k keys | ~69 ms (12 MiB) |
+| **DB set, fsync=no** (concurrent, group commit)       | **~396 k ops/s** |
+| DB set, fsync=always (sequential, 1 fsync/op)         | ~328 ops/s       |
+| Compact snapshot of 100k keys                         | ~69 ms (12 MiB)  |
 
 Reads are memory-bound and track the raw `Map` closely. Writes are
 disk-bound; **group commit** makes concurrent writes very fast, while
@@ -373,12 +378,12 @@ database. Numbers vary by machine/disk.
 
 Query benchmarks (N=50k docs, 200 iters each, `bun bench/query.ts`):
 
-| Query | Throughput |
-|---|---|
-| dt range (small result) | ~183 k ops/s |
-| key prefix scan (~100 rows) | ~23 k ops/s |
-| full-text search (latin / CJK) | ~350–490 ops/s |
-| value filter, **no index** (full scan of 50k) | ~23 ops/s |
+| Query                                         | Throughput     |
+| --------------------------------------------- | -------------- |
+| dt range (small result)                       | ~183 k ops/s   |
+| key prefix scan (~100 rows)                   | ~23 k ops/s    |
+| full-text search (latin / CJK)                | ~350–490 ops/s |
+| value filter, **no index** (full scan of 50k) | ~23 ops/s      |
 
 Indexed dimensions (key / dt / text) are fast; an unindexed value filter scans
 the whole collection — create a secondary index (`createIndex`) for hot value
@@ -413,16 +418,16 @@ secondary/full-text indexes, and the RESP server.
 The **E2E stability suite** (`test/e2e/*.test.ts`) covers crash-safety and
 long-run behavior:
 
-| File | What it verifies |
-|---|---|
-| `fuzz-model.test.ts` | thousands of random ops match a reference model (seeded, reproducible) |
-| `crash-recovery.test.ts` | `kill -9` mid-write and mid-compaction → recovery is always consistent |
-| `index-consistency.test.ts` | key/dt/secondary/full-text indexes never drift from the store |
-| `compaction-race.test.ts` | heavy concurrent writes during compaction lose nothing |
-| `recovery-matrix.test.ts` | WAL corruption at head/mid/tail under `resync` vs `strict` |
-| `durability.test.ts` | `always`/`everysec`/`no` close-durability + many open/close cycles |
-| `boundary.test.ts` | key-length limits, large values, many keys, empty db |
-| `soak.test.ts` | sustained ops + heap stability (opt-in: `SOAK=30 bun run test`) |
+| File                        | What it verifies                                                       |
+| --------------------------- | ---------------------------------------------------------------------- |
+| `fuzz-model.test.ts`        | thousands of random ops match a reference model (seeded, reproducible) |
+| `crash-recovery.test.ts`    | `kill -9` mid-write and mid-compaction → recovery is always consistent |
+| `index-consistency.test.ts` | key/dt/secondary/full-text indexes never drift from the store          |
+| `compaction-race.test.ts`   | heavy concurrent writes during compaction lose nothing                 |
+| `recovery-matrix.test.ts`   | WAL corruption at head/mid/tail under `resync` vs `strict`             |
+| `durability.test.ts`        | `always`/`everysec`/`no` close-durability + many open/close cycles     |
+| `boundary.test.ts`          | key-length limits, large values, many keys, empty db                   |
+| `soak.test.ts`              | sustained ops + heap stability (opt-in: `SOAK=30 bun run test`)        |
 
 The **cluster suite** (`test/cluster/*.test.ts`) covers the `ClusterDb`
 sharding layer: topology/routing, merged scans, lock contention and lease
@@ -457,8 +462,8 @@ await MiniDb.open({ dir: './data' });
 
 // degrade to read-only instead of throwing
 const ro = await MiniDb.open({ dir: './data', onLockFail: 'readonly' });
-ro.get('k');        // ok (point-in-time view)
-await ro.set('k');  // throws "read-only mode"
+ro.get('k'); // ok (point-in-time view)
+await ro.set('k'); // throws "read-only mode"
 
 // open read-only alongside a writer
 const r = await MiniDb.open({ dir: './data', readOnly: true });
@@ -477,8 +482,11 @@ directories (each with its own WAL, snapshot, and `db.lock`):
 import { ClusterDb } from '@moonshot-ai/minidb/cluster';
 
 const db = await ClusterDb.open({ dir: './data', shardCount: 16, valueCodec: 'json' });
-await db.set('user:1', { name: 'alice' });      // routed by hash to one shard
-await db.mset([['a:1', v1], ['b:2', v2]]);      // grouped per shard, atomic per shard
+await db.set('user:1', { name: 'alice' }); // routed by hash to one shard
+await db.mset([
+  ['a:1', v1],
+  ['b:2', v2],
+]); // grouped per shard, atomic per shard
 const all = await db.scan({ prefix: 'user:' }); // merged over all shards
 await db.close();
 ```

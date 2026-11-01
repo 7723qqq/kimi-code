@@ -11,7 +11,12 @@ import { describe, expect, it } from 'bun:test';
 
 import { DIFF_LINE_LIMIT, journalToMarkdown, summarize } from '../src/report.mjs';
 
-const META = { createdAt: '2026-01-01T00:00:00.000Z', root: '/tmp/p', bun: '1.4.4', layers: ['source'] };
+const META = {
+  createdAt: '2026-01-01T00:00:00.000Z',
+  root: '/tmp/p',
+  bun: '1.4.4',
+  layers: ['source'],
+};
 
 function journalOf(changes, skipped = [], name = 'source') {
   return {
@@ -30,7 +35,13 @@ function lines(count, prefix) {
 describe('summarize', () => {
   it('counts edits, removals and skips separately', () => {
     const journal = {
-      layers: () => [{ name: 'source', changes: [edit('a.ts', 'a', 'b')], skipped: [{ file: 'b.ts', reason: 'r' }] }],
+      layers: () => [
+        {
+          name: 'source',
+          changes: [edit('a.ts', 'a', 'b')],
+          skipped: [{ file: 'b.ts', reason: 'r' }],
+        },
+      ],
       changes: [edit('a.ts', 'a', 'b')],
       removals: [{ file: 'pnpm-lock.yaml' }],
     };

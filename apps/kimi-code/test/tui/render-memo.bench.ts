@@ -14,8 +14,6 @@
  *   cd apps/kimi-code && bun test/tui/render-memo.bench.ts
  */
 
-import { bench, describe, reportBenchResults } from './bench-harness';
-
 import type { Component } from '@moonshot-ai/pi-tui';
 
 import { GutterContainer } from '#/tui/components/chrome/gutter-container';
@@ -23,6 +21,8 @@ import { AssistantMessageComponent } from '#/tui/components/messages/assistant-m
 import { ThinkingComponent } from '#/tui/components/messages/thinking';
 import { UserMessageComponent } from '#/tui/components/messages/user-message';
 import { setRenderCacheEnabled } from '#/tui/utils/render-cache';
+
+import { bench, describe, reportBenchResults } from './bench-harness';
 
 const WIDTH = 100;
 const TRANSCRIPT_TURNS = 200;

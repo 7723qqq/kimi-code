@@ -160,7 +160,6 @@ describe('deepseek reasoning replay on the wire', () => {
   });
 
   it('does not ask for the full echo outside the deepseek family', () => {
-
     expect(fullReasoningEchoRequired('gpt-4o', true)).toBe(false);
     expect(thinkingHistoryForModel('gpt-4o')).toBeUndefined();
     expect(ignoredSamplingParamsForModel('gpt-4o')).toEqual([]);

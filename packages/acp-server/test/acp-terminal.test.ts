@@ -1,3 +1,5 @@
+import { describe, expect, it } from 'bun:test';
+
 import type {
   HostProcessOptions,
   IHostEnvironment,
@@ -6,7 +8,6 @@ import type {
   Runtime,
   RuntimeProviderHost,
 } from '@moonshot-ai/agent-core-v2';
-import { describe, expect, it } from 'bun:test';
 
 import type { IAcpConnection, IAcpTerminalHandle } from '../src/acp-fs/acpConnection';
 import { AcpHostFileSystem } from '../src/acp-fs/acpFsService';

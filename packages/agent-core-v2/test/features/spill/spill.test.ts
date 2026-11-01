@@ -1,9 +1,8 @@
+import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtempSync, readFileSync, statSync } from 'node:fs';
 import { readFile, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { afterEach, describe, expect, it } from 'bun:test';
 
 import type { IConfigService } from '#/app/config/config';
 import { SpillLocator, type ISpillService } from '#/features/spill/spill';
@@ -131,21 +130,20 @@ describe('SpillService', () => {
     expect(await service.readText(SpillLocator(join(root, '..', 'outside.txt')))).toBeNull();
   });
 
-    it('refuses to read through a symlink that escapes the root', async () => {
-      const root = scratchDir();
-      const outsideDir = scratchDir();
-      const outside = join(outsideDir, 'secret.txt');
-      await writeFile(outside, 'secret', 'utf8');
-      const link = join(root, 'escape.txt');
-      try {
-        await symlink(outside, link);
-      } catch {
-        return;
-      }
-      const service = spillService(root);
-      expect(await service.readText(SpillLocator(link))).toBeNull();
-    });
-
+  it('refuses to read through a symlink that escapes the root', async () => {
+    const root = scratchDir();
+    const outsideDir = scratchDir();
+    const outside = join(outsideDir, 'secret.txt');
+    await writeFile(outside, 'secret', 'utf8');
+    const link = join(root, 'escape.txt');
+    try {
+      await symlink(outside, link);
+    } catch {
+      return;
+    }
+    const service = spillService(root);
+    expect(await service.readText(SpillLocator(link))).toBeNull();
+  });
 
   it('reads a missing artifact as null', async () => {
     const root = scratchDir();

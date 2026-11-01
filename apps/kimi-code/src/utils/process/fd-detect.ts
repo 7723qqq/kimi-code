@@ -1,11 +1,4 @@
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  renameSync,
-  rmSync,
-} from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { arch, platform } from 'node:os';
 import { join } from 'node:path';
 
@@ -198,7 +191,9 @@ async function downloadFd(deps: FdDetectDeps): Promise<string | null> {
 }
 
 async function verifyArchive(path: string, expectedSha256: string): Promise<void> {
-  const actualSha256 = new Bun.CryptoHasher('sha256').update(await Bun.file(path).bytes()).digest('hex');
+  const actualSha256 = new Bun.CryptoHasher('sha256')
+    .update(await Bun.file(path).bytes())
+    .digest('hex');
   if (actualSha256 !== expectedSha256) {
     throw new Error(`fd archive checksum mismatch: ${actualSha256} !== ${expectedSha256}`);
   }

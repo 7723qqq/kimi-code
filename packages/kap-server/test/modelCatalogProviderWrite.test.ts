@@ -1,14 +1,14 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { IConfigService } from '@moonshot-ai/agent-core-v2';
 import { parse as parseToml } from 'smol-toml';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 interface Envelope<T> {
   code: number;
@@ -67,7 +67,10 @@ const POOL_TOML = [
   '',
 ].join('\n');
 
-const POOL_DANGLING_DEFAULT_TOML = POOL_TOML.replace('default_model = "k2"', 'default_model = "gpt4o"');
+const POOL_DANGLING_DEFAULT_TOML = POOL_TOML.replace(
+  'default_model = "k2"',
+  'default_model = "gpt4o"',
+);
 
 const MANAGED_TOML = [
   '[providers."managed:kimi-code"]',
@@ -695,10 +698,10 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
 
   it('never touches default_model when the rebuild drops its alias (no rename)', async () => {
     await boot(DEFAULTED_TOML);
-    const { status, body } = await putJson<unknown>(
-      '/api/v1/providers/openai',
-      { ...REPLACE_BODY, type: 'openai_responses' },
-    );
+    const { status, body } = await putJson<unknown>('/api/v1/providers/openai', {
+      ...REPLACE_BODY,
+      type: 'openai_responses',
+    });
     expect(status).toBe(200);
     expect(body.code).toBe(0);
 
@@ -774,7 +777,9 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     const models = await getJson<{
       items: Array<{ model: string; upgrade?: { model: string; migration_markdown?: string } }>;
     }>('/api/v1/models');
-    expect(models.body.data.items.find((item) => item.model === 'my-openai/gpt-4o')?.upgrade).toEqual({
+    expect(
+      models.body.data.items.find((item) => item.model === 'my-openai/gpt-4o')?.upgrade,
+    ).toEqual({
       model: 'my-openai/gpt-4.1',
       migration_markdown: 'Use next',
     });
@@ -803,7 +808,9 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     const models = await getJson<{
       items: Array<{ model: string; upgrade?: { model: string; migration_markdown?: string } }>;
     }>('/api/v1/models');
-    expect(models.body.data.items.find((item) => item.model === 'my-openai/gpt-4o')?.upgrade).toEqual({
+    expect(
+      models.body.data.items.find((item) => item.model === 'my-openai/gpt-4o')?.upgrade,
+    ).toEqual({
       model: 'my-openai/gpt-4.1',
       migration_markdown: 'Use next',
     });
@@ -825,15 +832,17 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     const models = await getJson<{
       items: Array<{ model: string; upgrade?: unknown }>;
     }>('/api/v1/models');
-    expect(models.body.data.items.find((item) => item.model === 'my-openai/gpt-4o')?.upgrade).toBeUndefined();
+    expect(
+      models.body.data.items.find((item) => item.model === 'my-openai/gpt-4o')?.upgrade,
+    ).toBeUndefined();
   });
 
   it('migrates default_provider on rename but leaves default_model alone when its model was dropped', async () => {
     await boot(DEFAULTED_TOML);
-    const { status, body } = await putJson<unknown>(
-      '/api/v1/providers/openai',
-      { ...REPLACE_BODY, new_id: 'my-openai' },
-    );
+    const { status, body } = await putJson<unknown>('/api/v1/providers/openai', {
+      ...REPLACE_BODY,
+      new_id: 'my-openai',
+    });
     expect(status).toBe(200);
     expect(body.code).toBe(0);
 
@@ -924,10 +933,7 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
 
   it('rejects replacing an OAuth-managed provider with 40003', async () => {
     await boot(MANAGED_TOML);
-    const { body } = await putJson<unknown>(
-      '/api/v1/providers/managed%3Akimi-code',
-      REPLACE_BODY,
-    );
+    const { body } = await putJson<unknown>('/api/v1/providers/managed%3Akimi-code', REPLACE_BODY);
     expect(body.code).toBe(40003);
     expect(body.msg).toContain('/oauth/logout');
 

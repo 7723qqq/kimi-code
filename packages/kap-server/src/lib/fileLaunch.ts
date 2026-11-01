@@ -116,9 +116,15 @@ function commandExists(command: string, platform: NodeJS.Platform): boolean {
   try {
     const result =
       platform === 'win32'
-        ? Bun.spawnSync({ cmd: ['cmd', '/c', 'where', command], stdio: ['ignore', 'ignore', 'ignore'] })
+        ? Bun.spawnSync({
+            cmd: ['cmd', '/c', 'where', command],
+            stdio: ['ignore', 'ignore', 'ignore'],
+          })
         : Bun.spawnSync({
-            cmd: [shellForProbe(), ...shellCommandArgs(`command -v ${quoteShellArg(command, platform)}`)],
+            cmd: [
+              shellForProbe(),
+              ...shellCommandArgs(`command -v ${quoteShellArg(command, platform)}`),
+            ],
             stdio: ['ignore', 'ignore', 'ignore'],
           });
     return result.exitCode === 0;

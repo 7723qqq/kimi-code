@@ -1,14 +1,14 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import { join } from 'pathe';
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
-import { discoverAgentFiles } from '#/workspace/workspaceAgentProfileLoader/internal/agentFileDiscovery';
-import type { AgentFileRoot } from '#/workspace/workspaceAgentProfileLoader/internal/types';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
+import { discoverAgentFiles } from '#/workspace/workspaceAgentProfileLoader/internal/agentFileDiscovery';
+import type { AgentFileRoot } from '#/workspace/workspaceAgentProfileLoader/internal/types';
 
 const hostFs = new HostFileSystem();
 

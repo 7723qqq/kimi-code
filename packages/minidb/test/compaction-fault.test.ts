@@ -18,15 +18,14 @@
 // NOTE: each test patches the shared fs object and the afterEach below restores
 // every patched property, so no test inherits another test's fault.
 
+import { afterEach, expect, spyOn, test } from 'bun:test';
 import type { PathLike } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, expect, spyOn, test } from 'bun:test';
-
-import { copyFileRange, fsyncDir, isUnsupportedDirectoryFsyncError } from '../src/compaction.js';
 import { encodeFrame, FrameParser, TYPE_SET } from '../src/codec.js';
+import { copyFileRange, fsyncDir, isUnsupportedDirectoryFsyncError } from '../src/compaction.js';
 import { MiniDb } from '../src/index.js';
 import * as snapshot from '../src/snapshot.js';
 import { WAL } from '../src/wal.js';
@@ -77,7 +76,9 @@ test('copyFileRange throws when the destination short-writes (bytesWritten === 0
       close: async () => {},
     };
   });
-  await expect((() => copyFileRange('/tmp/src', '/tmp/dst', 0, 16))()).rejects.toThrow(/short write/);
+  await expect((() => copyFileRange('/tmp/src', '/tmp/dst', 0, 16))()).rejects.toThrow(
+    /short write/,
+  );
 });
 
 test('copyFileRange tolerates a source close() failure (best-effort close)', async () => {
@@ -182,24 +183,16 @@ function mockFsWithFaults(faults: {
 }): void {
   const realRename = fs.rename;
   const realOpen = fs.open;
-  patch(
-    fs,
-    'rename',
-    (async (src: PathLike, dst: PathLike): Promise<void> => {
-      const err = faults.rename?.(String(src), String(dst));
-      if (err) throw err;
-      await realRename(src, dst as never);
-    }) as typeof fs.rename,
-  );
-  patch(
-    fs,
-    'open',
-    (async (p: PathLike, flags?: string | number, mode?: string | number) => {
-      const err = faults.open?.(String(p), flags);
-      if (err) throw err;
-      return realOpen(p, flags as string | number | undefined, mode as never);
-    }) as typeof fs.open,
-  );
+  patch(fs, 'rename', (async (src: PathLike, dst: PathLike): Promise<void> => {
+    const err = faults.rename?.(String(src), String(dst));
+    if (err) throw err;
+    await realRename(src, dst as never);
+  }) as typeof fs.rename);
+  patch(fs, 'open', (async (p: PathLike, flags?: string | number, mode?: string | number) => {
+    const err = faults.open?.(String(p), flags);
+    if (err) throw err;
+    return realOpen(p, flags as string | number | undefined, mode as never);
+  }) as typeof fs.open);
 }
 
 // Passthrough node:fs/promises patch that breaks the sync() of the db
@@ -210,22 +203,18 @@ function mockFsWithFaults(faults: {
 function mockFsWithDirSyncFault(dir: string, failOnCalls: ReadonlySet<number>): void {
   const realOpen = fs.open;
   let dirOpens = 0;
-  patch(
-    fs,
-    'open',
-    (async (p: PathLike, flags?: string | number, mode?: string | number) => {
-      const h = await realOpen(p, flags as string | number | undefined, mode as never);
-      if (String(p) === dir && flags === 'r') {
-        dirOpens++;
-        if (failOnCalls.has(dirOpens)) {
-          h.sync = async () => {
-            throw Object.assign(new Error('injected dir fsync failure'), { code: 'EIO' });
-          };
-        }
+  patch(fs, 'open', (async (p: PathLike, flags?: string | number, mode?: string | number) => {
+    const h = await realOpen(p, flags as string | number | undefined, mode as never);
+    if (String(p) === dir && flags === 'r') {
+      dirOpens++;
+      if (failOnCalls.has(dirOpens)) {
+        h.sync = async () => {
+          throw Object.assign(new Error('injected dir fsync failure'), { code: 'EIO' });
+        };
       }
-      return h;
-    }) as typeof fs.open,
-  );
+    }
+    return h;
+  }) as typeof fs.open);
 }
 
 test('wal.close() propagates a final-sync failure but still releases the file handle', async () => {
@@ -417,7 +406,10 @@ test('rotation: a new-WAL open() failure after the renames leaves the db writabl
     const sawSnapshotRef = [...db.store.map.values()].some(
       (r) => r.ref.kind === 'disk' && r.ref.loc.file === 'snapshot',
     );
-    expect(sawSnapshotRef, 'store pointers were remapped to the new snapshot after the failed rotation').toBeTruthy();
+    expect(
+      sawSnapshotRef,
+      'store pointers were remapped to the new snapshot after the failed rotation',
+    ).toBeTruthy();
 
     // Disk-backed reads stay correct and the db is writable again.
     expect(db.get('k0')).toBe('v0');
@@ -462,7 +454,9 @@ test('rotation: the first directory fsync failure aborts the rotation; rollback 
     expect(db.stats.compactions).toBe(0);
     expect(db.stats.compactErrors).toBe(1);
     expect(String(String(db.lastCompactError))).toMatch(/injected dir fsync failure/);
-    expect(db.stats.dirFsyncUnsupported, 'an I/O error is not the platform-degrade path').not.toBe(true);
+    expect(db.stats.dirFsyncUnsupported, 'an I/O error is not the platform-degrade path').not.toBe(
+      true,
+    );
 
     // The abort went through the existing rollback: the write path is back.
     await db.set('post', 'still-writable');
@@ -608,14 +602,10 @@ test('a WAL poison during the snapshot phase aborts this compaction; the next co
   let releaseTruncate!: () => void;
   const truncateGate = new Promise<void>((r) => (releaseTruncate = r));
   const realTruncate = fs.truncate;
-  patch(
-    fs,
-    'truncate',
-    (async (p: PathLike, len?: number): Promise<void> => {
-      await truncateGate;
-      return realTruncate(p, len as never);
-    }) as typeof fs.truncate,
-  );
+  patch(fs, 'truncate', (async (p: PathLike, len?: number): Promise<void> => {
+    await truncateGate;
+    return realTruncate(p, len as never);
+  }) as typeof fs.truncate);
 
   const dir = await tmpDir();
   try {
@@ -660,7 +650,9 @@ test('a WAL poison during the snapshot phase aborts this compaction; the next co
     await db.compact();
     expect(db.stats.compactions).toBe(1);
     expect(db.stats.compactErrors).toBe(1);
-    expect(db.get('bad'), 'the rejected write never reached the snapshot or the WAL').toBe(undefined);
+    expect(db.get('bad'), 'the rejected write never reached the snapshot or the WAL').toBe(
+      undefined,
+    );
     expect(db.get('k0')).toBe('v0');
     expect(db.get('post')).toBe('ok');
     await db.close();

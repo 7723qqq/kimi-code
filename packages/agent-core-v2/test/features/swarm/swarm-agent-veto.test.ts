@@ -1,5 +1,6 @@
-import { t, setLocale } from '@moonshot-ai/kimi-i18n';
 import { afterEach, beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
+
+import { t, setLocale } from '@moonshot-ai/kimi-i18n';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -20,20 +21,24 @@ import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
 import { AgentSwarmService } from '#/features/swarm/agent/swarmService';
 import { ISessionSwarmService } from '#/features/swarm/session/sessionSwarm';
-import type { ToolCall } from '#human/llm/message';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import type { ToolCall } from '#human/llm/message';
 
 import { stubContextMemory } from '../../agent/contextMemory/stubs';
-import { recordingTelemetry } from '../../app/telemetry/stubs';
 import {
   stubToolExecutorEvents,
   type ToolExecutorEventStubs,
 } from '../../agent/toolExecutor/stubs';
+import { recordingTelemetry } from '../../app/telemetry/stubs';
+import {
+  registerTestAgentWire,
+  registerTestEventDispatcher,
+  testWireScope,
+} from '../../wire/stubs';
 import { createReminderStub } from '../reminder/stubs';
-import { registerTestAgentWire, registerTestEventDispatcher, testWireScope } from '../../wire/stubs';
 
 const signal = new AbortController().signal;
 

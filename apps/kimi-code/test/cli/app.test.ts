@@ -1,6 +1,7 @@
-import { resolve } from 'node:path';
-import { Command } from 'commander';
 import { describe, expect, it, mock } from 'bun:test';
+import { resolve } from 'node:path';
+
+import { Command } from 'commander';
 
 import { registerAppCommand } from '#/cli/sub/app';
 

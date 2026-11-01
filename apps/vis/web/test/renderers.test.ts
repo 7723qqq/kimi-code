@@ -1,17 +1,15 @@
+import { describe, expect, it } from 'bun:test';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'bun:test';
 
 import { WIRE_RENDERERS } from '../src/components/wire/renderers';
 
 type CheckpointRecord = Parameters<
   (typeof WIRE_RENDERERS)['file_history.checkpoint']['headline']
 >[0];
-type TrackedRecord = Parameters<
-  (typeof WIRE_RENDERERS)['file_history.tracked']['headline']
->[0];
+type TrackedRecord = Parameters<(typeof WIRE_RENDERERS)['file_history.tracked']['headline']>[0];
 type CompactionRecord = Parameters<
   (typeof WIRE_RENDERERS)['context.apply_compaction']['headline']
 >[0];
@@ -63,7 +61,8 @@ const HISTORICAL_OR_HEADER_TYPES = new Set([
 ]);
 
 describe('wire renderers', () => {
-  it('covers every durable record in the current core-v2 wire manifest', async () => {    const manifestPath = resolve(
+  it('covers every durable record in the current core-v2 wire manifest', async () => {
+    const manifestPath = resolve(
       import.meta.dirname,
       '../../../../packages/agent-core-v2/docs/wire-manifest.d.ts',
     );
@@ -224,12 +223,8 @@ describe('wire renderers', () => {
       summary: undefined,
       contextSummary: 'context-only summary',
     });
-    expect(renderToStaticMarkup(renderer.headline(contextOnly).main)).toContain(
-      'contextSummary',
-    );
-    expect(renderToStaticMarkup(renderer.detail?.(contextOnly))).toContain(
-      'context-only summary',
-    );
+    expect(renderToStaticMarkup(renderer.headline(contextOnly).main)).toContain('contextSummary');
+    expect(renderToStaticMarkup(renderer.detail?.(contextOnly))).toContain('context-only summary');
 
     const legacy = compactionRecord({
       summary: {
@@ -318,7 +313,14 @@ describe('wire renderers', () => {
     ['numeric result', 42],
   ])('renders an approval record with a %s as a placeholder', (_label, result) => {
     const renderer = WIRE_RENDERERS['permission.record_approval_result'];
-    const record = { type: 'permission.record_approval_result', toolName: 'Bash', toolCallId: 'call-12345678', action: 'approve', turnId: 't1', result } as unknown as Parameters<typeof renderer.headline>[0];
+    const record = {
+      type: 'permission.record_approval_result',
+      toolName: 'Bash',
+      toolCallId: 'call-12345678',
+      action: 'approve',
+      turnId: 't1',
+      result,
+    } as unknown as Parameters<typeof renderer.headline>[0];
 
     const headline = renderer.headline(record);
     const detail = renderer.detail?.(record);

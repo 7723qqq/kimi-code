@@ -182,7 +182,12 @@ export class AgentTaskPersistence {
     if (previewBytes <= 0 || location.totalBytes <= 0) return '';
     const from = location.totalBytes - previewBytes;
     const start = Math.max(0, from - OUTPUT_TAIL_ALIGN_BYTES);
-    const window = await this.readOutputRange(taskId, location.root, start, location.totalBytes - 1);
+    const window = await this.readOutputRange(
+      taskId,
+      location.root,
+      start,
+      location.totalBytes - 1,
+    );
     if (window.byteLength === 0) return '';
     const offset = alignToCharacterStart(window, from - start);
     return textDecoder.decode(window.subarray(offset));

@@ -1,4 +1,3 @@
-
 import { join } from 'pathe';
 
 export type MemoryScope = 'global' | 'project' | 'session';
@@ -100,7 +99,10 @@ export function parseAppliesTo(body: string): string[] {
   const list = block.match(/applies_to:\s*\n((?:\s*-\s*[^\n]+\n?)+)/);
   if (list !== null) {
     for (const line of list[1]!.split('\n')) {
-      const value = line.trim().replace(/^-\s*/, '').replace(/^['"]|['"]$/g, '');
+      const value = line
+        .trim()
+        .replace(/^-\s*/, '')
+        .replace(/^['"]|['"]$/g, '');
       if (value.length > 0) patterns.push(value);
     }
   }

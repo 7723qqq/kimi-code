@@ -1,9 +1,8 @@
-import { createRequire } from 'node:module';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { readFile, mkdtemp, readdir, rm } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 
 import { createKimiHarness, flushDiagnosticLogs, log } from '#/index';
 import { __resetRootLoggerForTest, getRootLogger, RotatingFileSink } from '#/logging/index';
@@ -25,7 +24,9 @@ const SINK_FAULT_MARKER = '@@sink-fault@@';
 // Bun calls the factory with no arguments and a module cannot import the
 // specifier it is replacing, so the real namespace comes from `createRequire`.
 void mock.module('node:fs/promises', () => {
-  const actual = createRequire(import.meta.url)('node:fs/promises') as typeof import('node:fs/promises');
+  const actual = createRequire(import.meta.url)(
+    'node:fs/promises',
+  ) as typeof import('node:fs/promises');
   return {
     ...actual,
     open: async (...args: Parameters<typeof actual.open>) => {
@@ -214,7 +215,6 @@ describe('Local logging — port unit behavior', () => {
     await __resetRootLoggerForTest();
   });
 });
-
 
 describe('RotatingFileSink — partial drain recovery', () => {
   // One line per chunk: small enough that a failure on the second chunk means

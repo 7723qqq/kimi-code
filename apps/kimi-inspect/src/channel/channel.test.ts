@@ -7,15 +7,15 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 
 import { setGlobal, restoreGlobals } from '../../test/_helpers/bunTest';
-import type { Event, IChannel } from './channel';
-import { probeDebugSurface } from './channels';
-import { createInspectClient } from './client';
-import { RPCError } from './errors';
 import {
   fetchAgentRuntimeBinding,
   fetchSessionWorkspaceAssociation,
   fetchWorkspaceSnapshot,
 } from '../snapshots/api';
+import type { Event, IChannel } from './channel';
+import { probeDebugSurface } from './channels';
+import { createInspectClient } from './client';
+import { RPCError } from './errors';
 import { makeProxy } from './proxy';
 import { ProxyChannel } from './proxyChannel';
 
@@ -136,17 +136,27 @@ describe('business snapshots', () => {
         return { json: async () => ok({ sessionId: 's 1', workspaceId: 'w 1', cwd: '/work' }) };
       }
       return {
-        json: async () => ok({
-          binding: { workspaceId: 'w 1', runtimeId: 'remote' },
-          available: true,
-          runtime: { runtimeId: 'remote', generation: 'g2', status: 'ready', capabilities: ['process'] },
-        }),
+        json: async () =>
+          ok({
+            binding: { workspaceId: 'w 1', runtimeId: 'remote' },
+            available: true,
+            runtime: {
+              runtimeId: 'remote',
+              generation: 'g2',
+              status: 'ready',
+              capabilities: ['process'],
+            },
+          }),
       };
     });
     const client = createInspectClient({ url: 'http://h:9', token: 'tok' });
 
-    await expect(fetchWorkspaceSnapshot(client, 'w 1')).resolves.toMatchObject({ metadata: { id: 'w 1' } });
-    await expect(fetchSessionWorkspaceAssociation(client, 's 1')).resolves.toMatchObject({ workspaceId: 'w 1' });
+    await expect(fetchWorkspaceSnapshot(client, 'w 1')).resolves.toMatchObject({
+      metadata: { id: 'w 1' },
+    });
+    await expect(fetchSessionWorkspaceAssociation(client, 's 1')).resolves.toMatchObject({
+      workspaceId: 'w 1',
+    });
     await expect(fetchAgentRuntimeBinding(client, 's 1', 'main')).resolves.toMatchObject({
       binding: { runtimeId: 'remote' },
       runtime: { generation: 'g2' },

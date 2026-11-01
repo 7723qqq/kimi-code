@@ -38,7 +38,9 @@ export function journalToMarkdown(journal, meta) {
   ];
   for (const layer of meta.layers) {
     const bucket = journal.layers().find((item) => item.name === layer);
-    lines.push(`| ${layer} | ${bucket ? bucket.changes.length : 0} | ${bucket ? bucket.skipped.length : 0} |`);
+    lines.push(
+      `| ${layer} | ${bucket ? bucket.changes.length : 0} | ${bucket ? bucket.skipped.length : 0} |`,
+    );
   }
   lines.push('');
   for (const layer of journal.layers()) {
@@ -50,7 +52,8 @@ export function journalToMarkdown(journal, meta) {
         lines.push(`- _note_: ${change.detail}`);
         continue;
       }
-      const verb = change.kind === 'create' ? 'create' : change.kind === 'remove' ? 'remove' : 'edit';
+      const verb =
+        change.kind === 'create' ? 'create' : change.kind === 'remove' ? 'remove' : 'edit';
       lines.push(`- **${verb}** \`${change.file}\`${change.detail ? ` — ${change.detail}` : ''}`);
       if (change.kind === 'edit' && change.before !== undefined) {
         lines.push('');

@@ -32,18 +32,14 @@
  */
 
 import type { Component, TuiMouseEvent, TuiMouseEventResult } from '@moonshot-ai/pi-tui';
-import {
-  truncateToWidth,
-  visibleWidth,
-  wrapTextWithAnsi,
-} from '@moonshot-ai/pi-tui';
+import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
 import { t } from '#/i18n';
 import { DockSection, type DockLayout, type DockPart } from '#/tui/components/chrome/dock-section';
-import { NOTIFY_AUTOSCROLL_INTERVAL_MS } from '#/tui/constant/rendering';
 import { Markdown } from '#/tui/components/markdown/markdown';
 import { MAIN_AGENT_ID } from '#/tui/constant/kimi-tui';
+import { NOTIFY_AUTOSCROLL_INTERVAL_MS } from '#/tui/constant/rendering';
 import { currentTheme, type ColorPalette } from '#/tui/theme';
 import { createMarkdownTheme } from '#/tui/theme/pi-tui-theme';
 import {
@@ -899,7 +895,9 @@ export class NotifyPanelComponent extends DockSection implements Component {
     const total = this.channels.reduce((sum, ch) => sum + ch.entries.length, 0);
     const head = ` ${marker} ${tabs} ${dim(
       `· ${t(
-        total === 1 ? 'tui.messages.notifyPanelUpdateCount_one' : 'tui.messages.notifyPanelUpdateCount_other',
+        total === 1
+          ? 'tui.messages.notifyPanelUpdateCount_one'
+          : 'tui.messages.notifyPanelUpdateCount_other',
         { count: total },
       )}`,
     )}`;
@@ -912,7 +910,9 @@ export class NotifyPanelComponent extends DockSection implements Component {
     }
     if (visibleWidth(head) + visibleWidth(tail) <= width) return `${head}${tail}`;
     const shortCount = t(
-      total === 1 ? 'tui.messages.notifyPanelUpdateCount_one' : 'tui.messages.notifyPanelUpdateCount_other',
+      total === 1
+        ? 'tui.messages.notifyPanelUpdateCount_one'
+        : 'tui.messages.notifyPanelUpdateCount_other',
       { count: total },
     );
     return ` ${marker} ${dim(`${shortCount} · ctrl+n`)}`;

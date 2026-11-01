@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 
-import { getLocale as getEngineLocale, t as engineT, setLocale as setEngineLocale } from '@moonshot-ai/kimi-i18n';
+import {
+  getLocale as getEngineLocale,
+  t as engineT,
+  setLocale as setEngineLocale,
+} from '@moonshot-ai/kimi-i18n';
 
 /**
  * The engine owns a translation instance of its own

@@ -1,12 +1,4 @@
-import {
-  access,
-  appendFile,
-  mkdir,
-  open,
-  readdir,
-  rename,
-  writeFile,
-} from 'node:fs/promises';
+import { access, appendFile, mkdir, open, readdir, rename, writeFile } from 'node:fs/promises';
 
 import type { BlobBackend, StoreBackend, TreeBackend } from './backend';
 

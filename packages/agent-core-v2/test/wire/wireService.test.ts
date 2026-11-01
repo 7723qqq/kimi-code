@@ -1,22 +1,29 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
-import { DisposableStore } from '#/_base/di/lifecycle';
 import { SyncDescriptor } from '#/_base/di/descriptors';
+import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { resetUnexpectedErrorHandler, setUnexpectedErrorHandler } from '#/_base/errors/unexpectedError';
+import {
+  resetUnexpectedErrorHandler,
+  setUnexpectedErrorHandler,
+} from '#/_base/errors/unexpectedError';
 import { ILogService } from '#/_base/log/log';
 import { IAgentBlobService } from '#/agent/blob/agentBlobService';
 import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
-import type { ContentPart } from '#human/llm/message';
-import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
-import { IFileSystemStorageService, StorageError, StorageErrors } from '#/persistence/interface/storage';
-import { WIRE_PROTOCOL_VERSION } from '#/wire/migration/migration';
-import { wireJournalBackupKey } from '#/wire/repair';
+import {
+  IFileSystemStorageService,
+  StorageError,
+  StorageErrors,
+} from '#/persistence/interface/storage';
 import { WireError, WireErrors } from '#/wire/errors';
-import { IWireService } from '#/wire/wire';
+import { WIRE_PROTOCOL_VERSION } from '#/wire/migration/migration';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
+import { wireJournalBackupKey } from '#/wire/repair';
+import { IWireService } from '#/wire/wire';
+import type { ContentPart } from '#human/llm/message';
 
 import { recordingWireLog, registerTestAgentWire, testWireScope, noopLogger } from './stubs';
 
@@ -52,7 +59,10 @@ async function readRecords(
   key = KEY,
 ): Promise<WireRecord[]> {
   const out: WireRecord[] = [];
-  for await (const record of target.read<WireRecord>(testWireScope(scope, key), AGENT_WIRE_RECORD_KEY)) {
+  for await (const record of target.read<WireRecord>(
+    testWireScope(scope, key),
+    AGENT_WIRE_RECORD_KEY,
+  )) {
     out.push(record);
   }
   return out;
@@ -69,10 +79,18 @@ async function collect(journal: AsyncIterable<WireRecord>): Promise<WireRecord[]
 function wireOverLog(
   stubLog: IAppendLogStore,
   key: string,
-  dependencies: { blob?: IAgentBlobService; storage?: IFileSystemStorageService; telemetry?: ITelemetryService } = {},
+  dependencies: {
+    blob?: IAgentBlobService;
+    storage?: IFileSystemStorageService;
+    telemetry?: ITelemetryService;
+  } = {},
 ): IWireService {
   const stubIx = disposables.add(new TestInstantiationService());
-  return registerTestAgentWire(stubIx, testWireScope(SCOPE, key), { log: stubLog, logger: noopLogger, ...dependencies });
+  return registerTestAgentWire(stubIx, testWireScope(SCOPE, key), {
+    log: stubLog,
+    logger: noopLogger,
+    ...dependencies,
+  });
 }
 
 describe('WireService seal', () => {
@@ -469,10 +487,7 @@ describe('WireService readJournal', () => {
   });
 
   it('rejects a malformed metadata envelope as corrupted storage', async () => {
-    const stub = wireOverLog(
-      recordingWireLog([{ type: 'metadata' }]),
-      'malformed-metadata',
-    );
+    const stub = wireOverLog(recordingWireLog([{ type: 'metadata' }]), 'malformed-metadata');
 
     const failure = await collect(stub.readJournal()).catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(StorageError);
@@ -799,7 +814,9 @@ describe('WireService corruption repair', () => {
     svc.appendRecord({ type: 'wire.test.new', time: 7 });
     await svc.flush();
 
-    expect(await rawBytes()).toBe(`${prefix}${JSON.stringify({ type: 'wire.test.new', time: 7 })}\n`);
+    expect(await rawBytes()).toBe(
+      `${prefix}${JSON.stringify({ type: 'wire.test.new', time: 7 })}\n`,
+    );
     expect(await rawBytes(BACKUP_KEY)).toBe(raw);
     expect(await collect(svc.readJournal())).toEqual([
       { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
@@ -1019,15 +1036,27 @@ describe('WireService tree projection', () => {
   it('writes the undo switch triple with paired physical line numbers after re-reading a rewritten journal', async () => {
     const enc = new TextEncoder();
     const seed = [
-      JSON.stringify({ type: 'context.append_message', message: userPrompt('first', 'p1'), time: 1 }),
+      JSON.stringify({
+        type: 'context.append_message',
+        message: userPrompt('first', 'p1'),
+        time: 1,
+      }),
       JSON.stringify({
         type: 'context.append_message',
         message: { role: 'assistant', content: [{ type: 'text', text: 'answer' }], toolCalls: [] },
         time: 2,
       }),
-      JSON.stringify({ type: 'context.append_message', message: userPrompt('second', 'p2'), time: 3 }),
+      JSON.stringify({
+        type: 'context.append_message',
+        message: userPrompt('second', 'p2'),
+        time: 3,
+      }),
     ];
-    await storage.write(testWireScope(SCOPE, KEY), AGENT_WIRE_RECORD_KEY, enc.encode(`${seed.join('\n')}\n`));
+    await storage.write(
+      testWireScope(SCOPE, KEY),
+      AGENT_WIRE_RECORD_KEY,
+      enc.encode(`${seed.join('\n')}\n`),
+    );
 
     const switched = await wire.switchBranch({ turns: 1 });
 
@@ -1057,11 +1086,7 @@ describe('WireService tree projection', () => {
     expect(wire.branches()).toEqual(['main', 'b1']);
     expect(wire.nextSeq()).toBe(8);
 
-    expect(await collect(wire.read())).toEqual([
-      ...onDisk.slice(0, 3),
-      onDisk[5]!,
-      onDisk[6]!,
-    ]);
+    expect(await collect(wire.read())).toEqual([...onDisk.slice(0, 3), onDisk[5]!, onDisk[6]!]);
     expect(await collect(wire.readRaw())).toEqual(onDisk);
 
     await expect(wire.switchBranch({ turns: 2 })).rejects.toMatchObject({
@@ -1169,7 +1194,11 @@ describe('WireService tree projection', () => {
 
     const switched = await concurrent.switchBranch({ turns: 1 });
 
-    expect(switched).toMatchObject({ branch: 'b1', base: { branch: 'main', line: 1 }, forkLine: 1 });
+    expect(switched).toMatchObject({
+      branch: 'b1',
+      base: { branch: 'main', line: 1 },
+      forkLine: 1,
+    });
     expect(records[3]).toEqual({ type: 'wire.test.concurrent', time: 9 });
     expect(records[4]?.type).toBe('agent.switched');
 

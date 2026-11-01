@@ -1,8 +1,7 @@
 import { expect, it } from 'bun:test';
+import { describe } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-
-import { describe } from 'bun:test';
 
 import { estimateTokens } from '#/llm-adapter/contract/tokens';
 

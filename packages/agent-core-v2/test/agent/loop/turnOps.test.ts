@@ -1,5 +1,6 @@
-import { produce } from 'immer';
 import { describe, expect, it } from 'bun:test';
+
+import { produce } from 'immer';
 
 import {
   ContextAppendLoopEvent,
@@ -7,8 +8,6 @@ import {
   ContextClear,
   ContextUndo,
 } from '#/agent/contextMemory/contextEvents';
-import { event2FromRecord, type Event2, type Event2Class } from '#/app/event/event2';
-import type { FoldContext } from '#/state/state';
 import {
   TurnCancel,
   TurnEnded,
@@ -16,6 +15,8 @@ import {
   TurnPrompt,
   type TurnModelState,
 } from '#/agent/loop/turnOps';
+import { event2FromRecord, type Event2, type Event2Class } from '#/app/event/event2';
+import type { FoldContext } from '#/state/state';
 
 const foldContext: FoldContext = {
   silent: false,
@@ -32,7 +33,13 @@ function fold(s: TurnModelState, event: Event2): TurnModelState {
 }
 
 function foldLoopEvent(s: TurnModelState, turnId: string): TurnModelState {
-  return fold(s, new ContextAppendLoopEvent({ agentId: 'main', event: { type: 'step.begin', uuid: 'step-0', turnId } }));
+  return fold(
+    s,
+    new ContextAppendLoopEvent({
+      agentId: 'main',
+      event: { type: 'step.begin', uuid: 'step-0', turnId },
+    }),
+  );
 }
 
 describe('turnKey lastEnded', () => {

@@ -36,6 +36,7 @@ import { IConfigService } from '#/app/config/config';
 import { THINKING_SECTION } from '#/app/kosongConfig/configSection';
 import { LifecycleScope } from '#/app/scopes';
 import type { ApiErrorEvent, LlmRequestProjectionFallbackEvent } from '#/app/telemetry/events';
+import type { PromptCacheProbeEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ErrorCodes, Error2, unwrapErrorCause } from '#/errors';
 import {
@@ -68,7 +69,6 @@ import type { Protocol } from '#/llm-adapter/protocol/protocol';
 import { IHostTimers } from '#/os/interface/hostTimers';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 import { ISessionUsageService } from '#/session/usage/sessionUsage';
-import type { PromptCacheProbeEvent } from '#/app/telemetry/events';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { defineState } from '#/state/state';
 import {
@@ -879,11 +879,11 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
   ): void {
     const baseline = probe.baseline;
     const sameModel =
-      baseline === undefined
-        ? undefined
-        : baseline.observation.modelAlias === request.modelAlias;
+      baseline === undefined ? undefined : baseline.observation.modelAlias === request.modelAlias;
     const compared =
-      baseline !== undefined && sameModel === true && baseline.contextRevision === request.contextRevision;
+      baseline !== undefined &&
+      sameModel === true &&
+      baseline.contextRevision === request.contextRevision;
     const historyPrefixMatch =
       compared && baseline !== undefined
         ? baseline.observation.messageCount <= messages.length &&

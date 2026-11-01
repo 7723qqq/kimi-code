@@ -1,11 +1,10 @@
 import { existsSync } from 'node:fs';
 
 const POSIX_PERMS = process.platform !== 'win32';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { migrateSkillsStep } from '../../src/steps/skills.js';
 
@@ -131,26 +130,29 @@ describe('migrateSkillsStep', () => {
     expect(entries.some((e) => e.endsWith('.tmp'))).toBe(false);
   });
 
-  it.skipIf(!POSIX_PERMS)('records a per-entry failure instead of aborting when one entry is unreadable', async () => {
-    await mkdir(join(src, 'skills', 'broken'), { recursive: true });
-    await writeFile(join(src, 'skills', 'broken', 'SKILL.md'), 'x');
-    await writeFile(join(src, 'skills', 'good.md'), 'GOOD');
-    // Non-root cannot traverse this dir, so cp fails for this entry only.
-    const brokenDir = join(src, 'skills', 'broken');
-    await chmod(brokenDir, 0o000);
-    try {
-      const r = await migrateSkillsStep({ sourceHome: src, targetHome: tgt });
+  it.skipIf(!POSIX_PERMS)(
+    'records a per-entry failure instead of aborting when one entry is unreadable',
+    async () => {
+      await mkdir(join(src, 'skills', 'broken'), { recursive: true });
+      await writeFile(join(src, 'skills', 'broken', 'SKILL.md'), 'x');
+      await writeFile(join(src, 'skills', 'good.md'), 'GOOD');
+      // Non-root cannot traverse this dir, so cp fails for this entry only.
+      const brokenDir = join(src, 'skills', 'broken');
+      await chmod(brokenDir, 0o000);
+      try {
+        const r = await migrateSkillsStep({ sourceHome: src, targetHome: tgt });
 
-      expect(r.copied).toBe(1);
-      expect(r.failures).toHaveLength(1);
-      expect(r.failures[0]?.sourcePath).toBe(brokenDir);
-      expect(r.failures[0]?.reason.length).toBeGreaterThan(0);
-      expect(await readFile(join(tgt, 'skills', 'good.md'), 'utf-8')).toBe('GOOD');
-      expect(existsSync(join(tgt, 'skills', 'broken'))).toBe(false);
-    } finally {
-      await chmod(brokenDir, 0o700);
-    }
-  });
+        expect(r.copied).toBe(1);
+        expect(r.failures).toHaveLength(1);
+        expect(r.failures[0]?.sourcePath).toBe(brokenDir);
+        expect(r.failures[0]?.reason.length).toBeGreaterThan(0);
+        expect(await readFile(join(tgt, 'skills', 'good.md'), 'utf-8')).toBe('GOOD');
+        expect(existsSync(join(tgt, 'skills', 'broken'))).toBe(false);
+      } finally {
+        await chmod(brokenDir, 0o700);
+      }
+    },
+  );
 
   it('throws only when EVERY entry fails', async () => {
     await mkdir(join(src, 'skills', 'a'), { recursive: true });

@@ -1,8 +1,7 @@
+import { afterEach, expect, it, mock } from 'bun:test';
 import { mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { afterEach, expect, it, mock } from 'bun:test';
 
 import type { ImportCandidate } from '#/session-import/run-import';
 
@@ -33,7 +32,12 @@ it('turns unreliable conversions into skip reasons and failures', async () => {
     },
   }));
   const { importSessions } = await import('#/session-import/run-import');
-  const candidates: ImportCandidate[] = ['SOURCE_CHANGED', 'EMPTY_SOURCE_HISTORY', 'UNSUPPORTED_HISTORY_BASE', 'CONVERSION_FAILED'].map((code) => ({
+  const candidates: ImportCandidate[] = [
+    'SOURCE_CHANGED',
+    'EMPTY_SOURCE_HISTORY',
+    'UNSUPPORTED_HISTORY_BASE',
+    'CONVERSION_FAILED',
+  ].map((code) => ({
     source: 'claude-code' as const,
     path: `/example/${code}.jsonl`,
     sourceId: code,
@@ -41,7 +45,14 @@ it('turns unreliable conversions into skip reasons and failures', async () => {
     modifiedAt: NOW,
     sessionId: `ses_${code}`,
   }));
-  expect(await importSessions(candidates, { kimiHome, contextWindow: 32_768, tokenBudget: 16_384, now: NOW })).toEqual({
+  expect(
+    await importSessions(candidates, {
+      kimiHome,
+      contextWindow: 32_768,
+      tokenBudget: 16_384,
+      now: NOW,
+    }),
+  ).toEqual({
     imported: [],
     alreadyImported: 0,
     missingFolder: 0,

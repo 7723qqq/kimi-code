@@ -28,4 +28,3 @@ export function loadNativePackage<T>(
   if (nativeRequire === null) return null;
   return nativeRequire(packageName) as T;
 }
-

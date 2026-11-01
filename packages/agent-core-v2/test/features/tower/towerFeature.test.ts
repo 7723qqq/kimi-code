@@ -1,21 +1,18 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { stringify as stringifyToml } from 'smol-toml';
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { type CollectionToken, type CollectionView } from '#/_base/di/collection';
 import { SyncDescriptor } from '#/_base/di/descriptors';
-import { DisposableStore } from '#/_base/di/lifecycle';
 import { ScopeActivation } from '#/_base/di/instantiation';
 import { type InstantiationService } from '#/_base/di/instantiationService';
-import {
-  _clearScopedRegistryForTests,
-  registerScopedService,
-  type Scope,
-} from '#/_base/di/scope';
+import { DisposableStore } from '#/_base/di/lifecycle';
+import { _clearScopedRegistryForTests, registerScopedService, type Scope } from '#/_base/di/scope';
 import { TestInstantiationService, createScopedTestHost } from '#/_base/di/test';
 import { ILogService } from '#/_base/log/log';
+import { AgentToolContribution } from '#/agent/toolRegistry/toolContribution';
 import { AgentProfileContribution } from '#/app/agentProfileCatalog/agentProfileContribution';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigRegistry, IConfigService } from '#/app/config/config';
@@ -27,28 +24,21 @@ import { IFlagRegistry } from '#/app/flag/flagRegistry';
 import { FlagRegistryService } from '#/app/flag/flagRegistryService';
 import { FlagService, MASTER_ENV } from '#/app/flag/flagService';
 import { LifecycleScope } from '#/app/scopes';
-import { AgentToolContribution } from '#/agent/toolRegistry/toolContribution';
 import { IFeatureAssemblyService } from '#/features/featureAssembly';
 import { FeatureAssemblyService } from '#/features/featureAssemblyService';
-import {
-  _clearFeatureRecipesForTests,
-  registerFeature,
-} from '#/features/featureRegistry';
+import { _clearFeatureRecipesForTests, registerFeature } from '#/features/featureRegistry';
 import { TOWER_FLAG_ENV } from '#/features/tower/flag';
 import { TOWER_FLAG_ID } from '#/features/tower/tower';
+import { TowerFeature, isTowerFeatureAssembled } from '#/features/tower/towerFeature';
 import { ITowerRateLimitService } from '#/features/tower/towerRateLimit';
-import {
-  TowerFeature,
-  isTowerFeatureAssembled,
-} from '#/features/tower/towerFeature';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { TomlAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 import { IAtomicTomlDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
-import { stubFlag } from '../../app/flag/stubs';
-import { stubBootstrap } from '../../app/bootstrap/stubs';
 import { stubLog } from '../../_base/log/stubs';
+import { stubBootstrap } from '../../app/bootstrap/stubs';
+import { stubFlag } from '../../app/flag/stubs';
 
 function collectionViewOf<T>(scope: Scope, token: CollectionToken<T>): CollectionView<T> {
   return (scope.instantiation as InstantiationService).fiberHost.collectionView(token);
@@ -87,9 +77,7 @@ describe('TowerFeature — experimental flag gating', () => {
   });
 
   it('contributes tools, profile, and rate-limit service when the tower flag is on', () => {
-    const host = createScopedTestHost([
-      [IFlagService, stubFlag((id) => id === TOWER_FLAG_ID)],
-    ]);
+    const host = createScopedTestHost([[IFlagService, stubFlag((id) => id === TOWER_FLAG_ID)]]);
     const manager = host.app.accessor.get(IFeatureManager);
     expect(
       manager
@@ -102,8 +90,8 @@ describe('TowerFeature — experimental flag gating', () => {
     expect(profiles).toHaveLength(1);
     expect(profiles[0]!.sourceId).toBe('feature:tower');
     const agent = host.child(LifecycleScope.Agent, 'agent-1');
-    const tools = collectionViewOf(agent, AgentToolContribution).items.map((record) =>
-      record.options.name,
+    const tools = collectionViewOf(agent, AgentToolContribution).items.map(
+      (record) => record.options.name,
     );
     expect(tools.toSorted()).toEqual(
       [

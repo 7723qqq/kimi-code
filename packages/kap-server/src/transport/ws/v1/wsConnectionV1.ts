@@ -357,9 +357,7 @@ export class WsConnectionV1 implements BroadcastTarget {
       if (notFound !== undefined) notFound.push(sid);
       else resyncRequired.push(sid);
       const cur = await this.broadcaster.getCursor(sid);
-      this.sendImmediateFrame(
-        buildResyncRequired(sid, 'session_recreated', cur.seq, cur.epoch),
-      );
+      this.sendImmediateFrame(buildResyncRequired(sid, 'session_recreated', cur.seq, cur.epoch));
       return;
     }
     this.subscriptions.set(sid, { agentFilter: filter, transcriptGrades });

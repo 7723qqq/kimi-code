@@ -1,8 +1,7 @@
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import type { PluginSummary } from '@moonshot-ai/kimi-code-sdk';
 
@@ -167,9 +166,7 @@ describe('PluginUpdateNotifier', () => {
 
   it('does not notify for a same-id fork installed from a local path', async () => {
     const harness = makeHarness({
-      installed: [
-        makePluginSummary({ source: 'local-path', originalSource: undefined }),
-      ],
+      installed: [makePluginSummary({ source: 'local-path', originalSource: undefined })],
     });
     const notifier = makeNotifier(harness);
 

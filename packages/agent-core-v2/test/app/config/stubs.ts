@@ -2,8 +2,8 @@ import type { ServiceRegistration } from '#/_base/di/test';
 import { Event } from '#/_base/event';
 import { IConfigRegistry, IConfigService } from '#/app/config/config';
 import { ConfigRegistry } from '#/app/config/configService';
-import { IAtomicTomlDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { TomlAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
+import { IAtomicTomlDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 
 export function registerConfigServices(reg: ServiceRegistration): void {
   reg.defineInstance(IConfigRegistry, new ConfigRegistry());

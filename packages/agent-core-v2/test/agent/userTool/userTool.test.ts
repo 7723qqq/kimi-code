@@ -9,11 +9,11 @@ import { AgentStateService } from '#/agent/state/agentStateService';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
 import { IAgentUserToolService, type UserToolRegistration } from '#/agent/userTool/userTool';
-import { AgentUserToolService } from '#/agent/userTool/userToolService';
 import { userToolKey } from '#/agent/userTool/userToolOps';
+import { AgentUserToolService } from '#/agent/userTool/userToolService';
 import { interactions } from '#/human/interaction/facade';
-import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
@@ -52,7 +52,9 @@ interface ProfileStub {
   readonly active: Set<string>;
 }
 
-function createProfileStub(activeToolNames?: readonly string[]): IAgentProfileService & ProfileStub {
+function createProfileStub(
+  activeToolNames?: readonly string[],
+): IAgentProfileService & ProfileStub {
   const active = new Set<string>();
   return {
     active,
@@ -85,7 +87,7 @@ beforeEach(() => {
   ix.set(IAgentToolRegistryService, new SyncDescriptor(AgentToolRegistryService));
   profile = createProfileStub();
   ix.stub(IAgentProfileService, profile);
-  
+
   ix.set(IAgentUserToolService, new SyncDescriptor(AgentUserToolService));
   log = ix.get(IAppendLogStore);
   registerTestAgentWire(ix, testWireScope(SCOPE, KEY), { log });
@@ -103,7 +105,10 @@ afterEach(() => {
 async function readRecords(key = KEY): Promise<WireRecord[]> {
   await dispatcher.flush();
   const out: WireRecord[] = [];
-  for await (const record of log.read<WireRecord>(testWireScope(SCOPE, key), AGENT_WIRE_RECORD_KEY)) {
+  for await (const record of log.read<WireRecord>(
+    testWireScope(SCOPE, key),
+    AGENT_WIRE_RECORD_KEY,
+  )) {
     out.push(record);
   }
   return out;
@@ -318,9 +323,7 @@ describe('AgentUserToolService (wire-backed)', () => {
 
     expect(modelOf(agentState)).not.toBe(before);
     expect(modelOf(agentState).get(toolA.name)?.disclosure).toBe('deferred');
-    expect(registry.list().find((tool) => tool.name === toolA.name)?.disclosure).toBe(
-      'deferred',
-    );
+    expect(registry.list().find((tool) => tool.name === toolA.name)?.disclosure).toBe('deferred');
   });
 
   it('replay rebuilds the model silently and onDidRestore re-registers tools after replay', async () => {

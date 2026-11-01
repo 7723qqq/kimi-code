@@ -158,7 +158,10 @@ export class SessionPromptOptimizerService implements ISessionPromptOptimizerSer
         throw new Error2(
           ErrorCodes.PROMPT_OPTIMIZER_TIMEOUT,
           `The rewrite did not finish within ${String(context.timeoutMs ?? PROMPT_OPTIMIZER_TIMEOUT_MS)}ms.`,
-          { details: { timeoutMs: context.timeoutMs ?? PROMPT_OPTIMIZER_TIMEOUT_MS }, cause: error },
+          {
+            details: { timeoutMs: context.timeoutMs ?? PROMPT_OPTIMIZER_TIMEOUT_MS },
+            cause: error,
+          },
         );
       }
       throw error;
@@ -184,9 +187,7 @@ function inheritedTurnLimit(context: PromptOptimizerContext): number {
   return Math.max(0, Math.min(requested, PROMPT_OPTIMIZER_MAX_CONTEXT_TURNS));
 }
 
-function normalizedTurns(
-  turns: readonly string[] | undefined,
-): readonly string[] | undefined {
+function normalizedTurns(turns: readonly string[] | undefined): readonly string[] | undefined {
   if (turns === undefined) return undefined;
   const kept = turns
     .map((turn) => turn.trim())

@@ -1,12 +1,6 @@
 import { describe, expect, it, jest } from 'bun:test';
-import type { SurveyGateSkipReason } from '#/session-rating/common/gates';
 
-import {
-  buildSurveyEventProperties,
-  SURVEY_EVENT_NAMES,
-  surveyEventDefinitions,
-  type SurveyEventEnvironmentFields,
-} from '#/session-rating/node/event-properties';
+import type { SurveyGateSkipReason } from '#/session-rating/common/gates';
 import {
   evaluateLongContextArm,
   evaluateSurveyGate,
@@ -18,6 +12,12 @@ import {
   DEFAULT_SURVEY_POPUP_CONFIG,
   type SurveyPopupConfig,
 } from '#/session-rating/common/survey-popup-config';
+import {
+  buildSurveyEventProperties,
+  SURVEY_EVENT_NAMES,
+  surveyEventDefinitions,
+  type SurveyEventEnvironmentFields,
+} from '#/session-rating/node/event-properties';
 
 const CONFIG = DEFAULT_SURVEY_POPUP_CONFIG;
 
@@ -85,9 +85,10 @@ describe('evaluateSurveyGate (session arm)', () => {
   });
 
   it('applies the chain in order: a running turn reports turn-in-progress, not later reasons', () => {
-    expect(
-      evaluateSurveyGate(gate({ turnInProgress: true, telemetryDisabled: true })),
-    ).toEqual({ show: false, reason: 'turn-in-progress' });
+    expect(evaluateSurveyGate(gate({ turnInProgress: true, telemetryDisabled: true }))).toEqual({
+      show: false,
+      reason: 'turn-in-progress',
+    });
   });
 
   it('samples with a half-open test: sample below probability shows, at-or-above is out', () => {
@@ -99,9 +100,7 @@ describe('evaluateSurveyGate (session arm)', () => {
       show: false,
       reason: 'sampled-out',
     });
-    expect(evaluateSurveyGate(gate({ sample: 0 }, { ...CONFIG, probability: 0 })).show).toBe(
-      false,
-    );
+    expect(evaluateSurveyGate(gate({ sample: 0 }, { ...CONFIG, probability: 0 })).show).toBe(false);
   });
 
   describe('model gate', () => {
@@ -146,9 +145,10 @@ describe('evaluateSurveyGate (session arm)', () => {
     });
 
     it('skips inside the time gap', () => {
-      expect(
-        evaluateSurveyGate(gate({ ...shown, msSinceLastShown: 3_599_999 })),
-      ).toEqual({ show: false, reason: 'pacing' });
+      expect(evaluateSurveyGate(gate({ ...shown, msSinceLastShown: 3_599_999 }))).toEqual({
+        show: false,
+        reason: 'pacing',
+      });
     });
 
     it('skips without enough new turns', () => {
@@ -391,11 +391,10 @@ describe('evaluateSurveyGate (arbitration)', () => {
   it('blocks both arms inside the shared persisted cooldown', () => {
     expect(
       evaluateSurveyGate(
-        gate(
-          { msSinceGlobalLastShown: 1000 },
-          CONFIG,
-          { ...ELIGIBLE, msSinceGlobalLastShown: 1000 },
-        ),
+        gate({ msSinceGlobalLastShown: 1000 }, CONFIG, {
+          ...ELIGIBLE,
+          msSinceGlobalLastShown: 1000,
+        }),
       ),
     ).toEqual({ show: false, reason: 'global-cooldown' });
   });
@@ -409,9 +408,7 @@ describe('evaluateSurveyGate (arbitration)', () => {
 
   it('reports the spent roll even when both arms lose', () => {
     expect(
-      evaluateSurveyGate(
-        gate({ sample: 0.9 }, CONFIG, { ...ELIGIBLE, drawMountRoll: () => 0.9 }),
-      ),
+      evaluateSurveyGate(gate({ sample: 0.9 }, CONFIG, { ...ELIGIBLE, drawMountRoll: () => 0.9 })),
     ).toEqual({
       show: false,
       reason: 'sampled-out',
@@ -423,7 +420,8 @@ describe('evaluateSurveyGate (arbitration)', () => {
 describe('buildSurveyEventProperties', () => {
   it('retains documented survey event and property names', () => {
     expect(Object.keys(surveyEventDefinitions).toSorted()).toEqual([
-      'feedback_survey', 'long_context_survey',
+      'feedback_survey',
+      'long_context_survey',
     ]);
     const namePattern = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/;
     for (const [name, { meta }] of Object.entries(surveyEventDefinitions)) {

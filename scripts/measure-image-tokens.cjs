@@ -23,8 +23,7 @@ const { Jimp } = require('jimp');
 
 const PROVIDER = process.env.PROVIDER ?? 'deepseek';
 const MODEL = process.env.MODEL ?? 'deepseek-v4-flash';
-const CONFIG =
-  process.env.CONFIG ?? path.join(os.homedir(), '.kimi-code', 'config.toml');
+const CONFIG = process.env.CONFIG ?? path.join(os.homedir(), '.kimi-code', 'config.toml');
 
 const PRICING = {
   patchPx: 14,
@@ -37,9 +36,9 @@ const PRICING = {
 
 function readProvider(name, configPath) {
   const text = fs.readFileSync(configPath, 'utf8');
-  const block = new RegExp(`\\[providers\\.${name.replace(/\./g, '\\.')}\\]([\\s\\S]*?)(?=\\n\\[|$)`).exec(
-    text,
-  );
+  const block = new RegExp(
+    `\\[providers\\.${name.replace(/\./g, '\\.')}\\]([\\s\\S]*?)(?=\\n\\[|$)`,
+  ).exec(text);
   if (block === null) throw new Error(`provider ${name} not found in ${configPath}`);
   const body = block[1];
   const apiKey = /api_key\s*=\s*"([^"]+)"/.exec(body);
@@ -144,9 +143,9 @@ async function main() {
     const imagePortion = measured - baseline;
     const formula = imageTokensFor(PRICING, { width, height });
     console.log(
-      `${`${width}x${height}`.padEnd(10)} ${String(measured).padEnd(9)} ${String(imagePortion).padEnd(
-        16,
-      )} ${String(formula).padEnd(8)} ${imagePortion - formula}`,
+      `${`${width}x${height}`.padEnd(10)} ${String(measured).padEnd(9)} ${String(
+        imagePortion,
+      ).padEnd(16)} ${String(formula).padEnd(8)} ${imagePortion - formula}`,
     );
   }
 }

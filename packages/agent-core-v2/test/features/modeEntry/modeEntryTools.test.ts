@@ -81,7 +81,9 @@ function planService(status: PlanData): IAgentPlanService {
   };
 }
 
-async function run(tool: { resolveExecution: (a: never) => { execute: () => Promise<ToolResult> } }) {
+async function run(tool: {
+  resolveExecution: (a: never) => { execute: () => Promise<ToolResult> };
+}) {
   return tool.resolveExecution(undefined as never).execute();
 }
 

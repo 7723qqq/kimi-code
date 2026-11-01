@@ -1,8 +1,7 @@
+import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { afterEach, describe, expect, it } from 'bun:test';
 
 import type { StateUpdated } from '#/agent/events';
 import { createAgentMachine } from '#/agent/machine';
@@ -686,8 +685,16 @@ describe('migrateV2Session', () => {
       'injection',
     ]);
     const [head, , tail] = messages;
-    expect(head!.message.content).toEqual([hook, skill, { type: 'text', text: expect.any(String) }]);
-    expect(tail!.message.content).toEqual([hook, skill, { type: 'text', text: expect.any(String) }]);
+    expect(head!.message.content).toEqual([
+      hook,
+      skill,
+      { type: 'text', text: expect.any(String) },
+    ]);
+    expect(tail!.message.content).toEqual([
+      hook,
+      skill,
+      { type: 'text', text: expect.any(String) },
+    ]);
     expect(extractText(head!.message)).toHaveLength(8_012);
     expect(extractText(tail!.message)).toHaveLength(72_012);
   });

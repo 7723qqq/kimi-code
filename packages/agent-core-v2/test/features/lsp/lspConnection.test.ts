@@ -1,6 +1,5 @@
-import { PassThrough } from 'node:stream';
-
 import { describe, expect, it } from 'bun:test';
+import { PassThrough } from 'node:stream';
 
 import { MessageDecoder } from '#/features/lsp/framing';
 import { LspConnection, LspTransportClosedError } from '#/features/lsp/lspConnection';

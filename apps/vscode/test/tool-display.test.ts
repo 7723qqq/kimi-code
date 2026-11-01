@@ -7,8 +7,9 @@
  * Run: cd apps/vscode && bun test --isolate test/tool-display.test.ts
  */
 
-import type { ToolInputDisplay } from '@moonshot-ai/kimi-code-sdk';
 import { describe, expect, it } from 'bun:test';
+
+import type { ToolInputDisplay } from '@moonshot-ai/kimi-code-sdk';
 
 import { describeToolDisplay, toLegacyDisplay } from '../src/runtime/tool-display';
 

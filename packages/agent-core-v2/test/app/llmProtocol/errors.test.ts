@@ -1,3 +1,5 @@
+import { describe, expect, it } from 'bun:test';
+
 import {
   APIConnectionError,
   APIContextOverflowError,
@@ -17,7 +19,6 @@ import {
   normalizeAPIStatusError,
   parseRetryAfterMs,
 } from '#/llm-adapter/contract/errors';
-import { describe, expect, it } from 'bun:test';
 
 describe('ChatProviderError', () => {
   it('is an instance of Error', () => {
@@ -149,7 +150,9 @@ describe('APIRequestTooLargeError', () => {
 
   it('is not retryable', () => {
     expect(
-      isRetryableGenerateError(new APIRequestTooLargeError(413, 'Request exceeds the maximum size.')),
+      isRetryableGenerateError(
+        new APIRequestTooLargeError(413, 'Request exceeds the maximum size.'),
+      ),
     ).toBe(false);
   });
 });
@@ -161,17 +164,16 @@ describe('isRetryableGenerateError', () => {
     expect(isRetryableGenerateError(new APIEmptyResponseError('empty'))).toBe(true);
   });
 
-  it.each([408, 409, 429, 500, 502, 503, 504, 529])(
-    'treats HTTP %i as retryable',
-    (statusCode) => {
-      expect(isRetryableGenerateError(new APIStatusError(statusCode, 'retryable'))).toBe(true);
-    },
-  );
+  it.each([408, 409, 429, 500, 502, 503, 504, 529])('treats HTTP %i as retryable', (statusCode) => {
+    expect(isRetryableGenerateError(new APIStatusError(statusCode, 'retryable'))).toBe(true);
+  });
 
   it('treats provider overload as retryable', () => {
     expect(isRetryableGenerateError(new APIProviderOverloadedError(529, 'Overloaded'))).toBe(true);
     expect(
-      isRetryableGenerateError(new APIProviderOverloadedError(503, 'server is currently overloaded')),
+      isRetryableGenerateError(
+        new APIProviderOverloadedError(503, 'server is currently overloaded'),
+      ),
     ).toBe(true);
   });
 
@@ -193,9 +195,7 @@ describe('isRetryableGenerateError', () => {
 
   it.each([
     ['Invalid data URL for image: data:image/png;base64'],
-    [
-      'Unsupported media type for base64 image: image/avif, url: data:image/avif;base64,AAAA',
-    ],
+    ['Unsupported media type for base64 image: image/avif, url: data:image/avif;base64,AAAA'],
   ])('does not retry deterministic provider validation error: %s', (message) => {
     expect(isRetryableGenerateError(new ChatProviderError(message))).toBe(false);
   });
@@ -233,7 +233,9 @@ describe('isImageFormatError', () => {
 
   it('matches client-side image whitelist throws', () => {
     expect(
-      isImageFormatError(new ChatProviderError('Unsupported media type for base64 image: image/avif')),
+      isImageFormatError(
+        new ChatProviderError('Unsupported media type for base64 image: image/avif'),
+      ),
     ).toBe(true);
     expect(
       isImageFormatError(
@@ -247,11 +249,13 @@ describe('isImageFormatError', () => {
     expect(isImageFormatError(new APIStatusError(422, 'image is bad'))).toBe(false);
     expect(isImageFormatError(new APIStatusError(401, 'invalid api key'))).toBe(false);
     expect(
-      isImageFormatError(new APIContextOverflowError(400, 'context length exceeded for image model')),
+      isImageFormatError(
+        new APIContextOverflowError(400, 'context length exceeded for image model'),
+      ),
     ).toBe(false);
-    expect(
-      isImageFormatError(new APIRequestTooLargeError(413, 'image request too large')),
-    ).toBe(false);
+    expect(isImageFormatError(new APIRequestTooLargeError(413, 'image request too large'))).toBe(
+      false,
+    );
     expect(isImageFormatError(new ChatProviderError('connection reset'))).toBe(false);
     expect(isImageFormatError(new Error('image is bad'))).toBe(false);
   });
@@ -298,9 +302,9 @@ describe('isImageFormatError', () => {
         new ChatProviderError('Unsupported media type for base64 image: image/avif'),
       ),
     ).toBe(false);
-    expect(
-      isRetryableGenerateError(new APIStatusError(400, 'unsupported image format')),
-    ).toBe(false);
+    expect(isRetryableGenerateError(new APIStatusError(400, 'unsupported image format'))).toBe(
+      false,
+    );
   });
 });
 
@@ -431,7 +435,10 @@ describe('normalizeAPIStatusError', () => {
   });
 
   it('keeps a 413 with token-overflow wording as APIContextOverflowError', () => {
-    const error = normalizeAPIStatusError(413, 'prompt is too long: 210000 tokens > 200000 maximum');
+    const error = normalizeAPIStatusError(
+      413,
+      'prompt is too long: 210000 tokens > 200000 maximum',
+    );
     expect(error).toBeInstanceOf(APIContextOverflowError);
     expect(error).not.toBeInstanceOf(APIRequestTooLargeError);
   });
@@ -506,7 +513,9 @@ describe('isToolExchangeAdjacencyError', () => {
       isToolExchangeAdjacencyError(new APIStatusError(400, MOONSHOT_TOOL_CALL_ID_NOT_FOUND)),
     ).toBe(true);
     expect(
-      isToolExchangeAdjacencyError(new APIStatusError(400, "tool_call_id 'call_abc123' is not found")),
+      isToolExchangeAdjacencyError(
+        new APIStatusError(400, "tool_call_id 'call_abc123' is not found"),
+      ),
     ).toBe(true);
   });
 
@@ -665,7 +674,9 @@ describe('isRecoverableRequestStructureError', () => {
 
   it('does not match context overflow, auth, or non-status errors', () => {
     expect(
-      isRecoverableRequestStructureError(new APIContextOverflowError(400, 'context length exceeded')),
+      isRecoverableRequestStructureError(
+        new APIContextOverflowError(400, 'context length exceeded'),
+      ),
     ).toBe(false);
     expect(isRecoverableRequestStructureError(new APIStatusError(401, 'unauthorized'))).toBe(false);
     expect(isRecoverableRequestStructureError(new APIStatusError(400, 'Bad request'))).toBe(false);

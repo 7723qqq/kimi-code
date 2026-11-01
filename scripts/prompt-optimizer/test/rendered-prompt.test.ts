@@ -87,7 +87,9 @@ describe('a family-adapted model', () => {
   test('delivers every core contract through the system text, none through a reminder', async () => {
     const rendered = await renderProfile({ profile: 'full', model: MINIMAL_MODEL, fixture });
     const byChannel = (channel: string) =>
-      rendered.contractDelivery.filter((entry) => entry.channel === channel).map((entry) => entry.id);
+      rendered.contractDelivery
+        .filter((entry) => entry.channel === channel)
+        .map((entry) => entry.id);
     expect(byChannel('system')).toEqual([...CORE_BEHAVIOR_CONTRACT_IDS]);
     expect(byChannel('reminder')).toEqual([]);
     expect(byChannel('intentionally_omitted')).toEqual([]);
@@ -110,8 +112,12 @@ describe('a family-adapted model', () => {
 
   test('a claimed reminder counts only when reminder text is present', () => {
     const delivery = [{ id: 'communication', channel: 'reminder' }] as const;
-    expect(contractCoverageFor(delivery, { reminderPresent: false })['communication']!.omitted).toBe(1);
-    expect(contractCoverageFor(delivery, { reminderPresent: true })['communication']!.reminder).toBe(1);
+    expect(
+      contractCoverageFor(delivery, { reminderPresent: false })['communication']!.omitted,
+    ).toBe(1);
+    expect(
+      contractCoverageFor(delivery, { reminderPresent: true })['communication']!.reminder,
+    ).toBe(1);
   });
 });
 
@@ -140,9 +146,11 @@ describe('the profile is the only one, and unknown ones are refused', () => {
 
 describe('fixture completeness', () => {
   test('a fixture without a cwd is refused', async () => {
-    expect(await codeOf(() => renderProfile({ profile: 'full', model: FULL_MODEL, fixture: { cwd: '' } }))).toBe(
-      'fixture_incomplete',
-    );
+    expect(
+      await codeOf(() =>
+        renderProfile({ profile: 'full', model: FULL_MODEL, fixture: { cwd: '' } }),
+      ),
+    ).toBe('fixture_incomplete');
   });
 
   test('an omitted agents.md is recorded as none rather than invented', async () => {
@@ -183,7 +191,9 @@ describe('the authorized actual-global opt-in', () => {
 
   test('the authorized path is accepted through a normalized comparison', () => {
     const backslashed = AUTHORIZED_ACTUAL_GLOBAL_PATH.replaceAll('/', '\\').toUpperCase();
-    expect(normalizeAuthorizedPath(backslashed)).toBe(normalizeAuthorizedPath(AUTHORIZED_ACTUAL_GLOBAL_PATH));
+    expect(normalizeAuthorizedPath(backslashed)).toBe(
+      normalizeAuthorizedPath(AUTHORIZED_ACTUAL_GLOBAL_PATH),
+    );
     expect(normalizeAuthorizedPath('C:/Users/Administrator/.kimi-code/AGENTS.md ')).toBe(
       normalizeAuthorizedPath(AUTHORIZED_ACTUAL_GLOBAL_PATH),
     );

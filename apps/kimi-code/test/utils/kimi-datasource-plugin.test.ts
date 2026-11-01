@@ -1,12 +1,15 @@
+import { describe, expect, it } from 'bun:test';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 
 import { resolveKimiCodeOAuthKey } from '@moonshot-ai/kimi-code-oauth';
-import { describe, expect, it } from 'bun:test';
 
-import { createHost, start } from '../../../../plugins/official/kimi-datasource/bin/kimi-datasource.mjs';
+import {
+  createHost,
+  start,
+} from '../../../../plugins/official/kimi-datasource/bin/kimi-datasource.mjs';
 
 const RESPONSE_TIMEOUT_MS = 5_000;
 const EXPIRES_AT = 4_102_444_800;
@@ -32,7 +35,10 @@ describe('kimi-datasource MCP server', () => {
 
       expect(result.error).toBeUndefined();
       const tools = (result.result as { tools: Array<{ name: string }> }).tools;
-      expect(tools.map((tool) => tool.name)).toEqual(['call_data_source_tool', 'get_data_source_desc']);
+      expect(tools.map((tool) => tool.name)).toEqual([
+        'call_data_source_tool',
+        'get_data_source_desc',
+      ]);
     } finally {
       await session.closeStdin();
       await rm(tempDir, { recursive: true, force: true });

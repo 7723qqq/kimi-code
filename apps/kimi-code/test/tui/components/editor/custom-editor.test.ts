@@ -1,10 +1,11 @@
+import { describe, expect, it, mock, spyOn } from 'bun:test';
+
 import type {
   AutocompleteItem,
   AutocompleteProvider,
   AutocompleteSuggestions,
   TUI,
 } from '@moonshot-ai/pi-tui';
-import { describe, expect, it, mock, spyOn } from 'bun:test';
 
 import { CustomEditor } from '#/tui/components/editor/custom-editor';
 import { FileMentionProvider } from '#/tui/components/editor/file-mention-provider';

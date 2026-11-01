@@ -42,7 +42,10 @@ export interface SurfaceBudget {
  */
 export function surfaceTotalRows(rows: number): number {
   if (!Number.isFinite(rows) || rows <= 0) return STATUS_SURFACE_MAX_ROWS;
-  return Math.max(STATUS_SURFACE_MIN_REGION_ROWS, Math.min(STATUS_SURFACE_MAX_ROWS, Math.floor(rows / 2)));
+  return Math.max(
+    STATUS_SURFACE_MIN_REGION_ROWS,
+    Math.min(STATUS_SURFACE_MAX_ROWS, Math.floor(rows / 2)),
+  );
 }
 
 /**

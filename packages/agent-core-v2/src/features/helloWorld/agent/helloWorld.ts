@@ -47,6 +47,5 @@ export interface IAgentHelloWorldService {
   waive(item: HelloWorldRunItemId): void;
 }
 
-export const IAgentHelloWorldService = createDecorator<IAgentHelloWorldService>(
-  'agentHelloWorldService',
-);
+export const IAgentHelloWorldService =
+  createDecorator<IAgentHelloWorldService>('agentHelloWorldService');

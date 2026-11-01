@@ -10,7 +10,8 @@ const ENGINE_PREFIX = '@moonshot-ai/agent-core-v2/';
 const SCAN_ROOTS = ['packages', 'apps'];
 const SKIP_DIRS = new Set(['node_modules', 'dist', 'dist-web', 'coverage', '.git', '参考目录']);
 
-const SERVICE_IDENTIFIER_RE = /\bI[A-Z][A-Za-z0-9]*(?:Service|Catalog|Index|Manager|Browser|Store|Registry)\b/;
+const SERVICE_IDENTIFIER_RE =
+  /\bI[A-Z][A-Za-z0-9]*(?:Service|Catalog|Index|Manager|Browser|Store|Registry)\b/;
 
 const IMPORT_STATEMENT_RE = /^\s*(?:import|export)\b/;
 
@@ -39,7 +40,8 @@ function walk(dir, out = []) {
 function rootReachableModules() {
   const index = readFileSync(join(REPO_ROOT, 'packages/agent-core-v2/src/index.ts'), 'utf8');
   const out = new Set();
-  for (const m of index.matchAll(/from '#\/(?:human\/)?([^']+)'/g)) out.add(m[1].replace(/\.ts$/, ''));
+  for (const m of index.matchAll(/from '#\/(?:human\/)?([^']+)'/g))
+    out.add(m[1].replace(/\.ts$/, ''));
   return out;
 }
 
@@ -81,7 +83,11 @@ export function findViolations({ rootReachable, baseline }) {
       const lines = source.split('\n');
 
       for (let i = 0; i < lines.length; i++) {
-        const m = lines[i].match(new RegExp(`${ENGINE_PREFIX.replace(/[/\\]/g, '\\$&')}([a-zA-Z0-9/_-]+)`.replace('@', '@')));
+        const m = lines[i].match(
+          new RegExp(
+            `${ENGINE_PREFIX.replace(/[/\\]/g, '\\$&')}([a-zA-Z0-9/_-]+)`.replace('@', '@'),
+          ),
+        );
         if (!m) continue;
         const sub = m[1];
         const key = `${rel} ${sub}`;

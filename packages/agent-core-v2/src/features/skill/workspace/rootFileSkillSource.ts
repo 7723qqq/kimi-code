@@ -10,14 +10,17 @@ import {
   type MergeAllAvailableSkillsConfig,
 } from '#/features/skill/catalog/configSection';
 import { ISkillDiscovery } from '#/features/skill/catalog/skillDiscovery';
-import { projectRootsForDirs, projectSkillRootCandidates } from '#/features/skill/catalog/skillRoots';
+import {
+  projectRootsForDirs,
+  projectSkillRootCandidates,
+} from '#/features/skill/catalog/skillRoots';
 import {
   SKILL_SOURCE_PRIORITY,
   type ISkillSource,
   type SkillContribution,
 } from '#/features/skill/catalog/skillSource';
-import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
+import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
 import { watchCandidates } from '#human/utils/watch';
 
 export const WORKSPACE_ROOT_SKILL_SOURCE_ID = 'workspace';

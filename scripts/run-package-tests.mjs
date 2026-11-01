@@ -45,8 +45,8 @@ import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import { basename, join, relative, sep } from 'node:path';
 
-import { killProcessTree } from './lib/kill-process-tree.mjs';
 import { limitSelfToCpus, resolveTestCpuLimit } from './lib/cpu-limit.mjs';
+import { killProcessTree } from './lib/kill-process-tree.mjs';
 import { acquireTestSuiteLock } from './lib/test-suite-lock.mjs';
 
 const args = process.argv.slice(2);
@@ -194,7 +194,10 @@ function spawnArgs(rel) {
   if (retry !== undefined) list.push('--retry', retry);
   if (ignoreOverride !== undefined) list.push('--path-ignore-patterns', ignoreOverride);
   for (const arg of args) {
-    if (LEGACY_BOOLEAN_FLAGS.has(arg) || NATIVE_VALUED_FLAGS.some((prefix) => arg.startsWith(prefix))) {
+    if (
+      LEGACY_BOOLEAN_FLAGS.has(arg) ||
+      NATIVE_VALUED_FLAGS.some((prefix) => arg.startsWith(prefix))
+    ) {
       list.push(arg);
     }
   }

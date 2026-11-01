@@ -1,5 +1,6 @@
-import type { Event } from '@moonshot-ai/kimi-code-sdk';
 import { describe, expect, it, jest } from 'bun:test';
+
+import type { Event } from '@moonshot-ai/kimi-code-sdk';
 
 import { SessionEventHandler } from '#/tui/controllers/session-event-handler';
 import {

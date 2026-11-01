@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'bun:test';
 
+import { buildImageCompressionCaption } from '#/agent/media/image-compress';
 import { promptMetadataTextFromContentParts } from '#/agent/prompt/promptMetadataText';
+import type { IEventService } from '#/app/event/event';
 import {
   applyPromptMetadataUpdate,
   isUntitled,
   type PromptMetadataUpdateTarget,
 } from '#/session/sessionMetadata/promptMetadata';
-import { buildImageCompressionCaption } from '#/agent/media/image-compress';
-import type { IEventService } from '#/app/event/event';
 import {
   type ISessionMetadata,
   type SessionMeta,
@@ -22,15 +22,28 @@ const CAPTION = buildImageCompressionCaption({
 
 describe('promptMetadataTextFromContentParts', () => {
   it('uses explicit display text without exposing serialized evidence and keeps redaction', () => {
-    expect(promptMetadataTextFromContentParts([{ type: 'text', text: '<browser_capture>internal evidence</browser_capture>' }], [{ display_text: 'Save button · Rename it\npassword=example-secret' }])).toBe('Save button · Rename it password=[redacted]');
+    expect(
+      promptMetadataTextFromContentParts(
+        [{ type: 'text', text: '<browser_capture>internal evidence</browser_capture>' }],
+        [{ display_text: 'Save button · Rename it\npassword=example-secret' }],
+      ),
+    ).toBe('Save button · Rename it password=[redacted]');
   });
 
   it('joins complete display records in order and does not drop an input with missing metadata', () => {
     const parts = [{ type: 'text' as const, text: 'complete fallback' }];
-    expect(promptMetadataTextFromContentParts(parts, [{ display_text: 'one' }, { display_text: 'two' }])).toBe('one two');
-    expect(promptMetadataTextFromContentParts(parts, [{ display_text: 'one' }, {}])).toBe('complete fallback');
-    expect(promptMetadataTextFromContentParts(parts, [{ display_text: 3 }])).toBe('complete fallback');
-    expect(promptMetadataTextFromContentParts(parts, [{ display_text: 'x'.repeat(5_000) }])?.length).toBeLessThanOrEqual(4_000);
+    expect(
+      promptMetadataTextFromContentParts(parts, [{ display_text: 'one' }, { display_text: 'two' }]),
+    ).toBe('one two');
+    expect(promptMetadataTextFromContentParts(parts, [{ display_text: 'one' }, {}])).toBe(
+      'complete fallback',
+    );
+    expect(promptMetadataTextFromContentParts(parts, [{ display_text: 3 }])).toBe(
+      'complete fallback',
+    );
+    expect(
+      promptMetadataTextFromContentParts(parts, [{ display_text: 'x'.repeat(5_000) }])?.length,
+    ).toBeLessThanOrEqual(4_000);
   });
 
   it('renders text and media placeholders', () => {
@@ -63,7 +76,10 @@ describe('promptMetadataTextFromContentParts', () => {
     const text = promptMetadataTextFromContentParts([
       { type: 'text', text: 'what is this?' },
       { type: 'text', text: '<image path="/Users/alice/cache/f_123.png"></image>' },
-      { type: 'image_url', imageUrl: { url: 'kimi-file://f_123?path=%2FUsers%2Falice%2Fcache%2Ff_123.png' } },
+      {
+        type: 'image_url',
+        imageUrl: { url: 'kimi-file://f_123?path=%2FUsers%2Falice%2Fcache%2Ff_123.png' },
+      },
     ]);
     expect(text).toBe('what is this? [image]');
     expect(text).not.toContain('/Users/alice');

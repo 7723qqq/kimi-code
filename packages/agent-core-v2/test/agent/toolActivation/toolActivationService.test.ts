@@ -1,11 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
-import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { type CollectionView } from '#/_base/di/collection';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { createDecorator } from '#/_base/di/instantiation';
-import { Service } from '#/_base/di/service';
-import { LifecycleScope } from '#/app/scopes';
+import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import {
   ScopeActivation,
   _clearScopedRegistryForTests,
@@ -13,8 +11,8 @@ import {
   registerScopedService,
   type ScopeSeed,
 } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
 import { createServices } from '#/_base/di/test';
-import { IEventBus } from '#/app/event/eventBus';
 import { Emitter, Event } from '#/_base/event';
 import { IAgentProfileService, type ProfileData } from '#/agent/profile/profile';
 import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
@@ -32,12 +30,11 @@ import {
 } from '#/agent/toolRegistry/toolContribution';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
-import {
-  IAgentToolSelectService,
-  SELECT_TOOLS_TOOL_NAME,
-} from '#/agent/toolSelect/toolSelect';
-import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
+import { IAgentToolSelectService, SELECT_TOOLS_TOOL_NAME } from '#/agent/toolSelect/toolSelect';
+import { IEventBus } from '#/app/event/eventBus';
+import { LifecycleScope } from '#/app/scopes';
 import type { RuntimeCapability } from '#/runtime/runtime';
+import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
 import type { AgentTool, ToolExecution } from '#/tool/toolContract';
 import '#/agent/tools/agent/agentTool';
 import '#/agent/tools/ask-user-question/askUserQuestionTool';
@@ -136,9 +133,7 @@ class DynamicToolProvider extends Service {
 const ICollectionProbe = createDecorator<CollectionProbe>('activationTestCollectionProbe');
 class CollectionProbe extends Service {
   declare readonly _serviceBrand: undefined;
-  constructor(
-    @AgentToolContribution readonly view: CollectionView<AgentToolContribution>,
-  ) {
+  constructor(@AgentToolContribution readonly view: CollectionView<AgentToolContribution>) {
     super();
   }
 }
@@ -171,7 +166,8 @@ describe('AgentToolActivationService', () => {
         reg.definePartialInstance(IAgentRuntimeService, {
           onDidChange: runtimeChangeEmitter.event,
           isAvailable: (required = []) =>
-            runtimeData.available && required.every((capability) => runtimeData.capabilities.has(capability)),
+            runtimeData.available &&
+            required.every((capability) => runtimeData.capabilities.has(capability)),
         });
         reg.defineInstance(ISessionToolPolicyGate, {
           _serviceBrand: undefined,
@@ -267,7 +263,9 @@ describe('AgentToolActivationService', () => {
 
   it('keeps Agent and runtime-independent tools on a process-only runtime', async () => {
     runtimeData.capabilities.delete('fs');
-    const agentOptions = savedContributions.find((record) => record.options.name === 'Agent')!.options;
+    const agentOptions = savedContributions.find(
+      (record) => record.options.name === 'Agent',
+    )!.options;
     registerAgentToolService(IAlphaTool, AlphaTool, {
       name: 'Alpha',
       requiredRuntimeCapabilities: ['fs'],
@@ -286,7 +284,9 @@ describe('AgentToolActivationService', () => {
   });
 
   it('withdraws Agent when process becomes unavailable and restores it later', async () => {
-    const agentOptions = savedContributions.find((record) => record.options.name === 'Agent')!.options;
+    const agentOptions = savedContributions.find(
+      (record) => record.options.name === 'Agent',
+    )!.options;
     registerAgentToolService(IAgentStubTool, AgentStubTool, agentOptions);
     const ix = createActivationHost();
     const registry = ix.get(IAgentToolRegistryService);
@@ -506,7 +506,8 @@ describe('AgentToolActivationService', () => {
             _serviceBrand: undefined,
             onDidChange: runtimeChangeEmitter.event,
             isAvailable: (required: readonly RuntimeCapability[] = []) =>
-              runtimeData.available && required.every((capability) => runtimeData.capabilities.has(capability)),
+              runtimeData.available &&
+              required.every((capability) => runtimeData.capabilities.has(capability)),
           },
         ],
         ...extra,

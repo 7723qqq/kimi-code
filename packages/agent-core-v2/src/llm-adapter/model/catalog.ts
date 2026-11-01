@@ -7,7 +7,6 @@ import type { TokenUsage } from '#human/llm/usage';
 import type { ModelCapability } from '../contract/capability';
 import type { Protocol, ProtocolProviderOptions } from '../protocol/protocol';
 import type { ProviderConfig } from '../provider/provider';
-
 import type { ModelRecord, ModelUpgrade } from './model';
 import { effectiveModelConfig } from './model-auth';
 import type {

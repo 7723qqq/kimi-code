@@ -8,9 +8,8 @@ import { join } from 'pathe';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { parseBooleanEnv } from '#/_base/utils/env';
-import { LifecycleScope } from '#/app/scopes';
-
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { LifecycleScope } from '#/app/scopes';
 import {
   ISessionLockService,
   SessionLockHolds,

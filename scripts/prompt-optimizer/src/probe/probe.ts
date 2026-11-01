@@ -438,4 +438,3 @@ export function formatProbeReport(profile: ModelProfile): string {
 
   return lines.join('\n');
 }
-

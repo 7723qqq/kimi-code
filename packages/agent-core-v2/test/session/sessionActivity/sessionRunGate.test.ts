@@ -1,8 +1,7 @@
+import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 import { mkdtempSync, rmSync, appendFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -10,6 +9,9 @@ import { TestInstantiationService } from '#/_base/di/test';
 import { isError2 } from '#/_base/errors/errors';
 import { Emitter } from '#/_base/event';
 import type { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
+import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
+import { SessionLockService } from '#/persistence/backends/node-fs/sessionLockService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import type { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
@@ -18,11 +20,9 @@ import {
   type SessionActivityChangedEvent,
   type SessionActivityState,
 } from '#/session/sessionActivity/sessionActivity';
-import type { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
-import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
-import { SessionLockService } from '#/persistence/backends/node-fs/sessionLockService';
 import { SessionRunGateService } from '#/session/sessionActivity/sessionRunGateService';
+import type { ISessionContext } from '#/session/sessionContext/sessionContext';
+
 import { noopLogger } from '../../wire/stubs';
 
 const SID = 'session-1';

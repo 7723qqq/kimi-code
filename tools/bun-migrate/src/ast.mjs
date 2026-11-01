@@ -33,16 +33,25 @@ function scriptKindsMap() {
  * TypeScript startup cost. The layers only touch `ts.*` inside the functions
  * that parse.
  */
-const ts = new Proxy({}, {
-  get(_target, property) {
-    return loadTs()[property];
+const ts = new Proxy(
+  {},
+  {
+    get(_target, property) {
+      return loadTs()[property];
+    },
   },
-});
+);
 
 export function parse(path, text) {
   const ts = loadTs();
   const extension = path.slice(path.lastIndexOf('.'));
-  return ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, scriptKindsMap().get(extension) ?? ts.ScriptKind.TS);
+  return ts.createSourceFile(
+    path,
+    text,
+    ts.ScriptTarget.Latest,
+    true,
+    scriptKindsMap().get(extension) ?? ts.ScriptKind.TS,
+  );
 }
 
 function moduleSpecifierOf(node) {
@@ -90,16 +99,21 @@ export function collectRequireBindings(sourceFile) {
         namespaceByLocal.set(direct.local, direct.module);
         return;
       }
-      if (ts.isObjectBindingPattern(node.name) && node.initializer && ts.isCallExpression(node.initializer)) {
+      if (
+        ts.isObjectBindingPattern(node.name) &&
+        node.initializer &&
+        ts.isCallExpression(node.initializer)
+      ) {
         const call = node.initializer;
         if (ts.isIdentifier(call.expression) && call.expression.text === 'require') {
           const argument = call.arguments[0];
           if (argument && ts.isStringLiteral(argument) && argument.text.startsWith('node:')) {
             for (const element of node.name.elements) {
               if (!ts.isIdentifier(element.name)) continue;
-              const imported = element.propertyName && ts.isIdentifier(element.propertyName)
-                ? element.propertyName.text
-                : element.name.text;
+              const imported =
+                element.propertyName && ts.isIdentifier(element.propertyName)
+                  ? element.propertyName.text
+                  : element.name.text;
               destructured.set(element.name.text, { module: argument.text, imported });
             }
           }
@@ -266,7 +280,8 @@ export function collectShadowingNames(sourceFile) {
   const shadowed = new Set();
   const importedBy = new Map();
   for (const statement of sourceFile.statements) {
-    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier))
+      continue;
     if (!statement.moduleSpecifier.text.startsWith('node:')) continue;
     const clause = statement.importClause;
     if (!clause) continue;
@@ -286,8 +301,7 @@ export function collectShadowingNames(sourceFile) {
     else if (ts.isClassDeclaration(node) && node.name) shadowed.add(node.name.text);
     else if (ts.isEnumDeclaration(node)) {
       if (node.name) shadowed.add(node.name.text);
-    }
-    else if (ts.isParameter(node) && ts.isIdentifier(node.name)) shadowed.add(node.name.text);
+    } else if (ts.isParameter(node) && ts.isIdentifier(node.name)) shadowed.add(node.name.text);
     else if (ts.isVariableDeclaration(node)) {
       const module = requiredNodeModuleOf(node.initializer);
       if (module) {
@@ -295,7 +309,10 @@ export function collectShadowingNames(sourceFile) {
           if (requireConflictsWithImport(node.name.text, module)) shadowed.add(node.name.text);
         } else if (ts.isObjectBindingPattern(node.name)) {
           for (const element of node.name.elements) {
-            if (ts.isIdentifier(element.name) && requireConflictsWithImport(element.name.text, module)) {
+            if (
+              ts.isIdentifier(element.name) &&
+              requireConflictsWithImport(element.name.text, module)
+            ) {
               shadowed.add(element.name.text);
             }
           }
@@ -364,7 +381,12 @@ export function collectPackageBindings(sourceFile) {
     if (!ts.isImportDeclaration(statement)) continue;
     if (!ts.isStringLiteral(statement.moduleSpecifier)) continue;
     const packageName = statement.moduleSpecifier.text;
-    if (packageName.startsWith('.') || packageName.startsWith('node:') || packageName.startsWith('bun:')) continue;
+    if (
+      packageName.startsWith('.') ||
+      packageName.startsWith('node:') ||
+      packageName.startsWith('bun:')
+    )
+      continue;
     const clause = statement.importClause;
     if (!clause) continue;
     /**

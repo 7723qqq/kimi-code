@@ -254,9 +254,24 @@ describe('approval adapter', () => {
 
     // Each document becomes a previewable content block named after its file.
     expect(adapted.display).toEqual([
-      { type: 'file_content', path: 'requirements.md', content: '# Requirements\n\n- Export CSV', language: 'markdown' },
-      { type: 'file_content', path: 'design.md', content: '# Design\n\n- Stream rows', language: 'markdown' },
-      { type: 'file_content', path: 'tasks.md', content: '# Tasks\n\n- Add route', language: 'markdown' },
+      {
+        type: 'file_content',
+        path: 'requirements.md',
+        content: '# Requirements\n\n- Export CSV',
+        language: 'markdown',
+      },
+      {
+        type: 'file_content',
+        path: 'design.md',
+        content: '# Design\n\n- Stream rows',
+        language: 'markdown',
+      },
+      {
+        type: 'file_content',
+        path: 'tasks.md',
+        content: '# Tasks\n\n- Add route',
+        language: 'markdown',
+      },
     ]);
     expect(adapted.choices).toEqual([
       { label: 'Approve', response: 'approved', selected_label: 'approve' },

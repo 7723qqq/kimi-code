@@ -70,13 +70,19 @@ describe('table invariants', () => {
 
 describe('buffer limits differ by orders of magnitude', () => {
   it('MAX_LENGTH is 8 PB on Node and 4 GB on Bun', () => {
-    if (!nodeAvailable) throw new Error('node must be on PATH: every differential case compares two runtimes, so skipping it would report a pass that proves nothing');
+    if (!nodeAvailable)
+      throw new Error(
+        'node must be on PATH: every differential case compares two runtimes, so skipping it would report a pass that proves nothing',
+      );
     expect(nodeValue('node:buffer', 'constants.MAX_LENGTH')).toBe('9007199254740991');
     expect(String(require('node:buffer').constants.MAX_LENGTH)).toBe('4294967296');
   });
 
   it('MAX_STRING_LENGTH differs between the two', () => {
-    if (!nodeAvailable) throw new Error('node must be on PATH: every differential case compares two runtimes, so skipping it would report a pass that proves nothing');
+    if (!nodeAvailable)
+      throw new Error(
+        'node must be on PATH: every differential case compares two runtimes, so skipping it would report a pass that proves nothing',
+      );
     const nodeLimit = Number(nodeValue('node:buffer', 'constants.MAX_STRING_LENGTH'));
     const bunLimit = require('node:buffer').constants.MAX_STRING_LENGTH;
     expect(nodeLimit).not.toBe(bunLimit);
@@ -115,13 +121,19 @@ describe('TLS option flags are zero, so OR-ing them is a no-op', () => {
   }
 
   it('SSL_OP_ALL is 4 on Bun and a wide mask on Node', () => {
-    if (!nodeAvailable) throw new Error('node must be on PATH: every differential case compares two runtimes, so skipping it would report a pass that proves nothing');
+    if (!nodeAvailable)
+      throw new Error(
+        'node must be on PATH: every differential case compares two runtimes, so skipping it would report a pass that proves nothing',
+      );
     expect(require('node:crypto').constants.SSL_OP_ALL).toBe(4);
     expect(Number(nodeValue('node:crypto', 'constants.SSL_OP_ALL'))).toBe(2147485776);
   });
 
   it('the same flags are non-zero on Node', () => {
-    if (!nodeAvailable) throw new Error('node must be on PATH: every differential case compares two runtimes, so skipping it would report a pass that proves nothing');
+    if (!nodeAvailable)
+      throw new Error(
+        'node must be on PATH: every differential case compares two runtimes, so skipping it would report a pass that proves nothing',
+      );
     const values = nodeValues(
       'node:crypto',
       FLAGS.map((flag) => `constants.${flag}`),
@@ -145,7 +157,10 @@ describe('TLS option flags are zero, so OR-ing them is a no-op', () => {
 
 describe('OpenSSL version reports a different build', () => {
   it('differs between the two runtimes', () => {
-    if (!nodeAvailable) throw new Error('node must be on PATH: every differential case compares two runtimes, so skipping it would report a pass that proves nothing');
+    if (!nodeAvailable)
+      throw new Error(
+        'node must be on PATH: every differential case compares two runtimes, so skipping it would report a pass that proves nothing',
+      );
     const nodeVersion = Number(nodeValue('node:crypto', 'constants.OPENSSL_VERSION_NUMBER'));
     const bunVersion = require('node:crypto').constants.OPENSSL_VERSION_NUMBER;
     expect(nodeVersion).not.toBe(bunVersion);

@@ -1,8 +1,8 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'pathe';
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { join } from 'pathe';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
@@ -17,6 +17,7 @@ import {
 import { IHostClock } from '#/os/interface/hostClock';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 
+import { runWillBeginStepHooks } from '../../agent/loop/stubs';
 import {
   appService,
   createTestAgent,
@@ -24,7 +25,6 @@ import {
   InMemoryWireRecordPersistence,
   type TestAgentContext,
 } from '../../harness';
-import { runWillBeginStepHooks } from '../../agent/loop/stubs';
 
 const TEST_TIME_ZONE = 'Asia/Shanghai';
 const INITIAL_INSTANT = '2026-07-29T04:00:00.000Z';
@@ -53,7 +53,11 @@ function systemPromptWithDate(iso: string): string {
   ].join('\n');
 }
 
-function updateSystemPrompt(profile: IAgentProfileService, systemPrompt: string, cwd: string): void {
+function updateSystemPrompt(
+  profile: IAgentProfileService,
+  systemPrompt: string,
+  cwd: string,
+): void {
   profile.update({
     systemPrompt,
     environmentDisclosure: { cwd },
@@ -67,9 +71,7 @@ function dateReminders(context: IAgentContextMemoryService): readonly ContextMes
 }
 
 function messageText(message: ContextMessage): string {
-  return message.content
-    .map((part) => (part.type === 'text' ? part.text : ''))
-    .join('');
+  return message.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
 }
 
 describe('AgentDateChangeService', () => {
@@ -97,8 +99,12 @@ describe('AgentDateChangeService', () => {
     }
   });
 
-  it('injects on the first step even when the system prompt text states today\'s date', async () => {
-    updateSystemPrompt(profile, systemPromptWithDate(INITIAL_INSTANT), ctx.get(ISessionContext).cwd);
+  it("injects on the first step even when the system prompt text states today's date", async () => {
+    updateSystemPrompt(
+      profile,
+      systemPromptWithDate(INITIAL_INSTANT),
+      ctx.get(ISessionContext).cwd,
+    );
 
     await runWillBeginStepHooks(loop);
 
@@ -138,7 +144,11 @@ describe('AgentDateChangeService', () => {
   });
 
   it('announces each date crossed by a long-lived session', async () => {
-    updateSystemPrompt(profile, systemPromptWithDate(INITIAL_INSTANT), ctx.get(ISessionContext).cwd);
+    updateSystemPrompt(
+      profile,
+      systemPromptWithDate(INITIAL_INSTANT),
+      ctx.get(ISessionContext).cwd,
+    );
     await runWillBeginStepHooks(loop);
 
     clock.set('2026-07-30T04:00:00.000Z');
@@ -168,15 +178,16 @@ describe('AgentDateChangeService', () => {
     await ctx.dispose();
     ctx = createTestAgent({ persistence }, appService(IHostClock, clock));
     profile = ctx.get(IAgentProfileService);
-    updateSystemPrompt(profile, systemPromptWithDate(INITIAL_INSTANT), ctx.get(ISessionContext).cwd);
+    updateSystemPrompt(
+      profile,
+      systemPromptWithDate(INITIAL_INSTANT),
+      ctx.get(ISessionContext).cwd,
+    );
     await ctx.wire.flush();
     await ctx.dispose();
 
     clock.set('2026-07-30T04:00:00.000Z');
-    ctx = createTestAgent(
-      { autoConfigure: false, persistence },
-      appService(IHostClock, clock),
-    );
+    ctx = createTestAgent({ autoConfigure: false, persistence }, appService(IHostClock, clock));
     context = ctx.get(IAgentContextMemoryService);
     loop = ctx.get(IAgentLoopService);
     await ctx.restorePersisted();
@@ -206,10 +217,7 @@ describe('AgentDateChangeService', () => {
     await ctx.dispose();
 
     clock.set('2026-07-30T04:00:00.000Z');
-    ctx = createTestAgent(
-      { autoConfigure: false, persistence },
-      appService(IHostClock, clock),
-    );
+    ctx = createTestAgent({ autoConfigure: false, persistence }, appService(IHostClock, clock));
     context = ctx.get(IAgentContextMemoryService);
     loop = ctx.get(IAgentLoopService);
     await ctx.restorePersisted();
@@ -238,7 +246,7 @@ describe('AgentDateChangeService', () => {
       context = ctx.get(IAgentContextMemoryService);
       loop = ctx.get(IAgentLoopService);
       profile = ctx.get(IAgentProfileService);
-        await ctx.restorePersisted();
+      await ctx.restorePersisted();
 
       await profile.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: 'mock-model' });
 

@@ -37,5 +37,8 @@ function normalizeChannel(hex: string): number {
 }
 
 function channelByteHex(hex: string): string {
-  return Math.round(normalizeChannel(hex) * 255).toString(16).padStart(2, '0').toUpperCase();
+  return Math.round(normalizeChannel(hex) * 255)
+    .toString(16)
+    .padStart(2, '0')
+    .toUpperCase();
 }

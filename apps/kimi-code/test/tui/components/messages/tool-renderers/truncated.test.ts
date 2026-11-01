@@ -1,8 +1,8 @@
-import { visibleWidth } from '@moonshot-ai/pi-tui';
 import { describe, expect, it } from 'bun:test';
 
-import { TruncatedOutputComponent } from '#/tui/components/messages/tool-renderers/truncated';
+import { visibleWidth } from '@moonshot-ai/pi-tui';
 
+import { TruncatedOutputComponent } from '#/tui/components/messages/tool-renderers/truncated';
 
 function strip(text: string): string {
   return text.replaceAll(/\[[0-9;]*m/g, '');

@@ -58,10 +58,7 @@ describe('memory repo', () => {
   it('serialises concurrent commits', async () => {
     const { repo, memoryDir } = await makeRepo();
     await writeFile(join(memoryDir, 'note.md'), 'x\n', 'utf-8');
-    const results = await Promise.all([
-      repo.commit('remember: one'),
-      repo.commit('remember: two'),
-    ]);
+    const results = await Promise.all([repo.commit('remember: one'), repo.commit('remember: two')]);
     expect(results.filter(Boolean)).toHaveLength(1);
     const commits = await repo.logCommits(10);
     expect(commits).toHaveLength(1);

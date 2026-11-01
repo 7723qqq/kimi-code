@@ -12,19 +12,29 @@ function strip(text: string): string {
   return text.replaceAll(ANSI_SGR, '');
 }
 
-function renderDialog(fromModel = 'Kimi K2.5', toModel = 'Kimi K2 Turbo', hint: string | undefined = DEFAULT_HINT) {
+function renderDialog(
+  fromModel = 'Kimi K2.5',
+  toModel = 'Kimi K2 Turbo',
+  hint: string | undefined = DEFAULT_HINT,
+) {
   const onSelect = jest.fn();
   const onCancel = jest.fn();
-  const dialog = new ModelSwitchConfirmDialogComponent({ fromModel, toModel, hint, onSelect, onCancel });
+  const dialog = new ModelSwitchConfirmDialogComponent({
+    fromModel,
+    toModel,
+    hint,
+    onSelect,
+    onCancel,
+  });
   return { dialog, onSelect, onCancel, lines: dialog.render(120).map(strip) };
 }
 
 describe('ModelSwitchConfirmDialogComponent', () => {
   it('renders the hardcoded title with the from/to model suffix', () => {
     const { lines } = renderDialog();
-    expect(lines.some((l) => l.includes('Switch model?') && l.includes('Kimi K2.5 → Kimi K2 Turbo'))).toBe(
-      true,
-    );
+    expect(
+      lines.some((l) => l.includes('Switch model?') && l.includes('Kimi K2.5 → Kimi K2 Turbo')),
+    ).toBe(true);
   });
 
   it('renders the default hint and the standard keyboard hint vocabulary', () => {
@@ -54,8 +64,12 @@ describe('ModelSwitchConfirmDialogComponent', () => {
     expect(compact).toBeLessThan(asIs);
     expect(asIs).toBeLessThan(cancel);
     expect(lines[fresh]).toContain('No extra cost · best for a new task');
-    expect(lines[compact]).toContain('Lower cost and better output quality when continuing this session');
-    expect(lines[asIs]).toContain('Output quality may suffer · cache loss may increase token usage');
+    expect(lines[compact]).toContain(
+      'Lower cost and better output quality when continuing this session',
+    );
+    expect(lines[asIs]).toContain(
+      'Output quality may suffer · cache loss may increase token usage',
+    );
     expect(lines[cancel]).toContain('Stay on the current model');
   });
 
@@ -96,7 +110,12 @@ describe('ModelSwitchConfirmDialogComponent', () => {
     const { lines } = renderDialog('AAA', 'BBB', 'Remote hint text.');
     expect(lines.some((l) => l.includes('Switch model?') && l.includes('AAA → BBB'))).toBe(true);
     expect(lines.some((l) => l.includes('Remote hint text.'))).toBe(true);
-    for (const label of ['Start a new session', 'Compact and continue', 'Continue as-is', 'Cancel']) {
+    for (const label of [
+      'Start a new session',
+      'Compact and continue',
+      'Continue as-is',
+      'Cancel',
+    ]) {
       expect(lines.some((l) => l.includes(label))).toBe(true);
     }
   });
@@ -115,12 +134,12 @@ describe('ModelSwitchConfirmDialogComponent', () => {
       'Kimi K2 Turbo',
       '由于缓存发生变化，可能出现模型消耗增大或模型效果异常的情况。',
     );
-    expect(lines.some((l) => l.includes('Switch model?') && l.includes('Kimi K2.5 → Kimi K2 Turbo'))).toBe(
-      true,
-    );
-    expect(lines.some((l) => l.includes('由于缓存发生变化，可能出现模型消耗增大或模型效果异常的情况。'))).toBe(
-      true,
-    );
+    expect(
+      lines.some((l) => l.includes('Switch model?') && l.includes('Kimi K2.5 → Kimi K2 Turbo')),
+    ).toBe(true);
+    expect(
+      lines.some((l) => l.includes('由于缓存发生变化，可能出现模型消耗增大或模型效果异常的情况。')),
+    ).toBe(true);
   });
 
   it('omits the body line when no hint is provided', () => {

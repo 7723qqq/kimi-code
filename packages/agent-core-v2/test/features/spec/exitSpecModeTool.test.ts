@@ -10,9 +10,7 @@ import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/st
 const SPEC_DIR = '/ws/specs/spec-1';
 const REQUIRED = ['requirements.md', 'design.md', 'tasks.md'] as const;
 
-function completeSpec(
-  contents: Partial<Record<(typeof REQUIRED)[number], string>> = {},
-): SpecData {
+function completeSpec(contents: Partial<Record<(typeof REQUIRED)[number], string>> = {}): SpecData {
   const files: Record<string, string> = {};
   const missing: SpecData['missing'][number][] = [];
   for (const name of REQUIRED) {

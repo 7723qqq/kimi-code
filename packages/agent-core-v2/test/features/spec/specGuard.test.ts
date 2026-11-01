@@ -1,37 +1,46 @@
 import { afterEach, beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
-import { recordingTelemetry } from '../../app/telemetry/stubs';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import { type ApprovalResponse, type PermissionMode, type PermissionPolicyResolution, type PermissionPolicyResult } from '#/agent/permissionPolicy/types';
-
+import {
+  type ApprovalResponse,
+  type PermissionMode,
+  type PermissionPolicyResolution,
+  type PermissionPolicyResult,
+} from '#/agent/permissionPolicy/types';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { type BeforeExecuteDecision, type ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
-
+import {
+  type BeforeExecuteDecision,
+  type ResolvedToolExecutionHookContext,
+} from '#/agent/toolExecutor/toolHooks';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { IAgentSpecService, SPEC_DIR_NAME, SPEC_REQUIRED_FILES } from '#/features/spec/spec';
 import { AgentSpecService } from '#/features/spec/specService';
-import { type ToolCall } from '#human/llm/message';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { IBlobStore } from '#/persistence/interface/blobStore';
-import { BlobStoreService } from '#/persistence/backends/node-fs/blobStoreService';
-import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { BlobStoreService } from '#/persistence/backends/node-fs/blobStoreService';
+import { IBlobStore } from '#/persistence/interface/blobStore';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { ToolAccesses } from '#/tool/toolContract';
+import { type ToolCall } from '#human/llm/message';
 
 import { stubPermissionModeService } from '../../agent/permissionMode/stubs';
-import { stubToolExecutorEvents, type ToolExecutorEventStubs } from '../../agent/toolExecutor/stubs';
+import {
+  stubToolExecutorEvents,
+  type ToolExecutorEventStubs,
+} from '../../agent/toolExecutor/stubs';
+import { recordingTelemetry } from '../../app/telemetry/stubs';
 import { type TelemetryRecord } from '../../app/telemetry/stubs';
-import { createReminderStub } from '../reminder/stubs';
-import { createFakeHostFs } from '../../tools/fixtures/fake-exec';
 import { stubWorkspaceContext } from '../../session/workspaceContext/stub-workspace-context';
+import { createFakeHostFs } from '../../tools/fixtures/fake-exec';
 import { registerTestAgentWireServices } from '../../wire/stubs';
+import { createReminderStub } from '../reminder/stubs';
 
 const signal = new AbortController().signal;
 const WORK_DIR = '/ws';
@@ -171,10 +180,7 @@ describe('AgentSpecService write guard', () => {
           IAgentPermissionModeService,
           stubPermissionModeService(() => mode),
         );
-        reg.defineInstance(
-          ITelemetryService,
-          { ...recordingTelemetry(records), setContext },
-        );
+        reg.defineInstance(ITelemetryService, { ...recordingTelemetry(records), setContext });
         reg.defineInstance(IAgentStateService, new AgentStateService());
         reg.define(IAgentSpecService, AgentSpecService);
       },
@@ -261,9 +267,7 @@ describe('AgentSpecService write guard', () => {
     resolveLinks.set(link, `${WORK_DIR}/src/notes.md`);
     existing.add(`${WORK_DIR}/src/notes.md`);
 
-    const decision = await run(
-      hookContext('Write', { accesses: ToolAccesses.writeFile(link) }),
-    );
+    const decision = await run(hookContext('Write', { accesses: ToolAccesses.writeFile(link) }));
     expect(decision?.veto?.isError).toBe(true);
     expect(decision?.veto?.output).toContain('spec directory');
   });
@@ -273,9 +277,7 @@ describe('AgentSpecService write guard', () => {
     const link = `${SPEC_DIR}/alias.md`;
     resolveLinks.set(link, `${SPEC_DIR}/tasks.md`);
 
-    const decision = await run(
-      hookContext('Write', { accesses: ToolAccesses.writeFile(link) }),
-    );
+    const decision = await run(hookContext('Write', { accesses: ToolAccesses.writeFile(link) }));
     expect(decision).toBeUndefined();
   });
 

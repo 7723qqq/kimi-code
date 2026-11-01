@@ -1,3 +1,4 @@
+import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -14,13 +15,12 @@ import {
   noopTelemetryService,
 } from '@moonshot-ai/agent-core-v2';
 import { pino } from 'pino';
-import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
-import { removeTempHome } from './helpers/tempHome';
 
 import { listLiveServerInstances } from '../src/instanceRegistry';
 import { listenWithPortRetry, type RunningServer, startServer } from '../src/start';
 import { authedFetch } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { removeTempHome } from './helpers/tempHome';
 
 describe('server-v2 boot', () => {
   let server: RunningServer | undefined;

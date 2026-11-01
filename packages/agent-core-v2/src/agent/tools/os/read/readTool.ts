@@ -381,11 +381,7 @@ export class ReadTool implements IReadTool {
 
       const header = await source.readBytes(MEDIA_SNIFF_BYTES);
       const fileType = detectFileType(source.name, header);
-      if (
-        fileType.kind === 'image' ||
-        fileType.kind === 'video' ||
-        fileType.kind === 'document'
-      ) {
+      if (fileType.kind === 'image' || fileType.kind === 'video' || fileType.kind === 'document') {
         if (args.line_offset !== undefined || args.n_lines !== undefined) {
           return {
             isError: true,
@@ -660,10 +656,16 @@ export class ReadTool implements IReadTool {
           'Lossy UTF-16 decoding: malformed sequences were replaced with U+FFFD. The decoded text may differ from the original file.',
         );
       }
-      const wholeFile = complete && count > 0 && firstColumn === 0 && startLine === 1 && endLine === page.totalLines;
-      const note = wholeFile && notices.length === 0
-        ? undefined
-        : `<system>${[...summary, ...notices].join(' ')}</system>`;
+      const wholeFile =
+        complete &&
+        count > 0 &&
+        firstColumn === 0 &&
+        startLine === 1 &&
+        endLine === page.totalLines;
+      const note =
+        wholeFile && notices.length === 0
+          ? undefined
+          : `<system>${[...summary, ...notices].join(' ')}</system>`;
       const renderedChars =
         count === 0
           ? renderToolResultForModel({ output: '', note }).reduce(
@@ -672,13 +674,20 @@ export class ReadTool implements IReadTool {
             )
           : contentChars + (note === undefined ? 0 : 1 + note.length);
       const noteCounts = note === undefined ? undefined : countTokenChars(note);
-      const overTokens = count === 0 ? 0 : tokensForCharCounts({
-        ascii: contentAscii + count - 1 + (noteCounts === undefined ? 0 : 1 + noteCounts.ascii),
-        nonAscii: contentNonAscii + (noteCounts?.nonAscii ?? 0),
-      }) - tokenLimit;
+      const overTokens =
+        count === 0
+          ? 0
+          : tokensForCharCounts({
+              ascii:
+                contentAscii + count - 1 + (noteCounts === undefined ? 0 : 1 + noteCounts.ascii),
+              nonAscii: contentNonAscii + (noteCounts?.nonAscii ?? 0),
+            }) - tokenLimit;
       if (
-        renderedChars <= maxChars && overTokens > 0 && count > 1 &&
-        firstColumn === 0 && (args.n_lines !== undefined || page.fromTail)
+        renderedChars <= maxChars &&
+        overTokens > 0 &&
+        count > 1 &&
+        firstColumn === 0 &&
+        (args.n_lines !== undefined || page.fromTail)
       ) {
         return rangeTooLarge(page, lineCounts, tokenLimit);
       }
@@ -695,7 +704,8 @@ export class ReadTool implements IReadTool {
       if (count === 1 && !page.fromTail) {
         const previousEnd = fragmentEnd ?? firstText.length;
         fragmentEnd = Math.min(previousEnd - 1, previousEnd - (renderedChars - maxChars));
-        if (overTokens > 0) fragmentEnd = Math.min(fragmentEnd, cutForTokens(firstText, previousEnd, overTokens));
+        if (overTokens > 0)
+          fragmentEnd = Math.min(fragmentEnd, cutForTokens(firstText, previousEnd, overTokens));
         if (splitsSurrogatePair(firstText, fragmentEnd)) fragmentEnd -= 1;
         if (fragmentEnd <= 0) {
           return {
@@ -704,7 +714,9 @@ export class ReadTool implements IReadTool {
           };
         }
         contentChars = firstPrefix.length + fragmentEnd;
-        ({ ascii: contentAscii, nonAscii: contentNonAscii } = countTokenChars(firstPrefix + firstText.slice(0, fragmentEnd)));
+        ({ ascii: contentAscii, nonAscii: contentNonAscii } = countTokenChars(
+          firstPrefix + firstText.slice(0, fragmentEnd),
+        ));
         continue;
       }
       if (count === 0) {

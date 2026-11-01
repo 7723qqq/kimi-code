@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
 
-import type { DurableAgentRuntimeParticipant, IEventDispatcher, IDisposable } from '@moonshot-ai/agent-core-v2';
+import type {
+  DurableAgentRuntimeParticipant,
+  IEventDispatcher,
+  IDisposable,
+} from '@moonshot-ai/agent-core-v2';
 import { ContextAppendMessage, TurnEnded, TurnPrompt } from '@moonshot-ai/agent-core-v2';
 
 interface SurveyTurnHistory {
@@ -64,22 +68,35 @@ function observeHistory(
     return {
       ...history,
       currentOrigin: undefined,
-      evaluation: isSurveyTurnOrigin(origin) === true
-        ? {
-            origin,
-            traceId: 'traceId' in record && typeof record.traceId === 'string' ? record.traceId : undefined,
-            endedAt: time,
-          }
-        : undefined,
+      evaluation:
+        isSurveyTurnOrigin(origin) === true
+          ? {
+              origin,
+              traceId:
+                'traceId' in record && typeof record.traceId === 'string'
+                  ? record.traceId
+                  : undefined,
+              endedAt: time,
+            }
+          : undefined,
     };
   }
   if (record.type === 'context.append_message' && 'message' in record) {
     const message = record.message;
-    if (message === null || typeof message !== 'object' || !('role' in message) || message.role !== 'user') return history;
+    if (
+      message === null ||
+      typeof message !== 'object' ||
+      !('role' in message) ||
+      message.role !== 'user'
+    )
+      return history;
     const origin = 'origin' in message ? message.origin : undefined;
     if (
-      origin === undefined || origin === null ||
-      (typeof origin === 'object' && 'kind' in origin && origin.kind !== 'shell_command' &&
+      origin === undefined ||
+      origin === null ||
+      (typeof origin === 'object' &&
+        'kind' in origin &&
+        origin.kind !== 'shell_command' &&
         isSurveyTurnOrigin(origin) === true)
     ) {
       return { ...history, firstUserMessage: Math.min(history.firstUserMessage, position) };
@@ -105,7 +122,9 @@ export function mountSurveyTurnCounter(dispatcher: IEventDispatcher): MountedSur
     events: [TurnPrompt, TurnEnded, ContextAppendMessage],
     undoable: false,
     getState: () => state,
-    commit: (next) => { state = next; },
+    commit: (next) => {
+      state = next;
+    },
     transition: (current, event) => ({
       history: observeHistory(current.history, event.serialize(), current.position),
       position: current.position + 1,

@@ -1,14 +1,13 @@
-import fs from 'node:fs/promises';
-import net from 'node:net';
-import os from 'node:os';
-import path from 'node:path';
-
 // Exercises defensive input/state-validation branches that are reachable
 // through the public/direct API but were not covered by the functional tests.
 // Fault-injection-only branches (writev short-write, fsync failure, >64MB
 // RESP payload, cross-user EPERM, process-exit hook) are intentionally not
 // covered here — see the coverage summary in the commit message.
 import { expect, test } from 'bun:test';
+import fs from 'node:fs/promises';
+import net from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
 
 import { encodeFrame, decodeBatchOps, TYPE_SET } from '../src/codec.js';
 import { MiniDb } from '../src/index.js';
@@ -25,7 +24,9 @@ const B = (s: string) => Buffer.from(s);
 // --- codec.encodeFrame input validation ------------------------------------
 
 test('encodeFrame rejects a non-buffer key', () => {
-  expect(() => encodeFrame({ type: TYPE_SET, key: 'x' as unknown as Buffer, value: B('v') })).toThrow(/key must be a Buffer/);
+  expect(() =>
+    encodeFrame({ type: TYPE_SET, key: 'x' as unknown as Buffer, value: B('v') }),
+  ).toThrow(/key must be a Buffer/);
 });
 
 test('encodeFrame rejects an oversized key', () => {
@@ -34,12 +35,15 @@ test('encodeFrame rejects an oversized key', () => {
 });
 
 test('encodeFrame rejects a SET with a non-buffer value', () => {
-  expect(() => encodeFrame({ type: TYPE_SET, key: B('k'), value: 'not-a-buffer' as unknown as Buffer })).toThrow(/value must be a Buffer for SET/);
+  expect(() =>
+    encodeFrame({ type: TYPE_SET, key: B('k'), value: 'not-a-buffer' as unknown as Buffer }),
+  ).toThrow(/value must be a Buffer for SET/);
 });
 
 test('encodeFrame rejects a non-buffer meta', () => {
   expect(() =>
-      encodeFrame({ type: TYPE_SET, key: B('k'), value: B('v'), meta: 'x' as unknown as Buffer })).toThrow(/meta must be a Buffer/);
+    encodeFrame({ type: TYPE_SET, key: B('k'), value: B('v'), meta: 'x' as unknown as Buffer }),
+  ).toThrow(/meta must be a Buffer/);
 });
 
 // --- codec.decodeBatchOps bounds checks ------------------------------------
@@ -86,7 +90,9 @@ test('WAL append rejects a non-buffer frame', async () => {
   const wal = new WAL(path.join(dir, 'db.wal'), { fsyncPolicy: 'no' });
   await wal.open();
   try {
-    await expect((() => wal.append('x' as unknown as Buffer))()).rejects.toThrow(/frame must be a Buffer/);
+    await expect((() => wal.append('x' as unknown as Buffer))()).rejects.toThrow(
+      /frame must be a Buffer/,
+    );
   } finally {
     await wal.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -98,7 +104,9 @@ test('WAL append after close rejects', async () => {
   const wal = new WAL(path.join(dir, 'db.wal'), { fsyncPolicy: 'no' });
   await wal.open();
   await wal.close();
-  await expect((() => wal.append(encodeFrame({ type: TYPE_SET, key: B('a'), value: B('1') })))()).rejects.toThrow(/WAL is closed/);
+  await expect(
+    (() => wal.append(encodeFrame({ type: TYPE_SET, key: B('a'), value: B('1') })))(),
+  ).rejects.toThrow(/WAL is closed/);
   await fs.rm(dir, { recursive: true, force: true });
 });
 
@@ -196,7 +204,9 @@ test('set rejects an empty key', async () => {
 test('batch rejects an empty key', async () => {
   const dir = await tmpDir();
   const db = await MiniDb.open({ dir, valueCodec: 'string' });
-  await expect((() => db.batch([{ op: 'set', key: '', value: 'v' }]))()).rejects.toThrow(/key must be non-empty/);
+  await expect((() => db.batch([{ op: 'set', key: '', value: 'v' }]))()).rejects.toThrow(
+    /key must be non-empty/,
+  );
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -209,7 +219,9 @@ test('del / expire validate the key before probing the store', async () => {
   await db.set('present', 'v');
   await expect((() => db.expire(tooLong, 1000))()).rejects.toThrow(/key too long/);
   expect(await db.del('absent'), 'deleting a missing valid key is still false').toBe(false);
-  expect(await db.expire('absent', 1000), 'expiring a missing valid key is still false').toBe(false);
+  expect(await db.expire('absent', 1000), 'expiring a missing valid key is still false').toBe(
+    false,
+  );
   expect(await db.get('present')).toBe('v');
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
