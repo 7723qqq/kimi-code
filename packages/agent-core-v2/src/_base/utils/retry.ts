@@ -54,8 +54,53 @@ export async function sleepForRetry(
 export function retryErrorFields(error: unknown): RetryErrorFields {
   return {
     errorName: error instanceof Error ? error.name : typeof error,
-    errorMessage: error instanceof Error ? error.message : String(error),
+    errorMessage: messageWithCause(error),
     statusCode: maybeStatusCode(error),
+  };
+}
+
+const MAX_CAUSE_DEPTH = 3;
+
+function messageWithCause(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const cause = describeCauseChain(error, message);
+  if (cause === undefined) return message;
+  return message.length === 0 ? cause : `${message} (${cause})`;
+}
+
+function describeCauseChain(error: unknown, message: string): string | undefined {
+  const parts: string[] = [];
+  let current = causeOf(error);
+  while (parts.length < MAX_CAUSE_DEPTH && current !== undefined && current !== null) {
+    const part = describeCause(current);
+    if (part !== undefined && !message.includes(part.message) && !parts.includes(part.text)) {
+      parts.push(part.text);
+    }
+    current = causeOf(current);
+  }
+  return parts.length === 0 ? undefined : parts.join('; ');
+}
+
+function causeOf(value: unknown): unknown {
+  if (typeof value !== 'object' || value === null) return undefined;
+  return (value as { cause?: unknown }).cause;
+}
+
+function describeCause(
+  value: unknown,
+): { readonly text: string; readonly message: string } | undefined {
+  if (!(value instanceof Error)) {
+    const text = String(value);
+    return text.length === 0 ? undefined : { text, message: text };
+  }
+  if (value.message.length === 0) return undefined;
+  const code = (value as { code?: unknown }).code;
+  return {
+    text:
+      typeof code === 'string' && code.length > 0
+        ? `${code}: ${value.message}`
+        : `${value.name}: ${value.message}`,
+    message: value.message,
   };
 }
 
