@@ -1,4 +1,4 @@
-import { formatTokenCount } from './usage-format';
+import { cacheHitRatePercent, formatTokenCount } from './usage-format';
 
 interface DebugTokenUsage {
   readonly inputOther?: number;
@@ -65,24 +65,11 @@ export function formatStepDebugTiming(input: StepTimingInput): string | undefine
   if (hasInputUsage && (inputTokens > 0 || (outputTokens ?? 0) > 0)) {
     const cacheReadTokens = input.usage.inputCacheRead ?? 0;
     const cacheCreationTokens = input.usage.inputCacheCreation ?? 0;
-    // Exact cache hit rate: cache reads / (reads + creations). Plain input
-    // is not part of the cache system and must not dilute the ratio.
-    // OpenAI-compatible endpoints (Kimi/DeepSeek/OpenAI) never report cache
-    // writes — their miss lands in input_other — so the fallback below is
-    // the norm for them, not an edge case.
-    let cacheHitRate: number;
-    if (cacheCreationTokens > 0) {
-      cacheHitRate = Math.round((cacheReadTokens / (cacheReadTokens + cacheCreationTokens)) * 100);
-    } else if (cacheReadTokens > 0) {
-      // No cache-write data reported (the provider never surfaced
-      // `cache_creation_input_tokens`): reporting reads/(reads+0) would
-      // always read 100% even on the first turn. Fall back to the share of
-      // total input that hit the cache instead.
-      const inputTotal = cacheReadTokens + (input.usage.inputOther ?? 0);
-      cacheHitRate = inputTotal > 0 ? Math.round((cacheReadTokens / inputTotal) * 100) : 0;
-    } else {
-      cacheHitRate = 0;
-    }
+    const cacheHitRate = cacheHitRatePercent(
+      cacheReadTokens,
+      cacheCreationTokens,
+      input.usage.inputOther ?? 0,
+    );
     const cacheParts = [`cache read ${formatTokenCount(cacheReadTokens)} (${cacheHitRate}%)`];
     if (cacheCreationTokens > 0) {
       cacheParts.push(`write ${formatTokenCount(cacheCreationTokens)}`);

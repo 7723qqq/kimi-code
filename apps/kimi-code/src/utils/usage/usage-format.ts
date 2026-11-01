@@ -46,6 +46,29 @@ export function usagePercentFromRatio(ratio: number): number {
 }
 
 /**
+ * Cache hit rate as a whole-number percentage.
+ *
+ * Providers that report cache writes (Anthropic) use exactly
+ * `read / (read + creation)`. Providers that only report reads
+ * (OpenAI-compatible endpoints) fall back to the read share of all input so a
+ * session that never wrote cache does not read as 100%.
+ */
+export function cacheHitRatePercent(
+  cacheRead: number,
+  cacheCreation: number,
+  inputOther: number,
+): number {
+  if (cacheCreation > 0) {
+    return Math.round((cacheRead / (cacheRead + cacheCreation)) * 100);
+  }
+  if (cacheRead > 0) {
+    const inputTotal = cacheRead + inputOther;
+    return inputTotal > 0 ? Math.round((cacheRead / inputTotal) * 100) : 0;
+  }
+  return 0;
+}
+
+/**
  * Build a `[███░░░░░░░]` style bar. Returns a plain-ASCII string with
  * `filled`/`empty` glyphs — colouring is the caller's responsibility.
  */

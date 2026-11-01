@@ -1,6 +1,7 @@
 import { describe, expect, it, mock } from 'bun:test';
 
 import {
+  cacheHitRatePercent,
   formatTokenCount,
   quotaUsageRows,
   renderProgressBar,
@@ -123,6 +124,25 @@ describe('renderProgressBar', () => {
   });
   it('coerces NaN to 0', () => {
     expect(renderProgressBar(Number.NaN, 6)).toBe('░'.repeat(6));
+  });
+});
+
+describe('cacheHitRatePercent', () => {
+  it('uses reads over reads plus creations when writes are reported', () => {
+    expect(cacheHitRatePercent(1_792, 99, 5_000)).toBe(95);
+  });
+
+  it('falls back to the read share of all input without write data', () => {
+    expect(cacheHitRatePercent(200, 0, 800)).toBe(20);
+  });
+
+  it('reports full reads without write data as 100', () => {
+    expect(cacheHitRatePercent(800, 0, 0)).toBe(100);
+  });
+
+  it('reports zero for uncached input or no traffic', () => {
+    expect(cacheHitRatePercent(0, 0, 800)).toBe(0);
+    expect(cacheHitRatePercent(0, 0, 0)).toBe(0);
   });
 });
 

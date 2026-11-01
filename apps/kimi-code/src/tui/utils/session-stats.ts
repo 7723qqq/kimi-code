@@ -12,7 +12,12 @@ import type { TokenUsage } from '@moonshot-ai/kimi-code-sdk';
 
 import { t } from '#/i18n';
 import type { SessionStats } from '#/tui/types';
-import { formatTokenCount, usagePercent, usagePercentFromRatio } from '#/utils/usage/usage-format';
+import {
+  cacheHitRatePercent,
+  formatTokenCount,
+  usagePercent,
+  usagePercentFromRatio,
+} from '#/utils/usage/usage-format';
 
 /** One renderable stat item. `priority` is the drop order the status strip
  *  does not use — it wraps instead of dropping — and is kept as the
@@ -252,14 +257,8 @@ export function formatContextStatus(usage: number, tokens?: number, maxTokens?: 
 
 /**
  * Live cache hit rate readout, e.g. `cache hit 87%`. Hidden only when no step
- * has reported input yet (no session traffic).
- *
- * Hit rate: reads / (reads + writes) when the provider reports cache writes.
- * OpenAI-compatible endpoints (Kimi/DeepSeek/OpenAI) never surface cache
- * writes — their miss lands in `input_other` — so the share-of-total-input
- * fallback is the norm for them, otherwise the readout would always read 100%.
- * A session that has sent only uncached input reads 0%, matching the
- * every-write case instead of blanking the reading.
+ * has reported input yet (no session traffic). The rate itself comes from
+ * {@link cacheHitRatePercent}.
  */
 export function formatCacheHitRate(
   cacheReadTokens: number,
@@ -269,16 +268,8 @@ export function formatCacheHitRate(
   const read = cacheReadTokens ?? 0;
   const miss = cacheMissTokens ?? 0;
   const other = cacheOtherTokens ?? 0;
-  let pct: number;
-  if (miss > 0) {
-    pct = Math.round((read / (read + miss)) * 100);
-  } else if (read > 0) {
-    const inputTotal = read + other;
-    pct = inputTotal > 0 ? Math.round((read / inputTotal) * 100) : 0;
-  } else if (other > 0) {
-    pct = 0;
-  } else {
-    return null;
-  }
-  return t('tui.chrome.footer.cacheHit', { pct: String(pct) });
+  if (read === 0 && miss === 0 && other === 0) return null;
+  return t('tui.chrome.footer.cacheHit', {
+    pct: String(cacheHitRatePercent(read, miss, other)),
+  });
 }
