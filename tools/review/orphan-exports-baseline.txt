@@ -103,3 +103,4 @@ createSidecarTokenCounter  packages/agent-core-v2/src/agent/tokenCounting/tokenC
 createHttpTokenCounter  packages/agent-core-v2/src/agent/tokenCounting/tokenCounter.ts
 setSearchStatOverride  packages/kap-server/src/search/indexCore.ts
 resetKimiRegionCache  apps/kimi-code/src/utils/region.ts
+resetUnexpectedErrorHandler  packages/agent-core-v2/src/_base/errors/unexpectedError.ts
