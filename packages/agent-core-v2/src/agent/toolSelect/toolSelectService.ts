@@ -12,6 +12,7 @@ import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IEventBus } from '#/app/event/eventBus';
 import { IFlagService } from '#/app/flag/flag';
 import { LifecycleScope } from '#/app/scopes';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { defineState } from '#/state/state';
 import { isMcpToolName, type ToolInfo } from '#/tool/toolContract';
 import type { ToolDescription as Tool } from '#human/llm/message';
@@ -56,6 +57,7 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
     @IFlagService private readonly flags: IFlagService,
     @IEventBus eventBus: IEventBus,
     @IAgentStateService private readonly states: IAgentStateService,
+    @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {
     super();
     this.states.contributeState(toolSelectPendingLoadedKey);
@@ -237,11 +239,8 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
     const retrievalCandidates = loadableEntries.filter((entry) => !loaded.has(entry.name));
     if (loadableEntries.length >= RETRIEVAL_MIN_TOOLS) {
       if (retrievalCandidates.length === 0) return undefined;
-      const ranked = rankToolsByQuery(
-        retrievalCandidates,
-        latestUserQuery(history) ?? '',
-        RETRIEVAL_TOP_K,
-      );
+      const query = latestUserQuery(history) ?? '';
+      const ranked = rankToolsByQuery(retrievalCandidates, query, RETRIEVAL_TOP_K);
       const selected =
         ranked.length > 0
           ? ranked
@@ -254,7 +253,16 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
         selected,
         retrievalCandidates.length,
       );
-      return announcement === lastRetrievedAnnouncementText(history) ? undefined : announcement;
+      if (announcement === lastRetrievedAnnouncementText(history)) return undefined;
+      this.telemetry.track2('tool_retrieval', {
+        mode: 'announce',
+        catalog_size: loadableEntries.length,
+        candidate_count: retrievalCandidates.length,
+        selected_count: selected.length,
+        query_chars: query.length,
+        matched: query.trim().length > 0 && ranked.some((hit) => hit.score > 0),
+      });
+      return announcement;
     }
     const loadable = loadableEntries.map((entry) => entry.name).toSorted((a, b) =>
       a.localeCompare(b),
@@ -326,7 +334,17 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
 
   search(query: string, limit: number = RETRIEVAL_TOP_K): readonly ToolSearchHit[] {
     if (!this.enabled()) return [];
-    return rankToolsByQuery(this.loadableEntries(), query, limit);
+    const entries = this.loadableEntries();
+    const hits = rankToolsByQuery(entries, query, limit);
+    this.telemetry.track2('tool_retrieval', {
+      mode: 'search',
+      catalog_size: entries.length,
+      candidate_count: entries.length,
+      selected_count: hits.length,
+      query_chars: query.length,
+      matched: hits.length > 0,
+    });
+    return hits;
   }
 
   private loadedToolNames(): Set<string> {

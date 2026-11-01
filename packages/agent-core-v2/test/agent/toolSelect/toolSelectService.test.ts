@@ -58,7 +58,7 @@ import { IWireService } from '#/wire/wire';
 import { type ToolCall } from '#human/llm/message';
 
 import { registerLogServices } from '../../_base/log/stubs';
-import { recordingTelemetry } from '../../app/telemetry/stubs';
+import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import { createReminderHarness } from '../../features/reminder/stubs';
 import { registerStateServices } from '../../state/stubs';
 import { stubToolExecutor, stubWire } from '../loop/stubs';
@@ -89,6 +89,7 @@ let flagEnabled: boolean;
 let activeToolNames: ReadonlySet<string> | undefined;
 let disclosureToolActive: boolean;
 let deniedToolNames: ReadonlySet<string>;
+let telemetryRecords: TelemetryRecord[];
 
 beforeEach(() => {
   disposables = new DisposableStore();
@@ -97,6 +98,7 @@ beforeEach(() => {
   activeToolNames = undefined;
   disclosureToolActive = true;
   deniedToolNames = new Set();
+  telemetryRecords = [];
 });
 
 afterEach(() => disposables.dispose());
@@ -354,6 +356,7 @@ function registerSharedServices(
 ): void {
   registerStateServices(reg);
   reg.defineInstance(IEventBus, eventBus);
+  reg.defineInstance(ITelemetryService, recordingTelemetry(telemetryRecords));
   reg.defineInstance(IAgentLoopService, loop);
   reg.definePartialInstance(IAgentMcpService, {
     waitForInitialLoad: () => Promise.resolve(),
@@ -841,6 +844,10 @@ describe('AgentToolSelectService.load', () => {
     expect(result.output).toContain('mcp__db__query');
     expect(result.output).toContain('These are candidates');
     expect(result.output).not.toContain('Loaded:');
+    expect(telemetryRecords).toContainEqual({
+      event: 'tool_retrieval',
+      properties: expect.objectContaining({ mode: 'search', catalog_size: 20, matched: true }),
+    });
   });
 
   it('settles per name: toLoad, alreadyAvailable, unknown', async () => {
@@ -1640,7 +1647,20 @@ describe('AgentToolSelectService loadable-tools announcements', () => {
     expect(text).toContain('Call select_tools with exact names');
     expect(text).not.toContain('mcp__srv__tool_0');
     expect(text).not.toContain('<tools_added>');
+    expect(telemetryRecords).toContainEqual({
+      event: 'tool_retrieval',
+      properties: expect.objectContaining({
+        mode: 'announce',
+        catalog_size: 20,
+        candidate_count: 20,
+        matched: true,
+      }),
+    });
     expect(h.sut.search('database', 3)[0]?.name).toBe('mcp__db__query');
+    expect(telemetryRecords).toContainEqual({
+      event: 'tool_retrieval',
+      properties: expect.objectContaining({ mode: 'search', catalog_size: 20, matched: true }),
+    });
   });
 
   it('keeps only the latest retrieved-tools block in request history', () => {

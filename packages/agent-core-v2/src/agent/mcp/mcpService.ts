@@ -115,7 +115,14 @@ export class AgentMcpService extends Service implements IAgentMcpService {
       return Promise.resolve();
     }
     return waitWithin(this.mcpHandle.ready, budgetMs, signal).then((settled) => {
-      if (!settled) this.initialLoadWaitExpired = true;
+      if (settled) return;
+      this.initialLoadWaitExpired = true;
+      const entries = this.mcpHandle.connectionManager.list();
+      this.telemetry.track2('mcp_initial_load_wait', {
+        budget_ms: budgetMs,
+        pending_count: entries.filter((entry) => entry.status === 'pending').length,
+        total_count: entries.length,
+      });
     });
   }
 

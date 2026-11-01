@@ -340,6 +340,14 @@ describe('AgentMcpService', () => {
     const elapsed = performance.now() - started;
     expect(elapsed).toBeGreaterThanOrEqual(MCP_INITIAL_LOAD_WAIT_MS - 100);
     expect(elapsed).toBeLessThan(MCP_INITIAL_LOAD_WAIT_MS + 1500);
+    expect(telemetryEvents).toContainEqual({
+      event: 'mcp_initial_load_wait',
+      properties: expect.objectContaining({
+        budget_ms: MCP_INITIAL_LOAD_WAIT_MS,
+        pending_count: 0,
+        total_count: 0,
+      }),
+    });
   }, 10000);
 
   it('does not wait again after the MCP wait budget expired', async () => {

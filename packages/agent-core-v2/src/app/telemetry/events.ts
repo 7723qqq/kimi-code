@@ -548,6 +548,21 @@ export interface McpFailedEvent {
   total_count: number;
 }
 
+export interface McpInitialLoadWaitEvent {
+  budget_ms: number;
+  pending_count: number;
+  total_count: number;
+}
+
+export interface ToolRetrievalEvent {
+  mode: 'announce' | 'search';
+  catalog_size: number;
+  candidate_count: number;
+  selected_count: number;
+  query_chars: number;
+  matched: boolean;
+}
+
 export interface CronMissedEvent {
   count: number;
 }
@@ -1462,6 +1477,27 @@ export const telemetryEventDefinitions = {
     properties: {
       failed_count: 'Number of servers that failed',
       total_count: 'Total number of configured servers',
+    },
+  }),
+  mcp_initial_load_wait: defineAgentTelemetryEvent<McpInitialLoadWaitEvent>({
+    owner: 'kimi-code',
+    comment: 'A turn proceeded before all MCP servers finished their initial connection.',
+    properties: {
+      budget_ms: 'Maximum time the turn waited for MCP initial load',
+      pending_count: 'MCP servers still connecting when the wait budget elapsed',
+      total_count: 'Total configured MCP servers',
+    },
+  }),
+  tool_retrieval: defineAgentTelemetryEvent<ToolRetrievalEvent>({
+    owner: 'kimi-code',
+    comment: 'A deferred tool catalog is ranked for a turn or searched by capability.',
+    properties: {
+      mode: 'Whether the catalog was ranked for an announcement or searched by query',
+      catalog_size: 'Number of loadable tools in the catalog',
+      candidate_count: 'Number of tools considered for ranking or search',
+      selected_count: 'Number of tools returned or announced',
+      query_chars: 'Character length of the retrieval query, not its content',
+      matched: 'Whether at least one positive retrieval match was found',
     },
   }),
   cron_missed: defineTelemetryEvent<CronMissedEvent>({
