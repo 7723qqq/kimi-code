@@ -151,6 +151,39 @@ describe('progressive tool disclosure end-to-end', () => {
     expect(historyText(firstWire.history)).toContain(MCP_ALPHA);
   });
 
+  it('announces a ranked shortlist for a large deferred catalog', async () => {
+    const registrations = Array.from({ length: 19 }, (_, index) =>
+      ctx
+        .get(IAgentToolRegistryService)
+        .register(new StubMcpTool(`mcp__srv__tool_${index}`), {
+          source: 'mcp',
+          disclosure: 'deferred',
+        }),
+    );
+    registrations.push(
+      ctx.get(IAgentToolRegistryService).register(new StubMcpTool('mcp__db__database_query'), {
+        source: 'mcp',
+        disclosure: 'deferred',
+      }),
+    );
+    try {
+      ctx.mockNextResponse({ type: 'text', text: 'done' });
+      await ctx.rpc.prompt({
+        input: [{ type: 'text', text: 'query the analytics database' }],
+      });
+      await ctx.untilTurnEnd();
+
+      const first = ctx.llmCalls[0]!;
+      const announcement = historyText(first.history);
+      expect(announcement).toContain('<tools_relevant>');
+      expect(announcement).toContain('mcp__db__database_query');
+      expect(announcement).not.toContain('mcp__srv__tool_0');
+      expect(toolNames(first.tools)).not.toContain('mcp__db__database_query');
+    } finally {
+      for (const extra of registrations) extra.dispose();
+    }
+  });
+
   it('can cancel the first turn while MCP discovery is still pending', async () => {
     const waiting = createControlledPromise<void>();
     mcpReady = new Promise(() => {});

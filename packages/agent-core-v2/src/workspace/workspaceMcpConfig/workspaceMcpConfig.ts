@@ -13,6 +13,7 @@ export interface McpTunables {
   readonly startupTimeoutMs?: number;
   readonly toolTimeoutMs?: number;
   readonly defaultDeferred?: boolean;
+  readonly autoDeferToolThreshold?: number;
   readonly reconnectInitialDelayMs?: number;
   readonly reconnectMaxDelayMs?: number;
 }

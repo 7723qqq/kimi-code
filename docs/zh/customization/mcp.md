@@ -65,7 +65,7 @@ MCP server 配置写在 `mcp.json` 中，分三层：
 | `headers` | `Record<string, string>` | HTTP、SSE | 附加到每次请求的静态请求头 |
 | `bearerTokenEnvVar` | `string` | HTTP、SSE | 存放 bearer token 的环境变量名 |
 | `enabled` | `boolean` | 全部 | 设为 `false` 可禁用该 server |
-| `deferred` | `boolean` | 全部 | 实验功能：设为 `true` 时该 server 的工具由模型按需加载，缺省时取全局 `default_deferred`（未设置则为 `false`）。前提与行为见 [按需加载工具](#按需加载工具) |
+| `deferred` | `boolean` | 全部 | 实验功能：设为 `true` 时该 server 的工具由模型按需加载，缺省时取全局 `default_deferred`（未设置则为 `false`）；动态工具加载可用时，启用工具数达到 24 个的 server 会自动 deferred。前提与行为见 [按需加载工具](#按需加载工具) |
 | `startupTimeoutMs` | `number` | 全部 | 连接超时，取值范围为 `1` 到 `2147483647` 毫秒，默认 `30000` |
 | `toolTimeoutMs` | `number` | 全部 | 单次工具调用超时，取值范围为 `1` 到 `2147483647` 毫秒 |
 | `enabledTools` | `string[]` | 全部 | 工具白名单 |
@@ -73,7 +73,9 @@ MCP server 配置写在 `mcp.json` 中，分三层：
 
 连接超时和单次工具调用超时的默认值都不必逐个 server 设置：`config.toml` 的 `[mcp] startup_timeout_ms` / `[mcp] tool_timeout_ms` 或环境变量 `KIMI_MCP_STARTUP_TIMEOUT_MS` / `KIMI_MCP_TOOL_TIMEOUT_MS` 可以调整全局默认值，优先级为 server 字段 > 环境变量 > `config.toml` > 内置默认。详见 [配置文件](../configuration/config-files.md#mcp)。
 
-当一个工作区级 MCP server 在启动时连不上或中途意外断开，它会用指数退避自行重连（每次失败后等待时间加倍）：第一次重试在 `[mcp] reconnect_initial_delay_ms`（默认 `5000`）之后，等待时间不超过 `[mcp] reconnect_max_delay_ms`（默认 `300000`），可通过 `config.toml` 或 `KIMI_MCP_RECONNECT_INITIAL_DELAY_MS` / `KIMI_MCP_RECONNECT_MAX_DELAY_MS` 环境变量调整。server 重新可达后，它的工具会自动恢复。无法自行恢复的 server 不会被重试，而是保持 `failed`：命令不存在、配置无效，或 server 拒绝了静态凭证；会话级临时 server 同样不重试。
+首个轮次开始前，Kimi Code 最多等待两秒，让工作区 MCP server 完成初始连接。仍在启动的 server 会继续在后台连接；工具在连接成功后即可使用，不会再次阻塞轮次。
+
+当一个工作区级 MCP server 在启动时连不上或中途意外断开，它会用指数退避自行重连（每次失败后等待时间加倍）：第一次重试在 `[mcp] reconnect_initial_delay_ms`（默认 `5000`）之后，等待时间不超过 `[mcp] reconnect_max_delay_ms`（默认 `300000`），可通过 `config.toml` 或 `KIMI_MCP_RECONNECT_INITIAL_DELAY_MS` / `KIMI_MCP_RECONNECT_MAX_DELAY_MS` 环境变量调整。server 重新可达后，它的工具会自动恢复。无法自行恢复的 server 不会被重试，而是保持 `failed`：命令不存在、配置无效、缺少 runtime 或进程能力，或 server 拒绝了静态凭证；会话级临时 server 同样不重试。
 
 HTTP 与 SSE server 支持通过 `headers` 或 `bearerTokenEnvVar` 提供静态凭证。需要 OAuth 时，运行 `/mcp-config login <server-name>` 完成浏览器授权。
 
@@ -85,7 +87,7 @@ Plugins 也可以在 manifest 中声明 MCP servers。Plugin 声明的 servers �
 
 ## 按需加载工具
 
-默认情况下，server 的所有工具都会直接进入模型的顶层工具列表；接入的 server 较多、或单个 server 暴露的工具较多时，这些工具定义会持续占用上下文。把 server 标记为 deferred 后，它的工具不再进入顶层工具列表：模型先看到一份可加载工具清单，需要时通过内置的 `select_tools` 工具加载完整定义，加载后同一轮即可调用。
+默认情况下，server 的所有工具都会直接进入模型的顶层工具列表；接入的 server 较多、或单个 server 暴露的工具较多时，这些工具定义会持续占用上下文。把 server 标记为 deferred 后，它的工具不再进入顶层工具列表：模型先看到一份可加载工具清单，需要时通过内置的 `select_tools` 工具加载完整定义，加载后同一轮即可调用。动态工具加载可用时，启用工具数达到 24 个的 server 会自动 deferred；设 `deferred: false` 可让其工具保持 inline。阈值默认 24，可通过 `config.toml` 的 `[mcp] auto_defer_tool_threshold` 或 `KIMI_MCP_AUTO_DEFER_TOOL_THRESHOLD` 调整，设为 `0` 可关闭自动 deferred。
 
 按需加载是实验功能，同时满足两个前提才会生效：
 
@@ -105,7 +107,9 @@ Plugins 也可以在 manifest 中声明 MCP servers。Plugin 声明的 servers �
 }
 ```
 
-未设置 `deferred` 的 server 取全局默认值（未改动时为 `false`）；前提不满足时该字段被忽略，行为相同。需要 OAuth 授权的 server 在完成授权前暴露的认证工具也遵循这个字段。
+未设置 `deferred` 的 server 取全局默认值（未改动时为 `false`），但动态工具加载可用时，启用工具数达到 24 个的 server 会自动 deferred；前提不满足时该字段被忽略，行为相同。需要 OAuth 授权的 server 在完成授权前暴露的认证工具也遵循这个字段。
+
+当 deferred 工具目录中至少有 20 个可加载工具时，模型收到的是当前请求最相关的最多十个工具的排序短名单，而不是完整清单。它可以调用 `select_tools` 并传入 `query` 按能力搜索其余工具；搜索结果只是候选，仍须按精确名称加载后才能调用。短名单每个轮次重新计算，旧短名单会从请求历史中移除。
 
 如果不想逐个 server 标记，而是默认让所有 server 按需加载，可以在 `config.toml` 的 `[mcp]` 下设 `default_deferred = true`，见 [配置文件](../configuration/config-files.md#mcp)。单个 server 仍可用 `deferred: false` 排除；server 字段始终优先于全局默认。该值在 server 连接时固化，之后修改不会改动运行中会话的工具形态——重连该 server 或重启进程后才会应用。
 

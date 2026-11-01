@@ -3,6 +3,8 @@ import type { ContextMessage } from '#/agent/contextMemory/types';
 import type { ToolInfo } from '#/tool/toolContract';
 import type { ToolDescription as Tool } from '#human/llm/message';
 
+import type { ToolSearchHit } from './toolRetriever';
+
 export const SELECT_TOOLS_TOOL_NAME = 'select_tools';
 
 export interface ShapedToolEntry extends ToolInfo {
@@ -32,6 +34,8 @@ export interface IAgentToolSelectService {
   shapeHistory(messages: readonly ContextMessage[]): readonly ContextMessage[];
 
   load(names: readonly string[]): LoadToolsResult;
+
+  search(query: string, limit?: number): readonly ToolSearchHit[];
 
   drainPendingToolSchemas(): readonly Tool[] | undefined;
 

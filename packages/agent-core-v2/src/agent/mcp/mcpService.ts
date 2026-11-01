@@ -23,7 +23,7 @@ import { IEventDispatcher } from '#/state/eventDispatcher';
 import { defineState } from '#/state/state';
 import type { ToolDescription as KosongTool } from '#human/llm/message';
 
-import { IAgentMcpService } from './mcp';
+import { IAgentMcpService, MCP_INITIAL_LOAD_WAIT_MS } from './mcp';
 import { mcpDiscoveryKey, McpToolsDiscovered, type McpToolCollision } from './mcpDiscoveryOps';
 import { AgentErrorEvent, McpServerStatus, ToolListUpdated } from './mcpEvents';
 import {
@@ -54,6 +54,7 @@ export class AgentMcpService extends Service implements IAgentMcpService {
   private readonly failedServerEpisodes = new Set<string>();
   private registered = false;
   private failureWriteTail: Promise<void> = Promise.resolve();
+  private initialLoadWaitExpired = false;
 
   constructor(
     @ISessionMcpHandle private readonly mcpHandle: ISessionMcpHandle,
@@ -103,9 +104,19 @@ export class AgentMcpService extends Service implements IAgentMcpService {
     return this.mcpHandle.connectionManager.oauthService;
   }
 
-  waitForInitialLoad(signal?: AbortSignal): Promise<void> {
-    const ready = this.mcpHandle.ready;
-    return signal === undefined ? ready : abortable(ready, signal);
+  waitForInitialLoad(
+    signal?: AbortSignal,
+    budgetMs: number = MCP_INITIAL_LOAD_WAIT_MS,
+  ): Promise<void> {
+    signal?.throwIfAborted();
+    if (this.initialLoadWaitExpired) return Promise.resolve();
+    if (budgetMs <= 0) {
+      this.initialLoadWaitExpired = true;
+      return Promise.resolve();
+    }
+    return waitWithin(this.mcpHandle.ready, budgetMs, signal).then((settled) => {
+      if (!settled) this.initialLoadWaitExpired = true;
+    });
   }
 
   initialLoadDurationMs(): number {
@@ -464,6 +475,26 @@ export class AgentMcpService extends Service implements IAgentMcpService {
       }),
     );
   }
+}
+
+function waitWithin(
+  ready: Promise<void>,
+  budgetMs: number,
+  signal: AbortSignal | undefined,
+): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const budget = new Promise<boolean>((resolve) => {
+    timer = setTimeout(() => {
+      resolve(false);
+    }, budgetMs);
+    timer.unref?.();
+  });
+  const settled = ready.then(() => true);
+  const race = Promise.race([settled, budget]);
+  const guarded = signal === undefined ? race : abortable(race, signal);
+  return guarded.finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
 }
 
 registerScopedService(

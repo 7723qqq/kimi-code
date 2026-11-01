@@ -18,11 +18,16 @@ import { z } from 'zod';
 
 import { Error2 } from '#/errors';
 import { KIMI_MCP_CLIENT_NAME } from '#/mcpCore/client-shared';
-import { McpConnectionManager, type McpServerEntry } from '#/mcpCore/connection-manager';
+import {
+  AUTO_DEFER_TOOL_THRESHOLD,
+  McpConnectionManager,
+  type McpServerEntry,
+} from '#/mcpCore/connection-manager';
 import { type StoredMcpOAuthTokens } from '#/mcpCore/oauth/provider';
 import { McpOAuthService } from '#/mcpCore/oauth/service';
 import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
+import { RuntimeError } from '#/runtime/runtimeRegistry';
 
 import {
   closeServer,
@@ -122,6 +127,68 @@ describe('McpConnectionManager', () => {
       await cm.shutdown();
     }
   }, 20000);
+
+  it('auto-defers servers with many enabled tools unless deferred is pinned', async () => {
+    const cm = createManager();
+    const wideEnv = { KIMI_TEST_MCP_EXTRA_TOOLS: String(AUTO_DEFER_TOOL_THRESHOLD) };
+    try {
+      await cm.connectAll({
+        wide: { ...stdioConfig(), env: wideEnv },
+        pinned: { ...stdioConfig(), env: wideEnv, deferred: false },
+      });
+
+      expect(cm.deferredOf('wide')).toBe(true);
+      expect(cm.resolved('wide')?.deferred).toBe(true);
+      expect(cm.deferredOf('pinned')).toBe(false);
+      expect(cm.resolved('pinned')?.deferred).toBe(false);
+    } finally {
+      await cm.shutdown();
+    }
+  }, 20000);
+
+  it('honors the configured auto-defer threshold and allows disabling it', async () => {
+    const highThreshold = createManager({
+      resolveDefaults: () => ({ autoDeferToolThreshold: 100 }),
+    });
+    const disabled = createManager({
+      resolveDefaults: () => ({ autoDeferToolThreshold: 0 }),
+    });
+    const env = { KIMI_TEST_MCP_EXTRA_TOOLS: String(AUTO_DEFER_TOOL_THRESHOLD) };
+    try {
+      await highThreshold.connectAll({ wide: { ...stdioConfig(), env } });
+      await disabled.connectAll({ wide: { ...stdioConfig(), env } });
+
+      expect(highThreshold.deferredOf('wide')).toBe(false);
+      expect(disabled.deferredOf('wide')).toBe(false);
+    } finally {
+      await highThreshold.shutdown();
+      await disabled.shutdown();
+    }
+  }, 30000);
+
+  it('marks a missing stdio runtime as failed without scheduling retries', async () => {
+    const missing = (): never => {
+      throw new RuntimeError('runtime.not_found', 'runtime local does not exist in workspace');
+    };
+    const cm = createManager({
+      reconnectRetryEnabled: true,
+      runtimeResolver: {
+        _serviceBrand: undefined,
+        inspect: missing,
+        acquire: missing,
+      },
+    });
+    try {
+      await cm.connectAll({ missing: stdioConfig() });
+
+      const entry = cm.get('missing');
+      expect(entry?.status).toBe('failed');
+      expect(entry?.nextRetryAt).toBeUndefined();
+      expect(entry?.error).toContain('runtime local does not exist in workspace');
+    } finally {
+      await cm.shutdown();
+    }
+  });
 
   it('markRemoved tombstones the entry: client closed, entry kept, reconnect rejected, re-connect revives', async () => {
     const cm = createManager();

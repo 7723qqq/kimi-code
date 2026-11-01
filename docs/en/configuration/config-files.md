@@ -432,8 +432,9 @@ In print mode (`kimi -p "<prompt>"`), Kimi Code stays alive after the main agent
 | `startup_timeout_ms` | `integer` | `30000` (30 seconds) | Global default connection (startup + tool discovery) timeout in milliseconds for all MCP servers; a per-server `startupTimeoutMs` in `mcp.json` wins |
 | `tool_timeout_ms` | `integer` | `60000` (60 seconds) | Global default single tool-call timeout in milliseconds for all MCP servers; a per-server `toolTimeoutMs` in `mcp.json` wins |
 | `default_deferred` | `boolean` | `false` | Global default for [loading tools on demand](../customization/mcp.md#loading-tools-on-demand): when `true`, every MCP server's tools load on demand unless the server opts out; a per-server `deferred` field in `mcp.json` wins |
+| `auto_defer_tool_threshold` | `integer` | `24` | Automatically defer MCP servers with at least this many enabled tools when dynamic tool loading is available; `0` disables auto-defer. A per-server `deferred` field in `mcp.json` wins |
 
-`startup_timeout_ms` and `tool_timeout_ms` can be overridden by the `KIMI_MCP_STARTUP_TIMEOUT_MS` and `KIMI_MCP_TOOL_TIMEOUT_MS` environment variables respectively, which take higher priority than `config.toml`. See [MCP](../customization/mcp.md) for the full MCP server configuration.
+`startup_timeout_ms`, `tool_timeout_ms`, and `auto_defer_tool_threshold` can be overridden by the `KIMI_MCP_STARTUP_TIMEOUT_MS`, `KIMI_MCP_TOOL_TIMEOUT_MS`, and `KIMI_MCP_AUTO_DEFER_TOOL_THRESHOLD` environment variables respectively, which take higher priority than `config.toml`. See [MCP](../customization/mcp.md) for the full MCP server configuration.
 
 ## `identity`
 

@@ -5,6 +5,7 @@ import { abortable } from '#/_base/utils/abort';
 import { ErrorCodes, Error2 } from '#/errors';
 import type { McpOAuthService } from '#/mcpCore/oauth/service';
 import { HostProcessError, HostProcessErrorCode } from '#/os/interface/hostProcess';
+import { RuntimeError } from '#/runtime/runtimeRegistry';
 import type { ToolDescription as Tool } from '#human/llm/message';
 
 import { HttpMcpClient } from './client-http';
@@ -97,6 +98,7 @@ const DEFAULT_STARTUP_TIMEOUT_MS = 30_000;
 const DEFAULT_RECONNECT_INITIAL_DELAY_MS = 5_000;
 const DEFAULT_RECONNECT_MAX_DELAY_MS = 300_000;
 const MAX_FAILURE_STREAK = 31;
+export const AUTO_DEFER_TOOL_THRESHOLD = 24;
 
 type RuntimeMcpClient = StdioMcpClient | HttpMcpClient | SseMcpClient;
 const defaultLog: Logger = {
@@ -111,6 +113,7 @@ export interface McpDefaults {
   readonly startupTimeoutMs?: number;
   readonly toolTimeoutMs?: number;
   readonly defaultDeferred?: boolean;
+  readonly autoDeferToolThreshold?: number;
   readonly reconnectInitialDelayMs?: number;
   readonly reconnectMaxDelayMs?: number;
 }
@@ -234,8 +237,12 @@ export class McpConnectionManager implements McpConnectionView {
     return this.entries.get(name)?.deferred ?? false;
   }
 
-  private resolveDeferred(config: McpServerConfig): boolean {
-    return config.deferred ?? this.options.resolveDefaults?.().defaultDeferred ?? false;
+  private resolveDeferred(config: McpServerConfig, toolCount?: number): boolean {
+    if (config.deferred !== undefined) return config.deferred;
+    const defaults = this.options.resolveDefaults?.();
+    const threshold = defaults?.autoDeferToolThreshold ?? AUTO_DEFER_TOOL_THRESHOLD;
+    if (toolCount !== undefined && threshold > 0 && toolCount >= threshold) return true;
+    return defaults?.defaultDeferred ?? false;
   }
 
   resolved(name: string):
@@ -725,13 +732,15 @@ export class McpConnectionManager implements McpConnectionView {
           this.closeForLifecycle(entry, startupClient);
         },
       );
+      const enabledNames = computeEnabledNames(entry.config, discovered.tools);
+      entry.deferred = this.resolveDeferred(entry.config, enabledNames.size);
       this.transition(entry, {
         type: 'handshakeSucceeded',
         attemptId,
         client: startupClient,
         tools: discovered.tools,
         rawTools: discovered.rawTools,
-        enabledNames: computeEnabledNames(entry.config, discovered.tools),
+        enabledNames,
       });
     } catch (error) {
       this.transition(entry, { type: 'handshakeFailed', attemptId, error, client });
@@ -992,7 +1001,15 @@ function computeEnabledNames(config: McpServerConfig, tools: readonly Tool[]): S
 
 function classifyStartupFailure(error: unknown): McpFailureKind {
   if (error instanceof McpClassifiedStartupError) return error.failureKind;
-  if (error instanceof Error2 && error.code === ErrorCodes.CONFIG_INVALID) return 'config';
+  if (error instanceof RuntimeError) {
+    return error.code === 'runtime.unavailable' ? 'transport' : 'config';
+  }
+  if (
+    error instanceof Error2 &&
+    (error.code === ErrorCodes.CONFIG_INVALID || error.code === ErrorCodes.NOT_IMPLEMENTED)
+  ) {
+    return 'config';
+  }
   if (isUnauthorizedLikeError(error)) return 'auth-oauth';
   return 'transport';
 }

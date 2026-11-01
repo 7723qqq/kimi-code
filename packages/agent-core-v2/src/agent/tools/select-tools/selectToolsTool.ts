@@ -6,15 +6,15 @@ import type { ToolExecution } from '#/tool/toolContract';
 import { ISelectToolsTool, SelectToolsInputSchema, type SelectToolsInput } from './select-tools';
 
 const DESCRIPTION =
-  'Load one or more tools by name so you can call them. ' +
-  'The loadable names are listed in the <tools_added>/<tools_removed> announcements ' +
-  'in the system context — fold them in order to get the current list. ' +
-  'If you have not seen a <tools_added> announcement in this session, no tools are currently loadable — do not call select_tools. ' +
-  'Pass the exact tool name(s) you need — plugin, skill, or category names do not work. ' +
+  'Load tools by exact name, or search for them by capability when the name is unknown. ' +
+  'The loadable names are listed in the <tools_added>/<tools_removed> or <tools_relevant> ' +
+  'announcements in the system context — use the latest announcement. ' +
+  'If you have not seen a loadable-tools announcement in this session, no tools are currently loadable. ' +
+  'Pass names to load them, or pass query to search all loadable tools; a search returns ' +
+  'candidates only, so call select_tools again with exact names to load the ones you need. ' +
   'The full definitions become available immediately, so you can call them directly ' +
-  'in your next tool call. ' +
-  'Only announced names are loadable — tools you already have available are called ' +
-  'directly, never passed to select_tools.';
+  'in your next tool call. Tools you already have available are called directly, ' +
+  'never passed to select_tools.';
 
 export class SelectToolsTool implements ISelectToolsTool {
   declare readonly _serviceBrand: undefined;
@@ -25,6 +25,42 @@ export class SelectToolsTool implements ISelectToolsTool {
   constructor(@IAgentToolSelectService private readonly toolSelect: IAgentToolSelectService) {}
 
   resolveExecution(args: SelectToolsInput): ToolExecution {
+    if (args.names === undefined) {
+      const query = args.query ?? '';
+      return {
+        description: `Searching tools for "${query}"`,
+        approvalRule: this.name,
+        execute: async () => {
+          if (!this.toolSelect.enabled()) {
+            return {
+              output: 'select_tools is not available for the current model.',
+              isError: true,
+            };
+          }
+          if (query.length === 0) {
+            return { output: 'Provide names to load or a query to search.', isError: true };
+          }
+          const hits = this.toolSelect.search(query, 10);
+          if (hits.length === 0) {
+            return {
+              output:
+                `No loadable tools matched "${query}". Try a different capability description ` +
+                'or use a tool you already have.',
+            };
+          }
+          const lines = [`Search results for "${query}":`];
+          for (const hit of hits) {
+            const description = hit.description.replace(/\s+/g, ' ').trim().slice(0, 120);
+            lines.push(description.length === 0 ? hit.name : `${hit.name} — ${description}`);
+          }
+          lines.push(
+            'These are candidates. Tools you already have can be called directly; ' +
+              'call select_tools with exact names to load the others.',
+          );
+          return { output: lines.join('\n') };
+        },
+      };
+    }
     return {
       description: `Loading ${args.names.join(', ')}`,
       approvalRule: this.name,
@@ -46,7 +82,7 @@ export class SelectToolsTool implements ISelectToolsTool {
           consecutiveFailures,
           suggestions,
           loadable,
-        } = this.toolSelect.load(args.names);
+        } = this.toolSelect.load(args.names ?? []);
 
         const lines: string[] = [];
         if (toLoad.length > 0) lines.push(`Loaded: ${toLoad.join(', ')}`);
@@ -75,7 +111,8 @@ export class SelectToolsTool implements ISelectToolsTool {
         for (const name of unknown) {
           const reason =
             `Unknown tool: ${name}. This name is not in the current loadable tool list. ` +
-            'select_tools only loads exact announced names; it cannot search for capabilities or install tools. ';
+            'Call select_tools with a query to search by capability, then load an exact name; ' +
+            'or use an available tool. ';
           const candidates = suggestions[name];
           if (candidates !== undefined && candidates.length > 0) {
             lines.push(

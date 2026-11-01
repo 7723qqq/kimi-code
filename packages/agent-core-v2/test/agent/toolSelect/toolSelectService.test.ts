@@ -36,6 +36,7 @@ import { SelectToolsTool } from '#/agent/tools/select-tools/selectToolsTool';
 import {
   DYNAMIC_TOOL_SCHEMA_VARIANT,
   LOADABLE_TOOLS_VARIANT,
+  RETRIEVED_TOOLS_VARIANT,
 } from '#/agent/toolSelect/dynamicTools';
 import { TOOL_SELECT_FLAG_ID } from '#/agent/toolSelect/flag';
 import { IAgentToolSelectService, SELECT_TOOLS_TOOL_NAME } from '#/agent/toolSelect/toolSelect';
@@ -71,7 +72,8 @@ const USER_DEFERRED = 'dashboard_create';
 const USER_INLINE = 'echo_inline';
 const UNKNOWN_SELECTION_REASON =
   'This name is not in the current loadable tool list. ' +
-  'select_tools only loads exact announced names; it cannot search for capabilities or install tools. ';
+  'Call select_tools with a query to search by capability, then load an exact name; ' +
+  'or use an available tool. ';
 const NO_ALIAS_GUIDANCE =
   ' Do not guess aliases; use an available tool or tell the user what capability is missing.';
 const REQUIRED_PAYLOAD_PARAMETERS = {
@@ -143,8 +145,9 @@ class StubMcpTool implements ExecutableTool<Record<string, unknown>> {
     readonly name: string,
     private readonly output: string = 'mcp ok',
     parameters?: Record<string, unknown>,
+    description?: string,
   ) {
-    this.description = `${name} desc`;
+    this.description = description ?? `${name} desc`;
     this.parameters = parameters ?? {
       type: 'object',
       additionalProperties: true,
@@ -808,6 +811,36 @@ describe('AgentToolSelectService view shaping (gate open)', () => {
 describe('AgentToolSelectService.load', () => {
   beforeEach(() => {
     flagEnabled = true;
+  });
+
+  it('searches loadable tools by capability without loading them', async () => {
+    const h = createHarness();
+    for (let index = 0; index < 19; index += 1) {
+      registerMcp(
+        h,
+        new StubMcpTool(`mcp__srv__tool_${index}`, 'ok', undefined, `Utility ${index}`),
+      );
+    }
+    registerMcp(
+      h,
+      new StubMcpTool(
+        'mcp__db__query',
+        'ok',
+        undefined,
+        'Run SQL queries against the analytics database',
+      ),
+    );
+    const selectTools = h.ix.createInstance(SelectToolsTool);
+    const ctx = { turnId: 1, toolCallId: 'call-1', signal: new AbortController().signal };
+    const execution = selectTools.resolveExecution({ query: 'database' });
+    if (execution.isError === true) throw new Error('expected a runnable execution');
+
+    const result = await execution.execute(ctx);
+
+    expect(result.output).toContain('Search results for "database":');
+    expect(result.output).toContain('mcp__db__query');
+    expect(result.output).toContain('These are candidates');
+    expect(result.output).not.toContain('Loaded:');
   });
 
   it('settles per name: toLoad, alreadyAvailable, unknown', async () => {
@@ -1572,9 +1605,62 @@ describe('AgentToolSelectService loadable-tools announcements', () => {
     const h = createHarness();
     const tool = h.ix.createInstance(SelectToolsTool);
     expect(tool.description).toContain(
-      'If you have not seen a <tools_added> announcement in this session, ' +
-        'no tools are currently loadable — do not call select_tools.',
+      'If you have not seen a loadable-tools announcement in this session, ' +
+        'no tools are currently loadable.',
     );
+  });
+
+  it('announces only the most relevant tools when the loadable catalog is large', () => {
+    const h = createHarness();
+    for (let index = 0; index < 19; index += 1) {
+      registerMcp(
+        h,
+        new StubMcpTool(
+          `mcp__srv__tool_${index}`,
+          'ok',
+          undefined,
+          `Utility ${index} for unrelated work`,
+        ),
+      );
+    }
+    registerMcp(
+      h,
+      new StubMcpTool(
+        'mcp__db__query',
+        'ok',
+        undefined,
+        'Run SQL queries against the analytics database',
+      ),
+    );
+    h.contextMemory.history.push(userMessage('query the analytics database for revenue'));
+
+    const text = h.sut.loadableToolsAnnouncement();
+    expect(text).toContain('<tools_relevant>');
+    expect(text).toContain('mcp__db__query');
+    expect(text).toContain('Call select_tools with exact names');
+    expect(text).not.toContain('mcp__srv__tool_0');
+    expect(text).not.toContain('<tools_added>');
+    expect(h.sut.search('database', 3)[0]?.name).toBe('mcp__db__query');
+  });
+
+  it('keeps only the latest retrieved-tools block in request history', () => {
+    const h = createHarness();
+    const retrieved = (text: string): ContextMessage => ({
+      role: 'system',
+      content: [{ type: 'text', text }],
+      toolCalls: [],
+      origin: { kind: 'injection', variant: RETRIEVED_TOOLS_VARIANT },
+    });
+    h.contextMemory.history.push(retrieved('old'), userMessage('hi'), retrieved('latest'));
+
+    const shaped = h.sut.shapeHistory(h.contextMemory.history);
+    const blocks = shaped.filter(
+      (entry) =>
+        entry.origin?.kind === 'injection' && entry.origin.variant === RETRIEVED_TOOLS_VARIANT,
+    );
+
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]?.content[0]).toEqual({ type: 'text', text: 'latest' });
   });
 
   it('announces an initially empty set once, including across turns', async () => {

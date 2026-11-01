@@ -5,6 +5,8 @@ import type { McpOAuthService } from '#/mcpCore/oauth/service';
 import type { MCPClient, MCPToolDefinition } from '#/mcpCore/types';
 import type { ToolDescription as KosongTool } from '#human/llm/message';
 
+export const MCP_INITIAL_LOAD_WAIT_MS = 2000;
+
 export interface McpResolvedServer {
   readonly client: MCPClient;
   readonly tools: readonly KosongTool[];
@@ -18,7 +20,7 @@ export interface IAgentMcpService {
 
   register(): void;
   readonly oauthService: McpOAuthService | undefined;
-  waitForInitialLoad(signal?: AbortSignal): Promise<void>;
+  waitForInitialLoad(signal?: AbortSignal, budgetMs?: number): Promise<void>;
   initialLoadDurationMs(): number;
   list(): readonly McpServerEntry[];
   resolved(name: string): McpResolvedServer | undefined;

@@ -56,4 +56,18 @@ server.registerTool(
   }),
 );
 
+const extraToolCount = Number.parseInt(process.env['KIMI_TEST_MCP_EXTRA_TOOLS'] ?? '0', 10);
+for (let index = 0; index < extraToolCount; index += 1) {
+  server.registerTool(
+    `extra_${index}`,
+    {
+      description: `Extra test tool ${index}`,
+      inputSchema: { text: z.string() },
+    },
+    ({ text }) => ({
+      content: [{ type: 'text', text }],
+    }),
+  );
+}
+
 await server.connect(new StdioServerTransport());

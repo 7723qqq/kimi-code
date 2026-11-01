@@ -20,9 +20,13 @@ import {
   collectLoadedDynamicToolNames,
   foldAnnouncedToolNames,
   isLoadableToolsAnnouncement,
+  isRetrievedToolsAnnouncement,
   renderLoadableToolsAnnouncement,
+  renderRetrievedToolsAnnouncement,
   stripDynamicToolContext,
+  stripStaleRetrievedToolsAnnouncements,
 } from './dynamicTools';
+import { rankToolsByQuery, type ToolSearchHit } from './toolRetriever';
 import { TOOL_SELECT_FLAG_ID } from './flag';
 import {
   IAgentToolSelectService,
@@ -37,6 +41,8 @@ export const toolSelectPendingLoadedKey = defineState<Set<string>>(
 );
 
 const STOP_RETRY_THRESHOLD = 2;
+const RETRIEVAL_MIN_TOOLS = 20;
+const RETRIEVAL_TOP_K = 10;
 
 export class AgentToolSelectService extends Service implements IAgentToolSelectService {
   declare readonly _serviceBrand: undefined;
@@ -115,7 +121,9 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
   }
 
   shapeHistory(messages: readonly ContextMessage[]): readonly ContextMessage[] {
-    if (this.enabled()) return this.shapeActiveHistory(messages);
+    if (this.enabled()) {
+      return stripStaleRetrievedToolsAnnouncements(this.shapeActiveHistory(messages));
+    }
     return stripDynamicToolContext(messages);
   }
 
@@ -223,9 +231,35 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
   loadableToolsAnnouncement(): string | undefined {
     if (!this.enabled()) return undefined;
     this.resetFailuresIfToolsChanged(this.toolRegistry.list());
-    const loadable = this.loadableToolNames();
-    const loadableSet = new Set(loadable);
     const history = this.context.get();
+    const loaded = this.activeLoadedToolNames();
+    const loadableEntries = this.loadableEntries();
+    const retrievalCandidates = loadableEntries.filter((entry) => !loaded.has(entry.name));
+    if (loadableEntries.length >= RETRIEVAL_MIN_TOOLS) {
+      if (retrievalCandidates.length === 0) return undefined;
+      const ranked = rankToolsByQuery(
+        retrievalCandidates,
+        latestUserQuery(history) ?? '',
+        RETRIEVAL_TOP_K,
+      );
+      const selected =
+        ranked.length > 0
+          ? ranked
+          : retrievalCandidates.slice(0, RETRIEVAL_TOP_K).map((entry) => ({
+              name: entry.name,
+              description: entry.description,
+              score: 0,
+            }));
+      const announcement = renderRetrievedToolsAnnouncement(
+        selected,
+        retrievalCandidates.length,
+      );
+      return announcement === lastRetrievedAnnouncementText(history) ? undefined : announcement;
+    }
+    const loadable = loadableEntries.map((entry) => entry.name).toSorted((a, b) =>
+      a.localeCompare(b),
+    );
+    const loadableSet = new Set(loadable);
     const announced = foldAnnouncedToolNames(history);
     const added = loadable.filter((name) => !announced.has(name));
     const removed = [...announced]
@@ -275,15 +309,24 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
     );
   }
 
-  private loadableToolNames(): string[] {
+  private loadableEntries(): readonly ToolInfo[] {
     return this.toolRegistry
       .list()
       .filter(
         (info) =>
           this.isDynamicallyLoadable(info) && this.toolPolicy.isToolActive(info.name, info.source),
-      )
+      );
+  }
+
+  private loadableToolNames(): string[] {
+    return this.loadableEntries()
       .map((info) => info.name)
       .toSorted((a, b) => a.localeCompare(b));
+  }
+
+  search(query: string, limit: number = RETRIEVAL_TOP_K): readonly ToolSearchHit[] {
+    if (!this.enabled()) return [];
+    return rankToolsByQuery(this.loadableEntries(), query, limit);
   }
 
   private loadedToolNames(): Set<string> {
@@ -395,6 +438,32 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
     }
     return filtered ?? entries;
   }
+}
+
+function latestUserQuery(messages: readonly ContextMessage[]): string | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message === undefined || message.role !== 'user') continue;
+    if (message.origin !== undefined && message.origin.kind !== 'user') continue;
+    let text = '';
+    for (const part of message.content) {
+      if (part.type === 'text') text += `${part.text} `;
+    }
+    const trimmed = text.trim();
+    if (trimmed.length > 0) return trimmed;
+  }
+  return undefined;
+}
+
+function lastRetrievedAnnouncementText(
+  messages: readonly ContextMessage[],
+): string | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message === undefined || !isRetrievedToolsAnnouncement(message)) continue;
+    return message.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
+  }
+  return undefined;
 }
 
 function notLoadedToolOutput(name: string): string {

@@ -13,7 +13,7 @@ import { ILogService } from '#/_base/log/log';
 import { abortError } from '#/_base/utils/abort';
 import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender';
 import { IAgentLoopService } from '#/agent/loop/loop';
-import { IAgentMcpService } from '#/agent/mcp/mcp';
+import { IAgentMcpService, MCP_INITIAL_LOAD_WAIT_MS } from '#/agent/mcp/mcp';
 import { AgentMcpService } from '#/agent/mcp/mcpService';
 import { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
 import { SessionMediaStoreService } from '#/agent/media/sessionMediaStoreService';
@@ -321,6 +321,35 @@ describe('AgentMcpService', () => {
     releaseReady();
     await step;
     expect(settled).toBe(true);
+  });
+
+  it('releases the LLM step after the MCP wait budget elapses', async () => {
+    const manager = new FakeMcpManager();
+    const ready = new Promise<void>(() => {});
+    createService(manager, ready);
+
+    const loop = ix.get(IAgentLoopService);
+    const started = performance.now();
+    await loop.hooks.onWillBeginStep.run({
+      turnId: 1,
+      step: 1,
+      firstStepOfTurn: true,
+      signal: new AbortController().signal,
+    });
+
+    const elapsed = performance.now() - started;
+    expect(elapsed).toBeGreaterThanOrEqual(MCP_INITIAL_LOAD_WAIT_MS - 100);
+    expect(elapsed).toBeLessThan(MCP_INITIAL_LOAD_WAIT_MS + 1500);
+  }, 10000);
+
+  it('does not wait again after the MCP wait budget expired', async () => {
+    const svc = createService(new FakeMcpManager(), new Promise<void>(() => {}));
+
+    await svc.waitForInitialLoad(undefined, 20);
+    const started = performance.now();
+    await svc.waitForInitialLoad(undefined, 5000);
+
+    expect(performance.now() - started).toBeLessThan(200);
   });
 
   it('resolves through the IAgentMcpService binding with no manager', () => {

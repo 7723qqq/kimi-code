@@ -4,11 +4,23 @@ export const DYNAMIC_TOOL_SCHEMA_VARIANT = 'dynamic_tool_schema';
 
 export const LOADABLE_TOOLS_VARIANT = 'loadable-tools';
 
+export const RETRIEVED_TOOLS_VARIANT = 'retrieved-tools';
+
 export function isDynamicToolSchemaMessage(message: ContextMessage): boolean {
   return message.tools !== undefined && message.tools.length > 0;
 }
 
+export function isRetrievedToolsAnnouncement(message: ContextMessage): boolean {
+  const origin = message.origin;
+  if (origin?.kind === 'injection') return origin.variant === RETRIEVED_TOOLS_VARIANT;
+  return origin?.kind === 'system_trigger' && origin.name === RETRIEVED_TOOLS_VARIANT;
+}
+
 export function isLoadableToolsAnnouncement(message: ContextMessage): boolean {
+  return isRetrievedToolsAnnouncement(message) || isAddedRemovedAnnouncement(message);
+}
+
+function isAddedRemovedAnnouncement(message: ContextMessage): boolean {
   const origin = message.origin;
   if (origin?.kind === 'injection') return origin.variant === LOADABLE_TOOLS_VARIANT;
   return origin?.kind === 'system_trigger' && origin.name === LOADABLE_TOOLS_VARIANT;
@@ -75,6 +87,46 @@ function matchToolNameBlocks(text: string, pattern: RegExp): string[] {
     }
   }
   return names;
+}
+
+export function renderRetrievedToolsAnnouncement(
+  entries: readonly { readonly name: string; readonly description: string }[],
+  totalLoadable: number,
+): string {
+  const lines = entries.map((entry) => {
+    const description = oneLine(entry.description).slice(0, 120);
+    return description.length === 0 ? entry.name : `${entry.name} — ${description}`;
+  });
+  const block =
+    lines.length === 0
+      ? '<tools_relevant>\nNo tool descriptions matched the current request.\n</tools_relevant>'
+      : `<tools_relevant>\n${lines.join('\n')}\n</tools_relevant>`;
+  const guidance =
+    entries.length === 0
+      ? `${totalLoadable} tools are loadable. Call select_tools with a query to search by capability, then call it again with exact names to load tools.`
+      : `These are the ${entries.length} most relevant of ${totalLoadable} loadable tools. Call select_tools with exact names to load them. If the capability you need is not listed, call select_tools with a query to search all loadable tools; search results are candidates until you load them by exact name.`;
+  return `${block}\n\n${guidance} A newer <tools_relevant> block replaces older ones.`;
+}
+
+export function stripStaleRetrievedToolsAnnouncements(
+  messages: readonly ContextMessage[],
+): readonly ContextMessage[] {
+  let last = -1;
+  let count = 0;
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index];
+    if (message === undefined || !isRetrievedToolsAnnouncement(message)) continue;
+    last = index;
+    count += 1;
+  }
+  if (count <= 1) return messages;
+  return messages.filter(
+    (message, index) => index === last || !isRetrievedToolsAnnouncement(message),
+  );
+}
+
+function oneLine(text: string): string {
+  return text.replaceAll(/\s+/g, ' ').trim();
 }
 
 export function renderLoadableToolsAnnouncement(

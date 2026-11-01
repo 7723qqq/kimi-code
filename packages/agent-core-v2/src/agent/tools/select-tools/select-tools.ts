@@ -8,9 +8,22 @@ export const SelectToolsInputSchema = z
     names: z
       .array(z.string())
       .min(1)
-      .describe('Exact tool names to load, taken from the latest announced tool list.'),
+      .optional()
+      .describe(
+        'Exact tool names to load, taken from the latest announcement or a prior search result.',
+      ),
+    query: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        'Capability description to search for when the exact tool name is unknown; returns candidates without loading them.',
+      ),
   })
-  .strict();
+  .strict()
+  .refine((input) => input.names !== undefined || input.query !== undefined, {
+    message: 'Provide names to load or a query to search.',
+  });
 
 export type SelectToolsInput = z.infer<typeof SelectToolsInputSchema>;
 
