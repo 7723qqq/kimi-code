@@ -7,7 +7,7 @@ import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 
-const here = import.meta.dir;
+const here = import.meta.dirname;
 const repoRoot = resolve(here, '..', '..', '..');
 const visWeb = join(repoRoot, 'apps', 'vis', 'web');
 const out = join(here, '..', 'src', 'generated', 'vis-web-asset.ts');

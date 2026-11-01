@@ -14,7 +14,7 @@ export function resolveCoreVersion(): string {
 
 function walkForPackageVersion(): string {
   try {
-    let dir = import.meta.dir;
+    let dir = import.meta.dirname;
     for (let i = 0; i < MAX_WALK_UP; i++) {
       const candidate = resolve(dir, 'package.json');
       if (existsSync(candidate)) {

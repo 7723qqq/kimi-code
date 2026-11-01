@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 
 import { startPluginMarketplaceServer } from './dev-plugin-marketplace-server.mjs';
 
-const SCRIPT_DIR = import.meta.dir;
+const SCRIPT_DIR = import.meta.dirname;
 const APP_ROOT = resolve(SCRIPT_DIR, '..');
 // Monorepo root. Used as the dev CLI's working directory so `make dev` opens
 // the whole repo instead of just apps/kimi-code.

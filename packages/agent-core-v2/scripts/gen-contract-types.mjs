@@ -13,7 +13,7 @@ import { dirname, join, relative } from 'node:path';
 
 import { Project, SyntaxKind } from 'ts-morph';
 
-const __dirname = import.meta.dir;
+const __dirname = import.meta.dirname;
 const PKG = join(__dirname, '..');
 const SRC = join(PKG, 'src');
 const TMP = join(PKG, '.contract-types-tmp');

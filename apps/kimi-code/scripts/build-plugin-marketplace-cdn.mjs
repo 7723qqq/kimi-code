@@ -8,7 +8,7 @@ import yazl from 'yazl';
 
 import { readPluginManifestVersion } from './plugin-manifest-version.mjs';
 
-const SCRIPT_DIR = import.meta.dir;
+const SCRIPT_DIR = import.meta.dirname;
 const REPO_ROOT = resolve(SCRIPT_DIR, '../../..');
 const DEFAULT_PLUGINS_ROOT = resolve(REPO_ROOT, 'plugins');
 const DEFAULT_OUT_DIR = resolve(DEFAULT_PLUGINS_ROOT, 'cdn');

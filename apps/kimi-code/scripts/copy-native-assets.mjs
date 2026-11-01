@@ -1,7 +1,7 @@
 import { cp, mkdir, rm, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
-const appRoot = resolve(import.meta.dir, '..');
+const appRoot = resolve(import.meta.dirname, '..');
 const repoRoot = resolve(appRoot, '../..');
 const source = resolve(repoRoot, 'packages/pi-tui/native');
 const target = resolve(appRoot, 'native');

@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { Project } from 'ts-morph';
 
-const __dirname = path.import.meta.dir;
+const __dirname = import.meta.dirname;
 const PKG = path.resolve(__dirname, '..');
 const SRC = path.join(PKG, 'src');
 const ENTRY = path.join(SRC, 'index.ts');

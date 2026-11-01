@@ -8,7 +8,7 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
-const appRoot = resolve(import.meta.dir, '..');
+const appRoot = resolve(import.meta.dirname, '..');
 const target = resolve(appRoot, 'dist-web');
 
 async function assertWebAssets() {

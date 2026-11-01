@@ -17,7 +17,7 @@
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 
-const SCRIPT_DIR = import.meta.dir;
+const SCRIPT_DIR = import.meta.dirname;
 const APP_ROOT = resolve(SCRIPT_DIR, '..');
 
 const bunBin = process.platform === 'win32' ? 'bun.exe' : 'bun';
