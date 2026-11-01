@@ -186,7 +186,11 @@ describe('the contract completeness gate', () => {
       expect(gate.gaps).toEqual(['safety_and_scope']);
       expect(gate.profile).toBe('full');
       expect(gate.message).toContain('safety_and_scope');
-      expect(gate.message).toContain('deepseek-adapted');
+      // The fix is in the render, not in another profile: every family renders
+      // the same system prompt, so the old "use deepseek-adapted" hint named a
+      // profile that no longer exists.
+      expect(gate.message).toContain('Every model family renders the same system prompt');
+      expect(gate.message).not.toContain('deepseek-adapted');
     }
   });
 
@@ -198,7 +202,7 @@ describe('the contract completeness gate', () => {
 
   test('the same delivery is complete once the reminder is part of the run', () => {
     const report = buildEvaluationReport(
-      input({ contractDelivery: MINIMAL_DELIVERY, reminderPresent: true, profile: 'deepseek-adapted' }),
+      input({ contractDelivery: MINIMAL_DELIVERY, reminderPresent: true, profile: 'full' }),
     );
     expect(report.contractCoverage['safety_and_scope']).toEqual({
       system: 0,

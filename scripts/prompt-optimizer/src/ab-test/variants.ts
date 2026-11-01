@@ -1,11 +1,12 @@
 /**
  * Prompt Optimizer — A/B variant construction.
  *
- * Variants are derived from the current prompt sections rather than from a
+ * Variants are derived from the parsed prompt sections rather than from a
  * hardcoded edit: the previous implementation cut its "trimmed" variant out of
- * the prompt text with a regex, and when that text was edited out of
- * `system.md` the regex stopped matching, silently making both variants
- * byte-identical and every comparison vacuous.
+ * the prompt text with a regex, and when that text moved out of the file the
+ * regex stopped matching, silently making both variants byte-identical and
+ * every comparison vacuous. The sections now come from `loadPromptBundle`, so
+ * one written in `coding.md` is as prunable as one written in the skeleton.
  */
 
 import { generateBaselineVariant, generatePruneVariant } from '../prompt-parser';

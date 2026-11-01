@@ -101,3 +101,59 @@ describe('resolveCredentials', () => {
     expect(getConfigPath()).toBe(join(process.env['KIMI_CODE_HOME']!, 'config.toml'));
   });
 });
+
+describe('the alias a config.toml declares is not the wire model id', () => {
+  // Regression guard: `resolveCredentials` returned the alias as the request
+  // body's model, so every configured provider answered
+  // `unknown model 'MiniMax Token Plan/MiniMax-M3.1-Flash'` and every real run
+  // failed on the first call. The alias labels the report; `wireModel` is what
+  // the endpoint receives.
+  const ALIASED = `
+default_model = "MiniMax Token Plan/MiniMax-M3.1-Flash"
+
+[providers."MiniMax Token Plan"]
+type = "anthropic"
+api_key = "key-for-minimax"
+base_url = "https://api.minimax.cn/anthropic"
+
+[models."MiniMax Token Plan/MiniMax-M3.1-Flash"]
+provider = "MiniMax Token Plan"
+model = "MiniMax-M3.1-Flash"
+max_context_size = 1000000
+`;
+
+  test('sends the wire id from the model entry, not the alias', () => {
+    useConfig(ALIASED);
+    const resolved = resolveCredentials(bare);
+    expect(resolved.model).toBe('MiniMax Token Plan/MiniMax-M3.1-Flash');
+    expect(resolved.wireModel).toBe('MiniMax-M3.1-Flash');
+  });
+
+  test('the provider block is still read by the alias prefix', () => {
+    useConfig(ALIASED);
+    const resolved = resolveCredentials(bare);
+    expect(resolved.baseUrl).toBe('https://api.minimax.cn/anthropic');
+    expect(resolved.type).toBe('anthropic');
+    expect(resolved.apiKey).toBe('key-for-minimax');
+  });
+
+  test('an alias with no [models] entry is its own wire id', () => {
+    useConfig(FIXTURE);
+    expect(resolveCredentials({ ...bare, model: 'deepseek/deepseek-v4-pro' }).wireModel).toBe(
+      'deepseek/deepseek-v4-pro',
+    );
+  });
+
+  test('a model entry does not leak into the next provider block', () => {
+    useConfig(`${ALIASED}
+[providers.other]
+base_url = "https://other.example/v1"
+api_key = "key-for-other"
+`);
+    const resolved = resolveCredentials({ ...bare, model: 'other/some-model' });
+    expect(resolved.baseUrl).toBe('https://other.example/v1');
+    expect(resolved.apiKey).toBe('key-for-other');
+    // No `[models."other/some-model"]` entry, so the id passes through.
+    expect(resolved.wireModel).toBe('other/some-model');
+  });
+});

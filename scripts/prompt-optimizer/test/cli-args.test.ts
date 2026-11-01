@@ -77,9 +77,14 @@ describe('parseArgs selects the rendered profile', () => {
   test('an unknown profile throws and lists the legal values', () => {
     expect(() => parseArgs(['bench', '--profile', 'deepseek'])).toThrow(CliArgError);
     expect(() => parseArgs(['bench', '--profile', 'deepseek'])).toThrow(
-      /full, minimal, deepseek-adapted/,
+      new RegExp(PROMPT_PROFILES.join(', ')),
     );
     expect(() => parseArgs(['bench', '--profile', 'deepseek'])).toThrow(/--profile "deepseek"/);
+  });
+
+  test('--read-only is a boolean flag, off unless asked for', () => {
+    expect(parseArgs(['prune']).readOnly).toBe(false);
+    expect(parseArgs(['prune', '--read-only']).readOnly).toBe(true);
   });
 
   test('--profile without a value throws rather than falling back to full', () => {

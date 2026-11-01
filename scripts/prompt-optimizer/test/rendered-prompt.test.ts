@@ -3,9 +3,6 @@ import { describe, expect, test } from 'bun:test';
 import {
   BEHAVIOR_CONTRACT_CLAUSES,
   CORE_BEHAVIOR_CONTRACT_IDS,
-  MINIMAL_CONTRACT_HANDOFF,
-  behaviorContractClause,
-  type CoreBehaviorContractId,
 } from '../../../packages/agent-core-v2/src/app/agentProfileCatalog/behaviorContract';
 import { DEEPSEEK_ADAPTATION_SOURCE_ID } from '../../../packages/agent-core-v2/src/app/agentProfileCatalog/modelAdaptations';
 import {
@@ -35,13 +32,6 @@ const fixture: RenderFixture = {
   notifyUserActive: true,
 };
 
-const DELEGATED: readonly CoreBehaviorContractId[] = [
-  'tools_and_repository_context',
-  'safety_and_scope',
-  'failure_and_partial_progress',
-  'communication',
-];
-
 async function codeOf(run: () => Promise<unknown>): Promise<string> {
   try {
     await run();
@@ -60,7 +50,8 @@ describe('full profile', () => {
     expect(rendered.system).toContain('/tmp/repo');
     expect(rendered.system).toContain('Prefer bun over npm.');
     expect(rendered.system).toContain('Bash');
-    expect(rendered.reminder).toBeUndefined();
+    // The kimi model has no curated family guidance, so no adaptation block is
+    // embedded; a family that has one is covered by the adapted-model block.
     expect(rendered.reminderSourceId).toBeUndefined();
   });
 
@@ -80,35 +71,29 @@ describe('full profile', () => {
   });
 });
 
-describe('deepseek-adapted profile', () => {
-  test('hands the delegated rules off in the system text and carries them in the reminder', async () => {
-    const rendered = await renderProfile({ profile: 'deepseek-adapted', model: MINIMAL_MODEL, fixture });
+describe('a family-adapted model', () => {
+  // Every model family renders the same `system.md`, so a DeepSeek run is not a
+  // different prompt shape: its curated guidance arrives through
+  // `${model_adaptation_section}` inside the one system text, and all six core
+  // contracts arrive there too. There is no reminder channel to measure.
+  test('renders the one system prompt with the family guidance embedded', async () => {
+    const rendered = await renderProfile({ profile: 'full', model: MINIMAL_MODEL, fixture });
     expect(rendered.system).not.toContain('${');
-    expect(rendered.system).toContain(MINIMAL_CONTRACT_HANDOFF);
-
-    const reminder = rendered.reminder ?? '';
-    expect(reminder.length).toBeGreaterThan(0);
     expect(rendered.reminderSourceId).toBe(DEEPSEEK_ADAPTATION_SOURCE_ID);
-    expect(reminder).toContain('# Model Adaptation: ' + MINIMAL_MODEL);
-    expect(reminder).toContain('## Working rules delegated by the minimal prompt');
-    expect(reminder).toContain('Curated guidance for this model family');
-    for (const id of DELEGATED) {
-      expect(reminder).toContain(behaviorContractClause(id).full);
-      expect(rendered.system).not.toContain(behaviorContractClause(id).full);
-    }
+    expect(rendered.system).toContain('# Model Adaptation: ' + MINIMAL_MODEL);
+    expect(rendered.system).toContain('Curated guidance for this model family');
   });
 
-  test('records the two system contracts and the four reminder contracts', async () => {
-    const rendered = await renderProfile({ profile: 'deepseek-adapted', model: MINIMAL_MODEL, fixture });
+  test('delivers every core contract through the system text, none through a reminder', async () => {
+    const rendered = await renderProfile({ profile: 'full', model: MINIMAL_MODEL, fixture });
     const byChannel = (channel: string) =>
       rendered.contractDelivery.filter((entry) => entry.channel === channel).map((entry) => entry.id);
-    expect(byChannel('system')).toEqual(['authority_and_untrusted_content', 'act_and_verify']);
-    expect(byChannel('reminder')).toEqual([...DELEGATED]);
+    expect(byChannel('system')).toEqual([...CORE_BEHAVIOR_CONTRACT_IDS]);
+    expect(byChannel('reminder')).toEqual([]);
     expect(byChannel('intentionally_omitted')).toEqual([]);
 
-    const coverage = contractCoverageFor(rendered.contractDelivery, { reminderPresent: true });
+    const coverage = contractCoverageFor(rendered.contractDelivery, { reminderPresent: false });
     expect(contractCoverageGaps(coverage)).toEqual([]);
-    for (const id of DELEGATED) expect(coverage[id]!.reminder).toBe(1);
   });
 
   test('a claimed reminder with no reminder text is a gap, not coverage', () => {
@@ -123,39 +108,33 @@ describe('deepseek-adapted profile', () => {
     expect(coverage['communication']!.omitted).toBe(1);
   });
 
-  test('the reminder is smaller than the full prompt it replaces', async () => {
-    const full = await renderProfile({ profile: 'full', model: FULL_MODEL, fixture });
-    const minimal = await renderProfile({ profile: 'deepseek-adapted', model: MINIMAL_MODEL, fixture });
-    expect(minimal.tokens.system).toBeLessThan(full.tokens.system);
-    expect(minimal.tokens.reminder).toBeGreaterThan(0);
+  test('a claimed reminder counts only when reminder text is present', () => {
+    const delivery = [{ id: 'communication', channel: 'reminder' }] as const;
+    expect(contractCoverageFor(delivery, { reminderPresent: false })['communication']!.omitted).toBe(1);
+    expect(contractCoverageFor(delivery, { reminderPresent: true })['communication']!.reminder).toBe(1);
   });
 });
 
-describe('profile and model must match', () => {
-  test('full with a minimal-shape model names both the profile and the model', async () => {
-    expect(
-      await codeOf(() => renderProfile({ profile: 'full', model: MINIMAL_MODEL, fixture })),
-    ).toBe('profile_model_mismatch');
+describe('the profile is the only one, and unknown ones are refused', () => {
+  test('a retired profile name is refused rather than silently rendering full', async () => {
+    // `minimal` and `deepseek-adapted` used to be real profile shapes. Rendering
+    // `full` under those names would make a report claim a prompt nobody receives.
+    for (const profile of ['minimal', 'deepseek-adapted'] as const) {
+      expect(await codeOf(() => renderProfile({ profile, model: FULL_MODEL, fixture }))).toBe(
+        'unknown_profile',
+      );
+    }
+  });
+
+  test('the refusal names the profile and lists what is legal', async () => {
     const error = await renderProfile({
-      profile: 'full',
+      profile: 'minimal',
       model: MINIMAL_MODEL,
       fixture,
     }).catch((e: unknown) => e as RenderedPromptError);
+    expect(error).toBeInstanceOf(RenderedPromptError);
+    expect(error.message).toContain('minimal');
     expect(error.message).toContain('full');
-    expect(error.message).toContain(MINIMAL_MODEL);
-    expect(error.message).toContain('deepseek-adapted');
-  });
-
-  test('a minimal profile with a full-shape model is refused, not silently widened', async () => {
-    expect(
-      await codeOf(() => renderProfile({ profile: 'minimal', model: FULL_MODEL, fixture })),
-    ).toBe('profile_model_mismatch');
-  });
-
-  test('deepseek-adapted with a model that has no curated adaptation is refused', async () => {
-    expect(
-      await codeOf(() => renderProfile({ profile: 'deepseek-adapted', model: 'some/other-model', fixture })),
-    ).toBe('profile_model_mismatch');
   });
 });
 
@@ -288,21 +267,15 @@ describe('the default benchmark fixture', () => {
   // quoting `${agents_md}`, which the renderer's unresolved-variable scan then
   // reports — so benchmarking that file marked every run as unavailable before
   // the prompt had been measured at all.
-  test('renders both profiles with no warning and no placeholder', async () => {
-    const profiles = [
-      ['full', FULL_MODEL],
-      ['deepseek-adapted', MINIMAL_MODEL],
-    ] as const;
-    for (const [profile, model] of profiles) {
-      const rendered = await renderProfile({
-        profile,
-        model,
-        fixture: benchmarkFixture('/tmp/repo', 'linux'),
-      });
-      expect(rendered.warnings).toEqual([]);
-      expect(rendered.system).not.toContain('${');
-      expect(rendered.fixtureSummary.agentsMd).toBe('fixture');
-    }
+  test('renders the one profile with no warning and no placeholder', async () => {
+    const rendered = await renderProfile({
+      profile: 'full',
+      model: FULL_MODEL,
+      fixture: benchmarkFixture('/tmp/repo', 'linux'),
+    });
+    expect(rendered.warnings).toEqual([]);
+    expect(rendered.system).not.toContain('${');
+    expect(rendered.fixtureSummary.agentsMd).toBe('fixture');
   });
 
   test('the fixture text itself contains no template placeholder', () => {

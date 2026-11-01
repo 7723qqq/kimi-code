@@ -24,7 +24,7 @@ export interface CompareInput {
 }
 
 /** Bumped when a required field changes meaning, so a stored report stays readable. */
-export const REPORT_SCHEMA_VERSION = 1;
+export const REPORT_SCHEMA_VERSION = 2;
 
 /**
  * Generate a comparison report between multiple prompt variants.
@@ -117,6 +117,8 @@ export function generateComparisonReport(inputs: CompareInput[]): string {
 export interface EvaluationReportInput {
   readonly model: string;
   readonly profile: string;
+  /** Which prompt shape this run measured. Defaults to the full shape. */
+  readonly readOnly?: boolean;
   readonly sourceHash: string;
   readonly fixtureSummary: Record<string, unknown>;
   readonly contractDelivery: readonly { readonly id: string; readonly channel: string }[];
@@ -147,8 +149,8 @@ export class ContractCoverageError extends Error {
     super(
       `Profile "${profile}" delivers no channel for core contract(s): ${gaps.join(', ')}. ` +
         'A report would claim complete delivery while those rules never reached the model. ' +
-        'Use the profile that carries them (--profile deepseek-adapted for a minimal family ' +
-        'whose reminder supplies them).',
+        'Every model family renders the same system prompt, so the fix is in the render: ' +
+        'the prompt must carry the clause named above.',
     );
     this.name = 'ContractCoverageError';
     this.profile = profile;
@@ -256,6 +258,7 @@ export function buildEvaluationReport(input: EvaluationReportInput): EvaluationR
     schemaVersion: REPORT_SCHEMA_VERSION,
     model: input.model,
     profile: input.profile,
+    readOnly: input.readOnly === true,
     sourceHash: input.sourceHash,
     fixtureSummary: input.fixtureSummary,
     contractCoverage: coverage,
@@ -285,6 +288,7 @@ const CORE_CONTRACT_ORDER = [
 export function formatEvaluationReport(report: EvaluationReport): string {
   const lines: string[] = ['Prompt Evaluation Report', '═'.repeat(78), ''];
   lines.push(`Profile:        ${report.profile}`);
+  lines.push(`Shape:          ${report.readOnly ? 'read-only' : 'full'}`);
   lines.push(`Model:          ${report.model}`);
   lines.push(`Source hash:    ${report.sourceHash}`);
   lines.push(`Dry run:        ${report.dryRun ? 'yes' : 'no'}`);
@@ -335,6 +339,7 @@ const REQUIRED_REPORT_FIELDS: readonly {
   { field: 'schemaVersion', valid: (v) => typeof v === 'number' },
   { field: 'model', valid: (v) => typeof v === 'string' && v.length > 0 },
   { field: 'profile', valid: (v) => typeof v === 'string' && v.length > 0 },
+  { field: 'readOnly', valid: (v) => typeof v === 'boolean' },
   { field: 'sourceHash', valid: (v) => typeof v === 'string' && v.length > 0 },
   { field: 'fixtureSummary', valid: (v) => typeof v === 'object' && v !== null },
   { field: 'contractCoverage', valid: (v) => typeof v === 'object' && v !== null },

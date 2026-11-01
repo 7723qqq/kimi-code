@@ -71,6 +71,7 @@
     "bench:prompt:compare": "bun scripts/prompt-optimizer/src/cli.ts bench --compare",
     "bench:prompt:prune": "bun scripts/prompt-optimizer/src/cli.ts prune",
     "bench:prompt:probe": "bun scripts/prompt-optimizer/src/cli.ts probe",
+    "bench:prompt:4521": "bun scripts/prompt-optimizer/src/measure-4521.ts",
     "prepare": "simple-git-hooks",
     "check:deep-imports": "bun packages/agent-core-v2/scripts/check-deep-imports.mjs",
     "check:boundaries": "cd packages/agent-core-v2 && bun run lint:imports",

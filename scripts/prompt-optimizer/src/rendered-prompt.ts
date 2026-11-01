@@ -99,6 +99,7 @@ export interface FixtureSummary {
   readonly notifyUserActive: boolean;
   readonly todoListActive: boolean;
   readonly skillActive: boolean;
+  readonly readOnly: boolean;
 }
 
 // ─── Errors ─────────────────────────────────────────────────────────────────
@@ -144,12 +145,18 @@ export type ContractCoverage = Record<CoreBehaviorContractId, ContractCoverageCo
 export interface RenderedPrompt {
   readonly profile: PromptProfile;
   readonly model: string;
+  /** Which of the two prompt shapes was rendered. */
+  readonly readOnly: boolean;
   readonly system: string;
   readonly reminderSourceId?: string;
   readonly contractDelivery: readonly ContractDelivery[];
   readonly valueDelivery: readonly PromptValueDelivery[];
   readonly warnings: readonly RenderedPromptWarning[];
-  /** Truncated sha256 over profile, model, system and the embedded adaptation. */
+  /**
+   * Truncated sha256 over the shape, profile, model, system and the embedded
+   * adaptation. The shape is part of it: the full and read-only prompts differ,
+   * so a report must not treat one run's hash as evidence about the other.
+   */
   readonly sourceHash: string;
   readonly tokens: { readonly system: number; readonly reminder: number };
   readonly fixtureSummary: FixtureSummary;
@@ -159,6 +166,16 @@ export interface RenderProfileInput {
   readonly profile: PromptProfile;
   readonly model: string;
   readonly fixture: RenderFixture;
+  /**
+   * Render the shape a read-only profile receives (explore, plan): the short
+   * `delivering-work-read-only.md` and no coding section.
+   *
+   * The prompt has two shapes, and they are not interchangeable: a read-only
+   * agent is not given change-work guidance because it cannot change files, so
+   * benchmarking the full shape and applying the verdict to it would measure
+   * text that profile never sees.
+   */
+  readonly readOnly?: boolean;
   /** Opt-in read of the single authorized global instruction file. */
   readonly actualGlobalPath?: string;
   /**
@@ -217,9 +234,15 @@ async function readAuthorizedGlobal(
   }
 }
 
-function sourceHashFor(profile: PromptProfile, model: string, system: string, reminder: string) {
+function sourceHashFor(
+  shape: 'full' | 'read-only',
+  profile: PromptProfile,
+  model: string,
+  system: string,
+  reminder: string,
+) {
   const hash = createHash('sha256');
-  for (const part of [profile, model, system, reminder]) hash.update(part).update('\u0000');
+  for (const part of [shape, profile, model, system, reminder]) hash.update(part).update('\u0000');
   return hash.digest('hex').slice(0, 16);
 }
 
@@ -227,6 +250,7 @@ function fixtureSummaryFor(
   fixture: RenderFixture,
   agentsMd: AgentsMdSource,
   agentsMdChars: number,
+  readOnly: boolean,
 ): FixtureSummary {
   const skills = fixture.skills ?? '';
   const plugins = fixture.pluginSections ?? '';
@@ -244,6 +268,7 @@ function fixtureSummaryFor(
     notifyUserActive: fixture.notifyUserActive === true,
     todoListActive: fixture.todoListActive === true,
     skillActive: fixture.skillActive === true,
+    readOnly: readOnly,
   };
 }
 
@@ -309,21 +334,29 @@ export async function renderProfile(input: RenderProfileInput): Promise<Rendered
       ...(adaptation === undefined ? {} : { modelAdaptation: adaptation }),
       modelName: input.model,
     },
-    { skillActive: fixture.skillActive === true },
+    { skillActive: fixture.skillActive === true, readOnly: input.readOnly === true },
   );
 
   const agentsMdChars = (fixture.agentsMd ?? '').length;
+  const readOnly = input.readOnly === true;
   return {
     profile: input.profile,
     model: input.model,
+    readOnly,
     system: rendered.text,
     ...(adaptation === undefined ? {} : { reminderSourceId: DEEPSEEK_ADAPTATION_SOURCE_ID }),
     contractDelivery: rendered.contractDelivery ?? [],
     valueDelivery: rendered.valueDelivery ?? [],
     warnings: rendered.warnings ?? [],
-    sourceHash: sourceHashFor(input.profile, input.model, rendered.text, adaptation ?? ''),
+    sourceHash: sourceHashFor(
+      readOnly ? 'read-only' : 'full',
+      input.profile,
+      input.model,
+      rendered.text,
+      adaptation ?? '',
+    ),
     tokens: { system: estimateTokens(rendered.text), reminder: 0 },
-    fixtureSummary: fixtureSummaryFor(fixture, agentsMdSource, agentsMdChars),
+    fixtureSummary: fixtureSummaryFor(fixture, agentsMdSource, agentsMdChars, readOnly),
   };
 }
 
@@ -333,11 +366,17 @@ export async function renderProfile(input: RenderProfileInput): Promise<Rendered
  * Count each core contract id by the channel that carries it.
  *
  * Every contract arrives through the system prompt now, so the record is kept
- * channel-shaped only to stay comparable with older reports.
+ * channel-shaped only to stay comparable with older reports. `reminderPresent`
+ * keeps the reminder channel honest for the same reason it always mattered: a
+ * delivery entry claiming a reminder channel is not delivery unless reminder
+ * text actually went to the model, so the count stays 0 and the id reports as a
+ * gap.
  */
 export function contractCoverageFor(
   delivery: readonly { readonly id: string; readonly channel: string }[],
+  options: { readonly reminderPresent?: boolean } = {},
 ): ContractCoverage {
+  const reminderUsable = options.reminderPresent === true;
   const counts: Record<string, { system: number; reminder: number; omitted: number }> = {};
   for (const id of CORE_BEHAVIOR_CONTRACT_IDS) {
     counts[id] = { system: 0, reminder: 0, omitted: 0 };
@@ -346,6 +385,7 @@ export function contractCoverageFor(
     const count = counts[entry.id];
     if (count === undefined) continue;
     if (entry.channel === 'system') count.system += 1;
+    else if (entry.channel === 'reminder' && reminderUsable) count.reminder += 1;
     else count.omitted += 1;
   }
   const coverage = {} as ContractCoverage;

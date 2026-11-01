@@ -10,7 +10,7 @@
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, basename } from 'node:path';
 
 import { formatABReport, runABExperiment } from './ab-test/ab-test';
 import { VariantSpecError, buildVariants } from './ab-test/variants';
@@ -27,7 +27,7 @@ import { parseArgs, CliArgError, type CliArgs } from './cli-args';
 import { loadConfig } from './config';
 import { realCaller, resolveCredentials, resolveModel } from './llm-caller';
 import { runProbe, formatProbeReport } from './probe/probe';
-import { loadPrompt, generateBaselineVariant, generatePruneVariant } from './prompt-parser';
+import { loadPromptBundle, generateBaselineVariant, generatePruneVariant } from './prompt-parser';
 import { runPruner, formatPruneReport } from './pruner/pruner';
 import {
   benchmarkFixture,
@@ -109,12 +109,14 @@ async function benchRendered(options: {
     profile,
     model,
     fixture: benchmarkFixture(process.cwd()),
+    readOnly: args.readOnly,
     ...(args.actualGlobal === undefined ? {} : { actualGlobalPath: args.actualGlobal }),
   });
 
   console.log(
-    `Rendered profile "${profile}" for model ${model}` +
-      ` (system ${rendered.tokens.system} tokens, reminder ${rendered.tokens.reminder} tokens)`,
+    `Rendered profile "${profile}" (${rendered.readOnly ? 'read-only' : 'full'} shape) ` +
+      `for model ${model} ` +
+      `(system ${rendered.tokens.system} tokens, reminder ${rendered.tokens.reminder} tokens)`,
   );
   console.log(`Source hash: ${rendered.sourceHash}`);
   console.log(
@@ -163,6 +165,7 @@ async function benchRendered(options: {
   const report = buildEvaluationReport({
     model,
     profile,
+    readOnly: rendered.readOnly,
     sourceHash: rendered.sourceHash,
     fixtureSummary: { ...rendered.fixtureSummary },
     contractDelivery: rendered.contractDelivery,
@@ -196,9 +199,11 @@ async function benchRendered(options: {
 /**
  * The raw-template experiment.
  *
- * `system.md` is a template with `${...}` placeholders, so this measures pruning
- * of source text, not a prompt a session receives. Kept because it is the only
- * way to compare prune variants; labelled so its output cannot be mistaken for a
+ * The assembled prompt still carries `${...}` placeholders, so this measures
+ * pruning of source text, not a prompt a session receives. The sections it
+ * prunes come from the skeleton and its section files together, so a prune of
+ * `Coding` removes text written in `coding.md`. Kept because it is the only way
+ * to compare prune variants; labelled so its output cannot be mistaken for a
  * production evaluation.
  */
 async function benchRawTemplate(options: {
@@ -210,8 +215,8 @@ async function benchRawTemplate(options: {
   dryRun: boolean;
 }): Promise<void> {
   const { args, config, runnerConfig, caller, model, dryRun } = options;
-  const { sections } = loadPrompt(config.systemPromptPath);
-  const label = 'raw-template experiment (system.md source text, not a rendered prompt)';
+  const { sections } = loadPromptBundle(config.systemPromptPath, { readOnly: args.readOnly });
+  const label = 'raw-template experiment (assembled prompt source text, not a rendered prompt)';
   const compareArg = args.compare;
 
   if (compareArg) {
@@ -342,9 +347,13 @@ async function main(argv: readonly string[] = process.argv.slice(2)) {
 
     case 'prune': {
       console.log(`Running pruner (model: ${model}, dry-run: ${isDryRun})`);
-      const { sections } = loadPrompt(config.systemPromptPath);
+      const bundle = loadPromptBundle(config.systemPromptPath, { readOnly: args.readOnly });
+      console.log(
+        `Scanned ${bundle.files.length} file(s): ${bundle.files.map((path) => basename(path)).join(', ')}` +
+          (bundle.readOnly ? ' (read-only variant)' : ''),
+      );
 
-      const report = await runPruner(sections, BENCHMARK_CASES, {
+      const report = await runPruner(bundle, BENCHMARK_CASES, {
         significanceThreshold: 0.1,
         runner: runnerConfig,
         caller,
@@ -359,7 +368,7 @@ async function main(argv: readonly string[] = process.argv.slice(2)) {
     }
 
     case 'ab': {
-      const { sections } = loadPrompt(config.systemPromptPath);
+      const { sections } = loadPromptBundle(config.systemPromptPath, { readOnly: args.readOnly });
       // Variants come from --variant, not from a hardcoded edit of the prompt
       // text: a hardcoded edit silently produces two identical variants once
       // that text changes.
@@ -418,24 +427,29 @@ async function main(argv: readonly string[] = process.argv.slice(2)) {
 
 Commands:
   bench   Render a production profile and evaluate it (default input)
-  prune   Scan for removable sections (raw system.md template)
-  ab      A/B test raw-template prompt variants
+  prune   Scan the assembled prompt for removable sections
+  ab      A/B test assembled-prompt variants
   probe   Profile model capabilities and weaknesses
 
 Options:
   --model <name>            Model to test (default: ${config.defaultModel || 'config.toml default_model'})
   --profile <name>          Profile to render: ${PROMPT_PROFILES.join(' | ')} (default: full)
   --actual-global <path>    Opt in to the one authorized global AGENTS.md; any other path is refused
-  --compare <a,b>           Raw-template experiment: compare prune variants of system.md
+  --read-only               Scan the read-only prompt variant (delivering-work-read-only.md)
+  --compare <a,b>           Raw-template experiment: compare prune variants
   --variant <name>          Raw-template experiment: one prune variant (base | prune:<Section>)
   --dry-run                 Run without API calls (framework check, never a verdict)
   --reps <n>                Repetitions for probe (default: 3)
+
+Prune scans the skeleton plus every section file it delegates to
+(coding.md, delivering-work.md, project-information.md), not system.md alone.
 
 Examples:
   bun src/cli.ts bench --dry-run --profile full --model kimi-k3-1
   bun src/cli.ts bench --profile full --model deepseek-v4-pro
   bun src/cli.ts bench --compare base,prune:Coding --dry-run --model kimi-k3-1
   bun src/cli.ts prune --model gpt-4o
+  bun src/cli.ts prune --read-only --model gpt-4o
   bun src/cli.ts probe --model deepseek-v3 --reps 5`);
   }
 }

@@ -156,6 +156,8 @@ export interface EvaluationReport {
   schemaVersion: number;
   model: string;
   profile: string;
+  /** Which prompt shape was measured: `full`, or the read-only one. */
+  readOnly: boolean;
   sourceHash: string;
   fixtureSummary: Record<string, unknown>;
   contractCoverage: Record<string, ContractCoverageRecord>;
@@ -191,6 +193,24 @@ export interface PromptSection {
   startLine: number;
   /** End line in source file */
   endLine: number;
+  /**
+   * File the section came from, when the prompt was assembled from several.
+   *
+   * Prune reports carry this so a reader can find the text to edit; the
+   * skeleton-only prompt leaves it undefined.
+   */
+  sourceFile?: string;
+}
+
+/** The production prompt flattened for scanning: skeleton plus its section files. */
+export interface PromptSectionBundle {
+  /** Skeleton with every placeholder resolved and the section files spliced in. */
+  readonly raw: string;
+  readonly sections: PromptSection[];
+  /** Every file the bundle read, skeleton first. */
+  readonly files: readonly string[];
+  /** Which `delivering-work` variant was spliced. */
+  readonly readOnly: boolean;
 }
 
 // ─── A/B Test Types ─────────────────────────────────────────────────────────
@@ -245,6 +265,8 @@ export interface PruneResult {
   reason: string;
   /** Score deltas when this section is removed */
   scoreDeltas: Partial<Record<keyof BenchmarkScores, number>>;
+  /** File the section's text lives in, so the report points at the text to edit. */
+  sourceFile?: string;
 }
 
 export interface PruneReport {
@@ -255,6 +277,10 @@ export interface PruneReport {
   sections: PruneResult[];
   /** Tokens in sections no benchmark case covers; excluded from `prunableTokens`. */
   unmeasuredTokens: number;
+  /** Every file the scanned prompt was assembled from, skeleton first. */
+  sourceFiles: readonly string[];
+  /** Which `delivering-work` variant was scanned. */
+  readOnly: boolean;
 }
 
 // ─── Model Probe Types ──────────────────────────────────────────────────────

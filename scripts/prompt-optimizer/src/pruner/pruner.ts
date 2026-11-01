@@ -5,11 +5,18 @@
  * runs the relevant benchmark cases, and reports impact.
  */
 
+import { basename } from 'node:path';
+
 import { getCasesBySection } from '../benchmark/cases';
 import { padRight } from '../format';
 import { runSuite, aggregateResults, type LLMCaller, type RunnerConfig } from '../benchmark/runner';
 import { generateBaselineVariant, generatePruneVariant } from '../prompt-parser';
-import type { BenchmarkCase, PromptSection, PruneReport, PruneResult } from '../types';
+import type {
+  BenchmarkCase,
+  PromptSectionBundle,
+  PruneReport,
+  PruneResult,
+} from '../types';
 
 export interface PrunerConfig {
   /** Minimum score delta to consider "significant" */
@@ -26,12 +33,16 @@ const DEFAULT_PRUNER_CONFIG: Partial<PrunerConfig> = {
 
 /**
  * Run the pruner: for each section, remove it and measure impact.
+ *
+ * `bundle` is the skeleton with its section files spliced in, so a section that
+ * lives in `coding.md` is measured like one from the skeleton itself.
  */
 export async function runPruner(
-  sections: PromptSection[],
+  bundle: Pick<PromptSectionBundle, 'sections' | 'files' | 'readOnly'>,
   allCases: BenchmarkCase[],
   config: PrunerConfig,
 ): Promise<PruneReport> {
+  const sections = bundle.sections;
   const threshold = config.significanceThreshold ?? DEFAULT_PRUNER_CONFIG.significanceThreshold!;
 
   // 1. Run baseline
@@ -51,6 +62,7 @@ export async function runPruner(
         verdict: 'KEEP',
         reason: 'Identity preamble — always required',
         scoreDeltas: {},
+        ...(section.sourceFile === undefined ? {} : { sourceFile: section.sourceFile }),
       });
       continue;
     }
@@ -67,6 +79,7 @@ export async function runPruner(
         verdict: 'UNKNOWN',
         reason: 'No benchmark case covers this section',
         scoreDeltas: {},
+        ...(section.sourceFile === undefined ? {} : { sourceFile: section.sourceFile }),
       });
       continue;
     }
@@ -132,6 +145,7 @@ export async function runPruner(
         ruleCompliance: complianceDelta,
         toolAccuracy: toolDelta,
       },
+      ...(section.sourceFile === undefined ? {} : { sourceFile: section.sourceFile }),
     });
   }
 
@@ -150,6 +164,8 @@ export async function runPruner(
     prunableTokens,
     sections: pruneResults,
     unmeasuredTokens,
+    sourceFiles: bundle.files,
+    readOnly: bundle.readOnly,
   };
 }
 
@@ -159,6 +175,8 @@ export async function runPruner(
 export function formatPruneReport(report: PruneReport): string {
   const pct = (part: number): string =>
     report.totalTokens > 0 ? ((part / report.totalTokens) * 100).toFixed(1) : '0.0';
+  const source = (path: string | undefined): string =>
+    path === undefined ? '-' : basename(path);
   const lines: string[] = [
     'Prompt Health Report',
     '═'.repeat(80),
@@ -168,8 +186,11 @@ export function formatPruneReport(report: PruneReport): string {
           `Unmeasured: ${report.unmeasuredTokens} tokens (${pct(report.unmeasuredTokens)}%) — no benchmark case covers these sections`,
         ]
       : []),
+    `Scanned: ${report.sourceFiles.map((path) => basename(path)).join(', ')}` +
+      (report.readOnly ? ' (read-only variant)' : ''),
     '─'.repeat(80),
-    padRight('Section', 35) +
+    padRight('Section', 30) +
+      padRight('File', 26) +
       padRight('Tokens', 8) +
       padRight('Impact', 10) +
       padRight('Verdict', 8) +
@@ -179,7 +200,8 @@ export function formatPruneReport(report: PruneReport): string {
 
   for (const r of report.sections) {
     lines.push(
-      padRight(r.section.slice(0, 33), 35) +
+      padRight(r.section.slice(0, 28), 30) +
+        padRight(source(r.sourceFile).slice(0, 24), 26) +
         padRight(String(r.tokens), 8) +
         padRight(r.impact, 10) +
         padRight(r.verdict, 8) +

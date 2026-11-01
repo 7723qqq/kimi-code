@@ -11,6 +11,14 @@ function section(heading: string, content = `# ${heading}\n\nThe ${heading} rule
   return { heading, content, tokens: 10, startLine: 1, endLine: 2 };
 }
 
+/**
+ * The pruner takes the assembled bundle, so a unit test wraps its sections in
+ * one. Sourcing defaults to the skeleton because these sections are synthetic.
+ */
+function bundleOf(...sections: PromptSection[]) {
+  return { sections, files: ['system.md'], readOnly: false };
+}
+
 const COVERED = 'Coding';
 /**
  * A heading no case references, so the pruner has nothing to measure it with.
@@ -48,7 +56,7 @@ describe('runPruner verdicts', () => {
   test('a section whose removal hurts is kept', async () => {
     const target = section(COVERED);
     const marker = target.content;
-    const report = await runPruner([target], casesFor(COVERED), {
+    const report = await runPruner(bundleOf(target), casesFor(COVERED), {
       significanceThreshold: 0.1,
       runner,
       caller: markerCaller(marker, true),
@@ -63,7 +71,7 @@ describe('runPruner verdicts', () => {
   test('a section whose removal HELPS is reported as improving, not as impact-free', async () => {
     const target = section(COVERED);
     const marker = target.content;
-    const report = await runPruner([target], casesFor(COVERED), {
+    const report = await runPruner(bundleOf(target), casesFor(COVERED), {
       significanceThreshold: 0.1,
       runner,
       caller: markerCaller(marker),
@@ -80,7 +88,7 @@ describe('runPruner verdicts', () => {
     const uncovered = section(UNCOVERED);
     expect(getCasesBySection(UNCOVERED)).toHaveLength(0);
 
-    const report = await runPruner([covered, uncovered], casesFor(COVERED), {
+    const report = await runPruner(bundleOf(covered, uncovered), casesFor(COVERED), {
       significanceThreshold: 0.1,
       runner,
       caller: markerCaller(covered.content),
@@ -101,7 +109,7 @@ describe('runPruner verdicts', () => {
 
   test('the preamble is always kept', async () => {
     const preamble = section('(preamble)', 'You are a coding agent.');
-    const report = await runPruner([preamble], casesFor(COVERED), {
+    const report = await runPruner(bundleOf(preamble), casesFor(COVERED), {
       significanceThreshold: 0.1,
       runner,
       caller: markerCaller('nothing-matches'),

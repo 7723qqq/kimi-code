@@ -1,7 +1,10 @@
 /**
  * Prompt Optimizer — Benchmark case definitions.
  *
- * Each case tests a specific rule or behavior from system.md.
+ * Each case tests a specific rule or behavior from the system prompt. The
+ * prompt is a skeleton plus its section files, so a case's `relevantSections`
+ * names the heading the rule lives under, whichever file that heading is
+ * written in.
  * Grouped by category for selective running.
  */
 

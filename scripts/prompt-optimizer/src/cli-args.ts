@@ -26,6 +26,12 @@ export interface CliArgs {
    * sent to the provider and never persisted.
    */
   readonly actualGlobal?: string;
+  /**
+   * Scan the read-only prompt variant (`delivering-work-read-only.md`) instead
+   * of the full one. Prune, the raw-template experiments and `--print` use it;
+   * a read-only profile ships a shorter prompt, so its sections are its own.
+   */
+  readonly readOnly: boolean;
 }
 
 export const DEFAULT_REPS = 3;
@@ -42,7 +48,7 @@ const VALUE_FLAGS = [
   'actual-global',
 ] as const;
 /** Flags that do not. */
-const BOOLEAN_FLAGS = ['dry-run', 'help'] as const;
+const BOOLEAN_FLAGS = ['dry-run', 'help', 'read-only'] as const;
 
 const KNOWN_FLAGS: readonly string[] = [
   ...VALUE_FLAGS.map((f) => `--${f}`),
@@ -136,5 +142,6 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     variants: values(argv, 'variant'),
     profile: parseProfile(firstValue(argv, 'profile')),
     actualGlobal: firstValue(argv, 'actual-global'),
+    readOnly: argv.includes('--read-only'),
   };
 }

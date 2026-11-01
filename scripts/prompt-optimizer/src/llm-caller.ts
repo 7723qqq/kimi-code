@@ -29,6 +29,8 @@ interface ProviderInfo {
 export interface ParsedConfig {
   providers: Record<string, ProviderInfo>;
   defaultModel?: string;
+  /** `[models."<alias>"]` → the wire model id its `model` field names. */
+  models: Record<string, { model?: string; provider?: string }>;
 }
 
 /**
@@ -41,21 +43,42 @@ export function parseConfigText(text: string): ParsedConfig {
   if (defaultModelMatch) defaultModel = defaultModelMatch[1];
 
   const providers: Record<string, ProviderInfo> = {};
+  const models: Record<string, { model?: string; provider?: string }> = {};
   const lines = text.split('\n');
 
   let currentProvider: string | null = null;
+  let currentModel: string | null = null;
   for (const line of lines) {
+    const modelHeader = line.match(/^\[models\."?([^"\]]+)"?\]/);
+    if (modelHeader) {
+      currentModel = modelHeader[1]!;
+      models[currentModel] = {};
+      currentProvider = null;
+      continue;
+    }
     const headerMatch = line.match(/^\[providers\."?([^"\]]+)"?\]/);
     if (headerMatch) {
       currentProvider = headerMatch[1]!;
       providers[currentProvider] = {};
+      currentModel = null;
       continue;
     }
-    // Stop current provider on any new section header
-    if (line.match(/^\[/) && !line.startsWith('[providers.')) {
+    // Stop current section on any new header
+    if (line.match(/^\[/) && !line.startsWith('[providers.') && !line.startsWith('[models.')) {
       currentProvider = null;
+      currentModel = null;
       continue;
     }
+
+    if (currentModel !== null && models[currentModel] !== undefined) {
+      const kv = line.match(/^(\w+)\s*=\s*"([^"]*)"/);
+      if (kv === null) continue;
+      const [, key, value] = kv;
+      if (key === 'model' && value) models[currentModel]!.model = value;
+      if (key === 'provider' && value) models[currentModel]!.provider = value;
+      continue;
+    }
+
     if (!currentProvider || !providers[currentProvider]) continue;
 
     const kvMatch = line.match(/^(\w+)\s*=\s*"([^"]*)"/);
@@ -66,7 +89,7 @@ export function parseConfigText(text: string): ParsedConfig {
     if (key === 'type' && value) providers[currentProvider]!.type = value;
   }
 
-  return { providers, defaultModel };
+  return { providers, defaultModel, models };
 }
 
 /**
@@ -120,15 +143,22 @@ export function resolveModel(explicit?: string): string {
  * always come from the same `[providers.*]` block. Explicit `RunnerConfig` and
  * environment values stay ahead of the file, and a model naming a provider the
  * file does not declare is an error rather than a silent fallback.
+ *
+ * `model` is the alias the report is labelled with; `wireModel` is what the
+ * request body carries. They differ whenever `config.toml` declares
+ * `[models."<alias>"]` with its own `model` field, which is the normal shape for
+ * every configured provider: the endpoint rejects the alias (`unknown model
+ * 'MiniMax Token Plan/MiniMax-M3.1-Flash'`), so sending it fails every call.
  */
 export function resolveCredentials(config: RunnerConfig): {
   apiKey: string;
   baseUrl: string;
   model: string;
+  wireModel: string;
   type: string;
 } {
   const configPath = getConfigPath();
-  const { providers, defaultModel } = extractProvidersFromConfig(configPath);
+  const { providers, defaultModel, models } = extractProvidersFromConfig(configPath);
 
   const model = config.model || defaultModel || '';
   if (model.length === 0) {
@@ -165,8 +195,11 @@ export function resolveCredentials(config: RunnerConfig): {
     '';
 
   const type = preferred?.type ?? 'openai';
+  // An alias with no `[models]` entry is its own wire id, which is what an
+  // operator passing a bare endpoint model expects.
+  const wireModel = models[model]?.model ?? model;
 
-  return { apiKey, baseUrl, model, type };
+  return { apiKey, baseUrl, model, wireModel, type };
 }
 
 interface ChatMessage {
@@ -198,7 +231,7 @@ export const realCaller: LLMCaller = async (
   config: RunnerConfig,
   tools?: ToolDefinition[],
 ): Promise<ModelResponse> => {
-  const { apiKey, baseUrl, model, type } = resolveCredentials(config);
+  const { apiKey, baseUrl, wireModel, type } = resolveCredentials(config);
 
   if (!apiKey) {
     throw new Error(
@@ -208,9 +241,9 @@ export const realCaller: LLMCaller = async (
   }
 
   if (type === 'anthropic') {
-    return callAnthropic(systemPrompt, userMessages, apiKey, baseUrl, model, tools);
+    return callAnthropic(systemPrompt, userMessages, apiKey, baseUrl, wireModel, tools);
   }
-  return callOpenAI(systemPrompt, userMessages, apiKey, baseUrl, model, tools);
+  return callOpenAI(systemPrompt, userMessages, apiKey, baseUrl, wireModel, tools);
 };
 
 async function callOpenAI(
