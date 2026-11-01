@@ -5,8 +5,9 @@
  *   Line 1: slots from status_line.items (mode, goal, model, tasks, cwd, git)
  *           joined left, rotating tips right (unless 'tips' is a slot); a
  *           status_line.command's first stdout line replaces it when set.
- *   Line 2: transient hint left, session stats right (turns/steps, LLM · tool
- *           time, first-token avg · tok/s, cache hit, in/out tokens, context).
+ *   Line 2: transient hint left, context readout right — the readout shows only
+ *           until the status strip has session numbers, because the strip owns
+ *           the session totals from then on.
  */
 
 import { homedir } from 'node:os';

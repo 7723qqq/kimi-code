@@ -105,10 +105,9 @@ interface NotifyChannel {
 
 /**
  * Hard ceiling on the panel's own rows while it is mounted standalone: the
- * header row included. Matches the fixed-cap convention the todo panel uses
- * (`MAX_VISIBLE`), so both panels in the shared row behave the same way. The
- * terminal half-height cap below is the smaller of the two on a short
- * terminal, and a budget granted by the status surface wins over both.
+ * header row included. The queue pane caps itself the same way, so the two
+ * read alike. The terminal half-height cap below is the smaller of the two on
+ * a short terminal, and a budget granted by the status surface wins over both.
  */
 export const MAX_VISIBLE_ROWS = 12;
 /**

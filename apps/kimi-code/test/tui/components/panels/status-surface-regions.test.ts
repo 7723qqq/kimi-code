@@ -16,10 +16,11 @@ import { UpdatesRegion } from '#/tui/components/chrome/status-surface/regions/up
 
 /**
  * The strip above the editor holds status regions side by side: a blocking
- * approval takes a full band, and a plain region shares the row. These cases
- * pin the properties the layout depends on — each region renders at whatever
- * width it is handed, occupies rows only while it has content, and two regions
- * sit side by side in one band instead of stacking.
+ * approval takes the left column (widened to the band while it has no
+ * neighbour), and a plain region shares the row. These cases pin the
+ * properties the layout depends on — each region renders at whatever width it
+ * is handed, occupies rows only while it has content, and two regions sit side
+ * by side in one band instead of stacking.
  *
  * The todo list used to be the second region here; it renders as a transcript
  * card now, so the left column is exercised with a stand-in that behaves the

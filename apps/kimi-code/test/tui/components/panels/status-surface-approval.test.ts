@@ -7,6 +7,7 @@ import {
   SURFACE_SIDE_PADDING,
 } from '#/tui/components/chrome/status-surface/index';
 import { ApprovalRegion } from '#/tui/components/chrome/status-surface/regions/approval-region';
+import { StatsRegion } from '#/tui/components/chrome/status-surface/regions/stats-region';
 import type {
   RegionId,
   RegionPlacement,
@@ -407,16 +408,16 @@ describe('ApprovalRegion', () => {
     });
 
     it('takes the left half beside an updates box and the full band when alone', () => {
-      // Folded, the right half belongs to the updates box — but only while that
-      // box is actually there. A fixed `left` left the right half blank next to
-      // an empty slot and still drew the divider, which read as a prompt beside
-      // an empty box. Unfolded, the body is the diff, which a half-width column
-      // would wrap into noise either way.
+      // Folded, the prompt declares the left column; the surface widens it to
+      // the whole band only when there is no right-hand region to share with,
+      // because a lone left column would otherwise sit beside an empty half
+      // with a divider between them. Unfolded, the body is the diff, which a
+      // half-width column would wrap into noise either way.
       const { region, surface } = makeRegion();
       showPayload(region, payload());
 
-      // Alone: the whole band, no divider, nothing on the right.
-      expect(region.placement()).toBe('full');
+      // Alone: declared left, but drawn across the whole band.
+      expect(region.placement()).toBe('left');
       surface.render(80);
       const alone = surface.regionRects().find((entry) => entry.id === 'approval')!;
       expect(alone.col).toBe(SURFACE_SIDE_PADDING + 1);
@@ -426,7 +427,6 @@ describe('ApprovalRegion', () => {
       const updates = new StandInRightRegion();
       updates.setLines(['  main · Updates 1/1']);
       surface.setRegion(updates);
-      region.setSiblingProbe(() => !updates.isEmpty());
       expect(region.placement()).toBe('left');
       surface.render(80);
       const shared = surface.regionRects().find((entry) => entry.id === 'approval')!;
@@ -439,6 +439,37 @@ describe('ApprovalRegion', () => {
       const expanded = surface.regionRects().find((entry) => entry.id === 'approval')!;
       expect(expanded.col).toBe(shared.col);
       expect(expanded.width).toBe(80 - SURFACE_INSET);
+    });
+
+    it('stacks the stats readout under itself when no updates box is present', () => {
+      // The prompt used to claim a full-width band of its own whenever the
+      // updates box was empty, which put a rule between it and the stats
+      // readout and read as a second bar. Both regions declare the left
+      // column, so the surface lays them out in one band with no split and no
+      // rule: the prompt on top, the readout underneath, same frame.
+      const surface = new StatusSurfaceComponent({ terminalRows: () => 40 });
+      const region = new ApprovalRegion();
+      const stats = new StatsRegion(() => [{ items: [{ text: '2 轮 · 7 步', priority: 0 }] }]);
+      surface.setRegion(stats);
+      surface.setRegion(region);
+      showPayload(region, payload());
+
+      const out = surface.render(80).map(strip);
+      // Top border + the five summary rows + the readout row + bottom border.
+      // A second unit would add a rule between the two blocks.
+      expect(out).toHaveLength(8);
+      expect(out.some((line) => line.includes('├'))).toBe(false);
+
+      const approval = surface.regionRects().find((entry) => entry.id === 'approval')!;
+      const readout = surface.regionRects().find((entry) => entry.id === 'stats')!;
+      const band = 80 - SURFACE_INSET;
+      expect(approval.col).toBe(SURFACE_SIDE_PADDING + 1);
+      expect(approval.width).toBe(band);
+      expect(readout.col).toBe(approval.col);
+      expect(readout.width).toBe(band);
+      expect(readout.from).toBe(approval.from + 5);
+      expect(out[1]).toContain('Run this command?');
+      expect(out[6]).toContain('2 轮 · 7 步');
     });
   });
 

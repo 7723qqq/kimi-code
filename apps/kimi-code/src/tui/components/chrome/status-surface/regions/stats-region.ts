@@ -36,7 +36,6 @@ export class StatsRegion implements StatusRegion {
 
   private expanded = true;
   private segmentsProvider: () => SessionStatsGroup[] = () => [];
-  private hasSibling: (() => boolean) | undefined;
   /**
    * Width of the last paint. `hasHiddenContent` is asked between frames, when
    * no render context exists, so it measures against the width the region was
@@ -58,17 +57,17 @@ export class StatsRegion implements StatusRegion {
   }
 
   /**
-   * Left column beside the updates box, and the whole band when there is no
-   * updates box to share with — a lone left column would leave the right half
-   * of the band empty and squeeze a ~100-character readout into 38 columns.
+   * The left column, always.
+   *
+   * The surface widens a lone left column to the whole band rather than
+   * splitting it against an empty right half, so this declaration covers every
+   * neighbour the readout can have: alone it takes the full width; beside the
+   * updates box it shares the band with it; and under a pending approval it
+   * stacks in the same band instead of claiming a band of its own behind a
+   * rule — which is what used to read as a second bar.
    */
   placement(): RegionPlacement {
-    return this.hasSibling?.() === true ? 'left' : 'full';
-  }
-
-  /** Told by the host what else is in the band, so widening stays accurate. */
-  setSiblingProbe(probe: () => boolean): void {
-    this.hasSibling = probe;
+    return 'left';
   }
 
   isEmpty(): boolean {

@@ -53,12 +53,12 @@ export function surfaceTotalRows(rows: number): number {
  * regions.
  *
  * Everything else divides the pool it shares. Priority orders *units*, and two
- * regions that share a band share its height — the left half is the todo list's
- * and the right half is the updates box's — so handing the pool out in priority
- * order let a long (or deliberately over-reported) todo list take the rows the
- * updates box needed and leave the rest of that column blank underneath. Each
- * informational region now takes at most its share of what is left, and one
- * that wants less than its share leaves the surplus to the rest.
+ * regions that share a band share its height — the left half stacks the stats
+ * readout and a pending approval, the right half is the updates box's — so
+ * handing the pool out in priority order let an over-reported left column take
+ * the rows the updates box needed and leave the rest of that column blank
+ * underneath. Each informational region now takes at most its share of what is
+ * left, and one that wants less than its share leaves the surplus to the rest.
  *
  * Every region is also given at least the rows it declared it cannot do
  * without while any room remains, so a region never disappears silently; once

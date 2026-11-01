@@ -26,26 +26,13 @@ describe('StatsRegion', () => {
     expect(region.render(context(80))).toEqual([]);
   });
 
-  it('spans the whole band when nothing shares it', () => {
+  it('declares the left column and lets the surface widen it when it is alone', () => {
+    // `left` is the readout's only placement: the surface widens a lone left
+    // column to the whole band, pairs it with the updates box, and stacks a
+    // pending approval above it in the same band. Declaring `full` instead is
+    // what used to give the approval a second band of its own.
     const region = new StatsRegion(() => groups('7 turns · 577 steps'));
-    expect(region.placement()).toBe('full');
-  });
-
-  it('takes the left column when an updates box is present', () => {
-    const region = new StatsRegion(() => groups('7 turns · 577 steps'));
-    region.setSiblingProbe(() => true);
     expect(region.placement()).toBe('left');
-  });
-
-  it('widens and narrows as the sibling appears and disappears', () => {
-    let sibling = false;
-    const region = new StatsRegion(() => groups('7 turns · 577 steps'));
-    region.setSiblingProbe(() => sibling);
-    expect(region.placement()).toBe('full');
-    sibling = true;
-    expect(region.placement()).toBe('left');
-    sibling = false;
-    expect(region.placement()).toBe('full');
   });
 
   it('wraps the groups onto more rows instead of dropping them', () => {

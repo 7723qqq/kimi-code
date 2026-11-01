@@ -15,7 +15,7 @@ Custom themes can override the tokens below. The `dark` and `light` columns show
 | `textDim` | `#888888` | `#454545` | Secondary, dimmed text. Thinking, hints, completed todos, Markdown quotes, footer status bar |
 | `textMuted` | `#6B6B6B` | `#5F5F5F` | Faintest text. Counters, scroll info, Markdown link URLs, code-block borders |
 | `border` | `#5A5A5A` | `#737373` | Pane and editor borders, Markdown horizontal rule |
-| `borderFocus` | `#E8A838` | `#92660A` | Focus / attention border, currently only the approval panel |
+| `borderFocus` | `#E8A838` | `#92660A` | Focus / attention border, used by the status strip's focused unit (a pending approval or the updates box) |
 | `success` | `#4EC87E` | `#0E7A38` | Success state. `✓`, "enabled", completed |
 | `warning` | `#E8A838` | `#92660A` | Warning state. Ask When Needed/Never Ask badges, stale markers, Plan mode hint |
 | `error` | `#E85454` | `#B91C1C` | Error state. Error messages, failed tool output |

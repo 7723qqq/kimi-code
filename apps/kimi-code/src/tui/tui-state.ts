@@ -210,16 +210,13 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
   // The approval region renders the panel the dialog host builds for each
   // request, so it holds no panel of its own until one arrives.
   const approvalRegion = new ApprovalRegion();
-  // Two regions that can each be alone share the band only when something else
-  // is in it; otherwise whichever is left takes the whole width. The right half
-  // belongs to the updates box, so a column on the left is only worth splitting
-  // off when that box is actually there: the stats column and an approval are
-  // both always present, and probing them would keep the split — and the empty
-  // right half — on screen for the whole session.
-  const updatesPresent = (): boolean => !updatesRegion.isEmpty();
-  statsRegion.setSiblingProbe(updatesPresent);
-  approvalRegion.setSiblingProbe(updatesPresent);
-  updatesRegion.setSiblingProbe(() => !statsRegion.isEmpty() || !approvalRegion.isEmpty());
+  // The stats readout and a pending approval both declare the left column, so
+  // they stack in one band when there is no updates box, and the surface
+  // widens that column to the whole band because there is no right half to
+  // split against. The updates box takes the right column whenever the left
+  // one has anything in it.
+  const approvalPresent = (): boolean => !approvalRegion.isEmpty();
+  updatesRegion.setSiblingProbe(() => !statsRegion.isEmpty() || approvalPresent());
   statusSurface.setRegion(statsRegion);
   statusSurface.setRegion(updatesRegion);
   statusSurface.setRegion(approvalRegion);

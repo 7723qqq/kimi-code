@@ -8,10 +8,11 @@
  * competing for rows. Here the prompt is a region like the others, so it takes
  * the rows the shared budget grants it and leaves the editor mounted.
  *
- * Folded, the region lives in the strip's left half — the right half is the
- * updates panel's permanent slot — so the summary wraps to whatever width that
- * half has instead of assuming a whole row. Expanded, it claims the full width
- * because the body is the diff, and a half-width diff wraps into noise.
+ * Folded, the region lives in the strip's left half — stacked above the stats
+ * readout, beside the updates box when there is one — so the summary wraps to
+ * whatever width that half has instead of assuming a whole row. Expanded, it
+ * claims the full width because the body is the diff, and a half-width diff
+ * wraps into noise.
  *
  * The two shapes exist because an approval can be enormous (a diff of a whole
  * file) or trivial (one line of shell):
@@ -87,7 +88,6 @@ export class ApprovalRegion implements StatusRegion {
   private selectedIndex = 0;
   /** Installed by the surface when the region is registered. */
   onChange: (() => void) | undefined;
-  private hasSibling: (() => boolean) | undefined;
 
   /** Clickable spans of the last paint, per summary row. */
   private optionRanges: readonly ApprovalOptionRange[] = [];
@@ -98,32 +98,18 @@ export class ApprovalRegion implements StatusRegion {
   private bodyBudgetGranted = 0;
 
   /**
-   * The left column beside another region, the whole band when nothing else is
-   * in it; the whole width while expanded.
+   * The left column while folded, the whole width while expanded.
    *
-   * A fixed `left` left the right half blank whenever the updates box was
-   * empty — which is the common case for an approval, since most turns raise
-   * one before the model has sent an update — and the surface still drew the
-   * column divider, so the strip read as a prompt beside an empty box.
-   * Unfolding reveals the panel's body — a diff of a whole file — which needs
-   * both columns; the surface re-plans on every render, so the band follows
-   * the fold state.
+   * The right column belongs to the updates box. With no updates box there is
+   * no right column to split against, so the surface widens the left one to
+   * the whole band and the prompt stacks above the stats readout in the same
+   * band — same frame, no rule between them, no second bar. Unfolding reveals
+   * the panel's body — a diff of a whole file — which needs the whole width;
+   * the surface re-plans on every render, so the band follows the fold state.
    */
   placement(): RegionPlacement {
     if (this.expanded) return 'full';
-    return this.hasSibling?.() === true ? 'left' : 'full';
-  }
-
-  /**
-   * Told by the host what else is in the band.
-   *
-   * The probe answers "is there an updates box to share with" rather than "is
-   * the stats column present": the stats column is always there once a turn
-   * has reported numbers, so including it would keep the split even when the
-   * right half is the empty updates slot.
-   */
-  setSiblingProbe(probe: () => boolean): void {
-    this.hasSibling = probe;
+    return 'left';
   }
 
   /** Show a new request, creating the panel that renders its body. */

@@ -42,7 +42,7 @@ export interface ColorPalette {
   // ── Surface ──
   /** Borders: pane & editor borders, markdown horizontal rule. */
   border: string;
-  /** Focus / attention border — currently only the approval panel. */
+  /** Focus / attention border — the status strip's focused unit. */
   borderFocus: string;
 
   // ── State ──

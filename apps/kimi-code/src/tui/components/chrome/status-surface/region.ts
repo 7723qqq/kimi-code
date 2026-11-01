@@ -118,21 +118,12 @@ export interface StatusRegion {
   /**
    * Ordering weight. Lower sorts first and is served first by the budget, so a
    * blocking region outranks the informational ones and never gets squeezed to
-   * nothing by a long todo list.
+   * nothing by a tall updates box.
    *
    * Declared by the region rather than read from a table the container owns: a
    * table is a place the container has to be edited for every new region.
    */
   readonly priority: number;
-
-  /**
-   * Regions this one temporarily replaces while it is present. The container
-   * applies the list generically (a suppressed region is skipped for layout,
-   * budget and hit testing until the suppressor disappears), so a blocking
-   * prompt can take over a sibling's slot without the container knowing either
-   * region by name.
-   */
-  readonly suppresses?: readonly RegionId[];
 
   /**
    * True while this region is waiting on a decision the user has to make, so
@@ -190,9 +181,9 @@ export interface StatusRegion {
 
   /**
    * Folding. All three regions implement the full set — the surface's
-   * click-to-fold, `Ctrl+T`, and the footer hint all read the same three
-   * methods, so a region that only implements `setExpanded` silently drops
-   * out of every one of those paths.
+   * click-to-fold, `Ctrl+T`, and the updates box's own hint all read the same
+   * three methods, so a region that only implements `setExpanded` silently
+   * drops out of every one of those paths.
    */
   isExpanded(): boolean;
   setExpanded(expanded: boolean): void;
@@ -227,9 +218,9 @@ export interface StatusRegion {
   handleMouse?(event: RegionMouseEvent): TuiMouseEventResult | undefined;
 
   /**
-   * Whether a click should move focus here. A region that just answers keys
-   * (the todo list toggles with Ctrl+T) returns false and keeps the editor's
-   * focus; a region the user pages through returns true.
+   * Whether a click should move focus here. A region the user pages through
+   * (the updates box) returns true; a read-only one (the stats column) answers
+   * no keys, so it returns false and leaves the editor's focus alone.
    */
   wantsFocus?(event: RegionMouseEvent): boolean;
 

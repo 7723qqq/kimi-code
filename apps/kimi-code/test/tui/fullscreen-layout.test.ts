@@ -7,6 +7,7 @@ import {
   type TuiMouseEvent,
   type Terminal,
   TuiAltScreen,
+  TuiMainScreen,
 } from '@moonshot-ai/pi-tui';
 /**
  * Fullscreen layout contract tests: the docked chrome must keep the editor's
@@ -20,6 +21,7 @@ import { describe, expect, it, mock, spyOn } from 'bun:test';
 import { GutterContainer } from '#/tui/components/chrome/gutter-container';
 import { MoonLoader } from '#/tui/components/chrome/moon-loader';
 import { ApprovalPanelComponent } from '#/tui/components/dialogs/approval-panel';
+import { ChoicePickerComponent } from '#/tui/components/dialogs/choice-picker';
 import { HelpPanelComponent } from '#/tui/components/dialogs/help-panel';
 import { AssistantMessageComponent } from '#/tui/components/messages/assistant-message';
 import { StatusMessageComponent } from '#/tui/components/messages/status-message';
@@ -27,7 +29,11 @@ import { UserMessageComponent } from '#/tui/components/messages/user-message';
 import * as userMessages from '#/tui/components/messages/user-message';
 import { ActivityPaneComponent } from '#/tui/components/panes/activity-pane';
 import { CHROME_GUTTER } from '#/tui/constant/rendering';
+import { SELECT_POINTER } from '#/tui/constant/symbols';
+import { DialogHostController, type DialogHost } from '#/tui/controllers/dialog-host';
 import { createTUIState, type KimiTUIOptions } from '#/tui/kimi-tui';
+import type { ApprovalController } from '#/tui/reverse-rpc/approval/controller';
+import type { QuestionController } from '#/tui/reverse-rpc/question/controller';
 import type { AppState, TranscriptEntry } from '#/tui/types';
 import { beginScreenTakeover, endScreenTakeover } from '#/tui/utils/screen-takeover';
 import { createEmptySessionStats } from '#/tui/utils/session-stats';
@@ -117,6 +123,78 @@ function pillLines(state: ReturnType<typeof createTUIState>): string[] {
   const root = (state.ui as TuiAltScreen).getLayoutRoot() as VStack;
   const transcript = root.children[0] as VStack;
   return transcript.children[0]!.render(state.ui.terminal.columns);
+}
+
+/** The regular screen's root children, in the order buildLayout() mounts them. */
+async function mountRegular(height = HEIGHT): Promise<{
+  state: ReturnType<typeof createTUIState>;
+  vt: VirtualTerminal;
+}> {
+  const opts: KimiTUIOptions = {
+    initialAppState: { ...fakeInitialAppState(), tuiMode: 'regular' },
+    startup: { continueLast: false, yolo: false, auto: false, plan: false },
+  };
+  const state = createTUIState(opts);
+  const vt = new VirtualTerminal(WIDTH, height);
+  (state.ui as { terminal: Terminal }).terminal = vt;
+  const ui = state.ui as TuiMainScreen;
+  ui.clear();
+  ui.addChild(state.transcriptContainer);
+  ui.addChild(state.activityContainer);
+  ui.addChild(state.backgroundTasksMiniContainer);
+  ui.addChild(state.statusSurfaceContainer);
+  ui.addChild(state.queueContainer);
+  ui.addChild(state.btwPanelContainer);
+  ui.addChild(state.surveyContainer);
+  ui.addChild(state.editorContainer);
+  const footerWrap = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
+  footerWrap.addChild(state.footer);
+  ui.addChild(footerWrap);
+  ui.start();
+  await vt.waitForRender();
+  return { state, vt };
+}
+
+const PICKER_OPTIONS = Array.from({ length: 40 }, (_, index) => ({
+  value: `opt${index}`,
+  label: `option ${index}`,
+  description: `description ${index}`,
+}));
+
+function makePicker(): ChoicePickerComponent {
+  return new ChoicePickerComponent({
+    title: 'pick',
+    options: PICKER_OPTIONS,
+    currentValue: 'opt0',
+    onSelect: () => {},
+    onCancel: () => {},
+  });
+}
+
+/** The option the picker's cursor is on, read off its rendered pointer row. */
+function selectedOption(picker: ChoicePickerComponent): string | undefined {
+  const row = picker
+    .render(WIDTH - 2)
+    .map((line) => stripAnsi(line))
+    .find((line) => line.includes(SELECT_POINTER));
+  return /option (\d+)/.exec(row ?? '')?.[1];
+}
+
+/** The dialog host only needs the state for the editor-replacement lifecycle. */
+function stubDialogHost(state: ReturnType<typeof createTUIState>): DialogHost {
+  return { state } as unknown as DialogHost;
+}
+
+function mountPanel(
+  state: ReturnType<typeof createTUIState>,
+  panel: Component & { focused: boolean },
+): void {
+  const controller = new DialogHostController(
+    stubDialogHost(state),
+    {} as unknown as ApprovalController,
+    {} as unknown as QuestionController,
+  );
+  controller.mountEditorReplacement(panel);
 }
 
 describe('fullscreen layout', () => {
@@ -1010,6 +1088,115 @@ describe('fullscreen layout', () => {
     expect(alt.viewportTop).toBe(transcriptTop);
     expect(closed).toBe(false);
     expect(vt.getViewport().map(stripAnsi).join('\n')).not.toBe(panelBefore);
+
+    alt.stop();
+  });
+
+  it('keeps a panel’s own paging keys when the panel is mounted in the editor slot', async () => {
+    const { state, vt } = await mountFullscreen();
+    const alt = state.ui as TuiAltScreen;
+    state.transcriptContainer.addChild(
+      new Text(Array.from({ length: 200 }, (_, index) => `line ${index}`).join('\n'), 0, 0),
+    );
+    const picker = makePicker();
+    mountPanel(state, picker);
+    alt.renderNow();
+    await vt.waitForRender();
+
+    // Park the transcript away from its end so a viewport-consumed PageDown
+    // would move it.
+    alt.scrollToTop();
+    await vt.waitForRender();
+    const transcriptTop = alt.viewportTop;
+    expect(transcriptTop).toBe(0);
+    expect(selectedOption(picker)).toBe('0');
+
+    vt.sendInput('\u001B[6~');
+    await vt.waitForRender();
+
+    // The key went to the panel: it paged its own list and the transcript
+    // stayed where it was.
+    expect(selectedOption(picker)).toBe('8');
+    expect(alt.viewportTop).toBe(transcriptTop);
+    expect(
+      (picker as unknown as { ownsViewportKeys?: boolean }).ownsViewportKeys,
+    ).toBe(true);
+
+    alt.stop();
+  });
+
+  it('keeps the same panel paging in regular mode', async () => {
+    const { state, vt } = await mountRegular();
+    const picker = makePicker();
+    mountPanel(state, picker);
+    await vt.waitForRender();
+    expect(selectedOption(picker)).toBe('0');
+
+    vt.sendInput('\u001B[6~');
+    await vt.waitForRender();
+
+    expect(selectedOption(picker)).toBe('8');
+
+    state.ui.stop();
+  });
+
+  it('delivers a real terminal click to a panel docked in the editor slot', async () => {
+    const { state, vt } = await mountFullscreen();
+    const alt = state.ui as TuiAltScreen;
+    const picked: string[] = [];
+    const picker = new ChoicePickerComponent({
+      title: 'pick',
+      options: PICKER_OPTIONS,
+      currentValue: 'opt0',
+      onSelect: (value) => picked.push(value),
+      onCancel: () => {},
+    });
+    mountPanel(state, picker);
+    alt.renderNow();
+    await vt.waitForRender();
+
+    // The click has to land past the settling window, or it is the click that
+    // opened the panel and the panel ignores it.
+    await new Promise<void>((resolve) => setTimeout(resolve, 400));
+
+    const rows = vt.getViewport().map(stripAnsi);
+    const row = rows.findIndex((line) => line.includes('option 5'));
+    const column = rows[row]?.indexOf('option 5') ?? 0;
+    expect(row).toBeGreaterThan(0);
+
+    vt.sendInput(`[<0;${column + 1};${row + 1}M`);
+    vt.sendInput(`[<0;${column + 1};${row + 1}m`);
+    await vt.waitForRender();
+
+    expect(picked).toEqual(['opt5']);
+
+    alt.stop();
+  });
+
+  it('leaves the transcript viewport in charge of a component that claims no keys', async () => {
+    const { state, vt } = await mountFullscreen();
+    const alt = state.ui as TuiAltScreen;
+    state.transcriptContainer.addChild(
+      new Text(Array.from({ length: 200 }, (_, index) => `line ${index}`).join('\n'), 0, 0),
+    );
+    const plain: Component = {
+      render: () => ['plain'],
+      invalidate: () => {},
+    };
+    state.editorContainer.clear();
+    state.editorContainer.addChild(plain);
+    alt.setFocus(plain);
+    alt.renderNow();
+    await vt.waitForRender();
+    alt.scrollToTop();
+    await vt.waitForRender();
+    const transcriptTop = alt.viewportTop;
+
+    vt.sendInput('\u001B[6~');
+    await vt.waitForRender();
+
+    // Nothing claimed the key, so the viewport paged the transcript.
+    expect(alt.viewportTop).toBeGreaterThan(transcriptTop);
 
     alt.stop();
   });

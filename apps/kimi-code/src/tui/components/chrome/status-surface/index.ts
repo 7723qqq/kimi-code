@@ -22,8 +22,8 @@
  *   blank space folds it — the same gesture for every region.
  *
  * Regions stack as units; two column regions may share a unit when there is
- * room for both, and anything that needs the full width — a blocking approval,
- * or either column on a narrow terminal — takes a unit of its own.
+ * room for both, and anything that needs the full width — an expanded
+ * approval, or either column on a narrow terminal — takes a unit of its own.
  */
 
 import {
@@ -124,8 +124,8 @@ interface PlannedUnit {
   readonly boxes: readonly RegionBox[];
   /**
    * Column of the vertical divider when the unit is the strip's two halves,
-   * `undefined` for every other unit. Drawn even while one half is empty, so
-   * the right half reads as the updates panel's permanent slot.
+   * `undefined` for every other unit. The divider is drawn only while both
+   * columns have content; a lone left column takes the whole band instead.
    */
   readonly divider?: number;
 }
@@ -167,8 +167,8 @@ export const COLUMN_GAP = 1;
 /**
  * Narrowest a single column may get before the two columns stop being worth
  * it. The updates panel wraps its body into the width it is handed minus its
- * own indent, and the todo panel draws a fixed ten-cell status bar plus a
- * five-cell braille bar, below which both wrap into something unreadable.
+ * own indent, and the stats readout falls back to one reading per row once a
+ * cell no longer fits beside another; below this both read as a word per line.
  */
 export const MIN_COLUMN_WIDTH = 30;
 
@@ -264,16 +264,7 @@ export class StatusSurfaceComponent implements Component {
 
   /** Regions in render order (highest priority first). */
   private orderedRegions(): readonly StatusRegion[] {
-    const present = [...this.regions.values()].filter((region) => !region.isEmpty());
-    // A present region may take over a sibling's slot (an approval replaces the
-    // todo list while it waits for an answer). The suppressed region is skipped
-    // for ordering, budget and hit testing until the suppressor is gone; the
-    // declaration lives on the region, so the container stays name-agnostic.
-    const suppressed = new Set<RegionId>();
-    for (const region of present) {
-      for (const id of region.suppresses ?? []) suppressed.add(id);
-    }
-    return sortRegions(present.filter((region) => !suppressed.has(region.id)));
+    return sortRegions([...this.regions.values()].filter((region) => !region.isEmpty()));
   }
 
   isEmpty(): boolean {
@@ -461,7 +452,7 @@ export class StatusSurfaceComponent implements Component {
   /**
    * Fold or unfold a region, but only when doing so reveals or hides
    * something. The predicate is the region's own `hasHiddenContent`, not a
-   * count of items: the todo panel used to gate this on `items > 5`, which is
+   * count of items: an earlier panel gated this on `items > 5`, which is
    * unrelated to how many rows folding actually adds, so a five-item tree
    * advertised "ctrl+t to expand" and then swallowed the key.
    */
@@ -611,8 +602,8 @@ export class StatusSurfaceComponent implements Component {
    *
    * A *unit* is one horizontal band. A full-width region takes a unit of its
    * own; every other region shares one: the strip's right half is the updates
-   * panel's permanent slot, and the left half stacks whatever else is present
-   * (the todo list, a pending approval). On a terminal too narrow for two
+   * panel's slot, and the left half stacks whatever else is present (the stats
+   * readout, a pending approval). On a terminal too narrow for two
    * columns the halves collapse and each region becomes its own unit. Units
    * stack vertically and a rule separates each pair of neighbours. The frame
    * and those rules are paid for out of the same row budget the regions
@@ -634,9 +625,8 @@ export class StatusSurfaceComponent implements Component {
 
     const specs: UnitSpec[] = [];
     if (split) {
-      // A full-width region keeps a band of its own. Nothing in the strip
-      // declares `'full'` today, but the capability stays for a region that
-      // needs the whole width.
+      // A full-width region keeps a band of its own. An expanded approval
+      // declares `full`; folded, it shares the band like any column region.
       for (const region of ordered) {
         if (region.placement() === 'full') {
           specs.push({ members: [{ region, column: 'full' }], priority: region.priority });
@@ -737,8 +727,8 @@ export class StatusSurfaceComponent implements Component {
         from: row,
         height,
         boxes: unitBoxes,
-        // The two halves are a fixture of the strip, so the divider stands
-        // even while the updates half has nothing in it.
+        // The divider belongs to a band with content on both sides; a unit
+        // that fell back to one column has no divider to draw.
         divider: spec.columns === true ? SURFACE_SIDE_PADDING + 1 + cols[0].width : undefined,
       });
       row += height;
