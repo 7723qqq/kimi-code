@@ -6,8 +6,8 @@
  * a provider, or inspect what is configured without launching the TUI.
  *
  * `add` writes the same `source = { kind: 'apiJson', url, apiKey }` blob the
- * TUI does; the next launch's `refreshAllProviderModels`
- * (apps/kimi-code/src/tui/utils/refresh-providers.ts) groups by URL, retries
+ * TUI does; the next launch's `refreshProviderModels`
+ * (apps/kimi-code/src/tui/controllers/auth-flow.ts) groups by URL, retries
  * available API-key candidates, and re-fetches the model list, so periodic
  * refresh is automatic.
  *

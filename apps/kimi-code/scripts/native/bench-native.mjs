@@ -2,7 +2,7 @@
  * Compare cold-ish start wall time of packaged native binaries.
  *
  * Usage:
- *   node scripts/native/bench-native.mjs <binary> [<binary> ...] [--runs N]
+ *   bun apps/kimi-code/scripts/native/bench-native.mjs <binary> [<binary> ...] [--runs N]
  *
  * Each binary is invoked as `<bin> --version`; the first run per binary is a
  * warmup (page cache, asset extraction) and discarded. Reports min / median /

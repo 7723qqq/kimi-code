@@ -346,8 +346,8 @@ function capabilityMarketplaceEntry(capability: CapabilityStatus): PluginMarketp
 /**
  * Injection is part of the DEFAULT catalog experience only: any explicit
  * replacement (the slash-command source or a user-set env override) opts out
- * wholesale. The dev marketplace server started by scripts/dev.mjs serves
- * this repo's own catalog and marks itself, so it still counts as default.
+ * wholesale. The dev marketplace server started by apps/kimi-code/scripts/dev.mjs
+ * serves this repo's own catalog and marks itself, so it still counts as default.
  */
 function isDefaultMarketplaceCatalog(
   source: string | undefined,

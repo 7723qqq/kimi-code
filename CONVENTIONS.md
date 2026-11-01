@@ -113,7 +113,7 @@ review:
 | Tree | Surface | Owner |
 | --- | --- | --- |
 | `apps/kimi-code/src/i18n/locales` | CLI/TUI copy, `errorCodes.*` (the error-code display contract) | TUI maintainers |
-| `packages/i18n/src/locales` | engine-side strings reached through `@moonshot-ai/kimi-i18n`; `packages/kap-server/src/i18n-locales` is a checked-in copy that `kap-server/test/i18n-consistency.test.ts` keeps as a strict subset of it | engine maintainers |
+| `packages/i18n/src/locales` | engine-side strings reached through `@moonshot-ai/kimi-i18n` | engine maintainers |
 | `apps/kimi-inspect/src/i18n/locales`, `apps/vis/web/src/i18n/locales`, `apps/vscode/webview-ui/src/i18n/locales` | developer-facing tools | tool maintainers |
 
 The count to watch is the prose ledger, not the number of locale keys: a shrinking ledger means

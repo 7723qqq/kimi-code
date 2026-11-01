@@ -175,8 +175,8 @@ describe('plugins command capability surface', () => {
 
   it('treats only the default catalog (and the dev server) as injectable', () => {
     expect(isDefaultMarketplaceCatalog(undefined, {})).toBe(true);
-    // The dev marketplace server started by scripts/dev.mjs serves this
-    // repo's own catalog — it counts as default, not as a user override.
+    // The dev marketplace server started by apps/kimi-code/scripts/dev.mjs
+    // serves this repo's own catalog — it counts as default, not as a user override.
     expect(
       isDefaultMarketplaceCatalog(undefined, {
         KIMI_CODE_PLUGIN_MARKETPLACE_URL: 'http://127.0.0.1:60056/marketplace.json',

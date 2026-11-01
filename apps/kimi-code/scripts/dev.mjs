@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { spawn } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 import { startPluginMarketplaceServer } from './dev-plugin-marketplace-server.mjs';
 
@@ -50,7 +50,10 @@ const child = spawn(
   process.execPath,
   [
     '--import',
-    pathToFileURL(resolve(REPO_ROOT, 'build/register-raw-text-loader.mjs')).href,
+    // A filesystem path, not a file:// URL: Bun 1.4 on Windows rejects the URL
+    // form here with "preload not found", which silently broke every launcher
+    // that ran this script.
+    resolve(REPO_ROOT, 'build/register-raw-text-loader.mjs'),
     resolve(APP_ROOT, 'src/main.ts'),
     ...cliArgs,
   ],

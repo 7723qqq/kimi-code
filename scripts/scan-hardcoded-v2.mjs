@@ -45,7 +45,6 @@ const MODULES = [
     localeZh: 'packages/i18n/src/locales/zh.ts',
     tPattern: /\bt\(['"]/,
     importPattern: /t\b.*from\s+['"]@moonshot-ai\/kimi-i18n['"]/,
-    skipDirs: ['i18n-locales'],
     fileTypes: ['.ts'],
     tImportName: 't',
   },

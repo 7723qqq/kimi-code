@@ -6,7 +6,7 @@
  * the report still says zero. Each case below pins one blind spot that existed
  * and was fixed, and fails if the fix is undone.
  *
- * Run: bun test --isolate scripts/scan-test-residue.test.mjs
+ * Run: bun test --isolate scripts/scan-test-residue.test.ts
  */
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';

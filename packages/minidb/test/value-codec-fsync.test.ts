@@ -19,7 +19,7 @@
 // -> rm(tmp) -> openDir -> syncDir. In particular sync() precedes the rename
 // and the strict directory fsync is last.
 
-import { PathLike } from 'node:fs';
+import type { PathLike } from 'node:fs';
 import fs from 'node:fs/promises';
 const realFs: typeof fs = { ...fs };
 import path from 'node:path';

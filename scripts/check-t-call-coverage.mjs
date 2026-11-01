@@ -21,9 +21,15 @@ const ROOT = resolve(__dirname, '..');
 // is checked against that rather than against packages/i18n.
 const SOURCES = [
   {
-    name: 'agent-core-v2 + kap-server + klient',
+    name: 'agent-core-v2 + kap-server + klient + kosong + remote-control',
     localeFile: 'packages/i18n/src/locales/en.ts',
-    sourceDirs: ['packages/agent-core-v2/src', 'packages/kap-server/src', 'packages/klient/src'],
+    sourceDirs: [
+      'packages/agent-core-v2/src',
+      'packages/kap-server/src',
+      'packages/klient/src',
+      'packages/kosong/src',
+      'packages/remote-control/src',
+    ],
   },
   {
     name: 'kimi-code',

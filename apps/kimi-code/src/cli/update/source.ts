@@ -27,7 +27,7 @@ export interface BunRuntimeView {
 }
 
 // Bun packaged builds are recognized by the embedded-asset marker that
-// scripts/native/bun-entry.ts registers.
+// apps/kimi-code/scripts/native/bun-entry.ts registers.
 function detectBunNativeInstall(view: BunRuntimeView): NativeInstallDetection | null {
   if (view.Bun === undefined) return null;
   if (getBunEmbeddedAssetSource(view) === null) return null;
