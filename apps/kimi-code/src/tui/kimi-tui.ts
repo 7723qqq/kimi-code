@@ -137,7 +137,7 @@ import { BackgroundTasksMiniController } from './controllers/background-tasks-mi
 import { BtwPanelController } from './controllers/btw-panel';
 import {
   CacheHintController,
-  type StepCacheObservation,
+  type StepCacheBreak,
 } from './controllers/cache-hint-controller';
 import { ClipboardImageHintController } from './controllers/clipboard-image-hint';
 import { DialogHostController } from './controllers/dialog-host';
@@ -4472,19 +4472,19 @@ export class KimiTUI {
   }
 
   /** Per-step usage plus the engine's cache observation for the detector. */
-  noteStepUsage(usage: TokenUsage | undefined, cache?: StepCacheObservation): void {
-    this.cacheHint.noteStepUsage(usage, cache);
+  noteStepUsage(usage: TokenUsage | undefined, cacheBreak?: StepCacheBreak): void {
+    this.cacheHint.noteStepUsage(usage, cacheBreak);
   }
 
-  /** Compaction shrinks the cached prefix — reset the cache-break baseline. */
+  /** Compaction shrinks the cached prefix — reset the switch-loss estimate. */
   noteCompactionFinished(): void {
-    this.cacheHint.resetCacheBreakBaseline();
+    this.cacheHint.resetSwitchLossBaseline();
   }
 
   /** /undo cut the context — the next step's cache drop is expected, and the
    *  speed readout restarts rather than blending the pre-undo rate in. */
   noteContextCut(): void {
-    this.cacheHint.resetCacheBreakBaseline();
+    this.cacheHint.resetSwitchLossBaseline();
     this.resetTokenSpeed();
   }
 

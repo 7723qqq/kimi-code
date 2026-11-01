@@ -12,6 +12,8 @@ import type {
 } from 'shared/legacy-sdk';
 import type { UIStreamEvent, StreamError } from 'shared/types';
 
+import { toast } from '@/components/ui/sonner';
+import { t } from '@/i18n';
 import { bridge } from '@/services';
 
 import { useApprovalStore } from './approval.store';
@@ -562,7 +564,19 @@ const eventHandlers: Record<string, EventHandler> = {
   },
 
   StatusUpdate: (draft, payload) => {
-    const { context_usage, token_usage, plan_mode, model, thinking_effort, retrying } = payload;
+    const {
+      context_usage,
+      token_usage,
+      plan_mode,
+      model,
+      thinking_effort,
+      retrying,
+      cache_break,
+    } = payload;
+
+    if (cache_break) {
+      toast.warning(t('chatStatus.cacheBreak', { tokens: cache_break.tokens.toLocaleString() }));
+    }
 
     if (typeof model === 'string' && model.length > 0) {
       useSettingsStore.getState().setCurrentModel(model);

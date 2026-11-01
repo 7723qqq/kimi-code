@@ -38,6 +38,9 @@ export type {
   TurnStepRetryingEvent,
   TurnStepInterruptedEvent,
   TurnEndReason,
+  CacheBreakCause,
+  CacheBreakObservation,
+  CacheBreakSnapshot,
 } from '@moonshot-ai/agent-core-v2/contract';
 export type { TurnEndedEvent } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
 

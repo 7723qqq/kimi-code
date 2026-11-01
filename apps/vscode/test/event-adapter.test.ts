@@ -294,6 +294,47 @@ describe('event adapter (projects SDK events into the legacy Webview contract)',
     });
   });
 
+  it('emits a cache-break notice for a main-agent step', () => {
+    const result = adaptSdkEvent(createEventAdapterState(), cacheBreakEvent());
+
+    expect(result.event).toEqual({
+      type: 'StatusUpdate',
+      payload: { cache_break: { tokens: 1200, cause: 'unexplained' } },
+      _sessionId: 'session-1',
+    });
+  });
+
+  it('does not notify for an expected prefix reset', () => {
+    const result = adaptSdkEvent(
+      createEventAdapterState(),
+      cacheBreakEvent({ cause: 'prefix_reset' }),
+    );
+
+    expect(result.event).toBeUndefined();
+  });
+
+  it('ignores cache breaks from subagent steps', () => {
+    const result = adaptSdkEvent(createEventAdapterState(), cacheBreakEvent({ agentId: 'sub-1' }));
+
+    expect(result.event).toBeUndefined();
+  });
+
+  it('throttles cache-break notices for ten completed steps', () => {
+    let state = createEventAdapterState();
+    const first = adaptSdkEvent(state, cacheBreakEvent());
+    expect(first.event).toBeDefined();
+    state = first.state;
+
+    for (let step = 0; step < 9; step += 1) {
+      const quiet = adaptSdkEvent(state, cacheBreakEvent());
+      expect(quiet.event).toBeUndefined();
+      state = quiet.state;
+    }
+
+    const second = adaptSdkEvent(state, cacheBreakEvent());
+    expect(second.event).toBeDefined();
+  });
+
   it('derives context_usage from the v2 context token pair', () => {
     const result = adaptSdkEvent(createEventAdapterState(), {
       type: 'agent.status.updated',
@@ -576,3 +617,49 @@ describe('event adapter (projects SDK events into the legacy Webview contract)',
     expect(getUserMessage('session.stale', 'fallback')).not.toBe('fallback');
   });
 });
+
+function cacheBreakUsage(inputCacheRead: number): {
+  inputOther: number;
+  output: number;
+  inputCacheRead: number;
+  inputCacheCreation: number;
+} {
+  return { inputOther: 1200, output: 10, inputCacheRead, inputCacheCreation: 0 };
+}
+
+function cacheBreakEvent(
+  overrides: {
+    agentId?: string;
+    cause?: 'unexplained' | 'prefix_reset';
+    step?: number;
+  } = {},
+): Parameters<typeof adaptSdkEvent>[1] {
+  const cause = overrides.cause ?? 'unexplained';
+  return {
+    type: 'turn.step.completed',
+    sessionId: 'session-1',
+    agentId: overrides.agentId ?? 'main',
+    turnId: 7,
+    step: overrides.step ?? 2,
+    usage: cacheBreakUsage(1_000),
+    cacheBreak: {
+      cause,
+      previous: {
+        model: 'kimi-k2',
+        effort: 'off',
+        messageCount: 2,
+        usage: cacheBreakUsage(10_000),
+        at: 0,
+      },
+      current: {
+        model: 'kimi-k2',
+        effort: 'off',
+        messageCount: 3,
+        usage: cacheBreakUsage(1_000),
+        at: 1,
+      },
+      cacheReadDropRatio: 0.9,
+      intervalMs: 1_000,
+    },
+  };
+}

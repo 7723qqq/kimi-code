@@ -1,3 +1,4 @@
+import type { CacheBreakCause } from '#/agent/usage/cacheBreak';
 import type { TowerExitReason } from '#/features/tower/tower';
 import type { SessionCloseReason } from '#/workspace/sessionLifecycle/sessionLifecycle';
 
@@ -108,6 +109,30 @@ export interface PromptCacheProbeEvent {
   parent_message_count?: number;
   parent_input_tokens?: number;
   parent_request_gap_ms?: number;
+}
+
+export interface CacheBreakDetectedEvent {
+  turn_id?: number;
+  step_no?: number;
+  cause: CacheBreakCause;
+  prev_model: string;
+  curr_model: string;
+  prev_effort: string;
+  curr_effort: string;
+  prev_projection?: string;
+  curr_projection?: string;
+  prev_message_count?: number;
+  curr_message_count?: number;
+  prev_input_cache_read: number;
+  curr_input_cache_read: number;
+  prev_input_other: number;
+  curr_input_other: number;
+  prev_output: number;
+  curr_output: number;
+  prev_input_cache_creation: number;
+  curr_input_cache_creation: number;
+  cache_read_drop_ratio: number;
+  interval_ms: number;
 }
 
 export type ToolCallOutcome = 'success' | 'error' | 'cancelled';
@@ -783,6 +808,34 @@ export const telemetryEventDefinitions = {
         "Message count of the parent's last completed turn request before the fork; absent under the same conditions as parent_input_tokens",
       parent_request_gap_ms:
         "Milliseconds from the parent's last completed turn request finishing to the probed request starting; absent when the parent completed no turn request before the fork, or its context was rewritten (undo, compaction) after the last one",
+    },
+  }),
+  cache_break_detected: defineAgentTelemetryEvent<CacheBreakDetectedEvent>({
+    owner: 'kimi-code',
+    comment:
+      'A completed step read substantially less of the prompt cache than the previous step, indicating a likely cache invalidation.',
+    properties: {
+      turn_id: 'Per-agent turn index of the step that read less cache',
+      step_no: 'One-based step number within that turn',
+      cause: 'Classified cause of the cache-read drop',
+      prev_model: 'Model alias used by the previous step',
+      curr_model: 'Model alias used by the current step',
+      prev_effort: 'Thinking effort used by the previous step',
+      curr_effort: 'Thinking effort used by the current step',
+      prev_projection: 'Media projection applied to the previous step, absent when none was',
+      curr_projection: 'Media projection applied to the current step, absent when none was',
+      prev_message_count: 'Message count sent by the previous step',
+      curr_message_count: 'Message count sent by the current step',
+      prev_input_cache_read: 'Cache-read input tokens of the previous step',
+      curr_input_cache_read: 'Cache-read input tokens of the current step',
+      prev_input_other: 'Uncached input tokens of the previous step',
+      curr_input_other: 'Uncached input tokens of the current step',
+      prev_output: 'Output tokens of the previous step',
+      curr_output: 'Output tokens of the current step',
+      prev_input_cache_creation: 'Cache-creation input tokens of the previous step',
+      curr_input_cache_creation: 'Cache-creation input tokens of the current step',
+      cache_read_drop_ratio: 'Fraction of the previous cache-read tokens that disappeared',
+      interval_ms: 'Milliseconds from the previous step completion to the current one',
     },
   }),
   tool_call: defineAgentTelemetryEvent<ToolCallEvent>({

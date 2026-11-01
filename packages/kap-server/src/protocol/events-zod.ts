@@ -868,6 +868,51 @@ export const turnStepStartedEventSchema = z.object({
   stepId: z.string().optional(),
 }) satisfies z.ZodType<TurnStepStartedPayload>;
 
+export const requestProjectionSchema = z.enum([
+  'strict',
+  'media-degraded',
+  'media-stripped',
+  'strict-media-degraded',
+  'strict-media-stripped',
+]);
+
+export const cacheObservationSchema = z.object({
+  modelAlias: z.string(),
+  protocol: z.string().optional(),
+  providerType: z.string().optional(),
+  messageCount: z.number(),
+  historyHash: z.string(),
+  projection: requestProjectionSchema.optional(),
+  thinkingEffort: z.string().optional(),
+  inputTokens: z.number().optional(),
+  cacheRead: z.number(),
+  cacheCreation: z.number(),
+  outputTokens: z.number(),
+});
+
+export const cacheBreakSnapshotSchema = z.object({
+  model: z.string(),
+  effort: z.string(),
+  projection: requestProjectionSchema.optional(),
+  messageCount: z.number().optional(),
+  usage: tokenUsageSchema,
+  at: z.number(),
+});
+
+export const cacheBreakObservationSchema = z.object({
+  cause: z.enum([
+    'model_switch',
+    'effort_switch',
+    'projection_change',
+    'prefix_reset',
+    'unexplained',
+  ]),
+  previous: cacheBreakSnapshotSchema,
+  current: cacheBreakSnapshotSchema,
+  cacheReadDropRatio: z.number(),
+  intervalMs: z.number(),
+});
+
 export const turnStepCompletedEventSchema = z.object({
   type: z.literal('turn.step.completed'),
   agentId: z.string(),
@@ -875,6 +920,8 @@ export const turnStepCompletedEventSchema = z.object({
   step: z.number(),
   stepId: z.string().optional(),
   usage: tokenUsageSchema.optional(),
+  cache: cacheObservationSchema.optional(),
+  cacheBreak: cacheBreakObservationSchema.optional(),
   finishReason: z.string().optional(),
   llmFirstTokenLatencyMs: z.number().optional(),
   llmStreamDurationMs: z.number().optional(),

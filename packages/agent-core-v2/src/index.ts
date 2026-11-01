@@ -460,6 +460,8 @@ export * from '#/features/tower/tools/status/status';
 import '#/features/tower/flag';
 import '#/features/tower/towerFeature';
 export * from '#/agent/usage/usage';
+export * from '#/agent/usage/cacheBreak';
+export * from '#/agent/usage/cacheBreakService';
 export * from '#/agent/usage/cacheProbe';
 export * from '#/agent/usage/cacheProbeService';
 export * from '#/session/usage/sessionUsage';

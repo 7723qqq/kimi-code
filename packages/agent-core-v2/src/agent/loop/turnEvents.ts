@@ -3,12 +3,19 @@ import { z } from 'zod';
 
 import type { PromptOrigin } from '#/agent/contextMemory/types';
 import { parseDaemonFileUrl } from '#/agent/media/mediaRef';
+import type { CacheBreakObservation } from '#/agent/usage/cacheBreak';
 import type { CacheObservation } from '#/agent/usage/cacheObservation';
 import { AgentEvent2, registerEvent2Class } from '#/app/event/event2';
 import { annotateBundledSkillParts, isSkillActivationPart } from '#human/agent/origin';
 import type { FinishReason } from '#human/llm/finish-reason';
 import type { ContentPart, TextPart } from '#human/llm/message';
 import type { TokenUsage } from '#human/llm/usage';
+
+export type {
+  CacheBreakCause,
+  CacheBreakObservation,
+  CacheBreakSnapshot,
+} from '#/agent/usage/cacheBreak';
 
 export type TurnEndReason = 'completed' | 'cancelled' | 'failed' | 'blocked';
 
@@ -120,6 +127,7 @@ export interface TurnStepCompletedPayload {
   readonly stepId?: string;
   readonly usage?: TokenUsage;
   readonly cache?: CacheObservation;
+  readonly cacheBreak?: CacheBreakObservation;
   readonly finishReason?: string;
   readonly llmFirstTokenLatencyMs?: number;
   readonly llmStreamDurationMs?: number;

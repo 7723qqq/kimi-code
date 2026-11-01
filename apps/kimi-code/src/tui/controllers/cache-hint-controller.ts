@@ -7,7 +7,6 @@
  */
 
 import {
-  log,
   type Event,
   type KimiHarness,
   type Session,
@@ -38,7 +37,7 @@ import {
 } from '../utils/image-placeholder';
 
 type TurnStepCompletedEvent = Extract<Event, { type: 'turn.step.completed' }>;
-export type StepCacheObservation = NonNullable<TurnStepCompletedEvent['cache']>;
+export type StepCacheBreak = NonNullable<TurnStepCompletedEvent['cacheBreak']>;
 
 /** A swallowed submit: the raw text plus its media extraction (done before
  *  the dialog so pasted attachments survive a later store clear). */
@@ -79,30 +78,9 @@ export interface CacheHintHost {
 
 type HintDecision = { readonly idleSeconds: number; readonly totalTokens: number };
 
-/** Cache-break detection: a step's cache read dropping under 95% of the
- *  previous step's by more than this many tokens counts as a break. */
-const CACHE_BREAK_MIN_DROP_TOKENS = 2000;
-const CACHE_BREAK_DROP_RATIO = 0.95;
-
 /** Minimum completed steps between two cache-break status notices — one
  *  busted cache key otherwise re-warns on every step until it rebuilds. */
 const CACHE_BREAK_NOTICE_MIN_STEPS = 10;
-
-type CacheBreakCause =
-  | 'model_switch'
-  | 'effort_switch'
-  | 'projection_change'
-  | 'prefix_reset'
-  | 'unexplained';
-
-interface CacheBreakBaseline {
-  readonly model: string;
-  readonly effort: string;
-  readonly projection: string | undefined;
-  readonly messageCount: number | undefined;
-  readonly usage: TokenUsage;
-  readonly time: number;
-}
 
 /** Injectable time source and wait primitive for the idle/resume timing rules. */
 export interface CacheHintClock {
@@ -139,8 +117,8 @@ export class CacheHintController {
   private restoredTexts: string[] = [];
   /** Resume scenario fires at most once per session per TUI instance. */
   private readonly resumedSessions = new Set<string>();
-  /** Last measured main-loop step usage for cache-break detection. */
-  private breakBaseline: CacheBreakBaseline | undefined;
+  /** Last measured main-loop step usage, for the model-switch loss estimate. */
+  private lastMeasuredUsage: TokenUsage | undefined;
   /** Completed steps since the last cache-break status notice. */
   private stepsSinceBreakNotice = Number.POSITIVE_INFINITY;
 
@@ -150,20 +128,14 @@ export class CacheHintController {
   ) {}
 
   /**
-   * Cache-break detection (client-side, main loop): feed each completed
-   * step's usage and the engine's cache observation. A step whose cache read
-   * drops sharply below the previous one is reported as
-   * `cache_break_detected` with both usages, the model/effort/projection the
-   * engine actually sent, the classified cause, the drop ratio, and the
-   * interval. Unmeasured (missing/all-zero) usage is skipped without touching
-   * the baseline; compaction resets it (the drop there is expected).
-   *
-   * Also doubles as the cache-activity signal: a completed step is a real
-   * provider round trip, so the server-side cache was just refreshed —
-   * unlike a bare turn begin, whose prompt may still fail before any model
-   * request.
+   * Records each completed step's usage for the switch-loss estimate and
+   * surfaces the engine's cache-break verdict. Detection, logging, and
+   * telemetry live in the engine; this throttles the status-line notice so a
+   * single busted cache key does not re-warn on every step. A completed step
+   * is also the cache-activity signal: the server-side cache was just
+   * refreshed, unlike a bare turn begin whose prompt may still fail.
    */
-  noteStepUsage(usage: TokenUsage | undefined, cache?: StepCacheObservation): void {
+  noteStepUsage(usage: TokenUsage | undefined, cacheBreak?: StepCacheBreak): void {
     this.recordActivity();
     if (usage === undefined) return;
     if (
@@ -174,53 +146,9 @@ export class CacheHintController {
     ) {
       return;
     }
-    const model = cache?.modelAlias ?? this.host.state.appState.model;
-    const effort = cache?.thinkingEffort ?? this.host.state.appState.thinkingEffort;
-    const projection = cache?.projection;
-    const messageCount = cache?.messageCount;
-    const now = this.clock.now();
-    const prev = this.breakBaseline;
-    this.breakBaseline = { model, effort, projection, messageCount, usage, time: now };
+    this.lastMeasuredUsage = usage;
     this.stepsSinceBreakNotice += 1;
-    if (prev === undefined) return;
-    const prevRead = prev.usage.inputCacheRead;
-    const currRead = usage.inputCacheRead;
-    if (currRead >= prevRead * CACHE_BREAK_DROP_RATIO) return;
-    if (prevRead - currRead <= CACHE_BREAK_MIN_DROP_TOKENS) return;
-    const cause = classifyCacheBreak(prev, { model, effort, projection, messageCount });
-    // Surface the break in the logs as well as telemetry: the server-side
-    // prompt cache was likely invalidated (prefix change, cache expiry, or a
-    // mid-session model/effort switch). Telemetry props are flattened snake_case.
-    log.warn(
-      `[cache] prompt-cache break detected (${cause}): cache read dropped ${prevRead - currRead} ` +
-        `tokens (${Math.round(((prevRead - currRead) / prevRead) * 100)}%) between steps, ` +
-        `${((now - prev.time) / 1000).toFixed(1)}s after the previous request ` +
-        `(model ${prev.model} -> ${model}, effort ${prev.effort} -> ${effort})`,
-    );
-    this.host.track('cache_break_detected', {
-      cause,
-      prev_model: prev.model,
-      curr_model: model,
-      prev_effort: prev.effort,
-      curr_effort: effort,
-      prev_projection: prev.projection,
-      curr_projection: projection,
-      prev_message_count: prev.messageCount,
-      curr_message_count: messageCount,
-      prev_input_cache_read: prevRead,
-      curr_input_cache_read: currRead,
-      prev_input_other: prev.usage.inputOther,
-      curr_input_other: usage.inputOther,
-      prev_output: prev.usage.output,
-      curr_output: usage.output,
-      prev_input_cache_creation: prev.usage.inputCacheCreation,
-      curr_input_cache_creation: usage.inputCacheCreation,
-      cache_read_drop_ratio: (prevRead - currRead) / prevRead,
-      interval_ms: now - prev.time,
-    });
-    // Surface the break in the UI as well: the tokens this step processed
-    // uncached are exactly what the user is paying full price for. A cooldown
-    // keeps one busted cache key from re-warning on every step.
+    if (cacheBreak === undefined || cacheBreak.cause === 'prefix_reset') return;
     if (usage.inputOther > 0 && this.stepsSinceBreakNotice >= CACHE_BREAK_NOTICE_MIN_STEPS) {
       this.stepsSinceBreakNotice = 0;
       this.host.showStatus?.(
@@ -232,10 +160,11 @@ export class CacheHintController {
     }
   }
 
-  /** Compaction legitimately shrinks the cached prefix — reset the baseline.
-   *  Also used when the context is cut by other means (e.g. /undo). */
-  resetCacheBreakBaseline(): void {
-    this.breakBaseline = undefined;
+  /** Compaction or /undo cut the cached prefix — the engine resets its own
+   *  detection baseline, and this drops the local estimate so the switch-loss
+   *  warning does not use a pre-cut prompt size. */
+  resetSwitchLossBaseline(): void {
+    this.lastMeasuredUsage = undefined;
     this.stepsSinceBreakNotice = Number.POSITIVE_INFINITY;
   }
 
@@ -246,10 +175,9 @@ export class CacheHintController {
    * compaction/undo, or a provider that reports no usage.
    */
   estimateSwitchLossTokens(): number | undefined {
-    const baseline = this.breakBaseline;
-    if (baseline === undefined) return undefined;
-    const total =
-      baseline.usage.inputOther + baseline.usage.inputCacheRead + baseline.usage.inputCacheCreation;
+    const usage = this.lastMeasuredUsage;
+    if (usage === undefined) return undefined;
+    const total = usage.inputOther + usage.inputCacheRead + usage.inputCacheCreation;
     return total > 0 ? total : undefined;
   }
 
@@ -277,7 +205,7 @@ export class CacheHintController {
     this.triggerFetchAttempted = false;
     this.lastDialogRestored = false;
     this.restoredTexts = [];
-    this.breakBaseline = undefined;
+    this.lastMeasuredUsage = undefined;
     this.stepsSinceBreakNotice = Number.POSITIVE_INFINITY;
   }
 
@@ -678,21 +606,4 @@ export class CacheHintController {
     }
     return false;
   }
-}
-
-function classifyCacheBreak(
-  prev: Pick<CacheBreakBaseline, 'model' | 'effort' | 'projection' | 'messageCount'>,
-  next: Pick<CacheBreakBaseline, 'model' | 'effort' | 'projection' | 'messageCount'>,
-): CacheBreakCause {
-  if (prev.model !== next.model) return 'model_switch';
-  if (prev.effort !== next.effort) return 'effort_switch';
-  if (prev.projection !== next.projection) return 'projection_change';
-  if (
-    prev.messageCount !== undefined &&
-    next.messageCount !== undefined &&
-    next.messageCount < prev.messageCount
-  ) {
-    return 'prefix_reset';
-  }
-  return 'unexplained';
 }

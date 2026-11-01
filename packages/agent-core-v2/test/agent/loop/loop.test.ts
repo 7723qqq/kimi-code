@@ -11,7 +11,8 @@ import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompacti
 import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
 import { type Turn } from '#/agent/loop/loop';
 import { IAgentLoopService } from '#/agent/loop/loop';
-import { TurnStarted } from '#/agent/loop/turnEvents';
+import { TurnStarted, TurnStepCompleted } from '#/agent/loop/turnEvents';
+import type { CacheBreakObservation } from '#/agent/usage/cacheBreak';
 import { TurnEnded } from '#/agent/loop/turnOps';
 import { agentContextOf } from '#/agent/scopeContext/scopeContext';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
@@ -42,6 +43,7 @@ import {
   createTestAgent,
   InMemoryWireRecordPersistence,
   wireRecordPersistenceServices,
+  type LegacyGenerateResult,
   type TestAgentContext,
   type TestAgentOptions,
 } from '../../harness';
@@ -550,6 +552,72 @@ describe('Agent loop', () => {
         assistant: text "I will look it up."  calls call_lookup:Lookup { "query": "moon" }
         tool[call_lookup]: text "lookup-result""
     `);
+  });
+
+  it('carries the engine cache-break verdict on turn.step.completed', async () => {
+    const toolCall: ToolCall = {
+      type: 'function',
+      id: 'call_echo',
+      name: 'Echo',
+      arguments: '{}',
+    };
+    const echoTool: ExecutableTool = {
+      name: 'Echo',
+      description: 'Echo a value.',
+      parameters: { type: 'object', properties: {}, additionalProperties: false },
+      resolveExecution: () => ({
+        approvalRule: 'Echo',
+        execute: async () => ({ output: 'ok' }),
+      }),
+    };
+    let calls = 0;
+    const generate = requesterFromGenerateFn(async (): Promise<LegacyGenerateResult> => {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          id: 'mock-cache-1',
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'calling echo' }],
+            toolCalls: [toolCall],
+          },
+          usage: { inputOther: 10, output: 5, inputCacheRead: 10_000, inputCacheCreation: 0 },
+          finishReason: 'tool_calls',
+          rawFinishReason: 'tool_calls',
+        };
+      }
+      return {
+        id: 'mock-cache-2',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'done' }], toolCalls: [] },
+        usage: { inputOther: 10, output: 5, inputCacheRead: 1_000, inputCacheCreation: 0 },
+        finishReason: 'completed',
+        rawFinishReason: 'stop',
+      };
+    });
+    const local = createTestAgent(permissionModeServices('yolo'), { generate });
+    try {
+      local.get(IAgentProfileService).update({ activeToolNames: ['Echo'] });
+      local.get(IAgentToolRegistryService).register(echoTool);
+      const breaks: CacheBreakObservation[] = [];
+      const subscription = local.get(IEventBus).subscribe((event) => {
+        if (event instanceof TurnStepCompleted && event.cacheBreak !== undefined) {
+          breaks.push(event.cacheBreak);
+        }
+      });
+
+      await local.rpc.prompt({ input: [{ type: 'text', text: 'echo' }] });
+      await local.untilTurnEnd();
+      subscription.dispose();
+
+      expect(breaks).toHaveLength(1);
+      expect(breaks[0]).toMatchObject({
+        cause: 'unexplained',
+        previous: { usage: { inputCacheRead: 10_000 } },
+        current: { usage: { inputCacheRead: 1_000 } },
+      });
+    } finally {
+      await local.dispose();
+    }
   });
 
   it('does not abort sibling tools when a parallel batch tool completes first', async () => {

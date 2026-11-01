@@ -89,6 +89,10 @@ export interface StatusUpdate {
     delay_ms: number;
     message: string;
   } | null;
+  cache_break?: {
+    tokens: number;
+    cause: string;
+  } | null;
 }
 
 export interface ApprovalRequestPayload {

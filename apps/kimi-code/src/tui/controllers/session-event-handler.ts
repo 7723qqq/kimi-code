@@ -17,7 +17,6 @@ type TurnStepStartedEvent = Extract<Event, { type: 'turn.step.started' }>;
 type TurnStepCompletedEvent = Extract<Event, { type: 'turn.step.completed' }>;
 type TurnStepInterruptedEvent = Extract<Event, { type: 'turn.step.interrupted' }>;
 type TurnStepRetryingEvent = Extract<Event, { type: 'turn.step.retrying' }>;
-type StepCacheObservation = NonNullable<TurnStepCompletedEvent['cache']>;
 type CronFiredEvent = Extract<Event, { type: 'cron.fired' }>;
 type ErrorEvent = Extract<Event, { type: 'error' }>;
 type WarningEvent = Extract<Event, { type: 'warning' }>;
@@ -104,6 +103,7 @@ import {
 } from '../utils/render-clock';
 import { nextTranscriptId } from '../utils/transcript-id';
 import type { BtwPanelController } from './btw-panel';
+import type { StepCacheBreak } from './cache-hint-controller';
 import { NotifyController } from './notify';
 import { isPluginMcpToolName, PluginUpdateNotifier } from './plugin-update-notifier';
 import type { StreamingUIController } from './streaming-ui';
@@ -131,7 +131,7 @@ export interface SessionEventHost {
   readonly promptOptimizerActivity: import('./prompt-optimizer-activity').PromptOptimizerActivityController;
   track(event: string, props?: Record<string, unknown>): void;
   recordSessionActivity(): void;
-  noteStepUsage(usage: TokenUsage | undefined, cache?: StepCacheObservation): void;
+  noteStepUsage(usage: TokenUsage | undefined, cacheBreak?: StepCacheBreak): void;
   /** Folds one completed step into the readout. The decode window comes from
    *  the engine (first and last token-bearing part) rather than from a clock
    *  read here: only `llm.streaming.part` sees every part, including the
@@ -569,7 +569,7 @@ export class SessionEventHandler {
   private handleStepCompleted(event: TurnStepCompletedEvent): void {
     this.host.streamingUI.flushNow();
     this.clearStepRetry();
-    this.host.noteStepUsage(event.usage, event.cache);
+    this.host.noteStepUsage(event.usage, event.cacheBreak);
     this.host.noteStepCacheStats(event.usage, {
       llmFirstTokenOffsetMs: event.llmFirstTokenOffsetMs,
       llmLastTokenOffsetMs: event.llmLastTokenOffsetMs,

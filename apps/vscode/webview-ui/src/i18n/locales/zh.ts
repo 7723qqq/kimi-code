@@ -17,6 +17,7 @@ export default {
     outputTokens: '输出 Token 数',
     retry: '重试 {{next}}/{{max}}',
     retryingIn: '{{seconds}} 秒后重试：{{message}}',
+    cacheBreak: '提示缓存已失效，约 {{tokens}} token 已按全价重新处理。',
   },
   thinking: {
     thinking: '思考中',

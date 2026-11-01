@@ -43,6 +43,7 @@ import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { abortedToolOutput } from '#/agent/toolExecutor/toolExecutorService';
 import type { ToolDidExecuteContext } from '#/agent/toolExecutor/toolHooks';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { IAgentCacheBreakService } from '#/agent/usage/cacheBreak';
 import { IConfigService } from '#/app/config/config';
 import { IFileService } from '#/app/file/fileService';
 import { IPluginService } from '#/app/plugin/plugin';
@@ -170,6 +171,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentLLMRequesterService private readonly llmRequester: IAgentLLMRequesterService,
+    @IAgentCacheBreakService private readonly cacheBreak: IAgentCacheBreakService,
     @IAgentToolExecutorService private readonly toolExecutor: IAgentToolExecutorService,
     @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
     @IConfigService private readonly config: IConfigService,
@@ -1965,6 +1967,13 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       providerFinishReason: step.providerFinishReason,
       rawFinishReason: step.rawFinishReason,
     });
+    const cache = this.llmRequester.lastTurnRequest()?.observation;
+    const cacheBreak = this.cacheBreak.observe({
+      usage,
+      cache,
+      turnId: turn.id,
+      step: step.number,
+    });
     void this.dispatcher.dispatch(
       new TurnStepCompleted({
         agentId: this.scopeContext.agentId,
@@ -1972,7 +1981,8 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         step: step.number,
         stepId: step.uuid,
         usage,
-        cache: this.llmRequester.lastTurnRequest()?.observation,
+        cache,
+        cacheBreak,
         finishReason: normalized,
         llmFirstTokenLatencyMs: step.timing?.firstTokenLatencyMs,
         llmStreamDurationMs: step.timing?.streamDurationMs,

@@ -11,6 +11,7 @@ import type { ErrorPhase, UIStreamEvent } from '../../shared/types';
 import { toLegacyDisplay } from './tool-display';
 
 const DEFAULT_MAIN_AGENT_ID = 'main';
+const CACHE_NOTICE_MIN_STEPS = 10;
 
 export interface AdapterTokenUsage {
   readonly inputOther: number;
@@ -28,6 +29,7 @@ export interface EventAdapterState {
   readonly subagentParents: Readonly<Record<string, SubagentParent>>;
   readonly turnUsageByAgent: Readonly<Record<string, AdapterTokenUsage>>;
   readonly toolDisplays: Readonly<Record<string, readonly DisplayBlock[]>>;
+  readonly cacheNoticeStepsByAgent: Readonly<Record<string, number>>;
 }
 
 export interface AdaptedToolCallPartEvent {
@@ -73,6 +75,7 @@ export function createEventAdapterState(): EventAdapterState {
     subagentParents: {},
     turnUsageByAgent: {},
     toolDisplays: {},
+    cacheNoticeStepsByAgent: {},
   };
 }
 
@@ -219,6 +222,37 @@ function mapLegacyWireEvent(
         state,
         event: { type: 'StepInterrupted', payload: {} },
       };
+    case 'turn.step.completed': {
+      if (sdkEvent.agentId !== mainAgentId || sdkEvent.usage === undefined) return { state };
+      const usage = sdkEvent.usage;
+      if (isUnmeasuredUsage(usage)) return { state };
+      const cacheBreak = sdkEvent.cacheBreak;
+      const previous = state.cacheNoticeStepsByAgent[sdkEvent.agentId];
+      const stepsSinceNotice = previous === undefined ? Number.POSITIVE_INFINITY : previous + 1;
+      if (
+        cacheBreak === undefined ||
+        cacheBreak.cause === 'prefix_reset' ||
+        usage.inputOther === 0 ||
+        stepsSinceNotice < CACHE_NOTICE_MIN_STEPS
+      ) {
+        if (previous === undefined) return { state };
+        return {
+          state: withCacheNoticeSteps(state, sdkEvent.agentId, stepsSinceNotice),
+        };
+      }
+      return {
+        state: withCacheNoticeSteps(state, sdkEvent.agentId, 0),
+        event: {
+          type: 'StatusUpdate',
+          payload: {
+            cache_break: {
+              tokens: usage.inputOther,
+              cause: cacheBreak.cause,
+            },
+          },
+        },
+      };
+    }
     case 'assistant.delta':
       return {
         state,
@@ -373,6 +407,26 @@ function usageDelta(
 function delta(current: number, previous: number | undefined): number {
   if (previous === undefined || current < previous) return current;
   return current - previous;
+}
+
+function isUnmeasuredUsage(usage: AdapterTokenUsage): boolean {
+  return (
+    usage.inputOther === 0 &&
+    usage.output === 0 &&
+    usage.inputCacheRead === 0 &&
+    usage.inputCacheCreation === 0
+  );
+}
+
+function withCacheNoticeSteps(
+  state: EventAdapterState,
+  agentId: string,
+  steps: number,
+): EventAdapterState {
+  return {
+    ...state,
+    cacheNoticeStepsByAgent: { ...state.cacheNoticeStepsByAgent, [agentId]: steps },
+  };
 }
 
 function resetTurnUsage(state: EventAdapterState, agentId: string): EventAdapterState {

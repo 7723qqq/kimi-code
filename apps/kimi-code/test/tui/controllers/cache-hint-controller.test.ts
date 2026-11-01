@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, jest } from 'bun:test';
 import {
   CacheHintController,
   type CacheHintHost,
-  type StepCacheObservation,
+  type StepCacheBreak,
 } from '#/tui/controllers/cache-hint-controller';
 import type { ExtractionResult } from '#/tui/utils/image-placeholder';
 import type { CacheHintConfig } from '#/utils/cache-hint-config';
@@ -59,6 +59,7 @@ function makeHost(
     restoreInputText: jest.fn(),
     recallStashedMedia: jest.fn(),
     showError: jest.fn(),
+    showStatus: jest.fn(),
     createNewSession: jest.fn(async () => {
       if (overrides.createNewSessionFails !== true) state.appState.sessionId = 's2';
     }),
@@ -522,19 +523,31 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
   });
 });
 
-describe('CacheHintController cache-break detection', () => {
+describe('CacheHintController cache-break notices', () => {
   const u = (inputCacheRead: number) => ({
     inputOther: 100,
     output: 50,
     inputCacheRead,
     inputCacheCreation: 0,
   });
-
-  it('does not judge the first measured step', () => {
-    const { host } = makeHost();
-    const controller = new CacheHintController(host);
-    controller.noteStepUsage(u(10000));
-    expect(host.track).not.toHaveBeenCalled();
+  const breaking = (cause: StepCacheBreak['cause'] = 'unexplained'): StepCacheBreak => ({
+    cause,
+    previous: {
+      model: 'k2',
+      effort: 'low',
+      messageCount: 5,
+      usage: u(10_000),
+      at: 0,
+    },
+    current: {
+      model: 'k2',
+      effort: 'low',
+      messageCount: 6,
+      usage: u(100),
+      at: 1,
+    },
+    cacheReadDropRatio: 0.99,
+    intervalMs: 1,
   });
 
   it('records cache activity on a completed step, even one without usage', () => {
@@ -551,135 +564,53 @@ describe('CacheHintController cache-break detection', () => {
     jest.restoreAllMocks();
   });
 
-  it('reports a drop beyond the ratio and token gates with both usages', () => {
+  it('shows the engine break notice for an unexplained drop', () => {
     const { host } = makeHost();
     const controller = new CacheHintController(host);
-    controller.noteStepUsage(u(10000));
-    controller.noteStepUsage(u(7000));
 
-    expect(host.track).toHaveBeenCalledWith(
-      'cache_break_detected',
-      expect.objectContaining({
-        prev_model: 'k2',
-        curr_model: 'k2',
-        prev_input_cache_read: 10000,
-        curr_input_cache_read: 7000,
-        cache_read_drop_ratio: 0.3,
-      }),
-    );
+    controller.noteStepUsage(u(100), breaking());
+
+    expect(host.showStatus).toHaveBeenCalledWith(expect.stringContaining('100'), 'warning');
   });
 
-  it('stays quiet within the ratio gate or under the token threshold', () => {
-    const a = makeHost();
-    const controllerA = new CacheHintController(a.host);
-    controllerA.noteStepUsage(u(100000));
-    controllerA.noteStepUsage(u(96000)); // 4% drop — inside the ratio gate
-    expect(a.host.track).not.toHaveBeenCalled();
-
-    const b = makeHost();
-    const controllerB = new CacheHintController(b.host);
-    controllerB.noteStepUsage(u(4000));
-    controllerB.noteStepUsage(u(2500)); // drop 1500 ≤ 2000 — under the token threshold
-    expect(b.host.track).not.toHaveBeenCalled();
-  });
-
-  it('skips unmeasured usage without touching the baseline', () => {
+  it('suppresses the notice for a prefix reset', () => {
     const { host } = makeHost();
     const controller = new CacheHintController(host);
-    controller.noteStepUsage(u(10000));
-    controller.noteStepUsage(undefined);
+
+    controller.noteStepUsage(u(100), breaking('prefix_reset'));
+
+    expect(host.showStatus).not.toHaveBeenCalled();
+  });
+
+  it('throttles repeated notices for ten completed steps', () => {
+    const { host } = makeHost();
+    const controller = new CacheHintController(host);
+
+    controller.noteStepUsage(u(100), breaking());
+    expect(host.showStatus).toHaveBeenCalledTimes(1);
+    for (let step = 0; step < 9; step += 1) {
+      controller.noteStepUsage(u(100), breaking());
+    }
+    expect(host.showStatus).toHaveBeenCalledTimes(1);
+    controller.noteStepUsage(u(100), breaking());
+    expect(host.showStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it('estimates the switch loss from the last measured step', () => {
+    const { host } = makeHost();
+    const controller = new CacheHintController(host);
+    expect(controller.estimateSwitchLossTokens()).toBeUndefined();
+
     controller.noteStepUsage({
-      inputOther: 0,
-      output: 0,
-      inputCacheRead: 0,
-      inputCacheCreation: 0,
+      inputOther: 100,
+      output: 50,
+      inputCacheRead: 10_000,
+      inputCacheCreation: 20,
     });
-    controller.noteStepUsage(u(5000));
-    expect(host.track).toHaveBeenCalledWith(
-      'cache_break_detected',
-      expect.objectContaining({ prev_input_cache_read: 10000, curr_input_cache_read: 5000 }),
-    );
-  });
+    expect(controller.estimateSwitchLossTokens()).toBe(10_120);
 
-  it('resets the baseline on compaction, but records a mid-session model/effort switch', () => {
-    const { host, state } = makeHost();
-    const controller = new CacheHintController(host);
-    controller.noteStepUsage(u(10000));
-    controller.resetCacheBreakBaseline();
-    controller.noteStepUsage(u(100)); // post-compaction drop is expected
-    expect(host.track).not.toHaveBeenCalled();
-
-    // A model switch busts the cache key — that drop IS the signal to record.
-    controller.noteStepUsage(u(10000));
-    state.appState.model = 'other-model';
-    controller.noteStepUsage(u(100));
-    expect(host.track).toHaveBeenCalledWith(
-      'cache_break_detected',
-      expect.objectContaining({
-        prev_model: 'k2',
-        curr_model: 'other-model',
-        prev_input_cache_read: 10000,
-        curr_input_cache_read: 100,
-      }),
-    );
-  });
-});
-
-describe('CacheHintController cache-break cause', () => {
-  const usage = (inputCacheRead: number) => ({
-    inputOther: 100,
-    output: 50,
-    inputCacheRead,
-    inputCacheCreation: 0,
-  });
-  const observation = (overrides: Partial<StepCacheObservation> = {}): StepCacheObservation => ({
-    modelAlias: 'k2',
-    protocol: 'anthropic',
-    providerType: 'kimi',
-    messageCount: 10,
-    historyHash: 'history-k2',
-    cacheRead: 0,
-    cacheCreation: 0,
-    outputTokens: 0,
-    ...overrides,
-  });
-
-  function breakCause(before: StepCacheObservation, after: StepCacheObservation): unknown {
-    const { host } = makeHost();
-    const controller = new CacheHintController(host);
-    controller.noteStepUsage(usage(10_000), before);
-    controller.noteStepUsage(usage(100), after);
-    const call = mocked(host.track).mock.calls.find(([event]) => event === 'cache_break_detected');
-    return call?.[1]?.['cause'];
-  }
-
-  it('names a model switch reported by the engine, not by app state', () => {
-    expect(breakCause(observation(), observation({ modelAlias: 'k3' }))).toBe('model_switch');
-  });
-
-  it('names an effort switch', () => {
-    expect(
-      breakCause(observation({ thinkingEffort: 'low' }), observation({ thinkingEffort: 'high' })),
-    ).toBe('effort_switch');
-  });
-
-  it('names a projection change', () => {
-    expect(
-      breakCause(
-        observation({ projection: 'media-degraded' }),
-        observation({ projection: 'media-stripped' }),
-      ),
-    ).toBe('projection_change');
-  });
-
-  it('names a prefix reset when the context shrank', () => {
-    expect(breakCause(observation({ messageCount: 20 }), observation({ messageCount: 8 }))).toBe(
-      'prefix_reset',
-    );
-  });
-
-  it('stays unexplained when nothing the observation carries changed', () => {
-    expect(breakCause(observation(), observation())).toBe('unexplained');
+    controller.resetSwitchLossBaseline();
+    expect(controller.estimateSwitchLossTokens()).toBeUndefined();
   });
 });
 

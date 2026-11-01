@@ -17,6 +17,7 @@ export default {
     outputTokens: 'Output Tokens',
     retry: 'Retry {{next}}/{{max}}',
     retryingIn: 'Retrying in {{seconds}}s: {{message}}',
+    cacheBreak: 'Prompt cache invalidated — about {{tokens}} tokens were reprocessed at full price.',
   },
   thinking: {
     thinking: 'Thinking',
