@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { strictEqual } from 'node:assert';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -91,10 +90,9 @@ class RatingClient {
     turnId = 1,
   ): Promise<void> {
     const agent = await this.mainAgent(sessionId);
-    strictEqual(
+    expect(
       (await this.request(`/api/v1/sessions/${sessionId}/transcript?agent_id=main`)).code,
-      0,
-    );
+    ).toBe(0);
     const bus = agent.accessor.get(IEventBus);
     const dispatcher = agent.accessor.get(IEventDispatcher);
     const origin = { kind: 'user' } as const;
