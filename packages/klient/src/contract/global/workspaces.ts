@@ -8,16 +8,21 @@ import { z } from 'zod';
 import { maybe, noResult } from '../helpers.js';
 import type { ServiceContract } from '../types.js';
 
+export const workspaceKindSchema = z.enum(['managed', 'implicit']);
+
 export const workspaceSchema = z.object({
   id: z.string(),
   root: z.string(),
   name: z.string(),
+  kind: workspaceKindSchema,
+  additionalDirs: z.array(z.string()),
   createdAt: z.number(),
   lastOpenedAt: z.number(),
 });
 
 export const workspaceUpdateSchema = z.object({
   name: z.string().optional(),
+  additionalDirs: z.array(z.string()).optional(),
 });
 
 export const workspacesContract = {

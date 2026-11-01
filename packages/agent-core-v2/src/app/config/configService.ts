@@ -394,6 +394,12 @@ export class ConfigService extends Disposable implements IConfigService {
     );
   }
 
+  assertValid(domain: string): void {
+    const schema = this.registry.getSection(domain)?.schema;
+    if (schema === undefined) return;
+    schema.parse(this.get(domain));
+  }
+
   get<T = unknown>(domain: string): T {
     if (Object.prototype.hasOwnProperty.call(this.memory, domain)) {
       return this.memory[domain] as T;

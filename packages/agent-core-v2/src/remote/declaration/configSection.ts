@@ -16,7 +16,7 @@ export async function resolveWorkspaceEnvironmentDeclarations(
   config: IConfigService,
 ): Promise<EnvironmentDeclarationSet> {
   await config.ready;
-  config.assertValid(ENVIRONMENTS_SECTION);
+  config.assertValid?.(ENVIRONMENTS_SECTION);
   const user = config.get<EnvironmentsSection | undefined>(ENVIRONMENTS_SECTION);
   const entries = sectionEntries(user);
   return { entries, defaultId: user?.default };

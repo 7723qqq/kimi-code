@@ -78,6 +78,7 @@ export const patchConfigRequestSchema = z.object({
   experimental: z.record(z.string(), z.boolean()).optional(),
   telemetry: z.boolean().optional(),
   disable_feedback_survey: z.boolean().optional(),
+  workspace: z.unknown().optional(),
   default_workspace: z.unknown().optional(),
 })
   .strict();
