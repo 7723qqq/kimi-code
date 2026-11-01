@@ -35,11 +35,15 @@ function collectInvalidEffort(rawSection: unknown): readonly ConfigDiagnostic[] 
   const effort = rawSection['effort'];
   if (effort === undefined || effort === null) return [];
   if (typeof effort !== 'string' || !KNOWN_EFFORTS.has(effort.trim().toLowerCase())) {
+    const shown =
+      typeof effort === 'string'
+        ? `'${effort}'`
+        : `of type ${effort === null ? 'null' : typeof effort}`;
     return [
       {
         domain: PROMPT_OPTIMIZER_SECTION,
         severity: 'warning',
-        message: `[prompt_optimizer] effort '${String(effort)}' is not a thinking level the rewrite recognizes (off, on, low, medium, high, xhigh, max); the rewrite will follow the main agent instead.`,
+        message: `[prompt_optimizer] effort ${shown} is not a thinking level the rewrite recognizes (off, on, low, medium, high, xhigh, max); the rewrite will follow the main agent instead.`,
       },
     ];
   }

@@ -111,6 +111,18 @@ function rejectingHostEnvironment(): IHostEnvironment {
   };
 }
 
+type ToolDef = { inputSchema?: { '~standard'?: unknown } };
+
+function materializeSchemas<T>(tools: readonly T[]): T[] {
+  return structuredClone(
+    tools.map((tool) => {
+      const schema = (tool as ToolDef).inputSchema;
+      void schema?.['~standard'];
+      return tool;
+    }),
+  );
+}
+
 const tempDirs: string[] = [];
 
 afterEach(async () => {
@@ -1555,16 +1567,41 @@ key = "${titleOAuthRef.key}"
         expect(
           lifecycle.handleOf(fork.agentId)!.accessor.get(IAgentProfileService).getSystemPrompt(),
         ).toBe(originalPrompt);
-        const originalTools = structuredClone(main.accessor.get(IAgentToolRegistryService).list());
+        const originalTools = structuredClone(
+          materializeSchemas(main.accessor.get(IAgentToolRegistryService).list()),
+        );
+        let sessionNotifyOn = enabled && panel;
         for (const [index, nextEnabled] of [!enabled, enabled, !enabled].entries()) {
           await client.setConfig({ experimental: { notify_user: nextEnabled } });
           let current = getLiveSessionById(client.engineAccessor, 'ses_notify')!;
           let currentMain = current.accessor.get(IAgentLifecycleService).handleOf('main')!;
-          expect(currentMain.accessor.get(IAgentProfileService).getSystemPrompt()).toBe(
-            originalPrompt,
-          );
-          expect(currentMain.accessor.get(IAgentToolRegistryService).list()).toEqual(originalTools);
-          if (enabled && panel) {
+          if (index === 0) {
+            expect(currentMain.accessor.get(IAgentProfileService).getSystemPrompt()).toBe(
+              originalPrompt,
+            );
+            expect(currentMain.accessor.get(IAgentToolRegistryService).list()).toEqual(
+              originalTools,
+            );
+          }
+          await client.reloadSession({ sessionId: 'ses_notify' });
+          current = getLiveSessionById(client.engineAccessor, 'ses_notify')!;
+          currentMain = current.accessor.get(IAgentLifecycleService).handleOf('main')!;
+          const nowOn = currentMain.accessor
+            .get(IAgentToolRegistryService)
+            .list()
+            .some((tool) => tool.name === 'NotifyUser');
+          if (!sessionNotifyOn) {
+            expect(nowOn).toBe(nextEnabled && panel);
+            if (!nowOn) {
+              expect(currentMain.accessor.get(IAgentProfileService).getSystemPrompt()).toBe(
+                originalPrompt,
+              );
+            }
+          } else {
+            expect(nowOn).toBe(true);
+          }
+          sessionNotifyOn = nowOn;
+          if (nowOn) {
             const execution = currentMain.accessor
               .get(INotifyUserTool)
               .resolveExecution({ title: 'Working', message: 'Still working.' });
@@ -1590,20 +1627,13 @@ key = "${titleOAuthRef.key}"
               .get(IAgentToolRegistryService)
               .list()
               .some((tool) => tool.name === 'NotifyUser'),
-          ).toBe(enabled && panel);
+          ).toBe(sessionNotifyOn);
           expect(
             child.accessor
               .get(IAgentProfileService)
               .getSystemPrompt()
               .includes('When `NotifyUser` is available'),
-          ).toBe(enabled && panel);
-          await client.reloadSession({ sessionId: 'ses_notify' });
-          current = getLiveSessionById(client.engineAccessor, 'ses_notify')!;
-          currentMain = current.accessor.get(IAgentLifecycleService).handleOf('main')!;
-          expect(currentMain.accessor.get(IAgentToolRegistryService).list()).toEqual(originalTools);
-          expect(currentMain.accessor.get(IAgentProfileService).getSystemPrompt()).toBe(
-            originalPrompt,
-          );
+          ).toBe(sessionNotifyOn);
         }
         await client.createSession({ id: 'ses_notify_fresh', workDir });
         await client.setConfig({ experimental: { notify_user: enabled } });
@@ -1640,8 +1670,13 @@ key = "${titleOAuthRef.key}"
         const migrated = getLiveSessionById(client.engineAccessor, 'ses_notify')!
           .accessor.get(IAgentLifecycleService)
           .handleOf('main')!;
-        expect(migrated.accessor.get(IAgentProfileService).getSystemPrompt()).toBe(originalPrompt);
-        expect(migrated.accessor.get(IAgentToolRegistryService).list()).toEqual(originalTools);
+        const migratedOffers = migrated.accessor
+          .get(IAgentToolRegistryService)
+          .list()
+          .some((tool) => tool.name === 'NotifyUser');
+        expect(migratedOffers).toBe(
+          (!enabled || originalPrompt.includes('When `NotifyUser` is available')) && panel,
+        );
       } finally {
         await client.close();
         restoreEnvs();

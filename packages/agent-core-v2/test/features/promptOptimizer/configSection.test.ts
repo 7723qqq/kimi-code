@@ -24,7 +24,7 @@ describe('[prompt_optimizer] diagnostics', () => {
     disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     const storage = new InMemoryStorageService();
-    storage.write('', 'config.toml', new TextEncoder().encode(toml));
+    void storage.write('', 'config.toml', new TextEncoder().encode(toml));
     ix.stub(ILogService, stubLog());
     ix.stub(IBootstrapService, stubBootstrap('/tmp/kimi-cfg', {}));
     ix.stub(IFileSystemStorageService, storage);
