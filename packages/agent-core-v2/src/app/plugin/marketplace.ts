@@ -1,6 +1,5 @@
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { gt, valid } from 'semver';
 
@@ -84,7 +83,7 @@ export function resolveMarketplaceLocation(
     return { raw: trimmed, kind: 'remote', resolved: trimmed };
   }
   if (trimmed.startsWith('file://')) {
-    const path = fileURLToPath(trimmed);
+    const path = Bun.fileURLToPath(trimmed);
     return { raw: trimmed, kind: 'local', resolved: path };
   }
   return { raw: trimmed, kind: 'local', resolved: resolveLocalPath(trimmed, workDir, home) };
@@ -244,7 +243,7 @@ function resolveEntrySource(source: string, location: MarketplaceLocation, home:
   if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
     return trimmed;
   }
-  if (trimmed.startsWith('file://')) return fileURLToPath(trimmed);
+  if (trimmed.startsWith('file://')) return Bun.fileURLToPath(trimmed);
   if (trimmed === '~' || trimmed.startsWith('~/')) {
     return resolveLocalPath(trimmed, '', home);
   }

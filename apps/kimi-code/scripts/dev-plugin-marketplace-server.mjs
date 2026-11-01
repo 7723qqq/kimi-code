@@ -2,14 +2,14 @@
 import { createReadStream } from 'node:fs';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { createServer } from 'node:http';
-import { basename, dirname, extname, relative, resolve, sep } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { basename, extname, relative, resolve, sep } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import yazl from 'yazl';
 
 import { readPluginManifestVersion } from './plugin-manifest-version.mjs';
 
-const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
+const SCRIPT_DIR = import.meta.dir;
 const REPO_ROOT = resolve(SCRIPT_DIR, '../../..');
 const DEFAULT_PLUGINS_ROOT = resolve(REPO_ROOT, 'plugins');
 

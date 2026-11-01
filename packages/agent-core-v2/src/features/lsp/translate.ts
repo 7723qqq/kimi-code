@@ -1,4 +1,4 @@
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { pathToFileURL } from 'node:url';
 
 import type { LspHover, LspLocation, LspLocationLink } from './protocol';
 
@@ -54,7 +54,7 @@ export function normalizeHoverResponse(response: unknown): LspHover | null {
 export function uriToPath(uri: string): string {
   if (!uri.startsWith('file://')) return uri;
   try {
-    return fileURLToPath(uri);
+    return Bun.fileURLToPath(uri);
   } catch {
     return uri;
   }

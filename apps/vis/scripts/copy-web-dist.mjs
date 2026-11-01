@@ -4,9 +4,8 @@
 
 import { cp, mkdir, rm, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-const here = dirname(fileURLToPath(import.meta.url));
+const here = import.meta.dir;
 const root = join(here, '..');
 const src = join(root, 'web', 'dist');
 const dst = join(root, 'server', 'dist', 'public');

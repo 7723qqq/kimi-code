@@ -10,11 +10,10 @@ import {
 } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, relative } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { Project, SyntaxKind } from 'ts-morph';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+const __dirname = import.meta.dir;
 const PKG = join(__dirname, '..');
 const SRC = join(PKG, 'src');
 const TMP = join(PKG, '.contract-types-tmp');

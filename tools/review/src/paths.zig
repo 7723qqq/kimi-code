@@ -53,6 +53,28 @@ pub fn isProductionSource(rel: []const u8) bool {
     return true;
 }
 
+/// Source the Bun runtime executes: a package's or app's `src/` tree and its
+/// `scripts/` tree.
+///
+/// The `scripts/` tree is in scope because those files are product code in
+/// every sense that matters to a runtime question — the packaging, bundling
+/// and asset scripts are what `bun` runs, and they reach for `node:fs`,
+/// `node:url` and `node:child_process` as often as `src/` does. Leaving them
+/// out meant the runtime checks never saw the half of the tree that runs
+/// during a build.
+pub fn isBunExecutedSource(rel: []const u8) bool {
+    if (!isPackageOrApp(rel)) return false;
+    if (!isUnderSrc(rel) and !isUnderScripts(rel)) return false;
+    if (isTestSource(rel)) return false;
+    if (isDeclaration(rel)) return false;
+    return true;
+}
+
+/// A file under a `scripts/` directory.
+pub fn isUnderScripts(rel: []const u8) bool {
+    return std.mem.indexOf(u8, rel, "/scripts/") != null;
+}
+
 /// Every TypeScript file in a package or app, tests included.
 ///
 /// The orphan-export check needs this shape rather than `isProductionSource`:

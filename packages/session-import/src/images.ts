@@ -1,7 +1,6 @@
 import { constants } from 'node:fs';
 import { chmod, copyFile, link, lstat, mkdir, open, unlink } from 'node:fs/promises';
 import { isAbsolute, join, resolve, win32 } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import type { ImageReference } from '#/types';
 
@@ -277,7 +276,7 @@ function imageSource(node: Record<string, unknown>): ImageSource {
 function localReference(reference: string, cwd?: string): { path: string; unresolved?: boolean } {
   if (/^file:/i.test(reference)) {
     try {
-      return { path: fileURLToPath(reference) };
+      return { path: Bun.fileURLToPath(reference) };
     } catch {
       return { path: reference, unresolved: true };
     }

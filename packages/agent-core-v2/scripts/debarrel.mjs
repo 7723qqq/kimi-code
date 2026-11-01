@@ -1,11 +1,10 @@
 #!/usr/bin/env bun
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { Project } from 'ts-morph';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __dirname = path.import.meta.dir;
 const PKG = path.resolve(__dirname, '..');
 const SRC = path.join(PKG, 'src');
 const ENTRY = path.join(SRC, 'index.ts');

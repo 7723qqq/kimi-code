@@ -1,11 +1,10 @@
 import { execFile } from 'node:child_process';
 import { readFile, stat } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
-const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const appRoot = resolve(import.meta.dir, '..');
 const bundlePath = resolve(appRoot, 'dist', 'main.mjs');
 const webIndexPath = resolve(appRoot, 'dist-web', 'index.html');
 const packageJson = JSON.parse(await readFile(resolve(appRoot, 'package.json'), 'utf-8'));

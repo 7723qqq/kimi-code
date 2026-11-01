@@ -1,11 +1,10 @@
 #!/usr/bin/env bun
 import { spawn } from 'node:child_process';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 
 import { startPluginMarketplaceServer } from './dev-plugin-marketplace-server.mjs';
 
-const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
+const SCRIPT_DIR = import.meta.dir;
 const APP_ROOT = resolve(SCRIPT_DIR, '..');
 // Monorepo root. Used as the dev CLI's working directory so `make dev` opens
 // the whole repo instead of just apps/kimi-code.

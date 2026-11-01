@@ -1,7 +1,6 @@
 import type { BigIntStats } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { basename, isAbsolute, resolve, win32 } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { createImageStore } from '#/images';
 import { readJsonLines } from '#/jsonl';
@@ -474,7 +473,7 @@ function imageKey(value: unknown, cwd?: string) {
   const localPath = (reference: string) => {
     if (/^file:/i.test(reference)) {
       try {
-        return fileURLToPath(reference);
+        return Bun.fileURLToPath(reference);
       } catch {
         return reference;
       }

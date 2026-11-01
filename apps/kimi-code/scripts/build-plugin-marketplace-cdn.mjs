@@ -2,13 +2,13 @@
 import { createWriteStream } from 'node:fs';
 import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { pathToFileURL } from 'node:url';
 
 import yazl from 'yazl';
 
 import { readPluginManifestVersion } from './plugin-manifest-version.mjs';
 
-const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
+const SCRIPT_DIR = import.meta.dir;
 const REPO_ROOT = resolve(SCRIPT_DIR, '../../..');
 const DEFAULT_PLUGINS_ROOT = resolve(REPO_ROOT, 'plugins');
 const DEFAULT_OUT_DIR = resolve(DEFAULT_PLUGINS_ROOT, 'cdn');

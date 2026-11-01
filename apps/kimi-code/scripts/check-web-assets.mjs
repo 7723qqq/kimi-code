@@ -6,10 +6,9 @@
 // run never silently ships a broken or missing web UI.
 
 import { readFile, readdir, stat } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 
-const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const appRoot = resolve(import.meta.dir, '..');
 const target = resolve(appRoot, 'dist-web');
 
 async function assertWebAssets() {

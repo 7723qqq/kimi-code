@@ -21,7 +21,6 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync, statSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, isAbsolute, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { t } from '#/i18n';
 import { parseImageMeta } from '#/utils/image/image-mime';
@@ -148,7 +147,7 @@ function parseClipboardPaths(text: string): string[] {
     .map((line) => {
       if (line.startsWith('file://')) {
         try {
-          return fileURLToPath(line);
+          return Bun.fileURLToPath(line);
         } catch {
           return '';
         }

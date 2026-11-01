@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 export const TEXT_BUILD_WORKER_PROTOCOL_VERSION = 1;
 
@@ -44,7 +43,7 @@ export function configureTextBuildWorkerRuntime(entry: string | URL): TextBuildW
         'MiniDb source text-build worker entry must be a file: URL to a .ts file',
       );
     }
-    assertRegularFile(fileURLToPath(entry));
+    assertRegularFile(Bun.fileURLToPath(entry));
     next = { kind: 'source', url: entry };
   }
 

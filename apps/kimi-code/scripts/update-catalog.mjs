@@ -9,7 +9,6 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 const scriptDir = import.meta.dirname;
 const outFile = resolveOutputFile(process.argv.slice(2));
@@ -75,7 +74,7 @@ function stripProvider(provider) {
 async function fetchCatalog(url) {
   let raw;
   if (url.startsWith('file://')) {
-    raw = readFileSync(fileURLToPath(url), 'utf-8');
+    raw = readFileSync(Bun.fileURLToPath(url), 'utf-8');
   } else if (!url.includes('://')) {
     raw = readFileSync(isAbsolute(url) ? url : resolve(process.cwd(), url), 'utf-8');
   } else {

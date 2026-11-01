@@ -56,7 +56,7 @@ const PAIRINGS = [_]Pairing{
         .node = "readFile",
         .from = "node:fs/promises",
         .bun = "Bun.file(path).text()",
-        .condition = "the call pins a UTF-8 encoding (without one Node returns bytes)",
+        .condition = "the call pins a UTF-8 encoding (without one Node returns bytes) and the file carries no UTF-8 BOM — Bun's text() strips a BOM, Node's readFile keeps it as U+FEFF",
     },
     .{
         .node = "createHash",
@@ -64,9 +64,63 @@ const PAIRINGS = [_]Pairing{
         .bun = "Bun.CryptoHasher",
         .condition = "the digest is read as hex, base64, or a Buffer",
     },
+    .{
+        .node = "fileURLToPath",
+        .from = "node:url",
+        .bun = "Bun.fileURLToPath(url)",
+        .condition = "the URL is a file: URL — both throw ERR_INVALID_FILE_URL_SCHEME otherwise",
+    },
 };
 
-/// Packages whose code may not call `Bun.*`, so no native pairing applies.
+/// Node calls that have a Bun native lookalike and are deliberately not
+/// paired. Each was measured against Bun 1.4.4 and Node 24.9.0 on the same
+/// probe, and the file system ones were measured again by
+/// `tools/bun-migrate/src/pairings.mjs`, which is where the numbers below
+/// come from. A pairing is a promise that the two agree *and* that the swap
+/// is worth making, and these fail one of the two.
+///
+///   * `existsSync` — `Bun.file(path).exists()` answers false for a directory
+///     while `existsSync` answers true, and a static check cannot tell a file
+///     check from a directory check. Pairing them would propose a change that
+///     changes behaviour in exactly the cases that matter.
+///   * `createReadStream` / `createWriteStream` — `Bun.file().stream()` and
+///     `Bun.file().writer()` are web streams, not Node streams: they carry no
+///     `.on('error')`, no `.pipe()`, no range or encoding options, and
+///     `node:stream/promises.pipeline` does not accept them.
+///   * `appendFile` — Bun has no append: `Bun.write` truncates and
+///     `Bun.file().writer()` overwrites.
+///   * `setTimeout` from `node:timers/promises` — `Bun.sleep` ignores an
+///     AbortSignal, while the Node call rejects with `ABORT_ERR` on abort.
+///   * `spawn` / `execFile` — `Bun.spawn` drops `maxBuffer`, `shell` and the
+///     callback shape those call sites rely on.
+///   * `randomUUID` — `Bun.randomUUIDv7` is a different version of the same
+///     idea.
+///   * `writeFile` / `unlink` — measured slower than the `node:fs/promises`
+///     call they would replace (0.34x–0.78x for `writeFile`, worsening with
+///     the payload). Under Bun, `node:fs` is Bun's own implementation, so
+///     there is no compatibility layer to escape: the rewrite adds a diff and
+///     costs throughput.
+///   * `pathToFileURL` — measured no faster than the `node:url` call, and on
+///     Windows a rooted path without a drive letter resolves differently:
+///     Node resolves it against the current drive and Bun keeps it
+///     drive-less.
+const NOT_PAIRED = [_][]const u8{
+    "existsSync",
+    "createReadStream",
+    "createWriteStream",
+    "appendFile",
+    "setTimeout",
+    "spawn",
+    "spawnSync",
+    "execFile",
+    "execFileSync",
+    "randomUUID",
+    "writeFile",
+    "unlink",
+    "pathToFileURL",
+};
+
+/// Paths whose code may not call `Bun.*`, so no native pairing applies.
 ///
 /// This gate is the difference between a useful finding and a broken one.
 /// `pi-tui` declares `engines.node >= 22.19.0` and runs on other hosts;
@@ -75,13 +129,25 @@ const PAIRINGS = [_]Pairing{
 /// contains zero `Bun.*` calls in any of them, which is the fact this list
 /// encodes. They are named rather than inferred: guessing from `engines` finds
 /// none of the browser-safe packages, which declare no `engines` at all.
-const NON_BUN_PACKAGES = [_][]const u8{
+///
+/// `apps/vis/web` is named, not `apps/vis`: the server half of that app runs
+/// under Bun like every other backend here, and a prefix match on the app
+/// directory excluded it along with the browser bundle.
+///
+/// `packages/product`'s `node/` subtrees are named for the same reason: they
+/// are the Node variant of a package that also ships a runtime-agnostic
+/// `common/` half, and `packages/product/test/entry-points.test.ts` typechecks
+/// them with the `node` types alone — a `Bun.*` call there fails that test.
+const NON_BUN_PATHS = [_][]const u8{
     "packages/pi-tui",
     "packages/transcript",
     "packages/i18n-shared",
+    "packages/product/src/client-configs/node",
+    "packages/product/src/session-rating/node",
+    "packages/product/src/shared/node",
     "apps/vscode",
     "apps/kimi-inspect",
-    "apps/vis",
+    "apps/vis/web",
 };
 
 pub fn runNative(ctx: *check.Context) !void {
@@ -95,7 +161,7 @@ pub fn runNative(ctx: *check.Context) !void {
     defer baseline.deinit();
 
     for (files) |rel| {
-        if (!paths.isProductionSource(rel)) continue;
+        if (!paths.isBunExecutedSource(rel)) continue;
         if (!isBunHosted(rel)) continue;
 
         const text = fsutil.readFileAllocOrNull(ctx.alloc, ctx.io, ctx.root_dir, rel) orelse continue;
@@ -108,7 +174,7 @@ pub fn runNative(ctx: *check.Context) !void {
 }
 
 fn isBunHosted(rel: []const u8) bool {
-    for (NON_BUN_PACKAGES) |prefix| {
+    for (NON_BUN_PATHS) |prefix| {
         if (std.mem.startsWith(u8, rel, prefix)) return false;
     }
     return true;
@@ -130,9 +196,7 @@ fn reportNativeSites(
     if (!lexed.reliable) return;
 
     for (PAIRINGS) |pairing| {
-        if (!importsModule(lexed, pairing.from)) continue;
-
-        const count = countCalls(lexed, pairing.node);
+        const count = countPairingCalls(lexed, pairing);
         if (count == 0) continue;
 
         const key = try std.fmt.allocPrint(ctx.alloc, "{s}:{s}", .{ rel, pairing.node });
@@ -176,14 +240,48 @@ fn reportNativeSites(
     }
 }
 
+/// The calls a pairing covers in one file.
+///
+/// Two import shapes reach the same function, and a check that only sees one
+/// of them is blind to a third of the tree:
+///
+///   * `import { readFile } from 'node:fs/promises'` — a bare call.
+///   * `import * as fs from 'node:fs/promises'` — a member call, `fs.readFile`.
+///
+/// The namespace shape was left out on the grounds that under-reporting is the
+/// safe direction. That is true of a *wrong* finding and false of a *missing*
+/// one: `packages/kosong/src/providers/kimi-files.ts` imports `node:fs` as a
+/// namespace and calls `fs.existsSync` and `fs.promises.readFile` through it,
+/// so the check saw nothing there at all.
+fn countPairingCalls(lexed: lexer.Lexed, pairing: Pairing) u32 {
+    const toks = lexed.tokens;
+    var count: u32 = 0;
+
+    var i: usize = 0;
+    while (i + 1 < toks.len) : (i += 1) {
+        if (!lexed.isIdent(toks[i], "from")) continue;
+        const t = toks[i + 1];
+        if (t.kind != .string) continue;
+        const raw = lexed.text(t);
+        if (raw.len < 2) continue;
+        if (!std.mem.eql(u8, raw[1 .. raw.len - 1], pairing.from)) continue;
+
+        if (namedImportContains(lexed, i, pairing.node)) {
+            count += countBareCalls(lexed, pairing.node);
+        }
+        if (namespaceAliasBefore(lexed, i)) |alias| {
+            count += countMemberCalls(lexed, alias, pairing.node);
+        }
+    }
+    return count;
+}
+
 /// `import { readFile } from 'node:fs/promises'`.
 ///
-/// A namespace import (`import * as fs`) is deliberately not matched: the
-/// pairing names a bare call, and `fs.readFile(...)` is a different token shape
-/// to look for. Leaving it alone under-reports, which is the safe direction for
-/// a check that gates CI.
-fn importsModule(lexed: lexer.Lexed, module: []const u8) bool {
-    if (module.len == 0) return true;
+/// The symbol has to be named in the import: a module can export a function
+/// the pairing does not cover, and counting every call to that name in the
+/// file would report a pairing the file never opted into.
+fn importsSymbol(lexed: lexer.Lexed, module: []const u8, symbol: []const u8) bool {
     const toks = lexed.tokens;
     var i: usize = 0;
     while (i + 1 < toks.len) : (i += 1) {
@@ -192,13 +290,58 @@ fn importsModule(lexed: lexer.Lexed, module: []const u8) bool {
         if (t.kind != .string) continue;
         const raw = lexed.text(t);
         if (raw.len < 2) continue;
-        if (std.mem.eql(u8, raw[1 .. raw.len - 1], module)) return true;
+        if (!std.mem.eql(u8, raw[1 .. raw.len - 1], module)) continue;
+        if (namedImportContains(lexed, i, symbol)) return true;
     }
     return false;
 }
 
+/// Whether the braced import list that ends just before `from_index` names
+/// `symbol`.
+///
+/// The braces are found by walking back from the `}` and matching depth, so a
+/// list that spans several lines is read the same way as a one-line one.
+fn namedImportContains(lexed: lexer.Lexed, from_index: usize, symbol: []const u8) bool {
+    const toks = lexed.tokens;
+    if (from_index == 0) return false;
+    const close = from_index - 1;
+    if (!lexed.isPunct(toks[close], '}')) return false;
+
+    var depth: usize = 0;
+    var k = close;
+    while (k > 0) {
+        if (lexed.isPunct(toks[k], '}')) depth += 1;
+        if (lexed.isPunct(toks[k], '{')) {
+            depth -= 1;
+            if (depth == 0) break;
+        }
+        k -= 1;
+    }
+    if (k == 0) return false;
+
+    var j = k + 1;
+    while (j < close) : (j += 1) {
+        if (lexed.isIdent(toks[j], symbol)) return true;
+    }
+    return false;
+}
+
+/// The local name a namespace import binds: `import * as fs from 'node:fs'`.
+///
+/// The alias is read off the tokens in front of the `from`, so the result
+/// borrows the source and needs no allocation.
+fn namespaceAliasBefore(lexed: lexer.Lexed, from_index: usize) ?[]const u8 {
+    if (from_index < 3) return null;
+    const toks = lexed.tokens;
+    const alias = toks[from_index - 1];
+    if (alias.kind != .ident) return null;
+    if (!lexed.isIdent(toks[from_index - 2], "as")) return null;
+    if (!lexed.isPunct(toks[from_index - 3], '*')) return null;
+    return lexed.text(alias);
+}
+
 /// Occurrences of `name(` — a call, not a mention.
-fn countCalls(lexed: lexer.Lexed, name: []const u8) u32 {
+fn countBareCalls(lexed: lexer.Lexed, name: []const u8) u32 {
     const toks = lexed.tokens;
     var count: u32 = 0;
     var i: usize = 0;
@@ -208,6 +351,21 @@ fn countCalls(lexed: lexer.Lexed, name: []const u8) u32 {
         // A property access is a different function: `fs.readFile` and
         // `this.readFile` are not the imported binding.
         if (i > 0 and lexed.isPunct(toks[i - 1], '.')) continue;
+        count += 1;
+    }
+    return count;
+}
+
+/// Occurrences of `alias.member(` — the namespace import's call shape.
+fn countMemberCalls(lexed: lexer.Lexed, alias: []const u8, member: []const u8) u32 {
+    const toks = lexed.tokens;
+    var count: u32 = 0;
+    var i: usize = 0;
+    while (i + 3 < toks.len) : (i += 1) {
+        if (!lexed.isIdent(toks[i], alias)) continue;
+        if (!lexed.isPunct(toks[i + 1], '.')) continue;
+        if (!lexed.isIdent(toks[i + 2], member)) continue;
+        if (!lexed.isPunct(toks[i + 3], '(')) continue;
         count += 1;
     }
     return count;
@@ -636,7 +794,7 @@ fn scanHasLaunch(alloc: std.mem.Allocator, src: []const u8) bool {
     return false;
 }
 
-test "countCalls counts calls and ignores property accesses and mentions" {
+test "countBareCalls counts calls and ignores property accesses and mentions" {
     const alloc = testing.allocator;
     const src =
         \\const a = readFile(p, 'utf8');
@@ -647,10 +805,10 @@ test "countCalls counts calls and ignores property accesses and mentions" {
     const lexed = try lexFor(alloc, src);
     defer lexer.deinit(alloc, lexed);
 
-    try testing.expectEqual(@as(u32, 2), countCalls(lexed, "readFile"));
+    try testing.expectEqual(@as(u32, 2), countBareCalls(lexed, "readFile"));
 }
 
-test "importsModule matches a named import and rejects a different module" {
+test "importsSymbol matches a named import and rejects a different module" {
     const alloc = testing.allocator;
     const src =
         \\import { readFile } from 'node:fs/promises';
@@ -659,20 +817,106 @@ test "importsModule matches a named import and rejects a different module" {
     const lexed = try lexFor(alloc, src);
     defer lexer.deinit(alloc, lexed);
 
-    try testing.expect(importsModule(lexed, "node:fs/promises"));
-    try testing.expect(!importsModule(lexed, "node:fs"));
-    try testing.expect(importsModule(lexed, ""));
+    try testing.expect(importsSymbol(lexed, "node:fs/promises", "readFile"));
+    try testing.expect(!importsSymbol(lexed, "node:fs", "readFile"));
+    try testing.expect(!importsSymbol(lexed, "node:fs/promises", "writeFile"));
+}
+
+test "importsSymbol reads a multi-line import list" {
+    const alloc = testing.allocator;
+    const src =
+        \\import {
+        \\  readFile,
+        \\  writeFile,
+        \\} from 'node:fs/promises';
+    ;
+    const lexed = try lexFor(alloc, src);
+    defer lexer.deinit(alloc, lexed);
+
+    try testing.expect(importsSymbol(lexed, "node:fs/promises", "readFile"));
+    try testing.expect(importsSymbol(lexed, "node:fs/promises", "writeFile"));
+    try testing.expect(!importsSymbol(lexed, "node:fs/promises", "unlink"));
+}
+
+test "a namespace import is matched by its member calls" {
+    const alloc = testing.allocator;
+    const src =
+        \\import * as fs from 'node:fs/promises';
+        \\const a = fs.readFile(p, 'utf8');
+        \\const b = fs.readFile(q, 'utf8');
+        \\const c = fs.stat(p);
+    ;
+    const lexed = try lexFor(alloc, src);
+    defer lexer.deinit(alloc, lexed);
+
+    const pairing = Pairing{
+        .node = "readFile",
+        .from = "node:fs/promises",
+        .bun = "Bun.file(path).text()",
+        .condition = "unused in this test",
+    };
+    try testing.expectEqual(@as(u32, 2), countPairingCalls(lexed, pairing));
+}
+
+test "a named import and a namespace import of the same module both count" {
+    const alloc = testing.allocator;
+    const src =
+        \\import { readFile } from 'node:fs/promises';
+        \\import * as fs from 'node:fs/promises';
+        \\const a = readFile(p, 'utf8');
+        \\const b = fs.readFile(q, 'utf8');
+    ;
+    const lexed = try lexFor(alloc, src);
+    defer lexer.deinit(alloc, lexed);
+
+    const pairing = Pairing{
+        .node = "readFile",
+        .from = "node:fs/promises",
+        .bun = "Bun.file(path).text()",
+        .condition = "unused in this test",
+    };
+    try testing.expectEqual(@as(u32, 2), countPairingCalls(lexed, pairing));
+}
+
+test "a module that does not export the symbol contributes nothing" {
+    const alloc = testing.allocator;
+    const src =
+        \\import { writeFile } from 'node:fs/promises';
+        \\const a = readFile(p, 'utf8');
+    ;
+    const lexed = try lexFor(alloc, src);
+    defer lexer.deinit(alloc, lexed);
+
+    const pairing = Pairing{
+        .node = "readFile",
+        .from = "node:fs/promises",
+        .bun = "Bun.file(path).text()",
+        .condition = "unused in this test",
+    };
+    try testing.expectEqual(@as(u32, 0), countPairingCalls(lexed, pairing));
 }
 
 test "isBunHosted excludes the Node-only and browser-safe packages" {
     try testing.expect(isBunHosted("packages/agent-core-v2/src/x.ts"));
     try testing.expect(isBunHosted("apps/kimi-code/src/x.ts"));
+    try testing.expect(isBunHosted("apps/vis/server/src/x.ts"));
 
     try testing.expect(!isBunHosted("packages/pi-tui/src/x.ts"));
     try testing.expect(!isBunHosted("packages/transcript/src/x.ts"));
     try testing.expect(!isBunHosted("packages/i18n-shared/src/x.ts"));
     try testing.expect(!isBunHosted("apps/vscode/src/x.ts"));
     try testing.expect(!isBunHosted("apps/vis/web/src/x.tsx"));
+}
+
+test "a Node call with a Bun lookalike that disagrees stays unpaired" {
+    // Each entry in NOT_PAIRED was measured against Bun 1.4.4 and Node 24.9.0.
+    // The list is only worth keeping if none of them quietly becomes a
+    // pairing, so the two lists are checked against each other here.
+    for (NOT_PAIRED) |name| {
+        for (PAIRINGS) |pairing| {
+            try testing.expect(!std.mem.eql(u8, name, pairing.node));
+        }
+    }
 }
 
 test "startsNodeCommand accepts the forms a launcher uses" {

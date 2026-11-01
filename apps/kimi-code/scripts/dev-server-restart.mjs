@@ -15,10 +15,9 @@
 // loop on top.
 
 import { spawn } from 'node:child_process';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 
-const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
+const SCRIPT_DIR = import.meta.dir;
 const APP_ROOT = resolve(SCRIPT_DIR, '..');
 
 const bunBin = process.platform === 'win32' ? 'bun.exe' : 'bun';

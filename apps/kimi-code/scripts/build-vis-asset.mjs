@@ -5,10 +5,9 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 
-const here = dirname(fileURLToPath(import.meta.url));
+const here = import.meta.dir;
 const repoRoot = resolve(here, '..', '..', '..');
 const visWeb = join(repoRoot, 'apps', 'vis', 'web');
 const out = join(here, '..', 'src', 'generated', 'vis-web-asset.ts');

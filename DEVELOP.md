@@ -363,12 +363,29 @@ and a `node`-named symlink to Bun both *enter* the node layer (`bunfig.toml`'s
 `[run] bun = true` does it for every `bun run`); neither is a substitute for
 calling the native API where one exists.
 
-`bun-native` only reads packages that may call `Bun.*` — `pi-tui`
-(`engines.node >= 22.19.0`), `transcript` and `i18n-shared` (browser-safe), and
-the two extension/webview apps are excluded by name in the check, because the
-repository contains zero `Bun.*` calls in any of them. `bun-gap` is not scoped
-that way: a missing endpoint is missing for every package, including the ones
-that cannot use `Bun.*` as a workaround.
+`bun-native` only reads source the Bun runtime executes — a package's or app's
+`src/` tree and its `scripts/` tree — and skips the packages that may not call
+`Bun.*`: `pi-tui` (`engines.node >= 22.19.0`), `transcript` and `i18n-shared`
+(browser-safe), and the extension and webview apps, which the check excludes by
+name because the repository contains zero `Bun.*` calls in any of them.
+`apps/vis/web` is named rather than `apps/vis`, so the server half of that app
+is read like every other backend here. `bun-gap` is not scoped that way: a
+missing endpoint is missing for every package, including the ones that cannot
+use `Bun.*` as a workaround.
+
+A pairing is a promise that the Node call and the Bun call agree, and the ones
+that do not are listed in the check with the measurement behind them. `existsSync`
+is not one of them: `Bun.file(path).exists()` answers false for a directory
+while `existsSync` answers true, and a static check cannot tell a file check
+from a directory check. `createReadStream`/`createWriteStream` are not either —
+Bun's are web streams, and `node:stream/promises.pipeline` does not accept
+them. `writeFile`, `unlink` and `pathToFileURL` are not because the swap was
+measured and is not a win: under Bun, `node:fs` is Bun's own implementation,
+so there is no compatibility layer to escape, and `Bun.write` measures slower
+than the `writeFile` it would replace (`tools/bun-migrate/src/pairings.mjs`
+holds the numbers and the benchmark that pins them). `readFile` is paired with
+the BOM difference stated in its condition: Bun's `text()` strips a UTF-8 BOM
+and Node's `readFile` keeps it as `U+FEFF`.
 
 A file that already decides whether to pass an ignored Worker option based on the
 runtime (`RUNTIME_IS_BUN ? new BunWorker(…) : new Worker({ resourceLimits })`) is
