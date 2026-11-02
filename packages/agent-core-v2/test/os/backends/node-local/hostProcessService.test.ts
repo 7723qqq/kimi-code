@@ -237,7 +237,7 @@ describe.skipIf(process.platform !== 'win32')('HostProcessService (Windows)', ()
   });
 });
 
-describe('HostProcessService on Windows', () => {
+describe.skipIf(process.platform !== 'win32')('HostProcessService on Windows', () => {
   let savedPlatform: string;
   let spawnedCommands: string[];
   let taskkills: Array<{ kill: ReturnType<typeof mock>; unref: ReturnType<typeof mock> }>;
