@@ -299,6 +299,14 @@ jobs:
         run: |
           bunx --bun --package @typescript/native-preview@beta tsgo --version
           for config in packages/*/tsconfig.json apps/kimi-code/tsconfig.json apps/kimi-inspect/tsconfig.json; do
+            # A package may declare a tsconfig.typecheck.json for the check:
+            # node-sdk's tsconfig.json carries a `paths` map that Bun's test
+            # runner needs for its `#/` alias, and the same map would capture
+            # `#/` inside cross-package sources pulled into the program. The
+            # typecheck variant clears `paths` and lets each file resolve `#/`
+            # through its own package.json#imports.
+            typecheck_config="${config%.json}.typecheck.json"
+            if [ -f "$typecheck_config" ]; then config="$typecheck_config"; fi
             echo "Typechecking ${config}"
             bunx --bun --package @typescript/native-preview@beta tsgo -p "${config}" --noEmit
           done
