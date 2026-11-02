@@ -29,6 +29,7 @@ export const configResponseSchema = z
     loop_control: z.unknown().optional(),
     background: z.unknown().optional(),
     subagent: z.unknown().optional(),
+    subagent_backend: z.unknown().optional(),
     secondary_model: z.unknown().optional(),
     experimental: z.record(z.string(), z.boolean()).optional(),
     prompt_optimizer: z
@@ -37,6 +38,7 @@ export const configResponseSchema = z
         effort: z.string().optional(),
       })
       .optional(),
+    sandbox: z.unknown().optional(),
     telemetry: z.boolean().optional(),
     disable_feedback_survey: z.boolean().optional(),
     default_workspace: z.unknown().optional(),
@@ -65,6 +67,7 @@ export const patchConfigRequestSchema = z
     loop_control: z.unknown().optional(),
     background: z.unknown().optional(),
     subagent: z.unknown().optional(),
+    subagent_backend: z.unknown().optional(),
     secondary_model: z.unknown().optional(),
     mcp: z.unknown().optional(),
     image: z.unknown().optional(),
@@ -89,6 +92,7 @@ export const patchConfigRequestSchema = z
         effort: z.string().optional(),
       })
       .optional(),
+    sandbox: z.unknown().optional(),
     telemetry: z.boolean().optional(),
     disable_feedback_survey: z.boolean().optional(),
     workspace: z.unknown().optional(),
