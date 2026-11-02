@@ -8,11 +8,11 @@ import { tmpdir } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 
-import { type OAuthClientInformationFull, type OAuthTokens } from '@modelcontextprotocol/client';
-import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
+import { type OAuthClientInformationFull, type OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
-import { McpServer } from '@modelcontextprotocol/server';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { join } from 'pathe';
 import { z } from 'zod';
 
@@ -1062,7 +1062,7 @@ describe('McpConnectionManager', () => {
       { description: 'Echoes text', inputSchema: z.object({ text: z.string() }) },
       ({ text }) => ({ content: [{ type: 'text', text }] }),
     );
-    const transport = new NodeStreamableHTTPServerTransport({
+    const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
     });
     await mcpServer.connect(transport);
