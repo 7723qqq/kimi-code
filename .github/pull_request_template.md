@@ -3,7 +3,7 @@ Thank you for your contribution to Kimi Code!
 External PRs are accepted for approved bug fixes only: link an issue that a maintainer has approved (an `/approve` comment). External feature PRs are not accepted.
 外部 PR 仅接受获批准的 bug 修复：请链接维护者已批准（`/approve` 评论）的 issue；不接受外部 feature PR。
 
-See https://github.com/MoonshotAI/kimi-code/blob/main/CONTRIBUTING.md for more.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for more.
 -->
 
 ## Requirement or Bug
@@ -38,7 +38,7 @@ See https://github.com/MoonshotAI/kimi-code/blob/main/CONTRIBUTING.md for more.
 ## User-Facing Text (i18n)
 
 <!-- Answer all three for any change that adds or edits text a user reads:
-     1. Which class is it (DEVELOP.md → i18n Conventions)? C1 UI copy (needs t()),
+     1. Which class is it (CONVENTIONS.md → i18n Conventions)? C1 UI copy (needs t()),
         C2 model asset (English by design), C3 protocol/decision data (stable id, never
         a rendered label), C4 developer diagnostic (log/throw text).
      2. For C1: are the keys added to BOTH en and zh in this PR, and is any
@@ -49,7 +49,7 @@ See https://github.com/MoonshotAI/kimi-code/blob/main/CONTRIBUTING.md for more.
 
 ## Checklist
 
-- [ ] I have read the [CONTRIBUTING](https://github.com/MoonshotAI/kimi-code/blob/main/CONTRIBUTING.md) document.
+- [ ] I have read the [CONTRIBUTING](CONTRIBUTING.md) document.
 - [ ] I have linked a related issue (external PRs: issue must have a maintainer's `/approve`).
 - [ ] I have added tests that prove my feature works.
 - [ ] The behavior-change table above is complete, and every removed behavior or flipped default is named in the changeset and either has an escape hatch or was explicitly approved by a maintainer in this PR.

@@ -23,6 +23,7 @@ llm/
 ├── capability.ts / thinking.ts / usage.ts / finish-reason.ts / response-format.ts / syntax-errors.ts
 ├── errors.ts             two-layer LlmErrorKind (syntax | remote, each subdivided)
 ├── toolCallIdNormalizer.ts  streamed tool call id dedup: repeated raw ids are remapped in order
+├── empty-response.ts     emptyResponseError: pure empty-response judgment; the turn raises it as llm.failed.remote at llm.done
 │
 ├── protocol/             shared protocol layer (common across bases)
 │   ├── base.ts           ProtocolName / ProtocolBase<TTrait> / ProtocolRequesterOptions / TraitContext
@@ -40,11 +41,10 @@ llm/
 │   │                     (createStaticCredentialProvider / createOAuthCredentialProvider; createKimiOAuthCredentialProvider adapts
 │   │                     Kimi OAuth tokens); the runWithCredentialRecovery /
 │   │                     streamWithCredentialRecovery executors for direct callers live in
-│   │                     llm-adapter/model/credential-recovery
+│   │                     src/llm-adapter/model/credential-recovery
 │   ├── actor.ts          request actor: a fromCallback wrapping a single request
 │   │                     (messageResolvers, abort scope, event sendBack); invoked by the turn
 │   ├── retry.ts / recovery.ts   pure retry/recovery policy functions (driven by the turn machine; propose is pure)
-│   ├── empty-response.ts emptyResponseError: pure empty-response judgment; the turn raises it as llm.failed.remote at llm.done
 │   └── bases/            five protocol bases: openai / openai-responses / anthropic / google-genai / antigravity
 │                         each with contract / format / lower / patterns / capability / extra-params / trait / requester
 │                         (public seam: contract / trait / requester; format / lower / patterns stay internal)

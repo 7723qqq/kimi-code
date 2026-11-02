@@ -23,6 +23,7 @@ llm/
 ├── capability.ts / thinking.ts / usage.ts / finish-reason.ts / response-format.ts / syntax-errors.ts
 ├── errors.ts             LlmErrorKind 两层（syntax | remote 各细分 kind）
 ├── toolCallIdNormalizer.ts  流式 tool call id 去重：重复的 raw id 按序重映射为新 id
+├── empty-response.ts     emptyResponseError：空响应判定纯函数，由 turn 在 llm.done 时转为 llm.failed.remote
 │
 ├── protocol/             协议通用层（跨基座共享）
 │   ├── base.ts           ProtocolName / ProtocolBase<TTrait> / ProtocolRequesterOptions / TraitContext
@@ -40,11 +41,10 @@ llm/
 │   │                     （createStaticCredentialProvider / createOAuthCredentialProvider；createKimiOAuthCredentialProvider
 │   │                     适配 Kimi OAuth token）；供 direct 调用方使用的
 │   │                     runWithCredentialRecovery / streamWithCredentialRecovery 执行器
-│   │                     位于 llm-adapter/model/credential-recovery
+│   │                     位于 src/llm-adapter/model/credential-recovery
 │   ├── actor.ts          请求 actor：包装单次请求的 fromCallback
 │   │                     （messageResolvers、abort 作用域、事件 sendBack），由 turn invoke
 │   ├── retry.ts / recovery.ts   重试/恢复策略纯函数（由 turn machine 驱动；propose 为纯函数）
-│   ├── empty-response.ts emptyResponseError：空响应判定纯函数，由 turn 在 llm.done 时转为 llm.failed.remote
 │   └── bases/            五个协议基座：openai / openai-responses / anthropic / google-genai / antigravity
 │                         各自含 contract / format / lower / patterns / capability / extra-params / trait / requester
 │                         （公开接缝：contract / trait / requester；format / lower / patterns 保持内部）

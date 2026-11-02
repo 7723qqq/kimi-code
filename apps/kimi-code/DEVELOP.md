@@ -42,7 +42,7 @@ Main directories:
 - `reverse-rpc` converts SDK approval/question requests into the data shape a UI panel/dialog needs, and converts the user's choice back into an SDK response.
 - `theme` is the single source of truth for colors and styles. Components must not bypass the theme system and use chalk named colors directly.
 - `utils` holds utility functions with no UI-state dependency. Logic that needs `TUIState` or a component instance must not live under app-level `src/utils`.
-- `apps/kimi-code` may only use core capabilities through `@moonshot-ai/kimi-code-sdk` (and `@moonshot-ai/agent-core-v2` inside the `cli/v2` runner only). Do not import engine internals directly in app code.
+- `apps/kimi-code` reaches core capabilities through `@moonshot-ai/kimi-code-sdk`; only the `cli/v2` runner may depend on `@moonshot-ai/agent-core-v2` directly. Five legacy deep imports remain outside it (`cli/commands.ts`, `constant/app.ts`, two in `utils/plugin-marketplace.ts`, and one dynamic `import()` in `main.ts` for the code-shim dispatch — the deep-import check counts dynamic imports too); new code must not add another.
 
 ## TUI Coding Conventions
 

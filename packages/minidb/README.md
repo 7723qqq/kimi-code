@@ -98,7 +98,7 @@ await db.del('hello');
 await db.close(); // flush + fsync + close
 ```
 
-> Within this repo, import from `./src/index.ts` (run with `tsx`). As an installed
+> Within this repo, import from `./src/index.ts` (run with `bun`). As an installed
 > package, import from `'@moonshot-ai/minidb'` (the built `dist/` output).
 
 Re-open the same `dir` and your data is recovered from the snapshot + WAL.

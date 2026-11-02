@@ -13,8 +13,9 @@ Part of the [Kimi Code](https://github.com/MoonshotAI/kimi-code) monorepo.
   optional members).
 - **Error infrastructure** — the coded-error base (`Error2` + codes +
   serialization) and the provider error taxonomy (`API*Error` family,
-  retry/telemetry classification). The engine re-exports the base classes
-  unchanged.
+  retry/telemetry classification). The engine holds an independent copy — its
+  import boundary forbids depending on this package — and
+  `test/errors-parity.test.ts` keeps the two in sync.
 - **Pure functions** — the `generate()` stream driver, token estimation,
   error classification, and the provider wire helpers (openai-common,
   tool-call-id, request-auth, merge-user-messages, reasoning-key,

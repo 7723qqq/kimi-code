@@ -1,7 +1,9 @@
 # Performance evidence matrix
 
-Every claim in `src/pairings.mjs` traces to a measurement in this file. The rule
-table is not allowed to say "faster" without a row here.
+This file holds the size-by-size measurements behind the migration rules. A rule
+may claim a direction on the strength of `test/performance.test.mjs`; a claim of
+measured magnitude needs a row here, and several `speed` rules still have none —
+the "not met yet" paragraph in README lists them.
 
 Method: each measurement is the median of three rounds, where a round times the
 whole loop and divides by the iteration count. Sizes span four orders of

@@ -16,12 +16,14 @@
 
 同一个 main agent 同时最多只有一个当前 goal。goal 不是普通聊天文本，而是 runtime 持有的结构化状态，至少包含目标、可选完成标准、当前状态、停止原因和运行统计。
 
-状态分为四类：
+状态分为六类：
 
 - `active`：正在被 goal driver 推进。只有这个状态会自动运行下一轮。
 - `paused`：暂停但保留目标。通常来自用户暂停、中断、进程恢复后降级、provider 或 runtime 错误。可以恢复。
 - `blocked`：目标遇到真实阻塞但保留目标。通常来自模型判断需要外部输入、目标无法按当前表述完成、预算达到、prompt hook 阻止。可以恢复。
 - `complete`：瞬时完成状态。runtime 发出完成事件后立即清除 goal，不长期持久化。
+- `budget_limited`：预算耗尽。运行时以 `blocked` 加预算原因落地（`goalService.ts` 的 `blockIfBudgetReached`）。
+- `usage_limited`：用量耗尽。`GoalStatus` 的枚举值之一，也出现在 wire/transcript 协议与 TUI、kimi-inspect 的展示分支里，但运行时从不产生该状态——预算耗尽一律由 `goalService.ts` 的 `blockIfBudgetReached` 以 `blocked` 加预算原因落地。
 
 没有 `cancelled` 状态。取消就是清除 goal，并提醒模型忽略之前关于该目标的 active reminder。
 
@@ -210,7 +212,7 @@ blocked 后，goal 保留，模型应给用户一条简短阻塞说明，说明�
 
 goal 工具只给 main agent。subagent 不应直接创建、恢复、结束主 goal。
 
-没有 goal 时，模型不应看到 `UpdateGoal` 和 `SetGoalBudget`。有 goal 时才暴露这些控制工具。
+四个 goal 工具（`CreateGoal` / `GetGoal` / `SetGoalBudget` / `UpdateGoal`）始终注册给 main agent（`goalFeature.ts` 的 `contributeTool` 没有 `when` 条件），可见性靠工具 description 约束，而不是条件注册。
 
 goal ID 不应暴露给模型，因为它只是 runtime/UI 内部标识，没有用户语义。
 
