@@ -1,19 +1,19 @@
 import { describe, expect, it } from 'bun:test';
 
 import type { IConfigService } from '#/app/config/config';
-import { runCodeInWorker } from '#/features/codeRuntime/codeExecutor';
+import { runCodeInSubprocess } from '#/features/codeRuntime/codeExecutor';
 import { RunCodeTool } from '#/features/codeRuntime/runCodeTool';
 
-describe('runCodeInWorker', () => {
+describe('runCodeInSubprocess', () => {
   it('runs a program and returns its JSON completion value', async () => {
-    const outcome = await runCodeInWorker('return 1 + 2;');
+    const outcome = await runCodeInSubprocess('return 1 + 2;');
     expect(outcome.error).toBeUndefined();
     expect(outcome.value).toBe(3);
     expect(outcome.logs).toEqual([]);
   });
 
   it('captures console output in emission order', async () => {
-    const outcome = await runCodeInWorker(`
+    const outcome = await runCodeInSubprocess(`
       console.log('first');
       console.info('second');
       console.warn({ a: 1 });
@@ -28,7 +28,7 @@ describe('runCodeInWorker', () => {
   });
 
   it('supports top-level await', async () => {
-    const outcome = await runCodeInWorker(`
+    const outcome = await runCodeInSubprocess(`
       await new Promise((resolve) => setTimeout(resolve, 20));
       return { waited: true };
     `);
@@ -37,24 +37,24 @@ describe('runCodeInWorker', () => {
   });
 
   it('reports a thrown exception with its stack', async () => {
-    const outcome = await runCodeInWorker("throw new Error('boom');");
+    const outcome = await runCodeInSubprocess("throw new Error('boom');");
     expect(outcome.error?.kind).toBe('exception');
     expect(outcome.error?.message).toContain('boom');
   });
 
   it('rejects non-JSON completion values', async () => {
-    const outcome = await runCodeInWorker('return () => 1;');
+    const outcome = await runCodeInSubprocess('return () => 1;');
     expect(outcome.error?.kind).toBe('invalid-output');
   });
 
   it('treats a bare return as value: undefined without error', async () => {
-    const outcome = await runCodeInWorker('const x = 1; return;');
+    const outcome = await runCodeInSubprocess('const x = 1; return;');
     expect(outcome.error).toBeUndefined();
     expect(outcome.value).toBeUndefined();
   });
 
   it('terminates a runaway program after the timeout', async () => {
-    const outcome = await runCodeInWorker('await new Promise(() => {});', {
+    const outcome = await runCodeInSubprocess('await new Promise(() => {});', {
       timeoutMs: 1_000,
     });
     expect(outcome.error?.kind).toBe('timeout');
@@ -63,7 +63,7 @@ describe('runCodeInWorker', () => {
 
   it('settles as cancelled when the caller aborts', async () => {
     const controller = new AbortController();
-    const run = runCodeInWorker('await new Promise(() => {});', {
+    const run = runCodeInSubprocess('await new Promise(() => {});', {
       signal: controller.signal,
     });
     setTimeout(() => controller.abort(), 50);
@@ -72,7 +72,7 @@ describe('runCodeInWorker', () => {
   });
 
   it('reports a program that calls process.exit() as worker-exit instead of hanging', async () => {
-    const outcome = await runCodeInWorker("console.log('bye'); process.exit(0);", {
+    const outcome = await runCodeInSubprocess("console.log('bye'); process.exit(0);", {
       timeoutMs: 5_000,
     });
     expect(outcome.error?.kind).toBe('worker-exit');
@@ -80,16 +80,16 @@ describe('runCodeInWorker', () => {
     expect(outcome.logs).toContain('bye');
   });
 
-  it('reports a program that closes its parent port as worker-exit instead of hanging', async () => {
-    const outcome = await runCodeInWorker(
-      "const { parentPort } = require('node:worker_threads'); parentPort.close();",
-      { timeoutMs: 5_000 },
-    );
+  it('reports a program that crashes mid-run as worker-exit instead of hanging', async () => {
+    const outcome = await runCodeInSubprocess("console.log('before-crash'); process.abort();", {
+      timeoutMs: 5_000,
+    });
     expect(outcome.error?.kind).toBe('worker-exit');
+    expect(outcome.logs).toContain('before-crash');
   });
 
   it('fails with output-limit when logs exhaust the shared budget', async () => {
-    const outcome = await runCodeInWorker(
+    const outcome = await runCodeInSubprocess(
       `
       for (let i = 0; i < 1000; i++) console.log('line-' + i);
       return 'ok';
@@ -98,6 +98,27 @@ describe('runCodeInWorker', () => {
     );
     expect(outcome.error?.kind).toBe('output-limit');
     expect(outcome.logs.join('\n').length).toBeLessThanOrEqual(2000);
+  });
+
+  it('terminates a runaway allocation with memory-limit before the timeout', async () => {
+    const started = Date.now();
+    const outcome = await runCodeInSubprocess(
+      'const a = []; while (true) a.push(new Array(100000).fill(1));',
+      { timeoutMs: 60_000 },
+    );
+    expect(Date.now() - started).toBeLessThan(30_000);
+    expect(outcome.error?.kind).toBe('memory-limit');
+  });
+
+  it('keeps the host usable after a subprocess dies from memory pressure', async () => {
+    const crashed = await runCodeInSubprocess(
+      'const a = []; while (true) a.push(new Array(100000).fill(1));',
+      { timeoutMs: 60_000 },
+    );
+    expect(crashed.error).toBeDefined();
+    const after = await runCodeInSubprocess('return 1 + 2;');
+    expect(after.error).toBeUndefined();
+    expect(after.value).toBe(3);
   });
 });
 
@@ -117,7 +138,7 @@ describe('RunCodeTool', () => {
       timeout_ms: 30_000,
     });
     if (!('execute' in execution)) throw new Error('expected a runnable execution');
-    expect(execution.description).toContain('worker');
+    expect(execution.description).toContain('subprocess');
     const result = await execution.execute({
       toolCallId: 't1',
       signal: new AbortController().signal,

@@ -2,14 +2,15 @@ import { t } from '@moonshot-ai/kimi-i18n';
 
 import { IConfigService } from '#/app/config/config';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import type {
-  ExecutableToolContext,
-  ExecutableToolResult,
-  ToolExecution,
+import {
+  ToolSideEffects,
+  type ExecutableToolContext,
+  type ExecutableToolResult,
+  type ToolExecution,
 } from '#/tool/toolContract';
 import { resolveSandboxPolicy } from '#/workspace/sandbox/sandbox';
 
-import { runCodeInWorker } from './codeExecutor';
+import { runCodeInSubprocess } from './codeExecutor';
 import type { IRunCodeTool } from './codeRuntime';
 import { RunCodeInputSchema, type RunCodeInput } from './codeRuntime';
 import DESCRIPTION from './tools/run_code/run_code.md?raw';
@@ -17,6 +18,7 @@ import DESCRIPTION from './tools/run_code/run_code.md?raw';
 export class RunCodeTool implements IRunCodeTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'run_code' as const;
+  readonly sideEffect = ToolSideEffects.execute;
   readonly description: string;
   readonly parameters: Record<string, unknown>;
 
@@ -27,7 +29,7 @@ export class RunCodeTool implements IRunCodeTool {
 
   resolveExecution(args: RunCodeInput): ToolExecution {
     return {
-      description: 'Running code in an isolated worker thread',
+      description: 'Running code in an isolated subprocess',
       approvalRule: this.name,
       execute: (ctx) => this.execution(args, ctx),
     };
@@ -49,7 +51,7 @@ export class RunCodeTool implements IRunCodeTool {
       };
     }
 
-    const outcome = await runCodeInWorker(args.code, {
+    const outcome = await runCodeInSubprocess(args.code, {
       timeoutMs: args.timeout_ms,
       signal,
     });

@@ -29,14 +29,3 @@
 # Verified: `detectLocale()` under `bun` returns 'en' via `detectLocaleNode()`,
 # never touching this line's browser branch.
 packages/i18n-shared/src/detect.ts:navigator.language 1
-
-# Runs untrusted user code in a Worker with `maxOldGenerationSizeMb: 256`.
-# Bun's Worker ignores `resourceLimits` — verified: with a 16 MB cap the same
-# allocation load throws ERR_WORKER_OUT_OF_MEMORY under Node and survives under
-# Bun — so under Bun the only enforced bounds are the wall-clock timeout and the
-# output cap, and a runaway allocation takes down the whole process.
-#
-# Recorded, not fixed: enforcing a heap cap on Bun needs an out-of-process
-# sandbox, which is a design change rather than a guard. Whoever picks that up
-# should delete this entry.
-packages/agent-core-v2/src/features/codeRuntime/codeExecutor.ts:resourceLimits 1

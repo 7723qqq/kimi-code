@@ -390,8 +390,11 @@ and Node's `readFile` keeps it as `U+FEFF`.
 A file that already decides whether to pass an ignored Worker option based on the
 runtime (`RUNTIME_IS_BUN ? new BunWorker(…) : new Worker({ resourceLimits })`) is
 not reported — the guard is the fix, and flagging it would punish it. Detect that
-by reading the file, not by counting occurrences: both guarded sites in this
-repository mention the option exactly once.
+by reading the file, not by counting occurrences: the guarded site in this
+repository mentions the option exactly once. The run_code tool is the other
+former consumer of `resourceLimits`; it now executes in a memory-capped
+subprocess instead of a Worker (agent-core-v2/src/features/codeRuntime/), so it
+no longer appears here either.
 
 
 ### A check that cannot run says so
