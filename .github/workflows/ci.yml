@@ -133,6 +133,29 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run test --timeout=30000
 
+  # The code-runtime memory cap is enforced through a Windows Job Object, a
+  # path no Ubuntu job exercises. Runs only the codeRuntime suite so it stays
+  # green independently of the disabled full Windows suite above.
+  test-code-runtime-windows:
+    runs-on: windows-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+
+      - run: bun install --frozen-lockfile
+      - working-directory: packages/agent-core-v2
+        run: bun test test/features/codeRuntime --timeout 60000
+
   lint:
     runs-on: ubuntu-latest
 

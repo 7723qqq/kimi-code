@@ -1,11 +1,10 @@
 import type { CodeRunOutcome } from './codeRuntime';
 import { CODE_SHIM_SOURCE, CODE_SHIM_SUBCOMMAND } from './codeShimSource';
-import { MemoryCapUnavailableError, createMemoryGuard, type MemoryGuard } from './memoryGuard';
+import { MEMORY_CAP_BYTES, MemoryCapUnavailableError, createMemoryGuard, type MemoryGuard } from './memoryGuard';
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_OUTPUT_CHARS = 100_000;
-const MEMORY_CAP_BYTES = 512 * 1024 * 1024;
 const WINDOWS_MEMORY_ATTRIBUTION_RATIO = 0.9;
 const STDERR_CAPTURE_CHARS = 4_096;
 const RAW_OUTPUT_CEILING_CHARS = DEFAULT_MAX_OUTPUT_CHARS * 4;

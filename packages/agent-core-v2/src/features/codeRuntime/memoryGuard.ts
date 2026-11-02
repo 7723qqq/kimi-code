@@ -8,6 +8,8 @@ export class MemoryCapUnavailableError extends Error {
   }
 }
 
+export const MEMORY_CAP_BYTES = 512 * 1024 * 1024;
+
 export interface MemoryGuard {
   exceeded(): boolean;
   peakBytes(): number | undefined;
