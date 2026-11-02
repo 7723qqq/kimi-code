@@ -164,7 +164,9 @@ async function findRgOnPath(): Promise<string | undefined> {
 
 async function isExecutableFile(path: string): Promise<boolean> {
   try {
-    return (await stat(path)).isFile();
+    const info = await stat(path);
+    if (!info.isFile()) return false;
+    return process.platform === 'win32' || (info.mode & 0o111) !== 0;
   } catch {
     return false;
   }
