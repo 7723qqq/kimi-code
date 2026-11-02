@@ -148,7 +148,9 @@ function makeConfig(searchEnabled: boolean, extra?: Record<string, unknown>): IC
   return {
     ready: Promise.resolve(),
     get: (domain: string) =>
-      domain === DATABASE_SECTION ? { search: searchEnabled, ...extra } : undefined,
+      domain === DATABASE_SECTION
+        ? { search: searchEnabled, globalSearch: true, ...extra }
+        : undefined,
   } as unknown as IConfigService;
 }
 
@@ -307,6 +309,18 @@ describe('GlobalSearchService', () => {
     services.push(service);
     return service;
   }
+
+  it('rejects with index_unavailable while the global search gate is off', async () => {
+    const service = track(
+      new GlobalSearchService(staticIndex([]), makeBootstrap(home!), noopLog, {
+        ready: Promise.resolve(),
+        get: () => undefined,
+      } as unknown as IConfigService),
+    );
+    await expect(service.search({ query: 'anything' })).rejects.toThrow(
+      /global search is disabled/,
+    );
+  });
 
   it('indexes user and assistant text and finds Chinese and English terms', async () => {
     const s1 = summary('s1', '搜索重构讨论', T1);
