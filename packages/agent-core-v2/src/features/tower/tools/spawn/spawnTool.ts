@@ -43,6 +43,7 @@ import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAg
 import { ISessionSubagentService } from '#/session/subagent/subagent';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import {
+  ToolSideEffects,
   type ExecutableToolContext,
   type ExecutableToolResult,
   type ToolExecution,
@@ -82,6 +83,7 @@ async function findReviewRequest(
 export class TowerSpawnTool implements ITowerSpawnTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'TowerSpawn' as const;
+  readonly sideEffect = ToolSideEffects.read;
 
   get description(): string {
     const modelLines = buildSubagentModelDescriptions(this.config, this.profile.data().modelAlias);

@@ -5,7 +5,7 @@ import { MISSIONS_DIR, missionFileName } from '#/features/tower/protocol/index';
 import type { TowerMission, TowerStore } from '#/features/tower/protocol/index';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import type { ToolExecution } from '#/tool/toolContract';
+import { ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
 
 import { callerName, newTowerStore, runTowerTool } from '../support';
 import type { ITowerMissionTool } from './mission';
@@ -15,6 +15,7 @@ import DESCRIPTION from './mission.md?raw';
 export class TowerMissionTool implements ITowerMissionTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'TowerMission' as const;
+  readonly sideEffect = ToolSideEffects.read;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(TowerMissionToolInputSchema);
 

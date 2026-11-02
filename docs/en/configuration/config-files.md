@@ -551,6 +551,25 @@ Disabling the trust requirement loads project-level MCP servers and other trust-
 
 Changes take effect on `/reload`; a running TUI does not show a startup trust prompt retroactively. `KIMI_CODE_TRUST_WORKSPACE=1` remains an independent per-process trust override, and a falsy value does not restore the first-open requirement when `require_trust` is `false`. Existing trust records are preserved and used again if the requirement is re-enabled.
 
+## `sandbox`
+
+`sandbox` confines what agent tools may do to the machine. The mode is read once when an agent starts.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `mode` | `"off" \| "read-only" \| "workspace-write"` | `"off"` | Side-effect policy enforced at the tool-execution boundary |
+
+- `off` — every tool runs as before; the policy hook is not even subscribed.
+- `read-only` — only tools that declare no side effects run. Tools that write files or mutate state (Write, Edit, Memory, CronCreate, TaskStop, …) are refused, as are `run_code` and shell tools (Bash, PowerShell, Workflow), because a shell command cannot be proven write-free. MCP and plugin tools that do not declare a side-effect class are refused too (fail closed).
+- `workspace-write` — read-only tools run; file-writing tools run only when every write target they declare is inside the workspace root, and out-of-workspace writes are refused. Tools that cannot declare their write targets, shell tools, and `run_code` are refused: confining arbitrary commands would need an OS-level sandbox backend, and none is available yet (fail closed).
+
+```toml
+[sandbox]
+mode = "read-only"
+```
+
+Enforcement is a policy check at the tool boundary, not OS-level isolation. Approval prompts never override a sandbox refusal. Two explicit gaps: a subagent dispatched to an external backend (`[subagent_backend]`) runs as a separate process outside the tool boundary and is refused outright when `mode` is not `off`; and the plan file Kimi Code writes for its own bookkeeping in plan mode is exempt.
+
 <!--
 ## `llm_requester`
 

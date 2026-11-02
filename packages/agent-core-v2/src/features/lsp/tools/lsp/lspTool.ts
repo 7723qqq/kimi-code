@@ -4,7 +4,7 @@ import type { LspHover, LspHoverContents, LspLocation } from '#/features/lsp/pro
 import { uriToPath } from '#/features/lsp/translate';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import type { ToolExecution } from '#/tool/toolContract';
+import { ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
 
 import type { ILspTool } from './lsp';
 import { LspInputSchema, type LspInput } from './lsp';
@@ -16,6 +16,7 @@ const MAX_RESULT_CHARS = 16000;
 export class LspTool implements ILspTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'lsp' as const;
+  readonly sideEffect = ToolSideEffects.read;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(LspInputSchema);
 

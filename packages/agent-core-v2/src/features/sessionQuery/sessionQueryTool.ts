@@ -4,10 +4,11 @@ import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { Error2 } from '#/errors';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import type {
-  ExecutableToolContext,
-  ExecutableToolResult,
-  ToolExecution,
+import {
+  ToolSideEffects,
+  type ExecutableToolContext,
+  type ExecutableToolResult,
+  type ToolExecution,
 } from '#/tool/toolContract';
 
 import DESCRIPTION from './session-query.md?raw';
@@ -32,6 +33,7 @@ const MAX_SEARCH_RESULTS = 20;
 export class SessionQueryTool implements ISessionQueryTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'session_query' as const;
+  readonly sideEffect = ToolSideEffects.read;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(SessionQueryToolInput);
 

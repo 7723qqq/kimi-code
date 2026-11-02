@@ -5,7 +5,7 @@ import { type CronTask } from '#/features/cron/cronTask';
 import { cronToHuman, parseCronExpression } from '#/features/cron/internal/cron-expr';
 import { formatLocalIsoWithOffset } from '#/features/cron/internal/format';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import type { ToolExecution } from '#/tool/toolContract';
+import { ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
 
 import { ICronListTool, CronListInputSchema, type CronListInput } from './cron-list';
 import CRON_LIST_DESCRIPTION from './cron-list.md?raw';
@@ -26,6 +26,7 @@ export class CronListTool implements ICronListTool {
   declare readonly _serviceBrand: undefined;
 
   readonly name = 'CronList' as const;
+  readonly sideEffect = ToolSideEffects.read;
   readonly description = CRON_LIST_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(CronListInputSchema);
 

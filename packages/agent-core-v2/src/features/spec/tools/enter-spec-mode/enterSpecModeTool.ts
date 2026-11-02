@@ -2,7 +2,7 @@ import { IAgentModeMutexService } from '#/agent/modeMutex/modeMutex';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentSpecService, SPEC_REQUIRED_FILES } from '#/features/spec/spec';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import type { ToolExecution } from '#/tool/toolContract';
+import { ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
 
 import type { IEnterSpecModeTool } from './enter-spec-mode';
 import { EnterSpecModeInputSchema, type EnterSpecModeInput } from './enter-spec-mode';
@@ -11,6 +11,7 @@ import DESCRIPTION from './enter-spec-mode.md?raw';
 export class EnterSpecModeTool implements IEnterSpecModeTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'EnterSpecMode' as const;
+  readonly sideEffect = ToolSideEffects.read;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(EnterSpecModeInputSchema);
 

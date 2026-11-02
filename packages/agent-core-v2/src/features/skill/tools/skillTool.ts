@@ -9,7 +9,12 @@ import { IAgentSkillService } from '#/features/skill/skillService';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { matchesGlobRuleSubject } from '#/tool/rule-match';
-import type { ExecutableToolResult, ToolDeliveryMessage, ToolExecution } from '#/tool/toolContract';
+import {
+  ToolSideEffects,
+  type ExecutableToolResult,
+  type ToolDeliveryMessage,
+  type ToolExecution,
+} from '#/tool/toolContract';
 
 import {
   ISkillTool,
@@ -23,6 +28,7 @@ import skillDescriptionTemplate from './skill.md?raw';
 export class SkillTool implements ISkillTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'Skill';
+  readonly sideEffect = ToolSideEffects.read;
   readonly description: string = renderPrompt(skillDescriptionTemplate, {
     MAX_SKILL_QUERY_DEPTH,
   });

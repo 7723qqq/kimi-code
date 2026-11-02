@@ -89,7 +89,17 @@ export interface RunnableToolExecution {
 
 export type ToolExecution = RunnableToolExecution | ExecutableToolErrorResult;
 
+export const ToolSideEffects = {
+  read: 'read',
+  write: 'write',
+  shell: 'shell',
+  execute: 'execute',
+} as const;
+
+export type ToolSideEffect = (typeof ToolSideEffects)[keyof typeof ToolSideEffects];
+
 export interface ExecutableTool<Input = unknown> extends Tool {
+  readonly sideEffect?: ToolSideEffect;
   resolveExecution(input: Input): ToolExecution | Promise<ToolExecution>;
 }
 

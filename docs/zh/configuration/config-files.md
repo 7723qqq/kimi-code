@@ -551,6 +551,25 @@ require_trust = false
 
 配置变更在 `/reload` 后生效；已经运行的 TUI 不会补弹启动信任提示。`KIMI_CODE_TRUST_WORKSPACE=1` 仍是独立的进程级信任覆盖，假值不会在 `require_trust` 为 `false` 时恢复首次打开的信任确认。已有信任记录会保留，恢复该要求后继续使用。
 
+## `sandbox`
+
+`sandbox` 约束 agent 工具对机器的操作范围。模式在 agent 启动时读取一次。
+
+| 字段 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `mode` | `"off" \| "read-only" \| "workspace-write"` | `"off"` | 在工具执行边界强制生效的副作用策略 |
+
+- `off` —— 所有工具照常运行；策略钩子完全不注册。
+- `read-only` —— 只允许声明了无副作用的工具运行。会写文件或修改状态的工具（Write、Edit、Memory、CronCreate、TaskStop 等）被拒绝；`run_code` 与 shell 工具（Bash、PowerShell、Workflow）同样被拒绝，因为无法证明一条 shell 命令不产生写入。未声明副作用类别的 MCP / 插件工具也一律拒绝（fail closed）。
+- `workspace-write` —— 只读工具放行；写文件工具仅当其声明的全部写入目标都在工作区根目录内时才放行，越界写入被拒绝。无法声明写入目标的工具、shell 工具和 `run_code` 被拒绝：约束任意命令需要操作系统级沙箱后端，目前尚不可用（fail closed）。
+
+```toml
+[sandbox]
+mode = "read-only"
+```
+
+这是工具边界上的策略检查，不是操作系统级隔离。审批提示永远不会覆盖沙箱拒绝。有两个明确的缺口：分派到外部后端（`[subagent_backend]`）的子代理是独立进程、处于工具边界之外，因此 `mode` 非 `off` 时整体拒绝；plan 模式下 Kimi Code 为自身记账写入的 plan 文件豁免。
+
 <!--
 ## `llm_requester`
 

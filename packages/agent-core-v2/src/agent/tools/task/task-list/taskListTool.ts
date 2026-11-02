@@ -4,7 +4,7 @@ import { formatTaskRecord } from '#/agent/task/tools/format';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { matchesGlobRuleSubject } from '#/tool/rule-match';
-import { type ToolExecution } from '#/tool/toolContract';
+import { ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
 
 import { ITaskListTool, TaskListInputSchema, type TaskListInput } from './task-list';
 import TASK_LIST_DESCRIPTION from './task-list.md?raw';
@@ -19,6 +19,7 @@ export function formatTaskList(tasks: readonly AgentTaskInfo[], activeOnly: bool
 export class TaskListTool implements ITaskListTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'TaskList' as const;
+  readonly sideEffect = ToolSideEffects.read;
   readonly description = TASK_LIST_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(TaskListInputSchema);
 

@@ -18,7 +18,12 @@ import {
 } from '#/tool/path-access';
 import { assertRealPathWriteTarget } from '#/tool/realpath-access';
 import { literalRulePattern, matchesPathRuleSubject } from '#/tool/rule-match';
-import { ToolAccesses, type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
+import {
+  ToolAccesses,
+  ToolSideEffects,
+  type ExecutableToolResult,
+  type ToolExecution,
+} from '#/tool/toolContract';
 
 import { IWriteTool, WriteInputSchema, type WriteInput } from './write';
 import WRITE_DESCRIPTION from './write.md?raw';
@@ -26,6 +31,7 @@ import WRITE_DESCRIPTION from './write.md?raw';
 export class WriteTool implements IWriteTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'Write' as const;
+  readonly sideEffect = ToolSideEffects.write;
   readonly description = WRITE_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(WriteInputSchema);
 

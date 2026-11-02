@@ -1,7 +1,7 @@
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import type { ToolExecution } from '#/tool/toolContract';
+import { ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
 
 import { callerName, newTowerStore, runTowerTool } from '../support';
 import type { ITowerInboxTool } from './inbox';
@@ -13,6 +13,7 @@ const DEFAULT_LIMIT = 20;
 export class TowerInboxTool implements ITowerInboxTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'TowerInbox' as const;
+  readonly sideEffect = ToolSideEffects.read;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(TowerInboxToolInputSchema);
 

@@ -11,7 +11,7 @@ import {
 import { formatLocalIsoWithOffset } from '#/features/cron/internal/format';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { literalRulePattern } from '#/tool/rule-match';
-import { type ToolExecution } from '#/tool/toolContract';
+import { ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
 
 import {
   ICronCreateTool,
@@ -29,6 +29,7 @@ export class CronCreateTool implements ICronCreateTool {
   declare readonly _serviceBrand: undefined;
 
   readonly name = 'CronCreate' as const;
+  readonly sideEffect = ToolSideEffects.write;
   readonly description = CRON_CREATE_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(CronCreateInputSchema);
 

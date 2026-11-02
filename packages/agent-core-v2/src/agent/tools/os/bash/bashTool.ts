@@ -17,6 +17,7 @@ import { ToolOutputAccumulator } from '#/tool/output-accumulator';
 import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
 import {
   DEFAULT_TOOL_RESULT_MAX_CHARS,
+  ToolSideEffects,
   type ExecutableToolResult,
   type ToolExecution,
   type ToolUpdate,
@@ -51,6 +52,7 @@ const TIMEOUT_KILLS =
 export class BashTool implements IBashTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'Bash' as const;
+  readonly sideEffect = ToolSideEffects.shell;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(BashInputSchema);
 
   constructor(

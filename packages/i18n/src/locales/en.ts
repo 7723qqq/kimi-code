@@ -100,74 +100,6 @@ export const en = {
     newSession: 'New Session',
   },
 
-  background: {
-    taskStatus: 'Background {{kind}} {{status}}',
-    taskTimedOut: '{{description}} timed out.',
-    taskWasKilled: '{{description}} was killed: {{reason}}.',
-    taskCompleted: '{{description}} completed.',
-    taskFailed: '{{description}} failed: {{reason}}.',
-    outputLimitExceeded:
-      'Output limit exceeded: the command produced more than {{mib}} MiB and was terminated. Redirect large output to a file (e.g. `command > out.txt`) and inspect it in slices instead.',
-    outputFile: 'Read the output file to retrieve the result: {{path}}',
-    outputPreviewTruncated:
-      'Showing the last {{bytes}} bytes. No persisted full output is available.',
-    outputPreviewBuffered:
-      'No persisted full output is available; this preview is the currently buffered task output.',
-    fullOutputSaved: '[Full output saved]',
-    recoverPrompt:
-      'To recover or continue this subagent, call Agent(resume="{{agentId}}", prompt="Pick up where you left off; redo the last tool call if its result was never observed.").',
-    recoverAgentId:
-      'Use agent_id ("{{agentId}}"), NOT source_id / task_id ("{{taskId}}") — the two look alike but only agent_id is accepted by the resume parameter.',
-    recoverBackground:
-      'Add run_in_background=true to keep it backgrounded, or omit it to take the result inline in the current turn.',
-    recoverContext:
-      'The subagent retains its full prior context across the restart, but any in-flight tool call lost its result and may need to be redone.',
-  },
-
-  shell: {
-    userInterrupt: 'Interrupted by user',
-    pausedAfterInterruption: 'Paused after interruption',
-    backgroundStarted: 'Background task started',
-    commandTimedOutToBackground: 'Command timed out and moved to background',
-    taskMovedToBackground: 'Task moved to background',
-    backgroundStartedBrief: 'Started {{taskId}}',
-    backgroundedAfterTimeout: 'Backgrounded {{taskId}} after timeout',
-    backgroundedBrief: 'Backgrounded {{taskId}}',
-    abortedBeforeStart: 'Aborted before command started',
-    commandCannotBeEmpty: 'Command cannot be empty.',
-    backgroundNotAvailable:
-      'Background execution is not available for this agent because TaskOutput and TaskStop are not enabled.',
-    descriptionRequired: 'description is required when run_in_background is true.',
-    killedByTimeout: 'Command killed by timeout ({{label}})',
-    killedByTimeoutBrief: 'Killed by timeout ({{label}})',
-    executedSuccessfully: 'Command executed successfully.',
-    failedWithExitCode: 'Command failed with exit code: {{exitCode}}.',
-    failedWithExitCodeBrief: 'Failed with exit code: {{exitCode}}',
-    exitedWithCode: 'Process exited with code {{exitCode}}',
-    taskIdLabel: 'task_id: {{taskId}}',
-    pidLabel: 'pid: {{pid}}',
-    descriptionLabel: 'description: {{description}}',
-    statusLabel: 'status: {{status}}',
-    automaticNotification: 'automatic_notification: true',
-    humanShellHint:
-      'human_shell_hint: Tell the human to run /tasks to open the interactive background-task panel.',
-    nextStepWithTaskOutput: 'do NOT wait, poll, or call TaskOutput on it',
-    nextStepAwaitNoTaskOutput: 'do NOT wait or poll',
-    nextStepForegroundDetached:
-      'next_step: The task now runs in the background. You will be automatically notified when it completes — do NOT wait, poll, or call TaskOutput on it; continue with your current work.\n',
-    nextStepForegroundDetachedNoBg:
-      'next_step: The task now runs in the background. You will be automatically notified when it completes — do NOT wait or poll; continue with your current work.\n',
-    nextStepBackgroundStarted:
-      'next_step: The completion arrives automatically in a later turn — do NOT wait, poll, or call TaskOutput on it; continue with your current work.\nnext_step: Use TaskStop only if the task must be cancelled.\n',
-    nextStepBackgroundStartedNoBg:
-      'next_step: You will be automatically notified when it completes.\n',
-    taskOutputHint: ', or TaskOutput(task_id="{{taskId}}", block=false)',
-    outputPathLabel: 'output_path: {{path}}',
-    outputSizeLabel: 'output_size_bytes: {{bytes}}',
-    nextStepReadOutput:
-      'next_step: Use Read with output_path to page through the full log{{hint}}.',
-  },
-
   tools: {
     grepTimedOut: 'Grep timed out after {{seconds}}s. Try a more specific path or pattern.',
     grepPartial: 'Grep timed out after {{seconds}}s; partial results returned',
@@ -656,8 +588,6 @@ export const en = {
     bash: {
       startingBackground: 'Starting background: {{preview}}',
       running: 'Running: {{preview}}',
-      sandboxBackendUnavailable:
-        'Sandbox mode "{{mode}}" is configured but no sandbox backend is available on this host — refusing to run (fail closed). Set `[sandbox] mode = "off"` to run unsandboxed.',
     },
     sandbox: {
       writeBlockedReadOnly:
@@ -666,6 +596,18 @@ export const en = {
         'Sandbox mode "{{mode}}" blocks writes outside the workspace root "{{workspace}}". Target path "{{path}}" is outside it.',
       codeExecutionBlocked:
         'Sandbox mode "{{mode}}" blocks code execution (run_code). Set `[sandbox] mode = "off"` to allow it.',
+      toolBlockedReadOnly:
+        'Sandbox mode "{{mode}}" allows read-only tools only; "{{tool}}" can mutate files or system state and is refused. Set `[sandbox] mode = "off"` to allow it.',
+      toolBlockedUndeclared:
+        'Sandbox mode "{{mode}}" refuses "{{tool}}" because the tool does not declare whether it has side effects (fail closed). Set `[sandbox] mode = "off"` to allow it.',
+      shellBlockedReadOnly:
+        'Sandbox mode "{{mode}}" refuses shell commands ("{{tool}}") because a shell command cannot be proven write-free. Set `[sandbox] mode = "off"` to run shell commands.',
+      shellBlockedNoBackend:
+        'Sandbox mode "{{mode}}" would need an OS sandbox backend to confine shell commands ("{{tool}}") and none is available on this host — refusing to run (fail closed). Set `[sandbox] mode = "off"` to run unsandboxed.',
+      writeBlockedUnverifiable:
+        'Sandbox mode "{{mode}}" allows file writes inside the workspace only; "{{tool}}" does not declare which files it writes, so it is refused (fail closed). Set `[sandbox] mode = "off"` to allow it.',
+      externalSubagentBackendBlocked:
+        'Sandbox mode "{{mode}}" blocks external subagent backends ("{{backend}}" would run as a separate process outside engine control). Set `[sandbox] mode = "off"` to allow it.',
     },
     spill: {
       retrievalHint:

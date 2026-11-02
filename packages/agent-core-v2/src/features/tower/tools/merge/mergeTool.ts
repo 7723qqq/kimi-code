@@ -4,7 +4,7 @@ import { IAgentTowerService } from '#/features/tower/tower';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import type { ToolExecution } from '#/tool/toolContract';
+import { ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
 
 import { newTowerStore, runTowerTool, TOWER_MAIN_AGENT_ONLY } from '../support';
 import { ITowerMergeTool, TowerMergeToolInputSchema, type TowerMergeToolInput } from './merge';
@@ -13,6 +13,7 @@ import DESCRIPTION from './merge.md?raw';
 export class TowerMergeTool implements ITowerMergeTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'TowerMerge' as const;
+  readonly sideEffect = ToolSideEffects.write;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(TowerMergeToolInputSchema);
 

@@ -2,7 +2,7 @@ import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { CRON_MAIN_AGENT_ONLY, mainAgentOnlyExecution } from '#/agent/tools/mainAgentOnly';
 import { IAgentCronService } from '#/features/cron/cronService';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import { type ToolExecution } from '#/tool/toolContract';
+import { ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
 
 import { ICronDeleteTool, CronDeleteInputSchema, type CronDeleteInput } from './cron-delete';
 import CRON_DELETE_DESCRIPTION from './cron-delete.md?raw';
@@ -13,6 +13,7 @@ export class CronDeleteTool implements ICronDeleteTool {
   declare readonly _serviceBrand: undefined;
 
   readonly name = 'CronDelete' as const;
+  readonly sideEffect = ToolSideEffects.write;
   readonly description = CRON_DELETE_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(CronDeleteInputSchema);
 

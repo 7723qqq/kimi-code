@@ -45,7 +45,12 @@ import {
   matchesGlobRuleSubject,
   matchesPathRuleSubject,
 } from '#/tool/rule-match';
-import { ToolAccesses, type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
+import {
+  ToolAccesses,
+  ToolSideEffects,
+  type ExecutableToolResult,
+  type ToolExecution,
+} from '#/tool/toolContract';
 
 import { READ_SECTION, type ReadConfig } from './configSection';
 import {
@@ -230,6 +235,7 @@ function notUtf8DecodableFileOutput(path: string): string {
 export class ReadTool implements IReadTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'Read' as const;
+  readonly sideEffect = ToolSideEffects.read;
   get description(): string {
     const limits = this.limits();
     return renderPrompt(readDescriptionTemplate, {

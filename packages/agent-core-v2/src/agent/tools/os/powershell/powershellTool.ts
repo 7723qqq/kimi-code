@@ -17,6 +17,7 @@ import { ToolOutputAccumulator } from '#/tool/output-accumulator';
 import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
 import {
   DEFAULT_TOOL_RESULT_MAX_CHARS,
+  ToolSideEffects,
   type ExecutableToolResult,
   type ToolExecution,
   type ToolUpdate,
@@ -78,6 +79,7 @@ function withoutAutoBackgroundOnTimeout(description: string): string {
 export class PowerShellTool implements IPowerShellTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'PowerShell' as const;
+  readonly sideEffect = ToolSideEffects.shell;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(PowerShellInputSchema);
 
   constructor(

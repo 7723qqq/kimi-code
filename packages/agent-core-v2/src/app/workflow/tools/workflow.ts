@@ -10,7 +10,7 @@ import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle'
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import type { AgentTool, ToolExecution } from '#/tool/toolContract';
+import { ToolSideEffects, type AgentTool, type ToolExecution } from '#/tool/toolContract';
 
 import DESCRIPTION from './workflow.md?raw';
 
@@ -50,6 +50,7 @@ export const IWorkflowTool = createDecorator<IWorkflowTool>('workflowTool');
 export class WorkflowTool implements IWorkflowTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'Workflow' as const;
+  readonly sideEffect = ToolSideEffects.shell;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(WorkflowToolInputSchema);
 

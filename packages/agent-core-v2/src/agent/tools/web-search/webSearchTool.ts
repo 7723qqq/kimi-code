@@ -5,6 +5,7 @@ import { ToolOutputAccumulator } from '#/tool/output-accumulator';
 import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
 import {
   ToolAccesses,
+  ToolSideEffects,
   type ExecutableToolContext,
   type ExecutableToolResult,
   type ToolExecution,
@@ -16,6 +17,7 @@ import DESCRIPTION from './web-search.md?raw';
 export class WebSearchTool implements IWebSearchTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'WebSearch' as const;
+  readonly sideEffect = ToolSideEffects.read;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(WebSearchInputSchema);
 

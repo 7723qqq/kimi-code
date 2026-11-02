@@ -4,7 +4,7 @@ import { ISessionEventBus } from '#/app/event/eventBus';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import type { ToolExecution } from '#/tool/toolContract';
+import { ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
 
 import { deliverTowerMessage } from '../delivery';
 import { newTowerStore, runTowerTool } from '../support';
@@ -18,6 +18,7 @@ import DESCRIPTION from './complete.md?raw';
 export class TowerCompleteTool implements ITowerCompleteTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'TowerComplete' as const;
+  readonly sideEffect = ToolSideEffects.write;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(TowerCompleteToolInputSchema);
 

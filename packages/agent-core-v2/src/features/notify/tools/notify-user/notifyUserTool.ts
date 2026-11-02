@@ -3,7 +3,7 @@ import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IFlagService } from '#/app/flag/flag';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import { ToolAccesses, type ToolExecution } from '#/tool/toolContract';
+import { ToolAccesses, ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
 
 import { notifyUserAvailable } from '../../notifyUserAvailability';
 import { notifyStreakBefore } from '../../notifyUserNudge';
@@ -25,6 +25,7 @@ export const NOTIFY_USER_EMPTY_MESSAGE = 'message must not be empty.';
 export class NotifyUserTool implements INotifyUserTool {
   declare readonly _serviceBrand: undefined;
   readonly name = NOTIFY_USER_TOOL_NAME;
+  readonly sideEffect = ToolSideEffects.read;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(NotifyUserInputSchema);
 

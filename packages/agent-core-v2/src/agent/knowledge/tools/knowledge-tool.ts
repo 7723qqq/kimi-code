@@ -4,7 +4,12 @@ import { createDecorator } from '#/_base/di/instantiation';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import type { AgentTool, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
+import {
+  ToolSideEffects,
+  type AgentTool,
+  type ExecutableToolResult,
+  type ToolExecution,
+} from '#/tool/toolContract';
 
 import { IAgentKnowledgeService } from '../knowledge';
 import TOOL_DESCRIPTION from './knowledge-tool.md?raw';
@@ -31,6 +36,7 @@ export const IKnowledgeTool = createDecorator<IKnowledgeTool>('knowledgeTool');
 export class KnowledgeTool implements IKnowledgeTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'Knowledge' as const;
+  readonly sideEffect = ToolSideEffects.write;
   readonly description: string = TOOL_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(KnowledgeInputSchema);
 

@@ -35,6 +35,7 @@ import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
 import {
   DEFAULT_TOOL_RESULT_MAX_RETAINED_CHARS,
   ToolAccesses,
+  ToolSideEffects,
   type ExecutableToolResult,
   type ToolExecution,
 } from '#/tool/toolContract';
@@ -68,6 +69,7 @@ const SENSITIVE_GLOBS_TO_EXCLUDE: readonly string[] = [
 export class GlobTool implements IGlobTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'Glob' as const;
+  readonly sideEffect = ToolSideEffects.read;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(GlobInputSchema);
   constructor(
     @IAgentRuntimeService private readonly runtime: IAgentRuntimeService,

@@ -4,7 +4,7 @@ import { ISessionEventBus } from '#/app/event/eventBus';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import type { ToolExecution } from '#/tool/toolContract';
+import { ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
 
 import { deliverTowerMessage } from '../delivery';
 import { newTowerStore, runTowerTool } from '../support';
@@ -15,6 +15,7 @@ import DESCRIPTION from './send.md?raw';
 export class TowerSendTool implements ITowerSendTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'TowerSend' as const;
+  readonly sideEffect = ToolSideEffects.read;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(TowerSendToolInputSchema);
 

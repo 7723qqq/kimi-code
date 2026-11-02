@@ -5,7 +5,7 @@ import { type AgentTaskStatus, TERMINAL_STATUSES } from '#/agent/task/types';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { matchesGlobRuleSubject } from '#/tool/rule-match';
-import { type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
+import { ToolSideEffects, type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
 
 import { ITaskOutputTool, TaskOutputInputSchema, type TaskOutputInput } from './task-output';
 import TASK_OUTPUT_DESCRIPTION from './task-output.md?raw';
@@ -46,6 +46,7 @@ function fullOutputHint(output: AgentTaskOutputSnapshot): string | undefined {
 export class TaskOutputTool implements ITaskOutputTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'TaskOutput' as const;
+  readonly sideEffect = ToolSideEffects.read;
   readonly description: string = TASK_OUTPUT_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(TaskOutputInputSchema);
 

@@ -5,7 +5,7 @@ import { TowerProtocolError } from '#/features/tower/protocol/index';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import type { ToolExecution } from '#/tool/toolContract';
+import { ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
 
 import { newTowerStore, runTowerTool, TOWER_MAIN_AGENT_ONLY } from '../support';
 import {
@@ -18,6 +18,7 @@ import DESCRIPTION from './teardown.md?raw';
 export class TowerTeardownTool implements ITowerTeardownTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'TowerTeardown' as const;
+  readonly sideEffect = ToolSideEffects.write;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(TowerTeardownToolInputSchema);
 

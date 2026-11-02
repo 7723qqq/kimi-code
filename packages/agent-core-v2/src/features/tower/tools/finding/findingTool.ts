@@ -1,7 +1,7 @@
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import type { ToolExecution } from '#/tool/toolContract';
+import { ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
 
 import { callerName, newTowerStore, runTowerTool } from '../support';
 import type { ITowerFindingTool } from './finding';
@@ -11,6 +11,7 @@ import DESCRIPTION from './finding.md?raw';
 export class TowerFindingTool implements ITowerFindingTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'TowerFinding' as const;
+  readonly sideEffect = ToolSideEffects.read;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(TowerFindingToolInputSchema);
 

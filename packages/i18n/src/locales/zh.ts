@@ -100,66 +100,6 @@ export const zh: DeepPartial<typeof import('./en').default> = {
   session: {
     newSession: '新会话',
   },
-  background: {
-    taskStatus: '后台 {{kind}} {{status}}',
-    taskTimedOut: '{{description}} 已超时。',
-    taskWasKilled: '{{description}} 被终止: {{reason}}。',
-    taskCompleted: '{{description}} 已完成。',
-    taskFailed: '{{description}} 失败: {{reason}}。',
-    outputLimitExceeded:
-      '超出输出限制: 命令产生了超过 {{mib}} MiB 的输出并被终止。请将大量输出重定向到文件（例如 `command > out.txt`）并分片查看。',
-    outputFile: '读取输出文件以获取结果: {{path}}',
-    outputPreviewTruncated: '显示最后 {{bytes}} 字节。没有持久化的完整输出可用。',
-    outputPreviewBuffered: '没有持久化的完整输出可用；这是当前缓冲的任务输出。',
-    fullOutputSaved: '[完整输出已保存]',
-    recoverPrompt:
-      '要恢复或继续此子 Agent，请调用 Agent(resume="{{agentId}}", prompt="从上次中断的地方继续；如果上次工具调用的结果从未被观察到，则重新执行。"）。',
-    recoverAgentId:
-      '使用 agent_id（"{{agentId}}"），而不是 source_id / task_id（"{{taskId}}"）——两者看起来相似，但 resume 参数只接受 agent_id。',
-    recoverBackground:
-      '添加 run_in_background=true 以保持后台运行，或省略它以在当前轮次中内联获取结果。',
-    recoverContext:
-      '子 Agent 在重启后保留其完整的先前上下文，但任何进行中的工具调用已丢失其结果，可能需要重新执行。',
-  },
-  shell: {
-    userInterrupt: '被用户中断',
-    pausedAfterInterruption: '中断后已暂停',
-    backgroundStarted: '后台任务已启动',
-    commandTimedOutToBackground: '命令超时并移至后台',
-    taskMovedToBackground: '任务移至后台',
-    backgroundStartedBrief: '已启动 {{taskId}}',
-    backgroundedAfterTimeout: '{{taskId}} 超时后在后台运行',
-    backgroundedBrief: '{{taskId}} 在后台运行',
-    abortedBeforeStart: '命令启动前中止',
-    commandCannotBeEmpty: '命令不能为空。',
-    backgroundNotAvailable: '此 Agent 不支持后台执行，因为未启用 TaskOutput 和 TaskStop。',
-    descriptionRequired: 'run_in_background 为 true 时 description 为必填。',
-    killedByTimeout: '命令因超时被终止（{{label}}）',
-    killedByTimeoutBrief: '因超时被终止（{{label}}）',
-    executedSuccessfully: '命令执行成功。',
-    failedWithExitCode: '命令失败，退出码: {{exitCode}}。',
-    failedWithExitCodeBrief: '失败，退出码: {{exitCode}}',
-    exitedWithCode: '进程退出码 {{exitCode}}',
-    taskIdLabel: 'task_id: {{taskId}}',
-    pidLabel: 'pid: {{pid}}',
-    descriptionLabel: 'description: {{description}}',
-    statusLabel: 'status: {{status}}',
-    automaticNotification: 'automatic_notification: true',
-    humanShellHint: 'human_shell_hint: 告诉用户在终端运行 /tasks 打开交互式后台任务面板。',
-    nextStepWithTaskOutput: '不要等待、轮询或调用 TaskOutput',
-    nextStepAwaitNoTaskOutput: '不要等待或轮询',
-    nextStepForegroundDetached:
-      'next_step: 任务现在在后台运行。完成后你会自动收到通知——不要等待、轮询或调用 TaskOutput；继续当前工作。\n',
-    nextStepForegroundDetachedNoBg:
-      'next_step: 任务现在在后台运行。完成后你会自动收到通知——不要等待或轮询；继续当前工作。\n',
-    nextStepBackgroundStarted:
-      'next_step: 完成结果会在后续轮次自动到达——不要等待、轮询或调用 TaskOutput；继续当前工作。\nnext_step: 仅在需要取消任务时使用 TaskStop。\n',
-    nextStepBackgroundStartedNoBg: 'next_step: 完成后你会自动收到通知。\n',
-    taskOutputHint: '，或 TaskOutput(task_id="{{taskId}}", block=false)',
-    outputPathLabel: 'output_path: {{path}}',
-    outputSizeLabel: 'output_size_bytes: {{bytes}}',
-    nextStepReadOutput: 'next_step: 使用 Read 配合 output_path 分页查看完整日志{{hint}}。',
-  },
   tools: {
     grepTimedOut: 'Grep 在 {{seconds}}s 后超时。请尝试更具体的路径或模式。',
     grepPartial: 'Grep 在 {{seconds}}s 后超时；返回部分结果',
@@ -590,8 +530,6 @@ export const zh: DeepPartial<typeof import('./en').default> = {
     bash: {
       startingBackground: '正在启动后台: {{preview}}',
       running: '正在运行: {{preview}}',
-      sandboxBackendUnavailable:
-        '已配置沙箱模式 "{{mode}}"，但当前主机没有可用的沙箱后端 —— 拒绝执行（fail closed）。设置 `[sandbox] mode = "off"` 可无沙箱运行。',
     },
     sandbox: {
       writeBlockedReadOnly:
@@ -600,6 +538,18 @@ export const zh: DeepPartial<typeof import('./en').default> = {
         '沙箱模式 "{{mode}}" 禁止在工作区根目录 "{{workspace}}" 之外写入。目标路径 "{{path}}" 在其之外。',
       codeExecutionBlocked:
         '沙箱模式 "{{mode}}" 禁止代码执行（run_code）。设置 `[sandbox] mode = "off"` 以允许执行。',
+      toolBlockedReadOnly:
+        '沙箱模式 "{{mode}}" 只允许只读工具；"{{tool}}" 可能修改文件或系统状态，已被拒绝。设置 `[sandbox] mode = "off"` 以放行。',
+      toolBlockedUndeclared:
+        '沙箱模式 "{{mode}}" 拒绝执行 "{{tool}}"：该工具未声明是否具有副作用（fail closed）。设置 `[sandbox] mode = "off"` 以放行。',
+      shellBlockedReadOnly:
+        '沙箱模式 "{{mode}}" 拒绝执行 shell 命令（"{{tool}}"）：无法证明一条 shell 命令不产生写入。设置 `[sandbox] mode = "off"` 以运行 shell 命令。',
+      shellBlockedNoBackend:
+        '沙箱模式 "{{mode}}" 需要操作系统级沙箱后端来约束 shell 命令（"{{tool}}"），但当前主机没有可用后端 —— 拒绝执行（fail closed）。设置 `[sandbox] mode = "off"` 可无沙箱运行。',
+      writeBlockedUnverifiable:
+        '沙箱模式 "{{mode}}" 只允许写入工作区内的文件；"{{tool}}" 未声明其写入目标，已被拒绝（fail closed）。设置 `[sandbox] mode = "off"` 以放行。',
+      externalSubagentBackendBlocked:
+        '沙箱模式 "{{mode}}" 禁止外部子 agent 后端（"{{backend}}" 会以独立进程运行，不受引擎管控）。设置 `[sandbox] mode = "off"` 以允许。',
     },
     spill: {
       retrievalHint: '完整输出已落盘到 {{path}} —— 使用 Read 工具读取以查看完整结果。',

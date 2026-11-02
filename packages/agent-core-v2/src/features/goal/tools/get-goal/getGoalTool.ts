@@ -3,7 +3,7 @@ import { GOAL_MAIN_AGENT_ONLY, mainAgentOnlyExecution } from '#/agent/tools/main
 import { IAgentGoalService } from '#/features/goal/goalService';
 import { goalResultForModel } from '#/features/goal/tools/serialize';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import { type ToolExecution } from '#/tool/toolContract';
+import { ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
 
 import { GetGoalToolInputSchema, IGetGoalTool, type GetGoalToolInput } from './get-goal';
 import DESCRIPTION from './get-goal.md?raw';
@@ -11,6 +11,7 @@ import DESCRIPTION from './get-goal.md?raw';
 export class GetGoalTool implements IGetGoalTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'GetGoal' as const;
+  readonly sideEffect = ToolSideEffects.read;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(GetGoalToolInputSchema);
 

@@ -17,7 +17,12 @@ import {
 } from '#/tool/path-access';
 import { assertRealPathWriteTarget } from '#/tool/realpath-access';
 import { literalRulePattern, matchesPathRuleSubject } from '#/tool/rule-match';
-import { ToolAccesses, type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
+import {
+  ToolAccesses,
+  ToolSideEffects,
+  type ExecutableToolResult,
+  type ToolExecution,
+} from '#/tool/toolContract';
 
 import { EditInputSchema, IEditTool, type EditInput } from './edit';
 import editDescriptionTemplate from './edit.md?raw';
@@ -25,6 +30,7 @@ import editDescriptionTemplate from './edit.md?raw';
 export class EditTool implements IEditTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'Edit' as const;
+  readonly sideEffect = ToolSideEffects.write;
   readonly description = editDescriptionTemplate;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(EditInputSchema);
 

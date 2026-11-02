@@ -6,7 +6,7 @@ import {
   buildGoalCompletionSummaryPrompt,
 } from '#/features/goal/tools/outcome-prompts';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import { type ToolExecution } from '#/tool/toolContract';
+import { ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
 
 import {
   UpdateGoalToolInputSchema,
@@ -18,6 +18,7 @@ import DESCRIPTION from './update-goal.md?raw';
 export class UpdateGoalTool implements IUpdateGoalTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'UpdateGoal' as const;
+  readonly sideEffect = ToolSideEffects.read;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(UpdateGoalToolInputSchema);
 

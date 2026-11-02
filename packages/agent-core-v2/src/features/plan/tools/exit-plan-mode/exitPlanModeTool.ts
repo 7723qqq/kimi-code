@@ -1,7 +1,7 @@
 import { IAgentPlanService } from '#/features/plan/plan';
 import type { PlanData } from '#/features/plan/plan';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import type { ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
+import { ToolSideEffects, type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 
 import {
@@ -19,6 +19,7 @@ type ResolvePlanResult =
 export class ExitPlanModeTool implements IExitPlanModeTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'ExitPlanMode' as const;
+  readonly sideEffect = ToolSideEffects.read;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(ExitPlanModeInputSchema);
 

@@ -9,6 +9,7 @@ import { ToolOutputAccumulator } from '#/tool/output-accumulator';
 import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
 import {
   ToolAccesses,
+  ToolSideEffects,
   type ExecutableToolContext,
   type ExecutableToolResult,
   type ToolExecution,
@@ -31,6 +32,7 @@ export interface GitHubToolDeps {
 export abstract class GitHubToolBase implements IGitHubTool {
   declare readonly _serviceBrand: undefined;
   readonly name: string;
+  readonly sideEffect = ToolSideEffects.write;
   readonly description: string;
   readonly parameters: Record<string, unknown>;
 

@@ -33,7 +33,12 @@ import {
   type WorkspaceConfig,
 } from '#/tool/path-access';
 import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
-import { ToolAccesses, type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
+import {
+  ToolAccesses,
+  ToolSideEffects,
+  type ExecutableToolResult,
+  type ToolExecution,
+} from '#/tool/toolContract';
 
 import { type GrepInput, GrepInputSchema, IGrepTool } from './grep';
 import GREP_DESCRIPTION from './grep.md?raw';
@@ -64,6 +69,7 @@ const CONTENT_LINE_RE = /^(.*?)([:-])(\d+)\2/;
 export class GrepTool implements IGrepTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'Grep' as const;
+  readonly sideEffect = ToolSideEffects.read;
   readonly description = GREP_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(GrepInputSchema);
   constructor(

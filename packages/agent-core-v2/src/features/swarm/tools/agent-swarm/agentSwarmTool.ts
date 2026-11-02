@@ -23,6 +23,7 @@ import { ISessionSubagentService } from '#/session/subagent/subagent';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import {
   ToolAccesses,
+  ToolSideEffects,
   type ExecutableToolContext,
   type ExecutableToolErrorResult,
   type ExecutableToolResult,
@@ -80,6 +81,7 @@ interface SwarmRunResult {
 export class AgentSwarmTool implements IAgentSwarmTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'AgentSwarm' as const;
+  readonly sideEffect = ToolSideEffects.read;
 
   get parameters(): Record<string, unknown> {
     const parameters = exposesSubagentModelChoice(this.config)
