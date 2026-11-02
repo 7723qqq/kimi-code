@@ -332,7 +332,8 @@ export async function extractRgFromZip(archivePath: string, destination: string)
             try {
               await pipeline(stream, out);
               await chmod(staging, 0o755);
-              await chmod(destination, 0o644).catch(() => null);
+              const destInfo = await stat(destination).catch(() => undefined);
+              if (destInfo?.isFile() === true) await chmod(destination, 0o644).catch(() => null);
               await rename(staging, destination);
               zipfile.close();
               resolve();
