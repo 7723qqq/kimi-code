@@ -9,6 +9,7 @@ import {
   COMPACTION_SUMMARY_PREFIX,
 } from '#/agent/contextMemory/compactionHandoff';
 import { renderCompactionInstruction } from '#/agent/fullCompaction/compactionInstruction';
+import { SNIPPED_TOOL_RESULT_MARKER } from '#/agent/fullCompaction/compactionUtils';
 import { DefaultCompactionStrategy } from '#/agent/fullCompaction/strategy';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentToolSelectAnnouncementsService } from '#/agent/toolSelect/toolSelectAnnouncements';
@@ -332,6 +333,61 @@ describe('FullCompaction', () => {
         input_cache_creation: 0,
       }),
     });
+    await ctx.expectResumeMatches();
+  });
+
+  it('snips large tool results before sending the compaction request', async () => {
+    const histories: Message[][] = [];
+    const generate: GenerateFn = requesterFromGenerateFn(
+      async (_provider, _system, _tools, history) => {
+        histories.push(history);
+        return textResult('Snipped compaction summary.');
+      },
+    );
+    const ctx = testAgent({ generate });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    const bigOutput = Array.from({ length: 200 }, (_, i) => `tool output line ${String(i)}`).join(
+      '\n',
+    );
+    const bigToolMessage: Message = {
+      role: 'tool',
+      content: [{ type: 'text', text: bigOutput }],
+      toolCalls: [],
+      toolCallId: 'call_big',
+    };
+    ctx.context.append(
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'run the big tool' }],
+        toolCalls: [],
+        origin: { kind: 'user' },
+      },
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Calling the big tool.' }],
+        toolCalls: [{ type: 'function', id: 'call_big', name: 'Lookup', arguments: '{}' }],
+      },
+      bigToolMessage,
+    );
+
+    const completed = ctx.once('compaction.completed');
+    await ctx.rpc.beginCompaction({});
+    await completed;
+
+    expect(histories).toHaveLength(1);
+    const sentToolMessage = histories[0]!.find((message) => message.role === 'tool');
+    const sentText = (sentToolMessage!.content[0] as { type: 'text'; text: string }).text;
+    expect(sentText.startsWith(SNIPPED_TOOL_RESULT_MARKER)).toBe(true);
+    expect(sentText).toContain('tool output line 0');
+    expect(sentText).toContain('tool output line 199');
+    expect(sentText).toContain('120 lines omitted');
+    expect(sentText.length).toBeLessThan(bigOutput.length);
+
+    const storedText = (bigToolMessage.content[0] as { type: 'text'; text: string }).text;
+    expect(storedText).toBe(bigOutput);
     await ctx.expectResumeMatches();
   });
 

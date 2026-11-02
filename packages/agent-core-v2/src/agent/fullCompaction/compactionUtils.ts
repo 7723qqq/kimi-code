@@ -11,6 +11,7 @@ export const COMPACTION_OVERFLOW_SHRINK_RATIOS = [0.7, 0.5, 0.35] as const;
 export interface CompactionAttemptResult {
   readonly summary: string;
   readonly usage: TokenUsage | null;
+  readonly traceId?: string;
 }
 
 export class CompactionTruncatedError extends Error {
@@ -45,7 +46,7 @@ export function collectSummary(finish: AgentLLMRequestFinish): CompactionAttempt
     throw new APIEmptyResponseError('The compaction response did not contain a non-empty summary.');
   }
 
-  return { summary, usage: finish.usage };
+  return { summary, usage: finish.usage, traceId: finish.traceId };
 }
 
 export function historySafeToCompact(

@@ -11,10 +11,7 @@ import {
 } from '#/agent/contextMemory/compactionHandoff';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
-import {
-  IAgentLLMRequesterService,
-  type AgentLLMRequestFinish,
-} from '#/agent/llmRequester/llmRequester';
+import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
 import { IAgentLoopService, type LoopErrorContext } from '#/agent/loop/loop';
 import { TurnStarted } from '#/agent/loop/turnEvents';
 import { TurnEnded } from '#/agent/loop/turnOps';
@@ -42,7 +39,6 @@ import { OrderedHookSlot } from '#/hooks';
 import {
   APIContextOverflowError,
   APIEmptyResponseError,
-  APIStatusError,
   isRetryableGenerateError,
 } from '#/llm-adapter/contract/errors';
 import { createUserMessage, type Message } from '#/llm-adapter/contract/message';
@@ -69,6 +65,14 @@ import {
   FullCompactionCancel,
   FullCompactionComplete,
 } from './compactionOps';
+import {
+  collectSummary,
+  COMPACTION_OVERFLOW_SHRINK_RATIOS,
+  CompactionTruncatedError,
+  type CompactionAttemptResult,
+  findAPIStatusError,
+  snipLargeToolResults,
+} from './compactionUtils';
 import { renderContextRecoveryPointer } from './contextRecovery';
 import {
   IAgentFullCompactionService,
@@ -84,7 +88,6 @@ const OVERFLOW_CONTEXT_SAFETY_RATIO = 0.85;
 const COMPLETION_BUDGET_ESTIMATE_MARGIN_RATIO = 0.02;
 const OVERFLOW_STATUS_RECOVERY_RATIO = 0.5;
 const MAX_COMPACTION_OVERFLOW_SHRINK_ATTEMPTS = 3;
-const COMPACTION_OVERFLOW_SHRINK_RATIOS = [0.7, 0.5, 0.35] as const;
 const EMPTY_TOOL_PARAMETERS: Record<string, unknown> = {
   type: 'object',
   properties: {},
@@ -100,19 +103,6 @@ interface ActiveCompaction extends FullCompactionTask {
   readonly quiescence?: IDisposable;
   trace?: LLMRequestTrace;
   blockedByTurn: boolean;
-}
-
-interface CompactionAttemptResult {
-  readonly summary: string;
-  readonly usage: TokenUsage | null;
-  readonly traceId?: string;
-}
-
-class CompactionTruncatedError extends Error {
-  constructor() {
-    super('Compaction response was truncated before producing a complete summary.');
-    this.name = 'CompactionTruncatedError';
-  }
 }
 
 export const fullCompactionCompactionCountInTurnKey = defineState<number>(
@@ -659,7 +649,8 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
       historyForModel = preShrunkHistory;
       while (true) {
         const messagesToCompact = historyForModel;
-        const messages: Message[] = [...messagesToCompact, createUserMessage(instruction)];
+        const snipped = snipLargeToolResults(messagesToCompact);
+        const messages: Message[] = [...snipped, createUserMessage(instruction)];
         const estimatedCompactionRequestTokens = this.requestTokens(messages);
         const effectiveMaxTokens = this.getEffectiveMaxContextTokens();
         const usedContextTokens =
@@ -884,34 +875,6 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
   private tokenCountWithPending(): number {
     return this.tokenCounting.get(agentContextOfScope(this.agent)).size;
   }
-}
-
-function findAPIStatusError(error: unknown): APIStatusError | undefined {
-  let current: unknown = error;
-  const seen = new Set<unknown>();
-  while (current !== undefined && current !== null && !seen.has(current)) {
-    if (current instanceof APIStatusError) return current;
-    seen.add(current);
-    current = current instanceof Error ? current.cause : undefined;
-  }
-  return undefined;
-}
-
-function collectSummary(finish: AgentLLMRequestFinish): CompactionAttemptResult {
-  if (finish.providerFinishReason === 'truncated') {
-    throw new CompactionTruncatedError();
-  }
-
-  const summary = finish.message.content
-    .filter((part) => part.type === 'text')
-    .map((part) => part.text)
-    .join('')
-    .trim();
-  if (summary.length === 0) {
-    throw new APIEmptyResponseError('The compaction response did not contain a non-empty summary.');
-  }
-
-  return { summary, usage: finish.usage, traceId: finish.traceId };
 }
 
 function historySafeToCompact(

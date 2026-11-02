@@ -89,7 +89,6 @@ sandboxWriteGuard  packages/agent-core-v2/src/workspace/sandbox/sandbox.ts
 selectPassiveUpdateTarget  apps/kimi-code/src/cli/update/rollout.ts
 setModelsDevUpstreamForTest  packages/agent-core-v2/src/app/kosongConfig/modelsDevUpstream.ts
 setRenderCacheEnabled  apps/kimi-code/src/tui/utils/render-cache.ts
-snipLargeToolResults  packages/agent-core-v2/src/agent/fullCompaction/compactionUtils.ts
 stagedExeFileName  apps/kimi-code/src/cli/update/native-stage.ts
 stubPair  packages/agent-core-v2/src/_base/di/test.ts
 usesTraitDrivenThinking  packages/agent-core-v2/src/llm-adapter/model/thinking.ts
