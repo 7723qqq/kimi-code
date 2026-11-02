@@ -5,6 +5,10 @@ import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import { waitForAssertion } from '#test/helpers/waitFor';
 
 const SKIP = process.platform === 'win32';
+const SKIP_REASON = SKIP ? 'process-group kill semantics are POSIX-only' : undefined;
+if (SKIP_REASON !== undefined) {
+  console.log(`posixProcessGroup skipped: ${SKIP_REASON}`);
+}
 const MARKER_A = 'sleep 311';
 const MARKER_B = 'sleep 312';
 
