@@ -30,7 +30,7 @@ import { ErrorCodes } from '#/errors';
 import { IAgentPlanService } from '#/features/plan/plan';
 import { planKey } from '#/features/plan/planOps';
 import type { TodoItem } from '#/features/todo/todoItem';
-import { ToolsUpdateStore } from '#/features/todo/todoOps';
+import { TodoUpdated, ToolsUpdateStore } from '#/features/todo/todoOps';
 import { IAgentTodoService } from '#/features/todo/todoService';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import type { DurableAgentRuntimeParticipant } from '#/state/eventDispatcher';
@@ -958,6 +958,41 @@ describe('AgentConversationUndoService', () => {
     } finally {
       flush.mockRestore();
     }
+  });
+
+  it('publishes a single todo.updated when undo replays a long todo history', async () => {
+    await setup();
+    ctx.appendTurnExchange('u1', 'a1');
+    const todo = ctx.get(IAgentTodoService);
+    const writes: TodoItem[][] = [];
+    for (let i = 0; i < 101; i += 1) {
+      writes.push([
+        { id: 'T1', parentId: null, kind: 'task', title: `write ${i}`, status: 'pending' },
+      ]);
+    }
+    for (const items of writes) await todo.replace(items);
+    ctx.appendTurnExchange('u2', 'a2');
+
+    const seen: TodoUpdated[] = [];
+    const subscription = ctx.get(IEventBus).subscribe(TodoUpdated, (event) => {
+      seen.push(event as unknown as TodoUpdated);
+    });
+    await ctx.get(IAgentConversationUndoService).undo(1);
+
+    const restored = writes.at(-1)!;
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.todos).toEqual(restored);
+    expect(todo.get()).toEqual(restored);
+
+    const after: TodoItem[] = [
+      { id: 'T1', parentId: null, kind: 'task', title: 'after undo', status: 'done' },
+    ];
+    await todo.replace(after);
+    subscription.dispose();
+    expect(todo.get()).toEqual(after);
+    expect(seen).toHaveLength(2);
+    expect(seen[1]?.todos).toEqual(after);
+    expect(seen[1]!.rev).toBeGreaterThan(seen[0]!.rev);
   });
 
   it('keeps terminal state equivalent across a legacy record-level downgrade round trip, and documents the orphan-edge crash window', async () => {

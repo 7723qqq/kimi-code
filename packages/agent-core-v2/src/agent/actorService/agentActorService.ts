@@ -31,7 +31,7 @@ export interface AgentActorDurable<State> {
   readonly undoable: boolean;
   readonly transition: StateFold<State>;
   read(snapshot: Snapshot<unknown>): State;
-  commit(actor: AnyActorRef, state: State): void;
+  commit(actor: AnyActorRef, state: State, silent: boolean): void;
 }
 
 export interface AgentActorOptions<State> {
@@ -102,8 +102,8 @@ export abstract class AgentActorService<State> extends Disposable {
             undoable: durable.undoable,
             transition: durable.transition,
             getState: () => durable.read(actor.getSnapshot()),
-            commit: (state) => {
-              durable.commit(actor, state);
+            commit: (state, silent) => {
+              durable.commit(actor, state, silent);
             },
           };
     let disposed = false;

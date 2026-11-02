@@ -110,7 +110,7 @@ interface ParticipantAttachment {
   readonly undoable: boolean;
   readonly initial: unknown;
   readonly getState: () => any;
-  readonly commit: (state: any) => void;
+  readonly commit: (state: any, silent: boolean) => void;
 }
 
 interface PreparedParticipant {
@@ -359,6 +359,7 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
         this.commitParticipant(attachment, ctx, next);
       }
       this.attachParticipant(attachment);
+      attachment.commit(attachment.getState(), false);
     } catch (error) {
       replayFailure = { error };
     }
@@ -400,8 +401,8 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
       undoable: participant.undoable,
       initial: participant.getState(),
       getState: () => participant.getState(),
-      commit: (state) => {
-        participant.commit(state);
+      commit: (state, silent) => {
+        participant.commit(state, silent);
       },
     };
   }
@@ -752,14 +753,14 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
     if (ctx.pendingUndo !== undefined) {
       const targetIndex = meta.checkpoints.length - ctx.pendingUndo;
       const snapshot = meta.checkpoints[targetIndex]!;
-      attachment.commit(freeze(snapshot, true));
+      attachment.commit(freeze(snapshot, true), ctx.silent);
       meta.checkpoints.length = targetIndex;
       return;
     }
     if (ctx.silent && next !== attachment.getState()) {
       this.replayFreshAttachments.add(attachment);
     }
-    attachment.commit(next);
+    attachment.commit(next, ctx.silent);
     if (ctx.pendingClear) {
       meta.checkpoints.length = 0;
     }
@@ -839,11 +840,14 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
 
   private resetReplayState(): void {
     this.replayMutableStates.clear();
+    this.replayFreshKeys.clear();
+    this.replayFreshAttachments.clear();
     for (const key of this.agentState.replayableKeys()) {
       this.agentState.set(key, key.initial());
     }
     for (const attachment of this.participantAttachments.values()) {
-      attachment.commit(attachment.initial);
+      attachment.commit(attachment.initial, true);
+      this.replayFreshAttachments.add(attachment);
       attachment.meta.checkpoints.length = 0;
     }
     this.metas.clear();
@@ -857,7 +861,6 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
     const chains = await this.wire.readRestoreChains();
     const resolved = new Map<WireRecord, ResolvedRecord>();
     this.replayFreshKeys.clear();
-    this.replayFreshAttachments.clear();
     this.replayPass(chains.restorable, true, resolved);
     this.replayPass(chains.journal, false, resolved);
   }
@@ -924,7 +927,7 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
     }
     this.replayFreshKeys.clear();
     for (const attachment of this.replayFreshAttachments) {
-      attachment.commit(freeze(attachment.getState(), true));
+      attachment.commit(freeze(attachment.getState(), true), false);
     }
     this.replayFreshAttachments.clear();
     this.replayMutableStates.clear();

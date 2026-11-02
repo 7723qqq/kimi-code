@@ -17,7 +17,7 @@ export interface DurableAgentRuntimeParticipant<State = any> {
   readonly undoable: boolean;
   readonly transition: StateFold<State>;
   getState(): State;
-  commit(state: State): void;
+  commit(state: State, silent: boolean): void;
 }
 
 export interface DurableRuntimeParticipantHost {

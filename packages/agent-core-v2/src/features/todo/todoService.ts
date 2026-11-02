@@ -165,9 +165,9 @@ export class AgentTodoService extends AgentActorService<TodoState> implements IA
           return readTodoItems(event.value);
         },
         read: (snapshot) => (snapshot as TodoActorSnapshot).context.todos,
-        commit: (actor, todos) => {
+        commit: (actor, todos, silent) => {
           actor.send({ type: 'todo.commit', todos });
-          this.publish(todos);
+          if (!silent) this.publish(todos);
         },
       },
     });
