@@ -125,10 +125,19 @@ async function copyBackupAtomic(deps: BackupDeps, destDir: string): Promise<void
   try {
     const files = await persistentFiles(deps.dir());
     const copied: string[] = [];
-    for (const name of files) if (await copyIfExists(deps.dir(), name, tmp)) copied.push(name);
+    const copiedFiles: string[] = [];
+    for (const name of files) {
+      const kind = await copyIfExists(deps.dir(), name, tmp);
+      if (kind === undefined) continue;
+      copied.push(name);
+      if (kind === 'file') copiedFiles.push(name);
+    }
     // Fsync every copied file BEFORE the manifest: the manifest is the
     // commit marker, so a durable manifest must imply durable payloads.
-    for (const name of copied) await fsyncCopiedFile(path.join(tmp, name));
+    // Directories (generations/) have no fsync-as-file syscall on POSIX
+    // (fs.open('r+') on a directory is EISDIR); their durability is covered
+    // by the fsyncDir(tmp) below plus the rename swap.
+    for (const name of copiedFiles) await fsyncCopiedFile(path.join(tmp, name));
     const manifest = path.join(tmp, 'backup.manifest.json');
     await fs.writeFile(
       manifest,
@@ -180,18 +189,25 @@ async function fsyncCopiedFile(file: string): Promise<void> {
   }
 }
 
-async function copyIfExists(dir: string, name: string, destDir: string): Promise<boolean> {
+async function copyIfExists(
+  dir: string,
+  name: string,
+  destDir: string,
+): Promise<'file' | 'directory' | undefined> {
   try {
     const src = path.join(dir, name);
     const st = await fs.stat(src);
     // The generations/ tree is a directory: copy it recursively (backup
     // includes published generations; a restore's inode change safely
     // invalidates their WAL anchors, so they fall back to a rebuild).
-    if (st.isDirectory()) await fs.cp(src, path.join(destDir, name), { recursive: true });
-    else await fs.copyFile(src, path.join(destDir, name));
-    return true;
+    if (st.isDirectory()) {
+      await fs.cp(src, path.join(destDir, name), { recursive: true });
+      return 'directory';
+    }
+    await fs.copyFile(src, path.join(destDir, name));
+    return 'file';
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
     throw error;
   }
 }
