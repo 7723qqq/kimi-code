@@ -39,6 +39,11 @@ export interface ISubagentBackendService {
   getBackend(name: SubagentBackendName): ISubagentBackend | undefined;
 
   list(): readonly ISubagentBackend[];
+
+  start(
+    name: SubagentBackendName,
+    request: SubagentBackendStartRequest,
+  ): Promise<SubagentBackendRun>;
 }
 
 export const ISubagentBackendService: ServiceIdentifier<ISubagentBackendService> =

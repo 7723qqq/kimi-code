@@ -19,7 +19,9 @@ export const SubagentToolInputSchema = z.preprocess(
     const hasSubagentType =
       typeof normalized['subagent_type'] === 'string' && normalized['subagent_type'].length > 0;
     const hasFork = normalized['fork'] === true;
-    if (!hasSubagentType && !hasResumeId && !hasFork) {
+    const hasBackend =
+      typeof normalized['backend'] === 'string' && normalized['backend'].trim().length > 0;
+    if (!hasSubagentType && !hasResumeId && !hasFork && !hasBackend) {
       normalized['subagent_type'] = DEFAULT_PROFILE_NAME;
     } else if (!hasSubagentType) {
       delete normalized['subagent_type'];
@@ -58,6 +60,12 @@ export const SubagentToolInputSchema = z.preprocess(
       .optional()
       .describe(
         'Which model to run the subagent on: one of the aliases listed under "Available models" in this tool description, or "primary" for your current model and thinking level. When omitted, the configured default model is used. Ignored when resuming — resumed subagents keep their own model.',
+      ),
+    backend: z
+      .string()
+      .optional()
+      .describe(
+        'Run the task on an external agent CLI backend (see "Available backends" in this tool description) instead of an in-process subagent. Cannot be combined with subagent_type, resume, fork, model, or run_in_background.',
       ),
   }),
 );

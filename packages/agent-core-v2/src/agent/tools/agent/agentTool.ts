@@ -2,7 +2,13 @@ import { type CollectionView } from '#/_base/di/collection';
 import { IInstantiationService } from '#/_base/di/instantiation';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
-import { isAbortError, isUserCancellation, userCancellationReason } from '#/_base/utils/abort';
+import {
+  createDeadlineAbortSignal,
+  isAbortError,
+  isUserCancellation,
+  userCancellationReason,
+  type DeadlineAbortSignal,
+} from '#/_base/utils/abort';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentProfileService } from '#/agent/profile/profile';
@@ -46,6 +52,18 @@ import {
 } from '#/session/agentLifecycle/subagentMetadata';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { type AgentMeta, ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
+import { backendIncompatibility } from '#/session/subagent/backend/backendCompat';
+import {
+  BACKENDS_EXPERIMENTAL_UNAVAILABLE,
+  buildSubagentBackendDescriptions,
+  exposesSubagentBackends,
+  stripSubagentBackendParameter,
+} from '#/session/subagent/backend/configSection';
+import {
+  ISubagentBackendService,
+  type SubagentBackendName,
+  type SubagentBackendResult,
+} from '#/session/subagent/backend/subagentBackend';
 import {
   buildSubagentModelDescriptions,
   exposesSubagentModelChoice,
@@ -65,11 +83,13 @@ import {
 } from '#/session/subagent/mirrorAgentRun';
 import { FORK_EXPERIMENTAL_UNAVAILABLE, forkIncompatibility } from '#/session/subagent/spawn';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { matchesGlobRuleSubject } from '#/tool/rule-match';
 import {
   ToolAccesses,
+  ToolSideEffects,
   isMcpToolName,
   type ExecutableToolContext,
   type ExecutableToolResult,
@@ -105,14 +125,19 @@ function isToolNamePattern(name: string): boolean {
 export class SubagentTool implements ISubagentTool {
   declare readonly _serviceBrand: undefined;
   readonly name: string = 'Agent';
+  readonly sideEffect = ToolSideEffects.read;
 
   get parameters(): Record<string, unknown> {
-    const parameters = exposesSubagentModelChoice(this.config)
+    let parameters = exposesSubagentModelChoice(this.config)
       ? SUBAGENT_TOOL_PARAMETERS
       : SUBAGENT_TOOL_PARAMETERS_NO_MODEL;
-    return this.flags.enabled(SUBAGENT_FORK_FLAG_ID)
-      ? parameters
-      : stripSubagentForkParameter(parameters);
+    if (!this.flags.enabled(SUBAGENT_FORK_FLAG_ID)) {
+      parameters = stripSubagentForkParameter(parameters);
+    }
+    if (!exposesSubagentBackends(this.flags)) {
+      parameters = stripSubagentBackendParameter(parameters);
+    }
+    return parameters;
   }
 
   private readonly callerAgentId: string;
@@ -137,6 +162,8 @@ export class SubagentTool implements ISubagentTool {
     @ILogService private readonly log: ILogService,
     @IConfigService private readonly config: IConfigService,
     @IFlagService private readonly flags: IFlagService,
+    @ISubagentBackendService private readonly backends: ISubagentBackendService,
+    @ISessionWorkspaceContext private readonly workspaceCtx: ISessionWorkspaceContext,
     @AgentToolContribution private readonly contributions: CollectionView<AgentToolContribution>,
   ) {
     this.callerAgentId = scopeContext.agentId;
@@ -180,6 +207,9 @@ export class SubagentTool implements ISubagentTool {
     const modelLines = buildSubagentModelDescriptions(this.config, this.profile.data().modelAlias);
     if (modelLines !== undefined) {
       description += `\n\n${modelLines}`;
+    }
+    if (exposesSubagentBackends(this.flags)) {
+      description += `\n\n${buildSubagentBackendDescriptions(this.backends.list())}`;
     }
     return description;
   }
@@ -280,13 +310,19 @@ export class SubagentTool implements ISubagentTool {
       }
     }
 
+    const backendCheck = this.checkBackendArgs(args);
+    if (backendCheck.error !== undefined) {
+      return { output: backendCheck.error, isError: true };
+    }
+
     const profileNameForDisplay =
-      resumeAgentId !== undefined && resumeAgentId.length > 0
+      backendCheck.name ??
+      (resumeAgentId !== undefined && resumeAgentId.length > 0
         ? ((await this.resumeProfileName(resumeAgentId)) ?? RESUMED_LABEL)
         : (requestedProfileName ??
           (args.fork === true
             ? (this.profile.data().profileName ?? DEFAULT_PROFILE_NAME)
-            : DEFAULT_PROFILE_NAME));
+            : DEFAULT_PROFILE_NAME)));
     const prefix = args.run_in_background === true ? 'Launching background' : 'Launching';
     return {
       description: `${prefix} ${profileNameForDisplay} agent: ${args.description}`,
@@ -301,6 +337,30 @@ export class SubagentTool implements ISubagentTool {
       matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, profileNameForDisplay),
       execute: (ctx) => this.execution(args, ctx),
     };
+  }
+
+  private checkBackendArgs(args: SubagentToolInput): {
+    readonly name?: SubagentBackendName;
+    readonly error?: string;
+  } {
+    const requested = args.backend?.trim();
+    if (requested === undefined || requested.length === 0) return {};
+    if (!exposesSubagentBackends(this.flags)) {
+      return { error: BACKENDS_EXPERIMENTAL_UNAVAILABLE };
+    }
+    const incompatible = backendIncompatibility(args);
+    if (incompatible !== undefined) {
+      return { error: incompatible };
+    }
+    const backend = this.backends.getBackend(requested as SubagentBackendName);
+    if (backend === undefined) {
+      const available = this.backends
+        .list()
+        .map((entry) => entry.name)
+        .join(', ');
+      return { error: `Unknown backend "${requested}". Available backends: ${available}.` };
+    }
+    return { name: backend.name };
   }
 
   private async resumeProfileName(agentId: string): Promise<string | undefined> {
@@ -453,6 +513,41 @@ export class SubagentTool implements ISubagentTool {
     return rebuilt;
   }
 
+  private async executionBackend(
+    args: SubagentToolInput,
+    backendName: SubagentBackendName,
+    signal: AbortSignal,
+  ): Promise<ExecutableToolResult> {
+    const timeoutMs = resolveSubagentTimeoutMs(this.config);
+    const deadline = createDeadlineAbortSignal(signal, timeoutMs);
+    try {
+      const run = await this.backends.start(backendName, {
+        prompt: args.prompt,
+        cwd: this.workspaceCtx.workDir,
+        signal: deadline.signal,
+      });
+      try {
+        const result = await run.result;
+        if (result.stopReason === 'completed') {
+          return { output: formatBackendAgentSuccess(backendName, run.id, result.output) };
+        }
+        return {
+          output: formatBackendAgentFailure(
+            backendName,
+            run.id,
+            result,
+            backendStopMessage(result.stopReason, signal, deadline, timeoutMs),
+          ),
+          isError: true,
+        };
+      } finally {
+        await run.dispose();
+      }
+    } finally {
+      deadline.clear();
+    }
+  }
+
   private async execution(
     args: SubagentToolInput,
     { toolCallId, signal }: ExecutableToolContext,
@@ -476,6 +571,14 @@ export class SubagentTool implements ISubagentTool {
         if (forkError !== undefined) {
           return { output: forkError, isError: true };
         }
+      }
+
+      const backendCheck = this.checkBackendArgs(args);
+      if (backendCheck.error !== undefined) {
+        return { output: backendCheck.error, isError: true };
+      }
+      if (backendCheck.name !== undefined) {
+        return await this.executionBackend(args, backendCheck.name, signal);
       }
 
       const allowBackground = this.canRunInBackground();
@@ -733,6 +836,58 @@ function buildProfileDescriptions(
       return `${header}\n  Tools: ${activeTools.join(', ')}`;
     })
     .join('\n');
+}
+
+function formatBackendAgentSuccess(backendName: string, runId: string, output: string): string {
+  return [
+    `backend: ${backendName}`,
+    `backend_run_id: ${runId}`,
+    'status: completed',
+    'stop_reason: completed',
+    '',
+    '[summary]',
+    output,
+  ].join('\n');
+}
+
+function formatBackendAgentFailure(
+  backendName: string,
+  runId: string,
+  result: SubagentBackendResult,
+  message: string,
+): string {
+  return [
+    `backend: ${backendName}`,
+    `backend_run_id: ${runId}`,
+    'status: failed',
+    `stop_reason: ${result.stopReason}`,
+    '',
+    `subagent error: ${message}`,
+    '',
+    result.output.length > 0 ? result.output : NO_PARTIAL_OUTPUT,
+  ].join('\n');
+}
+
+function backendStopMessage(
+  stopReason: SubagentBackendResult['stopReason'],
+  signal: AbortSignal,
+  deadline: DeadlineAbortSignal,
+  timeoutMs: number,
+): string {
+  switch (stopReason) {
+    case 'aborted':
+      if (isUserCancellation(signal.reason)) return USER_INTERRUPTED_SUBAGENT_MESSAGE;
+      if (deadline.timedOut()) {
+        return `Agent timed out after ${formatSubagentTimeoutDescription(timeoutMs)}.`;
+      }
+      return SUBAGENT_STOPPED_MESSAGE;
+    case 'max-tokens':
+      return 'The external backend stopped at its token limit.';
+    case 'refusal':
+      return 'The external backend refused the task.';
+    default:
+      return 'The external backend reported an error.';
+  }
 }
 
 function formatBackgroundAgentResult(

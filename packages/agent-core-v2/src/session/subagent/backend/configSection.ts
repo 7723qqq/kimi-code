@@ -54,6 +54,9 @@ export function exposesSubagentBackends(flags: IFlagService): boolean {
   return flags.enabled(SUBAGENT_BACKENDS_FLAG_ID);
 }
 
+export const BACKENDS_EXPERIMENTAL_UNAVAILABLE =
+  'backend is disabled: the subagent_backends experimental flag is off.';
+
 export function buildSubagentBackendDescriptions(backends: readonly ISubagentBackend[]): string {
   return `Available backends (pass via backend): ${backends.map((backend) => backend.name).join(', ')}`;
 }

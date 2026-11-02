@@ -18,7 +18,6 @@ _clearFeatureRecipesForTests  packages/agent-core-v2/src/features/featureRegistr
 _clearScopedRegistryForTests  packages/agent-core-v2/src/_base/di/scope.ts
 _setTowerFeatureAssembledForTests  packages/agent-core-v2/src/features/tower/towerFeature.ts
 applyContextCompactionRecord  packages/agent-core-v2/src/agent/contextMemory/contextOps.ts
-backendIncompatibility  packages/agent-core-v2/src/session/subagent/backend/backendCompat.ts
 buildHookSpawnOptions  packages/agent-core-v2/src/features/externalHooks/internal/runHook.ts
 connectPlugins  packages/agent-core-v2/src/human/plugin.ts
 containsUsableMessage  packages/migration-legacy/src/sessions/translator.ts
@@ -92,7 +91,6 @@ setModelsDevUpstreamForTest  packages/agent-core-v2/src/app/kosongConfig/modelsD
 setRenderCacheEnabled  apps/kimi-code/src/tui/utils/render-cache.ts
 snipLargeToolResults  packages/agent-core-v2/src/agent/fullCompaction/compactionUtils.ts
 stagedExeFileName  apps/kimi-code/src/cli/update/native-stage.ts
-stripSubagentBackendParameter  packages/agent-core-v2/src/session/subagent/backend/configSection.ts
 stubPair  packages/agent-core-v2/src/_base/di/test.ts
 usesTraitDrivenThinking  packages/agent-core-v2/src/llm-adapter/model/thinking.ts
 verifyFileIntegritySync  packages/minidb/src/gen-codec.ts

@@ -6,6 +6,8 @@ export const BACKEND_CANNOT_COMBINE_WITH_MODEL =
   'Cannot use backend with model — external backends are configured through the [subagentBackend] config section instead of the model parameter.';
 export const BACKEND_CANNOT_COMBINE_WITH_FORK =
   'Cannot use backend with fork — fork snapshots the in-process conversation history, which an external backend does not share.';
+export const BACKEND_CANNOT_COMBINE_WITH_BACKGROUND =
+  'Cannot use backend with run_in_background — an external backend runs only in the foreground of the calling turn.';
 
 export interface BackendCompatInputLike {
   readonly backend?: string;
@@ -13,6 +15,7 @@ export interface BackendCompatInputLike {
   readonly resume?: string;
   readonly subagent_type?: string;
   readonly model?: string;
+  readonly run_in_background?: boolean;
 }
 
 export function backendIncompatibility(args: BackendCompatInputLike): string | undefined {
@@ -29,6 +32,9 @@ export function backendIncompatibility(args: BackendCompatInputLike): string | u
   }
   if (args.fork === true) {
     return BACKEND_CANNOT_COMBINE_WITH_FORK;
+  }
+  if (args.run_in_background === true) {
+    return BACKEND_CANNOT_COMBINE_WITH_BACKGROUND;
   }
   return undefined;
 }

@@ -64,6 +64,15 @@ import {
 } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { ISessionMetadata, type AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
+import { BACKENDS_EXPERIMENTAL_UNAVAILABLE } from '#/session/subagent/backend/configSection';
+import { SUBAGENT_BACKENDS_FLAG_ID } from '#/session/subagent/backend/flag';
+import {
+  ISubagentBackendService,
+  type ISubagentBackend,
+  type SubagentBackendResult,
+  type SubagentBackendRun,
+  type SubagentBackendStartRequest,
+} from '#/session/subagent/backend/subagentBackend';
 import {
   DEFAULT_SUBAGENT_TIMEOUT_MS,
   SECONDARY_MODEL_SECTION,
@@ -87,6 +96,7 @@ import {
 } from '#/session/subagent/subagent';
 import { SUBAGENT_SCOPE_EVICT_TIMEOUT_ENV } from '#/session/subagent/subagentScopeCache';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { ToolAccesses, type ExecutableTool } from '#/tool/toolContract';
@@ -752,6 +762,23 @@ describe('SubagentToolInputSchema', () => {
         prompt: 'Continue',
         description: 'Continue work',
         fork: true,
+      }).subagent_type,
+    ).toBeUndefined();
+  });
+
+  it('exposes the backend parameter in the JSON schema', () => {
+    const properties = agentSchemaProperties<{ type?: string }>();
+
+    expect(properties).toHaveProperty('backend');
+    expect(properties['backend']?.type).toBe('string');
+  });
+
+  it('does not default subagent_type when a backend is requested', () => {
+    expect(
+      SubagentToolInputSchema.parse({
+        prompt: 'Investigate',
+        description: 'Find cause',
+        backend: 'codex',
       }).subagent_type,
     ).toBeUndefined();
   });
@@ -3559,6 +3586,241 @@ describe('Agent tool execution contract', () => {
 
     expect(result).toMatchObject({ isError: true });
     expect(result.output).toContain('subagent error: Agent timed out after 1 second.');
+  });
+});
+
+describe('Agent tool external backends', () => {
+  let ctx: TestAgentContext | undefined;
+
+  afterEach(async () => {
+    await ctx?.dispose();
+    ctx = undefined;
+  });
+
+  class FakeBackend implements ISubagentBackend {
+    readonly name = 'codex' as const;
+    readonly startCalls: SubagentBackendStartRequest[] = [];
+    readonly runs: SubagentBackendRun[] = [];
+
+    constructor(private readonly outcome: SubagentBackendResult | Error) {}
+
+    async start(request: SubagentBackendStartRequest): Promise<SubagentBackendRun> {
+      this.startCalls.push(request);
+      if (this.outcome instanceof Error) throw this.outcome;
+      const run: SubagentBackendRun = {
+        id: 'fake-run-1',
+        result: Promise.resolve(this.outcome),
+        dispose: mock(async () => {}),
+      };
+      this.runs.push(run);
+      return run;
+    }
+  }
+
+  function fakeBackendService(backend: FakeBackend): ISubagentBackendService {
+    return {
+      _serviceBrand: undefined,
+      getBackend: (name) => (name === backend.name ? backend : undefined),
+      list: () => [backend],
+      start: (name, request) => {
+        if (name !== backend.name) {
+          return Promise.reject(new Error(`Unknown subagent backend "${name}".`));
+        }
+        return backend.start(request);
+      },
+    };
+  }
+
+  function backendFlags(enabled = true): TestAgentServiceOverride {
+    return appService(
+      IFlagService,
+      stubFlag((id) => enabled && id === SUBAGENT_BACKENDS_FLAG_ID),
+    );
+  }
+
+  function createBackendContext(
+    backend: FakeBackend,
+    ...extra: readonly (TestAgentServiceOverride | TestAgentOptions)[]
+  ): TestAgentContext {
+    ctx = createTestAgent(sessionService(ISubagentBackendService, fakeBackendService(backend)), ...extra);
+    return ctx;
+  }
+
+  function agentToolProperties(): Record<string, unknown> | undefined {
+    const tool = ctx?.toolsData().find((entry) => entry.name === 'Agent');
+    expect(tool).toBeDefined();
+    return (tool!.parameters as { properties?: Record<string, unknown> } | undefined)?.properties;
+  }
+
+  it('exposes the backend parameter and description when the flag is on', () => {
+    createBackendContext(new FakeBackend({ output: 'ok', stopReason: 'completed' }), backendFlags());
+
+    const tool = ctx!.toolsData().find((entry) => entry.name === 'Agent');
+    expect(agentToolProperties()).toHaveProperty('backend');
+    expect(tool!.description).toContain('Available backends (pass via backend): codex');
+  });
+
+  it('omits the backend parameter and description when the flag is off', () => {
+    createBackendContext(new FakeBackend({ output: 'ok', stopReason: 'completed' }), backendFlags(false));
+
+    const tool = ctx!.toolsData().find((entry) => entry.name === 'Agent');
+    expect(agentToolProperties()).not.toHaveProperty('backend');
+    expect(tool!.description).not.toContain('Available backends');
+  });
+
+  it('rejects a backend request while the flag is off', async () => {
+    const context = createBackendContext(
+      new FakeBackend({ output: 'ok', stopReason: 'completed' }),
+      backendFlags(false),
+    );
+
+    const result = await executeAgentTool(context, {
+      prompt: 'Investigate',
+      description: 'Find cause',
+      backend: 'codex',
+    });
+
+    expect(result).toEqual({ output: BACKENDS_EXPERIMENTAL_UNAVAILABLE, isError: true });
+  });
+
+  it.each([
+    [{ model: 'provider/fast' }, 'Cannot use backend with model'],
+    [{ subagent_type: 'explore' }, 'Cannot use backend with subagent_type'],
+    [{ resume: 'agent-1' }, 'Cannot use backend with resume'],
+    [{ run_in_background: true }, 'Cannot use backend with run_in_background'],
+  ] as const)('rejects %j combined with backend', async (extra, message) => {
+    const context = createBackendContext(
+      new FakeBackend({ output: 'ok', stopReason: 'completed' }),
+      backendFlags(),
+    );
+
+    const result = await executeAgentTool(context, {
+      prompt: 'Investigate',
+      description: 'Find cause',
+      backend: 'codex',
+      ...extra,
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain(message);
+  });
+
+  it('rejects fork combined with backend', async () => {
+    const context = createBackendContext(
+      new FakeBackend({ output: 'ok', stopReason: 'completed' }),
+      appService(
+        IFlagService,
+        stubFlag((id) => id === SUBAGENT_BACKENDS_FLAG_ID || id === SUBAGENT_FORK_FLAG_ID),
+      ),
+    );
+
+    const result = await executeAgentTool(context, {
+      prompt: 'Investigate',
+      description: 'Find cause',
+      backend: 'codex',
+      fork: true,
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('Cannot use backend with fork');
+  });
+
+  it('rejects an unknown backend name with the available list', async () => {
+    const context = createBackendContext(
+      new FakeBackend({ output: 'ok', stopReason: 'completed' }),
+      backendFlags(),
+    );
+
+    const result = await executeAgentTool(context, {
+      prompt: 'Investigate',
+      description: 'Find cause',
+      backend: 'mystery',
+    });
+
+    expect(result).toEqual({
+      output: 'Unknown backend "mystery". Available backends: codex.',
+      isError: true,
+    });
+  });
+
+  it('dispatches to the backend and formats the completed run', async () => {
+    const backend = new FakeBackend({ output: 'backend says hi', stopReason: 'completed' });
+    const context = createBackendContext(backend, backendFlags());
+
+    const result = await executeAgentTool(context, {
+      prompt: 'do the thing',
+      description: 'run backend',
+      backend: 'codex',
+    });
+
+    expect(result.isError).toBeUndefined();
+    expect(result.output).toContain('backend: codex');
+    expect(result.output).toContain('backend_run_id: fake-run-1');
+    expect(result.output).toContain('status: completed');
+    expect(result.output).toContain('[summary]\nbackend says hi');
+    expect(backend.startCalls).toHaveLength(1);
+    expect(backend.startCalls[0]?.prompt).toBe('do the thing');
+    expect(backend.startCalls[0]?.cwd).toBe(context.get(ISessionWorkspaceContext).workDir);
+    expect(backend.runs[0]?.dispose).toHaveBeenCalled();
+  });
+
+  it('formats a failed backend run as an error', async () => {
+    const backend = new FakeBackend({ output: 'partial work', stopReason: 'error' });
+    const context = createBackendContext(backend, backendFlags());
+
+    const result = await executeAgentTool(context, {
+      prompt: 'Investigate',
+      description: 'Find cause',
+      backend: 'codex',
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('status: failed');
+    expect(result.output).toContain('stop_reason: error');
+    expect(result.output).toContain('partial work');
+    expect(backend.runs[0]?.dispose).toHaveBeenCalled();
+  });
+
+  it('surfaces a dispatch rejection from the backend service', async () => {
+    const backend = new FakeBackend(
+      new Error(
+        'Sandbox mode "read-only" blocks external subagent backends ("codex" would run as a separate process outside engine control).',
+      ),
+    );
+    const context = createBackendContext(backend, backendFlags());
+
+    const result = await executeAgentTool(context, {
+      prompt: 'Investigate',
+      description: 'Find cause',
+      backend: 'codex',
+    });
+
+    expect(result).toEqual({
+      output:
+        'subagent error: Sandbox mode "read-only" blocks external subagent backends ("codex" would run as a separate process outside engine control).',
+      isError: true,
+    });
+  });
+
+  it('does not touch the in-process spawn path for a backend run', async () => {
+    const lifecycle = createAgentLifecycleStub();
+    const backend = new FakeBackend({ output: 'ok', stopReason: 'completed' });
+    const context = createTestAgent(
+      sessionService(ISubagentBackendService, fakeBackendService(backend)),
+      sessionService(IAgentLifecycleService, lifecycle),
+      backendFlags(),
+    );
+    ctx = context;
+
+    const result = await executeAgentTool(context, {
+      prompt: 'Investigate',
+      description: 'Find cause',
+      backend: 'codex',
+    });
+
+    expect(result.isError).toBeUndefined();
+    expect(lifecycle.create).not.toHaveBeenCalled();
+    expect(lifecycle.run).not.toHaveBeenCalled();
   });
 });
 

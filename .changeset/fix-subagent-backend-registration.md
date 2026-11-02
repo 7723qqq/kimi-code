@@ -3,4 +3,4 @@
 "@moonshot-ai/kimi-code": patch
 ---
 
-Fix `subagentTool depends on subagentBackendService which is NOT registered` at startup: the Session-scoped `SubagentBackendService` self-registers via a module side effect, but the module was never imported by the domain assembly (`src/index.ts`), so the registration never ran in the bundled CLI and the Agent tool failed DI resolution on every session create. Package tests imported the module directly and masked the gap.
+Wire the subagent backend subsystem into the engine: the `[subagent_backend]` config section is now recognized, and the Agent tool gains an experimental `backend` parameter (flag `subagent_backends`) that runs a task on an external agent CLI (claude-code, codex, acp) — refused while `[sandbox] mode` is not `"off"`.

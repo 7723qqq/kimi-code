@@ -1,11 +1,63 @@
-import { describe, expect, it } from 'bun:test';
+import { beforeAll, describe, expect, it, mock } from 'bun:test';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+import { setLocale } from '@moonshot-ai/kimi-i18n';
 
 import type { IConfigService } from '#/app/config/config';
-import type { ISessionProcessRunner } from '#/session/process/processRunner';
+import { ConfigRegistry } from '#/app/config/configService';
+import { transformTomlData } from '#/app/config/toml';
+import type { IProcess, ISessionProcessRunner } from '#/session/process/processRunner';
 import { acpStopReason } from '#/session/subagent/backend/acpBackend';
 import { backendIncompatibility } from '#/session/subagent/backend/backendCompat';
-import { stripSubagentBackendParameter } from '#/session/subagent/backend/configSection';
+import {
+  SUBAGENT_BACKEND_SECTION,
+  stripSubagentBackendParameter,
+} from '#/session/subagent/backend/configSection';
+import type { SubagentBackendName } from '#/session/subagent/backend/subagentBackend';
 import { SubagentBackendService } from '#/session/subagent/backend/subagentBackendService';
+import { SANDBOX_SECTION } from '#/workspace/sandbox/sandbox';
+
+import { StubConfigService } from '#test/stubs';
+
+const FAKE_SERVER = fileURLToPath(new URL('./fixtures/fake-codex-server.mjs', import.meta.url));
+
+function spawnFakeServer(): IProcess {
+  const child = spawn(process.execPath, [FAKE_SERVER], {
+    env: { ...process.env },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  return {
+    stdin: child.stdin,
+    stdout: child.stdout,
+    stderr: child.stderr,
+    pid: child.pid ?? 0,
+    exitCode: null,
+    wait: () => new Promise((resolve) => child.on('exit', (code) => resolve(code ?? 0))),
+    kill: (signal) => {
+      child.kill(signal);
+      return Promise.resolve();
+    },
+    dispose: () => {
+      child.kill();
+      return Promise.resolve();
+    },
+  };
+}
+
+function runnerSpawningFakeServer(exec = mock(async () => spawnFakeServer())): {
+  readonly runner: ISessionProcessRunner;
+  readonly exec: typeof exec;
+} {
+  return {
+    runner: { _serviceBrand: undefined, exec } as unknown as ISessionProcessRunner,
+    exec,
+  };
+}
+
+function configWith(sections: Record<string, unknown>): IConfigService {
+  return new StubConfigService(sections);
+}
 
 describe('acpStopReason', () => {
   it('maps ACP stop reasons to backend stop reasons', () => {
@@ -35,6 +87,106 @@ describe('SubagentBackendService', () => {
   });
 });
 
+describe('SubagentBackendService.start', () => {
+  beforeAll(() => {
+    setLocale('en');
+  });
+
+  it('dispatches to the named backend when no sandbox mode is configured', async () => {
+    const { runner } = runnerSpawningFakeServer();
+    const service = new SubagentBackendService(
+      runner,
+      configWith({
+        [SUBAGENT_BACKEND_SECTION]: { codex: { command: process.execPath, args: [FAKE_SERVER] } },
+      }),
+    );
+
+    const run = await service.start('codex', {
+      prompt: 'do the thing',
+      cwd: '/ws',
+      signal: new AbortController().signal,
+    });
+
+    expect(await run.result).toEqual({ output: 'hello world', stopReason: 'completed' });
+    await run.dispose();
+  });
+
+  it('rejects an unknown backend name before touching any backend', async () => {
+    const { runner, exec } = runnerSpawningFakeServer();
+    const service = new SubagentBackendService(runner, configWith({}));
+
+    await expect(
+      service.start('mystery' as SubagentBackendName, {
+        prompt: 'x',
+        cwd: '/ws',
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(
+      'Unknown subagent backend "mystery". Available backends: claude-code, codex, acp.',
+    );
+    expect(exec).not.toHaveBeenCalled();
+  });
+
+  it.each(['read-only', 'workspace-write'] as const)(
+    'refuses to dispatch an external backend while sandbox mode is %s',
+    async (mode) => {
+      const { runner, exec } = runnerSpawningFakeServer();
+      const service = new SubagentBackendService(
+        runner,
+        configWith({
+          [SANDBOX_SECTION]: { mode },
+          [SUBAGENT_BACKEND_SECTION]: { codex: { command: process.execPath } },
+        }),
+      );
+
+      await expect(
+        service.start('codex', {
+          prompt: 'x',
+          cwd: '/ws',
+          signal: new AbortController().signal,
+        }),
+      ).rejects.toThrow(`Sandbox mode "${mode}" blocks external subagent backends`);
+      expect(exec).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe('subagentBackend config section', () => {
+  it('registers the subagentBackend section with an empty default', () => {
+    const registry = new ConfigRegistry();
+
+    const section = registry.getSection(SUBAGENT_BACKEND_SECTION);
+    expect(section).toBeDefined();
+    expect(section?.defaultValue).toEqual({});
+  });
+
+  it('validates backend entries and rejects malformed values', () => {
+    const registry = new ConfigRegistry();
+
+    const valid = {
+      claudeCode: { command: 'claude', model: 'sonnet' },
+      codex: { command: 'codex' },
+      acp: { command: 'acp-server', args: ['--stdio'], env: { ACP_KEY: 'x' } },
+    };
+    expect(registry.validate(SUBAGENT_BACKEND_SECTION, valid)).toEqual(valid);
+    expect(registry.validate(SUBAGENT_BACKEND_SECTION, {})).toEqual({});
+    expect(() => registry.validate(SUBAGENT_BACKEND_SECTION, { acp: {} })).toThrow();
+    expect(() =>
+      registry.validate(SUBAGENT_BACKEND_SECTION, { claudeCode: { command: 7 } }),
+    ).toThrow();
+  });
+
+  it('round-trips [subagent_backend] from TOML with snake_case keys', () => {
+    const registry = new ConfigRegistry();
+    const transformed = transformTomlData(
+      { subagent_backend: { claude_code: { command: 'claude' } } },
+      registry,
+    );
+
+    expect(transformed[SUBAGENT_BACKEND_SECTION]).toEqual({ claudeCode: { command: 'claude' } });
+  });
+});
+
 describe('backendIncompatibility', () => {
   it('accepts a plain backend request', () => {
     expect(backendIncompatibility({ backend: 'codex' })).toBeUndefined();
@@ -57,6 +209,12 @@ describe('backendIncompatibility', () => {
     );
     expect(backendIncompatibility({ backend: 'codex', fork: true })).toContain(
       'Cannot use backend with fork',
+    );
+  });
+
+  it('rejects run_in_background with a backend', () => {
+    expect(backendIncompatibility({ backend: 'codex', run_in_background: true })).toContain(
+      'Cannot use backend with run_in_background',
     );
   });
 });
