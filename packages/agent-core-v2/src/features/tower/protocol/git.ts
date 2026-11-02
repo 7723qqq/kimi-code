@@ -181,7 +181,7 @@ export async function worktreeDirtyState(path: string): Promise<WorktreeDirtySta
 }
 
 export async function isWorktreeDirty(path: string): Promise<boolean> {
-  return (await worktreeDirtyState(path)) === 'dirty';
+  return (await git(path, ['status', '--porcelain'])).trim().length > 0;
 }
 
 async function hasMergeHead(cwd: string): Promise<boolean> {
