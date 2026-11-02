@@ -1,4 +1,5 @@
-import { KIMI_NODE_FALLBACK_SUBCOMMAND, type PluginNodeRunner } from '@moonshot-ai/kimi-code-sdk';
+import type { PluginNodeRunner } from '@moonshot-ai/kimi-code-sdk';
+import { KIMI_NODE_FALLBACK_SUBCOMMAND } from '@moonshot-ai/kimi-code-sdk/runtime';
 
 export interface PluginNodeRunnerProbe {
   readonly argv?: readonly string[];

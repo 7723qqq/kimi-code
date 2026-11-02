@@ -1,6 +1,6 @@
 import type { PluginSummary } from '@moonshot-ai/kimi-code-sdk';
 
-import { kimiCodePluginMarketplaceUrl } from '#/constant/app';
+import { kimiCodePluginMarketplaceUrl } from '#/constant/region-urls';
 import { t } from '#/i18n';
 import {
   computeUpdateStatus,

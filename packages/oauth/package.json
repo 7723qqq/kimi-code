@@ -37,6 +37,18 @@
       "types": "./src/device.ts",
       "default": "./src/device.ts"
     },
+    "./identity": {
+      "types": "./src/identity.ts",
+      "default": "./src/identity.ts"
+    },
+    "./open-platform": {
+      "types": "./src/open-platform.ts",
+      "default": "./src/open-platform.ts"
+    },
+    "./open-platform-defs": {
+      "types": "./src/open-platform-defs.ts",
+      "default": "./src/open-platform-defs.ts"
+    },
     "./provider-credential": {
       "types": "./src/provider-credential.ts",
       "default": "./src/provider-credential.ts"

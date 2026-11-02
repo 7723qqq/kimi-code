@@ -34,7 +34,7 @@ irm https://code.kimi.com/kimi-code/install.ps1 | iex
 
 :::
 
-> On Windows, the `Bash` tool runs through a real bash: it uses the bundled, version-pinned bash payload when one is installed (`kimi shells provision --bash`, verified by hash on install), and otherwise auto-detects Git Bash or MSYS2 bash; `KIMI_SHELL_PATH` pins a specific `bash.exe` ahead of both. If no bash is available at all, run `kimi shells provision --bash` or let the CLI offer to install MSYS2 (a full Linux command-line environment) on first launch. For PowerShell work, use the built-in `PowerShell` tool instead of calling `powershell.exe` / `pwsh` from `Bash` — it runs scripts natively with clean UTF-8 output; it prefers the bundled pwsh payload (`kimi shells provision --pwsh`), then PowerShell 7, then Windows PowerShell 5.1, and `KIMI_PWSH_PATH` pins a specific `pwsh.exe` ahead of both. If GitHub downloads are slow or blocked, point `kimi shells provision --mirror <base>` (or the `KIMI_DOWNLOAD_MIRROR` environment variable) at a GitHub release mirror prefix.
+> On Windows, the `Bash` tool runs through a real bash and the `PowerShell` tool runs PowerShell natively (Windows only). `KIMI_SHELL_PATH` and `KIMI_PWSH_PATH` pin a specific `bash.exe` / `pwsh.exe` ahead of auto-detection; the full shell-resolution order, the bundled payloads (`kimi shells provision --bash` / `--pwsh`) and the download mirror are listed under [Environment Variables](../configuration/env-vars.md).
 
 The script automatically downloads the latest release, verifies the checksum, and places the `kimi` executable on your `PATH`.
 

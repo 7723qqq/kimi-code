@@ -15,6 +15,7 @@ import { downloadZip, extractZip } from './archive';
 import { loadPluginCommand } from './commands';
 import { resolveGithubCommitSha, resolveGithubSource } from './github-resolver';
 import { parseManifest, type ParsedManifestResult } from './manifest';
+import { KIMI_NODE_FALLBACK_SUBCOMMAND } from './nodeFallback';
 import { resolveInstallSource } from './source';
 import { readInstalled, writeInstalled, type InstalledRecord } from './store';
 import type { PluginAgentRoot } from './types';
@@ -742,7 +743,7 @@ function pluginMcpRuntimeName(pluginId: string, serverName: string): string {
   return `plugin-${pluginId}:${serverName}`;
 }
 
-export const KIMI_NODE_FALLBACK_SUBCOMMAND = '__plugin_run_node';
+export { KIMI_NODE_FALLBACK_SUBCOMMAND } from './nodeFallback';
 
 function withMcpServerEnabled(config: McpServerConfig, enabled: boolean): McpServerConfig {
   return { ...config, enabled };

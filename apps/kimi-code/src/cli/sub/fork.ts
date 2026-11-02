@@ -1,9 +1,4 @@
-import {
-  createKimiHarness,
-  type KimiHarness,
-  type SessionSummary,
-  type TelemetryClient,
-} from '@moonshot-ai/kimi-code-sdk';
+import type { KimiHarness, SessionSummary, TelemetryClient } from '@moonshot-ai/kimi-code-sdk';
 import {
   setTelemetryContext,
   shutdownTelemetry,
@@ -13,7 +8,6 @@ import {
 import type { Command } from 'commander';
 
 import { resolvePluginNodeRunner } from '#/cli/plugin-node-runner';
-import { createCliTelemetryBootstrap, initializeCliTelemetry } from '#/cli/telemetry';
 import { createKimiCodeHostIdentity } from '#/cli/version';
 import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE } from '#/constant/app';
 import { t } from '#/i18n';
@@ -91,7 +85,7 @@ export function registerForkCommand(parent: Command, deps?: Partial<ForkDeps>): 
     .option('-y, --yes', t('cli.optionDescriptions.forkYes'))
     .argument('[sessionId]', t('cli.optionDescriptions.forkSessionId'))
     .action(async (sessionId: string | undefined, options: { cwd?: string; yes?: boolean }) => {
-      const resolved = createDefaultForkDeps(deps);
+      const resolved = await createDefaultForkDeps(deps);
       try {
         await handleFork(resolved, sessionId, {
           yes: options.yes === true,
@@ -103,9 +97,15 @@ export function registerForkCommand(parent: Command, deps?: Partial<ForkDeps>): 
     });
 }
 
-function createDefaultForkDeps(overrides: Partial<ForkDeps> = {}): ForkDeps & {
-  readonly close: () => Promise<void>;
-} {
+async function createDefaultForkDeps(overrides: Partial<ForkDeps> = {}): Promise<
+  ForkDeps & {
+    readonly close: () => Promise<void>;
+  }
+> {
+  // The harness and CLI telemetry bootstrap pull the engine; load them on
+  // dispatch so registering the command stays free of both.
+  const [{ createKimiHarness }, { createCliTelemetryBootstrap, initializeCliTelemetry }] =
+    await Promise.all([import('@moonshot-ai/kimi-code-sdk'), import('#/cli/telemetry')]);
   let harness: KimiHarness | undefined;
   let telemetryBootstrap: ReturnType<typeof createCliTelemetryBootstrap> | undefined;
   let telemetryInitialized = false;

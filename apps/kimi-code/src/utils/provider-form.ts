@@ -1,11 +1,11 @@
-import {
-  type KimiConfig,
-  type KimiConfigPatch,
-  type ModelAlias,
-  type ProviderConfig,
-  type ProviderType,
-  removeProviderFromConfig,
+import type {
+  KimiConfig,
+  KimiConfigPatch,
+  ModelAlias,
+  ProviderConfig,
+  ProviderType,
 } from '@moonshot-ai/kimi-code-sdk';
+import { removeProviderFromConfig } from '@moonshot-ai/kimi-code-sdk/config-mapper';
 
 import type { ProviderWriteSections } from '#/utils/provider-write';
 

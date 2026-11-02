@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import type { PluginSummary } from '@moonshot-ai/kimi-code-sdk';
 
-import { kimiCodePluginMarketplaceUrl } from '#/constant/app';
+import { kimiCodePluginMarketplaceUrl } from '#/constant/region-urls';
 import {
   PluginUpdateNotifier,
   type PluginUpdateNotifierSession,

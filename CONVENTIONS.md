@@ -95,7 +95,7 @@ The rules that follow from it:
 - Error codes are a contract: every code in the engine registry (`packages/agent-core-v2/src/errors.ts`) needs `errorCodes.<camelCaseCode>` in **both** locale trees. The engine's own `ErrorInfo` carries only `retryable`/`public` — titles and actions were removed so there is one place to change a sentence.
 - Language follows the user at runtime: the TUI pushes its locale into the engine with `harness.setEngineLocale(...)`, so engine-side strings do not stay in the launch language after a `/settings` switch.
 
-Gates (the first two run in CI's `lint` job; the manual pair and the Zig check do not):
+Gates (the first two run in CI's `lint` job; the manual scan and the Zig check do not):
 
 - `bun scripts/check-no-hardcoded-prose.mjs` — prose literals outside `t()` in every UI tree. Shrink-only ledger at `scripts/no-hardcoded-prose-baseline.txt`; a new hardcoded string fails the run, and localizing strings lowers the number (regenerate with `--print-counts`).
 - `bun scripts/check-t-call-coverage.mjs` — every `t()` key exists (across kimi-code, agent-core-v2 + kap-server + klient, kimi-inspect, vis-web, and the VS Code webview, `.tsx` templates included and `.vue` accepted even though none remains), every engine error code has en+zh entries, and no `errorCodes.*` value in `zh` is a copy of its English sentence. Scaffold missing codes with `bun scripts/gen-error-locale-skeleton.mjs`. `check-locale-keys.mjs` and `check-locale-placeholders.cjs` run in the same job for en/zh parity and `{{param}}` consistency.
@@ -127,7 +127,7 @@ metrics, with the commands above as the evidence.
 
 - **`bun:test`** for every TypeScript/JavaScript suite; Bun 1.4.4 is the runner and the runtime. There is no vitest dependency or config in the repository.
 - Each package's `bunfig.toml` owns `[test] preload` and `pathIgnorePatterns`; heavy/e2e sets are opt-in through `--path-ignore-patterns`, which overrides the file.
-- Every package `test` script passes `--isolate`, so each test file starts from a fresh global and module registry and one file's `mock.module` cannot leak into the next.
+- Package `test` scripts run pooled by default (`--parallel` implies `--isolate`), so each test file still starts from a fresh global and module registry and one file's `mock.module` cannot leak into the next.
 - **Never capture a promise matcher in a variable.** `const settled = expect(promise).rejects.toThrow(…)` blocks Bun until that promise settles: the event loop stops, so timers — the per-test timeout included — never fire and the file hangs with no output at all. This is a Bun/vitest divergence, not a style choice: vitest returns a lazy chain, Bun settles eagerly. Await the matcher at the point where the rejection is already known to have happened (`await expect(promise).rejects…`, or a helper that defers the assertion). `scripts/scan-test-residue.mjs` fails the build on the captured form (`captured-promise-matcher`).
 - **Coverage**: `bun test --coverage` (lcov reporter), per package.
 - Run the TypeScript suites with `bun run test`. Inside a package, `bun test --isolate <paths>` is the narrowest scope; do not invoke a different runner.

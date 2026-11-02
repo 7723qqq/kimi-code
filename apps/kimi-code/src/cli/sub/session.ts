@@ -6,18 +6,16 @@
  * and formats rows.
  */
 
-import {
-  createKimiHarness,
-  type KimiHarness,
-  type ListSessionsOptions,
-  type SessionSummary,
-  type TelemetryClient,
+import type {
+  KimiHarness,
+  ListSessionsOptions,
+  SessionSummary,
+  TelemetryClient,
 } from '@moonshot-ai/kimi-code-sdk';
 import { setTelemetryContext, track, withTelemetryContext } from '@moonshot-ai/kimi-telemetry';
 import type { Command } from 'commander';
 
 import { resolvePluginNodeRunner } from '#/cli/plugin-node-runner';
-import { createCliTelemetryBootstrap } from '#/cli/telemetry';
 import { createKimiCodeHostIdentity } from '#/cli/version';
 import { t } from '#/i18n';
 
@@ -83,7 +81,7 @@ export function registerSessionCommand(parent: Command, deps?: Partial<SessionLi
         limit?: number;
         json?: boolean;
       }) => {
-        const resolved = createDefaultSessionListDeps(deps);
+        const resolved = await createDefaultSessionListDeps(deps);
         try {
           await handleSessionList(resolved, {
             all: options.all === true,
@@ -102,9 +100,15 @@ export function registerSessionCommand(parent: Command, deps?: Partial<SessionLi
     );
 }
 
-function createDefaultSessionListDeps(
+async function createDefaultSessionListDeps(
   overrides: Partial<SessionListDeps> = {},
-): SessionListDeps & { readonly close: () => Promise<void> } {
+): Promise<SessionListDeps & { readonly close: () => Promise<void> }> {
+  // The harness and CLI telemetry bootstrap pull the engine; load them on
+  // dispatch so registering the command stays free of both.
+  const [{ createKimiHarness }, { createCliTelemetryBootstrap }] = await Promise.all([
+    import('@moonshot-ai/kimi-code-sdk'),
+    import('#/cli/telemetry'),
+  ]);
   let harness: KimiHarness | undefined;
   const identity = createKimiCodeHostIdentity();
   const telemetryClient: TelemetryClient = {

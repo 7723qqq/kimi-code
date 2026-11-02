@@ -2,25 +2,24 @@ import { mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-import {
-  type ShellPayloadKind,
-  type ShellPayloadStatus,
-  type ShellPayloadVerifyResult,
-  downloadShellPayloadArchive,
-  findShellPayloadPin,
-  probeHostEnvironmentFromNode,
-  readShellPayloadStatus,
-  resolvePowerShellExecutable,
-  resolveKimiHome,
-  resolveShellPayloadHome,
-  shellPayloadExePath,
-  verifyShellPayload,
-  createWindowsShellProvisionDeps,
-  provisionShellPayload,
+import type {
+  ShellPayloadKind,
+  ShellPayloadStatus,
+  ShellPayloadVerifyResult,
 } from '@moonshot-ai/kimi-code-sdk';
+import { resolveKimiHome } from '@moonshot-ai/kimi-code-sdk/runtime';
 import type { Command } from 'commander';
 
 import { t } from '#/i18n';
+
+// The shell-payload helpers ride the SDK root index (engine stack); load them
+// on dispatch so registering the command group stays light.
+type ShellsSdk = typeof import('@moonshot-ai/kimi-code-sdk');
+let sdkPromise: Promise<ShellsSdk> | undefined;
+function loadSdk(): Promise<ShellsSdk> {
+  sdkPromise ??= import('@moonshot-ai/kimi-code-sdk');
+  return sdkPromise;
+}
 
 interface WritableLike {
   write(chunk: string): boolean;
@@ -101,6 +100,7 @@ export function registerShellsCommand(parent: Command, deps?: Partial<ShellsDeps
 }
 
 async function runShellsStatus(deps: ShellsDeps, options: ShellsStatusOptions): Promise<void> {
+  const { findShellPayloadPin, shellPayloadExePath } = await loadSdk();
   const kimiHome = deps.kimiHome();
   deps.stdout.write(`${t('cli.shells.statusHeader', { home: kimiHome })}\n`);
   for (const kind of PAYLOAD_KINDS) {
@@ -123,6 +123,8 @@ async function runShellsProvision(
   deps: ShellsDeps,
   options: ShellsProvisionOptions,
 ): Promise<void> {
+  const { createWindowsShellProvisionDeps, findShellPayloadPin, provisionShellPayload } =
+    await loadSdk();
   const kinds = selectedKinds(options);
   const kimiHome = deps.kimiHome();
   const mirror = options.mirror ?? deps.env()['KIMI_DOWNLOAD_MIRROR'];
@@ -161,6 +163,8 @@ function selectedKinds(options: ShellsProvisionOptions): readonly ShellPayloadKi
 }
 
 async function runShellsDownload(deps: ShellsDeps, options: ShellsDownloadOptions): Promise<void> {
+  const { createWindowsShellProvisionDeps, downloadShellPayloadArchive, findShellPayloadPin } =
+    await loadSdk();
   const kinds = selectedKinds(options);
   const mirror = options.mirror ?? deps.env()['KIMI_DOWNLOAD_MIRROR'];
   const destDir = options.dir ?? join(deps.cwd(), 'kimi-shell-payloads');
@@ -201,9 +205,11 @@ async function activeShellPath(
 ): Promise<string | undefined> {
   try {
     if (kind === 'bash') {
+      const { probeHostEnvironmentFromNode } = await loadSdk();
       const info = await probeHostEnvironmentFromNode();
       return info.shellPath;
     }
+    const { resolvePowerShellExecutable } = await loadSdk();
     const exe = await resolvePowerShellExecutable({
       env: deps.env(),
       osHomeDir: deps.osHomeDir(),
@@ -226,6 +232,7 @@ async function resolveShellSource(
   deps: ShellsDeps,
   kind: ShellPayloadKind,
 ): Promise<'system' | 'payload' | 'none'> {
+  const { findShellPayloadPin, resolveShellPayloadHome, shellPayloadExePath } = await loadSdk();
   const pin = findShellPayloadPin(kind);
   if (pin === undefined) return 'none';
   const active = await activeShellPath(deps, kind);
@@ -238,6 +245,7 @@ async function resolveShellSource(
 }
 
 async function statusToken(kimiHome: string, kind: ShellPayloadKind): Promise<string> {
+  const { readShellPayloadStatus } = await loadSdk();
   let status: ShellPayloadStatus | undefined;
   try {
     status = await readShellPayloadStatus(kimiHome, kind);
@@ -248,6 +256,7 @@ async function statusToken(kimiHome: string, kind: ShellPayloadKind): Promise<st
 }
 
 async function verifyToken(kimiHome: string, kind: ShellPayloadKind): Promise<string> {
+  const { verifyShellPayload } = await loadSdk();
   const result: ShellPayloadVerifyResult = await verifyShellPayload(kimiHome, kind);
   return result.ok ? 'verified' : result.reason;
 }

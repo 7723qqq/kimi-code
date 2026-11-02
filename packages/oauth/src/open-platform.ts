@@ -19,61 +19,17 @@ import type {
   ManagedKimiModelAlias,
 } from './managed-kimi-code';
 import { MANAGED_KIMI_MODEL_FIELDS, mergeRefreshedModelAlias } from './model-alias-merge';
+import type { OpenPlatformDefinition } from './open-platform-defs';
 import { isRecord } from './utils';
 
 export type { ManagedKimiConfigShape };
-
-export interface OpenPlatformDefinition {
-  readonly id: string;
-  readonly name: string;
-  readonly baseUrl: string;
-  readonly consoleUrl?: string;
-  readonly allowedPrefixes?: readonly string[] | undefined;
-  readonly providerType?: string;
-}
-
-export const OPEN_PLATFORMS: readonly OpenPlatformDefinition[] = [
-  {
-    id: 'moonshot-cn',
-    name: 'Kimi Platform (API key · platform.kimi.com)',
-    baseUrl: 'https://api.moonshot.cn/v1',
-    consoleUrl: 'https://platform.kimi.com',
-    allowedPrefixes: ['kimi-k'],
-  },
-  {
-    id: 'moonshot-ai',
-    name: 'Kimi Platform (API key · platform.kimi.ai)',
-    baseUrl: 'https://api.moonshot.ai/v1',
-    consoleUrl: 'https://platform.kimi.ai',
-    allowedPrefixes: ['kimi-k'],
-  },
-  {
-    id: 'google-aistudio',
-    name: 'Google AI Studio (API key · aistudio.google.com)',
-    baseUrl: 'https://generativelanguage.googleapis.com',
-    consoleUrl: 'https://aistudio.google.com',
-    providerType: 'google-genai',
-  },
-  {
-    id: 'astron',
-    name: 'Xunfei Coding Plan (API key · xfyun.cn)',
-    baseUrl: 'https://maas-coding-api.cn-huabei-1.xf-yun.com/v2',
-    consoleUrl: 'https://www.xfyun.cn',
-  },
-];
+export { getOpenPlatformById, isOpenPlatformId, OPEN_PLATFORMS } from './open-platform-defs';
+export type { OpenPlatformDefinition };
 
 /** Embedded model list for iFlytek Astron Coding Plan — no remote fetch needed.
  *  Re-exports the canonical model definitions from @moonshot-ai/kosong. */
 export type AstronPlatformModelInfo = AstronModelDef;
 export const ASTRON_PLATFORM_MODELS: readonly AstronModelDef[] = ASTRON_MODEL_DEFS;
-
-export function getOpenPlatformById(id: string): OpenPlatformDefinition | undefined {
-  return OPEN_PLATFORMS.find((p) => p.id === id);
-}
-
-export function isOpenPlatformId(id: string): boolean {
-  return OPEN_PLATFORMS.some((p) => p.id === id);
-}
 
 function toModelInfo(item: unknown): ManagedKimiCodeModelInfo | undefined {
   if (!isRecord(item) || typeof item['id'] !== 'string' || item['id'].length === 0) {

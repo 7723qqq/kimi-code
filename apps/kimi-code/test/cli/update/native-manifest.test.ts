@@ -6,7 +6,7 @@ import {
   nativeManifestUrl,
   selectBunPlatformEntry,
 } from '#/cli/update/native-manifest';
-import { kimiCodeCdnBinariesBase } from '#/constant/app';
+import { kimiCodeCdnBinariesBase } from '#/constant/region-urls';
 import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
 
 const VERSION = '0.7.0';

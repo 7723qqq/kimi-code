@@ -1,7 +1,7 @@
 import { valid } from 'semver';
 import { z } from 'zod';
 
-import { kimiCodeCdnLatestJsonUrl, kimiCodeCdnLatestUrl } from '#/constant/app';
+import { kimiCodeCdnLatestJsonUrl, kimiCodeCdnLatestUrl } from '#/constant/region-urls';
 import { SYSTEM_RENDER_CLOCK, type RenderClock } from '#/tui/utils/render-clock';
 
 import type { UpdateManifest } from './types';

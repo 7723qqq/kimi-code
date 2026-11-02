@@ -10,12 +10,8 @@
 import { FEEDBACK_VERSION_PREFIX } from '#/constant/app';
 import { t } from '#/i18n';
 
-export {
-  FEEDBACK_ISSUE_URL,
-  FEEDBACK_TELEMETRY_EVENT,
-  FEEDBACK_VERSION_PREFIX,
-  kimiCodeSignupUrl,
-} from '#/constant/app';
+export { FEEDBACK_ISSUE_URL, FEEDBACK_TELEMETRY_EVENT, FEEDBACK_VERSION_PREFIX } from '#/constant/app';
+export { kimiCodeSignupUrl } from '#/constant/region-urls';
 
 export function getFeedbackStatusSubmitting(): string {
   return t('tui.messages.feedbackSubmitting');

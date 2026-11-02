@@ -17,8 +17,7 @@ import type { KimiConfig, ModelAlias } from '#/config/index';
 export { catalogBaseUrl, catalogProviderModels, inferWireType, resolveCatalogImport };
 export type { CatalogImportInvalidReason, CatalogImportResolution };
 export type { Catalog, CatalogModel, CatalogProviderEntry };
-
-export const DEFAULT_CATALOG_URL = 'https://models.dev/api.json';
+export { DEFAULT_CATALOG_URL } from './catalog-defaults';
 
 export class RegistryImportError extends Error {
   constructor(

@@ -23,9 +23,9 @@ import {
 
 import {
   KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV,
-  kimiCodePluginMarketplaceUrl,
   MARKETPLACE_VERSION_LOOKUP_TIMEOUT_MS,
 } from '#/constant/app';
+import { kimiCodePluginMarketplaceUrl } from '#/constant/region-urls';
 
 export {
   computeUpdateStatus,

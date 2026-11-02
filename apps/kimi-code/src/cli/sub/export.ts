@@ -5,14 +5,13 @@
  * The actual ZIP/manifest export is owned by the SDK.
  */
 
-import {
-  createKimiHarness,
-  type ExportSessionInput,
-  type ExportSessionResult,
-  type KimiHarness,
-  type SessionSummary,
-  type ShellEnvironment,
-  type TelemetryClient,
+import type {
+  ExportSessionInput,
+  ExportSessionResult,
+  KimiHarness,
+  SessionSummary,
+  ShellEnvironment,
+  TelemetryClient,
 } from '@moonshot-ai/kimi-code-sdk';
 import {
   setTelemetryContext,
@@ -23,7 +22,6 @@ import {
 import type { Command } from 'commander';
 
 import { resolvePluginNodeRunner } from '#/cli/plugin-node-runner';
-import { createCliTelemetryBootstrap, initializeCliTelemetry } from '#/cli/telemetry';
 import { detectInstallSource } from '#/cli/update/source';
 import { createKimiCodeHostIdentity } from '#/cli/version';
 import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE } from '#/constant/app';
@@ -125,7 +123,7 @@ export function registerExportCommand(parent: Command, deps?: Partial<ExportDeps
         sessionId: string | undefined,
         options: { output?: string; yes?: boolean; includeGlobalLog?: boolean },
       ) => {
-        const resolved = createDefaultExportDeps(deps);
+        const resolved = await createDefaultExportDeps(deps);
         try {
           await handleExport(resolved, sessionId, options.output, {
             yes: options.yes === true,
@@ -138,9 +136,15 @@ export function registerExportCommand(parent: Command, deps?: Partial<ExportDeps
     );
 }
 
-function createDefaultExportDeps(overrides: Partial<ExportDeps> = {}): ExportDeps & {
-  readonly close: () => Promise<void>;
-} {
+async function createDefaultExportDeps(overrides: Partial<ExportDeps> = {}): Promise<
+  ExportDeps & {
+    readonly close: () => Promise<void>;
+  }
+> {
+  // The harness and CLI telemetry bootstrap pull the engine; load them on
+  // dispatch so registering the command stays free of both.
+  const [{ createKimiHarness }, { createCliTelemetryBootstrap, initializeCliTelemetry }] =
+    await Promise.all([import('@moonshot-ai/kimi-code-sdk'), import('#/cli/telemetry')]);
   let harness: KimiHarness | undefined;
   let telemetryBootstrap: ReturnType<typeof createCliTelemetryBootstrap> | undefined;
   let telemetryInitialized = false;

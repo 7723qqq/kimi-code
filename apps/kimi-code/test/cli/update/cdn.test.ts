@@ -1,7 +1,7 @@
 import { describe, expect, it, mock } from 'bun:test';
 
 import { fetchLatestFromCdn, fetchLatestVersionFromCdn } from '#/cli/update/cdn';
-import { kimiCodeCdnLatestJsonUrl, kimiCodeCdnLatestUrl } from '#/constant/app';
+import { kimiCodeCdnLatestJsonUrl, kimiCodeCdnLatestUrl } from '#/constant/region-urls';
 import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
 
 /** Let the promise chains behind a settled clock tick run. */

@@ -60,6 +60,6 @@ done
 
 ## For contributors
 
-- Bytecode is enabled by default in `scripts/native/build-bun.mjs`.
+- Bytecode is enabled by default in `apps/kimi-code/scripts/native/build-bun.mjs`.
 - Set `KIMI_CODE_BUN_DISABLE_BYTECODE=1` before `bun run build:native:bun` to produce a build without it, for comparison.
 - Startup numbers depend on the Bun version that builds the executable, because the runtime is embedded in the binary.

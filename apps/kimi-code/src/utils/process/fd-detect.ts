@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } fro
 import { arch, platform } from 'node:os';
 import { join } from 'node:path';
 
-import { kimiCodeCdnBase } from '#/constant/app';
+import { kimiCodeCdnBase } from '#/constant/region-urls';
 import { t } from '#/i18n';
 import { getBinDir } from '#/utils/paths';
 import { resolveCommandPath } from '#/utils/process/resolve-command';

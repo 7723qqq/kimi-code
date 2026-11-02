@@ -21,8 +21,7 @@ import { readdir, readFile, rename, rmdir, stat, unlink, utimes } from 'node:fs/
 import { constants as osConstants } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 
-import { log } from '@moonshot-ai/kimi-code-sdk';
-import { gt } from 'semver';
+import { log } from '@moonshot-ai/kimi-code-sdk/logging';
 
 import {
   KIMI_CODE_NATIVE_STAGED_STATE_FILE_NAME,
@@ -31,15 +30,24 @@ import {
 import { getNativeStagedStateFile, getNativeStagingDir } from '#/utils/paths';
 import { createFileIfAbsent } from '#/utils/persistence';
 
-import { readUpdateInstallState, writeUpdateInstallState } from './install-state';
-import {
-  hashFileSha256,
-  parseStagedNativeUpdate,
-  readStagedNativeUpdate,
-  stagedExePath,
-  type StagedNativeUpdate,
-} from './native-stage';
-import { isAutoUpdateDisabledByEnv, shouldAutoInstallUpdates } from './preflight';
+import { isAutoUpdateDisabledByEnv, shouldAutoInstallUpdates } from './auto-install';
+import type { StagedNativeUpdate } from './native-stage';
+
+// The staged-update readers pull zod schema modules; they load only once a
+// staged update actually exists, which is the rare path on startup.
+type NativeStageModule = typeof import('./native-stage');
+let nativeStagePromise: Promise<NativeStageModule> | undefined;
+function loadNativeStage(): Promise<NativeStageModule> {
+  nativeStagePromise ??= import('./native-stage');
+  return nativeStagePromise;
+}
+
+type InstallStateModule = typeof import('./install-state');
+let installStatePromise: Promise<InstallStateModule> | undefined;
+function loadInstallState(): Promise<InstallStateModule> {
+  installStatePromise ??= import('./install-state');
+  return installStatePromise;
+}
 
 export interface NativeSwapDeps {
   readonly exePath: string;
@@ -112,6 +120,7 @@ function logSwap(message: string, payload: Record<string, unknown>): void {
 /** Record a swap failure so preflight stops re-staging the same bad version. */
 async function recordSwapFailure(version: string): Promise<void> {
   try {
+    const { readUpdateInstallState, writeUpdateInstallState } = await loadInstallState();
     const state = await readUpdateInstallState();
     const attempts = (state.lastFailure?.version === version ? state.lastFailure.attempts : 0) + 1;
     await writeUpdateInstallState({
@@ -217,6 +226,7 @@ async function claimStagedUpdate(exePath: string): Promise<ClaimedStaged | null>
     return null;
   }
   // Parse exactly the metadata we claimed.
+  const { parseStagedNativeUpdate, readStagedNativeUpdate } = await loadNativeStage();
   const staged = await readStagedNativeUpdate(exePath, claimedPath);
   if (staged === null) {
     const raw = await readFile(claimedPath, 'utf-8').catch(() => null);
@@ -503,6 +513,7 @@ export async function maybeRelaunchWithStagedNativeUpdate(deps: NativeSwapDeps):
 
   // Downgrade guard: the staged version must be newer than what is running.
   // (The user may have installed a newer build manually after we staged.)
+  const { gt } = await import('semver');
   if (!gt(staged.version, deps.currentVersion)) {
     logSwap('discarding staged update (not newer)', {
       staged: staged.version,
@@ -532,6 +543,7 @@ export async function maybeRelaunchWithStagedNativeUpdate(deps: NativeSwapDeps):
   // would not catch every such case. Only paid once the swap actually
   // proceeds. A mismatch discards the stage so a later cycle re-downloads
   // it — this is not a swap failure.
+  const { hashFileSha256, stagedExePath } = await loadNativeStage();
   const digest = await hashFileSha256(stagedExePath(deps.exePath, staged));
   if (digest !== staged.sha256) {
     logSwap('staged exe failed checksum verification, discarding', {

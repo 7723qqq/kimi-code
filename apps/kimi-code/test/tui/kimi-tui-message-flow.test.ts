@@ -23,7 +23,7 @@ import {
   type TuiMouseEvent,
 } from '@moonshot-ai/pi-tui';
 
-import { kimiCodePluginMarketplaceUrl } from '#/constant/app';
+import { kimiCodePluginMarketplaceUrl } from '#/constant/region-urls';
 import { handleFeedbackCommand } from '#/tui/commands/info';
 import {
   promptFeedbackAttachment,

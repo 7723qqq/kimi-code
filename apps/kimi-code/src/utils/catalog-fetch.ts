@@ -1,10 +1,10 @@
 import {
+  type Catalog,
   DEFAULT_CATALOG_URL,
   fetchCatalog,
-  loadBuiltInCatalog,
-  type Catalog,
   type FetchCatalogOptions,
-} from '@moonshot-ai/kimi-code-sdk';
+  loadBuiltInCatalog,
+} from '@moonshot-ai/kimi-code-sdk/catalog';
 
 import { BUILT_IN_CATALOG_JSON } from '#/built-in-catalog';
 

@@ -1,6 +1,5 @@
 import type { Command } from 'commander';
 
-import { kimiCodeOfficialInstallUrl } from '#/constant/app';
 import { t } from '#/i18n';
 import { openUrl } from '#/utils/open-url';
 
@@ -15,7 +14,9 @@ export function registerInstallDesktopCommand(
 ): void {
   const stdout = deps.stdout ?? process.stdout;
   const open = deps.openUrl ?? openUrl;
-  const openDesktopAppPage = (): void => {
+  const openDesktopAppPage = async (): Promise<void> => {
+    // Region resolution pulls the region/config stack; load it on dispatch.
+    const { kimiCodeOfficialInstallUrl } = await import('#/constant/region-urls');
     const url = kimiCodeOfficialInstallUrl();
     stdout.write(`${url}\n`);
     open(url);

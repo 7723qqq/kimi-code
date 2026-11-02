@@ -11,7 +11,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { createServerLogger, startServer, type ServerLogger } from '@moonshot-ai/kap-server';
+import type { ServerLogger } from '@moonshot-ai/kap-server';
 import { shutdownTelemetry, track } from '@moonshot-ai/kimi-telemetry';
 import chalk from 'chalk';
 import { type Command, Option } from 'commander';
@@ -28,10 +28,8 @@ import { getNativeWebAssetsDir } from '#/native/web-assets';
 import { darkColors } from '#/tui/theme/colors';
 import { openUrl as defaultOpenUrl } from '#/utils/open-url';
 import { getDataDir } from '#/utils/paths';
-import { persistedKimiOAuthRef } from '#/utils/region';
 import { generateRemoteControlQr } from '#/utils/remote-control-qr';
 
-import { initializeServerTelemetry } from '../../telemetry';
 import { createKimiCodeHostIdentity, getHostPackageRoot, getVersion } from '../../version';
 import {
   accessUrlLines,
@@ -41,13 +39,10 @@ import {
   splitTokenFragment,
 } from './access-urls';
 import { type NetworkAddress } from './networks';
-import {
-  formatRemoteControlOutput,
-  formatRemoteControlStatus,
-  startRemoteControl,
-  type RemoteControlHandle,
-  type RemoteControlOptions,
-  type RemoteControlStatus,
+import type {
+  RemoteControlHandle,
+  RemoteControlOptions,
+  RemoteControlStatus,
 } from './remote-control';
 import {
   DEFAULT_FOREGROUND_LOG_LEVEL,
@@ -251,6 +246,12 @@ export async function handleWebCommand(
       const token = parsed.dangerousBypassAuth ? undefined : deps.resolveToken?.();
       if (opts.remoteControl === true) {
         if (token === undefined) throw new Error(t('tui.statusMessages.unableToReadServerToken'));
+        // The remote-control client and the region store pull the SDK stack;
+        // load them only when a remote-control session actually starts.
+        const [
+          { persistedKimiOAuthRef },
+          { formatRemoteControlOutput, formatRemoteControlStatus, startRemoteControl },
+        ] = await Promise.all([import('#/utils/region'), import('./remote-control')]);
         const dataDir = getDataDir();
         const persisted = persistedKimiOAuthRef();
         let outputReady = false;
@@ -374,6 +375,7 @@ async function runServerInProcess(
   const version = getVersion();
   // Registers the telemetry provider for `track` / `shutdownTelemetry`; the
   // client itself is not passed into kap-server.
+  const { initializeServerTelemetry } = await import('../../telemetry');
   initializeServerTelemetry({ version });
 
   let running: RoutedServer | undefined;
@@ -418,6 +420,7 @@ async function runServerInProcess(
   // `startServer` returns `{ host, port, close }` rather than `{ address,
   // logger, close }`, so adapt it to the `RoutedServer` surface the rest of
   // this runner consumes.
+  const { createServerLogger, startServer } = await import('@moonshot-ai/kap-server');
   const logger = createServerLogger({ level: options.logLevel });
   const webAssetsDir = serverWebAssetsDir();
   if (webAssetsDir === undefined) {

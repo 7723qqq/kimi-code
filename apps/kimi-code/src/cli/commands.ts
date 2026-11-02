@@ -1,10 +1,11 @@
-import { KIMI_NODE_FALLBACK_SUBCOMMAND } from '@moonshot-ai/kimi-code-sdk';
+import { CODE_SHIM_SUBCOMMAND } from '@moonshot-ai/agent-core-v2/features/codeRuntime/codeShimSource';
+import { KIMI_NODE_FALLBACK_SUBCOMMAND } from '@moonshot-ai/kimi-code-sdk/runtime';
 import { Command, InvalidArgumentError, Option } from 'commander';
 
 import { CLI_COMMAND_NAME } from '#/constant/app';
 import { t } from '#/i18n';
-import { registerMigrateCommand, type MigrateCommandOptions } from '#/migration/index';
-import { registerImportSessionsCommand } from '#/session-import/index';
+import { registerMigrateCommand, type MigrateCommandOptions } from '#/migration/command';
+import { registerImportSessionsCommand } from '#/session-import/command';
 
 import type { CLIOptions } from './options';
 import { registerAcpCommand } from './sub/acp';
@@ -25,6 +26,7 @@ export type MigrateCommandHandler = (options: MigrateCommandOptions) => void;
 export type PluginNodeRunnerHandler = (entry: string, args: readonly string[]) => void;
 export type UpgradeCommandHandler = (yes: boolean) => void | Promise<void>;
 export type UpdateDownloadHandler = (version: string, manual: boolean) => void;
+export type CodeShimHandler = () => void;
 
 export function createProgram(
   version: string,
@@ -33,6 +35,7 @@ export function createProgram(
   onPluginNodeRunner: PluginNodeRunnerHandler = () => {},
   onUpgrade: UpgradeCommandHandler = () => {},
   onUpdateDownload: UpdateDownloadHandler = () => {},
+  onCodeShim: CodeShimHandler = () => {},
 ): Command {
   const program = new Command(CLI_COMMAND_NAME)
     .description(t('cli.program.description'))
@@ -146,6 +149,13 @@ export function createProgram(
     .allowUnknownOption(true)
     .action((entry: string, args: string[]) => {
       onPluginNodeRunner(entry, args);
+    });
+
+  program
+    .command(CODE_SHIM_SUBCOMMAND, { hidden: true })
+    .allowUnknownOption(true)
+    .action(() => {
+      onCodeShim();
     });
 
   program.argument('[args...]').action((args: string[]) => {

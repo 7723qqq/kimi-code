@@ -8,83 +8,20 @@ import {
   setGlobalDispatcher as undiciSetGlobalDispatcher,
 } from '#/_base/utils/undici-npm';
 
-type Env = Readonly<Record<string, string | undefined>>;
+import {
+  hasHttpProxy,
+  isProxyConfigured,
+  resolveHttpProxyUrls,
+  resolveSocksProxy,
+  type Env,
+  type SocksProxyConfig,
+} from './proxyEnv';
 
-export interface SocksProxyConfig {
-  readonly type: 4 | 5;
-  readonly host: string;
-  readonly port: number;
-  readonly userId?: string;
-  readonly password?: string;
-}
+export type { Env, SocksProxyConfig } from './proxyEnv';
+export { isProxyConfigured, resolveSocksProxy } from './proxyEnv';
 
 const LOOPBACK_NO_PROXY = ['localhost', '127.0.0.1', '::1', '[::1]'] as const;
 
-const SOCKS_SCHEMES = new Set(['socks', 'socks4', 'socks4a', 'socks5', 'socks5h']);
-
-function schemeOf(value: string): string | undefined {
-  return /^([a-z][a-z0-9+.-]*):/i.exec(value)?.[1]?.toLowerCase();
-}
-
-function firstNonBlank(env: Env, keys: readonly string[]): string | undefined {
-  for (const key of keys) {
-    const value = env[key]?.trim();
-    if (value !== undefined && value.length > 0) return value;
-  }
-  return undefined;
-}
-
-function httpSchemeValue(value: string | undefined): string | undefined {
-  return value !== undefined && !SOCKS_SCHEMES.has(schemeOf(value) ?? '') ? value : undefined;
-}
-
-function hasHttpProxy(env: Env): boolean {
-  return [
-    firstNonBlank(env, ['http_proxy', 'HTTP_PROXY']),
-    firstNonBlank(env, ['https_proxy', 'HTTPS_PROXY']),
-    firstNonBlank(env, ['all_proxy', 'ALL_PROXY']),
-  ].some((value) => httpSchemeValue(value) !== undefined);
-}
-
-function resolveHttpProxyUrls(env: Env): { httpProxy?: string; httpsProxy?: string } {
-  const allProxy = httpSchemeValue(firstNonBlank(env, ['all_proxy', 'ALL_PROXY']));
-  return {
-    httpProxy: httpSchemeValue(firstNonBlank(env, ['http_proxy', 'HTTP_PROXY'])) ?? allProxy,
-    httpsProxy: httpSchemeValue(firstNonBlank(env, ['https_proxy', 'HTTPS_PROXY'])) ?? allProxy,
-  };
-}
-
-export function resolveSocksProxy(env: Env): SocksProxyConfig | undefined {
-  const candidates = [
-    firstNonBlank(env, ['all_proxy', 'ALL_PROXY']),
-    firstNonBlank(env, ['https_proxy', 'HTTPS_PROXY']),
-    firstNonBlank(env, ['http_proxy', 'HTTP_PROXY']),
-  ];
-  for (const value of candidates) {
-    if (value === undefined) continue;
-    const scheme = schemeOf(value);
-    if (scheme === undefined || !SOCKS_SCHEMES.has(scheme)) continue;
-    let url: URL;
-    try {
-      url = new URL(value);
-    } catch {
-      continue;
-    }
-    const config: SocksProxyConfig = {
-      type: scheme === 'socks4' || scheme === 'socks4a' ? 4 : 5,
-      host: url.hostname.replaceAll(/^\[|\]$/g, ''),
-      port: url.port ? Number(url.port) : 1080,
-      ...(url.username ? { userId: decodeURIComponent(url.username) } : {}),
-      ...(url.password ? { password: decodeURIComponent(url.password) } : {}),
-    };
-    return config;
-  }
-  return undefined;
-}
-
-export function isProxyConfigured(env: Env): boolean {
-  return hasHttpProxy(env) || resolveSocksProxy(env) !== undefined;
-}
 
 export function resolveNoProxy(env: Env): string {
   const raw =

@@ -24,28 +24,21 @@
  * negated flag writes it and a `--clear-*` flag is what drops the key.
  */
 
-import { isOpenPlatformId } from '@moonshot-ai/kimi-code-oauth';
-import {
-  applyCatalogProvider,
-  catalogProviderModels,
-  CatalogFetchError,
-  RegistryImportError,
-  type ImportCustomRegistryResult,
-  createKimiHarness,
-  DEFAULT_CATALOG_URL,
-  removeProviderFromConfig,
-  resolveCatalogImport,
-  type Catalog,
-  type CatalogProviderEntry,
-  type KimiConfig,
-  type KimiHarness,
+import { isOpenPlatformId } from '@moonshot-ai/kimi-code-oauth/open-platform-defs';
+import type {
+  Catalog,
+  CatalogProviderEntry,
+  ImportCustomRegistryResult,
+  KimiConfig,
+  KimiHarness,
 } from '@moonshot-ai/kimi-code-sdk';
+import { removeProviderFromConfig } from '@moonshot-ai/kimi-code-sdk/config-mapper';
+import { DEFAULT_CATALOG_URL } from '@moonshot-ai/kimi-code-sdk/runtime';
 import type { Command } from 'commander';
 
 import { resolvePluginNodeRunner } from '#/cli/plugin-node-runner';
 import { createKimiCodeHostIdentity, createKimiCodeUserAgent } from '#/cli/version';
 import { t, type TranslationKey } from '#/i18n';
-import { fetchCatalogOrBuiltIn } from '#/utils/catalog-fetch';
 import {
   buildAddPatch,
   CAPABILITY_NAMES,
@@ -63,6 +56,17 @@ import {
 } from '#/utils/provider-form';
 import { isLoginAccountProviderId, isProviderIdLocked } from '#/utils/provider-managed';
 import { persistProviderWrite, providerSectionsOf } from '#/utils/provider-write';
+
+// The catalog helpers and the catalog fetcher ride the SDK catalog module
+// (kosong kernel); they load on dispatch so registering the command group
+// stays light. DEFAULT_CATALOG_URL is registration-time and comes from the
+// zero-dependency runtime module instead.
+type CatalogModule = typeof import('@moonshot-ai/kimi-code-sdk/catalog');
+let catalogPromise: Promise<CatalogModule> | undefined;
+function loadCatalog(): Promise<CatalogModule> {
+  catalogPromise ??= import('@moonshot-ai/kimi-code-sdk/catalog');
+  return catalogPromise;
+}
 
 interface WritableLike {
   write(chunk: string): boolean;
@@ -225,6 +229,7 @@ export async function handleProviderAdd(
       setDefaultWhenUnset: false,
     });
   } catch (error) {
+    const { RegistryImportError } = await loadCatalog();
     if (!(error instanceof RegistryImportError) || error.phase === 'apply') throw error;
     if (error.phase === 'empty') {
       deps.stderr.write(t('tui.statusMessages.providerNoUsable', { url: trimmedUrl }) + '\n');
@@ -852,6 +857,7 @@ export async function handleCatalogList(
       );
       deps.exit(1);
     }
+    const { catalogProviderModels } = await loadCatalog();
     const models = catalogProviderModels(entry);
     if (opts.json) {
       deps.stdout.write(
@@ -906,6 +912,7 @@ export async function handleCatalogList(
     return;
   }
 
+  const { resolveCatalogImport } = await loadCatalog();
   for (const [id, entry] of entries) {
     const modelCount = entry.models === undefined ? 0 : Object.keys(entry.models).length;
     const resolution = resolveCatalogImport(entry);
@@ -948,6 +955,7 @@ export async function handleCatalogAdd(
     deps.exit(1);
   }
 
+  const { catalogProviderModels, resolveCatalogImport } = await loadCatalog();
   const resolution = resolveCatalogImport(entry, opts.baseUrl);
   if (resolution.kind === 'invalid') {
     switch (resolution.reason) {
@@ -1026,6 +1034,7 @@ export async function handleCatalogAdd(
   // `applyCatalogProvider` always overwrites both `defaultModel` and
   // `[thinking]`. The values we pass here are temporary; we restore
   // a consistent state in the post-apply block below.
+  const { applyCatalogProvider } = await loadCatalog();
   applyCatalogProvider(config, {
     providerId,
     wire,
@@ -1090,6 +1099,10 @@ export async function handleCatalogAdd(
 }
 
 async function loadCatalogOrExit(deps: ProviderDeps, url: string): Promise<Catalog> {
+  const [{ fetchCatalogOrBuiltIn }, { CatalogFetchError }] = await Promise.all([
+    import('#/utils/catalog-fetch'),
+    loadCatalog(),
+  ]);
   try {
     const loaded = await fetchCatalogOrBuiltIn(url, { userAgent: createKimiCodeUserAgent() });
     if (loaded.fromBuiltIn) {
@@ -1135,7 +1148,7 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
     .description(t('cli.commandDescriptions.providerAdd'))
     .option('--api-key <key>', t('cli.optionDescriptions.providerApiKey'))
     .action(async (url: string, options: { apiKey?: string }) => {
-      const resolved = resolveDeps(deps);
+      const resolved = await resolveDeps(deps);
       await runAction(resolved, () => handleProviderAdd(resolved, url, { apiKey: options.apiKey }));
     });
 
@@ -1144,7 +1157,7 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
     .description(t('cli.commandDescriptions.providerRemove'))
     .option('--force', t('cli.optionDescriptions.providerRemoveForce'))
     .action(async (providerId: string, options: { force?: boolean }) => {
-      const resolved = resolveDeps(deps);
+      const resolved = await resolveDeps(deps);
       await runAction(resolved, () =>
         handleProviderRemove(resolved, providerId, { force: options.force === true }),
       );
@@ -1155,7 +1168,7 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
     .description(t('cli.commandDescriptions.providerList'))
     .option('--json', t('cli.optionDescriptions.providerListJson'), false)
     .action(async (options: { json?: boolean }) => {
-      const resolved = resolveDeps(deps);
+      const resolved = await resolveDeps(deps);
       await runAction(resolved, () =>
         handleProviderList(resolved, { json: options.json === true }),
       );
@@ -1224,7 +1237,7 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
     .option('--default', t('cli.optionDescriptions.providerCreateDefault'), false)
     .option('--json', t('cli.optionDescriptions.providerListJson'), false)
     .action(async (options: CreateOptions) => {
-      const resolved = resolveDeps(deps);
+      const resolved = await resolveDeps(deps);
       await runAction(resolved, () => handleProviderCreate(resolved, options));
     });
 
@@ -1271,7 +1284,7 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
     .option('--default', t('cli.optionDescriptions.providerCreateDefault'), false)
     .option('--json', t('cli.optionDescriptions.providerListJson'), false)
     .action(async (providerId: string, options: UpdateOptions) => {
-      const resolved = resolveDeps(deps);
+      const resolved = await resolveDeps(deps);
       await runAction(resolved, () => handleProviderUpdate(resolved, providerId, options));
     });
 
@@ -1289,7 +1302,7 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
         providerId: string | undefined,
         options: { filter?: string; url?: string; json?: boolean },
       ) => {
-        const resolved = resolveDeps(deps);
+        const resolved = await resolveDeps(deps);
         await runAction(resolved, () =>
           handleCatalogList(resolved, providerId, {
             json: options.json === true,
@@ -1315,7 +1328,7 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
         providerId: string,
         options: { apiKey?: string; defaultModel?: string; url?: string; baseUrl?: string },
       ) => {
-        const resolved = resolveDeps(deps);
+        const resolved = await resolveDeps(deps);
         await runAction(resolved, () =>
           handleCatalogAdd(resolved, providerId, {
             ...(options.apiKey === undefined ? {} : { apiKey: options.apiKey }),
@@ -1330,7 +1343,10 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
 
 type ResolvedProviderDeps = ProviderDeps & { readonly close: () => Promise<void> };
 
-function resolveDeps(overrides: Partial<ProviderDeps> = {}): ResolvedProviderDeps {
+async function resolveDeps(overrides: Partial<ProviderDeps> = {}): Promise<ResolvedProviderDeps> {
+  // The harness factory pulls the engine; load it on dispatch so registering
+  // the command group stays free of it.
+  const { createKimiHarness } = await import('@moonshot-ai/kimi-code-sdk');
   let harness: KimiHarness | undefined;
   const identity = createKimiCodeHostIdentity();
   return {

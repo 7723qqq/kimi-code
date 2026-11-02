@@ -13,18 +13,7 @@ Current publishable packages:
 | `@moonshot-ai/kimi-code` | `apps/kimi-code` | CLI / TUI application — provides the `kimi` command after install |
 | `@moonshot-ai/kimi-code-sdk` | `packages/node-sdk` | Public TypeScript SDK |
 
-All other workspace packages are private internal packages, are not published to npm, and are excluded via `ignore` in `.changeset/config.json`. The authoritative ignore list lives in `.changeset/config.json` and currently contains:
-
-- `@moonshot-ai/kimi-code-oauth`
-- `@moonshot-ai/kimi-telemetry`
-- `@moonshot-ai/kosong`
-- `@moonshot-ai/migration-legacy`
-- `@moonshot-ai/vis`
-- `@moonshot-ai/vis-server`
-- `@moonshot-ai/vis-web`
-- `@moonshot-ai/kimi-inspect`
-
-(An earlier revision of this file listed additional internal packages such as `@moonshot-ai/agent-core`; that package has been retired from the workspace. When in doubt, trust `config.json` over this list.)
+All other workspace packages are private internal packages and are not published to npm. Which ones changesets excludes is defined solely by `ignore` in `.changeset/config.json`; read that file rather than a copy here.
 
 Version impact from internal dependencies must be judged manually. The published artifacts for CLI and SDK bundle internal workspace packages into the artifact itself; runtime `dependencies` of published packages must not include any `@moonshot-ai/*` internal workspace packages.
 

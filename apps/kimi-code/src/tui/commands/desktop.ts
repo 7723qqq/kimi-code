@@ -1,4 +1,4 @@
-import { kimiCodeOfficialInstallUrl } from '#/constant/app';
+import { kimiCodeOfficialInstallUrl } from '#/constant/region-urls';
 import { t } from '#/i18n';
 import { openUrl } from '#/utils/open-url';
 

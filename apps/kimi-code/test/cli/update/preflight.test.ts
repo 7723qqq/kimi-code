@@ -424,7 +424,9 @@ describe('runUpdatePreflight', () => {
     expect(stdout.join('')).toContain('Updated @moonshot-ai/kimi-code to 0.5.0');
   });
 
-  it('refreshes a stale cached target before showing the foreground install prompt', async () => {
+  it('revalidates a stale cached target after the user accepts the foreground install prompt', async () => {
+    // The prompt renders from the cached target without a network wait; the
+    // refresh runs once the user accepts, and the install uses the fresh target.
     disableAutoInstall();
     mocks.readUpdateCache.mockResolvedValue(cacheWith('0.6.0'));
     mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.7.0'));
@@ -438,23 +440,44 @@ describe('runUpdatePreflight', () => {
     expect(refreshUpdateCache).toHaveBeenCalledTimes(1);
     expect(mocks.promptForInstallChoice).toHaveBeenCalledWith(
       expect.objectContaining({
-        target: { version: '0.7.0' },
-        installCommand: 'npm install -g @moonshot-ai/kimi-code@0.7.0',
+        target: { version: '0.6.0' },
+        installCommand: 'npm install -g @moonshot-ai/kimi-code@0.6.0',
       }),
     );
     expectNpmSpawn(['install', '-g', '@moonshot-ai/kimi-code@0.7.0'], { stdio: 'inherit' });
     expect(stdout.join('')).toContain('Updated @moonshot-ai/kimi-code to 0.7.0');
   });
 
-  it('falls back to the cached foreground prompt target when the refresh hangs', async () => {
+  it('shows the foreground prompt without waiting on the network refresh', async () => {
+    // A declined prompt must not pay the refresh at all: the revalidation only
+    // runs after the user accepts.
+    disableAutoInstall();
+    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.6.0'));
+    mocks.refreshUpdateCache.mockReturnValue(new Promise(() => {}));
+    mocks.detectInstallSource.mockResolvedValue('npm-global');
+    mocks.promptForInstallChoice.mockResolvedValue('skip');
+    const { options } = captureOutput();
+
+    await expect(runUpdatePreflight('0.5.0', options)).resolves.toBe('continue');
+
+    expect(mocks.promptForInstallChoice).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: { version: '0.6.0' },
+        installCommand: 'npm install -g @moonshot-ai/kimi-code@0.6.0',
+      }),
+    );
+    expect(refreshUpdateCache).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the cached target for the install when the revalidation hangs', async () => {
     // The refresh budget runs on the injected clock. Bun's fake timers do not
     // take over the process-global `setTimeout`, so hand the preflight a clock
     // whose timer this case fires by hand instead of advancing global time.
     disableAutoInstall();
     mocks.readUpdateCache.mockResolvedValue(cacheWith('0.6.0'));
-    // A hung refresh: the promise never settles on its own, but it is resolved
-    // at the end of the case so the pending microtask does not keep the test
-    // process alive after the assertion.
+    // A hung revalidation: the promise never settles on its own, but it is
+    // resolved at the end of the case so the pending microtask does not keep
+    // the test process alive after the assertion.
     let releaseRefresh = (): void => {};
     releasePendingRefresh = () => releaseRefresh();
     mocks.refreshUpdateCache.mockReturnValue(
@@ -463,7 +486,8 @@ describe('runUpdatePreflight', () => {
       }),
     );
     mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mocks.promptForInstallChoice.mockResolvedValue('skip');
+    mocks.promptForInstallChoice.mockResolvedValue('install');
+    mockSpawnExit(0);
     const { options } = captureOutput();
 
     let fireTimeout = (): void => {};
@@ -484,21 +508,21 @@ describe('runUpdatePreflight', () => {
       },
     });
 
-    // `runUpdatePreflight` is async: let it reach the point where it arms the
-    // clock before firing the timeout, otherwise `fireTimeout` is still the
-    // empty placeholder.
+    // `runUpdatePreflight` is async: the revalidation (and its clock) arms only
+    // after the user accepts, so let the prompt resolve before firing.
     for (let i = 0; i < 20 && fireTimeoutRegistered === false; i += 1) {
       await new Promise((resolve) => setImmediate(resolve));
     }
     fireTimeout();
 
-    await expect(result).resolves.toBe('continue');
+    await expect(result).resolves.toBe('exit');
     expect(mocks.promptForInstallChoice).toHaveBeenCalledWith(
       expect.objectContaining({
         target: { version: '0.6.0' },
         installCommand: 'npm install -g @moonshot-ai/kimi-code@0.6.0',
       }),
     );
+    expectNpmSpawn(['install', '-g', '@moonshot-ai/kimi-code@0.6.0'], { stdio: 'inherit' });
     releaseRefresh();
   });
 
@@ -1256,7 +1280,9 @@ describe('runUpdatePreflight', () => {
       );
     });
 
-    it('uses the refreshed manifest for rollout telemetry when the prompt target changes', async () => {
+    it('tracks prompt telemetry from the cached manifest without waiting for the refresh', async () => {
+      // The prompt and its telemetry render from the cache; the refreshed
+      // manifest only matters if the user accepts and the install revalidates.
       disableAutoInstall();
       const cached = cacheWithManifest(
         manifestFor('0.6.0', {
@@ -1280,17 +1306,18 @@ describe('runUpdatePreflight', () => {
       await expect(runUpdatePreflight('0.5.0', { ...options, track })).resolves.toBe('continue');
 
       expect(mocks.promptForInstallChoice).toHaveBeenCalledWith(
-        expect.objectContaining({ target: { version: '0.7.0' } }),
+        expect.objectContaining({ target: { version: '0.6.0' } }),
       );
       expect(track).toHaveBeenCalledWith(
         'update_prompted',
         expect.objectContaining({
-          target_version: '0.7.0',
+          target_version: '0.6.0',
           rollout_bucket: expect.any(Number),
-          rollout_delay_seconds: 43_200,
+          rollout_delay_seconds: 0,
           rollout_from_manifest: true,
         }),
       );
+      expect(refreshUpdateCache).not.toHaveBeenCalled();
     });
 
     it('suppresses the manual-command notice while a homebrew device batch is held', async () => {
@@ -1321,17 +1348,23 @@ describe('runUpdatePreflight', () => {
       expect(mocks.spawn).not.toHaveBeenCalled();
     });
 
-    it('stays silent when the user-visible refresh reveals a held newer version', async () => {
+    it('installs nothing when the post-accept revalidation reveals a held newer version', async () => {
+      // The prompt renders from the cache (0.6.0, released); the revalidation
+      // after acceptance sees 0.7.0 held and aborts the install entirely.
       disableAutoInstall();
       mocks.readUpdateCache.mockResolvedValue(cacheWithManifest(releasedForEveryone('0.6.0')));
       mocks.refreshUpdateCache.mockResolvedValue(cacheWithManifest(heldForEveryone('0.7.0')));
       mocks.detectInstallSource.mockResolvedValue('npm-global');
+      mocks.promptForInstallChoice.mockResolvedValue('install');
       const { stdout, options } = captureOutput();
 
       await expect(runUpdatePreflight('0.5.0', options)).resolves.toBe('continue');
 
+      expect(mocks.promptForInstallChoice).toHaveBeenCalledWith(
+        expect.objectContaining({ target: { version: '0.6.0' } }),
+      );
+      expect(refreshUpdateCache).toHaveBeenCalledTimes(1);
       expect(stdout.join('')).toBe('');
-      expect(promptForInstallChoice).not.toHaveBeenCalled();
       expect(mocks.spawn).not.toHaveBeenCalled();
     });
 

@@ -5,16 +5,14 @@
  * outer update preflight, then delegates to the requested UI runner.
  */
 
+import type { TelemetryClient } from '@moonshot-ai/kimi-code-sdk';
 import {
   configureDiagnosticLogging,
-  createKimiHarness,
   flushDiagnosticLogs,
-  installGlobalProxyDispatcher,
   log,
   resolveGlobalLogPath,
-  resolveKimiHome,
-  type TelemetryClient,
-} from '@moonshot-ai/kimi-code-sdk';
+} from '@moonshot-ai/kimi-code-sdk/logging';
+import { isProxyConfigured, resolveKimiHome } from '@moonshot-ai/kimi-code-sdk/runtime';
 import {
   installCrashHandlers,
   setTelemetryContext,
@@ -25,31 +23,30 @@ import {
 
 import { resolvePluginNodeRunner } from '#/cli/plugin-node-runner';
 import { t } from '#/i18n';
+import type { MigrateCommandOptions } from '#/migration/command';
 
 import { createProgram } from './cli/commands';
 import { finalizeHeadlessRun } from './cli/headless-exit';
 import type { CLIOptions } from './cli/options';
 import { OptionConflictError, validateOptions } from './cli/options';
-import { runPrompt } from './cli/run-prompt';
-import { runShell } from './cli/run-shell';
-import { formatStartupError } from './cli/startup-error';
-import { runPluginNodeEntry } from './cli/sub/plugin-run-node';
-import { runUpdateDownloadCommand } from './cli/sub/update-download';
-import { handleUpgrade } from './cli/sub/upgrade';
-import { createCliTelemetryBootstrap, initializeCliTelemetry } from './cli/telemetry';
 import { maybeRelaunchWithStagedNativeUpdate } from './cli/update/native-swap';
-import { runUpdatePreflight } from './cli/update/preflight';
 import { detectNativeInstall } from './cli/update/source';
 import { createKimiCodeHostIdentity, getVersion } from './cli/version';
 import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE, PROCESS_NAME } from './constant/app';
-import { runHeadlessMigrate, type MigrateCommandOptions } from './migration/index';
 import { installMinidbTextBuildWorker } from './native/minidb-worker';
 import type { MinidbTextBuildWorkerInstallStatus } from './native/minidb-worker';
 import { cleanupStaleNativeCacheForCurrent } from './native/native-assets';
 import { installKapSearchWorker } from './native/search-worker';
 import type { KapSearchWorkerInstallStatus } from './native/search-worker';
-import { runNativeAssetSmokeIfRequested } from './native/smoke';
+import { nativeAssetSmokeRequested } from './native/smoke-gate';
 import { startupTrace } from './utils/startup-trace';
+
+// Entry-layer modules stay free of the engine, the TUI, the SDK root index,
+// and the zod schema stack: command implementations load on dispatch via
+// dynamic import so `--version`/`--help`/error paths never pay their
+// evaluation cost. The boundary rule is that everything above this comment
+// is cheap to evaluate; anything interactive or engine-bound is awaited
+// inside its handler.
 
 /**
  * Outcome of a CLI command run, reported back to the process entrypoint.
@@ -81,6 +78,7 @@ export async function handleMainCommand(
   }
 
   startupTrace('preflight:begin');
+  const { runUpdatePreflight } = await import('./cli/update/preflight');
   const preflightResult = await runUpdatePreflight(
     version,
     validated.uiMode === 'print' ? { track, isTTY: false } : { track },
@@ -91,11 +89,13 @@ export async function handleMainCommand(
   }
 
   if (validated.uiMode === 'print') {
+    const { runPrompt } = await import('./cli/run-prompt');
     await runPrompt(validated.options, version);
     return { headlessCompleted: true };
   }
 
   startupTrace('runShell:begin');
+  const { runShell } = await import('./cli/run-shell');
   await runShell(validated.options, version, { startupWarnings });
   return { headlessCompleted: false };
 }
@@ -114,13 +114,24 @@ async function handleMigrateCommand(
     // Set the exit code and return normally — an immediate process.exit here
     // could terminate before buffered step/report output is flushed when the
     // command is piped or redirected.
+    const { runHeadlessMigrate } = await import('#/migration/run-headless');
     process.exitCode = await runHeadlessMigrate({ configOnly: options.configOnly });
     return;
   }
+  const { runShell } = await import('./cli/run-shell');
   await runShell(MIGRATE_CLI_OPTIONS, version, { migrateOnly: true });
 }
 
 export async function handleUpgradeCommand(version: string, yes: boolean): Promise<void> {
+  const [
+    { createKimiHarness },
+    { createCliTelemetryBootstrap, initializeCliTelemetry },
+    { handleUpgrade },
+  ] = await Promise.all([
+    import('@moonshot-ai/kimi-code-sdk'),
+    import('./cli/telemetry'),
+    import('./cli/sub/upgrade'),
+  ]);
   const telemetryBootstrap = createCliTelemetryBootstrap();
   const telemetryClient: TelemetryClient = {
     track,
@@ -190,7 +201,13 @@ export function main(): void {
   })
     .catch(() => false)
     .then((relaunched) => {
-      if (!relaunched) bootstrap();
+      if (relaunched) return;
+      void bootstrap().catch(async (error: unknown) => {
+        await logStartupFailure(t('startup.operations.startShell'), error);
+        const { formatStartupError } = await import('./cli/startup-error');
+        process.stderr.write(formatStartupError(error, { operation: 'bootstrap' }));
+        process.exit(1);
+      });
     });
 }
 
@@ -230,7 +247,7 @@ export function workerInstallWarnings(
   return warnings;
 }
 
-function bootstrap(): void {
+async function bootstrap(): Promise<void> {
   // Configure the host-side diagnostic logger first: every symbol below this
   // point (proxy install, worker setup, CLI dispatch) logs through `log`, and
   // an unconfigured root logger drops those lines silently. Failures are not
@@ -239,9 +256,14 @@ function bootstrap(): void {
     () => undefined,
   );
   // Route all outbound fetch through HTTP_PROXY/HTTPS_PROXY (honoring NO_PROXY)
-  // before any client is constructed. No-op when no proxy variable is set; an
+  // before any client is constructed. The installer is a guaranteed no-op when
+  // no proxy variable is set (verified against createProxyDispatcher), so the
+  // heavy dispatcher stack (undici/socks) only loads when a proxy exists; an
   // invalid proxy URL is reported and ignored rather than aborting startup.
-  installGlobalProxyDispatcher(process.env);
+  if (isProxyConfigured(process.env)) {
+    const { installGlobalProxyDispatcher } = await import('@moonshot-ai/kimi-code-sdk/proxy');
+    installGlobalProxyDispatcher(process.env);
+  }
   // Best-effort worker installation. Diagnostics are trace-only and avoid
   // exposing the user's cache path; failure keeps MiniDb's bounded inline mode.
   const workerInstall = installMinidbTextBuildWorker();
@@ -263,7 +285,12 @@ function bootstrap(): void {
         ? `search-worker:failed code=${searchWorkerInstall.errorCode} sha256=${searchWorkerInstall.assetSha256 ?? 'unknown'}`
         : `search-worker:${searchWorkerInstall.status}`,
   );
-  if (runNativeAssetSmokeIfRequested()) return;
+  // The smoke module pulls the native search/index stack; only pay for it
+  // when the smoke gate (the single owner of the trigger) says it will run.
+  if (nativeAssetSmokeRequested()) {
+    const { runNativeAssetSmokeIfRequested } = await import('./native/smoke');
+    if (runNativeAssetSmokeIfRequested()) return;
+  }
 
   // Degraded workers are reported through the TUI startup notice; the tracer
   // lines above stay as the debug-only record.
@@ -317,6 +344,7 @@ function bootstrap(): void {
               ? t('startup.operations.runPrompt')
               : t('startup.operations.startShell');
           await logStartupFailure(operation, error);
+          const { formatStartupError } = await import('./cli/startup-error');
           process.stderr.write(
             formatStartupError(error, {
               operation,
@@ -332,6 +360,7 @@ function bootstrap(): void {
       void handleMigrateCommand(version, migrateOptions).catch(async (error: unknown) => {
         const operation = t('startup.operations.runMigration');
         await logStartupFailure(operation, error);
+        const { formatStartupError } = await import('./cli/startup-error');
         process.stderr.write(formatStartupError(error, { operation }));
         process.stderr.write(
           `${t('startup.error.seeLog', { path: resolveGlobalLogPath(resolveKimiHome()) })}\n`,
@@ -340,20 +369,23 @@ function bootstrap(): void {
       });
     },
     (entry, args) => {
-      void runPluginNodeEntry(entry, args).catch(async (error: unknown) => {
-        await logStartupFailure(t('startup.operations.runPluginNodeEntry'), error);
-        process.stderr.write(
-          t('tui.statusMessages.mainError', {
-            message: error instanceof Error ? error.message : String(error),
-          }) + '\n',
-        );
-        process.exit(1);
-      });
+      void import('./cli/sub/plugin-run-node')
+        .then(({ runPluginNodeEntry }) => runPluginNodeEntry(entry, args))
+        .catch(async (error: unknown) => {
+          await logStartupFailure(t('startup.operations.runPluginNodeEntry'), error);
+          process.stderr.write(
+            t('tui.statusMessages.mainError', {
+              message: error instanceof Error ? error.message : String(error),
+            }) + '\n',
+          );
+          process.exit(1);
+        });
     },
     (yes) => {
       void handleUpgradeCommand(version, yes).catch(async (error: unknown) => {
         const operation = t('startup.operations.upgrade');
         await logStartupFailure(operation, error);
+        const { formatStartupError } = await import('./cli/startup-error');
         process.stderr.write(formatStartupError(error, { operation }));
         process.stderr.write(
           `${t('startup.error.seeLog', { path: resolveGlobalLogPath(resolveKimiHome()) })}\n`,
@@ -362,15 +394,25 @@ function bootstrap(): void {
       });
     },
     (targetVersion, manual) => {
-      void runUpdateDownloadCommand(targetVersion, manual).then(
-        (code) => {
-          process.exit(code);
-        },
-        async (error: unknown) => {
-          await logStartupFailure('download update', error);
+      void import('./cli/sub/update-download')
+        .then(({ runUpdateDownloadCommand }) => runUpdateDownloadCommand(targetVersion, manual))
+        .then(
+          (code) => {
+            process.exit(code);
+          },
+          async (error: unknown) => {
+            await logStartupFailure('download update', error);
+            process.exit(1);
+          },
+        );
+    },
+    () => {
+      void import('@moonshot-ai/agent-core-v2/features/codeRuntime/codeShimSource')
+        .then(({ runCodeShimMain }) => runCodeShimMain())
+        .catch(async (error: unknown) => {
+          await logStartupFailure('run code shim', error);
           process.exit(1);
-        },
-      );
+        });
     },
   );
 

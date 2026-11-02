@@ -3,7 +3,8 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV, kimiCodePluginMarketplaceUrl } from '#/constant/app';
+import { KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV } from '#/constant/app';
+import { kimiCodePluginMarketplaceUrl } from '#/constant/region-urls';
 import {
   computeUpdateStatus,
   loadPluginMarketplace,

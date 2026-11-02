@@ -1,18 +1,22 @@
 import { spawn } from 'node:child_process';
 
-import { log, type Logger } from '@moonshot-ai/kimi-code-sdk';
+import { log } from '@moonshot-ai/kimi-code-sdk/logging';
 import type { TelemetryProperties } from '@moonshot-ai/kimi-telemetry';
 
 import {
   kimiCodeOfficialInstallUrl,
   nativeInstallCommandUnix,
   nativeInstallCommandWin,
-} from '#/constant/app';
+} from '#/constant/region-urls';
 import { t } from '#/i18n';
-import { loadTuiConfig } from '#/tui/config';
 import { SYSTEM_RENDER_CLOCK, type RenderClock } from '#/tui/utils/render-clock';
 import { resolveCommandPath } from '#/utils/process/resolve-command';
 
+import {
+  isAutoUpdateDisabledByEnv,
+  shouldAutoInstallUpdates,
+  type UpdateLogger,
+} from './auto-install';
 import { readUpdateCache } from './cache';
 import { tryAcquireUpdateInstallLock } from './install-lock';
 import {
@@ -64,8 +68,6 @@ export interface RunUpdatePreflightOptions {
 const AUTO_INSTALL_FAILURE_PROMPT_THRESHOLD = 2;
 const AUTO_INSTALL_ACTIVE_TTL_MS = 6 * 60 * 60 * 1000;
 const USER_VISIBLE_UPDATE_REFRESH_TIMEOUT_MS = 1_000;
-
-type UpdateLogger = Pick<Logger, 'info' | 'warn'>;
 
 /** Everything the internal update paths need beyond their explicit arguments. */
 interface PreflightDeps {
@@ -541,37 +543,7 @@ async function showPendingBackgroundInstallNotice(
   return nextState;
 }
 
-/**
- * `KIMI_CODE_NO_AUTO_UPDATE` (or the legacy `KIMI_CLI_NO_AUTO_UPDATE` alias)
- * fully disables automatic update behavior — no check, no background install,
- * no prompt, and no staged-swap at startup (see `native-swap.ts`). Migrated
- * from kimi-cli, where the variable gated all auto-update behavior. Accepts
- * the usual truthy values (`1`/`true`/`yes`/`on`).
- */
-export function isAutoUpdateDisabledByEnv(env: NodeJS.ProcessEnv = process.env): boolean {
-  const truthy = (value?: string): boolean =>
-    ['1', 'true', 'yes', 'on'].includes((value ?? '').trim().toLowerCase());
-  return truthy(env['KIMI_CODE_NO_AUTO_UPDATE']) || truthy(env['KIMI_CLI_NO_AUTO_UPDATE']);
-}
-
-/**
- * The persisted `[upgrade].auto_install` preference (defaults to true when
- * the config cannot be read). Gates the passive background install — and the
- * startup swap of automatically staged payloads (see `native-swap.ts`).
- */
-export async function shouldAutoInstallUpdates(logger: UpdateLogger = log): Promise<boolean> {
-  try {
-    const config = await loadTuiConfig();
-    return config.upgrade.autoInstall;
-  } catch (error) {
-    // A config load failure must never block the update preflight — fall back
-    // to the safe default (auto-install on), but keep a diagnostic trace.
-    logUpdateWarn(logger, 'failed to read auto-install preference', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return true;
-  }
-}
+export { isAutoUpdateDisabledByEnv, shouldAutoInstallUpdates } from './auto-install';
 
 function trackUpdatePrompted(
   track: RunUpdatePreflightOptions['track'],
@@ -937,7 +909,31 @@ export async function runUpdatePreflight(
       return 'continue';
     }
 
-    const userVisibleUpdate = await refreshUserVisibleUpdateTarget(
+    // The user-visible prompt renders from the cached target without waiting on
+    // the network: a refresh race here would block startup-to-prompt by up to
+    // the full refresh budget on a slow CDN, and every failure branch fell back
+    // to this same cached target anyway. Freshness is re-validated after the
+    // user accepts — before anything is installed — so a withdrawn or
+    // superseded target still never gets installed, and a declined prompt costs
+    // no network wait at all.
+    const cachedRollout = rolloutTelemetryFor(
+      deviceId,
+      target.version,
+      cachedManifest,
+      bypassRollout,
+    );
+    const installCommand = installCommandFor(source, target.version, platform);
+    trackUpdatePrompted(deps.track, currentVersion, target, source, decision, cachedRollout);
+
+    if (decision === 'manual-command') {
+      stdout.write(renderManualUpdateMessage(currentVersion, target, source, installCommand));
+      return 'continue';
+    }
+
+    const choice = await promptInstall(currentVersion, target, source, installCommand);
+    if (choice === 'skip') return 'continue';
+
+    const revalidated = await refreshUserVisibleUpdateTarget(
       currentVersion,
       deviceId,
       bypassRollout,
@@ -945,57 +941,37 @@ export async function runUpdatePreflight(
       cachedManifest,
       deps.clock,
     );
-    const userVisibleTarget = userVisibleUpdate.target;
-    if (userVisibleTarget === null) return 'continue';
-    const userVisibleRollout = rolloutTelemetryFor(
+    const installTarget = revalidated.target;
+    if (installTarget === null) return 'continue';
+    const installRollout = rolloutTelemetryFor(
       deviceId,
-      userVisibleTarget.version,
-      userVisibleUpdate.manifest,
+      installTarget.version,
+      revalidated.manifest,
       bypassRollout,
     );
     if (
       await tryStartAutomaticBackgroundInstall(
         installState,
         currentVersion,
-        userVisibleTarget,
+        installTarget,
         source,
         platform,
         deps,
-        userVisibleRollout,
+        installRollout,
       )
     ) {
       return 'continue';
     }
 
-    const installCommand = installCommandFor(source, userVisibleTarget.version, platform);
-    trackUpdatePrompted(
-      deps.track,
-      currentVersion,
-      userVisibleTarget,
-      source,
-      decision,
-      userVisibleRollout,
-    );
-
-    if (decision === 'manual-command') {
-      stdout.write(
-        renderManualUpdateMessage(currentVersion, userVisibleTarget, source, installCommand),
-      );
-      return 'continue';
-    }
-
-    const choice = await promptInstall(currentVersion, userVisibleTarget, source, installCommand);
-    if (choice === 'skip') return 'continue';
-
     try {
-      await installUpdate(source, userVisibleTarget.version, platform, deps.spawn);
-      stdout.write(renderInstallSuccessMessage(userVisibleTarget));
+      await installUpdate(source, installTarget.version, platform, deps.spawn);
+      stdout.write(renderInstallSuccessMessage(installTarget));
       return 'exit';
     } catch (error) {
       stderr.write(
         t('tui.statusMessages.updateInstallFailedWarning', {
           package: NPM_PACKAGE_NAME,
-          version: userVisibleTarget.version,
+          version: installTarget.version,
           error: formatErrorMessage(error),
         }) + '\n',
       );

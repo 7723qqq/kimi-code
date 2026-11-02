@@ -5,22 +5,27 @@
  * MUST treat the returned promise as `Promise<never>`.
  */
 
-import {
-  applyGoogleGeminiConfig,
-  GOOGLE_GEMINI_DEFAULT_MODEL_ID,
-  GoogleOAuthManager,
-  OAuthAccessDeniedError,
-  type DeviceAuthorization,
-  type KimiRegion,
-  type ManagedKimiConfigShape,
+import type {
+  DeviceAuthorization,
+  KimiRegion,
+  ManagedKimiConfigShape,
 } from '@moonshot-ai/kimi-code-oauth';
-import { createKimiHarness } from '@moonshot-ai/kimi-code-sdk';
 
 import { resolvePluginNodeRunner } from '#/cli/plugin-node-runner';
 import { createKimiCodeHostIdentity } from '#/cli/version';
 import { t } from '#/i18n';
 import { openUrl } from '#/utils/open-url';
-import { persistedKimiOAuthRef, regionForBareLogin } from '#/utils/region';
+
+// The OAuth toolkit and the SDK harness pull the zod/engine stack; both load
+// on dispatch so importing this module (command registration) stays light.
+async function loadOAuth() {
+  return import('@moonshot-ai/kimi-code-oauth');
+}
+
+async function loadHarness() {
+  const { createKimiHarness } = await import('@moonshot-ai/kimi-code-sdk');
+  return createKimiHarness;
+}
 
 /** Parse a `--region` CLI flag; exits with an actionable message on bad input. */
 export function parseRegionFlag(value: string): KimiRegion {
@@ -38,6 +43,7 @@ export async function runLoginFlow(
     return runAntigravitySyncFlow();
   }
   if (options.provider === 'google' || options.provider === 'gemini') {
+    const { GoogleOAuthManager } = await loadOAuth();
     const antigravity = GoogleOAuthManager.detectAntigravityCredentials();
     if (antigravity.available) {
       process.stderr.write(
@@ -62,6 +68,11 @@ export async function runLoginFlow(
   // default); an existing login keeps its own environment (see
   // regionForBareLogin — the default slot re-pins mainland-cn, a scoped slot
   // keeps its configured hosts).
+  const [
+    { persistedKimiOAuthRef, regionForBareLogin },
+    { OAuthAccessDeniedError },
+    createKimiHarness,
+  ] = await Promise.all([import('#/utils/region'), loadOAuth(), loadHarness()]);
   const region = options.region ?? regionForBareLogin(persistedKimiOAuthRef());
   const identity = createKimiCodeHostIdentity();
   const harness = createKimiHarness({
@@ -122,6 +133,10 @@ export async function runLoginFlow(
 }
 
 export async function runGoogleLoginFlow(): Promise<never> {
+  const [
+    { GoogleOAuthManager, applyGoogleGeminiConfig, GOOGLE_GEMINI_DEFAULT_MODEL_ID },
+    createKimiHarness,
+  ] = await Promise.all([loadOAuth(), loadHarness()]);
   const manager = new GoogleOAuthManager();
   const identity = createKimiCodeHostIdentity();
   const harness = createKimiHarness({
@@ -189,6 +204,10 @@ export async function runGoogleLoginFlow(): Promise<never> {
 }
 
 export async function runAntigravitySyncFlow(): Promise<never> {
+  const [
+    { GoogleOAuthManager, applyGoogleGeminiConfig, GOOGLE_GEMINI_DEFAULT_MODEL_ID },
+    createKimiHarness,
+  ] = await Promise.all([loadOAuth(), loadHarness()]);
   const manager = new GoogleOAuthManager();
   const identity = createKimiCodeHostIdentity();
   const harness = createKimiHarness({

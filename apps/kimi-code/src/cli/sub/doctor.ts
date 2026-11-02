@@ -3,10 +3,9 @@ import { readFile } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 
 import type { Command } from 'commander';
-import { z } from 'zod';
+import type { z } from 'zod';
 
 import { t } from '#/i18n';
-import { getTuiConfigPath, parseTuiConfig } from '#/tui/config';
 import { getDataDir } from '#/utils/paths';
 
 interface WritableLike {
@@ -18,7 +17,7 @@ type MaybePromise<T> = T | Promise<T>;
 export interface DoctorDeps {
   readonly cwd: () => string;
   readonly defaultConfigPath: () => MaybePromise<string>;
-  readonly defaultTuiConfigPath: () => string;
+  readonly defaultTuiConfigPath: () => MaybePromise<string>;
   readonly stdout: WritableLike;
   readonly stderr: WritableLike;
   readonly exit: (code: number) => never;
@@ -50,7 +49,7 @@ interface CheckResult {
 interface ResolvedDoctorDeps {
   readonly cwd: () => string;
   readonly defaultConfigPath: () => MaybePromise<string>;
-  readonly defaultTuiConfigPath: () => string;
+  readonly defaultTuiConfigPath: () => MaybePromise<string>;
   readonly stdout: WritableLike;
   readonly stderr: WritableLike;
   readonly exit: (code: number) => never;
@@ -113,7 +112,14 @@ function resolveDeps(deps: Partial<DoctorDeps> | DoctorDeps | undefined): Resolv
   return {
     cwd: deps?.cwd ?? (() => process.cwd()),
     defaultConfigPath: deps?.defaultConfigPath ?? (() => join(getDataDir(), 'config.toml')),
-    defaultTuiConfigPath: deps?.defaultTuiConfigPath ?? getTuiConfigPath,
+    // `#/tui/config` pulls the zod schema stack; resolve the default lazily so
+    // registering the command group stays free of it.
+    defaultTuiConfigPath:
+      deps?.defaultTuiConfigPath ??
+      (async () => {
+        const { getTuiConfigPath } = await import('#/tui/config');
+        return getTuiConfigPath();
+      }),
     stdout: deps?.stdout ?? process.stdout,
     stderr: deps?.stderr ?? process.stderr,
     exit: deps?.exit ?? ((code) => process.exit(code)),
@@ -147,12 +153,14 @@ async function buildCheckSpecs(
   }
 
   if (options.target === 'tui') {
-    return [makeTuiSpec(resolveTuiTargetPath(deps, options.path, cwd), options.path !== undefined)];
+    return [
+      makeTuiSpec(await resolveTuiTargetPath(deps, options.path, cwd), options.path !== undefined),
+    ];
   }
 
   return [
     makeConfigSpec(await deps.defaultConfigPath(), false, deps),
-    makeTuiSpec(deps.defaultTuiConfigPath(), false),
+    makeTuiSpec(await deps.defaultTuiConfigPath(), false),
   ];
 }
 
@@ -172,7 +180,8 @@ function makeTuiSpec(path: string, explicit: boolean): CheckSpec {
     label: 'tui.toml',
     path,
     explicit,
-    parse: (text) => {
+    parse: async (text) => {
+      const { parseTuiConfig } = await import('#/tui/config');
       parseTuiConfig(text);
     },
   };
@@ -199,7 +208,7 @@ async function checkTomlFile(deps: ResolvedDoctorDeps, spec: CheckSpec): Promise
       label: spec.label,
       path: spec.path,
       status: 'ERROR',
-      message: formatErrorMessage(error, spec.path),
+      message: await formatErrorMessage(error, spec.path),
     };
   }
 }
@@ -216,7 +225,7 @@ function resolveTuiTargetPath(
   deps: ResolvedDoctorDeps,
   input: string | undefined,
   cwd: string,
-): string {
+): MaybePromise<string> {
   return input === undefined ? deps.defaultTuiConfigPath() : resolveInputPath(input, cwd);
 }
 
@@ -260,7 +269,7 @@ function formatResults(results: readonly CheckResult[]): string[] {
   return lines;
 }
 
-function formatErrorMessage(error: unknown, filePath: string): string {
+async function formatErrorMessage(error: unknown, filePath: string): Promise<string> {
   const validationIssues = findValidationIssues(error);
   if (validationIssues !== undefined) {
     return [
@@ -270,7 +279,7 @@ function formatErrorMessage(error: unknown, filePath: string): string {
     ].join('\n');
   }
 
-  const zodError = findZodError(error);
+  const zodError = await findZodError(error);
   if (zodError !== undefined) {
     return [
       t('tui.statusMessages.doctorInvalidConfig', { path: filePath }),
@@ -312,9 +321,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-function findZodError(error: unknown): z.ZodError | undefined {
-  if (error instanceof z.ZodError) return error;
-  if (error instanceof Error && error.cause instanceof z.ZodError) return error.cause;
+async function findZodError(error: unknown): Promise<z.ZodError | undefined> {
+  const { ZodError } = await import('zod');
+  if (error instanceof ZodError) return error;
+  if (error instanceof Error && error.cause instanceof ZodError) return error.cause;
   return undefined;
 }
 

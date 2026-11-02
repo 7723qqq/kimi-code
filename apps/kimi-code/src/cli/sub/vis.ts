@@ -10,7 +10,6 @@
 
 import { InvalidArgumentError, type Command } from 'commander';
 
-import { createCliTelemetryBootstrap } from '#/cli/telemetry';
 import { t } from '#/i18n';
 import { openUrl } from '#/utils/open-url';
 
@@ -127,7 +126,7 @@ export function registerVisCommand(parent: Command, overrides?: Partial<VisDeps>
         sessionId: string | undefined,
         options: { port?: number; host?: string; open?: boolean },
       ) => {
-        await handleVis(createDefaultVisDeps(overrides), {
+        await handleVis(await createDefaultVisDeps(overrides), {
           open: options.open !== false,
           ...(options.port === undefined || Number.isNaN(options.port)
             ? {}
@@ -139,7 +138,10 @@ export function registerVisCommand(parent: Command, overrides?: Partial<VisDeps>
     );
 }
 
-function createDefaultVisDeps(overrides: Partial<VisDeps> = {}): VisDeps {
+async function createDefaultVisDeps(overrides: Partial<VisDeps> = {}): Promise<VisDeps> {
+  // The CLI telemetry bootstrap pulls the OAuth stack; load it on dispatch so
+  // registering the command stays light.
+  const { createCliTelemetryBootstrap } = await import('#/cli/telemetry');
   return {
     getHomeDir: overrides.getHomeDir ?? (() => createCliTelemetryBootstrap().homeDir),
     startVisServer:

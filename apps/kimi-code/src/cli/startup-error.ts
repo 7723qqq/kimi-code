@@ -3,7 +3,7 @@ import {
   KIMI_ERROR_INFO,
   type KimiErrorCode,
   type KimiErrorInfo,
-} from '@moonshot-ai/kimi-code-sdk';
+} from '@moonshot-ai/kimi-code-sdk/errors';
 import { chalkStderr } from 'chalk';
 
 import { STARTUP_ERROR_COLOR } from '#/constant/startup-error';

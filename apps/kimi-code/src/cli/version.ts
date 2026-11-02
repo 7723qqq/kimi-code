@@ -7,7 +7,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
-import { createKimiUserAgent, type KimiHostIdentity } from '@moonshot-ai/kimi-code-oauth';
+import { createKimiUserAgent, type KimiHostIdentity } from '@moonshot-ai/kimi-code-oauth/identity';
 
 import { CLI_MSH_PLATFORM, CLI_USER_AGENT_PRODUCT } from '#/constant/app';
 

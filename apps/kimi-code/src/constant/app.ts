@@ -1,6 +1,5 @@
-import { ErrorCodes, type HostUiCapability } from '@moonshot-ai/kimi-code-sdk';
-
-import { currentKimiProfile } from '#/utils/region';
+import type { HostUiCapability } from '@moonshot-ai/kimi-code-sdk';
+import { ErrorCodes } from '@moonshot-ai/kimi-code-sdk/errors-codes';
 
 export const PRODUCT_NAME = 'Kimi Code';
 export const CLI_COMMAND_NAME = 'kimi';
@@ -80,11 +79,6 @@ export const DEFAULT_OAUTH_PROVIDER_NAME = 'managed:kimi-code';
 export const OAUTH_LOGIN_REQUIRED_CODE = ErrorCodes.AUTH_LOGIN_REQUIRED;
 
 export const FEEDBACK_ISSUE_URL = 'https://github.com/MoonshotAI/kimi-code/issues';
-// Sign-up / sign-in page offered to signed-out users so they can create an
-// account and submit feedback through the authenticated channel next time.
-export function kimiCodeSignupUrl(): string {
-  return `${currentKimiProfile().siteBase}/code`;
-}
 
 // Sent in the feedback `version` field so the backend can distinguish this
 // TypeScript client from clients that send a bare version.
@@ -93,37 +87,10 @@ export const FEEDBACK_VERSION_PREFIX = 'kimi-code-';
 // Telemetry event name; keep stable for dashboard queries.
 export const FEEDBACK_TELEMETRY_EVENT = 'feedback_submitted';
 
-// CDN source of truth: all version checks and native install scripts pull from here.
-// The off-session endpoints derive from the current region profile so a
-// global login points at the .ai deployment; they are resolved per call so
-// a region switch (login/logout + refreshKimiRegion) takes effect immediately.
-export function kimiCodeCdnBase(): string {
-  return currentKimiProfile().cdnBase;
-}
-export function kimiCodeCdnLatestUrl(): string {
-  return `${kimiCodeCdnBase()}/latest`;
-}
-// Rollout manifest consumed by update checks; the plain-text `/latest` above
-// stays unchanged forever — already-shipped clients hard-fail on non-semver
-// bodies, and the CDN install scripts read it for fresh installs.
-export function kimiCodeCdnLatestJsonUrl(): string {
-  return `${kimiCodeCdnBase()}/latest.json`;
-}
-// Per-release native artifacts: `/binaries/<version>/manifest.json` +
-// `/binaries/<version>/kimi-code-<target>[.exe]` — the bare platform binary
-// (same layout install.ps1 consumes).
-export function kimiCodeCdnBinariesBase(): string {
-  return `${kimiCodeCdnBase()}/binaries`;
-}
 // The marketplace env override name lives in the shared agent-core-v2 plugin
 // domain (kap-server consumes it from there). Deep-path import: this module is
 // evaluated on every CLI invocation, so it must not pull in the engine root.
 export { KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV } from '@moonshot-ai/agent-core-v2/app/plugin/marketplace';
-// The CLI-side default catalog derives from the current region profile; the
-// env override above takes priority at the call site.
-export function kimiCodePluginMarketplaceUrl(): string {
-  return `${kimiCodeCdnBase()}/plugins/marketplace.json`;
-}
 // Bound on each background "latest release" lookup when the TUI fills in
 // marketplace versions. Without it a stalled connection to github.com hangs
 // the version phase for undici's default header timeout (300s).
@@ -132,22 +99,3 @@ export const INTERACTIVE_UPDATE_CHECK_TIMEOUT_MS = 10_000;
 // Official plugins whose usage bills against the user's plan quota. Installing
 // one of these shows a quota note after the install result.
 export const QUOTA_CONSUMING_PLUGIN_IDS: readonly string[] = ['kimi-datasource'];
-export function kimiCodeInstallShUrl(): string {
-  return `${kimiCodeCdnBase()}/install.sh`;
-}
-export function kimiCodeInstallPs1Url(): string {
-  return `${kimiCodeCdnBase()}/install.ps1`;
-}
-// Official download page, referenced by prompt copy that steers users away
-// from third-party install sources.
-export function kimiCodeOfficialInstallUrl(): string {
-  return `${currentKimiProfile().siteBase}/code`;
-}
-
-// Native install commands, split by platform. Use these for prompt copy and spawn calls only; do not assemble the strings elsewhere.
-export function nativeInstallCommandUnix(): string {
-  return `curl -fsSL ${kimiCodeInstallShUrl()} | bash`;
-}
-export function nativeInstallCommandWin(): string {
-  return `irm ${kimiCodeInstallPs1Url()} | iex`;
-}

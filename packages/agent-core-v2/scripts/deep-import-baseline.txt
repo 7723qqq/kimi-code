@@ -31,6 +31,14 @@
 #
 # Regenerate with:
 #   bun packages/agent-core-v2/scripts/check-deep-imports.mjs
+#
+# The hidden `__run_code` subcommand is a binary-internal entry point of the
+# same kind as `__plugin_run_node`: commands.ts registers it and main.ts
+# dispatches to the shim. codeShimSource is import-free by construction, so the
+# narrow import adds nothing to the CLI startup graph, while going through the
+# engine root would pull the whole graph into every CLI invocation.
+apps/kimi-code/src/cli/commands.ts features/codeRuntime/codeShimSource
+apps/kimi-code/src/main.ts features/codeRuntime/codeShimSource
 
 apps/kimi-code/src/cli/v2/run-v2-print.ts app/mcpConfig/configLoader
 apps/kimi-code/src/cli/v2/validate-config.ts app/config/deprecations

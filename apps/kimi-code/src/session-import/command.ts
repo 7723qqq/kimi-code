@@ -1,19 +1,15 @@
-import { createKimiHarness, type TelemetryClient } from '@moonshot-ai/kimi-code-sdk';
-import { setTelemetryContext, track, withTelemetryContext } from '@moonshot-ai/kimi-telemetry';
-import { ProcessTerminal, TuiMainScreen } from '@moonshot-ai/pi-tui';
 import type { Command } from 'commander';
 
-import { resolvePluginNodeRunner } from '#/cli/plugin-node-runner';
-import { createCliTelemetryBootstrap } from '#/cli/telemetry';
-import { createKimiCodeHostIdentity } from '#/cli/version';
 import { t } from '#/i18n';
-
-import { importBudget, importSessions, scanImportableSessions, sourceHomes } from './run-import';
-import { ImportSessionsScreenComponent } from './screen';
 
 export function registerImportSessionsCommand(
   parent: Command,
-  run: () => Promise<number> = runImportSessionsCommand,
+  run: () => Promise<number> = async () => {
+    // The import screen pulls the harness and pi-tui; load it only when the
+    // command actually runs so the CLI entry stays free of both.
+    const { runImportSessionsCommand } = await import('./run-screen');
+    return runImportSessionsCommand();
+  },
 ): void {
   parent
     .command('import-sessions')
@@ -21,51 +17,4 @@ export function registerImportSessionsCommand(
     .action(async () => {
       process.exitCode = await run();
     });
-}
-
-/** `kimi import-sessions`: show only the import page in a bare terminal UI, then exit. */
-export async function runImportSessionsCommand(): Promise<number> {
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    process.stderr.write(`${t('tui.messages.importSessions.needsTty')}\n`);
-    return 1;
-  }
-  const telemetry: TelemetryClient = {
-    track,
-    withContext: withTelemetryContext,
-    setContext: setTelemetryContext,
-  };
-  const harness = createKimiHarness({
-    homeDir: createCliTelemetryBootstrap().homeDir,
-    identity: createKimiCodeHostIdentity(),
-    pluginNodeRunner: resolvePluginNodeRunner(),
-    telemetry,
-  });
-  try {
-    const kimiHome = harness.homeDir;
-    const budget = importBudget(await harness.getConfig().catch(() => ({})));
-    const now = Date.now();
-    const homes = sourceHomes();
-    const ui = new TuiMainScreen(new ProcessTerminal());
-    await new Promise<void>((resolve) => {
-      const screen = new ImportSessionsScreenComponent({
-        now,
-        scan: () => scanImportableSessions({ kimiHome, ...homes, now }),
-        run: (candidates, hooks) =>
-          importSessions(candidates, { kimiHome, ...budget, now, ...hooks }),
-        requestRender: () => {
-          ui.requestRender();
-        },
-        onClose: () => {
-          resolve();
-        },
-      });
-      ui.addChild(screen);
-      ui.setFocus(screen);
-      ui.start();
-    });
-    ui.stop();
-    return 0;
-  } finally {
-    await harness.close();
-  }
 }

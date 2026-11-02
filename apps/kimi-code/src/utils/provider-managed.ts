@@ -1,4 +1,4 @@
-import { isOpenPlatformId } from '@moonshot-ai/kimi-code-oauth';
+import { isOpenPlatformId } from '@moonshot-ai/kimi-code-oauth/open-platform-defs';
 
 import { DEFAULT_OAUTH_PROVIDER_NAME } from '#/constant/app';
 

@@ -60,6 +60,6 @@ done
 
 ## 面向贡献者
 
-- bytecode 在 `scripts/native/build-bun.mjs` 中默认开启。
+- bytecode 在 `apps/kimi-code/scripts/native/build-bun.mjs` 中默认开启。
 - 在 `bun run build:native:bun` 前设置 `KIMI_CODE_BUN_DISABLE_BYTECODE=1`，可构建不带 bytecode 的版本用于对比。
 - 启动数据与构建所用的 Bun 版本相关，因为运行时被内嵌在二进制中。

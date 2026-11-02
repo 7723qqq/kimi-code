@@ -76,12 +76,31 @@ export function estimateTokensForMessages(
   return total;
 }
 
+const toolTextTokenCache = new Map<string, number>();
+const toolParametersTokenCache = new WeakMap<Record<string, unknown>, number>();
+
+function estimateToolTextTokens(text: string): number {
+  const cached = toolTextTokenCache.get(text);
+  if (cached !== undefined) return cached;
+  const estimate = estimateTokens(text);
+  toolTextTokenCache.set(text, estimate);
+  return estimate;
+}
+
+function estimateToolParametersTokens(parameters: Record<string, unknown>): number {
+  const cached = toolParametersTokenCache.get(parameters);
+  if (cached !== undefined) return cached;
+  const estimate = estimateTokens(JSON.stringify(parameters));
+  toolParametersTokenCache.set(parameters, estimate);
+  return estimate;
+}
+
 export function estimateTokensForTools(tools: readonly ToolDescription[]): number {
   let total = 0;
   for (const tool of tools) {
-    total += estimateTokens(tool.name);
-    total += estimateTokens(tool.description);
-    total += estimateTokens(JSON.stringify(tool.parameters));
+    total += estimateToolTextTokens(tool.name);
+    total += estimateToolTextTokens(tool.description);
+    total += estimateToolParametersTokens(tool.parameters);
   }
   return total;
 }

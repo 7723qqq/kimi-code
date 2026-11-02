@@ -6,7 +6,6 @@
  * auth check, so rotation takes effect without a restart.
  */
 
-import { getLiveServerInstance, rotateServerToken } from '@moonshot-ai/kap-server';
 import chalk from 'chalk';
 import type { Command } from 'commander';
 
@@ -22,6 +21,9 @@ export function registerRotateTokenCommand(server: Command): void {
     .description(t('cli.commandDescriptions.serverRotateToken'))
     .action(async () => {
       try {
+        // kap-server pulls the engine stack; load it on dispatch.
+        const { getLiveServerInstance, rotateServerToken } =
+          await import('@moonshot-ai/kap-server');
         const token = await rotateServerToken(getDataDir());
         process.stdout.write(t('tui.statusMessages.serverTokenRotated') + '\n');
 

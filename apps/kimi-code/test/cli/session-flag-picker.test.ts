@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test';
 
 import { createProgram } from '#/cli/commands';
 import type { CLIOptions } from '#/cli/options';
-import { OptionConflictError, validateOptions } from '#/cli/options';
+import { validateOptions } from '#/cli/options';
 
 function parse(argv: string[]): CLIOptions {
   let captured: CLIOptions | undefined;
@@ -67,12 +67,10 @@ describe('--session / -r / -S picker routing', () => {
       expect(options.session).toBe('');
     });
 
-    // Note: --print / --wire are held back from the first release, so
-    // the "picker + print/wire" combinations can't be constructed via
-    // Commander anymore. The validateOptions guard still lives in
-    // source for when those flags return.
+    // Note: --print / --wire are still unregistered, so the
+    // "picker + print/wire" combinations cannot be constructed through
+    // Commander here. The options suite's removed-flags list asserts both
+    // stay unknown.
   });
 
-  // Silence unused-import warning kept for the preserved guard tests.
-  void OptionConflictError;
 });
