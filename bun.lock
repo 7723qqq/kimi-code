@@ -380,6 +380,7 @@
       "version": "0.5.0",
       "dependencies": {
         "@moonshot-ai/kosong": "workspace:*",
+        "@moonshot-ai/runtime-shared": "workspace:*",
         "proper-lockfile": "^4.1.2",
         "zod": "catalog:",
       },

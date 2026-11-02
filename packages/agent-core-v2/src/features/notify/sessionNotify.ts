@@ -1,5 +1,6 @@
 import { createDecorator } from '#/_base/di/instantiation';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { NOTIFY_USER_GUIDANCE } from '#/app/agentProfileCatalog/profile-shared';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IFlagService } from '#/app/flag/flag';
 import { LifecycleScope } from '#/app/scopes';
@@ -54,7 +55,7 @@ export class SessionNotify implements ISessionNotify {
     )) {
       if (record.type !== 'profile.bind' || typeof record['systemPrompt'] !== 'string') continue;
       enabled =
-        record['systemPrompt'].includes('When `NotifyUser` is available, use it proactively') ||
+        record['systemPrompt'].includes(NOTIFY_USER_GUIDANCE) ||
         record['systemPrompt'].includes(
           'The `NotifyUser` tool is your channel to the user while you work',
         );

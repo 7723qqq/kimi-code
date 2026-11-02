@@ -24,6 +24,12 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
+import {
+  KIMI_OPEN_PLATFORM_API_BASE_CN,
+  KIMI_OPEN_PLATFORM_API_BASE_GLOBAL,
+  KIMI_OPEN_PLATFORM_CONSOLE_CN,
+  KIMI_OPEN_PLATFORM_CONSOLE_GLOBAL,
+} from '@moonshot-ai/runtime-shared';
 import { z } from 'zod';
 
 import { DEFAULT_KIMI_CODE_OAUTH_HOST } from './constants';
@@ -56,6 +62,10 @@ export interface KimiRegionProfile {
   readonly telemetryEndpoint?: string;
   /** Remote Control relay origin (`kimi rc` / `/web` public URL). */
   readonly relayOrigin: string;
+  /** Public open-platform API base for BYOK API-key access. */
+  readonly openPlatformApiBase: string;
+  /** Public open-platform console (API key management pages). */
+  readonly openPlatformConsole: string;
 }
 
 export const KIMI_REGION_PROFILES: Record<KimiRegion, KimiRegionProfile> = {
@@ -66,6 +76,8 @@ export const KIMI_REGION_PROFILES: Record<KimiRegion, KimiRegionProfile> = {
     siteBase: 'https://www.kimi.com',
     telemetryEndpoint: 'https://telemetry-logs.kimi.com/v1/event',
     relayOrigin: 'https://code-rc.kimi.com',
+    openPlatformApiBase: KIMI_OPEN_PLATFORM_API_BASE_CN,
+    openPlatformConsole: KIMI_OPEN_PLATFORM_CONSOLE_CN,
   },
   global: {
     oauthHost: 'https://auth.kimi.ai',
@@ -73,6 +85,8 @@ export const KIMI_REGION_PROFILES: Record<KimiRegion, KimiRegionProfile> = {
     cdnBase: 'https://code.kimi.ai/kimi-code',
     siteBase: 'https://www.kimi.ai',
     relayOrigin: 'https://code-rc.kimi.ai',
+    openPlatformApiBase: KIMI_OPEN_PLATFORM_API_BASE_GLOBAL,
+    openPlatformConsole: KIMI_OPEN_PLATFORM_CONSOLE_GLOBAL,
   },
 };
 

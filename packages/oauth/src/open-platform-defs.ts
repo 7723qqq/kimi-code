@@ -1,3 +1,5 @@
+import { KIMI_REGION_PROFILES } from './region';
+
 export interface OpenPlatformDefinition {
   readonly id: string;
   readonly name: string;
@@ -11,15 +13,15 @@ export const OPEN_PLATFORMS: readonly OpenPlatformDefinition[] = [
   {
     id: 'moonshot-cn',
     name: 'Kimi Platform (API key · platform.kimi.com)',
-    baseUrl: 'https://api.moonshot.cn/v1',
-    consoleUrl: 'https://platform.kimi.com',
+    baseUrl: KIMI_REGION_PROFILES['mainland-cn'].openPlatformApiBase,
+    consoleUrl: KIMI_REGION_PROFILES['mainland-cn'].openPlatformConsole,
     allowedPrefixes: ['kimi-k'],
   },
   {
     id: 'moonshot-ai',
     name: 'Kimi Platform (API key · platform.kimi.ai)',
-    baseUrl: 'https://api.moonshot.ai/v1',
-    consoleUrl: 'https://platform.kimi.ai',
+    baseUrl: KIMI_REGION_PROFILES.global.openPlatformApiBase,
+    consoleUrl: KIMI_REGION_PROFILES.global.openPlatformConsole,
     allowedPrefixes: ['kimi-k'],
   },
   {

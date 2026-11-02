@@ -1,6 +1,8 @@
 /**
  * Localized port of v1's env-model overlay (`agent-core/src/config/env-model.ts`).
  */
+import { KIMI_OPEN_PLATFORM_API_BASE_GLOBAL } from '@moonshot-ai/runtime-shared';
+
 import { ErrorCodes, KimiError } from '#/errors';
 
 import { parseBooleanEnv } from './resolve';
@@ -20,7 +22,7 @@ export const ENV_MODEL_ALIAS_KEY = '__kimi_env_model__';
 const ALLOWED_TYPES: readonly ProviderType[] = ['kimi', 'anthropic', 'openai'];
 
 const DEFAULT_BASE_URL: Partial<Record<ProviderType, string>> = {
-  kimi: 'https://api.moonshot.ai/v1',
+  kimi: KIMI_OPEN_PLATFORM_API_BASE_GLOBAL,
   openai: 'https://api.openai.com/v1',
   // anthropic: omitted -> let the Anthropic SDK pick its default
 };

@@ -1,3 +1,5 @@
+import { KIMI_OPEN_PLATFORM_API_BASE_GLOBAL } from '@moonshot-ai/runtime-shared';
+
 import { providerImagePolicy } from '#/llm/media/image-formats';
 import type { ContentPart, ToolDescription } from '#/llm/message';
 import type { LlmModel } from '#/llm/model';
@@ -16,7 +18,7 @@ import { normalizeKimiToolSchema } from './schema';
 
 export const KIMI_API_KEY_ENV = 'KIMI_API_KEY';
 export const KIMI_BASE_URL_ENV = 'KIMI_BASE_URL';
-export const KIMI_DEFAULT_BASE_URL = 'https://api.moonshot.ai/v1';
+export const KIMI_DEFAULT_BASE_URL = KIMI_OPEN_PLATFORM_API_BASE_GLOBAL;
 
 const kimiEndpoint: ProtocolEndpoint = {
   apiKeyEnv: KIMI_API_KEY_ENV,

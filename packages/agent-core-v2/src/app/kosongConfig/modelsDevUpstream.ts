@@ -1,3 +1,5 @@
+import { MODELS_DEV_API_URL } from '@moonshot-ai/runtime-shared';
+
 import { CoreErrors } from '#/_base/errors/codes';
 import { BugIndicatingError, Error2 } from '#/_base/errors/errors';
 import type { FetchLike } from '#/_base/utils/fetchLike';
@@ -15,7 +17,7 @@ import {
 } from './modelsDev';
 import type { ModelsDevModelItem, ModelsDevProviderItem } from './modelsDevImport';
 
-export const MODELS_DEV_URL = 'https://models.dev/api.json';
+export const MODELS_DEV_URL = MODELS_DEV_API_URL;
 const CACHE_TTL_MS = 10 * 60 * 1000;
 export const UPSTREAM_FETCH_TIMEOUT_MS = 10_000;
 

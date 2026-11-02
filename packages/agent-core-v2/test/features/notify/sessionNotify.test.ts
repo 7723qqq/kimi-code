@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
+import { NOTIFY_USER_GUIDANCE } from '#/app/agentProfileCatalog/profile-shared';
 import type { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import type { IFlagService } from '#/app/flag/flag';
 import { SessionNotify } from '#/features/notify/sessionNotify';
@@ -39,8 +40,7 @@ function journal(systemPrompt?: string): IAppendLogStore {
   } as unknown as IAppendLogStore;
 }
 
-const PROMPT_WITH_NOTIFY =
-  'Before you call it: When `NotifyUser` is available, use it proactively to keep the end user informed.';
+const PROMPT_WITH_NOTIFY = `Before you call it: ${NOTIFY_USER_GUIDANCE}`;
 
 function notify(
   options: {

@@ -10,7 +10,9 @@
 # by file so a new match in a listed file is still reported; the entry that
 # stops matching is reported too, so the ledger cannot rot.
 
-# Line labels of the generated turn report, produced and read in the same file.
+# Line labels of the task notification XML, written by
+# agent-core-v2/src/agent/task/notificationXml.ts and read back here when
+# grouping turns. Cross-package by nature; the fix is an exported constant.
 packages/transcript/src/history/groupTurns.ts  2
 
 # HTTP auth scheme, not copy.
@@ -23,13 +25,7 @@ packages/kosong/src/providers/google-genai.ts  2
 packages/kap-server/src/search/indexCore.ts  2
 
 # ripgrep / OS stderr text (`os error 11`, EAGAIN), not our copy.
-packages/agent-core-v2/src/workspace/workspaceFs/internal/runRg.ts  1
 packages/agent-core-v2/src/os/backends/host/tools/runRg.ts  1
-
-# A prompt sentence from the model's own system prompt, sniffed to decide
-# whether a notify tool is already available. Cross-layer by nature; the fix is
-# a capability check rather than a substring test.
-packages/agent-core-v2/src/features/notify/sessionNotify.ts  1
 
 # git's own branch/summary output.
 packages/agent-core-v2/src/app/git/gitParsers.ts  2

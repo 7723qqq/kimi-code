@@ -6,6 +6,8 @@
  */
 import OpenAI from 'openai';
 
+import { KIMI_OPEN_PLATFORM_API_BASE_GLOBAL } from '@moonshot-ai/runtime-shared';
+
 import { parseTraceId } from '#/errors';
 import type { ContentPart, Message, StreamedMessagePart, ToolCall } from '#/message';
 import type {
@@ -438,7 +440,8 @@ export class KimiChatProvider implements ChatProvider {
   constructor(options: KimiOptions) {
     const apiKey = options.apiKey ?? process.env['KIMI_API_KEY'];
     this._apiKey = apiKey === undefined || apiKey.length === 0 ? undefined : apiKey;
-    this._baseUrl = options.baseUrl ?? process.env['KIMI_BASE_URL'] ?? 'https://api.moonshot.ai/v1';
+    this._baseUrl =
+      options.baseUrl ?? process.env['KIMI_BASE_URL'] ?? KIMI_OPEN_PLATFORM_API_BASE_GLOBAL;
     this._defaultHeaders = options.defaultHeaders;
     this._clientFactory = options.clientFactory;
     this._authClientLRU = new AuthClientLRU<OpenAI>();

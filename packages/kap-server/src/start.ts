@@ -23,6 +23,7 @@ import {
   ICapabilityService,
   IPluginService,
   IWorkspaceService,
+  KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV,
   NOTIFY_USER_UI_CAPABILITY,
   PluginChanged,
   logSeed,
@@ -459,14 +460,14 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     guiStore,
     pluginMarketplaceUrl: (() => {
       const configured =
-        opts.pluginMarketplaceUrl ?? process.env['KIMI_CODE_PLUGIN_MARKETPLACE_URL'];
+        opts.pluginMarketplaceUrl ?? process.env[KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV];
       if (configured !== undefined) return () => configured;
       return async () =>
         `${kimiRegionProfile(await core.accessor.get(IOAuthService).getRegionAsync()).cdnBase}/plugins/marketplace.json`;
     })(),
     pluginMarketplaceIsDefault:
       opts.pluginMarketplaceUrl === undefined &&
-      (process.env['KIMI_CODE_PLUGIN_MARKETPLACE_URL'] === undefined ||
+      (process.env[KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV] === undefined ||
         process.env['KIMI_CODE_PLUGIN_MARKETPLACE_FROM_DEV_SERVER'] === '1'),
     pluginMarketplaceHomeDir: opts.pluginMarketplaceHomeDir,
     remoteControl: {

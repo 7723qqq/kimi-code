@@ -6,8 +6,6 @@ import { gt, valid } from 'semver';
 import type { FetchLike } from '#/_base/utils/fetchLike';
 import { isRecord } from '#/_base/utils/guards';
 
-export const KIMI_CODE_PLUGIN_MARKETPLACE_URL =
-  'https://code.kimi.com/kimi-code/plugins/marketplace.json';
 export const KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV = 'KIMI_CODE_PLUGIN_MARKETPLACE_URL';
 
 export const PLUGIN_MARKETPLACE_TIERS = ['official', 'curated'] as const;

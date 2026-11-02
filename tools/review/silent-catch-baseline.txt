@@ -108,7 +108,6 @@ packages/agent-core-v2/src/session/agentLifecycle/profile/gitContext.ts  3
 packages/agent-core-v2/src/session/subagent/backend/acpBackend.ts  1
 packages/agent-core-v2/src/session/subagent/backend/codexBackend.ts  1
 packages/agent-core-v2/src/workspace/workspaceFs/fsService.ts  2
-packages/agent-core-v2/src/workspace/workspaceFs/internal/runRg.ts  4
 packages/i18n-shared/src/detect.ts  1
 packages/i18n-shared/src/web.ts  1
 packages/kap-server/src/instanceRegistry.ts  1
