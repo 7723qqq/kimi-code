@@ -59,20 +59,6 @@ export function isAppleTerminalSession(): boolean {
   return process.platform === 'darwin' && process.env['TERM_PROGRAM'] === 'Apple_Terminal';
 }
 
-/**
- * Refresh terminal dimensions on POSIX platforms by sending SIGWINCH to this process.
- * Best-effort: some environments (restricted seccomp or LSM policies) return EACCES
- * for `kill(2)`; in that case the dimensions refresh is skipped rather than crashing.
- */
-export function refreshTerminalDimensions(): void {
-  if (process.platform === 'win32' || process.pid <= 0) return;
-  try {
-    process.kill(process.pid, 'SIGWINCH');
-  } catch {
-    // Signal delivery not permitted in this environment; ignore.
-  }
-}
-
 export function normalizeNativeShiftEnterInput(
   data: string,
   shouldDetectNativeShiftEnter: boolean,
@@ -179,6 +165,8 @@ export class ProcessTerminal implements Terminal {
   private wasRaw = false;
   private inputHandler?: (data: string) => void;
   private resizeHandler?: () => void;
+  private lastKnownColumns?: number;
+  private lastKnownRows?: number;
   private _kittyProtocolActive = false;
   private _modifyOtherKeysActive = false;
   private keyboardProtocolPushed = false;
@@ -241,9 +229,23 @@ export class ProcessTerminal implements Terminal {
     // Set up resize handler immediately
     process.stdout.on('resize', this.resizeHandler);
 
-    // Refresh terminal dimensions - they may be stale after suspend/resume
-    // (SIGWINCH is lost while process is stopped). Unix only, best-effort.
-    refreshTerminalDimensions();
+    // Refresh after suspend/resume: a SIGWINCH delivered while the process was
+    // stopped is lost, and Bun does not emit `resize` for a self-sent SIGWINCH
+    // when the size is unchanged (verified on Linux). Re-read the live
+    // dimensions instead and run the same resize handler when they drifted
+    // from the values recorded at the previous start(); unchanged means there
+    // is nothing to repaint.
+    const previousColumns = this.lastKnownColumns;
+    const previousRows = this.lastKnownRows;
+    this.lastKnownColumns = this.columns;
+    this.lastKnownRows = this.rows;
+    if (
+      previousColumns !== undefined &&
+      previousRows !== undefined &&
+      (previousColumns !== this.lastKnownColumns || previousRows !== this.lastKnownRows)
+    ) {
+      onResize();
+    }
 
     // On Windows, enable ENABLE_VIRTUAL_TERMINAL_INPUT so the console sends
     // VT escape sequences (e.g. \x1b[Z for Shift+Tab) instead of raw console
