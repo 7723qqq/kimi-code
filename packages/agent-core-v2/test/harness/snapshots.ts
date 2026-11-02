@@ -55,6 +55,8 @@ function stableFingerprints<T>(value: T): T {
   return out as T;
 }
 
+const PLATFORM_GATED_TOOL_NAMES: ReadonlySet<string> = new Set(['PowerShell']);
+
 export function eventSnapshot(events: readonly EventSnapshotEntry[], labels: SnapshotLabels) {
   const normalized = events.map((event) => {
     let stableEvent = stableFingerprints(event);
@@ -62,7 +64,13 @@ export function eventSnapshot(events: readonly EventSnapshotEntry[], labels: Sna
       const args = event.args as { readonly tools: readonly { readonly name: string }[] };
       stableEvent = {
         ...stableEvent,
-        args: { ...args, hash: '<tools-hash>', tools: args.tools.map((tool) => tool.name) },
+        args: {
+          ...args,
+          hash: '<tools-hash>',
+          tools: args.tools
+            .map((tool) => tool.name)
+            .filter((name) => !PLATFORM_GATED_TOOL_NAMES.has(name)),
+        },
       };
     }
     if (
@@ -209,7 +217,10 @@ function formatSystemPrompt(systemPrompt: string): string {
 
 function formatToolNames(tools: GenerateCall['tools']): string {
   if (tools.length === 0) return '[]';
-  return tools.map((tool) => tool.name).join(', ');
+  return tools
+    .map((tool) => tool.name)
+    .filter((name) => !PLATFORM_GATED_TOOL_NAMES.has(name))
+    .join(', ');
 }
 
 function isMessagePrefix(previous: readonly Message[], input: readonly Message[]): boolean {
