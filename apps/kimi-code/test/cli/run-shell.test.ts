@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
-import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 
 import type { createKimiDeviceId as createKimiDeviceIdFn } from '@moonshot-ai/kimi-code-oauth';
@@ -152,11 +151,6 @@ jest.mock('../../src/migration/index', () => ({
   detectPendingMigration: mocks.detectPendingMigration,
 }));
 
-jest.mock('node:child_process', () => ({
-  execFileSync: mocks.execFileSync,
-  spawnSync: mocks.spawnSync,
-}));
-
 jest.mock('../../src/utils/process/resolve-command', () => ({
   resolveCommandPath: mocks.resolveCommandPath,
 }));
@@ -269,7 +263,9 @@ describe('runShell', () => {
       addDirs: ['../shared', '/tmp/extra'],
     };
 
-    await runShell(cliOptions, '1.2.3-test');
+    await runShell(cliOptions, '1.2.3-test', {
+      childProcess: { execFileSync: mocks.execFileSync, spawnSync: mocks.spawnSync },
+    });
 
     expect(mocks.kimiHarnessConstructor).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -288,11 +284,11 @@ describe('runShell', () => {
     // entirely on Windows (a bare `stty` name would resolve into the
     // untrusted cwd).
     if (process.platform !== 'win32') {
-      expect(execFileSync).toHaveBeenCalledWith('/bin/stty', ['-ixon'], {
+      expect(mocks.execFileSync).toHaveBeenCalledWith('/bin/stty', ['-ixon'], {
         stdio: ['inherit', 'ignore', 'ignore'],
       });
     } else {
-      expect(execFileSync).not.toHaveBeenCalled();
+      expect(mocks.execFileSync).not.toHaveBeenCalled();
     }
     expect(mocks.kimiTuiConstructor).toHaveBeenCalledTimes(1);
     expect(mocks.createKimiDeviceId).toHaveBeenCalledWith(
@@ -352,8 +348,10 @@ describe('runShell', () => {
     const originalPlatform = process.platform;
     Object.defineProperty(process, 'platform', { value: 'win32' });
     try {
-      await runShell(minimalCliOptions, '1.2.3-test');
-      expect(execFileSync).not.toHaveBeenCalled();
+      await runShell(minimalCliOptions, '1.2.3-test', {
+        childProcess: { execFileSync: mocks.execFileSync, spawnSync: mocks.spawnSync },
+      });
+      expect(mocks.execFileSync).not.toHaveBeenCalled();
     } finally {
       Object.defineProperty(process, 'platform', { value: originalPlatform });
     }
@@ -363,9 +361,11 @@ describe('runShell', () => {
     stubTuiStartup();
     if (process.platform === 'win32') return;
     mocks.resolveCommandPath.mockReturnValue(undefined);
-    await runShell(minimalCliOptions, '1.2.3-test');
+    await runShell(minimalCliOptions, '1.2.3-test', {
+      childProcess: { execFileSync: mocks.execFileSync, spawnSync: mocks.spawnSync },
+    });
     expect(mocks.resolveCommandPath).toHaveBeenCalledWith('stty');
-    expect(execFileSync).not.toHaveBeenCalled();
+    expect(mocks.execFileSync).not.toHaveBeenCalled();
   });
 
   it('resolves the --agent profile into the TUI startup input', async () => {
