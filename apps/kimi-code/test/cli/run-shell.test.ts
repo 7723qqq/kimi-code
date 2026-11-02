@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 
 import type { createKimiDeviceId as createKimiDeviceIdFn } from '@moonshot-ai/kimi-code-oauth';
 
-import { runShell } from '#/cli/run-shell';
+import { runShell, type RunShellChildProcess } from '#/cli/run-shell';
 import { resetKimiRegionCache } from '#/utils/region';
 
 import { captureProcessWrite, ExitCalled, mockProcessExit } from '../helpers/process';
@@ -71,6 +71,13 @@ const mocks = (() => {
     TuiConfigParseError,
   };
 })();
+
+function childProcessStub(): RunShellChildProcess {
+  return {
+    execFileSync: mocks.execFileSync as unknown as RunShellChildProcess['execFileSync'],
+    spawnSync: mocks.spawnSync as unknown as RunShellChildProcess['spawnSync'],
+  };
+}
 
 jest.mock('@moonshot-ai/kimi-code-sdk', () => {
   const makeHarnessStub = (args: unknown[]) => {
@@ -264,7 +271,7 @@ describe('runShell', () => {
     };
 
     await runShell(cliOptions, '1.2.3-test', {
-      childProcess: { execFileSync: mocks.execFileSync, spawnSync: mocks.spawnSync },
+      childProcess: childProcessStub(),
     });
 
     expect(mocks.kimiHarnessConstructor).toHaveBeenCalledWith(
@@ -349,7 +356,7 @@ describe('runShell', () => {
     Object.defineProperty(process, 'platform', { value: 'win32' });
     try {
       await runShell(minimalCliOptions, '1.2.3-test', {
-        childProcess: { execFileSync: mocks.execFileSync, spawnSync: mocks.spawnSync },
+        childProcess: childProcessStub(),
       });
       expect(mocks.execFileSync).not.toHaveBeenCalled();
     } finally {
@@ -362,7 +369,7 @@ describe('runShell', () => {
     if (process.platform === 'win32') return;
     mocks.resolveCommandPath.mockReturnValue(undefined);
     await runShell(minimalCliOptions, '1.2.3-test', {
-      childProcess: { execFileSync: mocks.execFileSync, spawnSync: mocks.spawnSync },
+      childProcess: childProcessStub(),
     });
     expect(mocks.resolveCommandPath).toHaveBeenCalledWith('stty');
     expect(mocks.execFileSync).not.toHaveBeenCalled();
