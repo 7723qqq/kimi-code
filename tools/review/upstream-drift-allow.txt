@@ -115,3 +115,26 @@ apps/kimi-code/dist-web/assets/swimlanesDiagram-G3AALYLV-CjkdSqYs.js
 # The OS backends were split into os/backends/host in this fork; node-local only
 # holds what host does not replace.
 packages/agent-core-v2/src/os/backends/node-local/hostProcessService.ts
+
+# Orphan removals (f162e951b3): tsconfig.dev.json has zero references — CI
+# typechecks packages/*/tsconfig.json only.
+apps/kimi-code/tsconfig.dev.json
+packages/kap-server/tsconfig.dev.json
+
+# No importers; the vis app uses IssuesDrawer and friends (f162e951b3).
+apps/vis/web/src/components/shared/Drawer.tsx
+
+# Historical design doc: the migration it describes shipped in 0.6.0 and the doc
+# has been marked historical since 0.7.0 (f162e951b3).
+apps/vscode/docs/node-sdk-migration.md
+
+# Its output (webp-dec-wasm.ts) is retired above — WebP decodes through
+# Bun.Image now, so the generator script goes with it (f162e951b3).
+packages/agent-core-v2/scripts/generate-webp-dec-wasm.mjs
+
+# The kill-based SIGWINCH refresh this regression test pinned was removed with
+# the mechanism itself: Bun on Linux does not emit a resize event for a
+# self-sent SIGWINCH with unchanged size, so start() now compares live
+# dimensions instead (8151cc7949; replacement coverage in
+# terminal-resume-refresh.test.ts).
+packages/pi-tui/test/regression-sigwinch-kill-eacces.test.ts
