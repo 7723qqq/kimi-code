@@ -2443,7 +2443,10 @@ describe('rebaseMission', () => {
     });
     const locked = new TowerStore(repo, { stateLockTimeoutMs: 100, stateLockPollMs: 10 });
     const lockPath = `${store.abs(STATE_FILE)}.lock`;
-    await writeFile(lockPath, 'pid=999999 since=2026-09-30T00:00:00.000Z token=other');
+    await writeFile(
+      lockPath,
+      `pid=${String(process.pid)} since=2026-09-30T00:00:00.000Z token=other`,
+    );
     try {
       await expect(locked.rebaseMission('tower', mission.id)).rejects.toThrow(
         /timed out.*tower state lock/,
@@ -3303,11 +3306,11 @@ describe('concurrent state writes', () => {
 
   it('surfaces a held state lock as a clear error instead of a hang or a silent skip', async () => {
     const lockPath = `${store.abs(STATE_FILE)}.lock`;
-    await writeFile(lockPath, 'pid=999999 since=2026-09-26T00:00:00.000Z', 'utf8');
+    await writeFile(lockPath, `pid=${String(process.pid)} since=2026-09-26T00:00:00.000Z`, 'utf8');
     const blocked = new TowerStore(repo, { stateLockTimeoutMs: 200, stateLockPollMs: 20 });
 
     await expect(blocked.updateMission('tower', 'M1', { note: 'x' })).rejects.toThrow(
-      /timed out.*tower state lock.*held by pid=999999/s,
+      /timed out.*tower state lock.*another tower tool call in this process/s,
     );
 
     expect((await store.load()).missions[0]?.notes).toEqual([]);
