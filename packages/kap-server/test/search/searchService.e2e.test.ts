@@ -3045,14 +3045,15 @@ describe('search worker host (stage 4)', () => {
       );
       await settleSync(service);
 
-      await expect(
-        service.search({
+      const tokenError: unknown = await service
+        .search({
           query: '苹果',
           sort: 'time_asc',
           pageSize: 10,
           pageToken: page1.pageToken,
-        }),
-      ).rejects.toMatchObject({ reason: 'invalid_page_token' });
+        })
+        .catch((error: unknown) => error);
+      expect(tokenError).toMatchObject({ reason: 'invalid_page_token' });
       const restarted = await service.search({ query: '苹果', sort: 'time_asc', pageSize: 10 });
       expect(restarted.items.length).toBe(10);
     },
