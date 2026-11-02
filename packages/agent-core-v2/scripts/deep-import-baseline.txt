@@ -18,6 +18,10 @@
 #     startup utils) imports the narrow module so the root entry's module
 #     graph stays out of CLI startup — constant/app.ts and
 #     utils/plugin-marketplace.ts are there for this reason (see efa3556);
+#     node-sdk/src/runtime.ts is the same shape: it is the SDK's published
+#     entry-light surface (@moonshot-ai/kimi-code-sdk/runtime) consumed by the
+#     CLI's statically-evaluated entry layer, and routing it through the
+#     engine root would pull the whole engine into `--version`;
 #   * a test file reachable from a package's startup graph or a fixture-heavy
 #     suite keeps the narrow import to hold its own module graph small;
 #   * a consumer whose behavior depends on WHICH registrations a narrow module
@@ -39,6 +43,16 @@
 # engine root would pull the whole graph into every CLI invocation.
 apps/kimi-code/src/cli/commands.ts features/codeRuntime/codeShimSource
 apps/kimi-code/src/main.ts features/codeRuntime/codeShimSource
+
+# packages/node-sdk/src/runtime.ts is the SDK's narrow runtime surface: it
+# re-exports exactly the three engine internals hosts need at launch
+# (home resolution, the __plugin_run_node subcommand name, proxy detection)
+# so that SDK consumers never import the engine root, whose module graph is
+# not loadable in every consumer (klient cannot load `?raw` assets). Same
+# deliberate shape as the constant/ startup entries above.
+packages/node-sdk/src/runtime.ts app/bootstrap/home
+packages/node-sdk/src/runtime.ts app/plugin/nodeFallback
+packages/node-sdk/src/runtime.ts _base/utils/proxyEnv
 
 apps/kimi-code/src/cli/v2/run-v2-print.ts app/mcpConfig/configLoader
 apps/kimi-code/src/cli/v2/validate-config.ts app/config/deprecations
@@ -287,6 +301,9 @@ packages/node-sdk/src/index.ts agent/contextMemory/hookParts
 packages/node-sdk/src/index.ts human/agent/origin
 packages/node-sdk/src/index.ts session/subagent/configSection
 packages/node-sdk/src/proxy.ts _base/utils/proxy
+packages/node-sdk/src/runtime.ts _base/utils/proxyEnv
+packages/node-sdk/src/runtime.ts app/bootstrap/home
+packages/node-sdk/src/runtime.ts app/plugin/nodeFallback
 packages/node-sdk/src/sdk-rpc-client-v2.ts _base/utils/workdir-slug
 packages/node-sdk/src/sdk-rpc-client-v2.ts app/mcpConfig/configLoader
 packages/node-sdk/src/sdk-rpc-client-v2.ts features/tower/tools/status/statusReader
