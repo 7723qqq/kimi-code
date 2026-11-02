@@ -80,10 +80,11 @@ describe('runCodeInSubprocess', () => {
     expect(outcome.logs).toContain('bye');
   });
 
-  it('reports a program that crashes mid-run as worker-exit instead of hanging', async () => {
-    const outcome = await runCodeInSubprocess("console.log('before-crash'); process.abort();", {
-      timeoutMs: 5_000,
-    });
+  it('reports a program that kills itself mid-run as worker-exit instead of hanging', async () => {
+    const outcome = await runCodeInSubprocess(
+      "console.log('before-crash'); process.kill(process.pid, 'SIGKILL');",
+      { timeoutMs: 5_000 },
+    );
     expect(outcome.error?.kind).toBe('worker-exit');
     expect(outcome.logs).toContain('before-crash');
   });

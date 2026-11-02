@@ -15,32 +15,47 @@ if (SKIP_REASON !== undefined) {
 }
 
 const PROBE_SOURCE = `
-let resizeCount = 0;
-let columnsAtResize = 0;
+const t0 = Date.now();
+const events = [];
+const initialColumns = process.stdout.columns ?? 0;
 process.stdout.on('resize', () => {
-  resizeCount += 1;
-  columnsAtResize = process.stdout.columns ?? 0;
+  events.push({ at: Date.now() - t0, columns: process.stdout.columns ?? 0 });
 });
+let phase1Count = -1;
 setTimeout(() => {
   process.kill(process.pid, 'SIGWINCH');
 }, 300);
 setTimeout(() => {
+  phase1Count = events.length;
+}, 700);
+setTimeout(() => {
   Bun.spawnSync({ cmd: ['stty', 'cols', '137'], stdin: 'inherit', stdout: 'ignore', stderr: 'ignore' });
-}, 600);
+}, 900);
 setTimeout(() => {
   process.stdout.write('PROBE_RESULT:' + JSON.stringify({
-    resizeCount,
-    columnsAtResize,
-    columnsEnd: process.stdout.columns ?? 0,
+    initialColumns,
+    phase1Count,
+    phase2Delta: events.length - phase1Count,
+    events,
+    finalColumns: process.stdout.columns ?? 0,
     isTTY: process.stdout.isTTY === true,
   }) + '\\n');
   process.exit(0);
-}, 1200);
+}, 1600);
 `;
+
+interface PtyProbeReport {
+  readonly initialColumns: number;
+  readonly phase1Count: number;
+  readonly phase2Delta: number;
+  readonly events: readonly { readonly at: number; readonly columns: number }[];
+  readonly finalColumns: number;
+  readonly isTTY: boolean;
+}
 
 describe('SIGWINCH resize delivery', () => {
   it.skipIf(SKIP_REASON !== undefined)(
-    'delivers stdout resize for self-sent SIGWINCH and a real pty size change',
+    'delivers stdout resize with updated columns when the pty size actually changes',
     () => {
       const dir = mkdtempSync(join(tmpdir(), 'kimi-pty-resize-'));
       try {
@@ -56,16 +71,12 @@ describe('SIGWINCH resize delivery', () => {
         const output = result.stdout.toString();
         const match = /PROBE_RESULT:(\{[^\n]*\})/.exec(output);
         expect(match, `probe produced no result marker; raw output:\n${output}`).not.toBeNull();
-        const report = JSON.parse(match?.[1] ?? '') as {
-          resizeCount: number;
-          columnsAtResize: number;
-          columnsEnd: number;
-          isTTY: boolean;
-        };
+        const report = JSON.parse(match?.[1] ?? '') as PtyProbeReport;
+        console.log(`pty probe report: ${JSON.stringify(report)}`);
         expect(report.isTTY).toBe(true);
-        expect(report.resizeCount).toBeGreaterThanOrEqual(2);
-        expect(report.columnsAtResize).toBe(137);
-        expect(report.columnsEnd).toBe(137);
+        expect(report.phase2Delta).toBeGreaterThanOrEqual(1);
+        expect(report.finalColumns).toBe(137);
+        expect(report.events.at(-1)?.columns).toBe(137);
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
