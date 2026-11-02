@@ -255,6 +255,17 @@ jobs:
         with:
           version: 0.17.0
 
+      # stale-artifacts reruns the manifest generators, which import the
+      # workspace's own sources and their third-party deps — without an install
+      # the config/wire generators crash and the state generator emits degraded
+      # types, so the check reports drift that does not exist.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+
+      - run: bun install --frozen-lockfile
+
       - name: Build the review tool
         run: cd tools/review && zig build
 

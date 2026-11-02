@@ -26,7 +26,7 @@ function posixRelPath(from: string, to: string): string {
 }
 
 function walk(dir: string, out: string[] = []): string[] {
-  for (const entry of readdirSync(dir)) {
+  for (const entry of readdirSync(dir).sort()) {
     const p = join(dir, entry);
     if (statSync(p).isDirectory()) walk(p, out);
     else if (entry.endsWith('.ts')) out.push(p);
