@@ -196,10 +196,6 @@ function scanReplayableStates(): ReplayableStateScan[] {
 function scanUndoableProtocolTypes(classTypes: ReadonlyMap<string, string>): string[] {
   for (const file of walk(SRC)) {
     const source = readFileSync(file, 'utf-8');
-    // Match the call shape `registerUndoableProtocol({`, not the bare name: the
-    // definition site (`export function registerUndoableProtocol(protocol: ...)`)
-    // contains the substring too, and a first-hit scan would stop there whenever
-    // the walk reaches state.ts before the real call.
     const index = source.search(/registerUndoableProtocol\(\s*\{/);
     if (index === -1) continue;
     const window = readChain(source, index);
