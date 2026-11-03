@@ -343,7 +343,7 @@ describe('SessionMediaStoreService', () => {
       },
     ];
     const degraded = degradeLeadingMediaParts(messages, 1)[0]!;
-    const text = degraded.content.map((part) => (part.type === 'text' ? part.text : '')).join('\n');
+    const text = degraded.content.map((part) => part.type === 'text' ? part.text : '').join('\n');
     expect(degraded.content.some((part) => part.type === 'image_url')).toBe(false);
     expect(text).not.toContain('Image compressed');
     const path = /Original attachment saved at: ("[^\n]+")/.exec(text)?.[1];

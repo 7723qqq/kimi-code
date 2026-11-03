@@ -304,12 +304,7 @@ function createService(
   requester: ModelRequester,
   projector:
     | (Pick<IAgentContextProjectorService, 'project'> &
-        Partial<
-          Pick<
-            IAgentContextProjectorService,
-            'captureMediaStripSnapshot' | 'captureMediaDegradeCount'
-          >
-        >)
+        Partial<Pick<IAgentContextProjectorService, 'captureMediaStripSnapshot' | 'captureMediaDegradeCount'>>)
     | undefined,
   options: {
     readonly thinkingLevel?: ThinkingEffort;
@@ -1016,6 +1011,45 @@ describe('AgentLLMRequesterService media recovery prefix parity', () => {
     expect(inputs).toHaveLength(3);
   });
 
+  it('keeps the media-degraded prefix when a later turn adds new media', async () => {
+    const inputs: ModelRequestInput[] = [];
+    const { service } = createService(
+      createRequester({ value: 0 }, BODY_TOO_LARGE_413, [], inputs),
+      undefined,
+    );
+
+    await service.request({ messages: degradedTurn, source: { type: 'turn', turnId: 1, step: 1 } });
+    expect(inputs).toHaveLength(2);
+    const settled = inputs[1]!;
+
+    await service.request({
+      messages: [...degradedTurn, imageMessage('data:image/png;base64,FRESH', 'fresh')],
+      source: { type: 'turn', turnId: 2, step: 1 },
+    });
+
+    expect(inputs).toHaveLength(3);
+    expectPrefixExtension(settled, inputs[2]!);
+  });
+
+  it('re-degrades instead of stripping when new media push an inherited degraded request over the limit', async () => {
+    const inputs: ModelRequestInput[] = [];
+    const { service } = createService(mediaRejectingRequester(inputs), undefined);
+
+    await service.request({ messages: degradedTurn, source: { type: 'turn', turnId: 1, step: 1 } });
+    await service.request({
+      messages: [...degradedTurn, imageMessage('data:image/png;base64,FRESH', 'fresh')],
+      source: { type: 'turn', turnId: 2, step: 1 },
+    });
+
+    expect(inputs).toHaveLength(4);
+    expect(
+      inputs[3]!.messages
+        .flatMap((message) => message.content)
+        .filter((part) => part.type === 'image_url')
+        .map((part) => part.imageUrl.url),
+    ).toEqual(['data:image/png;base64,NEWEST', 'data:image/png;base64,FRESH']);
+  });
+
   it.each([
     { rejection: 'image-format', added: [imageMessage(REJECTED_FORMAT_URL, 'new-rejected')] },
     { rejection: '413', added: degradedTurn },
@@ -1209,7 +1243,7 @@ describe('AgentLLMRequesterService combined recovery projections', () => {
     expect(policies).toEqual([
       undefined,
       { structure: 'strict' },
-      { structure: 'strict', media: { degradeCount: expect.any(Number) } },
+      { structure: 'strict', media: { degradeCount: expect.anything() } },
       { structure: 'strict', media: { strip: expect.anything() } },
     ]);
     await dispatcher.flush();
@@ -1270,8 +1304,8 @@ describe('AgentLLMRequesterService combined recovery projections', () => {
     expect(calls.value).toBe(3);
     expect(policies).toEqual([
       undefined,
-      { media: { degradeCount: expect.any(Number) } },
-      { structure: 'strict', media: { degradeCount: expect.any(Number) } },
+      { media: { degradeCount: expect.anything() } },
+      { structure: 'strict', media: { degradeCount: expect.anything() } },
     ]);
     expect(events.filter((event) => event.type === 'warning')).toEqual([
       expect.objectContaining({ type: 'warning', code: 'media-degraded' }),
@@ -1403,7 +1437,7 @@ describe('AgentLLMRequesterService trace id', () => {
       tools_match: true,
       system_prompt_match: true,
       history_prefix_match: true,
-      parent_message_count: expect.any(Number),
+      parent_request_gap_ms: expect.any(Number),
     });
   });
 

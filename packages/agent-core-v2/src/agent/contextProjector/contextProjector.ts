@@ -15,7 +15,6 @@ export type MediaProjection =
 export interface ProjectionPolicy {
   readonly structure?: 'strict';
   readonly media?: MediaProjection;
-  readonly withoutCacheKey?: boolean;
 }
 
 export interface IAgentContextProjectorService {

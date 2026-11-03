@@ -640,6 +640,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
       let droppedCount = 0;
       let overflowShrinkCount = 0;
       let requestAttempts = 0;
+      let cacheProbePending = true;
       const preShrunkHistory = this.preShrinkHistoryToWindowBudget(
         historyForModel,
         instruction,
@@ -667,13 +668,13 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
                 messages,
                 maxOutputSize: compactionMaxOutputSize,
                 usedContextTokens,
+                promptCacheProbe: cacheProbePending ? 'compaction' : undefined,
                 source: {
                   type: 'operation',
                   turnId: active.originTurnId,
                   requestKind: 'full_compaction',
                   logFields: { droppedCount },
                 },
-                promptCacheProbe: 'compaction',
               },
               undefined,
               signal,
@@ -686,6 +687,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
             runRequest,
             signal,
           );
+          cacheProbePending = false;
           attempt = collectSummary(result);
           break;
         } catch (error) {
@@ -834,10 +836,13 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
       this.tokenCounting.estimateMessages(history) +
       this.tokenCounting.estimateMessage(createUserMessage(instruction));
     if (estimatedMessagesTokens + overheadTokens <= inputLimit) return history;
-    const messageBudget = Math.floor(inputLimit * OVERFLOW_CONTEXT_SAFETY_RATIO) - overheadTokens;
+    const messageBudget =
+      Math.floor(inputLimit * OVERFLOW_CONTEXT_SAFETY_RATIO) - overheadTokens;
     if (messageBudget <= 0) return history;
-    const preShrunk = takeRecentMessagesWithinTokenBudget(history, messageBudget, (message) =>
-      this.tokenCounting.estimateMessage(message),
+    const preShrunk = takeRecentMessagesWithinTokenBudget(
+      history,
+      messageBudget,
+      (message) => this.tokenCounting.estimateMessage(message),
     );
     return preShrunk.length === 0 ? history : preShrunk;
   }

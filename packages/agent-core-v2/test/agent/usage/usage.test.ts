@@ -21,6 +21,7 @@ import { AgentCacheProbeService } from '#/agent/usage/cacheProbeService';
 import { type UsageRecordedContext, type UsageStatus } from '#/agent/usage/usage';
 import type { Event2 } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
+import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
 import { EventBusService } from '#/app/event/eventBusService';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { TokenUsage } from '#human/llm/usage';
@@ -336,43 +337,10 @@ describe('SessionUsageService (wire-backed)', () => {
 });
 
 describe('AgentCacheProbeService', () => {
-  interface ProbeSnapshot {
-    modelAlias?: string;
-    contextRevision: number;
-    toolsHash?: string;
-    systemPromptHash?: string;
-    inputTokens?: number;
-    messageCount?: number;
-    startedAt: number;
-    finishedAt: number;
-  }
-
   interface ProbeRequests {
-    parent?: ProbeSnapshot;
+    parent?: AgentLLMTurnRequestSnapshot;
     parentRevision?: number;
-    own?: ProbeSnapshot;
-  }
-
-  function toSnapshot(input: ProbeSnapshot | undefined): AgentLLMTurnRequestSnapshot | undefined {
-    if (input === undefined) return undefined;
-    return {
-      contextRevision: input.contextRevision,
-      toolsHash: input.toolsHash ?? 'tools-a',
-      systemPromptHash: input.systemPromptHash ?? 'system-a',
-      startedAt: input.startedAt,
-      finishedAt: input.finishedAt,
-      observation: {
-        modelAlias: input.modelAlias ?? 'model-a',
-        protocol: 'anthropic',
-        providerType: 'kimi',
-        messageCount: input.messageCount ?? 0,
-        historyHash: 'history-a',
-        inputTokens: input.inputTokens,
-        cacheRead: 0,
-        cacheCreation: 0,
-        outputTokens: 0,
-      },
-    };
+    own?: AgentLLMTurnRequestSnapshot;
   }
 
   function requesterReturning(
@@ -390,15 +358,19 @@ describe('AgentCacheProbeService', () => {
       _serviceBrand: undefined,
       track2,
     } as unknown as ITelemetryService);
+    ix.stub(IModelCatalog, {
+      _serviceBrand: undefined,
+      get: (alias: string) => {
+        if (alias !== 'model-a') throw new Error(`unknown model "${alias}"`);
+        return { id: alias, protocol: 'anthropic', providerType: 'kimi' } as unknown as Model;
+      },
+    } as unknown as IModelCatalog);
     ix.stub(
       IAgentScopeContext,
       makeAgentScopeContext({ agentId: 'test-agent', agentScope: '', forkedFrom }),
     );
-    ix.stub(
-      IAgentLLMRequesterService,
-      requesterReturning(() => toSnapshot(requests.own)),
-    );
-    const parentRequester = requesterReturning(() => toSnapshot(requests.parent));
+    ix.stub(IAgentLLMRequesterService, requesterReturning(() => requests.own));
+    const parentRequester = requesterReturning(() => requests.parent);
     const parentRevisionAtFork = requests.parent?.contextRevision ?? 0;
     const parentContextMemory = {
       _serviceBrand: undefined,
@@ -420,9 +392,7 @@ describe('AgentCacheProbeService', () => {
   }
 
   it('probes the first turn request of a forked agent', async () => {
-    const track2 = stubProbeDeps('main', {
-      own: { contextRevision: 1, startedAt: 6_500, finishedAt: 7_000 },
-    });
+    const track2 = stubProbeDeps('main');
     disposables.add(ix.createInstance(AgentCacheProbeService));
 
     await svc.record(agent, 'model-a', a1, { type: 'turn', turnId: 1 });
@@ -437,7 +407,6 @@ describe('AgentCacheProbeService', () => {
       input_cache_read: 3,
       input_cache_creation: 4,
       output_tokens: 2,
-      message_count: 0,
     });
   });
 
@@ -448,6 +417,8 @@ describe('AgentCacheProbeService', () => {
         contextRevision: 1,
         toolsHash: 'tools-a',
         systemPromptHash: 'system-a',
+        messageCount: 3,
+        historyHash: 'history-a',
         inputTokens: 1_200,
         startedAt: 1_000,
         finishedAt: 4_000,
@@ -457,6 +428,8 @@ describe('AgentCacheProbeService', () => {
         contextRevision: 1,
         toolsHash: 'tools-a',
         systemPromptHash: 'system-b',
+        messageCount: 3,
+        historyHash: 'history-a',
         inputTokens: 8,
         startedAt: 6_500,
         finishedAt: 7_000,
@@ -469,6 +442,8 @@ describe('AgentCacheProbeService', () => {
       contextRevision: 2,
       toolsHash: 'tools-b',
       systemPromptHash: 'system-b',
+      messageCount: 3,
+      historyHash: 'history-a',
       inputTokens: 1_500,
       startedAt: 5_000,
       finishedAt: 6_000,
@@ -485,10 +460,8 @@ describe('AgentCacheProbeService', () => {
       input_cache_read: 3,
       input_cache_creation: 4,
       output_tokens: 2,
-      message_count: 0,
       tools_match: true,
       system_prompt_match: false,
-      parent_message_count: 0,
       parent_input_tokens: 1_200,
       parent_request_gap_ms: 2_500,
     });
@@ -501,6 +474,8 @@ describe('AgentCacheProbeService', () => {
         contextRevision: 1,
         toolsHash: 'tools-a',
         systemPromptHash: 'system-a',
+        messageCount: 3,
+        historyHash: 'history-a',
         inputTokens: 8,
         startedAt: 6_500,
         finishedAt: 7_000,
@@ -519,7 +494,6 @@ describe('AgentCacheProbeService', () => {
       input_cache_read: 3,
       input_cache_creation: 4,
       output_tokens: 2,
-      message_count: 0,
     });
   });
 
@@ -530,6 +504,8 @@ describe('AgentCacheProbeService', () => {
         contextRevision: 1,
         toolsHash: 'tools-a',
         systemPromptHash: 'system-a',
+        messageCount: 3,
+        historyHash: 'history-a',
         inputTokens: 1_200,
         startedAt: 1_000,
         finishedAt: 4_000,
@@ -539,6 +515,8 @@ describe('AgentCacheProbeService', () => {
         contextRevision: 1,
         toolsHash: 'tools-a',
         systemPromptHash: 'system-a',
+        messageCount: 3,
+        historyHash: 'history-a',
         inputTokens: 8,
         startedAt: 6_500,
         finishedAt: 7_000,
@@ -557,7 +535,6 @@ describe('AgentCacheProbeService', () => {
       input_cache_read: 3,
       input_cache_creation: 4,
       output_tokens: 2,
-      message_count: 0,
     });
   });
 
@@ -568,6 +545,8 @@ describe('AgentCacheProbeService', () => {
         contextRevision: 1,
         toolsHash: 'tools-a',
         systemPromptHash: 'system-a',
+        messageCount: 3,
+        historyHash: 'history-a',
         inputTokens: 1_200,
         startedAt: 1_000,
         finishedAt: 4_000,
@@ -577,6 +556,8 @@ describe('AgentCacheProbeService', () => {
         contextRevision: 1,
         toolsHash: 'tools-a',
         systemPromptHash: 'system-a',
+        messageCount: 3,
+        historyHash: 'history-a',
         inputTokens: 8,
         startedAt: 6_500,
         finishedAt: 7_000,
@@ -597,7 +578,6 @@ describe('AgentCacheProbeService', () => {
       input_cache_read: 3,
       input_cache_creation: 4,
       output_tokens: 2,
-      message_count: 0,
     });
   });
 
@@ -630,7 +610,7 @@ describe('AgentCacheProbeService', () => {
     expect(track2).not.toHaveBeenCalled();
   });
 
-  it('probes without provider fields when no turn request snapshot was recorded', async () => {
+  it('probes without provider fields when the model alias is unknown', async () => {
     const track2 = stubProbeDeps('main');
     disposables.add(ix.createInstance(AgentCacheProbeService));
 

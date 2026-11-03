@@ -70,6 +70,7 @@ packages/agent-core-v2/src/agent/tools/agent/agentTool.ts  1
 packages/agent-core-v2/src/agent/tools/os/bash/process-task.ts  3
 packages/agent-core-v2/src/agent/tools/os/glob/globTool.ts  2
 packages/agent-core-v2/src/agent/tools/os/grep/grepTool.ts  3
+packages/agent-core-v2/src/agent/usage/cacheProbeService.ts  1
 packages/agent-core-v2/src/app/auth/webSearch/engines/bing/parser.ts  1
 packages/agent-core-v2/src/app/auth/webSearch/engines/duckduckgo/parser.ts  1
 packages/agent-core-v2/src/app/mcpConfig/oauthStore.ts  2

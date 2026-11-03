@@ -1,14 +1,14 @@
 import { createDecorator } from '#/_base/di/instantiation';
-import type { LogContext } from '#/_base/log/log';
 import type { CacheObservation } from '#/agent/usage/cacheObservation';
-import type { Message } from '#/llm-adapter/contract/message';
-import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
-import type { ModelRequestTiming } from '#/llm-adapter/model/model-requester';
 import type { FinishReason } from '#human/llm/finish-reason';
-import type { StreamedMessagePart, ToolDescription as Tool } from '#human/llm/message';
 import type { LlmCredentialProvider } from '#human/llm/requester/requester';
 import type { ThinkingEffort } from '#human/llm/thinking';
+import type { Message } from '#/llm-adapter/contract/message';
+import type { StreamedMessagePart, ToolDescription as Tool } from '#human/llm/message';
 import type { TokenUsage } from '#human/llm/usage';
+import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
+import type { ModelRequestTiming } from '#/llm-adapter/model/model-requester';
+import type { LogContext } from '#/_base/log/log';
 
 export type AgentLLMRequestLogFields = Readonly<LogContext>;
 
@@ -60,12 +60,16 @@ export interface PreparedTurnRequestConfig {
 }
 
 export interface AgentLLMTurnRequestSnapshot {
+  readonly modelAlias: string;
   readonly contextRevision: number;
   readonly toolsHash: string;
   readonly systemPromptHash: string;
+  readonly messageCount: number;
+  readonly historyHash: string;
+  readonly inputTokens?: number;
   readonly startedAt: number;
   readonly finishedAt: number;
-  readonly observation: CacheObservation;
+  readonly observation?: CacheObservation;
 }
 
 export interface IAgentLLMRequesterService {

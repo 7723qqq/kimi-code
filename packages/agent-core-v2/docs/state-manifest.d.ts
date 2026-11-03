@@ -1027,12 +1027,16 @@ export interface AgentStateSnapshot {
   'llmRequester.emittedThinkingEffortWarnings': Set<string>;
   'llmRequester.lastConfigLogSignature': string | undefined;
   'llmRequester.lastTurnRequest': /* AgentLLMTurnRequestSnapshot — packages/agent-core-v2/src/agent/llmRequester/llmRequester.ts */ {
+    readonly modelAlias: string;
     readonly contextRevision: number;
     readonly toolsHash: string;
     readonly systemPromptHash: string;
+    readonly messageCount: number;
+    readonly historyHash: string;
+    readonly inputTokens?: number;
     readonly startedAt: number;
     readonly finishedAt: number;
-    readonly observation: /* CacheObservation — packages/agent-core-v2/src/agent/usage/cacheObservation.ts */ {
+    readonly observation?: /* CacheObservation — packages/agent-core-v2/src/agent/usage/cacheObservation.ts */ {
       readonly modelAlias: string;
       readonly protocol?: string;
       readonly providerType?: string;
