@@ -85,6 +85,23 @@ jobs:
   # files of agent-core-v2, apps/kimi-code, kap-server and acp-server. Each
   # package's bunfig excludes them via `pathIgnorePatterns`, so the sharded job
   # above never sees them — without this job they would simply never run.
+  rg-probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "image: ${{ runner.os }} / ${{ runner.arch }}"
+          echo "PATH=$PATH"
+          echo "--- command -v rg ---"
+          command -v rg || echo "rg NOT on PATH"
+          echo "--- ls usual spots ---"
+          ls -la /usr/bin/rg /usr/local/bin/rg /opt/rg 2>&1 || true
+          echo "--- dpkg ---"
+          dpkg -l ripgrep 2>&1 || true
+          echo "--- apt-cache policy ---"
+          apt-cache policy ripgrep 2>&1 || true
+          echo "--- find under /usr /opt (bounded) ---"
+          find /usr /opt -maxdepth 4 -name 'rg' -type f 2>/dev/null | head -5 || true
+
   test-heavy:
     runs-on: ubuntu-latest
     timeout-minutes: 45
