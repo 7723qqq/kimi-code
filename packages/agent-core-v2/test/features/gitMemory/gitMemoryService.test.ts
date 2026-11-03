@@ -43,7 +43,12 @@ const index: GitMemoryIndex = buildIndex(
 interface Harness {
   readonly service: GitMemoryService;
   readonly spawns: number;
+  readonly headSpawns: number;
+  readonly indexAttempts: number;
   readonly registered: string[];
+  readonly warnings: readonly { message: string; payload: unknown }[];
+  advance(ms: number): void;
+  probeHead(): Promise<unknown>;
 }
 
 interface MemoryFixture {
@@ -63,6 +68,16 @@ const TREE = [
   'apps/kimi-code/src/types.ts',
 ] as const;
 
+const HEAD_FAILURES = [
+  {
+    reason: 'not-a-repo',
+    detail: 'fatal: not a git repository (or any of the parent directories): .git',
+  },
+  { reason: 'spawn-failed', detail: 'git executable missing' },
+  { reason: 'permission', detail: 'fatal: Permission denied' },
+  { reason: 'timeout', detail: 'fatal: temporary failure' },
+] as const;
+
 function harness(
   options: {
     readonly flagOn?: boolean;
@@ -74,35 +89,71 @@ function harness(
       readonly prefix: string;
       readonly headSha: string;
     };
+    readonly headResults?: readonly RepoHeadResult[];
     readonly tree?: readonly string[];
     readonly memoryStoreFails?: boolean;
   } = {},
 ): Harness {
-  const state = { spawns: 0, registered: [] as string[] };
+  const state = {
+    spawns: 0,
+    headSpawns: 0,
+    indexAttempts: 0,
+    now: 0,
+    registered: [] as string[],
+    warnings: [] as { message: string; payload: unknown }[],
+  };
+  const defaultHead: RepoHeadResult =
+    options.head !== undefined || options.stub !== undefined
+      ? {
+          kind: 'ok',
+          head: options.head ?? { repoRoot: '/repo', prefix: '', headSha: SHA_C },
+        }
+      : { kind: 'unavailable', reason: 'spawn-failed', detail: 'no git' };
   const process = {
     _serviceBrand: undefined as undefined,
     spawn: async (_command: string, args?: readonly string[]) => {
       state.spawns += 1;
-      if (options.tree === undefined) return Promise.reject(new Error('no git'));
       const list = args ?? [];
-      const separator = list.indexOf('--');
-      const pathspec = separator === -1 ? undefined : list[separator + 1];
-      const entries =
-        pathspec === undefined
-          ? options.tree
-          : options.tree.filter((entry) => entry === pathspec || entry.startsWith(`${pathspec}/`));
+      let out = '';
+      let err = '';
+      let code = 0;
+      if (list.includes('rev-parse')) {
+        const position = state.headSpawns;
+        state.headSpawns += 1;
+        const result =
+          options.headResults?.[Math.min(position, options.headResults.length - 1)] ?? defaultHead;
+        if (result.kind === 'ok') {
+          out = `${result.head.repoRoot}\n${result.head.prefix}\n${result.head.headSha}\n`;
+        } else if (result.reason === 'spawn-failed') {
+          return Promise.reject(new Error(result.detail));
+        } else {
+          err = result.detail;
+          code = 1;
+        }
+      } else {
+        if (options.tree === undefined) return Promise.reject(new Error('no git'));
+        const separator = list.indexOf('--');
+        const pathspec = separator === -1 ? undefined : list[separator + 1];
+        const entries =
+          pathspec === undefined
+            ? options.tree
+            : options.tree.filter(
+                (entry) => entry === pathspec || entry.startsWith(`${pathspec}/`),
+              );
+        out = entries.length > 0 ? `${entries.join('\n')}\n` : '';
+      }
       return {
         _serviceBrand: undefined as undefined,
         pid: 1,
-        exitCode: 0,
+        exitCode: code,
         stdin: new Writable({
           write(_chunk, _encoding, callback) {
             callback();
           },
         }),
-        stdout: Readable.from([entries.length > 0 ? `${entries.join('\n')}\n` : '']),
-        stderr: Readable.from(['']),
-        wait: async () => 0,
+        stdout: Readable.from([out]),
+        stderr: Readable.from([err]),
+        wait: async () => code,
         kill: async () => {},
         dispose: () => {},
       };
@@ -115,7 +166,14 @@ function harness(
       super(
         process as never,
         { cwd: '/repo' } as never,
-        { debug() {}, warn() {}, error() {}, info() {} } as never,
+        {
+          debug() {},
+          warn(message: string, payload?: unknown) {
+            state.warnings.push({ message, payload });
+          },
+          error() {},
+          info() {},
+        } as never,
         { enabled: () => options.flagOn === true } as never,
         {
           register: (variant: string) => {
@@ -140,18 +198,18 @@ function harness(
     }
 
     protected override async loadIndex(): Promise<GitMemoryIndex | undefined> {
-      if (this.stub !== undefined) return this.stub;
-      return super.loadIndex();
+      const head = await this.ensureHead();
+      if (head === undefined) return undefined;
+      state.indexAttempts += 1;
+      return this.stub;
     }
 
-    protected override loadHead(): Promise<RepoHeadResult> {
-      const head = options.head;
-      if (head === undefined) {
-        return Promise.resolve({ kind: 'unavailable', reason: 'spawn-failed', detail: 'no git' });
-      }
-      this.repoRoot = head.repoRoot;
-      this.pathPrefix = head.prefix;
-      return Promise.resolve({ kind: 'ok', head });
+    protected override now(): number {
+      return state.now;
+    }
+
+    probeHead(): Promise<unknown> {
+      return this.ensureHead();
     }
   })();
   return {
@@ -159,9 +217,22 @@ function harness(
     get spawns() {
       return state.spawns;
     },
+    get headSpawns() {
+      return state.headSpawns;
+    },
+    get indexAttempts() {
+      return state.indexAttempts;
+    },
     get registered() {
       return state.registered;
     },
+    get warnings() {
+      return state.warnings;
+    },
+    advance(ms: number) {
+      state.now += ms;
+    },
+    probeHead: () => service.probeHead(),
   };
 }
 
@@ -253,6 +324,85 @@ describe('git memory service', () => {
     const h = harness({ flagOn: true, stub: index });
     expect(h.registered).toContain('git_memory_signal');
   });
+});
+
+describe('git memory availability cache', () => {
+  const head = { repoRoot: '/repo', prefix: '', headSha: SHA_C };
+
+  it('caches a successful head and index permanently', async () => {
+    const h = harness({ flagOn: true, head, stub: index });
+    await h.service.repoBlock();
+    await h.service.repoBlock();
+    expect(h.headSpawns).toBe(1);
+    expect(h.indexAttempts).toBe(1);
+    expect(h.spawns).toBe(1);
+  });
+
+  it('does not probe again during a transient cooldown and retries after 10 seconds', async () => {
+    const h = harness({
+      flagOn: true,
+      headResults: [
+        { kind: 'unavailable', reason: 'timeout', detail: 'fatal: temporary failure' },
+        { kind: 'ok', head },
+      ],
+    });
+    await h.probeHead();
+    h.advance(9_999);
+    await h.probeHead();
+    expect(h.headSpawns).toBe(1);
+    h.advance(1);
+    await h.probeHead();
+    expect(h.headSpawns).toBe(2);
+  });
+
+  for (const failure of HEAD_FAILURES.filter((entry) => entry.reason !== 'timeout')) {
+    it(`retries ${failure.reason} after 60 seconds without probing inside its TTL`, async () => {
+      const h = harness({
+        flagOn: true,
+        headResults: [
+          { kind: 'unavailable', reason: failure.reason, detail: failure.detail },
+          { kind: 'ok', head },
+        ],
+      });
+      await h.probeHead();
+      h.advance(59_999);
+      await h.probeHead();
+      expect(h.headSpawns).toBe(1);
+      h.advance(1);
+      await h.probeHead();
+      expect(h.headSpawns).toBe(2);
+    });
+  }
+
+  it('cools down an index failure for 10 seconds without reloading a cached head', async () => {
+    const h = harness({ flagOn: true, head });
+    await h.service.repoBlock();
+    h.advance(9_999);
+    await h.service.repoBlock();
+    expect(h.indexAttempts).toBe(1);
+    expect(h.headSpawns).toBe(1);
+    h.advance(1);
+    await h.service.repoBlock();
+    expect(h.indexAttempts).toBe(2);
+    expect(h.headSpawns).toBe(1);
+  });
+
+  for (const failure of HEAD_FAILURES) {
+    it(`logs ${failure.reason} with the working directory and detail`, async () => {
+      const h = harness({
+        flagOn: true,
+        headResults: [{ kind: 'unavailable', reason: failure.reason, detail: failure.detail }],
+      });
+      await h.probeHead();
+      expect(h.warnings).toHaveLength(1);
+      expect(h.warnings[0]?.message).toBe('git memory head lookup failed');
+      expect(h.warnings[0]?.payload).toMatchObject({
+        cwd: '/repo',
+        reason: failure.reason,
+        detail: failure.detail,
+      });
+    });
+  }
 });
 
 describe('git memory written entries', () => {

@@ -4,6 +4,7 @@ import { createDecorator } from '#/_base/di/instantiation';
 import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
+import { errorMessage } from '#/_base/utils/errorMessage';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IFlagService } from '#/app/flag/flag';
@@ -17,7 +18,7 @@ import { IHostProcessService } from '#/os/interface/hostProcess';
 import { buildIndex, cachePath, readAnyIndex, readIndex, writeIndex } from './cache';
 import { GIT_MEMORY_FLAG_ID } from './flag';
 import { readGitHistory, readRepoHead, readRepoMap, readRepoTree } from './gitReader';
-import type { RepoHead, RepoHeadResult } from './gitReader';
+import type { GitUnavailableReason, RepoHead, RepoHeadResult } from './gitReader';
 import {
   projectFileBlock,
   projectMemoryBlock,
@@ -39,6 +40,8 @@ import type { CommitRecord, GitMemoryIndex } from './types';
 
 const PATH_PATTERN =
   /[\w./\\-]+\.(?:ts|tsx|js|jsx|mjs|cjs|rs|go|py|java|kt|rb|vue|json|jsonc|md|yaml|yml|toml)/g;
+const TRANSIENT_FAILURE_COOLDOWN_MS = 10_000;
+const DETERMINISTIC_HEAD_FAILURE_TTL_MS = 60_000;
 
 export const GIT_MEMORY_REPO_MAP_MAX_LINES = 2000;
 
@@ -61,10 +64,12 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
 
   private index: GitMemoryIndex | undefined;
   private indexLoaded = false;
+  private indexFailure: { readonly at: number } | undefined;
   private loading: Promise<void> | undefined;
   private refresh: Promise<void> | undefined;
   private head: RepoHead | undefined;
   private headLoaded = false;
+  private headFailure: { readonly reason: GitUnavailableReason; readonly at: number } | undefined;
   private headLoading: Promise<void> | undefined;
   protected repoRoot = '';
   protected pathPrefix = '';
@@ -371,15 +376,26 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
 
   private async ensureIndex(): Promise<GitMemoryIndex | undefined> {
     if (this.indexLoaded) return this.index;
+    if (
+      this.indexFailure !== undefined &&
+      this.now() - this.indexFailure.at < TRANSIENT_FAILURE_COOLDOWN_MS
+    ) {
+      return undefined;
+    }
     if (this.loading === undefined) {
       this.loading = this.loadIndex()
         .then((index) => {
+          if (index === undefined) {
+            if (this.head !== undefined) this.indexFailure = { at: this.now() };
+            return;
+          }
           this.index = index;
           this.indexLoaded = true;
+          this.indexFailure = undefined;
         })
         .catch((error) => {
           this.log.warn('git memory index load failed', { error });
-          this.indexLoaded = true;
+          if (this.head !== undefined) this.indexFailure = { at: this.now() };
         })
         .finally(() => {
           this.loading = undefined;
@@ -391,23 +407,37 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
 
   protected async ensureHead(): Promise<RepoHead | undefined> {
     if (this.headLoaded) return this.head;
+    if (this.headFailure !== undefined) {
+      const cooldown =
+        this.headFailure.reason === 'timeout'
+          ? TRANSIENT_FAILURE_COOLDOWN_MS
+          : DETERMINISTIC_HEAD_FAILURE_TTL_MS;
+      if (this.now() - this.headFailure.at < cooldown) return undefined;
+    }
     if (this.headLoading === undefined) {
       this.headLoading = this.loadHead()
         .then((result) => {
           if (result.kind === 'ok') {
             this.head = result.head;
-          } else {
-            this.log.warn('git memory head lookup failed', {
-              cwd: this.bootstrap.cwd,
-              reason: result.reason,
-              detail: result.detail,
-            });
+            this.headLoaded = true;
+            this.headFailure = undefined;
+            return;
           }
-          this.headLoaded = true;
+          this.headFailure = { reason: result.reason, at: this.now() };
+          this.log.warn('git memory head lookup failed', {
+            cwd: this.bootstrap.cwd,
+            reason: result.reason,
+            detail: result.detail,
+          });
         })
         .catch((error) => {
-          this.log.warn('git memory head lookup failed', { error });
-          this.headLoaded = true;
+          const detail = errorMessage(error);
+          this.headFailure = { reason: 'timeout', at: this.now() };
+          this.log.warn('git memory head lookup failed', {
+            cwd: this.bootstrap.cwd,
+            reason: 'timeout',
+            detail,
+          });
         })
         .finally(() => {
           this.headLoading = undefined;
@@ -415,6 +445,10 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
     }
     await this.headLoading;
     return this.head;
+  }
+
+  protected now(): number {
+    return Date.now();
   }
 
   protected async loadHead(): Promise<RepoHeadResult> {
