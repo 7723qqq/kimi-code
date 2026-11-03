@@ -1,15 +1,6 @@
-import type { KimiHarness, SessionSummary, TelemetryClient } from '@moonshot-ai/kimi-code-sdk';
-import {
-  setTelemetryContext,
-  shutdownTelemetry,
-  track,
-  withTelemetryContext,
-} from '@moonshot-ai/kimi-telemetry';
+import type { SessionSummary } from '@moonshot-ai/kimi-code-sdk';
 import type { Command } from 'commander';
 
-import { resolvePluginNodeRunner } from '#/cli/plugin-node-runner';
-import { createKimiCodeHostIdentity } from '#/cli/version';
-import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE } from '#/constant/app';
 import { t } from '#/i18n';
 
 import { promptYesNo, type ConfirmPromptAnswer } from './confirm';
@@ -102,70 +93,26 @@ async function createDefaultForkDeps(overrides: Partial<ForkDeps> = {}): Promise
     readonly close: () => Promise<void>;
   }
 > {
-  // The harness and CLI telemetry bootstrap pull the engine; load them on
-  // dispatch so registering the command stays free of both.
-  const [{ createKimiHarness }, { createCliTelemetryBootstrap, initializeCliTelemetry }] =
-    await Promise.all([import('@moonshot-ai/kimi-code-sdk'), import('#/cli/telemetry')]);
-  let harness: KimiHarness | undefined;
-  let telemetryBootstrap: ReturnType<typeof createCliTelemetryBootstrap> | undefined;
-  let telemetryInitialized = false;
-  let telemetryShutdown = false;
-  const identity = createKimiCodeHostIdentity();
-  const telemetryClient: TelemetryClient = {
-    track,
-    withContext: withTelemetryContext,
-    setContext: setTelemetryContext,
-  };
-  const getTelemetryBootstrap = (): ReturnType<typeof createCliTelemetryBootstrap> => {
-    telemetryBootstrap ??= createCliTelemetryBootstrap();
-    return telemetryBootstrap;
-  };
-  const getHarness = (): KimiHarness => {
-    const currentTelemetryBootstrap = getTelemetryBootstrap();
-    harness ??= createKimiHarness({
-      homeDir: currentTelemetryBootstrap.homeDir,
-      identity,
-      pluginNodeRunner: resolvePluginNodeRunner(),
-      telemetry: telemetryClient,
-    });
-    return harness;
-  };
-  const initializeDefaultTelemetry = async (): Promise<void> => {
-    if (telemetryInitialized) return;
-    const currentTelemetryBootstrap = getTelemetryBootstrap();
-    const currentHarness = getHarness();
-    await currentHarness.ensureConfigFile();
-    const config = await currentHarness.getConfig();
-    initializeCliTelemetry({
-      harness: currentHarness,
-      bootstrap: currentTelemetryBootstrap,
-      config,
-      version: identity.version,
-      uiMode: CLI_UI_MODE,
-    });
-    telemetryInitialized = true;
-  };
-  const shutdownDefaultTelemetry = async (): Promise<void> => {
-    if (!telemetryInitialized || telemetryShutdown) return;
-    telemetryShutdown = true;
-    await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS });
-  };
+  // The harness runtime pulls the engine; load it on dispatch so registering
+  // the command stays free of it.
+  const { CliHarnessRuntime } = await import('#/cli/harness');
+  const runtime = new CliHarnessRuntime();
   return {
     listSessions:
       overrides.listSessions ??
       ((workDir: string) =>
-        getHarness().listSessions({
+        runtime.getHarness().listSessions({
           workDir,
         })),
     forkSession:
       overrides.forkSession ??
       (async (sessionId: string) => {
-        await initializeDefaultTelemetry();
+        await runtime.initializeTelemetry();
         try {
-          const forked = await getHarness().forkSession({ id: sessionId });
+          const forked = await runtime.getHarness().forkSession({ id: sessionId });
           return { id: forked.id, title: forked.summary?.title };
         } finally {
-          await shutdownDefaultTelemetry();
+          await runtime.shutdownTelemetry();
         }
       }),
     confirmPreviousSession: overrides.confirmPreviousSession ?? confirmPreviousSession,
@@ -173,9 +120,7 @@ async function createDefaultForkDeps(overrides: Partial<ForkDeps> = {}): Promise
     stdout: overrides.stdout ?? process.stdout,
     stderr: overrides.stderr ?? process.stderr,
     exit: overrides.exit ?? ((code: number) => process.exit(code)),
-    close: async () => {
-      await harness?.close();
-    },
+    close: () => runtime.close(),
   };
 }
 

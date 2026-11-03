@@ -6,6 +6,7 @@ import type { BackgroundTaskInfo, Event } from '@moonshot-ai/kimi-code-sdk';
 import type { Component } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
+import type { RenderClock } from '#/utils/render-clock';
 
 import { modelDisplayName } from '../components/dialogs/model-selector';
 import {
@@ -24,7 +25,6 @@ import type {
 import { formatBackgroundAgentTranscript } from '../utils/background-agent-status';
 import { argsRecord, serializeToolResultOutput } from '../utils/event-payload';
 import { formatHookResultPlain } from '../utils/hook-result-format';
-import type { RenderClock } from '../utils/render-clock';
 import { nextTranscriptId } from '../utils/transcript-id';
 import type { SessionEventHost } from './session-event-handler';
 import { SubagentActivityStore } from './subagent-activity-store';

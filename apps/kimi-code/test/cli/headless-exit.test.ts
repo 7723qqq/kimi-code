@@ -2,7 +2,7 @@ import { describe, expect, it, mock } from 'bun:test';
 import type { Writable } from 'node:stream';
 
 import { drainStdio, finalizeHeadlessRun, scheduleHeadlessForceExit } from '#/cli/headless-exit';
-import type { RenderClock, RenderTimerHandle } from '#/tui/utils/render-clock';
+import type { RenderClock, RenderTimerHandle } from '#/utils/render-clock';
 import { createFakeClock } from '#test/helpers/fake-clock';
 
 interface TestClock {

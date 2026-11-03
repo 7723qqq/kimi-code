@@ -5,7 +5,6 @@
  * outer update preflight, then delegates to the requested UI runner.
  */
 
-import type { TelemetryClient } from '@moonshot-ai/kimi-code-sdk';
 import {
   configureDiagnosticLogging,
   flushDiagnosticLogs,
@@ -13,15 +12,8 @@ import {
   resolveGlobalLogPath,
 } from '@moonshot-ai/kimi-code-sdk/logging';
 import { isProxyConfigured, resolveKimiHome } from '@moonshot-ai/kimi-code-sdk/runtime';
-import {
-  installCrashHandlers,
-  setTelemetryContext,
-  shutdownTelemetry,
-  track,
-  withTelemetryContext,
-} from '@moonshot-ai/kimi-telemetry';
+import { installCrashHandlers, shutdownTelemetry, track } from '@moonshot-ai/kimi-telemetry';
 
-import { resolvePluginNodeRunner } from '#/cli/plugin-node-runner';
 import { t } from '#/i18n';
 import type { MigrateCommandOptions } from '#/migration/command';
 
@@ -31,7 +23,7 @@ import type { CLIOptions } from './cli/options';
 import { OptionConflictError, validateOptions } from './cli/options';
 import { maybeRelaunchWithStagedNativeUpdate } from './cli/update/native-swap';
 import { detectNativeInstall } from './cli/update/source';
-import { createKimiCodeHostIdentity, getVersion } from './cli/version';
+import { getVersion } from './cli/version';
 import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE, PROCESS_NAME } from './constant/app';
 import { installMinidbTextBuildWorker } from './native/minidb-worker';
 import type { MinidbTextBuildWorkerInstallStatus } from './native/minidb-worker';
@@ -123,27 +115,13 @@ async function handleMigrateCommand(
 }
 
 export async function handleUpgradeCommand(version: string, yes: boolean): Promise<void> {
-  const [
-    { createKimiHarness },
-    { createCliTelemetryBootstrap, initializeCliTelemetry },
-    { handleUpgrade },
-  ] = await Promise.all([
-    import('@moonshot-ai/kimi-code-sdk'),
-    import('./cli/telemetry'),
-    import('./cli/sub/upgrade'),
-  ]);
-  const telemetryBootstrap = createCliTelemetryBootstrap();
-  const telemetryClient: TelemetryClient = {
-    track,
-    withContext: withTelemetryContext,
-    setContext: setTelemetryContext,
-  };
-  const harness = createKimiHarness({
-    homeDir: telemetryBootstrap.homeDir,
-    identity: createKimiCodeHostIdentity(version),
-    pluginNodeRunner: resolvePluginNodeRunner(),
-    telemetry: telemetryClient,
-  });
+  const [{ createTelemetryHarness }, { initializeCliTelemetry }, { handleUpgrade }] =
+    await Promise.all([
+      import('./cli/harness'),
+      import('./cli/telemetry'),
+      import('./cli/sub/upgrade'),
+    ]);
+  const { harness, telemetryBootstrap } = createTelemetryHarness({ version });
   let exitCode = 1;
   try {
     await harness.ensureConfigFile();

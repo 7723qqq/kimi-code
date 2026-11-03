@@ -1,4 +1,4 @@
-import type { RenderClock, RenderTimerHandle } from '#/tui/utils/render-clock';
+import type { RenderClock, RenderTimerHandle } from '#/utils/render-clock';
 
 interface ScheduledTimer {
   due: number;

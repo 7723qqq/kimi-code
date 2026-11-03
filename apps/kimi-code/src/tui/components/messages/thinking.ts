@@ -21,7 +21,7 @@ import {
   SYSTEM_RENDER_CLOCK,
   type RenderClock,
   type RenderTimerHandle,
-} from '#/tui/utils/render-clock';
+} from '#/utils/render-clock';
 
 export type ThinkingRenderMode = 'live' | 'finalized';
 

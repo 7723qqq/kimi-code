@@ -22,7 +22,7 @@ import {
 } from '#/cli/update/native-stage';
 import { detectNativeInstall } from '#/cli/update/source';
 import { t } from '#/i18n';
-import { SYSTEM_RENDER_CLOCK, type RenderClock } from '#/tui/utils/render-clock';
+import { SYSTEM_RENDER_CLOCK, type RenderClock } from '#/utils/render-clock';
 
 const LOCK_HELD_POLL_INTERVAL_MS = 2_000;
 

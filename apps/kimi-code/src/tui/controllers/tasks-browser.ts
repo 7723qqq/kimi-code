@@ -14,6 +14,7 @@ import {
 } from '../utils/screen-takeover';
 import type { SessionEventHandler } from './session-event-handler';
 import type { SubagentActivityRecord } from './subagent-activity-store';
+import { TaskPanelController, type TaskPanelState } from './task-panel-controller';
 
 export interface TasksBrowserHost {
   readonly state: {
@@ -31,7 +32,7 @@ export interface TasksBrowserHost {
   setTasksBrowser(value: TasksBrowserState | undefined): void;
 }
 
-export type TasksBrowserState = {
+export type TasksBrowserState = TaskPanelState & {
   component: TasksPanelComponent;
   takeover: ScreenTakeover;
   tab: TasksTab;
@@ -41,15 +42,24 @@ export type TasksBrowserState = {
   outputLoading: boolean;
   outputRequestId: number;
   activity: SubagentActivityRecord | undefined;
-  flashMessage: string | undefined;
-  flashTimer: NodeJS.Timeout | undefined;
-  pollTimer: NodeJS.Timeout | undefined;
 };
 
-export class TasksBrowserController {
-  private refreshing = false;
+export class TasksBrowserController extends TaskPanelController<TasksBrowserState> {
+  constructor(private readonly host: TasksBrowserHost) {
+    super();
+  }
 
-  constructor(private readonly host: TasksBrowserHost) {}
+  protected get panelState(): TasksBrowserState | undefined {
+    return this.host.state.tasksBrowser;
+  }
+
+  protected get session(): Session | undefined {
+    return this.host.session;
+  }
+
+  protected get ui(): TUI {
+    return this.host.state.ui;
+  }
 
   async show(): Promise<void> {
     const { state } = this.host;
@@ -93,12 +103,7 @@ export class TasksBrowserController {
     });
 
     const takeover = beginScreenTakeover(state.ui, component);
-    state.ui.setFocus(component);
-    state.ui.requestRender(true);
-
-    const pollTimer = setInterval(() => {
-      void this.refresh({ silent: true });
-    }, 1000);
+    const pollTimer = this.activatePanel(component);
 
     this.host.setTasksBrowser({
       component,
@@ -123,8 +128,7 @@ export class TasksBrowserController {
     const { state } = this.host;
     const browser = state.tasksBrowser;
     if (browser === undefined) return;
-    if (browser.pollTimer !== undefined) clearInterval(browser.pollTimer);
-    if (browser.flashTimer !== undefined) clearTimeout(browser.flashTimer);
+    this.deactivatePanel(browser);
 
     endScreenTakeover(state.ui, browser.takeover);
     this.host.setTasksBrowser(undefined);
@@ -173,38 +177,14 @@ export class TasksBrowserController {
     );
   }
 
-  private async refresh(opts: { silent?: boolean } = {}): Promise<void> {
-    if (this.refreshing) return;
-    this.refreshing = true;
-    try {
-      const { state } = this.host;
-      const browser = state.tasksBrowser;
-      if (browser === undefined) return;
-
-      const session = this.host.session;
-      if (session === undefined) return;
-
-      let tasks: readonly BackgroundTaskInfo[];
-      try {
-        tasks = await session.listBackgroundTasks({ activeOnly: false });
-      } catch (error) {
-        if (!opts.silent) {
-          this.flash(
-            t('tui.messages.tasksRefreshFailed', {
-              error: error instanceof Error ? error.message : String(error),
-            }),
-          );
-        }
-        return;
-      }
-      if (state.tasksBrowser !== browser) return;
-      browser.activity = this.activityFor(browser.selectedTaskId);
-      this.pushProps(tasks);
-      if (browser.selectedTaskId !== undefined && !browser.outputLoading) {
-        await this.loadOutput(browser.selectedTaskId, { silent: true });
-      }
-    } finally {
-      this.refreshing = false;
+  protected async applyTasks(
+    browser: TasksBrowserState,
+    tasks: readonly BackgroundTaskInfo[],
+  ): Promise<void> {
+    browser.activity = this.activityFor(browser.selectedTaskId);
+    this.pushProps(tasks);
+    if (browser.selectedTaskId !== undefined && !browser.outputLoading) {
+      await this.loadOutput(browser.selectedTaskId, { silent: true });
     }
   }
 
@@ -366,20 +346,5 @@ export class TasksBrowserController {
       current.outputLoading = false;
       if (!opts.silent) this.repaint();
     }
-  }
-
-  private flash(message: string, durationMs = 2500): void {
-    const browser = this.host.state.tasksBrowser;
-    if (browser === undefined) return;
-    if (browser.flashTimer !== undefined) clearTimeout(browser.flashTimer);
-    browser.flashMessage = message;
-    browser.flashTimer = setTimeout(() => {
-      const current = this.host.state.tasksBrowser;
-      if (current !== browser) return;
-      current.flashMessage = undefined;
-      current.flashTimer = undefined;
-      this.repaint();
-    }, durationMs);
-    this.repaint();
   }
 }

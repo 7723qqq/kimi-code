@@ -54,11 +54,6 @@ import { createMarkdownOptions } from '#/tui/utils/markdown-options';
 import { decodeMcpToolName } from '#/tui/utils/mcp-tool-name';
 import { notifyResultState } from '#/tui/utils/notify-result';
 import { isRenderCacheEnabled } from '#/tui/utils/render-cache';
-import {
-  SYSTEM_RENDER_CLOCK,
-  type RenderClock,
-  type RenderTimerHandle,
-} from '#/tui/utils/render-clock';
 import { sanitizeShellOutput } from '#/tui/utils/shell-output';
 import {
   formatByteSize,
@@ -73,6 +68,11 @@ import {
   tailSourceLines,
   usageTotal,
 } from '#/tui/utils/tool-call-format';
+import {
+  SYSTEM_RENDER_CLOCK,
+  type RenderClock,
+  type RenderTimerHandle,
+} from '#/utils/render-clock';
 
 import { agentSwarmResultSummaryFromOutput } from './agent-swarm-progress';
 import { PlanBoxComponent } from './plan-box';

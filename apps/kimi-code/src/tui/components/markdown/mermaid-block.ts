@@ -12,12 +12,12 @@ import { t } from '#/i18n';
 import type { KimiMarkdownOptions } from '#/tui/components/markdown/markdown';
 import { currentTheme } from '#/tui/theme';
 import { isMarkdownAltScreenActive, requestMarkdownRender } from '#/tui/utils/markdown-options';
+import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 import {
   SYSTEM_RENDER_CLOCK,
   type RenderClock,
   type RenderTimerHandle,
-} from '#/tui/utils/render-clock';
-import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
+} from '#/utils/render-clock';
 
 import {
   colorMermaidArt,

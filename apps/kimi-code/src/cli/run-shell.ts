@@ -1,17 +1,9 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { homedir } from 'node:os';
 
-import {
-  createKimiHarness,
-  flushDiagnosticLogsSync,
-  log,
-  type KimiHarness,
-  type KimiHarnessOptions,
-  type TelemetryClient,
-} from '@moonshot-ai/kimi-code-sdk';
+import { flushDiagnosticLogsSync, log, type KimiHarness } from '@moonshot-ai/kimi-code-sdk';
 import {
   setCrashPhase,
-  setTelemetryContext,
   shutdownTelemetry,
   track,
   withTelemetryContext,
@@ -32,10 +24,9 @@ import { toTerminalHyperlink } from '#/utils/terminal-hyperlink';
 import { restoreTerminalModes } from '#/utils/terminal-restore';
 
 import { resolveAgentProfileSelection } from './agent-selection';
+import { createTelemetryHarness } from './harness';
 import type { CLIOptions } from './options';
-import { resolvePluginNodeRunner } from './plugin-node-runner';
-import { createCliTelemetryBootstrap, initializeCliTelemetry } from './telemetry';
-import { createKimiCodeHostIdentity } from './version';
+import { initializeCliTelemetry } from './telemetry';
 
 /** The `node:child_process` surface the shell startup touches `stty` through. */
 export interface RunShellChildProcess {
@@ -68,25 +59,20 @@ export async function runShell(
   }
 
   // Initialise the global Theme singleton before pi-tui grabs stdin.
-  const { palette, resolved } = await getColorPalette(tuiConfig.theme);
-  currentTheme.setPalette(palette, resolved);
+  const themeReady = getColorPalette(tuiConfig.theme).then(({ palette, resolved }) => {
+    currentTheme.setPalette(palette, resolved);
+  });
 
   const workDir = process.cwd();
-  const telemetryBootstrap = createCliTelemetryBootstrap();
-  const telemetryClient: TelemetryClient = {
-    track,
-    withContext: withTelemetryContext,
-    setContext: setTelemetryContext,
-  };
-  const harnessOptions: KimiHarnessOptions = {
-    homeDir: telemetryBootstrap.homeDir,
-    identity: createKimiCodeHostIdentity(version),
+  // The agent-core-v2 route is the only engine (same engine as `kimi -p`):
+  // the harness is the SDK's v2-backed client, so the whole TUI runs on the
+  // agent-core-v2 engine.
+  const { harness, telemetryBootstrap } = createTelemetryHarness({
+    version,
     skillDirs: opts.skillsDirs,
     // The TUI renders the mid-turn update panel; declaring it here is what
     // makes the engine offer NotifyUser to this process and to no other host.
     uiCapabilities: TUI_HOST_UI_CAPABILITIES,
-    pluginNodeRunner: resolvePluginNodeRunner(),
-    telemetry: telemetryClient,
     onOAuthRefresh: (outcome) => {
       if (outcome.success) {
         track('oauth_refresh', { outcome: 'success' });
@@ -98,11 +84,7 @@ export async function runShell(
       });
     },
     sessionStartedProperties: { yolo: opts.yolo, auto: opts.auto, plan: opts.plan, afk: false },
-  };
-  // The agent-core-v2 route is the only engine (same engine as `kimi -p`):
-  // the harness is the SDK's v2-backed client, so the whole TUI runs on the
-  // agent-core-v2 engine.
-  const harness = createKimiHarness(harnessOptions);
+  });
   startupTrace('harness:created');
   log.info('kimi-code starting', {
     version,
@@ -116,18 +98,25 @@ export async function runShell(
   const legacySource = resolveLegacySourceHome(process.env, homedir(), process.cwd());
   const sourceIsTarget = sameLegacyPath(legacySource.sourceHome, harness.homeDir);
   if (sourceIsTarget) {
+    await themeReady;
     process.stderr.write(
       `  KIMI_SHARE_DIR (${legacySource.sourceHome}) points at the Kimi Code home; legacy migration is disabled. Unset it or point it at the kimi-cli data directory to migrate.\n`,
     );
   }
-  const migrationPlan = sourceIsTarget
-    ? null
-    : await detectPendingMigration({
+  const migrationPromise = sourceIsTarget
+    ? Promise.resolve(null)
+    : detectPendingMigration({
         sourceHome: legacySource.sourceHome,
         skillsSourceHome: legacySource.skillsSourceHome,
         targetHome: harness.homeDir,
         ignoreMarker: runOptions.migrateOnly,
       });
+  const configPromise = runOptions.migrateOnly === true ? undefined : harness.getConfig();
+  const [migrationPlan, loadedConfig] = await Promise.all([
+    migrationPromise,
+    configPromise,
+    themeReady,
+  ]);
   if (runOptions.migrateOnly === true && migrationPlan === null) {
     if (!sourceIsTarget) {
       process.stdout.write(t('tui.statusMessages.shellNothingToMigrate') + '\n');
@@ -135,7 +124,7 @@ export async function runShell(
     await harness.close();
     return;
   }
-  const config = await harness.getConfig();
+  const config = loadedConfig ?? (await harness.getConfig());
   startupTrace('config:loaded');
   // Config diagnostics (deprecated keys, invalid sections, ...) are surfaced
   // by the TUI itself at `finishStartup` via `showConfigWarningsIfAny` —

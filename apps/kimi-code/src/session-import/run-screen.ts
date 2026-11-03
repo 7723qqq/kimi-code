@@ -1,10 +1,6 @@
-import { createKimiHarness, type TelemetryClient } from '@moonshot-ai/kimi-code-sdk';
-import { setTelemetryContext, track, withTelemetryContext } from '@moonshot-ai/kimi-telemetry';
 import { ProcessTerminal, TuiMainScreen } from '@moonshot-ai/pi-tui';
 
-import { resolvePluginNodeRunner } from '#/cli/plugin-node-runner';
-import { createCliTelemetryBootstrap } from '#/cli/telemetry';
-import { createKimiCodeHostIdentity } from '#/cli/version';
+import { createTelemetryHarness } from '#/cli/harness';
 import { t } from '#/i18n';
 
 import { importBudget, importSessions, scanImportableSessions, sourceHomes } from './run-import';
@@ -16,17 +12,7 @@ export async function runImportSessionsCommand(): Promise<number> {
     process.stderr.write(`${t('tui.messages.importSessions.needsTty')}\n`);
     return 1;
   }
-  const telemetry: TelemetryClient = {
-    track,
-    withContext: withTelemetryContext,
-    setContext: setTelemetryContext,
-  };
-  const harness = createKimiHarness({
-    homeDir: createCliTelemetryBootstrap().homeDir,
-    identity: createKimiCodeHostIdentity(),
-    pluginNodeRunner: resolvePluginNodeRunner(),
-    telemetry,
-  });
+  const { harness } = createTelemetryHarness();
   try {
     const kimiHome = harness.homeDir;
     const budget = importBudget(await harness.getConfig().catch(() => ({})));

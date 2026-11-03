@@ -9,6 +9,7 @@ import type { TasksTab } from '../components/dialogs/tasks-browser';
 import type { CustomEditor } from '../components/editor/custom-editor';
 import type { AppState } from '../types';
 import type { SessionEventHandler } from './session-event-handler';
+import { TaskPanelController, type TaskPanelState } from './task-panel-controller';
 import { TasksBrowserController } from './tasks-browser';
 
 export interface BackgroundTasksMiniHost {
@@ -30,22 +31,32 @@ export interface BackgroundTasksMiniHost {
   setTasksBrowserMini(value: BackgroundTasksMiniState | undefined): void;
 }
 
-export type BackgroundTasksMiniState = {
+export type BackgroundTasksMiniState = TaskPanelState & {
   component: BackgroundTasksMiniPanel;
   tab: TasksTab;
   selectedTaskId: string | undefined;
   output: string | undefined;
   outputLoading: boolean;
-  flashMessage: string | undefined;
-  flashTimer: NodeJS.Timeout | undefined;
-  pollTimer: NodeJS.Timeout | undefined;
 };
 
-export class BackgroundTasksMiniController {
-  private refreshing = false;
+export class BackgroundTasksMiniController extends TaskPanelController<BackgroundTasksMiniState> {
   private hiddenDockEntries: { component: any; options: Record<string, unknown> }[] = [];
 
-  constructor(private readonly host: BackgroundTasksMiniHost) {}
+  constructor(private readonly host: BackgroundTasksMiniHost) {
+    super();
+  }
+
+  protected get panelState(): BackgroundTasksMiniState | undefined {
+    return this.host.state.tasksBrowserMini;
+  }
+
+  protected get session(): Session | undefined {
+    return this.host.session;
+  }
+
+  protected get ui(): TUI {
+    return this.host.state.ui;
+  }
 
   async show(): Promise<void> {
     const { state } = this.host;
@@ -120,12 +131,7 @@ export class BackgroundTasksMiniController {
     }
     container.clear();
     container.addChild(component);
-    state.ui.setFocus(component);
-    state.ui.requestRender(true);
-
-    const pollTimer = setInterval(() => {
-      void this.refresh({ silent: true });
-    }, 1000);
+    const pollTimer = this.activatePanel(component);
 
     this.host.setTasksBrowserMini({
       component,
@@ -147,8 +153,7 @@ export class BackgroundTasksMiniController {
     const { state } = this.host;
     const browser = state.tasksBrowserMini;
     if (browser === undefined) return;
-    if (browser.pollTimer !== undefined) clearInterval(browser.pollTimer);
-    if (browser.flashTimer !== undefined) clearTimeout(browser.flashTimer);
+    this.deactivatePanel(browser);
 
     state.backgroundTasksMiniContainer.clear();
     const dock = state.dockContainer;
@@ -163,52 +168,32 @@ export class BackgroundTasksMiniController {
     state.ui.requestRender(true);
   }
 
-  private async refresh(opts: { silent?: boolean } = {}): Promise<void> {
-    if (this.refreshing) return;
-    this.refreshing = true;
-    try {
-      const { state } = this.host;
-      const browser = state.tasksBrowserMini;
-      if (browser === undefined) return;
-      const session = this.host.session;
-      if (session === undefined) return;
-      let tasks: readonly BackgroundTaskInfo[];
-      try {
-        tasks = await session.listBackgroundTasks({ activeOnly: false });
-      } catch (error) {
-        if (!opts.silent) {
-          this.flash(
-            t('tui.messages.tasksRefreshFailed', {
-              error: error instanceof Error ? error.message : String(error),
-            }),
-          );
-        }
-        return;
-      }
-      if (state.tasksBrowserMini !== browser) return;
-      browser.component.setProps({
-        tasks,
-        tab: browser.tab,
-        selectedTaskId: browser.selectedTaskId,
-        height: Math.floor(state.terminal.rows * 0.5),
-        output: browser.output,
-        outputLoading: browser.outputLoading,
-        activity: undefined,
-        cwd: session.workDir,
-        flashMessage: browser.flashMessage,
-        availableModels: state.appState.availableModels,
-        onSelect: (taskId) => this.handleSelect(taskId),
-        onTabChange: (tab) => this.handleTabChange(tab),
-        onRefresh: () => this.handleRefresh(),
-        onCancel: () => this.close(),
-        onStop: (taskId) => void this.handleStop(taskId),
-        onStopIgnored: () => {},
-        onAmplify: () => this.amplify(),
-      });
-      state.ui.requestRender();
-    } finally {
-      this.refreshing = false;
-    }
+  protected applyTasks(
+    browser: BackgroundTasksMiniState,
+    tasks: readonly BackgroundTaskInfo[],
+    session: Session,
+  ): void {
+    const { state } = this.host;
+    browser.component.setProps({
+      tasks,
+      tab: browser.tab,
+      selectedTaskId: browser.selectedTaskId,
+      height: Math.floor(state.terminal.rows * 0.5),
+      output: browser.output,
+      outputLoading: browser.outputLoading,
+      activity: undefined,
+      cwd: session.workDir,
+      flashMessage: browser.flashMessage,
+      availableModels: state.appState.availableModels,
+      onSelect: (taskId) => this.handleSelect(taskId),
+      onTabChange: (tab) => this.handleTabChange(tab),
+      onRefresh: () => this.handleRefresh(),
+      onCancel: () => this.close(),
+      onStop: (taskId) => void this.handleStop(taskId),
+      onStopIgnored: () => {},
+      onAmplify: () => this.amplify(),
+    });
+    state.ui.requestRender();
   }
 
   private handleSelect(taskId: string): void {
@@ -218,7 +203,7 @@ export class BackgroundTasksMiniController {
     browser.selectedTaskId = taskId;
     browser.output = undefined;
     browser.outputLoading = true;
-    this.refreshProps();
+    this.repaint();
     void this.loadOutput(taskId);
   }
 
@@ -226,7 +211,7 @@ export class BackgroundTasksMiniController {
     const browser = this.host.state.tasksBrowserMini;
     if (browser === undefined) return;
     browser.tab = tab;
-    this.refreshProps();
+    this.repaint();
   }
 
   private handleRefresh(): void {
@@ -271,10 +256,10 @@ export class BackgroundTasksMiniController {
       current.output = '';
       current.outputLoading = false;
     }
-    this.refreshProps();
+    this.repaint();
   }
 
-  private refreshProps(): void {
+  protected repaint(): void {
     const browser = this.host.state.tasksBrowserMini;
     if (browser === undefined) return;
     browser.component.setProps({
@@ -302,20 +287,5 @@ export class BackgroundTasksMiniController {
   private amplify(): void {
     this.close();
     void this.host.tasksBrowserController.show();
-  }
-
-  private flash(message: string, durationMs = 2500): void {
-    const browser = this.host.state.tasksBrowserMini;
-    if (browser === undefined) return;
-    if (browser.flashTimer !== undefined) clearTimeout(browser.flashTimer);
-    browser.flashMessage = message;
-    browser.flashTimer = setTimeout(() => {
-      const current = this.host.state.tasksBrowserMini;
-      if (current !== browser) return;
-      current.flashMessage = undefined;
-      current.flashTimer = undefined;
-      this.refreshProps();
-    }, durationMs);
-    this.refreshProps();
   }
 }

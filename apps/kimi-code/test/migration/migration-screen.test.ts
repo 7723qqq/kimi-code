@@ -7,7 +7,7 @@ import {
 } from '@moonshot-ai/migration-legacy';
 
 import { MigrationScreenComponent, type MigrationScreenResult } from '#/migration/migration-screen';
-import type { RenderClock, RenderTimerHandle } from '#/tui/utils/render-clock';
+import type { RenderClock, RenderTimerHandle } from '#/utils/render-clock';
 import { createFakeClock } from '#test/helpers/fake-clock';
 
 /**

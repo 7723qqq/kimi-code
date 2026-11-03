@@ -6,17 +6,9 @@
  * and formats rows.
  */
 
-import type {
-  KimiHarness,
-  ListSessionsOptions,
-  SessionSummary,
-  TelemetryClient,
-} from '@moonshot-ai/kimi-code-sdk';
-import { setTelemetryContext, track, withTelemetryContext } from '@moonshot-ai/kimi-telemetry';
+import type { ListSessionsOptions, SessionSummary } from '@moonshot-ai/kimi-code-sdk';
 import type { Command } from 'commander';
 
-import { resolvePluginNodeRunner } from '#/cli/plugin-node-runner';
-import { createKimiCodeHostIdentity } from '#/cli/version';
 import { t } from '#/i18n';
 
 interface WritableLike {
@@ -103,39 +95,19 @@ export function registerSessionCommand(parent: Command, deps?: Partial<SessionLi
 async function createDefaultSessionListDeps(
   overrides: Partial<SessionListDeps> = {},
 ): Promise<SessionListDeps & { readonly close: () => Promise<void> }> {
-  // The harness and CLI telemetry bootstrap pull the engine; load them on
-  // dispatch so registering the command stays free of both.
-  const [{ createKimiHarness }, { createCliTelemetryBootstrap }] = await Promise.all([
-    import('@moonshot-ai/kimi-code-sdk'),
-    import('#/cli/telemetry'),
-  ]);
-  let harness: KimiHarness | undefined;
-  const identity = createKimiCodeHostIdentity();
-  const telemetryClient: TelemetryClient = {
-    track,
-    withContext: withTelemetryContext,
-    setContext: setTelemetryContext,
-  };
-  const getHarness = (): KimiHarness => {
-    harness ??= createKimiHarness({
-      homeDir: createCliTelemetryBootstrap().homeDir,
-      identity,
-      pluginNodeRunner: resolvePluginNodeRunner(),
-      telemetry: telemetryClient,
-    });
-    return harness;
-  };
+  // The harness runtime pulls the engine; load it on dispatch so registering
+  // the command stays free of it.
+  const { CliHarnessRuntime } = await import('#/cli/harness');
+  const runtime = new CliHarnessRuntime();
   return {
     listSessions:
       overrides.listSessions ??
-      ((options: ListSessionsOptions) => getHarness().listSessions(options)),
+      ((options: ListSessionsOptions) => runtime.getHarness().listSessions(options)),
     cwd: overrides.cwd ?? (() => process.cwd()),
     stdout: overrides.stdout ?? process.stdout,
     stderr: overrides.stderr ?? process.stderr,
     exit: overrides.exit ?? ((code: number) => process.exit(code)),
-    close: async () => {
-      await harness?.close();
-    },
+    close: () => runtime.close(),
   };
 }
 

@@ -42,6 +42,11 @@ import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
 import type { ColorToken } from '#/tui/theme';
 import { openUrl } from '#/utils/open-url';
+import {
+  SYSTEM_RENDER_CLOCK,
+  type RenderClock,
+  type RenderTimerHandle,
+} from '#/utils/render-clock';
 import { formatStepDebugTiming } from '#/utils/usage/debug-timing';
 
 import { createGoal as startGoalCommand } from '../commands/goal';
@@ -96,11 +101,6 @@ import {
   type McpServerStatusSnapshot,
   selectMcpStartupStatusRows,
 } from '../utils/mcp-server-status';
-import {
-  SYSTEM_RENDER_CLOCK,
-  type RenderClock,
-  type RenderTimerHandle,
-} from '../utils/render-clock';
 import { nextTranscriptId } from '../utils/transcript-id';
 import type { BtwPanelController } from './btw-panel';
 import type { StepCacheBreak } from './cache-hint-controller';

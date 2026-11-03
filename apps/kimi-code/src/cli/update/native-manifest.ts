@@ -13,7 +13,7 @@ import { valid } from 'semver';
 import { z } from 'zod';
 
 import { kimiCodeCdnBinariesBase } from '#/constant/region-urls';
-import { SYSTEM_RENDER_CLOCK, type RenderClock } from '#/tui/utils/render-clock';
+import { SYSTEM_RENDER_CLOCK, type RenderClock } from '#/utils/render-clock';
 
 const MANIFEST_FETCH_TIMEOUT_MS = 10_000;
 

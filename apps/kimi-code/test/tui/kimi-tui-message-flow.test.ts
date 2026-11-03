@@ -64,7 +64,6 @@ import { KimiTUI, type KimiTUIStartupInput, type TUIState } from '#/tui/kimi-tui
 import { type QueuedMessage, type TranscriptEntry } from '#/tui/types';
 import { ImageAttachmentStore } from '#/tui/utils/image-attachment-store';
 import { extractMediaAttachments, type ExtractionResult } from '#/tui/utils/image-placeholder';
-import type { RenderTimerHandle } from '#/tui/utils/render-clock';
 import { firstTokenAverageMs, formatStatDuration } from '#/tui/utils/session-stats';
 import {
   groupTurns,
@@ -74,6 +73,7 @@ import {
 } from '#/tui/utils/transcript-window';
 import * as cacheHintConfig from '#/utils/cache-hint-config';
 import { clientConfigs } from '#/utils/client-configs';
+import type { RenderTimerHandle } from '#/utils/render-clock';
 
 // Isolate the flow from the machine's cloud configuration: the region feeds
 // endpoint selection, so leaving it live would make these cases depend on

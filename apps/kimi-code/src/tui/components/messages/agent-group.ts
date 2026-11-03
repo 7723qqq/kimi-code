@@ -25,7 +25,7 @@ import {
   SYSTEM_RENDER_CLOCK,
   type RenderClock,
   type RenderTimerHandle,
-} from '#/tui/utils/render-clock';
+} from '#/utils/render-clock';
 
 import type { ToolCallComponent, ToolCallSubagentSnapshot } from './tool-call';
 

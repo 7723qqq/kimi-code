@@ -9,7 +9,7 @@ export type RunCommand = (
   options?: RunCommandOptions,
 ) => { stdout: Buffer; ok: boolean };
 
-/** Timer handle shape shared with `RenderTimerHandle` (`#/tui/utils/render-clock`). */
+/** Timer handle shape shared with `RenderTimerHandle` (`#/utils/render-clock`). */
 export interface CommandTimerHandle {
   unref?(): void;
 }

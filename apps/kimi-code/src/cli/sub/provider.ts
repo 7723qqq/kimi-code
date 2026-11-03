@@ -36,8 +36,7 @@ import { removeProviderFromConfig } from '@moonshot-ai/kimi-code-sdk/config-mapp
 import { DEFAULT_CATALOG_URL } from '@moonshot-ai/kimi-code-sdk/runtime';
 import type { Command } from 'commander';
 
-import { resolvePluginNodeRunner } from '#/cli/plugin-node-runner';
-import { createKimiCodeHostIdentity, createKimiCodeUserAgent } from '#/cli/version';
+import { createKimiCodeUserAgent } from '#/cli/version';
 import { t, type TranslationKey } from '#/i18n';
 import {
   buildAddPatch,
@@ -1346,14 +1345,13 @@ type ResolvedProviderDeps = ProviderDeps & { readonly close: () => Promise<void>
 async function resolveDeps(overrides: Partial<ProviderDeps> = {}): Promise<ResolvedProviderDeps> {
   // The harness factory pulls the engine; load it on dispatch so registering
   // the command group stays free of it.
-  const { createKimiHarness } = await import('@moonshot-ai/kimi-code-sdk');
+  const { createCliHarness } = await import('#/cli/harness');
   let harness: KimiHarness | undefined;
-  const identity = createKimiCodeHostIdentity();
   return {
     getHarness:
       overrides.getHarness ??
       (() => {
-        harness ??= createKimiHarness({ identity, pluginNodeRunner: resolvePluginNodeRunner() });
+        harness ??= createCliHarness();
         return harness;
       }),
     stdout: overrides.stdout ?? process.stdout,

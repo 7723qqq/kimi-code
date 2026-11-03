@@ -9,8 +9,8 @@ import {
   nativeInstallCommandWin,
 } from '#/constant/region-urls';
 import { t } from '#/i18n';
-import { SYSTEM_RENDER_CLOCK, type RenderClock } from '#/tui/utils/render-clock';
 import { resolveCommandPath } from '#/utils/process/resolve-command';
+import { SYSTEM_RENDER_CLOCK, type RenderClock } from '#/utils/render-clock';
 
 import {
   isAutoUpdateDisabledByEnv,

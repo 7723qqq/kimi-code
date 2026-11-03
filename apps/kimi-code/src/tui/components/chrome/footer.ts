@@ -29,11 +29,6 @@ import { currentTheme } from '#/tui/theme';
 import type { ColorPalette } from '#/tui/theme/colors';
 import type { AppState } from '#/tui/types';
 import { permissionModeDisplayName } from '#/tui/utils/permission-mode';
-import {
-  SYSTEM_RENDER_CLOCK,
-  type RenderClock,
-  type RenderTimerHandle,
-} from '#/tui/utils/render-clock';
 import { formatContextStatus } from '#/tui/utils/session-stats';
 import { StatusLineCommandRunner, type StatusLinePayload } from '#/tui/utils/status-line-command';
 import { createLocaleKeyedTipRotation, TIP_ROTATE_INTERVAL_MS } from '#/tui/utils/tip-rotation';
@@ -44,6 +39,11 @@ import {
   type GitStatus,
   type GitStatusCache,
 } from '#/utils/git/git-status';
+import {
+  SYSTEM_RENDER_CLOCK,
+  type RenderClock,
+  type RenderTimerHandle,
+} from '#/utils/render-clock';
 
 /** What the footer's fixed ctrl+o hint offers: expand collapsed tool output, or collapse it again. */
 export type ToolOutputExpandHint = 'expand' | 'collapse';

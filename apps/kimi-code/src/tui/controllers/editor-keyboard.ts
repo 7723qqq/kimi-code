@@ -13,6 +13,11 @@ import {
 } from '#/utils/clipboard/clipboard-image';
 import { parseImageMeta } from '#/utils/image/image-mime';
 import { editInExternalEditor, resolveEditorCommand } from '#/utils/process/external-editor';
+import {
+  SYSTEM_RENDER_CLOCK,
+  type RenderClock,
+  type RenderTimerHandle,
+} from '#/utils/render-clock';
 
 import { resolveUserInput } from '../commands/resolve';
 import type { StatusSurfaceKey } from '../components/chrome/status-surface/region';
@@ -37,11 +42,6 @@ import {
   imageExtensionForMime,
   type ExtractionResult,
 } from '../utils/image-placeholder';
-import {
-  SYSTEM_RENDER_CLOCK,
-  type RenderClock,
-  type RenderTimerHandle,
-} from '../utils/render-clock';
 import type { BtwPanelController } from './btw-panel';
 import type { ModelMigrationController } from './model-migration';
 import type { PromptOptimizerController } from './prompt-optimizer';

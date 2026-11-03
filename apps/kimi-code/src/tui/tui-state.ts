@@ -12,6 +12,7 @@ import { TranscriptView } from '#/tui/components/messages/transcript-view';
 import { clipboard } from '#/utils/clipboard/clipboard-native';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 import { openUrl } from '#/utils/open-url';
+import { SYSTEM_RENDER_CLOCK, type RenderClock } from '#/utils/render-clock';
 
 import { FooterComponent } from './components/chrome/footer';
 import { GutterContainer } from './components/chrome/gutter-container';
@@ -45,7 +46,6 @@ import {
   setMarkdownRenderLatex,
   setMarkdownRenderRequester,
 } from './utils/markdown-options';
-import { SYSTEM_RENDER_CLOCK, type RenderClock } from './utils/render-clock';
 import { createTerminalState, type TerminalState } from './utils/terminal-state';
 
 export interface TUIState {

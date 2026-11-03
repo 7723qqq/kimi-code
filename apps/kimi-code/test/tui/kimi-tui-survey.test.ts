@@ -8,7 +8,7 @@ import type { TuiMouseEvent } from '@moonshot-ai/pi-tui';
 
 import type { SurveyControllerDeps } from '#/tui/controllers/survey-controller';
 import type { KimiTUIStartupInput } from '#/tui/kimi-tui';
-import type { RenderTimerHandle } from '#/tui/utils/render-clock';
+import type { RenderTimerHandle } from '#/utils/render-clock';
 import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
 import { waitForAssertion } from '#test/helpers/waitFor';
 

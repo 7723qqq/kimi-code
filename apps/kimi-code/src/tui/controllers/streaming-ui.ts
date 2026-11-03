@@ -2,6 +2,11 @@ import type { Session } from '@moonshot-ai/kimi-code-sdk';
 import type { Component } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
+import {
+  SYSTEM_RENDER_CLOCK,
+  type RenderClock,
+  type RenderTimerHandle,
+} from '#/utils/render-clock';
 
 import { currentWorkingTip } from '../components/chrome/working-tips';
 import { CompactionComponent } from '../components/dialogs/compaction';
@@ -21,11 +26,6 @@ import type {
   TranscriptEntry,
 } from '../types';
 import { appendStreamingArgsPreview, parseStreamingArgs } from '../utils/event-payload';
-import {
-  SYSTEM_RENDER_CLOCK,
-  type RenderClock,
-  type RenderTimerHandle,
-} from '../utils/render-clock';
 import { notifyTerminalOnce } from '../utils/terminal-notification';
 import { nextTranscriptId } from '../utils/transcript-id';
 

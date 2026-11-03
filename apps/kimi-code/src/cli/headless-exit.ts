@@ -5,7 +5,7 @@ import {
   SYSTEM_RENDER_CLOCK,
   type RenderClock,
   type RenderTimerHandle,
-} from '#/tui/utils/render-clock';
+} from '#/utils/render-clock';
 
 /** Minimal process surface needed to force a headless run to terminate. */
 export interface ExitableProcess {

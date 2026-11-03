@@ -11,8 +11,6 @@ import type {
   ManagedKimiConfigShape,
 } from '@moonshot-ai/kimi-code-oauth';
 
-import { resolvePluginNodeRunner } from '#/cli/plugin-node-runner';
-import { createKimiCodeHostIdentity } from '#/cli/version';
 import { t } from '#/i18n';
 import { openUrl } from '#/utils/open-url';
 
@@ -23,8 +21,8 @@ async function loadOAuth() {
 }
 
 async function loadHarness() {
-  const { createKimiHarness } = await import('@moonshot-ai/kimi-code-sdk');
-  return createKimiHarness;
+  const { createCliHarness } = await import('#/cli/harness');
+  return createCliHarness;
 }
 
 /** Parse a `--region` CLI flag; exits with an actionable message on bad input. */
@@ -71,15 +69,10 @@ export async function runLoginFlow(
   const [
     { persistedKimiOAuthRef, regionForBareLogin },
     { OAuthAccessDeniedError },
-    createKimiHarness,
+    createCliHarness,
   ] = await Promise.all([import('#/utils/region'), loadOAuth(), loadHarness()]);
   const region = options.region ?? regionForBareLogin(persistedKimiOAuthRef());
-  const identity = createKimiCodeHostIdentity();
-  const harness = createKimiHarness({
-    identity,
-    uiMode: 'cli',
-    pluginNodeRunner: resolvePluginNodeRunner(),
-  });
+  const harness = createCliHarness({ uiMode: 'cli' });
   const controller = new AbortController();
   process.once('SIGINT', () => {
     controller.abort();
@@ -135,15 +128,10 @@ export async function runLoginFlow(
 export async function runGoogleLoginFlow(): Promise<never> {
   const [
     { GoogleOAuthManager, applyGoogleGeminiConfig, GOOGLE_GEMINI_DEFAULT_MODEL_ID },
-    createKimiHarness,
+    createCliHarness,
   ] = await Promise.all([loadOAuth(), loadHarness()]);
   const manager = new GoogleOAuthManager();
-  const identity = createKimiCodeHostIdentity();
-  const harness = createKimiHarness({
-    identity,
-    uiMode: 'cli',
-    pluginNodeRunner: resolvePluginNodeRunner(),
-  });
+  const harness = createCliHarness({ uiMode: 'cli' });
   const controller = new AbortController();
   process.once('SIGINT', () => {
     controller.abort();
@@ -206,15 +194,10 @@ export async function runGoogleLoginFlow(): Promise<never> {
 export async function runAntigravitySyncFlow(): Promise<never> {
   const [
     { GoogleOAuthManager, applyGoogleGeminiConfig, GOOGLE_GEMINI_DEFAULT_MODEL_ID },
-    createKimiHarness,
+    createCliHarness,
   ] = await Promise.all([loadOAuth(), loadHarness()]);
   const manager = new GoogleOAuthManager();
-  const identity = createKimiCodeHostIdentity();
-  const harness = createKimiHarness({
-    identity,
-    uiMode: 'cli',
-    pluginNodeRunner: resolvePluginNodeRunner(),
-  });
+  const harness = createCliHarness({ uiMode: 'cli' });
 
   const detection = GoogleOAuthManager.detectAntigravityCredentials();
   if (!detection.available) {

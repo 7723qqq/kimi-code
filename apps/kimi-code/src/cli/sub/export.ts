@@ -8,23 +8,12 @@
 import type {
   ExportSessionInput,
   ExportSessionResult,
-  KimiHarness,
   SessionSummary,
   ShellEnvironment,
-  TelemetryClient,
 } from '@moonshot-ai/kimi-code-sdk';
-import {
-  setTelemetryContext,
-  shutdownTelemetry,
-  track,
-  withTelemetryContext,
-} from '@moonshot-ai/kimi-telemetry';
 import type { Command } from 'commander';
 
-import { resolvePluginNodeRunner } from '#/cli/plugin-node-runner';
 import { detectInstallSource } from '#/cli/update/source';
-import { createKimiCodeHostIdentity } from '#/cli/version';
-import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE } from '#/constant/app';
 import { t } from '#/i18n';
 import { detectShellEnvironment } from '#/utils/process/shell-env';
 
@@ -141,72 +130,28 @@ async function createDefaultExportDeps(overrides: Partial<ExportDeps> = {}): Pro
     readonly close: () => Promise<void>;
   }
 > {
-  // The harness and CLI telemetry bootstrap pull the engine; load them on
-  // dispatch so registering the command stays free of both.
-  const [{ createKimiHarness }, { createCliTelemetryBootstrap, initializeCliTelemetry }] =
-    await Promise.all([import('@moonshot-ai/kimi-code-sdk'), import('#/cli/telemetry')]);
-  let harness: KimiHarness | undefined;
-  let telemetryBootstrap: ReturnType<typeof createCliTelemetryBootstrap> | undefined;
-  let telemetryInitialized = false;
-  let telemetryShutdown = false;
-  const identity = createKimiCodeHostIdentity();
-  const telemetryClient: TelemetryClient = {
-    track,
-    withContext: withTelemetryContext,
-    setContext: setTelemetryContext,
-  };
-  const getTelemetryBootstrap = (): ReturnType<typeof createCliTelemetryBootstrap> => {
-    telemetryBootstrap ??= createCliTelemetryBootstrap();
-    return telemetryBootstrap;
-  };
-  const getHarness = (): KimiHarness => {
-    const currentTelemetryBootstrap = getTelemetryBootstrap();
-    harness ??= createKimiHarness({
-      homeDir: currentTelemetryBootstrap.homeDir,
-      identity,
-      pluginNodeRunner: resolvePluginNodeRunner(),
-      telemetry: telemetryClient,
-    });
-    return harness;
-  };
-  const initializeDefaultTelemetry = async (): Promise<void> => {
-    if (telemetryInitialized) return;
-    const currentTelemetryBootstrap = getTelemetryBootstrap();
-    const currentHarness = getHarness();
-    await currentHarness.ensureConfigFile();
-    const config = await currentHarness.getConfig();
-    initializeCliTelemetry({
-      harness: currentHarness,
-      bootstrap: currentTelemetryBootstrap,
-      config,
-      version: identity.version,
-      uiMode: CLI_UI_MODE,
-    });
-    telemetryInitialized = true;
-  };
-  const shutdownDefaultTelemetry = async (): Promise<void> => {
-    if (!telemetryInitialized || telemetryShutdown) return;
-    telemetryShutdown = true;
-    await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS });
-  };
+  // The harness runtime pulls the engine; load it on dispatch so registering
+  // the command stays free of it.
+  const { CliHarnessRuntime } = await import('#/cli/harness');
+  const runtime = new CliHarnessRuntime();
   return {
     listSessions:
       overrides.listSessions ??
       ((workDir: string) =>
-        getHarness().listSessions({
+        runtime.getHarness().listSessions({
           workDir,
         })),
     exportSession:
       overrides.exportSession ??
       (async (input: ExportSessionInput) => {
-        await initializeDefaultTelemetry();
+        await runtime.initializeTelemetry();
         try {
-          return await getHarness().exportSession(input);
+          return await runtime.getHarness().exportSession(input);
         } finally {
-          await shutdownDefaultTelemetry();
+          await runtime.shutdownTelemetry();
         }
       }),
-    version: overrides.version ?? identity.version,
+    version: overrides.version ?? runtime.version,
     getInstallSource: overrides.getInstallSource ?? (() => detectInstallSource()),
     getShellEnv: overrides.getShellEnv ?? detectShellEnvironment,
     confirmPreviousSession: overrides.confirmPreviousSession ?? confirmPreviousSession,
@@ -217,9 +162,7 @@ async function createDefaultExportDeps(overrides: Partial<ExportDeps> = {}): Pro
     // The v2 harness boots an engine whose watchers hold the event loop open;
     // close it so a one-shot command can exit. No-op when the run never needed
     // the harness.
-    close: async () => {
-      await harness?.close();
-    },
+    close: () => runtime.close(),
   };
 }
 

@@ -1,4 +1,4 @@
-import type { RenderClock } from '#/tui/utils/render-clock';
+import type { RenderClock } from '#/utils/render-clock';
 
 import { writeUpdateCache } from './cache';
 import { fetchLatestFromCdn, type FetchLatestResult } from './cdn';
