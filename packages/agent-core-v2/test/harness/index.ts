@@ -43,6 +43,7 @@ export {
 export {
   DEFAULT_TEST_SYSTEM_PROMPT,
   eventSnapshot,
+  findGenerateCallPrefixBreak,
   generateInputSnapshot,
   generateInputsSnapshot,
   normalizeGenerateInput,
@@ -50,6 +51,7 @@ export {
   type EventSnapshot,
   type EventSnapshotEntry,
   type GenerateCall,
+  type GenerateCallPrefixBreak,
   type GenerateInputSnapshot,
   type GenerateInputsSnapshot,
   type RpcSnapshotEntry,
