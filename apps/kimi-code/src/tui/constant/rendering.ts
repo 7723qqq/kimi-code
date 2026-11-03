@@ -66,11 +66,11 @@ export const SUBAGENT_TOOL_OUTPUT_MAX_CHARS = 8000;
 // chips read args, so long values are truncated; chips become approximate
 // beyond the cap.
 export const SUBAGENT_ARG_STRING_MAX_CHARS = 16 * 1024;
-
-// Tail retained from a live subagent's streamed text on the Agent card. The
-// child's output can be far longer than the card ever shows, so only the tail
-// is kept (older text is dropped whole, marked by a truncation line).
-export const MAX_SUBAGENT_STREAM_TEXT_CHARS = 64 * 1024;
+// The foreground subagent card only ever shows a two-row window of the child
+// agent's streamed text, so the transcript keeps a bounded trailing slice for
+// display. Wrapping cost then stays flat instead of growing with the whole
+// run's output.
+export const SUBAGENT_PREVIEW_TEXT_MAX_CHARS = 8000;
 
 // Sub-tool activity records kept per Agent card. A subagent making hundreds of
 // tool calls would otherwise retain every sub-call and its output; only the

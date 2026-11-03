@@ -27,7 +27,6 @@ import {
   BRAILLE_SPINNER_FRAMES,
   BRAILLE_SPINNER_INTERVAL_MS,
   COMMAND_PREVIEW_LINES,
-  MAX_SUBAGENT_STREAM_TEXT_CHARS,
   MAX_SUB_TOOL_ACTIVITIES,
   MESSAGE_INDENT,
   OUTCOME_MAX_LINES,
@@ -67,8 +66,11 @@ import {
   formatSubagentContextTokens,
   formatSubagentTokens,
   formatTokens,
+  lastNonEmptyLine,
   str,
   tailNonEmptyLines,
+  tailPreviewText,
+  tailSourceLines,
   usageTotal,
 } from '#/tui/utils/tool-call-format';
 
@@ -1240,7 +1242,7 @@ export class ToolCallComponent extends Container {
     if (subagent === undefined) return;
     this.subagentAgentId = subagent.id;
     this.subagentAgentName = subagent.name;
-    this.subagentText = tailCapped(subagent.text ?? '', MAX_SUBAGENT_STREAM_TEXT_CHARS);
+    this.subagentText = tailPreviewText(subagent.text ?? '');
     for (const call of subagent.toolCalls ?? []) {
       if (call.result === undefined) {
         this.ongoingSubCalls.set(call.id, { name: call.name, args: call.args });
@@ -1621,7 +1623,7 @@ export class ToolCallComponent extends Container {
     this.subagentResultSummary =
       payload.resultSummary.length > 0 ? payload.resultSummary : undefined;
     if (this.subagentText.trim().length === 0 && this.subagentResultSummary !== undefined) {
-      this.subagentText = tailCapped(payload.resultSummary, MAX_SUBAGENT_STREAM_TEXT_CHARS);
+      this.subagentText = tailPreviewText(this.subagentResultSummary);
     }
     this.syncSubagentElapsedTimer();
     this.headerText.setText(this.buildHeader());
@@ -1769,16 +1771,15 @@ export class ToolCallComponent extends Container {
 
   appendSubagentText(text: string, kind: SubagentTextKind = 'text'): void {
     this.lastSubagentStreamKind = kind;
-    // Both buffers keep only a bounded tail: a child streaming for a long time
-    // would otherwise grow the card without limit, and every rebuild would
-    // pay for the whole history.
+    // The preview window only ever shows a small tail, so keep the retained
+    // buffer bounded instead of concatenating the whole history. Trimming the
+    // merged buffer on each append costs O(cap + delta) regardless of how long
+    // the agent has been running, and the text still ends with the newest
+    // output.
     if (kind === 'thinking') {
-      this.subagentThinkingText = tailCapped(
-        this.subagentThinkingText + text,
-        MAX_SUBAGENT_STREAM_TEXT_CHARS,
-      );
+      this.subagentThinkingText = tailPreviewText(this.subagentThinkingText + text);
     } else {
-      this.subagentText = tailCapped(this.subagentText + text, MAX_SUBAGENT_STREAM_TEXT_CHARS);
+      this.subagentText = tailPreviewText(this.subagentText + text);
     }
     // Child-agent activity means it is running unless already terminal/backgrounded.
     if (
@@ -2217,7 +2218,7 @@ export class ToolCallComponent extends Container {
     }
 
     if (this.subagentText.length > 0) {
-      const tailLines = this.subagentText.split('\n').slice(-3);
+      const tailLines = tailSourceLines(this.subagentText, 3).split('\n');
       for (const line of tailLines) {
         this.addChild(new Text(`    ${currentTheme.dim(line)}`, 0, 0));
       }
@@ -2509,12 +2510,14 @@ export class ToolCallComponent extends Container {
     const content = this.getActiveSubagentContent();
     // Keep both tones muted: a bright `fg('text')` here flashed white whenever
     // the window flipped between thinking and a brief text/tool-output segment.
+    const text =
+      content === undefined ? '…' : tailSourceLines(content.text, THINKING_PREVIEW_LINES * 4);
     const styled =
       content === undefined
-        ? currentTheme.dim('…')
+        ? currentTheme.dim(text)
         : content.tone === 'thinking'
-          ? currentTheme.dim(content.text)
-          : currentTheme.fg('textDim', content.text);
+          ? currentTheme.dim(text)
+          : currentTheme.fg('textDim', text);
     // Always exactly two rows (padded when short) so the live window matches
     // the finished card's height.
     return new PrefixedWrappedLine(
@@ -2971,11 +2974,8 @@ function computeLatestActivity(
     }
   }
   if (text.length > 0) {
-    const tail = text
-      .split('\n')
-      .toReversed()
-      .find((l) => l.trim().length > 0);
-    if (tail !== undefined) return tail.trim();
+    const tail = lastNonEmptyLine(text);
+    if (tail !== undefined) return tail;
   }
   return undefined;
 }
