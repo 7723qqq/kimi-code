@@ -102,6 +102,14 @@ jobs:
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
 
       - run: bun install --frozen-lockfile
+
+      # The ubuntu-26.04 runner image no longer ships ripgrep (probed on
+      # 2026-11-03: no rg on PATH, no dpkg entry; candidate 15.1.0-1ubuntu1
+      # exists in resolute/universe). agent-core-v2's heavy glob/grep cases
+      # drive a real rg resolved from PATH with cached fallbacks disabled.
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
       # Sets KIMI_TEST_HEAVY=1 and KIMI_E2E=1, then runs the same per-package
       # runner with `--include-heavy`. Nothing is duplicated from the default
       # suite: the default run still executes every non-heavy file.
