@@ -669,7 +669,7 @@ describeWithTimeout(
             ),
         },
         {
-          match: (body) => body.includes('bg-answer-42'),
+          match: (body) => body.includes('bg-answer-42') && body.includes('You are running as a subagent'),
           respond: () => sseText('42'),
           delayMs: 2500,
         },
