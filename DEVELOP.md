@@ -73,11 +73,11 @@ User-level global instructions (`~/.kimi-code/AGENTS.md`) and a local `SYSTEM.md
 | **oxfmt** | Formatter — 100 print width, single quotes, trailing commas, sorted imports |
 | **bun:test** (Bun 1.4.4) | Test runner and coverage (`bun test --coverage`, lcov) |
 | **simple-git-hooks** | Pre-commit hooks (runs `lint-staged`) |
-| **lint-staged** | Lint staged files with `oxlint --quiet` + `oxlint --type-aware --quiet` |
+| **lint-staged** | Lint staged files with `oxlint --type-aware --quiet` |
 | **changesets** | Version management and changelog generation |
 | **sherif** 1.11.1 | Monorepo correctness checker |
 | **publint** + **attw** | Package publishing lint and type-checking |
-| **tsgo** (TypeScript native-preview) | CI typechecking |
+| **tsc** | Local and CI typechecking; upgrade the root `typescript` devDependency and regenerate `bun.lock` |
 
 ---
 
@@ -234,17 +234,13 @@ scripts/
 ```
 
 Each of these has a root script, and the root script names are the `check:*` form
-(`check:t-coverage`, `check:locale-keys`, …). The CI `lint` job runs, in order:
-`check:deep-imports`, `check:boundaries`, `check:no-comments`,
-`scripts/scan-test-residue.mjs`, `scripts/check-locale-keys.mjs`,
-`check:locale-placeholders`, `scripts/check-t-call-coverage.mjs`,
-`check:status-surface-i18n`, `check:no-hardcoded-prose`,
-`tools/review/check-strict-request-bodies.mjs`,
-`tools/review/check-catalog-versions.mjs` and `scripts/check-service-naming.mjs`.
-`check:nix-workspace` runs in the Nix workflow. By hand: `scan:hardcoded` (finds a
-source literal that already exists in a locale file) and `measure:image-tokens`
-(needs a live endpoint). `check:prompt-ownership` is not in CI — run it after
-touching `AGENTS.md`, `DEVELOP.md` or the prompt-ownership table below.
+(`check:t-coverage`, `check:locale-keys`, …). Local runs and the CI `lint` job both
+enter through `bun run check:lint`; the root `package.json` owns the complete ordered
+chain, so no second list lives in the workflow. `check:nix-workspace` runs in the Nix
+workflow. By hand: `scan:hardcoded` (finds a source literal that already exists in a
+locale file) and `measure:image-tokens` (needs a live endpoint).
+`check:prompt-ownership` is not in CI — run it after touching `AGENTS.md`,
+`DEVELOP.md` or the prompt-ownership table below.
 
 ### Structural review (`tools/review`)
 
@@ -258,6 +254,7 @@ about 7 s over the whole monorepo.
 tools/review/
   src/checks/                   — one file per check
   src/paths.zig                 — the shared directory and file classification
+  src/workspaces.zig            — workspace expansion from the root manifest
   dangling-refs-baseline.txt    — accepted findings, one per line
   orphan-exports-baseline.txt   — accepted findings, one per line
   scripts-wiring-baseline.txt   — accepted findings, one per line
@@ -445,11 +442,13 @@ bun run dev:cli               # Run the CLI in dev mode; delegates to
 bun run dev:local              # Run the CLI from a fresh bundle (works; incremental, ~2s)
 bun run dev:local:watch       # Same, rebuilding and re-running on every source change
 bun run dev:server            # Run server in dev mode
-bun run test                  # Every package suite (CI scope; see Testing Rules)
+bun run test                  # Every workspace and repository-scripts suite (CI scope)
+bun run test:scripts          # scripts/test plus scripts/prompt-optimizer/test only
 bun run test:watch            # Watch mode
 bun run test:coverage         # With coverage
-bun run typecheck             # TypeScript check (builds packages first)
+bun run typecheck             # TypeScript check across every workspace that declares it
 bun run lint                  # oxlint --type-aware
+bun run check:lint            # The complete local/CI lint chain in root package.json
 bun run lint:fix              # Auto-fix
 bun run sherif                # Monorepo correctness check
 bun run clean                 # Clean all dist directories
@@ -496,10 +495,10 @@ To run a local build inside `~/.kimi-code/` instead of the released binary (Powe
 ### CI pipeline
 
 GitHub Actions (`ci.yml`) runs on every PR and push to `main`. Every job installs Bun via `oven-sh/setup-bun`; no job installs Node:
-1. **build** — Install, build, smoke test CLI bundle
-2. **test** — `bun run test --shard=N/5` split across 5 parallel Ubuntu shards; Bun's native `--shard` is forwarded to every package suite, and no job installs Node
-3. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, engine boundaries (`check:deep-imports`, then `check:boundaries`), locale key parity (`check-locale-keys.mjs`), locale placeholder validity (`check-locale-placeholders.cjs`), and `t()` call-site coverage (`check-t-call-coverage.mjs`)
-4. **typecheck** — TypeScript check across all packages (`tsgo` from `@typescript/native-preview`, run via `bunx --bun`)
+1. **build** — Install, `bun run build` across all workspaces, smoke test CLI bundle
+2. **test** — `bun run test --shard=N/5` split across 5 parallel Ubuntu shards; the root runner forwards the shard to every workspace suite and the repository-scripts suite
+3. **lint** — `bun run check:lint`, the same root-owned chain used locally
+4. **typecheck** — `bun run typecheck`, using the root-pinned `typescript` version and each workspace's own complete `typecheck` script
 5. **review** — `zig build` and `zig build test` in `tools/review` (Zig installed via
    `mlugg/setup-zig`), then the structural checks described under "Structural review" above
 
@@ -550,7 +549,7 @@ An ad-hoc `bun test` batch does not go through the runner. Start the CLI (or the
 
 ### Test layout
 
-There is no root test config. `scripts/run-tests.mjs` walks `packages/*`, `apps/*` and `apps/vis/*` and, for every package that declares a `test` script, runs `bun run test` **inside that package** so the package's own `bunfig.toml` applies. `--shard`, `--timeout`, `--coverage*`, `--bail`, `--test-name-pattern` and `--randomize` are forwarded to every package; `--include-heavy` adds `--path-ignore-patterns=**/node_modules/**` so the heavy/e2e sets run too.
+There is no root test config. `scripts/lib/test-projects.mjs` expands the root `workspaces` field and selects members that declare the requested script; `scripts/run-tests.mjs` runs each selected script **inside that package** so its own `bunfig.toml` applies. For the root `test` entry, the same catalog also selects the root `test:scripts` suite, which uses the standard package runner over `scripts/test` and `scripts/prompt-optimizer/test`. `--shard`, `--timeout`, `--coverage*`, `--bail`, `--test-name-pattern` and `--randomize` are forwarded to every selected suite; `--include-heavy` adds `--path-ignore-patterns=**/node_modules/**` so the heavy/e2e sets run too.
 
 ### Running tests
 
@@ -563,9 +562,10 @@ decides when to widen it lives in [`CONVENTIONS.md` → Testing Rules](CONVENTIO
 (cd packages/<package> && bun run test)                          # That package's own suite
 (cd packages/<package> && bun test --test-name-pattern <regex>)  # One test by name
 
-# Escalated: every package suite — this is the CI scope
-bun run test                  # All package suites, one package at a time
-bun run test:watch            # Every package's watcher, concurrently
+# Escalated: every workspace and repository-scripts suite — this is the CI scope
+bun run test                  # All selected suites, one project at a time
+bun run test:scripts          # Repository scripts and prompt optimizer only
+bun run test:watch            # Every selected project's watcher, concurrently
 bun run test:coverage         # With an lcov coverage report per package
 bun run test:minidb           # minidb only — see below
 bun run test:heavy            # Includes the heavy/e2e sets (KIMI_TEST_HEAVY=1, KIMI_E2E=1)

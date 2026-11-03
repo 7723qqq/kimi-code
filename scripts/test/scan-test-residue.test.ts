@@ -7,13 +7,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
  * the report still says zero. Each case below pins one blind spot that existed
  * and was fixed, and fails if the fix is undone.
  *
- * Run: bun test --isolate scripts/scan-test-residue.test.ts
+ * Run: bun test --isolate scripts/test/scan-test-residue.test.ts
  */
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
-const SCANNER = join(import.meta.dirname, 'scan-test-residue.mjs');
+const SCANNER = join(import.meta.dirname, '../scan-test-residue.mjs');
 
 // Assembled at runtime so this suite's own source never contains a literal the
 // scanner would report. The scanner's rules read module specifiers verbatim, so

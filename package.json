@@ -23,8 +23,7 @@
   },
   "type": "module",
   "scripts": {
-    "postinstall": "bunx simple-git-hooks",
-    "build": "bun run --filter './packages/*' --filter './apps/kimi-code' --filter './apps/vscode' --filter './apps/kimi-inspect' --filter './apps/vis' --filter './apps/vis/server' --filter './apps/vis/web' --filter './docs' build",
+    "build": "bun run --workspaces --if-present build",
     "build:packages": "bun run --filter './packages/*' build",
     "dev:cli": "cd apps/kimi-code && bun run dev",
     "dev:local": "./scripts/run-local.sh",
@@ -35,19 +34,21 @@
     "build:plugin-marketplace": "cd apps/kimi-code && bun run build:plugin-marketplace",
     "vis": "cd apps/vis && bun run dev",
     "dev:docs": "cd docs && bun install && bun run dev",
-    "typecheck": "bun run build:packages && bun run --filter './packages/*' typecheck && (cd apps/kimi-code && bun run typecheck) && (cd apps/kimi-inspect && bun run typecheck) && (cd apps/vscode && bun run typecheck) && (cd apps/vis/server && bun run typecheck) && (cd apps/vis/web && bun run typecheck)",
+    "typecheck": "bun run --workspaces --if-present typecheck",
     "lint": "oxlint --type-aware",
     "lint:fix": "oxlint --type-aware --fix",
+    "check:lint": "bun run lint && bun run sherif && bun run check:deep-imports && bun run check:boundaries && bun run check:no-comments && bun run check:git-memory && bun run scan:residue && bun run check:locale-keys && bun run check:locale-placeholders && bun run check:t-coverage && bun run check:status-surface-i18n && bun run check:no-hardcoded-prose && bun run check:strict-request-bodies && bun run check:catalog-versions && bun run check:service-naming",
     "lint:pkg": "(cd apps/kimi-code && publint) && (cd apps/kimi-code && npm_config_cache=${TMPDIR:-/tmp}/kimi-code-npm-cache attw --pack . --profile node16)",
     "sherif": "sherif -i @agentclientprotocol/sdk -r packages-without-package-json",
     "test": "bun scripts/run-tests.mjs",
+    "test:scripts": "bun scripts/run-package-tests.mjs --package=. --root=scripts/test --root=scripts/prompt-optimizer/test",
     "test:watch": "bun scripts/run-tests.mjs --watch",
     "test:coverage": "bun scripts/run-tests.mjs --coverage --coverage-reporter=lcov",
     "test:minidb": "cd packages/minidb && bun run test",
     "test:heavy": "bun scripts/run-test-heavy.mjs",
     "test:timings": "bun scripts/run-tests.mjs --timings=test-timings.jsonl",
     "build:docs": "cd docs && bun run build",
-    "clean": "bun run --workspaces clean",
+    "clean": "bun run --workspaces --if-present clean",
     "check:locale-keys": "bun scripts/check-locale-keys.mjs",
     "check:locale-placeholders": "bun scripts/check-locale-placeholders.cjs",
     "check:t-coverage": "bun scripts/check-t-call-coverage.mjs",
@@ -60,6 +61,7 @@
     "check:git-memory": "bun packages/agent-core-v2/scripts/check-git-memory-injection.mjs",
     "check:nix-workspace": "bun scripts/check-nix-workspace.mjs",
     "check:service-naming": "bun scripts/check-service-naming.mjs",
+    "check:strict-request-bodies": "bun tools/review/check-strict-request-bodies.mjs",
     "scan:hardcoded": "bun scripts/scan-hardcoded-v2.mjs",
     "measure:image-tokens": "bun scripts/measure-image-tokens.cjs",
     "changeset": "changeset",
@@ -131,14 +133,10 @@
     "ws": ">=8.21.0"
   },
   "simple-git-hooks": {
-    "pre-commit": "bunx lint-staged"
+    "pre-commit": "bunx lint-staged --concurrent false"
   },
   "lint-staged": {
-    "concurrent": "false",
-    "*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}": [
-      "oxlint --quiet",
-      "oxlint --type-aware --quiet"
-    ]
+    "*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}": "oxlint --type-aware --quiet"
   },
   "packageManager": "bun@1.4.4",
   "trustedDependencies": [

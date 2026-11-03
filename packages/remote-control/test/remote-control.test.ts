@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, jest } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, it, jest } from 'bun:test';
 import { spawn } from 'node:child_process';
 import { existsSync, chmodSync, mkdtempSync, rmSync } from 'node:fs';
 import { mkdir, chmod, readFile, writeFile } from 'node:fs/promises';
@@ -15,6 +15,7 @@ import {
   resolveKimiTokenStorageName,
   type TokenInfo,
 } from '@moonshot-ai/kimi-code-oauth';
+import { getLocale, setLocale } from '@moonshot-ai/kimi-i18n';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 
 import { RemoteControlDeviceClient, type RemoteControlDevice } from '../src/device-client';
@@ -34,6 +35,10 @@ import {
 import { setEnv, restoreEnvs } from './helpers/stubs';
 
 const CLIENT_VERSION = 'kimi-code/test';
+
+const previousLocale = getLocale();
+beforeAll(() => setLocale('en'));
+afterAll(() => setLocale(previousLocale));
 
 const TOKEN: TokenInfo = {
   accessToken: 'access-token',

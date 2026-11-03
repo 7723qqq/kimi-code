@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 
 import { limitSelfToCpus, resolveTestCpuLimit } from './lib/cpu-limit.mjs';
 import { killProcessTree } from './lib/kill-process-tree.mjs';
+import { listTestProjects } from './lib/test-projects.mjs';
 import { acquireTestSuiteLock } from './lib/test-suite-lock.mjs';
 
 const ROOT = resolve(import.meta.dirname, '..');
@@ -67,27 +67,13 @@ if (watch) forwarded.push('--watch');
 if (args.includes('--include-heavy')) forwarded.push('--path-ignore-patterns=**/node_modules/**');
 if (args.some((arg) => arg.startsWith('--shard'))) forwarded.push('--pass-with-no-tests');
 
-const packages = [];
-for (const group of ['packages', 'apps', 'apps/vis']) {
-  const groupDir = join(ROOT, group);
-  if (!existsSync(groupDir)) continue;
-  for (const name of readdirSync(groupDir)) {
-    if (name === 'node_modules') continue;
-    const dir = join(groupDir, name);
-    const manifestPath = join(dir, 'package.json');
-    if (!existsSync(manifestPath)) continue;
-    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-    if (!manifest.scripts?.[script]) continue;
-    packages.push({ dir, name: manifest.name });
-  }
-}
-
+const packages = listTestProjects(ROOT, script);
 packages.sort((a, b) => a.name.localeCompare(b.name));
 
 const selected =
   only === undefined
     ? packages
-    : packages.filter((pkg) => pkg.name === only || pkg.dir.endsWith(only));
+    : packages.filter((pkg) => pkg.name === only || pkg.path === only || pkg.dir.endsWith(only));
 
 if (selected.length === 0) {
   process.stderr.write(`no package matched --package=${String(only)}\n`);
@@ -96,9 +82,9 @@ if (selected.length === 0) {
 
 if (watch) {
   const children = selected.map((pkg) => {
-    const label = pkg.dir.slice(ROOT.length + 1).replace(/\\/g, '/');
+    const label = pkg.path;
     process.stdout.write(`\n=== ${pkg.name} (${label}) ===\n`);
-    return Bun.spawn(['bun', 'run', script, '--', ...forwarded], {
+    return Bun.spawn(['bun', 'run', pkg.script, '--', ...forwarded], {
       cwd: pkg.dir,
       stdio: ['inherit', 'inherit', 'inherit'],
       env: process.env,
@@ -110,10 +96,10 @@ if (watch) {
 
 const failures = [];
 for (const pkg of selected) {
-  const label = pkg.dir.slice(ROOT.length + 1).replace(/\\/g, '/');
+  const label = pkg.path;
   process.stdout.write(`\n=== ${pkg.name} (${label}) ===\n`);
   const child = Bun.spawn(
-    ['bun', 'run', script, ...(forwarded.length > 0 ? ['--', ...forwarded] : [])],
+    ['bun', 'run', pkg.script, ...(forwarded.length > 0 ? ['--', ...forwarded] : [])],
     {
       cwd: pkg.dir,
       stdio: ['inherit', 'inherit', 'inherit'],

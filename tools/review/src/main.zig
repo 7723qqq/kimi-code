@@ -21,6 +21,7 @@ test {
     _ = @import("ts_scan.zig");
     _ = @import("walk.zig");
     _ = @import("workflow.zig");
+    _ = @import("workspaces.zig");
     _ = @import("checks.zig");
     _ = @import("checks/ci_coverage.zig");
     _ = @import("checks/dangling_refs.zig");

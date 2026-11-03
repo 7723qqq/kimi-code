@@ -5,6 +5,7 @@ const check = @import("../check.zig");
 const fsutil = @import("../fsutil.zig");
 const pkgjson = @import("../pkgjson.zig");
 const walk = @import("../walk.zig");
+const workspaces = @import("../workspaces.zig");
 
 /// A workspace member whose tests or typecheck never run in CI is invisible to
 /// every other gate: the suite is green because the suite never sees it.
@@ -24,11 +25,8 @@ pub fn run(ctx: *check.Context) !void {
     };
     defer root_pkg.deinit();
 
-    const globs = try workspaceGlobs(ctx, &root_pkg);
-    defer freeStrings(ctx.alloc, globs);
-
-    const members = try expandGlobs(ctx, globs);
-    defer freeStrings(ctx.alloc, members);
+    const members = try workspaces.list(ctx, &root_pkg);
+    defer workspaces.freeStrings(ctx.alloc, members);
 
     const test_projects = try vitestProjects(ctx);
     defer freeStrings(ctx.alloc, test_projects);
@@ -49,7 +47,7 @@ pub fn run(ctx: *check.Context) !void {
             .message = "test coverage comes from one workspace-wide runner rather than per-package listings",
             .evidence = try std.fmt.allocPrint(
                 ctx.alloc,
-                "{s} walks every workspace member and runs its own test script, so no member is listed here",
+                "{s} uses the root workspace manifest and includes the repository scripts suite, so no member is listed here",
                 .{runner.?},
             ),
         });
@@ -97,9 +95,11 @@ pub fn run(ctx: *check.Context) !void {
     }
 }
 
-/// The root `typecheck` script mixes globs (`--filter './packages/*'`) with
-/// literal paths (`cd apps/kimi-code`), so both shapes have to be honoured.
+/// `--workspaces` covers every member. Filter and literal-path shapes cover
+/// only the members they select and cannot masquerade as workspace-wide coverage.
 fn typecheckCovers(script: []const u8, member: []const u8) bool {
+    if (std.mem.indexOf(u8, script, "--workspaces") != null and
+        std.mem.indexOf(u8, script, "typecheck") != null) return true;
     if (std.mem.indexOf(u8, script, member) != null) return true;
 
     var cursor: usize = 0;
@@ -113,95 +113,10 @@ fn typecheckCovers(script: []const u8, member: []const u8) bool {
     return false;
 }
 
-fn workspaceGlobs(ctx: *check.Context, root_pkg: *const pkgjson.PackageJson) ![]const []const u8 {
-    var out: std.ArrayList([]const u8) = .empty;
-    errdefer out.deinit(ctx.alloc);
-
-    const ws = root_pkg.root().get("workspaces") orelse return out.toOwnedSlice(ctx.alloc);
-    const obj = switch (ws) {
-        .object => |o| o,
-        else => return out.toOwnedSlice(ctx.alloc),
-    };
-    const packages = obj.get("packages") orelse return out.toOwnedSlice(ctx.alloc);
-    const arr = switch (packages) {
-        .array => |a| a,
-        else => return out.toOwnedSlice(ctx.alloc),
-    };
-    for (arr.items) |item| {
-        switch (item) {
-            .string => |s| try out.append(ctx.alloc, s),
-            else => {},
-        }
-    }
-    return out.toOwnedSlice(ctx.alloc);
-}
-
-/// Expand `packages/*`-style globs into concrete member directories, applying
-/// `!`-prefixed exclusions.
-fn expandGlobs(ctx: *check.Context, globs: []const []const u8) ![]const []const u8 {
-    var included: std.ArrayList([]const u8) = .empty;
-    defer freeStrings(ctx.alloc, included.items);
-    var excluded: std.ArrayList([]const u8) = .empty;
-    defer excluded.deinit(ctx.alloc);
-
-    for (globs) |g| {
-        if (std.mem.startsWith(u8, g, "!")) {
-            try excluded.append(ctx.alloc, g[1..]);
-            continue;
-        }
-        if (std.mem.endsWith(u8, g, "/*")) {
-            const parent = g[0 .. g.len - 2];
-            if (Io.Dir.openDir(ctx.root_dir, ctx.io, parent, .{ .iterate = true })) |dir| {
-                defer Io.Dir.close(dir, ctx.io);
-                const dirs = walk.listDirs(ctx.alloc, ctx.io, dir) catch continue;
-                defer walk.freeFiles(ctx.alloc, dirs);
-                for (dirs) |d| {
-                    // Join with a forward slash on purpose. `std.fs.path.join`
-                    // would emit `packages\<dir>` on Windows, and every
-                    // consumer of this list — the vitest `projects` globs and the
-                    // `.github/workflows/` text — is written with forward slashes,
-                    // so a backslash member matches nothing and every package is
-                    // reported as uncovered. Repository-relative paths in this
-                    // check are always slash-separated.
-                    try included.append(ctx.alloc, try std.fmt.allocPrint(
-                        ctx.alloc,
-                        "{s}/{s}",
-                        .{ parent, d },
-                    ));
-                }
-            } else |_| {}
-            continue;
-        }
-        try included.append(ctx.alloc, try ctx.alloc.dupe(u8, g));
-    }
-
-    var out: std.ArrayList([]const u8) = .empty;
-    errdefer freeStrings(ctx.alloc, out.items);
-    for (included.items) |member| {
-        var skip = false;
-        for (excluded.items) |ex| {
-            if (std.mem.eql(u8, member, ex)) skip = true;
-        }
-        if (!skip) try out.append(ctx.alloc, try ctx.alloc.dupe(u8, member));
-    }
-    return out.toOwnedSlice(ctx.alloc);
-}
-
-/// The script the root `test` script delegates to, when it is a runner that
-/// walks the workspace and runs each member's own test script.
-///
-/// bun:test replaced vitest here, so the per-member project listing moved into
-/// one runner (`scripts/run-tests.mjs`) that discovers members from the
-/// workspace instead of from a config file. A member is covered by that shape
-/// of runner without being named anywhere, so a check that only read project
-/// listings would call every member uncovered — the state this repo sat in,
-/// where the gate reported 16 members whose suites all ran.
-///
-/// The shape is detected rather than assumed: the runner has to walk
-/// directories and read each one's package.json, which is what makes it
-/// discover members rather than run a fixed list. A script that does neither
-/// earns no coverage, so replacing the runner with a narrower one turns the
-/// per-member findings back on instead of hiding them.
+/// The root test runner delegates project discovery to the same manifest-driven
+/// catalog that covers workspace suites and the repository scripts suite. A
+/// runner without that catalog earns no blanket coverage, so narrowing it turns
+/// the per-member findings back on instead of hiding them.
 fn workspaceTestRunner(ctx: *check.Context, root_pkg: *const pkgjson.PackageJson) !?[]const u8 {
     const command = root_pkg.script("test") orelse return null;
 
@@ -223,9 +138,7 @@ fn workspaceTestRunner(ctx: *check.Context, root_pkg: *const pkgjson.PackageJson
     const text = fsutil.readFileAllocOrNull(ctx.alloc, ctx.io, ctx.root_dir, path) orelse return null;
     defer ctx.alloc.free(text);
 
-    const walks = std.mem.indexOf(u8, text, "readdirSync") != null;
-    const reads_manifests = std.mem.indexOf(u8, text, "package.json") != null;
-    if (!walks or !reads_manifests) return null;
+    if (std.mem.indexOf(u8, text, "listTestProjects") == null) return null;
 
     return try ctx.alloc.dupe(u8, path);
 }
@@ -332,4 +245,12 @@ test "typecheckCovers honours both the filter glob and the literal cd path" {
     try testing.expect(typecheckCovers(script, "apps/kimi-code"));
     try testing.expect(typecheckCovers(script, "apps/vscode"));
     try testing.expect(!typecheckCovers(script, "apps/kimi-inspect"));
+}
+
+test "typecheckCovers honours the workspace-wide entry point" {
+    const script = "bun run --workspaces --if-present typecheck";
+
+    try testing.expect(typecheckCovers(script, "packages/kosong"));
+    try testing.expect(typecheckCovers(script, "apps/kimi-inspect"));
+    try testing.expect(typecheckCovers(script, "apps/vis/web"));
 }

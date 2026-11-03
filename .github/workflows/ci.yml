@@ -17,15 +17,6 @@ concurrency:
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/heads/release/') }}
 
 jobs:
-  release-workflow-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.4
-      - run: bun test --timeout 30000 ./scripts/release-trigger.test.mjs
-
   build:
     runs-on: ubuntu-latest
 
@@ -180,54 +171,7 @@ jobs:
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
 
       - run: bun install --frozen-lockfile
-      - run: bun --bun run lint
-      - run: bun --bun run sherif
-      # Engine boundaries: cross-package deep imports, then the intra-package
-      # layering check. Both are cheap reads of the source tree that the type
-      # checker does not cover.
-      - run: bun --bun run check:deep-imports
-      - run: bun --bun run check:boundaries
-      # Comment-free zones: agent-core-v2, kap-server and transcript carry no
-      # new comments (DEVELOP.md, "General Coding Rules"). Reviewed existing
-      # ones are counted in scripts/no-comments-baseline.txt.
-      - run: bun --bun run check:no-comments
-      # The git memory injection path must stay free of model and provider
-      # code: every injected line has to be a verbatim git object, so the
-      # distillation cannot drift or hallucinate.
-      - run: bun --bun run check:git-memory
-      # Test-runner residue: the vitest→`bun test` migration is only durable if
-      # a stray `from 'vitest'`, `vi.fn()` or `{ skip: true }` fails the build
-      # instead of silently passing. The scanner reads the source tree only; the
-      # baseline it reads holds the reviewed exceptions (comment-only notes and
-      # fixtures that run outside bun test), each with its reason.
-      - run: bun run scan:residue
-      # Locale consistency: en/zh key parity, placeholder validity, call-site
-      # coverage. The `.ts` sources under `*/locales/` are the single source of
-      # truth — the engine receives locale data as an in-memory JSON string.
-      - run: bun scripts/check-locale-keys.mjs
-      - run: bun --bun run check:locale-placeholders
-      - run: bun scripts/check-t-call-coverage.mjs
-      # Status surface: the strip above the editor is where a user reads while
-      # waiting, so its text must go through t(). The two checks above cannot
-      # see a literal that never called t() at all — this one walks that code.
-      - run: bun --bun run check:status-surface-i18n
-      # Every UI tree: the same blind spot as above, one level up. Prose
-      # literals outside t() are counted in scripts/no-hardcoded-prose-baseline.txt
-      # (shrink-only); a new hardcoded string fails the run.
-      - run: bun --bun run check:no-hardcoded-prose
-      # Request-boundary strictness: a route body schema without `.strict()`
-      # drops an unrecognized key and still answers `code: 0`, so a client's
-      # typo is indistinguishable from a successful write.
-      - run: bun tools/review/check-strict-request-bodies.mjs
-      # Workspace catalog: a dependency the catalog already declares must be
-      # written as `catalog:` in the package, not as a repeated range — the
-      # next bump otherwise has to be made in two places, and the one that is
-      # missed is the one that ships.
-      - run: bun tools/review/check-catalog-versions.mjs
-      # Service naming: domain directories and service files under
-      # packages/kap-server/src/services stay camelCase (the second root this
-      # script once covered, packages/services/src, no longer exists).
-      - run: bun scripts/check-service-naming.mjs
+      - run: bun run check:lint
 
   # Structural review (tools/review): a Zig program that reads the repository
   # itself rather than running the test suite. It cross-checks documentation
@@ -303,25 +247,5 @@ jobs:
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
 
       - run: bun install --frozen-lockfile
-      - name: Typecheck
-        run: |
-          bunx --bun --package @typescript/native-preview@beta tsgo --version
-          for config in packages/*/tsconfig.json apps/kimi-code/tsconfig.json apps/kimi-inspect/tsconfig.json; do
-            # A package may declare a tsconfig.typecheck.json for the check:
-            # node-sdk's tsconfig.json carries a `paths` map that Bun's test
-            # runner needs for its `#/` alias, and the same map would capture
-            # `#/` inside cross-package sources pulled into the program. The
-            # typecheck variant clears `paths` and lets each file resolve `#/`
-            # through its own package.json#imports.
-            typecheck_config="${config%.json}.typecheck.json"
-            if [ -f "$typecheck_config" ]; then config="$typecheck_config"; fi
-            echo "Typechecking ${config}"
-            bunx --bun --package @typescript/native-preview@beta tsgo -p "${config}" --noEmit
-          done
-      - name: Typecheck VS Code extension
-        run: cd apps/vscode && bun --bun run typecheck
-      - name: Typecheck vis-server
-        run: cd apps/vis/server && bun --bun run typecheck
-      - name: Typecheck vis-web
-        run: cd apps/vis/web && bun --bun run typecheck
+      - run: bun run typecheck
 

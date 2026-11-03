@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import triggerRelease from './release-trigger.mjs';
+import triggerRelease from '../release-trigger.mjs';
 
 const sha = 'a'.repeat(40);
 const branch = 'release/test';

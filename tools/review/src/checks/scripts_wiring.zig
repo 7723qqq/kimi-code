@@ -6,6 +6,7 @@ const fsutil = @import("../fsutil.zig");
 const pkgjson = @import("../pkgjson.zig");
 const walk = @import("../walk.zig");
 const workflow = @import("../workflow.zig");
+const workspaces = @import("../workspaces.zig");
 
 /// Scripts that a package manager or another tool invokes without anyone
 /// naming them, so absence from the call graph is not evidence of dead code.
@@ -108,37 +109,17 @@ const Package = struct {
 
 fn collectPackages(ctx: *check.Context, alloc: std.mem.Allocator) ![]const Package {
     var out: std.ArrayList(Package) = .empty;
+    try appendPackage(ctx, alloc, &out, "package.json");
 
-    const candidates = [_][]const u8{
-        "package.json",
-        "apps/vis/server/package.json",
-        "apps/vis/web/package.json",
-        "docs/package.json",
-    };
+    var root_pkg = pkgjson.loadOrNull(ctx.alloc, ctx.io, ctx.root_dir, "package.json") orelse
+        return out.toOwnedSlice(alloc);
+    defer root_pkg.deinit();
 
-    for (candidates) |rel| {
+    const members = try workspaces.list(ctx, &root_pkg);
+    defer workspaces.freeStrings(ctx.alloc, members);
+    for (members) |member| {
+        const rel = try std.fmt.allocPrint(alloc, "{s}/package.json", .{member});
         try appendPackage(ctx, alloc, &out, rel);
-    }
-
-    // `packages/*` and `apps/*` are enumerated from the filesystem rather than
-    // from the `workspaces` globs, so a member the globs forget is still
-    // reviewed. The nested members (`apps/vis/server`, `apps/vis/web`, `docs`)
-    // are covered by the explicit candidates above.
-    for ([_][]const u8{ "packages", "apps" }) |parent| {
-        if (Io.Dir.openDir(ctx.root_dir, ctx.io, parent, .{ .iterate = true })) |dir| {
-            defer Io.Dir.close(dir, ctx.io);
-            const dirs = walk.listDirs(alloc, ctx.io, dir) catch continue;
-            defer walk.freeFiles(alloc, dirs);
-            for (dirs) |child| {
-                // Joined with a forward slash on purpose. `std.fs.path.join`
-                // would emit `packages\<dir>\package.json` on Windows, while
-                // the baseline keys, the `--filter` selectors and the test
-                // fixtures all write paths with `/`, so a backslash member
-                // matches nothing and every script reports as dead.
-                const rel = try std.fmt.allocPrint(alloc, "{s}/{s}/package.json", .{ parent, child });
-                try appendPackage(ctx, alloc, &out, rel);
-            }
-        } else |_| {}
     }
 
     return out.toOwnedSlice(alloc);
@@ -276,6 +257,17 @@ fn reachableScripts(
         const pkg_dir = packageDir(scripts[index]);
         var cursor: usize = 0;
         while (nextInvocation(body, &cursor)) |invoked| {
+            if (invoked.all_workspaces) {
+                for (scripts) |candidate| {
+                    if (std.mem.eql(u8, candidate.pkg_path, "package.json")) continue;
+                    if (!std.mem.eql(u8, candidate.name, invoked.name)) continue;
+                    if (reachable[candidate.index]) continue;
+                    reachable[candidate.index] = true;
+                    try queue.append(alloc, candidate.index);
+                }
+                continue;
+            }
+
             const dirs = try invocationDirs(ctx, alloc, pkg_dir, invoked.selector);
             defer {
                 // The package's own directory is borrowed from the script
@@ -394,13 +386,13 @@ fn trimStart(comptime T: type, s: []const T, set: []const T) []const T {
 }
 
 /// A `bun run X` / `npm run X` edge, wherever it appears in a script body.
-/// `--filter './packages/*'` between `run` and the script name is honoured
-/// because the directory it selects is what `resolveScript` uses to pick the
-/// target.
+/// `--filter` and `--workspaces` between `run` and the script name are honoured
+/// because they select the package scripts the invocation reaches.
 const Invocation = struct {
     name: []const u8,
     /// The `--filter` selector preceding the invocation, when there is one.
     selector: ?[]const u8,
+    all_workspaces: bool,
 };
 
 fn nextInvocation(body: []const u8, cursor: *usize) ?Invocation {
@@ -420,11 +412,11 @@ fn nextInvocation(body: []const u8, cursor: *usize) ?Invocation {
 
     var rest = body[after_marker..];
     var selector: ?[]const u8 = null;
+    var all_workspaces = false;
 
-    // The repository writes `bun run [--filter <selector>] <script>`, so the
-    // flags between `run` and the name have to be consumed before the name is
-    // read. Reading the first token as the name would make `build` unreachable
-    // under `bun run --filter './packages/*' build`.
+    // Flags between `run` and the script name select the targets. Reading the
+    // first token as the name would make `build` unreachable under both
+    // `--filter './packages/*'` and `--workspaces`.
     while (true) {
         const trimmed = trimStart(u8, rest, " \t");
         if (trimmed.len == 0) return null;
@@ -434,6 +426,7 @@ fn nextInvocation(body: []const u8, cursor: *usize) ?Invocation {
         const flag = trimmed[0..flag_end];
         var remainder = trimStart(u8, trimmed[flag_end..], " \t");
 
+        if (std.mem.eql(u8, flag, "--workspaces")) all_workspaces = true;
         if (std.mem.eql(u8, flag, "--filter")) {
             var arg_end: usize = 0;
             if (remainder.len > 0 and (remainder[0] == '\'' or remainder[0] == '"')) {
@@ -463,6 +456,7 @@ fn nextInvocation(body: []const u8, cursor: *usize) ?Invocation {
     return .{
         .name = rest[0..end],
         .selector = selector,
+        .all_workspaces = all_workspaces,
     };
 }
 
@@ -565,4 +559,30 @@ test "reachableScripts follows an edge from the root script into a package" {
     try testing.expect(reachable[0]);
     try testing.expect(reachable[1]);
     try testing.expect(!reachable[2]);
+}
+
+test "reachableScripts follows a workspace-wide invocation without a directory list" {
+    const alloc = testing.allocator;
+    const scripts = [_]Script{
+        .{ .pkg_index = 0, .pkg_path = "package.json", .name = "typecheck", .body = "bun run --workspaces --if-present typecheck", .index = 0 },
+        .{ .pkg_index = 1, .pkg_path = "packages/x/package.json", .name = "typecheck", .body = "tsc --noEmit", .index = 1 },
+        .{ .pkg_index = 2, .pkg_path = "apps/demo/package.json", .name = "typecheck", .body = "tsc --noEmit", .index = 2 },
+        .{ .pkg_index = 2, .pkg_path = "apps/demo/package.json", .name = "clean", .body = "rm -rf dist", .index = 3 },
+    };
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var ctx: check.Context = .{
+        .alloc = alloc,
+        .io = testing.io,
+        .root_dir = tmp.dir,
+        .report = undefined,
+    };
+
+    const reachable = try reachableScripts(&ctx, alloc, &scripts, "");
+    defer alloc.free(reachable);
+
+    try testing.expect(reachable[0]);
+    try testing.expect(reachable[1]);
+    try testing.expect(reachable[2]);
+    try testing.expect(!reachable[3]);
 }
