@@ -1,5 +1,6 @@
 import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { ILogService } from '#/_base/log/log';
 import { parseBooleanEnv } from '#/_base/utils/env';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
@@ -26,6 +27,7 @@ export class FlagService extends Disposable implements IFlagService {
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @IConfigService private readonly config: IConfigService,
     @IFlagRegistry registry: IFlagRegistry,
+    @ILogService private readonly log: ILogService,
   ) {
     super();
     this.registry = registry;
@@ -37,6 +39,14 @@ export class FlagService extends Disposable implements IFlagService {
         }
       }),
     );
+    for (const name of [...this.registry.list().map((def) => def.env), MASTER_ENV]) {
+      const value = this.bootstrap.getEnv(name);
+      if (value === undefined || value.trim().length === 0) continue;
+      if (parseBooleanEnv(value) !== undefined) continue;
+      this.log.warn(
+        `Ignoring invalid boolean value ${JSON.stringify(value)} for ${name}; expected 1/true/yes/on or 0/false/no/off`,
+      );
+    }
   }
 
   private readConfig(): ExperimentalFlagConfig {

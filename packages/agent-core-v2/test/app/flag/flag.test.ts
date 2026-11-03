@@ -66,9 +66,15 @@ describe('FlagService', () => {
   afterEach(() => disposables.dispose());
 
   function makeFlags(env: Readonly<Record<string, string | undefined>> = {}) {
+    const warnings: { message: string; payload: unknown }[] = [];
     const ix = disposables.add(new TestInstantiationService());
     ix.stub(IBootstrapService, stubBootstrap(homeDir, env));
-    ix.stub(ILogService, stubLog());
+    ix.stub(ILogService, {
+      ...stubLog(),
+      warn: (message: string, payload?: unknown) => {
+        warnings.push({ message, payload });
+      },
+    });
     ix.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -81,6 +87,7 @@ describe('FlagService', () => {
       flagRegistry: ix.get(IFlagRegistry),
       config: ix.get(IConfigService),
       flags: ix.get(IFlagService),
+      warnings,
     };
   }
 
@@ -226,6 +233,34 @@ describe('FlagService', () => {
   it('ignores garbage env values', () => {
     const { flags } = makeFlags({ KIMI_CODE_EXPERIMENTAL_EXAMPLE_FLAG: 'maybe' });
     expect(flags.enabled('example_flag')).toBe(true);
+  });
+
+  it('warns with the variable, original value and accepted values for garbage env', () => {
+    const { flags, warnings } = makeFlags({ KIMI_CODE_EXPERIMENTAL_EXAMPLE_FLAG: 'maybe' });
+    expect(flags.enabled('example_flag')).toBe(true);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.message).toContain('KIMI_CODE_EXPERIMENTAL_EXAMPLE_FLAG');
+    expect(warnings[0]?.message).toContain('maybe');
+    expect(warnings[0]?.message).toContain('1/true/yes/on');
+    expect(warnings[0]?.message).toContain('0/false/no/off');
+  });
+
+  it('does not warn for accepted env values', () => {
+    const { warnings } = makeFlags({
+      KIMI_CODE_EXPERIMENTAL_EXAMPLE_FLAG: 'YES',
+      [MASTER_ENV]: 'off',
+    });
+    expect(warnings).toHaveLength(0);
+  });
+
+  it('warns for an invalid master env value', () => {
+    const { flags, warnings } = makeFlags({ [MASTER_ENV]: 'sometimes' });
+    expect(flags.enabled('example_flag')).toBe(true);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.message).toContain(MASTER_ENV);
+    expect(warnings[0]?.message).toContain('sometimes');
+    expect(warnings[0]?.message).toContain('1/true/yes/on');
+    expect(warnings[0]?.message).toContain('0/false/no/off');
   });
 
   it('ignores obsolete config ids outside the registry', async () => {
