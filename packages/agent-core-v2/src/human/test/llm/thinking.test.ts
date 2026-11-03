@@ -704,6 +704,22 @@ describe('openai requester thinking', () => {
     expect(detectedAssistant['reasoning']).toBe('abc');
     expect('reasoning_content' in detectedAssistant).toBe(false);
 
+    const switchedHistory = [
+      createUserMessage('hi'),
+      createAssistantMessage([
+        { type: 'think', think: 'from-b', reasoningKey: 'reasoning_content' },
+        { type: 'think', think: 'unmarked' },
+      ]),
+    ];
+    await detectedRequester.generate(
+      { model, thinking: { effort: 'off' } },
+      { messages: switchedHistory },
+      { signal: new AbortController().signal },
+    );
+    const switchedAssistant = bodyMessages(captured[2]!)[1]!;
+    expect(switchedAssistant['reasoning_content']).toBe('from-b');
+    expect(switchedAssistant['reasoning']).toBe('unmarked');
+
     const explicit = stubOpenAIClient(
       chatCompletionChunks([
         {

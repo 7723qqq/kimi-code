@@ -327,7 +327,7 @@ export function createOpenAIRequester(options?: OpenAIRequesterOptions): LlmRequ
             tools,
             usedContextTokens: content.usedContextTokens,
           },
-          { trait, reasoningKey: reasoning.outboundKey() },
+          { trait, reasoningKey: reasoning.outboundKey(messages) },
         );
       } catch (error) {
         onEvent?.({ type: 'llm.failed.syntax', error: toLlmSyntaxErrorMessage(error) });

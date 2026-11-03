@@ -387,11 +387,12 @@ export function parseOpenAIResponsesUsage(
 
 function extractEventUsage(event: RawObject): RawObject | undefined {
   const type = readStringField(event, 'type');
+  const response = readObjectField(event, 'response');
+  const responseUsage = response === undefined ? undefined : readObjectField(response, 'usage');
   if (type === 'response.completed' || type === 'response.incomplete') {
-    const response = readObjectField(event, 'response');
-    return response === undefined ? undefined : readObjectField(response, 'usage');
+    return responseUsage;
   }
-  return readObjectField(event, 'usage');
+  return responseUsage ?? readObjectField(event, 'usage');
 }
 
 export interface OpenAIResponsesRequestParams {

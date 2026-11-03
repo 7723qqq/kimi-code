@@ -1,4 +1,4 @@
-import type { StreamedMessagePart, ThinkPart } from '#/llm/message';
+import type { Message, StreamedMessagePart, ThinkPart } from '#/llm/message';
 
 export const KNOWN_REASONING_KEYS = [
   'reasoning_content',
@@ -47,12 +47,35 @@ export class ReasoningKeyDialect {
     return found.value;
   }
 
-  outboundKey(): string {
-    return this._explicitKey ?? this._detected ?? DEFAULT_REASONING_KEY;
+  outboundKey(messages: readonly Message[]): string {
+    return (
+      this._explicitKey ??
+      this._detected ??
+      historyReasoningKey(messages) ??
+      DEFAULT_REASONING_KEY
+    );
   }
 }
 
 export const REASONING_DETAILS_KEY = 'reasoning_details';
+
+export function historyReasoningKey(messages: readonly Message[]): string | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const content = messages[i]!.content;
+    for (let j = content.length - 1; j >= 0; j--) {
+      const part = content[j]!;
+      if (
+        part.type === 'think' &&
+        part.reasoningKey !== undefined &&
+        part.reasoningKey !== REASONING_DETAILS_KEY &&
+        (KNOWN_REASONING_KEYS as readonly string[]).includes(part.reasoningKey)
+      ) {
+        return part.reasoningKey;
+      }
+    }
+  }
+  return undefined;
+}
 
 export interface ReasoningDetailsElement {
   readonly type?: string;
