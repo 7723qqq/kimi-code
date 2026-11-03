@@ -1,8 +1,8 @@
 /**
  * Per-(session, agent) transcript state for the chat view.
  *
- * A thin observable wrapper over the package's L1 convergence path
- * (`applyOperation` on an `AgentState`) — the reducer is NOT re-implemented
+ * A thin observable wrapper over the package's L1 convergence path (the
+ * `TranscriptDocument` ops engine) — op semantics are NOT re-implemented
  * here. State arrives through exactly two channels:
  *
  *  - REST pages (`applyPage`): the only source of FULL state. A `replace`
@@ -19,9 +19,8 @@
  */
 
 import {
-  applyOperation,
   EMPTY_AGENT_STATE,
-  itemId,
+  TranscriptDocument,
   type AgentState,
   type TranscriptItem,
   type TranscriptOperation,
@@ -99,14 +98,15 @@ export function createCoalescedRunner(run: () => Promise<void>): () => void {
 }
 
 export class TranscriptChatStore {
-  private state: AgentState = EMPTY_AGENT_STATE;
+  private doc = new TranscriptDocument();
+  private view: AgentState = EMPTY_AGENT_STATE;
   private readonly listeners = new Set<() => void>();
 
   /** Called when an `append` op could not be placed — the caller should refresh. */
   onGap: (() => void) | undefined;
 
   getState(): AgentState {
-    return this.state;
+    return this.view;
   }
 
   /** `useSyncExternalStore`-compatible subscribe. */
@@ -125,34 +125,24 @@ export class TranscriptChatStore {
    */
   applyPage(page: TranscriptPage, opts?: { replace?: boolean }): void {
     if (opts?.replace === true) {
-      this.state = {
+      this.doc = new TranscriptDocument({
         items: page.items,
-        tasks: new Map(page.tasks.map((task) => [task.taskId, task])),
-        interactions: new Map(
-          page.interactions.map((interaction) => [interaction.interactionId, interaction]),
-        ),
-        attachments: new Map(
-          page.attachments.map((attachment) => [attachment.attachmentId, attachment]),
-        ),
-        todos: new Map(page.todos.map((todo) => [todo.todoId, todo])),
+        tasks: page.tasks,
+        interactions: page.interactions,
+        attachments: page.attachments,
+        todos: page.todos,
         // The page contract carries no prompt slice yet; prompt.upsert ops
-        // still accumulate through the shared reducer between refreshes.
-        prompts: new Map(),
+        // still accumulate through the shared ops engine between refreshes.
         meta: page.meta,
-        pendingInteractions: new Set(page.pendingInteractions),
+        pendingInteractions: page.pendingInteractions,
         hasMoreOlder: page.hasMoreOlder,
-      };
+      });
+      this.view = this.doc.read();
       this.notify();
       return;
     }
-    const existing = new Set(this.state.items.map(itemId));
-    const fresh = page.items.filter((item) => !existing.has(itemId(item)));
-    if (fresh.length === 0 && page.hasMoreOlder === this.state.hasMoreOlder) return;
-    this.state = {
-      ...this.state,
-      items: [...fresh, ...this.state.items],
-      hasMoreOlder: page.hasMoreOlder,
-    };
+    if (!this.doc.prependWindow(page.items, page.hasMoreOlder)) return;
+    this.view = this.doc.read();
     this.notify();
   }
 
@@ -160,13 +150,14 @@ export class TranscriptChatStore {
   applyOps(ops: readonly TranscriptOperation[]): void {
     let changed = false;
     for (const op of ops) {
-      const result = applyOperation(this.state, op);
+      const result = this.doc.apply(op);
       if (result.gap !== undefined) this.onGap?.();
       if (!result.changed) continue;
-      this.state = result.state;
       changed = true;
     }
-    if (changed) this.notify();
+    if (!changed) return;
+    this.view = this.doc.read();
+    this.notify();
   }
 
   private notify(): void {

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'bun:test';
 import type { ThinkingFrame, ToolCallFrame } from '#/model/frame';
 import type { TranscriptInteraction } from '#/model/interaction';
 import type { TranscriptItem } from '#/model/item';
-import { appendAtOffset, applyOperation, EMPTY_AGENT_STATE } from '#/ops/apply';
+import { appendAtOffset, TranscriptDocument } from '#/ops/apply';
 import type { FrameUpsertOp, TurnUpsertOp, TranscriptOperation } from '#/ops/operation';
 import { AgentTranscript } from '#/store/agentTranscript';
 import { TranscriptStore } from '#/store/transcriptStore';
@@ -58,61 +58,95 @@ function toolFrame(state: ToolCallFrame['state'], output?: unknown): TranscriptO
   ];
 }
 
-describe('applyOperation (pure reducer)', () => {
-  it('seeds state from EMPTY_AGENT_STATE; no-op upserts return the same reference', () => {
-    const seeded = applyOperation(EMPTY_AGENT_STATE, turn1);
-    expect(seeded.changed).toBe(true);
-    expect(seeded.state.items).toHaveLength(1);
+describe('TranscriptDocument', () => {
+  it('applies ops onto an empty document; no-op upserts keep the same view reference', () => {
+    const doc = new TranscriptDocument();
+    expect(doc.apply(turn1).changed).toBe(true);
+    expect(doc.items).toHaveLength(1);
 
-    const again = applyOperation(seeded.state, turn1);
-    expect(again.changed).toBe(false);
-    expect(again.state).toBe(seeded.state);
+    const view = doc.read();
+    expect(doc.apply(turn1).changed).toBe(false);
+    expect(doc.read()).toBe(view);
   });
 
-  it('copy-on-write: untouched entity maps and items share references', () => {
-    const withTask = applyOperation(EMPTY_AGENT_STATE, {
+  it('copy-on-write views: untouched entity maps and items share references', () => {
+    const doc = new TranscriptDocument();
+    doc.apply({
       op: 'task.upsert',
       task: { taskId: 'task1', kind: 'shell', state: 'running', detached: false, outputTail: '' },
-    }).state;
-    const withTurn = applyOperation(withTask, turn1);
-    expect(withTurn.state.tasks).toBe(withTask.tasks);
-    expect(withTurn.state.items).not.toBe(withTask.items);
-    const next = applyOperation(withTurn.state, {
+    });
+    const beforeTurn = doc.read();
+    doc.apply(turn1);
+    const withTurn = doc.read();
+    expect(withTurn.tasks).toBe(beforeTurn.tasks);
+    expect(withTurn.items).not.toBe(beforeTurn.items);
+    doc.apply({
       op: 'task.upsert',
       task: { taskId: 'task1', kind: 'shell', state: 'completed', detached: false, outputTail: '' },
     });
-    expect(next.state.items).toBe(withTurn.state.items);
-    expect(next.state.tasks).not.toBe(withTask.tasks);
+    const next = doc.read();
+    expect(next.items).toBe(withTurn.items);
+    expect(next.tasks).not.toBe(withTurn.tasks);
+  });
+
+  it('materializes items once per change and shares untouched turns across appends', () => {
+    const doc = new TranscriptDocument();
+    doc.apply(turn1);
+    doc.apply({
+      op: 'turn.upsert',
+      turn: {
+        kind: 'turn',
+        turnId: 't2',
+        ordinal: 2,
+        state: 'running',
+        origin: { kind: 'user' },
+      },
+    });
+    doc.apply({
+      op: 'frame.upsert',
+      turnId: 't2',
+      stepId: 't2.1',
+      frame: { kind: 'text', frameId: 't2.1.f1', role: 'assistant', text: '' },
+    });
+    const before = doc.items;
+    expect(doc.items).toBe(before);
+    doc.apply({
+      op: 'append',
+      target: { type: 'frame', turnId: 't2', stepId: 't2.1', frameId: 't2.1.f1' },
+      offset: 0,
+      text: 'chunk',
+    });
+    const after = doc.items;
+    expect(after).not.toBe(before);
+    expect(after[0]).toBe(before[0]);
+    expect(after[1]).not.toBe(before[1]);
   });
 
   it('items.remove drops markers and taskrefs by id; unknown ids are a no-op', () => {
-    const withMarker = applyOperation(EMPTY_AGENT_STATE, {
-      op: 'marker.upsert',
-      item: { kind: 'marker', markerId: 'm1', marker: 'goal' },
-    }).state;
-    const withRef = applyOperation(withMarker, {
-      op: 'taskref.upsert',
-      item: { kind: 'taskref', refId: 'r1', taskId: 'task1' },
-    }).state;
+    const doc = new TranscriptDocument();
+    doc.apply({ op: 'marker.upsert', item: { kind: 'marker', markerId: 'm1', marker: 'goal' } });
+    doc.apply({ op: 'taskref.upsert', item: { kind: 'taskref', refId: 'r1', taskId: 'task1' } });
 
-    const noop = applyOperation(withRef, { op: 'items.remove', ids: ['nope'] });
+    const view = doc.read();
+    const noop = doc.apply({ op: 'items.remove', ids: ['nope'] });
     expect(noop.changed).toBe(false);
-    expect(noop.state).toBe(withRef);
+    expect(doc.read()).toBe(view);
 
-    const removed = applyOperation(withRef, { op: 'items.remove', ids: ['m1', 'r1'] });
+    const removed = doc.apply({ op: 'items.remove', ids: ['m1', 'r1'] });
     expect(removed.changed).toBe(true);
-    expect(removed.state.items).toEqual([]);
+    expect(doc.items).toEqual([]);
   });
 
   it('appending to an unknown task id auto-vivifies a running task entity', () => {
-    const result = applyOperation(EMPTY_AGENT_STATE, {
+    const doc = new TranscriptDocument();
+    const result = doc.apply({
       op: 'append',
       target: { type: 'task', taskId: 'ghost' },
       offset: 0,
       text: 'boom\n',
     });
     expect(result.changed).toBe(true);
-    expect(result.state.tasks.get('ghost')).toMatchObject({
+    expect(doc.tasks.get('ghost')).toMatchObject({
       kind: 'other',
       state: 'running',
       detached: false,
@@ -121,7 +155,8 @@ describe('applyOperation (pure reducer)', () => {
   });
 
   it('append to a missing frame signals a gap anchored at expected 0', () => {
-    const result = applyOperation(EMPTY_AGENT_STATE, {
+    const doc = new TranscriptDocument();
+    const result = doc.apply({
       op: 'append',
       target: { type: 'frame', turnId: 't1', stepId: 't1.1', frameId: 't1.1.f1' },
       offset: 4,
@@ -132,7 +167,8 @@ describe('applyOperation (pure reducer)', () => {
   });
 
   it('reset rebuilds the pending index from snapshot interactions and the window flag', () => {
-    const state = applyOperation(EMPTY_AGENT_STATE, {
+    const doc = new TranscriptDocument();
+    doc.apply({
       op: 'reset',
       agentId: 'main',
       snapshot: {
@@ -148,11 +184,12 @@ describe('applyOperation (pure reducer)', () => {
         meta: {},
         hasMoreOlder: true,
       },
-    }).state;
-    expect([...state.pendingInteractions]).toEqual(['a1']);
-    expect(state.hasMoreOlder).toBe(true);
+    });
+    expect([...doc.pendingInteractions]).toEqual(['a1']);
+    expect(doc.hasMoreOlder).toBe(true);
 
-    const unflagged = applyOperation(EMPTY_AGENT_STATE, {
+    const unflagged = new TranscriptDocument();
+    unflagged.apply({
       op: 'reset',
       agentId: 'main',
       snapshot: {
@@ -164,7 +201,7 @@ describe('applyOperation (pure reducer)', () => {
         prompts: [],
         meta: {},
       },
-    }).state;
+    });
     expect(unflagged.hasMoreOlder).toBe(false);
   });
 });
