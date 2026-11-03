@@ -55,7 +55,9 @@ import type {
   TurnStepRetrying,
   TurnStepStarted,
 } from '@moonshot-ai/agent-core-v2/contract';
+import { turnPromptText } from '@moonshot-ai/agent-core-v2/contract';
 import type { TurnEnded, TurnSteer } from '@moonshot-ai/agent-core-v2/contract';
+import type { TurnPrompt } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
 import type { AgentErrorEvent } from '@moonshot-ai/agent-core-v2/contract';
 import type { SkillActivated } from '@moonshot-ai/agent-core-v2/contract';
 import type { AgentStatusUpdated } from '@moonshot-ai/agent-core-v2/contract';
@@ -119,6 +121,7 @@ type SteerFileAttachment = {
 
 export type ProjectorBusEvent =
   | PlanRevisionEvent
+  | ({ readonly type: 'turn.prompt' } & TurnPrompt)
   | ({ readonly type: 'turn.started' } & TurnStarted)
   | ({ readonly type: 'turn.ended' } & TurnEnded)
   | ({ readonly type: 'turn.step.started' } & TurnStepStarted)
@@ -234,6 +237,7 @@ export class AgentTranscriptProjector {
   private highWater = -1;
   private highWaterSeeded = false;
   private readonly wireToExport = new Map<number, string>();
+  private taskPrompt: { readonly turnId: number; readonly text: string | undefined } | undefined;
   private pendingTaskNotifications: { text: string; taskId: string | undefined }[] = [];
   private pendingSteers: {
     input: readonly ContentPart[];
@@ -403,6 +407,8 @@ export class AgentTranscriptProjector {
     switch (event.type) {
       case 'plan.revision':
         return this.onPlanRevision(event);
+      case 'turn.prompt':
+        return this.onTurnPrompt(event);
       case 'turn.started':
         return this.onTurnStarted(event);
       case 'turn.ended':
@@ -498,6 +504,18 @@ export class AgentTranscriptProjector {
     }
   }
 
+  private onTurnPrompt(event: TurnPrompt): TranscriptOperation[] {
+    if (event.turnId === undefined || event.origin.kind !== 'task') return [];
+    this.taskPrompt = {
+      turnId: event.turnId,
+      text: turnPromptText(
+        event.input.filter((part) => !isUserPromptSubmitHookPart(part)),
+        event.origin,
+      ),
+    };
+    return [];
+  }
+
   private onTurnStarted(event: {
     turnId: number;
     promptId?: string;
@@ -552,14 +570,20 @@ export class AgentTranscriptProjector {
       ops.push({ op: 'attachment.upsert', attachment });
       attachmentIds.push(attachment.attachmentId);
     }
+    const origin = mapTurnOrigin(event.origin);
+    const prompt =
+      event.prompt ??
+      (origin.kind === 'task' && this.taskPrompt?.turnId === event.turnId
+        ? this.taskPrompt.text
+        : undefined);
     this.currentTurn = {
       kind: 'turn',
       turnId,
       triggerPromptId: event.promptId,
       ordinal,
       state: 'running',
-      origin: mapTurnOrigin(event.origin),
-      prompt: event.prompt,
+      origin,
+      prompt,
       attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
       startedAt: nowIso(),
     };
@@ -632,6 +656,7 @@ export class AgentTranscriptProjector {
     durationMs?: number;
     interruptReason?: string;
   }): TranscriptOperation[] {
+    if (this.taskPrompt?.turnId === event.turnId) this.taskPrompt = undefined;
     const ops: TranscriptOperation[] = [];
     this.flushOpenFrames(ops);
     const turnId = this.exportTurnId(event.turnId);
