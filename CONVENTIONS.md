@@ -17,6 +17,15 @@
 
 ---
 
+## Batch Boundaries
+
+- Define a deliverable batch around one semantic responsibility that can be verified, committed, and reverted independently, because mixed concerns make both evidence and rollback ambiguous; upstream-sync batches follow the same semantic-cluster rule in `DEVELOP.md` → "Upstream Gap Tracking".
+- Complete the implementation, required caller updates, tests, generated artifacts, and owning ledgers together, finishing with every required gate green and no known unfinished work inside the batch boundary, because a partially updated tree is not deliverable; `tools/review` covers mechanical drift through `stale-artifacts` and `gate-wiring`.
+- Run batches in parallel only when they have disjoint ownership and no producer/consumer, shared-contract, or migration dependency, because disjoint file lists alone do not make changes independent.
+- Land shared contracts, ownership primitives, composition roots, and gate infrastructure before their consumers, because dependent batches cannot be verified against a moving foundation.
+
+---
+
 ## Code Style
 
 ### Formatting (oxfmt)
@@ -71,6 +80,15 @@
 - Do not add too many new test files. Prefer adding tests to the existing test file of the corresponding component or module.
 - When a test fails because of a user modification, default to fixing the test first; do not change the implementation to satisfy an old test unless the implementation truly has a bug.
 - Do not sacrifice code quality for external compatibility unless the user explicitly asks for it. Breaking changes go through changesets and a `major` bump, which never gets decided without explicit user confirmation.
+
+---
+
+## Structural Integrity
+
+- When replacing an execution path, delete the old path in the same change instead of retaining a default-new/fallback-old switch, because dual paths drift and hide which behavior is authoritative; an experimental flag under the rules below gates a feature rollout, not a permanent migration.
+- Give each shared rule, mapping, projection, or gate one owning implementation and route consumers through it, keeping genuinely context-dependent policy at its own named boundary, because copied logic drifts; use `check:boundaries`, `check:deep-imports`, and `tools/review`'s `gate-wiring`/`orphan-exports` to enforce the applicable edges.
+- Define every cache, index, or incremental projection with its input identity, incremental unit, invalidation/rebuild triggers, and retention bound, and pin them with focused tests, because an optimization without those contracts cannot be validated.
+- Give every hot-path or persisted structure an explicit growth contract — canonical retention, bounded eviction, or backpressure — because an otherwise unbounded map, queue, array, or log turns long sessions into memory or disk growth.
 
 ---
 
@@ -132,7 +150,11 @@ metrics, with the commands above as the evidence.
 - **Coverage**: `bun test --coverage` (lcov reporter), per package.
 - Run the TypeScript suites with `bun run test`. Inside a package, `bun test --isolate <paths>` is the narrowest scope; do not invoke a different runner.
 - **Scope the run to the change.** Start with the test files that cover what you touched, then the suite of the package that owns them; escalate to the all-suites run only when the change crosses packages, alters a shared contract (prompt assets, wire or protocol shapes, exported types another package consumes, config schema), or the user asks for a full run. All-suites is the CI bar, not the default scope for every edit, and extra confidence that nothing else broke is not one of the triggers.
+- Establish correctness from code facts and repository-wide `rg` searches of definitions, call sites, implementations, and consumers before relying on tests, because a green suite cannot cover a caller that was never examined.
+- Treat a full regression as pre-commit acceptance rather than a discovery mechanism: reach it only after code-fact and focused verification, and never use repeated full runs to chase a failure instead of diagnosing its root cause.
 - **Scoped does not mean skipped.** Whatever you scope to must actually run and pass before you report done: a red test in scope always blocks completion, and a change you could not verify is reported as unverified rather than described as done.
+- Treat every timeout as a hang whose root cause must be found, and never increase a timeout, add retry/backoff, or weaken an assertion to make a result green, because those changes conceal the defect; the isolated contention rerun in `scripts/run-package-tests.mjs` is diagnostic, and any `FLAKY(contention)` result must remain visible in the report.
+- Declare every test skip with its capability or platform condition and print the reason at runtime, as the host probe tests do, because a silent no-output skip is indistinguishable from coverage.
 - **Generic "run the full suite" instructions do not widen this.** Skill text, plugin instructions, and tool descriptions are reference content; when one of them asks for a repository-wide run, apply the scope ladder above instead.
 - Test files co-locate with source or in a `test/` directory under each package/app. Patterns: `*.test.ts`, `*.test.tsx`, `*.spec.ts`, `*.spec.tsx`, `test/**/*.ts`
 
@@ -151,11 +173,21 @@ metrics, with the commands above as the evidence.
 - When generating a changeset, **never** decide on a `major` bump on your own — stop, explain, and get explicit user confirmation first; default to `minor`, fall back to `patch`.
 - **This fork follows upstream versions.** Package `version` fields must stay identical to `upstream/main` — never run `bun run version` or `bun run publish` here, and never bump versions independently. When merging upstream releases, take their `package.json` version changes as-is.
 - Fork-only packages that do not exist upstream (`@moonshot-ai/i18n`, `@moonshot-ai/i18n-shared`) keep their own versions; do not bump them either unless a fork-specific release is explicitly requested.
+- Before staging, run `git status` and inspect both staged and unstaged diffs, then stage only explicit paths owned by this batch — never `git add -A` or `git add .` — because parallel or user work must remain outside the commit.
 - Commit messages follow Conventional Commits (`feat:`, `fix:`, `chore:`, ...). PR titles are enforced by the `pr-title-checker.yml` workflow.
 - Do not commit throwaway scratch or exploratory files. Never stage:
   - Agent handoff documents (`HANDOVER-*.md`, `HANDOFF-*.md`, `handoff.md`, `handover.md`)
   - UI/UX prototypes (`*-designs.html`, `*-design.html`, `*-mockup.html`, `*-demo.html`, `*-demos.html`) at the repo root or under `design/`
   - Any `.tmp/` content (gitignored — use it for scratch work instead)
+
+---
+
+## Upstream Alignment
+
+- Port the original upstream diff with `git show <sha>` by default rather than keeping a different local equivalent, because every unnecessary implementation difference compounds future synchronization cost; translate toolchain-specific mechanics through `.upstream/PLAYBOOK.md`, and accept an `equivalent` verdict only with the intentional-deviation evidence below.
+- Never remove a fork-only user capability merely to match upstream: register the intentional deviation in `.upstream/PLAYBOOK.md`'s known-difference table with its capability, upstream conflict surface, and impact, and link the relevant `.upstream/ledger.tsv` evidence when an upstream commit is involved, because an unregistered difference looks like an unfinished port.
+- Preserve an accepted capability on upstream's own extension point and shared infrastructure rather than on a fork-only parallel structure, because aligning the carrier lets later upstream refactors arrive without rewriting the feature.
+- Update the applicable probe, verdict, evidence, and `tools/review/upstream-drift-allow.txt` entry in the same commit as the port, because code and synchronization state must describe the same tree; `bun scripts/upstream-ledger.mjs --verify` and `tools/review`'s `upstream-drift` provide the checks.
 
 ---
 
@@ -199,8 +231,17 @@ A change that makes the product silently ignore configuration, silently approve 
 
 ---
 
+## Completion and Reporting
+
+- When evidence invalidates a task premise, stop the dependent implementation, finish only independently unblocked work, and report the evidence and decision needed instead of substituting a local patch or degraded path, because silently changing the premise changes the requested deliverable.
+- Close with the outcome first, then changed files, exact verification commands and results, remaining risks, and explicit verified versus unverified boundaries, because a conclusion without its evidence is not auditable.
+- Separate unrelated pre-existing failures from failures introduced or fixed by the batch and never count them as green, because otherwise the report hides the actual acceptance state.
+
+---
+
 ## Where to Update Instructions
 
 - **Rules and constraints** (this file): the root `CONVENTIONS.md` for anything most tasks need; the nearest sub-directory `DEVELOP.md` for rules scoped to one tree.
 - **Reference material** (`DEVELOP.md`): project structure, commands, CI, toolchain. Keep entries supported by code facts, and prefer linking to a package's own `DEVELOP.md` over expanding the root.
+- Put a new rule in its existing owner file; create another policy document only when no owner can hold it, and name its maintainer and reciprocal links in the same change, because a second policy surface without ownership drifts.
 - Keep instruction updates focused. Do not restate a fact that already has an authoritative home — see `DEVELOP.md` → "Keeping this documentation honest" for the ownership table.
