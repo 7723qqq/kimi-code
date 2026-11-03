@@ -124,6 +124,7 @@ export class Program {
   private generation?: ProgramGeneration;
   private generationFailed = false;
   private disposed = false;
+  private readonly generationCleanups = new Set<Promise<void>>();
   private resolveReady?: () => void;
   readonly ready = new Promise<void>((resolve) => {
     this.resolveReady = resolve;
@@ -264,14 +265,21 @@ export class Program {
     };
   }
 
-  dispose(): void {
-    if (this.disposed) return;
-    this.disposed = true;
-    this.registrySubscription.dispose();
-    const generation = this.generation;
-    this.generation = undefined;
-    if (generation !== undefined) this.retireGeneration(generation);
-    this.changeEmitter.dispose();
+  async dispose(): Promise<void> {
+    if (!this.disposed) {
+      this.disposed = true;
+      this.registrySubscription.dispose();
+      const generation = this.generation;
+      this.generation = undefined;
+      if (generation !== undefined) this.retireGeneration(generation);
+      this.changeEmitter.dispose();
+    }
+    const settled = await Promise.allSettled(this.generationCleanups);
+    const errors = settled
+      .filter((result) => result.status === 'rejected')
+      .map((result) => result.reason);
+    if (errors.length === 1) throw errors[0];
+    if (errors.length > 1) throw new AggregateError(errors, `program ${this.workspaceId} disposal failed`);
   }
 
   private requireGeneration(): ProgramGeneration {
@@ -368,18 +376,17 @@ export class Program {
           this.dependencies.configStore,
         ),
       );
-      const mcp = own(
-        new WorkspaceMcpService(
-          this.context,
-          this.resolver,
-          mcpConfig,
-          this.dependencies.oauth,
-          this.dependencies.log,
-          this.dependencies.telemetry,
-          this.dependencies.identity,
-          this.dependencies.sessionManager,
-        ),
+      const mcp = new WorkspaceMcpService(
+        this.context,
+        this.resolver,
+        mcpConfig,
+        this.dependencies.oauth,
+        this.dependencies.log,
+        this.dependencies.telemetry,
+        this.dependencies.identity,
+        this.dependencies.sessionManager,
       );
+      disposables.push({ dispose: () => mcp.disposeAsync() });
       const userAgentProfiles = own(
         new UserAgentProfileLoaderService(
           this.dependencies.bootstrap,
@@ -504,7 +511,7 @@ export class Program {
         retired: false,
       };
     } catch (error) {
-      for (const disposable of disposables.toReversed()) void disposable.dispose();
+      this.cleanupGeneration({ disposables });
       lease.dispose();
       throw error;
     }
@@ -543,8 +550,37 @@ export class Program {
   private releaseGeneration(generation: ProgramGeneration): void {
     generation.references -= 1;
     if (generation.references !== 0 || !generation.retired) return;
-    for (const disposable of [...generation.disposables].toReversed()) void disposable.dispose();
+    this.cleanupGeneration(generation);
     generation.lease.dispose();
+  }
+
+  private cleanupGeneration(generation: Pick<ProgramGeneration, 'disposables'>): void {
+    const cleanup = (async () => {
+      const errors: unknown[] = [];
+      for (const disposable of [...generation.disposables].toReversed()) {
+        try {
+          await disposable.dispose();
+        } catch (error) {
+          errors.push(error);
+        }
+      }
+      if (errors.length === 1) throw errors[0];
+      if (errors.length > 1)
+        throw new AggregateError(errors, `program ${this.workspaceId} generation disposal failed`);
+    })();
+    this.generationCleanups.add(cleanup);
+    void cleanup.then(
+      () => {
+        this.generationCleanups.delete(cleanup);
+      },
+      (error) => {
+        this.generationCleanups.delete(cleanup);
+        this.dependencies.log.error('program generation disposal failed', {
+          workspaceId: this.workspaceId,
+          error,
+        });
+      },
+    );
   }
 
   private resolveProgramReady(): void {

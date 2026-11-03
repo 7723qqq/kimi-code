@@ -823,6 +823,11 @@ describe('McpManagementService', () => {
       const cwd = mkdtempSync(join(tmpdir(), 'kimi-mcp-management-nested-'));
       tempDirs.push(cwd);
       findContaining.mockReturnValue({ id: 'test-workspace' } as unknown as WorkspaceInstance);
+      const release = mock(() => {});
+      acquire.mockImplementation(async () => ({
+        instance: { id: 'test-workspace' } as unknown as WorkspaceInstance,
+        dispose: release,
+      }));
 
       const result = await management.testServer({
         server: {
@@ -837,7 +842,8 @@ describe('McpManagementService', () => {
       expect(result.success).toBe(true);
       expect(result.output).toContain('Available tools: 4');
       expect(findContaining).toHaveBeenCalledWith(cwd);
-      expect(acquire).not.toHaveBeenCalled();
+      expect(acquire).toHaveBeenCalledWith({ workspaceId: 'test-workspace' });
+      expect(release).toHaveBeenCalledTimes(1);
     }, 20000);
 
     it('rejects a non-local runtime_id probe when no workspace contains the cwd', async () => {
@@ -867,6 +873,11 @@ describe('McpManagementService', () => {
       const cwd = mkdtempSync(join(tmpdir(), 'kimi-mcp-management-remote-hit-'));
       tempDirs.push(cwd);
       findContaining.mockReturnValue({ id: 'test-workspace' } as unknown as WorkspaceInstance);
+      const release = mock(() => {});
+      acquire.mockImplementation(async () => ({
+        instance: { id: 'test-workspace' } as unknown as WorkspaceInstance,
+        dispose: release,
+      }));
 
       const result = await management.testServer({
         server: {
@@ -881,7 +892,8 @@ describe('McpManagementService', () => {
 
       expect(result.success).toBe(true);
       expect(findContaining).toHaveBeenCalledWith(cwd);
-      expect(acquire).not.toHaveBeenCalled();
+      expect(acquire).toHaveBeenCalledWith({ workspaceId: 'test-workspace' });
+      expect(release).toHaveBeenCalledTimes(1);
     }, 20000);
 
     it('keeps the transient local probe for an explicit local runtime_id', async () => {

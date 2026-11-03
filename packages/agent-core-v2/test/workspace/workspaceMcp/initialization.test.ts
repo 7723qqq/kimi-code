@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -154,6 +154,36 @@ describe('Workspace MCP initialization', () => {
     if (client === undefined) throw new Error('expected a connected client');
     await expect(client.callTool('slow_echo', { text: 'hi' })).rejects.toThrow(/timed out/i);
   }, 15000);
+
+  it.skipIf(process.platform === 'win32')(
+    'disposeAsync resolves only after the server process has exited',
+    async () => {
+      const marker = join(cwd, 'mcp-exit-marker');
+      await writeProjectMcpJson(cwd, {
+        slowExit: {
+          transport: 'stdio',
+          command: process.execPath,
+          args: [stdioFixture],
+          runtime_id: 'local',
+          env: {
+            KIMI_TEST_MCP_SHUTDOWN_BEHAVIOR: 'delay',
+            KIMI_TEST_MCP_EXIT_DELAY_MS: '300',
+            KIMI_TEST_MCP_EXIT_MARKER: marker,
+          },
+        },
+      });
+      const service = createWorkspaceMcpService(Promise.resolve());
+      await service.ready;
+      const connectionManager = service.connectionManager();
+      manager = undefined;
+      expect(connectionManager.get('slowExit')?.status).toBe('connected');
+
+      await (service as unknown as { disposeAsync(): Promise<void> }).disposeAsync();
+
+      expect(existsSync(marker)).toBe(true);
+    },
+    15000,
+  );
 });
 
 async function writeProjectMcpJson(cwd: string, servers: Record<string, unknown>): Promise<void> {

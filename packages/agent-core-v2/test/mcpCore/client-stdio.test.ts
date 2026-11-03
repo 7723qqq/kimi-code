@@ -352,6 +352,23 @@ describe('StdioMcpClient', () => {
     await new Promise((r) => setTimeout(r, 100));
     expect(closes).toEqual([]);
   }, 15000);
+
+  it.skipIf(process.platform === 'win32')(
+    'escalates to SIGKILL when the server ignores SIGTERM',
+    async () => {
+      const client = createClient({
+        transport: 'stdio',
+        command: process.execPath,
+        args: [stdioFixture],
+        env: { KIMI_TEST_MCP_SHUTDOWN_BEHAVIOR: 'ignore' },
+      });
+      await client.connect();
+      const startedAt = Date.now();
+      await client.close();
+      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(4_500);
+    },
+    15000,
+  );
 });
 
 describe('mergeStdioEnv', () => {

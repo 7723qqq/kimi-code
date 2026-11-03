@@ -1,8 +1,22 @@
+import { writeFileSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
+
+const shutdownBehavior = process.env['KIMI_TEST_MCP_SHUTDOWN_BEHAVIOR'];
+if (shutdownBehavior !== undefined) {
+  process.on('SIGTERM', () => {
+    if (shutdownBehavior === 'ignore') return;
+    const exitDelayMs = Number.parseInt(process.env['KIMI_TEST_MCP_EXIT_DELAY_MS'] ?? '0', 10);
+    setTimeout(() => {
+      const marker = process.env['KIMI_TEST_MCP_EXIT_MARKER'];
+      if (marker !== undefined && marker.length > 0) writeFileSync(marker, '');
+      process.exit(0);
+    }, exitDelayMs);
+  });
+}
 
 const delayMs = Number.parseInt(process.env['KIMI_TEST_MCP_START_DELAY_MS'] ?? '0', 10);
 if (delayMs > 0) {

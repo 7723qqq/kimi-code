@@ -1024,7 +1024,7 @@ describe('SessionManager controller retirement', () => {
     manager.dispose();
     expect(controllers[0]!.dispose).toHaveBeenCalledTimes(1);
     expect(controllers[1]!.dispose).toHaveBeenCalledTimes(1);
-    program.dispose();
+    await program.dispose();
     await registry.dispose();
   });
 
@@ -1045,7 +1045,7 @@ describe('SessionManager controller retirement', () => {
 
     manager.dispose();
     expect(controllers[1]!.dispose).toHaveBeenCalledTimes(1);
-    program.dispose();
+    await program.dispose();
     await registry.dispose();
   });
 });

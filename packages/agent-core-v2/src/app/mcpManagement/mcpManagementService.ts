@@ -35,6 +35,7 @@ import { RuntimeRegistry } from '#/runtime/runtimeRegistry';
 import {
   IRuntimeResolver,
   IWorkspaceInstanceManager,
+  type WorkspaceInstanceLease,
 } from '#/workspace/workspaceInstance/workspaceInstanceManager';
 
 import {
@@ -184,11 +185,13 @@ export class McpManagementService extends Disposable implements IMcpManagementSe
     let stdioCwd = cwd;
     let runtimeResolver = this.runtimeResolver;
     let transientRuntimes: RuntimeRegistry | undefined;
+    let workspaceLease: WorkspaceInstanceLease | undefined;
     if (server.transport === 'stdio') {
       stdioCwd = normalize(cwd ?? process.cwd());
       const workspace = this.workspaceInstances.findContaining(stdioCwd);
       if (workspace !== undefined) {
-        workspaceId = workspace.id;
+        workspaceLease = await this.workspaceInstances.acquire({ workspaceId: workspace.id });
+        workspaceId = workspaceLease.instance.id;
       } else {
         const runtimeId = server.runtime_id;
         if (runtimeId !== undefined && runtimeId !== 'local') {
@@ -230,7 +233,11 @@ export class McpManagementService extends Disposable implements IMcpManagementSe
       try {
         await manager.shutdown();
       } finally {
-        await transientRuntimes?.dispose();
+        try {
+          await transientRuntimes?.dispose();
+        } finally {
+          workspaceLease?.dispose();
+        }
       }
     }
   }
