@@ -1,16 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { lookup } from 'node:dns/promises';
+import { describe, expect, it, mock } from 'bun:test';
 
 import type { FetchLike } from '#/_base/utils/fetchLike';
-import { Agent } from '#/_base/utils/undici-npm';
 import { LocalFetchURLProvider } from '#/app/web/providers/local-fetch-url';
 import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
-import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 import { waitUntil } from '#test/helpers/waitFor';
-
-void mock.module('node:dns/promises', () => ({ lookup: mock() }));
-
-const lookupMock = lookup as unknown as ReturnType<typeof mock>;
 
 interface FakeHostTimerHandle extends IHostTimerHandle {
   readonly id: number;
@@ -77,29 +70,6 @@ function createTrackedHostTimers(): TrackedHostTimers {
   };
 }
 
-function asUndiciAgent(dispatcher: RequestInit['dispatcher']): Agent {
-  return dispatcher as unknown as Agent;
-}
-
-beforeEach(() => {
-  lookupMock.mockReset();
-  lookupMock.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
-  for (const key of [
-    'http_proxy',
-    'HTTP_PROXY',
-    'https_proxy',
-    'HTTPS_PROXY',
-    'all_proxy',
-    'ALL_PROXY',
-  ]) {
-    setEnv(key, '');
-  }
-});
-
-afterEach(() => {
-  restoreEnvs();
-});
-
 function htmlResponse(body: string, contentType: string): Response {
   return new Response(body, {
     status: 200,
@@ -107,73 +77,62 @@ function htmlResponse(body: string, contentType: string): Response {
   });
 }
 
-describe('LocalFetchURLProvider SSRF guard', () => {
-  it('rejects a loopback IPv4 literal without fetching or resolving DNS', async () => {
-    const fetchImpl = mock<FetchLike>();
+describe('LocalFetchURLProvider requests', () => {
+  it('fetches a loopback IPv4 literal', async () => {
+    const fetchImpl = mock<FetchLike>().mockResolvedValue(htmlResponse('local', 'text/plain'));
     const provider = new LocalFetchURLProvider({ fetchImpl });
 
-    await expect(provider.fetch('http://127.0.0.1:1337/')).rejects.toThrow(
-      'Refusing to fetch private address',
-    );
-    expect(fetchImpl).not.toHaveBeenCalled();
-    expect(lookupMock).not.toHaveBeenCalled();
+    const result = await provider.fetch('http://127.0.0.1:1337/');
+
+    expect(result.content).toBe('local');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects an IPv4-mapped IPv6 literal', async () => {
-    const fetchImpl = mock<FetchLike>();
+  it('fetches an IPv4-mapped IPv6 literal', async () => {
+    const fetchImpl = mock<FetchLike>().mockResolvedValue(htmlResponse('local', 'text/plain'));
     const provider = new LocalFetchURLProvider({ fetchImpl });
 
-    await expect(provider.fetch('http://[::ffff:127.0.0.1]/')).rejects.toThrow(
-      'Refusing to fetch private address',
-    );
-    expect(fetchImpl).not.toHaveBeenCalled();
+    const result = await provider.fetch('http://[::ffff:127.0.0.1]/');
+
+    expect(result.content).toBe('local');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects localhost and *.localhost aliases', async () => {
-    const fetchImpl = mock<FetchLike>();
+  it('fetches localhost and *.localhost aliases', async () => {
+    const fetchImpl = mock<FetchLike>().mockImplementation(
+      async () => htmlResponse('local', 'text/plain'),
+    );
     const provider = new LocalFetchURLProvider({ fetchImpl });
 
-    await expect(provider.fetch('http://localhost:1337/')).rejects.toThrow(
-      'Refusing to fetch private host',
-    );
-    await expect(provider.fetch('http://ev1l.localhost/')).rejects.toThrow(
-      'Refusing to fetch private host',
-    );
-    expect(fetchImpl).not.toHaveBeenCalled();
+    await provider.fetch('http://localhost:1337/');
+    await provider.fetch('http://app.localhost/');
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
-  it('rejects a hostname that resolves to a loopback address', async () => {
-    lookupMock.mockResolvedValue([
-      { address: '::1', family: 6 },
-      { address: '127.0.0.1', family: 4 },
-    ]);
-    const fetchImpl = mock<FetchLike>();
+  it('fetches a hostname without a separate DNS safety check', async () => {
+    const fetchImpl = mock<FetchLike>().mockResolvedValue(htmlResponse('local', 'text/plain'));
     const provider = new LocalFetchURLProvider({ fetchImpl });
 
-    await expect(provider.fetch('http://localtest.me/')).rejects.toThrow(
-      'resolves to private address',
+    const result = await provider.fetch('http://localtest.me/');
+
+    expect(result.content).toBe('local');
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'http://localtest.me/',
+      expect.objectContaining({ method: 'GET' }),
     );
-    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it('rejects a hostname that resolves to an IPv4-mapped IPv6 address', async () => {
-    lookupMock.mockResolvedValue([{ address: '::ffff:169.254.169.254', family: 6 }]);
-    const fetchImpl = mock<FetchLike>();
-    const provider = new LocalFetchURLProvider({ fetchImpl });
-
-    await expect(provider.fetch('http://sneaky.example.com/')).rejects.toThrow(
-      'resolves to private address',
+  it('propagates fetch network errors', async () => {
+    const fetchImpl = mock<FetchLike>().mockRejectedValue(
+      new Error('getaddrinfo ENOTFOUND b0rked.example'),
     );
-    expect(fetchImpl).not.toHaveBeenCalled();
-  });
-
-  it('fails closed when DNS resolution fails', async () => {
-    lookupMock.mockRejectedValue(new Error('getaddrinfo ENOTFOUND b0rked.example'));
-    const fetchImpl = mock<FetchLike>();
     const provider = new LocalFetchURLProvider({ fetchImpl });
 
-    await expect(provider.fetch('http://b0rked.example/')).rejects.toThrow('Cannot resolve host');
-    expect(fetchImpl).not.toHaveBeenCalled();
+    await expect(provider.fetch('http://b0rked.example/')).rejects.toThrow(
+      'getaddrinfo ENOTFOUND b0rked.example',
+    );
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it('rejects non-http(s) schemes before any network access', async () => {
@@ -192,23 +151,11 @@ describe('LocalFetchURLProvider SSRF guard', () => {
 
     expect(result.content).toBe('ok');
     expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(lookupMock).toHaveBeenCalledWith('example.com', { all: true });
-  });
-
-  it('skips all checks when allowPrivateAddresses is set', async () => {
-    const fetchImpl = mock<FetchLike>().mockResolvedValue(htmlResponse('local', 'text/plain'));
-    const provider = new LocalFetchURLProvider({ fetchImpl, allowPrivateAddresses: true });
-
-    const result = await provider.fetch('http://127.0.0.1:1337/');
-
-    expect(result.content).toBe('local');
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(lookupMock).not.toHaveBeenCalled();
   });
 });
 
 describe('LocalFetchURLProvider redirects', () => {
-  it('follows a redirect after re-validating the target, fetching manually', async () => {
+  it('follows a redirect manually', async () => {
     const fetchImpl = mock<FetchLike>()
       .mockResolvedValueOnce(
         new Response(null, {
@@ -223,7 +170,6 @@ describe('LocalFetchURLProvider redirects', () => {
 
     expect(result.content).toBe('final body');
     expect(fetchImpl).toHaveBeenCalledTimes(2);
-    expect(lookupMock).toHaveBeenCalledWith('cdn.example.com', { all: true });
     const [, firstInit] = fetchImpl.mock.calls[0]!;
     expect((firstInit as RequestInit).redirect).toBe('manual');
   });
@@ -240,39 +186,39 @@ describe('LocalFetchURLProvider redirects', () => {
     expect(secondUrl).toBe('https://example.com/final');
   });
 
-  it('refuses a redirect to a private IP literal', async () => {
-    const fetchImpl = mock<FetchLike>().mockResolvedValueOnce(
-      new Response(null, {
-        status: 302,
-        headers: { location: 'http://169.254.169.254/latest/meta-data' },
-      }),
-    );
+  it('follows a redirect to a private IP literal', async () => {
+    const fetchImpl = mock<FetchLike>()
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 302,
+          headers: { location: 'http://169.254.169.254/latest/meta-data' },
+        }),
+      )
+      .mockResolvedValueOnce(htmlResponse('metadata', 'text/plain'));
     const provider = new LocalFetchURLProvider({ fetchImpl });
 
-    await expect(provider.fetch('https://example.com/start')).rejects.toThrow(
-      'Refusing to fetch private address',
-    );
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const result = await provider.fetch('https://example.com/start');
+
+    expect(result.content).toBe('metadata');
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl.mock.calls[1]![0]).toBe('http://169.254.169.254/latest/meta-data');
   });
 
-  it('refuses a redirect whose target host resolves to a private address', async () => {
-    lookupMock.mockImplementation(async (host: string) =>
-      host === 'internal.example.com'
-        ? [{ address: '10.0.0.7', family: 4 }]
-        : [{ address: '93.184.216.34', family: 4 }],
-    );
-    const fetchImpl = mock<FetchLike>().mockResolvedValueOnce(
-      new Response(null, {
-        status: 302,
-        headers: { location: 'https://internal.example.com/' },
-      }),
-    );
+  it('follows a redirect to an internal hostname', async () => {
+    const fetchImpl = mock<FetchLike>()
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 302,
+          headers: { location: 'https://internal.example.com/' },
+        }),
+      )
+      .mockResolvedValueOnce(htmlResponse('internal', 'text/plain'));
     const provider = new LocalFetchURLProvider({ fetchImpl });
 
-    await expect(provider.fetch('https://example.com/')).rejects.toThrow(
-      'resolves to private address',
-    );
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const result = await provider.fetch('https://example.com/');
+
+    expect(result.content).toBe('internal');
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
   it('gives up after too many redirects', async () => {
@@ -298,115 +244,8 @@ describe('LocalFetchURLProvider redirects', () => {
   });
 });
 
-describe('LocalFetchURLProvider connection pinning', () => {
-  it('pins a public-host fetch to the addresses validated by the safety check', async () => {
-    const fetchImpl = mock<FetchLike>().mockResolvedValue(htmlResponse('ok', 'text/plain'));
-    const provider = new LocalFetchURLProvider({ fetchImpl });
-
-    const result = await provider.fetch('https://example.com/');
-
-    expect(result.content).toBe('ok');
-    const [, init] = fetchImpl.mock.calls[0]!;
-    const dispatcher = (init as RequestInit).dispatcher;
-    expect(dispatcher).toBeInstanceOf(Agent);
-    expect(lookupMock).toHaveBeenCalledTimes(1);
-    expect(asUndiciAgent(dispatcher).closed).toBe(true);
-  });
-
-  it('pins every redirect hop to its own validated addresses and closes both Agents', async () => {
-    const fetchImpl = mock<FetchLike>()
-      .mockResolvedValueOnce(new Response(null, { status: 302, headers: { location: '/next' } }))
-      .mockResolvedValueOnce(htmlResponse('done', 'text/plain'));
-    const provider = new LocalFetchURLProvider({ fetchImpl });
-
-    await provider.fetch('https://example.com/start');
-
-    const first = (fetchImpl.mock.calls[0]![1] as RequestInit).dispatcher;
-    const second = (fetchImpl.mock.calls[1]![1] as RequestInit).dispatcher;
-    expect(first).toBeInstanceOf(Agent);
-    expect(second).toBeInstanceOf(Agent);
-    expect(first).not.toBe(second);
-    expect(asUndiciAgent(first).closed).toBe(true);
-    expect(asUndiciAgent(second).closed).toBe(true);
-    expect(lookupMock).toHaveBeenCalledTimes(2);
-  });
-
-  it('passes no dispatcher for an IP literal', async () => {
-    const fetchImpl = mock<FetchLike>().mockResolvedValue(htmlResponse('ok', 'text/plain'));
-    const provider = new LocalFetchURLProvider({ fetchImpl });
-
-    await provider.fetch('http://93.184.216.34/');
-
-    expect((fetchImpl.mock.calls[0]![1] as RequestInit).dispatcher).toBeUndefined();
-  });
-
-  it('passes no dispatcher when allowPrivateAddresses is set', async () => {
-    const fetchImpl = mock<FetchLike>().mockResolvedValue(htmlResponse('ok', 'text/plain'));
-    const provider = new LocalFetchURLProvider({ fetchImpl, allowPrivateAddresses: true });
-
-    await provider.fetch('https://example.com/');
-
-    expect((fetchImpl.mock.calls[0]![1] as RequestInit).dispatcher).toBeUndefined();
-  });
-
-  it('passes no dispatcher when an HTTP proxy is configured', async () => {
-    setEnv('http_proxy', 'http://proxy.example:8080');
-    const fetchImpl = mock<FetchLike>().mockResolvedValue(htmlResponse('ok', 'text/plain'));
-    const provider = new LocalFetchURLProvider({ fetchImpl });
-
-    await provider.fetch('https://example.com/');
-
-    expect((fetchImpl.mock.calls[0]![1] as RequestInit).dispatcher).toBeUndefined();
-  });
-
-  it('skips the local DNS safety lookup when the global proxy carries the request', async () => {
-    setEnv('http_proxy', 'http://proxy.example:8080');
-    lookupMock.mockRejectedValue(new Error('getaddrinfo ENOTFOUND github.com'));
-    const fetchImpl = mock<FetchLike>().mockResolvedValue(htmlResponse('ok', 'text/plain'));
-    const provider = new LocalFetchURLProvider({ fetchImpl });
-
-    const result = await provider.fetch('https://github.com/');
-
-    expect(result.content).toBe('ok');
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(lookupMock).not.toHaveBeenCalled();
-    expect((fetchImpl.mock.calls[0]![1] as RequestInit).dispatcher).toBeUndefined();
-  });
-
-  it('still refuses private IP literals while the proxy carries the request', async () => {
-    setEnv('http_proxy', 'http://proxy.example:8080');
-    const fetchImpl = mock<FetchLike>();
-    const provider = new LocalFetchURLProvider({ fetchImpl });
-
-    await expect(provider.fetch('http://127.0.0.1:1337/')).rejects.toThrow(
-      'Refusing to fetch private address',
-    );
-    expect(fetchImpl).not.toHaveBeenCalled();
-  });
-
-  it('still pins when the request bypasses the proxy via NO_PROXY wildcard', async () => {
-    setEnv('http_proxy', 'http://proxy.example:8080');
-    setEnv('no_proxy', '*');
-    const fetchImpl = mock<FetchLike>().mockResolvedValue(htmlResponse('ok', 'text/plain'));
-    const provider = new LocalFetchURLProvider({ fetchImpl });
-
-    await provider.fetch('https://example.com/');
-
-    expect((fetchImpl.mock.calls[0]![1] as RequestInit).dispatcher).toBeInstanceOf(Agent);
-  });
-
-  it('still pins when NO_PROXY exempts the target host specifically', async () => {
-    setEnv('http_proxy', 'http://proxy.example:8080');
-    setEnv('no_proxy', 'example.com');
-    const fetchImpl = mock<FetchLike>().mockResolvedValue(htmlResponse('ok', 'text/plain'));
-    const provider = new LocalFetchURLProvider({ fetchImpl });
-
-    await provider.fetch('https://example.com/');
-
-    expect((fetchImpl.mock.calls[0]![1] as RequestInit).dispatcher).toBeInstanceOf(Agent);
-  });
-
-  it('rejects oversized responses by content-length and still closes the pinned Agent', async () => {
+describe('LocalFetchURLProvider responses', () => {
+  it('rejects oversized responses by content-length', async () => {
     const fetchImpl = mock<FetchLike>().mockResolvedValue(
       new Response('short', {
         status: 200,
@@ -421,32 +260,10 @@ describe('LocalFetchURLProvider connection pinning', () => {
     await expect(provider.fetch('https://example.com/big')).rejects.toThrow(
       'Response body too large',
     );
-
-    const dispatcher = (fetchImpl.mock.calls[0]![1] as RequestInit).dispatcher;
-    expect(asUndiciAgent(dispatcher).closed).toBe(true);
   });
 });
 
 describe('LocalFetchURLProvider timeouts and streaming caps', () => {
-  beforeEach(() => {
-    lookupMock.mockReset();
-    lookupMock.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
-    for (const key of [
-      'http_proxy',
-      'HTTP_PROXY',
-      'https_proxy',
-      'HTTPS_PROXY',
-      'all_proxy',
-      'ALL_PROXY',
-    ]) {
-      setEnv(key, '');
-    }
-  });
-
-  afterEach(() => {
-    restoreEnvs();
-  });
-
   function hungResponse(): (url: unknown, init?: RequestInit) => Promise<Response> {
     return (_url, init) =>
       new Promise((_resolve, reject) => {

@@ -1,14 +1,8 @@
-import { lookup as callbackLookup, type LookupAddress, type LookupOptions } from 'node:dns';
-import { lookup } from 'node:dns/promises';
-import { isIP, type LookupFunction } from 'node:net';
-
 import { Readability } from '@mozilla/readability';
 import { parseHTML as rawParseHTML } from 'linkedom';
 
 import type { FetchLike } from '#/_base/utils/fetchLike';
-import { isBlockedIpAddress } from '#/_base/utils/private-address';
-import { isProxyConfigured, makeNoProxyMatcher, resolveNoProxy } from '#/_base/utils/proxy';
-import { Agent, fetch as undiciFetch, type Dispatcher } from '#/_base/utils/undici-npm';
+import { fetch as undiciFetch } from '#/_base/utils/undici-npm';
 import { Error2, ErrorCodes } from '#/errors';
 import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
 
@@ -50,7 +44,6 @@ export interface LocalFetchURLProviderOptions {
   userAgent?: string;
   fetchImpl?: FetchLike;
   maxBytes?: number;
-  allowPrivateAddresses?: boolean;
 
   timeoutMs?: number;
 
@@ -61,7 +54,6 @@ export class LocalFetchURLProvider implements UrlFetcher {
   private readonly userAgent: string;
   private readonly fetchImpl: FetchLike;
   private readonly maxBytes: number;
-  private readonly allowPrivateAddresses: boolean;
   private readonly timeoutMs: number;
   private readonly timers: IHostTimers;
 
@@ -69,7 +61,6 @@ export class LocalFetchURLProvider implements UrlFetcher {
     this.userAgent = options.userAgent ?? DEFAULT_USER_AGENT;
     this.fetchImpl = options.fetchImpl ?? (undiciFetch as unknown as FetchLike);
     this.maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
-    this.allowPrivateAddresses = options.allowPrivateAddresses ?? false;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.timers = options.timers ?? SYSTEM_HOST_TIMERS;
   }
@@ -78,13 +69,8 @@ export class LocalFetchURLProvider implements UrlFetcher {
     url: string,
     options?: { toolCallId?: string; signal?: AbortSignal },
   ): Promise<UrlFetchResult> {
-    const dispatchers: Dispatcher[] = [];
-    try {
-      const response = await this.requestWithValidatedRedirects(url, options?.signal, dispatchers);
-      return await this.readResponse(response);
-    } finally {
-      await Promise.all(dispatchers.map((dispatcher) => dispatcher.close().catch(() => {})));
-    }
+    const response = await this.requestWithRedirects(url, options?.signal);
+    return this.readResponse(response);
   }
 
   private async readResponse(response: Response): Promise<UrlFetchResult> {
@@ -115,23 +101,16 @@ export class LocalFetchURLProvider implements UrlFetcher {
     return { content: this.extractMainContent(body), kind: 'extracted' };
   }
 
-  private async requestWithValidatedRedirects(
+  private async requestWithRedirects(
     url: string,
     signal: AbortSignal | undefined,
-    dispatchers: Dispatcher[],
   ): Promise<Response> {
     const deadline = Date.now() + this.timeoutMs;
     let currentUrl = url;
     let redirects = 0;
     for (;;) {
-      const target = await resolveSafeFetchTarget(currentUrl, this.allowPrivateAddresses);
-      const response = await this.fetchWithDeadline(
-        currentUrl,
-        target,
-        signal,
-        dispatchers,
-        deadline,
-      );
+      validateFetchUrl(currentUrl);
+      const response = await this.fetchWithDeadline(currentUrl, signal, deadline);
       if (!REDIRECT_STATUSES.has(response.status)) return response;
       const location = response.headers.get('location');
       if (location === null) return response;
@@ -150,9 +129,7 @@ export class LocalFetchURLProvider implements UrlFetcher {
 
   private async fetchWithDeadline(
     url: string,
-    target: SafeFetchTarget,
     signal: AbortSignal | undefined,
-    dispatchers: Dispatcher[],
     deadline: number,
   ): Promise<Response> {
     const remaining = deadline - Date.now();
@@ -169,7 +146,6 @@ export class LocalFetchURLProvider implements UrlFetcher {
         headers: { 'User-Agent': this.userAgent },
         signal: hopSignal,
         redirect: 'manual',
-        dispatcher: this.pinnedDispatcherFor(target, dispatchers) as unknown,
       } as RequestInit);
     } catch (error) {
       if (controller.signal.aborted && signal?.aborted !== true) {
@@ -179,19 +155,6 @@ export class LocalFetchURLProvider implements UrlFetcher {
     } finally {
       this.timers.clearTimeout(timer);
     }
-  }
-
-  private pinnedDispatcherFor(
-    target: SafeFetchTarget,
-    dispatchers: Dispatcher[],
-  ): Dispatcher | undefined {
-    if (target.addresses === undefined) return undefined;
-    if (requestRidesGlobalProxy(target.host, target.port)) return undefined;
-    const dispatcher = new Agent({
-      connect: { lookup: pinnedLookup(target.host, target.addresses) },
-    });
-    dispatchers.push(dispatcher);
-    return dispatcher;
   }
 
   private extractMainContent(html: string): string {
@@ -272,16 +235,7 @@ function stripBom(text: string): string {
   return text.startsWith('\uFEFF') ? text.slice(1) : text;
 }
 
-interface SafeFetchTarget {
-  host: string;
-  port: string;
-  addresses?: LookupAddress[];
-}
-
-async function resolveSafeFetchTarget(
-  url: string,
-  allowPrivate: boolean,
-): Promise<SafeFetchTarget> {
+function validateFetchUrl(url: string): void {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -295,74 +249,4 @@ async function resolveSafeFetchTarget(
       { details: { url, protocol: parsed.protocol } },
     );
   }
-  const hostRaw = parsed.hostname.toLowerCase();
-  const host = hostRaw.startsWith('[') && hostRaw.endsWith(']') ? hostRaw.slice(1, -1) : hostRaw;
-  const port = parsed.port !== '' ? parsed.port : parsed.protocol === 'https:' ? '443' : '80';
-  if (allowPrivate) return { host, port };
-  if (isIP(host) !== 0) {
-    if (isBlockedIpAddress(host)) {
-      throw new Error2(
-        ErrorCodes.WEB_PRIVATE_ADDRESS,
-        `Refusing to fetch private address: "${host}"`,
-        {
-          details: { host },
-        },
-      );
-    }
-    return { host, port };
-  }
-  if (host === 'localhost' || host.endsWith('.localhost')) {
-    throw new Error2(ErrorCodes.WEB_PRIVATE_ADDRESS, `Refusing to fetch private host: "${host}"`, {
-      details: { host },
-    });
-  }
-  if (requestRidesGlobalProxy(host, port)) return { host, port };
-  let addresses: LookupAddress[];
-  try {
-    addresses = await lookup(host, { all: true });
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new Error2(
-      ErrorCodes.WEB_PRIVATE_ADDRESS,
-      `Cannot resolve host "${host}" for the fetch safety check: ${detail}`,
-      { cause: error, details: { host } },
-    );
-  }
-  for (const { address } of addresses) {
-    if (isBlockedIpAddress(address)) {
-      throw new Error2(
-        ErrorCodes.WEB_PRIVATE_ADDRESS,
-        `Refusing to fetch host "${host}": resolves to private address "${address}".`,
-        { details: { host, address } },
-      );
-    }
-  }
-  return { host, port, addresses };
 }
-
-function requestRidesGlobalProxy(host: string, port: string): boolean {
-  return (
-    isProxyConfigured(process.env) && !makeNoProxyMatcher(resolveNoProxy(process.env))(host, port)
-  );
-}
-
-function pinnedLookup(host: string, addresses: LookupAddress[]): LookupFunction {
-  return (hostname: string, options: LookupOptions | undefined, callback: PinnedLookupCallback) => {
-    if (hostname !== host) {
-      callbackLookup(hostname, options ?? {}, callback);
-      return;
-    }
-    if (options?.all === true) {
-      callback(null, [...addresses]);
-      return;
-    }
-    const single = addresses.find((entry) => entry.family === options?.family) ?? addresses[0]!;
-    callback(null, single.address, single.family);
-  };
-}
-
-type PinnedLookupCallback = (
-  err: NodeJS.ErrnoException | null,
-  addressOrList: string | LookupAddress[],
-  family?: number,
-) => void;
