@@ -79,8 +79,9 @@ export function buildAntigravityEnv(): NodeJS.ProcessEnv {
   const allowed = new Set([...ANTIGRAVITY_ENV_ALLOWLIST, ...ANTIGRAVITY_AUTH_ENV_ALLOWLIST]);
   const env: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(process.env)) {
-    if (allowed.has(key)) {
-      env[key] = value;
+    const normalizedKey = process.platform === 'win32' ? key.toUpperCase() : key;
+    if (allowed.has(normalizedKey)) {
+      env[normalizedKey] = value;
     }
   }
   return env;

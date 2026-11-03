@@ -90,13 +90,15 @@ describe('getAntigravityModelCapability', () => {
 describe('buildAntigravityEnv', () => {
   it('passes through only allowlisted variables and drops the rest', () => {
     const previousHome = process.env['HOME'];
+    const previousPath = process.env['PATH'];
     const previousSecret = process.env['ANTIGRAVITY_TEST_SECRET'];
     try {
       process.env['ANTIGRAVITY_TEST_SECRET'] = 'leak-me';
       process.env['HOME'] = '/home/tester';
+      process.env['PATH'] = '/test/bin';
       const env = buildAntigravityEnv();
       expect(env['HOME']).toBe('/home/tester');
-      expect(env['PATH']).toBeDefined();
+      expect(env['PATH']).toBe('/test/bin');
       expect(env['ANTIGRAVITY_TEST_SECRET']).toBeUndefined();
       expect('SOME_RANDOM_TOKEN' in env).toBe(false);
     } finally {
@@ -109,6 +111,11 @@ describe('buildAntigravityEnv', () => {
         delete process.env['HOME'];
       } else {
         process.env['HOME'] = previousHome;
+      }
+      if (previousPath === undefined) {
+        delete process.env['PATH'];
+      } else {
+        process.env['PATH'] = previousPath;
       }
     }
   });

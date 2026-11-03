@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+
+import { getLocale, setLocale } from '@moonshot-ai/kimi-i18n';
 
 import { ErrorCodes, isError2 } from '#/errors';
 import {
@@ -8,6 +10,10 @@ import {
   subagentLabels,
 } from '#/session/agentLifecycle/subagentMetadata';
 import type { AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
+
+const previousLocale = getLocale();
+beforeAll(() => setLocale('en'));
+afterAll(() => setLocale(previousLocale));
 
 function metaWith(labels: Record<string, string> | undefined): AgentMeta {
   return { labels } as AgentMeta;

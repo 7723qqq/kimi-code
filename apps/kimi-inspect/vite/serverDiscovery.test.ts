@@ -6,7 +6,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
@@ -131,6 +131,6 @@ describe('discoverLocalServers', () => {
 describe('resolveKimiHomeDir', () => {
   it('honors KIMI_CODE_HOME, else falls back to ~/.kimi-code', () => {
     expect(resolveKimiHomeDir({ KIMI_CODE_HOME: '/tmp/kh' })).toBe('/tmp/kh');
-    expect(resolveKimiHomeDir({})).toBe(join(process.env['HOME'] ?? '', '.kimi-code'));
+    expect(resolveKimiHomeDir({})).toBe(join(homedir(), '.kimi-code'));
   });
 });

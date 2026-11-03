@@ -1,12 +1,18 @@
-import { describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { getLocale, setLocale } from '@moonshot-ai/kimi-i18n';
 
 import { MemoryRepo } from '#/app/memory/memoryRepo';
 import { MemoryTool, type MemoryToolInput } from '#/app/memory/tools/memoryTool';
 import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import type { IHostProcessService } from '#/os/interface/hostProcess';
+
+const previousLocale = getLocale();
+beforeAll(() => setLocale('en'));
+afterAll(() => setLocale(previousLocale));
 
 async function run(tool: MemoryTool, args: MemoryToolInput) {
   const execution = await tool.resolveExecution(args);
