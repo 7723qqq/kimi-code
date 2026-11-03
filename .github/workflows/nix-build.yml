@@ -47,7 +47,7 @@ jobs:
             echo ""
             echo "The recursive workspace dependencies of \`apps/kimi-code\` do not match \`flake.nix\`. Please run \`bun scripts/check-nix-workspace.mjs\` locally for details."
             echo ""
-            echo "Typical fix: add the missing package name to \`workspaceNames\` and its path to \`workspacePaths\` in \`flake.nix\`."
+            echo "Typical fix: add the missing path to \`workspacePaths\` in \`flake.nix\`."
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 

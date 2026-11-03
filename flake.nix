@@ -191,32 +191,6 @@
         ./apps/vis/web
         ./docs
       ];
-
-      workspaceNames = [
-        "@moonshot-ai/acp-server"
-        "@moonshot-ai/agent-core-v2"
-        "@moonshot-ai/kap-server"
-        "@moonshot-ai/kosong"
-        "@moonshot-ai/migration-legacy"
-        "@moonshot-ai/minidb"
-        "@moonshot-ai/kimi-code-sdk"
-        "@moonshot-ai/kimi-code-oauth"
-        "@moonshot-ai/klient"
-        "@moonshot-ai/pi-tui"
-        "@moonshot-ai/kimi-code-product"
-        "@moonshot-ai/remote-control"
-        "@moonshot-ai/session-import"
-        "@moonshot-ai/kimi-telemetry"
-        "@moonshot-ai/transcript"
-        "@moonshot-ai/tree-sitter-bash"
-        "@moonshot-ai/kimi-code"
-        "kimi-code"
-        "@moonshot-ai/kimi-inspect"
-        "@moonshot-ai/vis"
-        "@moonshot-ai/vis-server"
-        "@moonshot-ai/vis-web"
-        "kimi-code-docs"
-      ];
     in
     {
       packages = forAllSystems (
@@ -270,13 +244,6 @@
             inherit version;
 
             src = kimi-code-src;
-
-            pnpmDeps = pkgs.fetchPnpmDeps {
-              inherit (finalAttrs) pname version src pnpmWorkspaces;
-              inherit pnpm;
-              fetcherVersion = 3;
-              hash = "sha256-1no6CVTIvsGgNuqbMVvgoOsj6/oh+Ng69mFFgxaxtAk=";
-            };
 
             nativeBuildInputs = [
               bun
