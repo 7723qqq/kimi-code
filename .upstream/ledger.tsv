@@ -7,7 +7,7 @@ pr	sha	title	cluster	verdict	probe	evidence	batch_done	approved_by	updated	files
 4387	1011d8b63fcc150998a4710641563cd0f73369c9	chore: sync release/2026-10-25 (2.3.2) back to main	B11	pending	-	-	no	-	2026-10-30	20
 4600	1401bddd05f6e8f09e1748d973891a3fcec31465	fix(kap-server): restore legacy ACP session file tools	unassigned	pending	-	-	no	-	2026-11-03	3
 4556	175f39a50cb48d4fa4db55e7fac86aebd50cfe00	docs(changelog): sync 2.4.1 from apps/kimi-code/CHANGELOG.md	B11	pending	-	-	no	-	2026-10-30	2
-4486	180b7f81e7b8ec0e5913d639d4df76c3b7f373fe	fix(agent-core-v2): recover append log writes after disk-full failures	B2	pending	-	-	no	-	2026-10-30	2
+4486	180b7f81e7b8ec0e5913d639d4df76c3b7f373fe	fix(agent-core-v2): recover append log writes after disk-full failures	B2	ported	manual:ported in f6678a2e5f	ported as f6678a2e5f; src already matched upstream via 4aa803dad3+ef2d6ad5ef, this lands the remaining upstream tests	no	-	2026-11-03	2
 4527	1853dae4ff54b36da878a08c86a7088bde0114a8	feat: support folder-scoped git status	B4	pending	-	-	no	-	2026-10-30	16
 4496	18bea3d3c05059aaac9af84fb619d05ef2619e6a	docs(changelog): sync 2.4.0 from apps/kimi-code/CHANGELOG.md	B11	pending	-	-	no	-	2026-10-30	2
 4514	1ada329b113f14419d701e54322c946ee65e7bde	chore: remove kimi-inspect	B12	pending	-	-	no	-	2026-10-30	80
@@ -26,7 +26,7 @@ pr	sha	title	cluster	verdict	probe	evidence	batch_done	approved_by	updated	files
 4428	461c6e92d53cd4ff473fbe63fd1d238df819ef3f	feat(kap-server): push approvals and questions as interaction frames	B5	pending	-	-	no	-	2026-10-30	36
 4524	47a518ed4e1912c0682596f882b1b6c5431b7ccb	fix(agent-core-v2): remind the agent to update its todo list less often	B2	pending	-	-	no	-	2026-10-30	4
 4342	4a24ae12389f1bc5db33c1aed39a092bfeb2fc13	feat: import Claude Code and Codex sessions	B7	pending	-	-	no	-	2026-10-30	48
-4540	4b58a0cda232a638a2ae9290990511ae7a95b2fe	fix(agent-core-v2): keep archived sessions out of session lists before the index	B5	pending	-	-	no	-	2026-10-30	3
+4540	4b58a0cda232a638a2ae9290990511ae7a95b2fe	fix(agent-core-v2): keep archived sessions out of session lists before the index	B5	ported	manual:ported in 0e2aecce8c	ported as 0e2aecce8c	no	-	2026-11-03	3
 4445	4ba65932026395efac8de533e38899439e6a9229	docs(changelog): sync 2.3.3 from apps/kimi-code/CHANGELOG.md	B11	pending	-	-	no	-	2026-10-30	2
 4283	4be3f0b741e13677f441c84eee40795ccc1df1db	fix(agent-core-v2): reconnect MCP servers automatically after transient failures	B1	pending	-	-	no	-	2026-10-30	46
 4530	59632096d26ed581940ac2c3ea91db3d3f9f527b	docs: make PR descriptions easier to understand in the write-pr skill	B11	pending	-	-	no	-	2026-10-30	2
@@ -43,7 +43,7 @@ pr	sha	title	cluster	verdict	probe	evidence	batch_done	approved_by	updated	files
 4490	84a392e9c1da30cc8dad9ed5fa0366b4a12f7d2c	feat: rename the dev release channel to canary	B10	pending	-	-	no	-	2026-10-30	24
 4470	8535bd79b8d7a42f1c30221a4dc0fa1933e2e340	refactor(kap-server): merge WebSocket session subscriptions into subscribe_v2	B5	pending	-	-	no	-	2026-10-30	179
 4485	88c3becefc56d3093009892bae6d7b7eab0d237b	fix(agent-core-v2): preserve llm reasoning and usage compatibility	B2	pending	-	-	no	-	2026-10-30	4
-4644	8985b71d7aa1afe5723af115f3459c0881186295	fix: preserve UTF-8 BOM when editing files	unassigned	pending	-	-	no	-	2026-11-03	7
+4644	8985b71d7aa1afe5723af115f3459c0881186295	fix: preserve UTF-8 BOM when editing files	unassigned	partial	manual:remote hunks ride with 5f3ab5fac8 (#4062, B9)	Core ported in this commit (preserveBOM option, host backend, fileEditService, edit tests, changeset). Missing: remote hunks src/os/backends/remote/remoteFileSystem.ts and test/remote/fs.test.ts, both created by 5f3ab5fac8 (#4062, B9) which is unported; when B9 lands the upstream tip already carries these hunks, re-verify then	yes	user	2026-11-03	7
 4465	89e07b81df8500b135e40b74b4f5a59748448e33	fix(agent-core-v2): show task notifications in live transcript	B3	pending	-	-	no	-	2026-10-30	11
 4526	8a5a4307cbc49da3355ed54240ae4dd6982481c3	fix(core): refresh tool catalog within the current turn	B2	pending	-	-	no	-	2026-10-30	4
 4413	8dabf4a10eaec7302344ba3060b7b3c69a5a76dc	fix(agent-core-v2): keep media recovery across turns and compaction	B2	pending	-	-	no	-	2026-10-30	11
