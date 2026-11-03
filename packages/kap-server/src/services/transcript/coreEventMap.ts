@@ -28,6 +28,7 @@ import type {
   PermissionApprovalRequested,
   PermissionApprovalResolved,
 } from '@moonshot-ai/agent-core-v2';
+import { turnPromptText } from '@moonshot-ai/agent-core-v2';
 import type { PlanRevision } from '@moonshot-ai/agent-core-v2';
 import type { SubagentSuspended } from '@moonshot-ai/agent-core-v2';
 import type {
@@ -55,7 +56,6 @@ import type {
   TurnStepRetrying,
   TurnStepStarted,
 } from '@moonshot-ai/agent-core-v2/contract';
-import { turnPromptText } from '@moonshot-ai/agent-core-v2/contract';
 import type { TurnEnded, TurnSteer } from '@moonshot-ai/agent-core-v2/contract';
 import type { TurnPrompt } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
 import type { AgentErrorEvent } from '@moonshot-ai/agent-core-v2/contract';

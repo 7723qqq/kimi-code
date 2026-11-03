@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'bun:test';
 
-import { IEventBus } from '@moonshot-ai/agent-core-v2';
-import { IAgentLifecycleService } from '@moonshot-ai/agent-core-v2/session/agentLifecycle/agentLifecycle';
-import { ensureMainAgent } from '@moonshot-ai/agent-core-v2/session/agentLifecycle/mainAgent';
-import { getLiveSessionById } from '@moonshot-ai/agent-core-v2/app/sessionManager/sessionLookup';
-import { ISessionEventBus } from '@moonshot-ai/agent-core-v2/app/event/eventBus';
-import { TurnPrompt } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
+import {
+  ensureMainAgent,
+  getLiveSessionById,
+  IAgentLifecycleService,
+  IEventBus,
+  ISessionEventBus,
+  TurnPrompt,
+} from '@moonshot-ai/agent-core-v2';
 
 import { RPCError } from '../src/core/errors.js';
 import { createMemoryDispatcher } from '../src/transports/memory/dispatcher.js';
