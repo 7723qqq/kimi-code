@@ -120,6 +120,28 @@ pub fn main(init: std.process.Init) !void {
     };
     defer Io.Dir.close(root_dir, io);
 
+    // Every check reads paths like `packages/<member>/...`, so a wrong root
+    // must be refused up front: a directory that merely opens would let most
+    // checks pass vacuously over nothing while the first one that needs a
+    // concrete member path dies with a misleading FileNotFound.
+    _ = Io.Dir.statFile(root_dir, io, "package.json", .{}) catch {
+        try err_out.print(
+            "review: --root={s} is not the kimi-code repository root (missing package.json); run from the checkout root or pass --root\n",
+            .{opts.root},
+        );
+        try err_out.flush();
+        std.process.exit(2);
+    };
+    const packages_dir = Io.Dir.openDir(root_dir, io, "packages", .{}) catch {
+        try err_out.print(
+            "review: --root={s} is not the kimi-code repository root (missing packages/); run from the checkout root or pass --root\n",
+            .{opts.root},
+        );
+        try err_out.flush();
+        std.process.exit(2);
+    };
+    Io.Dir.close(packages_dir, io);
+
     var ctx: check.Context = .{
         .alloc = arena,
         .io = io,
