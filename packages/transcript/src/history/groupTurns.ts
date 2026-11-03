@@ -1,5 +1,12 @@
 import { daemonFileRefFromPairingPart } from '../contract/mediaRef';
-import { projectTranscriptUserOrigin, projectTranscriptUserTurnOrigin } from '../contract/origin';
+import {
+  HIDDEN_USER_ORIGINS,
+  isUserSlashOrigin,
+  mapTurnOrigin,
+  MARKER_USER_ORIGINS,
+  projectTranscriptUserOrigin,
+  TURN_OPENING_SYSTEM_TRIGGERS,
+} from '../contract/origin';
 import type { TranscriptAttachment } from '../model/attachment';
 import type { TranscriptFrame, TranscriptUserOrigin } from '../model/frame';
 import type { TranscriptItem, TranscriptMarker } from '../model/item';
@@ -134,14 +141,6 @@ interface StepDraft {
   usage?: StepUsage;
   llmTiming?: StepTiming;
 }
-
-const HIDDEN_USER_ORIGINS = new Set(['injection', 'system_trigger', 'retry']);
-const TURN_OPENING_SYSTEM_TRIGGERS = new Set(['goal_continuation', 'subagent']);
-const MARKER_USER_ORIGINS: Readonly<Record<string, string>> = {
-  skill_activation: 'skill',
-  plugin_command: 'skill',
-  compaction_summary: 'compaction',
-};
 
 const FALLBACK_ORIGIN: TurnOrigin = { kind: 'other' };
 
@@ -353,7 +352,7 @@ export function groupMessagesIntoSnapshot(
         continue;
       }
       const markerKey = originKind !== undefined ? MARKER_USER_ORIGINS[originKind] : undefined;
-      if (markerKey !== undefined && !isUserSlashPrompt(message)) {
+      if (markerKey !== undefined && !isUserSlashOrigin(message.origin)) {
         pushMarker(markerKey, { text: textOf(message), origin: message.origin });
         continue;
       }
@@ -387,7 +386,7 @@ export function groupMessagesIntoSnapshot(
         continue;
       }
       if (markerKey !== undefined) {
-        const opening = isUserSlashPrompt(message) ? foldTurnOpeningInput(message) : undefined;
+        const opening = isUserSlashOrigin(message.origin) ? foldTurnOpeningInput(message) : undefined;
         pushMarker(markerKey, { text: opening?.text ?? textOf(message), origin: message.origin });
         if (opening !== undefined) {
           startTurn(
@@ -568,14 +567,6 @@ function opensOwnTurn(message: HistoryMessage): boolean {
   );
 }
 
-function isUserSlashPrompt(message: HistoryMessage): boolean {
-  const origin = message.origin as { kind?: unknown; trigger?: unknown } | undefined;
-  return (
-    (origin?.kind === 'skill_activation' || origin?.kind === 'plugin_command') &&
-    origin.trigger === 'user-slash'
-  );
-}
-
 function triggerPromptIdOf(message: HistoryMessage): string | undefined {
   if (typeof message.id !== 'string' || message.id.length === 0) return undefined;
   const origin = message.origin as { kind?: unknown; trigger?: unknown } | undefined;
@@ -588,34 +579,8 @@ function triggerPromptIdOf(message: HistoryMessage): string | undefined {
 
 function mapOrigin(message: HistoryMessage): TurnOrigin {
   const origin = message.origin;
-  switch (origin?.kind) {
-    case 'cron_job':
-    case 'cron_missed': {
-      const jobId = (origin as { jobId?: unknown }).jobId;
-      return {
-        kind: 'cron',
-        taskId: typeof jobId === 'string' ? jobId : undefined,
-        payload: origin,
-      };
-    }
-    case 'task':
-    case 'background_task': {
-      const taskId = (origin as { taskId?: unknown }).taskId;
-      return taskId !== undefined && typeof taskId === 'string'
-        ? { kind: 'task', taskId, payload: origin }
-        : { kind: 'other', payload: origin };
-    }
-    case 'hook_result':
-      return { kind: 'hook', payload: origin };
-    case 'shell_command':
-      return { kind: 'user', payload: origin };
-    case 'user':
-      return projectTranscriptUserTurnOrigin(origin);
-    case undefined:
-      return { kind: 'user' };
-    default:
-      return { kind: 'other', payload: origin };
-  }
+  if (origin?.kind === undefined) return { kind: 'user' };
+  return mapTurnOrigin(origin);
 }
 
 interface BundledSkillActivation {

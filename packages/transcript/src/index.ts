@@ -23,3 +23,4 @@ export * from './contract/schema';
 export * from './contract/events';
 export * from './contract/mediaRef';
 export * from './contract/origin';
+export * from './contract/projections';

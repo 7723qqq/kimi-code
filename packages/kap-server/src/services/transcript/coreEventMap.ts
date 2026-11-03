@@ -66,9 +66,15 @@ import {
   isSkillActivationPart,
 } from '@moonshot-ai/agent-core-v2/human/agent/origin';
 import {
+  applySubagentRunToTask,
+  buildSubagentSpawnTask,
+  mapInteractionEndState,
+  mapTaskKind,
+  mapTurnEndState,
+  mapTurnOrigin,
   projectTranscriptUserOrigin,
-  projectTranscriptUserTurnOrigin,
-  type AgentRef,
+  subagentAgentRef,
+  subagentRunTaskState,
   type AgentUsageMeta,
   type StepHeader,
   type StepUsage,
@@ -88,8 +94,6 @@ import {
   type TranscriptUsage,
   type TranscriptUserOrigin,
   type TurnHeader,
-  type TurnOrigin,
-  type TurnState,
 } from '@moonshot-ai/transcript';
 
 import { toWireQuestion } from '../../protocol/question-wire';
@@ -1323,33 +1327,31 @@ export class AgentTranscriptProjector {
     } else {
       this.subagentTaskIds.delete(event.subagentId);
     }
+    const at = nowIso();
     const task = this.upsertTask(taskKey, (prev) => {
-      const newGeneration = prev !== undefined && prev.state !== 'running';
+      const base = buildSubagentSpawnTask(taskKey, event, at);
+      if (prev === undefined) return base;
+      const newGeneration = prev.state !== 'running';
       return {
-        taskId: taskKey,
-        kind: 'subagent',
-        state: 'running',
-        detached: event.runInBackground,
-        description: event.description ?? prev?.description,
-        agentId: event.subagentId,
-        outputTail: prev?.outputTail ?? '',
-        startedAt: newGeneration ? nowIso() : (prev?.startedAt ?? nowIso()),
-        endedAt: newGeneration ? undefined : prev?.endedAt,
-        model: event.model ?? prev?.model,
-        thinkingEffort: event.thinkingEffort ?? prev?.thinkingEffort,
+        ...base,
+        description: event.description ?? prev.description,
+        outputTail: prev.outputTail,
+        startedAt: newGeneration ? at : (prev.startedAt ?? at),
+        endedAt: newGeneration ? undefined : prev.endedAt,
+        model: event.model ?? prev.model,
+        thinkingEffort: event.thinkingEffort ?? prev.thinkingEffort,
       };
     });
     const ops: TranscriptOperation[] = [{ op: 'task.upsert', task }];
     const hit =
       this.toolFrames.get(event.parentToolCallId) ?? this.adoptToolFrame(event.parentToolCallId);
     if (hit !== undefined) {
-      const ref: AgentRef = {
-        agentId: event.subagentId,
-        role: event.swarmIndex !== undefined ? 'member' : 'child',
-      };
       const frame: ToolCallFrame = {
         ...hit.frame,
-        agentRefs: [...(hit.frame.agentRefs ?? []), ref],
+        agentRefs: [
+          ...(hit.frame.agentRefs ?? []),
+          subagentAgentRef(event.subagentId, event.swarmIndex),
+        ],
       };
       this.toolFrames.set(event.parentToolCallId, { ...hit, frame });
       ops.push({ op: 'frame.upsert', turnId: hit.turnId, stepId: hit.stepId, frame });
@@ -1370,39 +1372,32 @@ export class AgentTranscriptProjector {
     error?: string;
     reason?: string;
   }): TranscriptOperation[] {
-    const terminal =
-      event.type === 'subagent.completed' ||
-      event.type === 'subagent.failed' ||
-      event.type === 'subagent.cancelled';
-    const state: TranscriptTask['state'] =
-      event.type === 'subagent.completed'
-        ? 'completed'
-        : event.type === 'subagent.failed'
-          ? 'failed'
-          : event.type === 'subagent.cancelled'
-            ? 'killed'
-            : 'running';
+    const terminal = subagentRunTaskState(event.type) !== 'running';
     const build =
       (taskId: string) =>
       (prev: TranscriptTask | undefined): TranscriptTask => {
-        const newGeneration = !terminal && prev !== undefined && prev.state !== 'running';
-        return {
+        const at = nowIso();
+        if (prev !== undefined && !terminal && prev.state !== 'running') {
+          const restarted = applySubagentRunToTask(prev, event.type, event, at);
+          return {
+            ...restarted,
+            startedAt: at,
+            resultSummary: undefined,
+            usage: undefined,
+            error: undefined,
+            stateReason: event.reason,
+          };
+        }
+        const base: TranscriptTask = prev ?? {
           taskId,
           kind: 'subagent',
-          state,
-          detached: prev?.detached ?? true,
-          description: prev?.description,
+          state: 'running',
+          detached: true,
           agentId: event.subagentId,
-          outputTail: prev?.outputTail ?? '',
-          startedAt: newGeneration ? nowIso() : (prev?.startedAt ?? nowIso()),
-          endedAt: terminal ? nowIso() : newGeneration ? undefined : prev?.endedAt,
-          resultSummary: newGeneration ? undefined : (event.resultSummary ?? prev?.resultSummary),
-          usage: newGeneration ? undefined : (event.usage ?? prev?.usage),
-          error: newGeneration ? undefined : (event.error ?? prev?.error),
-          stateReason: event.reason ?? (newGeneration ? undefined : prev?.stateReason),
-          model: prev?.model,
-          thinkingEffort: prev?.thinkingEffort,
+          outputTail: '',
+          startedAt: at,
         };
+        return applySubagentRunToTask(base, event.type, event, at);
       };
     const taskKey = this.subagentTaskIds.get(event.subagentId) ?? event.subagentId;
     const task = this.upsertTask(taskKey, build(taskKey));
@@ -1832,74 +1827,6 @@ function epochMsToIso(value: number): string {
 function restOf(event: { readonly type: string; readonly time?: number }): Record<string, unknown> {
   const { type: _type, time: _time, ...rest } = event;
   return rest;
-}
-
-function mapTurnOrigin(origin: unknown): TurnOrigin {
-  const candidate = origin as { kind?: unknown } | null | undefined;
-  const kind = typeof candidate?.kind === 'string' ? candidate.kind : undefined;
-  switch (kind) {
-    case 'user':
-      return projectTranscriptUserTurnOrigin(origin);
-    case 'cron_job':
-    case 'cron_missed': {
-      const jobId = (candidate as { jobId?: unknown }).jobId;
-      return {
-        kind: 'cron',
-        taskId: typeof jobId === 'string' ? jobId : undefined,
-        payload: origin,
-      };
-    }
-    case 'task':
-    case 'background_task': {
-      const taskId = (candidate as { taskId?: unknown }).taskId;
-      return typeof taskId === 'string'
-        ? { kind: 'task', taskId, payload: origin }
-        : { kind: 'other', payload: origin };
-    }
-    case 'hook_result':
-      return { kind: 'hook', payload: origin };
-    case 'compaction_summary':
-      return { kind: 'compaction', payload: origin };
-    case 'shell_command':
-      return { kind: 'user', payload: origin };
-    default:
-      return { kind: 'other', payload: origin };
-  }
-}
-
-function mapTurnEndState(reason: 'completed' | 'cancelled' | 'failed' | 'blocked'): TurnState {
-  switch (reason) {
-    case 'completed':
-      return 'completed';
-    case 'cancelled':
-      return 'cancelled';
-    case 'failed':
-    case 'blocked':
-      return 'failed';
-  }
-}
-
-function mapTaskKind(kind: string): TranscriptTask['kind'] {
-  switch (kind) {
-    case 'process':
-      return 'shell';
-    case 'agent':
-      return 'subagent';
-    default:
-      return 'other';
-  }
-}
-
-function mapInteractionEndState(
-  kind: 'approval' | 'question',
-  response: unknown,
-): TranscriptInteraction['state'] {
-  if (kind === 'question') return response === null ? 'dismissed' : 'answered';
-  const decision = (response as { decision?: unknown } | null | undefined)?.decision;
-  if (decision === 'approved' || decision === 'rejected' || decision === 'cancelled') {
-    return decision;
-  }
-  return 'cancelled';
 }
 
 const TODO_LIST_TOOL_NAME = 'TodoList';

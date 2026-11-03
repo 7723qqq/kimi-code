@@ -1,3 +1,13 @@
+import { isUndoAnchorTurnOrigin, isVisibleTurnOrigin, mapTurnOrigin } from '../contract/origin';
+import {
+  applySubagentRunToTask,
+  buildSubagentSpawnTask,
+  mapInteractionEndState,
+  mapTaskKind,
+  mapTurnEndState,
+  subagentAgentRef,
+  type SubagentRunEventType,
+} from '../contract/projections';
 import type { AgentRef } from '../model/frame';
 import { turnId as exportTurnKey } from '../model/ids';
 import type { TranscriptInteraction } from '../model/interaction';
@@ -94,60 +104,6 @@ interface TurnCancelPayload {
   readonly reason?: unknown;
 }
 
-function isVisibleTurnOrigin(origin: unknown): boolean {
-  const kind = (origin as { kind?: unknown } | undefined)?.kind;
-  if (kind === 'system_trigger') {
-    const name = (origin as { name?: unknown } | undefined)?.name;
-    return name === 'goal_continuation' || name === 'subagent';
-  }
-  if (kind === 'skill_activation' || kind === 'plugin_command') {
-    return (origin as { trigger?: unknown } | undefined)?.trigger === 'user-slash';
-  }
-  if (kind === 'injection' || kind === 'retry' || kind === 'compaction_summary') return false;
-  return true;
-}
-
-function isUndoAnchorTurnOrigin(origin: unknown): boolean {
-  const payload = origin as { kind?: unknown; trigger?: unknown } | undefined;
-  if (payload?.kind === undefined || payload.kind === 'user') return true;
-  return (
-    (payload.kind === 'skill_activation' || payload.kind === 'plugin_command') &&
-    payload.trigger === 'user-slash'
-  );
-}
-
-function turnOriginKind(origin: unknown): TranscriptTurn['origin']['kind'] {
-  const payload = origin as { kind?: unknown; taskId?: unknown } | undefined;
-  switch (payload?.kind) {
-    case 'user':
-    case 'shell_command':
-      return 'user';
-    case 'cron_job':
-    case 'cron_missed':
-      return 'cron';
-    case 'task':
-    case 'background_task':
-      return typeof payload.taskId === 'string' ? 'task' : 'other';
-    case 'hook_result':
-      return 'hook';
-    case 'compaction_summary':
-      return 'compaction';
-    default:
-      return 'other';
-  }
-}
-
-function mapTaskKind(kind: unknown): TranscriptTask['kind'] {
-  switch (kind) {
-    case 'process':
-      return 'shell';
-    case 'agent':
-      return 'subagent';
-    default:
-      return 'other';
-  }
-}
-
 const TASK_STATES = new Set<TranscriptTask['state']>([
   'running',
   'completed',
@@ -158,32 +114,6 @@ const TASK_STATES = new Set<TranscriptTask['state']>([
 ]);
 
 const GOAL_STATUSES = new Set<GoalStatus>(['active', 'paused', 'blocked', 'complete']);
-
-function mapInteractionEndState(
-  kind: TranscriptInteraction['interactionKind'],
-  response: unknown,
-): TranscriptInteraction['state'] {
-  if (kind === 'question') return response === null ? 'dismissed' : 'answered';
-  const decision = (response as { decision?: unknown } | null | undefined)?.decision;
-  if (decision === 'approved' || decision === 'rejected' || decision === 'cancelled') {
-    return decision;
-  }
-  return 'cancelled';
-}
-
-function mapTurnEndReason(reason: unknown): TranscriptTurn['state'] | undefined {
-  switch (reason) {
-    case 'completed':
-      return 'completed';
-    case 'cancelled':
-      return 'cancelled';
-    case 'failed':
-    case 'blocked':
-      return 'failed';
-    default:
-      return undefined;
-  }
-}
 
 function readTurnErrorMessage(error: unknown): string | undefined {
   if (error === null || typeof error !== 'object') return undefined;
@@ -377,24 +307,28 @@ export function foldWireRecordFacts(
         const index = typeof record['swarmIndex'] === 'number' ? record['swarmIndex'] : undefined;
         const refs = subagentRefs.get(toolCallId) ?? new Map();
         refs.set(agentId, {
-          ref: { agentId, role: index === undefined ? 'child' : 'member' },
+          ref: subagentAgentRef(agentId, index),
           index,
         });
         subagentRefs.set(toolCallId, refs);
-        tasks.set(taskId, {
+        tasks.set(
           taskId,
-          kind: 'subagent',
-          state: 'running',
-          detached: record['runInBackground'] === true,
-          agentId,
-          description:
-            typeof record['description'] === 'string' ? record['description'] : undefined,
-          model: typeof record['model'] === 'string' ? record['model'] : undefined,
-          thinkingEffort:
-            typeof record['thinkingEffort'] === 'string' ? record['thinkingEffort'] : undefined,
-          startedAt: recordTimeIso(record),
-          outputTail: '',
-        });
+          buildSubagentSpawnTask(
+            taskId,
+            {
+              subagentId: agentId,
+              description:
+                typeof record['description'] === 'string' ? record['description'] : undefined,
+              runInBackground: record['runInBackground'] === true,
+              model: typeof record['model'] === 'string' ? record['model'] : undefined,
+              thinkingEffort:
+                typeof record['thinkingEffort'] === 'string'
+                  ? record['thinkingEffort']
+                  : undefined,
+            },
+            recordTimeIso(record),
+          ),
+        );
         break;
       }
       case 'subagent.started':
@@ -404,28 +338,20 @@ export function foldWireRecordFacts(
         const agentId = record['subagentId'];
         if (typeof agentId !== 'string') break;
         const taskId = subagentTasks.get(agentId) ?? agentId;
-        const state =
-          record.type === 'subagent.completed'
-            ? 'completed'
-            : record.type === 'subagent.failed'
-              ? 'failed'
-              : record.type === 'subagent.cancelled'
-                ? 'killed'
-                : 'running';
+        const at = recordTimeIso(record);
+        const patch = {
+          resultSummary:
+            typeof record['resultSummary'] === 'string' ? record['resultSummary'] : undefined,
+          usage: readStepUsage(record['usage']),
+          error: typeof record['error'] === 'string' ? record['error'] : undefined,
+        };
         const terminalise = (key: string): void => {
           const task = tasks.get(key);
           if (task === undefined) return;
-          tasks.set(key, {
-            ...task,
-            state,
-            endedAt: state === 'running' ? undefined : recordTimeIso(record),
-            resultSummary:
-              typeof record['resultSummary'] === 'string'
-                ? record['resultSummary']
-                : task.resultSummary,
-            usage: readStepUsage(record['usage']) ?? task.usage,
-            error: typeof record['error'] === 'string' ? record['error'] : task.error,
-          });
+          tasks.set(
+            key,
+            applySubagentRunToTask(task, record.type as SubagentRunEventType, patch, at),
+          );
         };
         terminalise(taskId);
         if (taskId !== agentId) terminalise(agentId);
@@ -764,9 +690,10 @@ export function foldWireRecordFacts(
     const origin = turnOrigins.get(turnId);
     const strictOrigin = turnOrigins.has(turnId) && !isUndoAnchorTurnOrigin(origin);
     if (!strictOrigin) continue;
+    const originKind = mapTurnOrigin(origin).kind;
     const fallbackOrdinal = claimBaseOrdinal(
       (candidate) =>
-        candidate.triggerPromptId === undefined && candidate.origin.kind === turnOriginKind(origin),
+        candidate.triggerPromptId === undefined && candidate.origin.kind === originKind,
     );
     if (fallbackOrdinal !== undefined) ordinalByRawTurnId.set(turnId, fallbackOrdinal);
   }
@@ -854,7 +781,7 @@ export function foldWireRecordFacts(
           return {
             ...item,
             steps,
-            state: mapTurnEndReason(payload.reason) ?? item.state,
+            state: mapTurnEndState(payload.reason) ?? item.state,
             endedAt: recordTimeIso(record) ?? item.endedAt,
             durationMs:
               typeof payload.durationMs === 'number' ? payload.durationMs : item.durationMs,
