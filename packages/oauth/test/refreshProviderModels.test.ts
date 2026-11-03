@@ -823,6 +823,7 @@ describe('refreshProviderModels', () => {
           provider: providerId,
           model: modelId,
           maxContextSize: 262144,
+          maxOutputSize: 262144,
           capabilities: richCapabilities,
           displayName: 'Reasoner Pro',
         },
@@ -882,13 +883,15 @@ describe('refreshProviderModels', () => {
     const providerId = 'example_chat-completions';
     const modelId = 'reasoner-pro';
     const modelAlias = `${providerId}/${modelId}`;
+    // A config written before max_output_size existed gains the field at the
+    // end of the entry, after fields the registry places later.
     const host = makeRefreshHost({
       providers: {
         [providerId]: {
-          type: 'openai',
-          baseUrl: 'https://api.example.test/v1',
-          apiKey: 'sk-test-token',
           source: { kind: 'apiJson', url: registryUrl, apiKey: 'sk-test-token' },
+          apiKey: 'sk-test-token',
+          baseUrl: 'https://api.example.test/v1',
+          type: 'openai',
         },
       },
       models: {
@@ -896,8 +899,9 @@ describe('refreshProviderModels', () => {
           provider: providerId,
           model: modelId,
           maxContextSize: 262144,
-          capabilities: ['tool_use'],
+          capabilities: ['tool_use', 'thinking'],
           displayName: 'Reasoner Pro',
+          supportEfforts: ['low', 'high'],
           maxOutputSize: 32768,
         },
       },
@@ -917,8 +921,10 @@ describe('refreshProviderModels', () => {
                 [modelId]: {
                   id: modelId,
                   name: 'Reasoner Pro',
-                  limit: { context: 262144 },
+                  limit: { context: 262144, output: 32768 },
                   tool_call: true,
+                  reasoning: true,
+                  support_efforts: ['low', 'high'],
                 },
               },
             },
