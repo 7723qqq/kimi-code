@@ -17,7 +17,7 @@ import { IHostProcessService } from '#/os/interface/hostProcess';
 import { buildIndex, cachePath, readAnyIndex, readIndex, writeIndex } from './cache';
 import { GIT_MEMORY_FLAG_ID } from './flag';
 import { readGitHistory, readRepoHead, readRepoMap, readRepoTree } from './gitReader';
-import type { RepoHead } from './gitReader';
+import type { RepoHead, RepoHeadResult } from './gitReader';
 import {
   projectFileBlock,
   projectMemoryBlock,
@@ -393,8 +393,16 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
     if (this.headLoaded) return this.head;
     if (this.headLoading === undefined) {
       this.headLoading = this.loadHead()
-        .then((head) => {
-          this.head = head;
+        .then((result) => {
+          if (result.kind === 'ok') {
+            this.head = result.head;
+          } else {
+            this.log.warn('git memory head lookup failed', {
+              cwd: this.bootstrap.cwd,
+              reason: result.reason,
+              detail: result.detail,
+            });
+          }
           this.headLoaded = true;
         })
         .catch((error) => {
@@ -409,12 +417,12 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
     return this.head;
   }
 
-  protected async loadHead(): Promise<RepoHead | undefined> {
-    const head = await readRepoHead(this.process, this.bootstrap.cwd);
-    if (head === undefined) return undefined;
-    this.repoRoot = head.repoRoot;
-    this.pathPrefix = head.prefix;
-    return head;
+  protected async loadHead(): Promise<RepoHeadResult> {
+    const result = await readRepoHead(this.process, this.bootstrap.cwd);
+    if (result.kind === 'unavailable') return result;
+    this.repoRoot = result.head.repoRoot;
+    this.pathPrefix = result.head.prefix;
+    return result;
   }
 
   private toRepoPath(path: string): string {

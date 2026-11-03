@@ -30,6 +30,9 @@ packages/agent-core-v2/src/os/backends/host/tools/runRg.ts  1
 # git's own branch/summary output.
 packages/agent-core-v2/src/app/git/gitParsers.ts  2
 
+# git's own repository discovery and permission stderr.
+packages/agent-core-v2/src/features/gitMemory/gitReader.ts  1
+
 # The TUI reading back a sentence the engine wrote (plan-mode exit). Cross-layer
 # and the reason this check exists; kept visible rather than hidden, and listed
 # because it cannot be fixed without an engine-side marker.

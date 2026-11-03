@@ -1,6 +1,7 @@
 import type { Readable } from 'node:stream';
 
 import { onUnexpectedError } from '#/_base/errors/unexpectedError';
+import { errorMessage } from '#/_base/utils/errorMessage';
 import type { IHostProcessService } from '#/os/interface/hostProcess';
 import type { IHostTimerHandle, IHostTimers } from '#/os/interface/hostTimers';
 
@@ -34,11 +35,24 @@ export type GitReadResult =
   | { readonly kind: 'unavailable' }
   | { readonly kind: 'failed'; readonly reason: string };
 
+export type GitFailureKind = 'spawn-failed' | 'timeout' | 'exit';
+
 interface CommandOutcome {
   readonly ok: boolean;
   readonly stdout: string;
   readonly stderr: string;
+  readonly failure?: GitFailureKind;
 }
+
+export type GitUnavailableReason = 'not-a-repo' | 'spawn-failed' | 'timeout' | 'permission';
+
+export type RepoHeadResult =
+  | { readonly kind: 'ok'; readonly head: RepoHead }
+  | {
+      readonly kind: 'unavailable';
+      readonly reason: GitUnavailableReason;
+      readonly detail: string;
+    };
 
 async function collect(stream: Readable): Promise<string> {
   const chunks: Buffer[] = [];
@@ -58,8 +72,8 @@ async function runGit(
   let child;
   try {
     child = await process.spawn('git', args, { cwd });
-  } catch {
-    return { ok: false, stdout: '', stderr: 'spawn failed' };
+  } catch (error) {
+    return { ok: false, stdout: '', stderr: errorMessage(error), failure: 'spawn-failed' };
   }
   try {
     child.stdin.end();
@@ -80,15 +94,22 @@ async function runGit(
       }, GIT_TIMEOUT_MS);
     });
     const [stdout, stderr, exitCode] = await Promise.race([work, timeout]);
-    return { ok: exitCode === 0, stdout, stderr };
-  } catch {
+    if (exitCode === 0) return { ok: true, stdout, stderr };
+    return { ok: false, stdout, stderr, failure: 'exit' };
+  } catch (error) {
+    const detail = errorMessage(error);
     try {
       await child.kill('SIGKILL');
     } catch (error) {
       onUnexpectedError(error);
     }
     await work.catch(() => {});
-    return { ok: false, stdout: '', stderr: timedOut ? 'timeout' : 'command failed' };
+    return {
+      ok: false,
+      stdout: '',
+      stderr: detail,
+      failure: timedOut ? 'timeout' : 'exit',
+    };
   } finally {
     if (handle !== undefined) hostTimers.clearTimeout(handle);
     try {
@@ -165,20 +186,39 @@ export async function readRepoHead(
   process: IHostProcessService,
   cwd: string,
   timers?: IHostTimers,
-): Promise<RepoHead | undefined> {
+): Promise<RepoHeadResult> {
   const head = await runGit(
     process,
     cwd,
     ['-C', cwd, 'rev-parse', '--show-toplevel', '--show-prefix', 'HEAD'],
     timers,
   );
-  if (!head.ok) return undefined;
+  if (!head.ok) {
+    let reason: GitUnavailableReason = 'timeout';
+    if (head.failure === 'spawn-failed') reason = 'spawn-failed';
+    else if (head.failure !== 'timeout') {
+      if (head.stderr.includes('not a git repository')) reason = 'not-a-repo';
+      else if (
+        head.stderr.includes('detected dubious ownership') ||
+        head.stderr.includes('Permission denied')
+      ) {
+        reason = 'permission';
+      }
+    }
+    return { kind: 'unavailable', reason, detail: head.stderr };
+  }
   const lines = head.stdout.split('\n');
   const repoRoot = (lines[0] ?? '').trim();
   const prefix = (lines[1] ?? '').trim();
   const headSha = (lines[2] ?? '').trim();
-  if (repoRoot.length === 0 || headSha.length === 0) return undefined;
-  return { repoRoot, prefix, headSha };
+  if (repoRoot.length === 0 || headSha.length === 0) {
+    return {
+      kind: 'unavailable',
+      reason: 'timeout',
+      detail: 'git rev-parse returned incomplete repository data',
+    };
+  }
+  return { kind: 'ok', head: { repoRoot, prefix, headSha } };
 }
 
 export async function readGitHistory(

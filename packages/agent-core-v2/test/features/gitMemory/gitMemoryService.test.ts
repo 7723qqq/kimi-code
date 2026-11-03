@@ -3,6 +3,7 @@ import { Readable, Writable } from 'node:stream';
 
 import { buildIndex } from '#/features/gitMemory/cache';
 import { GitMemoryService } from '#/features/gitMemory/gitMemoryService';
+import type { RepoHeadResult } from '#/features/gitMemory/gitReader';
 import type { CommitRecord, GitMemoryIndex } from '#/features/gitMemory/types';
 
 const SHA_A = 'a'.repeat(40);
@@ -143,14 +144,14 @@ function harness(
       return super.loadIndex();
     }
 
-    protected override async loadHead(): Promise<
-      { readonly repoRoot: string; readonly prefix: string; readonly headSha: string } | undefined
-    > {
+    protected override loadHead(): Promise<RepoHeadResult> {
       const head = options.head;
-      if (head === undefined) return undefined;
+      if (head === undefined) {
+        return Promise.resolve({ kind: 'unavailable', reason: 'spawn-failed', detail: 'no git' });
+      }
       this.repoRoot = head.repoRoot;
       this.pathPrefix = head.prefix;
-      return head;
+      return Promise.resolve({ kind: 'ok', head });
     }
   })();
   return {

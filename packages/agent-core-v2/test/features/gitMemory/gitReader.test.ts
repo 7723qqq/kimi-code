@@ -8,6 +8,7 @@ import {
   readRepoTree,
 } from '#/features/gitMemory/gitReader';
 import type { IHostProcessService } from '#/os/interface/hostProcess';
+import type { IHostTimers } from '#/os/interface/hostTimers';
 
 const SHA_A = 'a'.repeat(40);
 const SHA_B = 'b'.repeat(40);
@@ -152,7 +153,7 @@ describe('git reader', () => {
       500,
       SHA_A,
     );
-    expect(result.kind).toBe('failed');
+    expect(result).toEqual({ kind: 'failed', reason: 'no git' });
   });
 });
 
@@ -216,10 +217,11 @@ describe('repo head', () => {
       err: '',
       code: 0,
     }));
-    const head = await readRepoHead(service, '/repo');
-    expect(head?.repoRoot).toBe('D:/repo');
-    expect(head?.prefix).toBe('packages/core/');
-    expect(head?.headSha).toBe('sha');
+    const result = await readRepoHead(service, '/repo');
+    expect(result).toEqual({
+      kind: 'ok',
+      head: { repoRoot: 'D:/repo', prefix: 'packages/core/', headSha: 'sha' },
+    });
     expect(calls[0]).toEqual([
       '-C',
       '/repo',
@@ -230,8 +232,98 @@ describe('repo head', () => {
     ]);
   });
 
-  it('returns undefined when there is no repository', async () => {
-    const { service } = fakeProcess(() => ({ out: '', err: 'fatal', code: 128 }));
-    expect(await readRepoHead(service, '/repo')).toBeUndefined();
+  it('classifies a non-repository and preserves stderr', async () => {
+    const detail = 'fatal: not a git repository (or any of the parent directories): .git';
+    const { service } = fakeProcess(() => ({ out: '', err: detail, code: 128 }));
+    expect(await readRepoHead(service, '/repo')).toEqual({
+      kind: 'unavailable',
+      reason: 'not-a-repo',
+      detail,
+    });
+  });
+
+  it('classifies a spawn rejection and preserves the error message', async () => {
+    const service: IHostProcessService = {
+      _serviceBrand: undefined,
+      spawn: () => Promise.reject(new Error('git executable missing')),
+    };
+    expect(await readRepoHead(service, '/repo')).toEqual({
+      kind: 'unavailable',
+      reason: 'spawn-failed',
+      detail: 'git executable missing',
+    });
+  });
+
+  it('classifies dubious ownership as a permission failure', async () => {
+    const detail = 'fatal: detected dubious ownership in repository at D:/repo';
+    const { service } = fakeProcess(() => ({ out: '', err: detail, code: 128 }));
+    expect(await readRepoHead(service, '/repo')).toEqual({
+      kind: 'unavailable',
+      reason: 'permission',
+      detail,
+    });
+  });
+
+  it('classifies denied access as a permission failure', async () => {
+    const detail = 'fatal: Permission denied';
+    const { service } = fakeProcess(() => ({ out: '', err: detail, code: 128 }));
+    expect(await readRepoHead(service, '/repo')).toEqual({
+      kind: 'unavailable',
+      reason: 'permission',
+      detail,
+    });
+  });
+
+  it('classifies a timeout without waiting for real time', async () => {
+    let exit!: (code: number) => void;
+    const exited = new Promise<number>((resolve) => {
+      exit = resolve;
+    });
+    const service: IHostProcessService = {
+      _serviceBrand: undefined,
+      spawn: () =>
+        Promise.resolve({
+          _serviceBrand: undefined,
+          pid: 1,
+          exitCode: null,
+          stdin: new Writable({
+            write(_chunk, _encoding, callback) {
+              callback();
+            },
+          }),
+          stdout: Readable.from(['']),
+          stderr: Readable.from(['']),
+          wait: () => exited,
+          kill: () => {
+            exit(137);
+            return Promise.resolve();
+          },
+          dispose: () => {},
+        }),
+    };
+    const schedule = (callback: () => void) => {
+      queueMicrotask(callback);
+      return {};
+    };
+    const timers: IHostTimers = {
+      _serviceBrand: undefined,
+      setTimeout: schedule,
+      setClampedTimeout: schedule,
+      clearTimeout: () => {},
+    };
+    expect(await readRepoHead(service, '/repo', timers)).toEqual({
+      kind: 'unavailable',
+      reason: 'timeout',
+      detail: 'git command timed out',
+    });
+  });
+
+  it('puts an unknown non-zero exit in the transient bucket with its stderr', async () => {
+    const { service } = fakeProcess(() => ({ out: '', err: 'fatal: unexpected', code: 2 }));
+    expect(await readRepoHead(service, '/repo')).toEqual({
+      kind: 'unavailable',
+      reason: 'timeout',
+      detail: 'fatal: unexpected',
+    });
   });
 });
