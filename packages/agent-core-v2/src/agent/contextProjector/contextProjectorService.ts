@@ -9,11 +9,12 @@ import { defineState } from '#/state/state';
 
 import {
   IAgentContextProjectorService,
+  MEDIA_DEGRADE_KEEP_RECENT,
+  type MediaEvictionPlan,
   type MediaStripSnapshot,
   type ProjectionPolicy,
 } from './contextProjector';
 import {
-  MEDIA_DEGRADE_KEEP_RECENT,
   captureMediaStripSnapshot,
   countMediaParts,
   degradeLeadingMediaParts,
@@ -26,6 +27,7 @@ import {
   type OnAnomaly,
   type ProjectionAnomaly,
 } from './projection';
+import { estimateLlmRequestBytes } from './requestSize';
 
 export const contextProjectorLastRepairSignatureKey = defineState<string | null>(
   'contextProjector.lastRepairSignature',
@@ -74,6 +76,31 @@ export class AgentContextProjectorService implements IAgentContextProjectorServi
   captureMediaDegradeCount(messages: readonly ContextMessage[]): number {
     const mediaCount = countMediaParts(this.projectWithTrace(messages, project));
     return Math.max(0, mediaCount - MEDIA_DEGRADE_KEEP_RECENT);
+  }
+
+  planMediaEviction(
+    messages: readonly Message[],
+    estimatedBytes: number,
+    budgetBytes: number,
+  ): MediaEvictionPlan | undefined {
+    if (estimatedBytes <= budgetBytes) return undefined;
+    const degradeCount = Math.max(0, countMediaParts(messages) - MEDIA_DEGRADE_KEEP_RECENT);
+    const degraded = degradeLeadingMediaParts(messages, degradeCount);
+    const degradedBytes = estimateLlmRequestBytes(degraded);
+    if (degradedBytes <= budgetBytes) {
+      return {
+        projection: 'media-degraded',
+        degradeCount,
+        estimatedBytes: degradedBytes,
+        evictedMediaCount: countMediaParts(messages) - countMediaParts(degraded),
+      };
+    }
+    const stripped = stripMediaPartsBySnapshot(messages, captureMediaStripSnapshot(messages));
+    return {
+      projection: 'media-stripped',
+      estimatedBytes: estimateLlmRequestBytes(stripped),
+      evictedMediaCount: countMediaParts(messages) - countMediaParts(stripped),
+    };
   }
 
   private projectWithTrace(

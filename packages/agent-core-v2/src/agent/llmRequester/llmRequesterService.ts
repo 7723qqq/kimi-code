@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { LifecycleScope } from '#/app/scopes';
 import { IInstantiationService } from '#/_base/di/instantiation';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
@@ -6,17 +5,12 @@ import { defineState } from '#/state/state';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import {
   IAgentContextProjectorService,
+  MEDIA_DEGRADE_KEEP_RECENT,
   type MediaProjection,
   type MediaStripSnapshot,
   type ProjectionPolicy,
 } from '#/agent/contextProjector/contextProjector';
-import {
-  MEDIA_DEGRADE_KEEP_RECENT,
-  captureMediaStripSnapshot,
-  countMediaParts,
-  degradeLeadingMediaParts,
-  stripMediaPartsBySnapshot,
-} from '#/agent/contextProjector/mediaProjection';
+import { estimateLlmRequestBytes } from '#/agent/contextProjector/requestSize';
 import { IAgentMicroCompactionService } from '#/agent/microCompaction/microCompaction';
 import { IHostTimers } from '#/os/interface/hostTimers';
 import { buildCacheObservation } from '#/agent/usage/cacheObservation';
@@ -119,7 +113,7 @@ interface ResolvedLLMRequest {
   readonly thinkingEffort: ThinkingEffort;
   readonly systemPrompt: string;
   readonly tools: readonly Tool[];
-  readonly messages: Message[];
+  readonly messages: readonly Message[];
   readonly contextRevision: number;
   readonly promptCacheProbe:
     | { readonly source: 'compaction'; readonly baseline?: AgentLLMTurnRequestSnapshot }
@@ -594,13 +588,14 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         });
       }
       if (request.source?.type === 'turn') {
+        const historyHash = fingerprint(JSON.stringify(input.messages));
         this.states.set(llmRequesterLastTurnRequestKey, {
           modelAlias: request.modelAlias,
           contextRevision: request.contextRevision,
           toolsHash: recorded.toolsHash,
           systemPromptHash: recorded.systemPromptHash,
           messageCount: input.messages.length,
-          historyHash: fingerprint(JSON.stringify(input.messages)),
+          historyHash,
           inputTokens: usage === undefined ? undefined : inputTotal(usage),
           startedAt,
           finishedAt: Date.now(),
@@ -609,7 +604,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
             protocol: request.model.protocol,
             providerType: request.model.providerType,
             messageCount: recorded.messageCount,
-            historyHash: fingerprint(JSON.stringify(input.messages)),
+            historyHash,
             projection: recorded.projection,
             thinkingEffort: recorded.thinkingEffort,
             usage,
@@ -783,36 +778,22 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
   ): ProjectionPolicy | undefined {
     const budgetBytes = resolveRequestByteBudget(this.config);
     if (estimatedBytes <= budgetBytes) return undefined;
-    const media = policy?.media;
-    if (typeof media === 'object') return undefined;
-
-    if (media === undefined) {
-      const degradeCount = Math.max(0, countMediaParts(messages) - MEDIA_DEGRADE_KEEP_RECENT);
-      const degraded = degradeLeadingMediaParts(messages, degradeCount);
-      const degradedBytes = estimateLlmRequestBytes(degraded);
-      if (degradedBytes <= budgetBytes) {
-        this.logProactiveMediaEviction(
-          request,
-          budgetBytes,
-          estimatedBytes,
-          degradedBytes,
-          countMediaParts(messages) - countMediaParts(degraded),
-          'media-degraded',
-        );
-        this.markMediaRecovery(request, { degradeCount });
-        return { ...policy, media: { degradeCount } };
-      }
-    }
-    const stripped = stripMediaPartsBySnapshot(messages, captureMediaStripSnapshot(messages));
-    const strippedBytes = estimateLlmRequestBytes(stripped);
+    if (typeof policy?.media === 'object') return undefined;
+    const eviction = this.projector.planMediaEviction(messages, estimatedBytes, budgetBytes);
+    if (eviction === undefined) return undefined;
     this.logProactiveMediaEviction(
       request,
       budgetBytes,
       estimatedBytes,
-      strippedBytes,
-      countMediaParts(messages) - countMediaParts(stripped),
-      'media-stripped',
+      eviction.estimatedBytes,
+      eviction.evictedMediaCount,
+      eviction.projection,
     );
+    if (eviction.projection === 'media-degraded') {
+      const media = { degradeCount: eviction.degradeCount };
+      this.markMediaRecovery(request, media);
+      return { ...policy, media };
+    }
     return { ...policy, media: captureMediaStripPolicy() };
   }
 
@@ -930,7 +911,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       thinkingEffort: resolved.thinkingLevel,
       systemPrompt: overrides.systemPrompt ?? turnConfig?.systemPrompt ?? this.profile.getSystemPrompt(),
       tools: [...(overrides.tools ?? this.defaultTools())],
-      messages: [...messages],
+      messages,
       contextRevision: this.context.prefixRevision(),
       promptCacheProbe,
       source: overrides.source,
@@ -1166,7 +1147,7 @@ function projectionField(fields: AgentLLMRequestLogFields): LlmRequestProjection
 }
 
 function fingerprint(content: string): string {
-  return createHash('sha256').update(content).digest('hex');
+  return new Bun.CryptoHasher('sha256').update(content).digest('hex');
 }
 
 function apiStatusCode(error: unknown): number | undefined {
@@ -1199,26 +1180,6 @@ function apiTraceId(error: unknown): string | undefined {
     }
   }
   return undefined;
-}
-
-function byteLength(value: string | null | undefined): number {
-  return value === null || value === undefined ? 0 : Buffer.byteLength(value, 'utf8');
-}
-
-export function estimateLlmRequestBytes(messages: readonly Message[]): number {
-  let total = 0;
-  for (const message of messages) {
-    for (const part of message.content) {
-      if (part.type === 'text') total += byteLength(part.text);
-      else if (part.type === 'think') {
-        total += byteLength(part.think) + byteLength(part.encrypted);
-      } else if (part.type === 'image_url') total += byteLength(part.imageUrl.url);
-      else if (part.type === 'audio_url') total += byteLength(part.audioUrl.url);
-      else if (part.type === 'video_url') total += byteLength(part.videoUrl.url);
-    }
-    for (const call of message.toolCalls) total += byteLength(call.arguments);
-  }
-  return total;
 }
 
 registerScopedService(

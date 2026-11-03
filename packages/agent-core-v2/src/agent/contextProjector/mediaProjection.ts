@@ -4,8 +4,6 @@ import type { ContentPart } from '#human/llm/message';
 
 import type { MediaStripSnapshot } from './contextProjector';
 
-export const MEDIA_DEGRADE_KEEP_RECENT = 2;
-
 const MEDIA_DEGRADED_PLACEHOLDERS = {
   image_url:
     '[image omitted: dropped to fit the provider request size limit; re-read the file to view it]',

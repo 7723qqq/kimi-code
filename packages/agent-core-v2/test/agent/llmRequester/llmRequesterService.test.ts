@@ -15,6 +15,7 @@ import {
   type ProjectionPolicy,
 } from '#/agent/contextProjector/contextProjector';
 import { AgentContextProjectorService } from '#/agent/contextProjector/contextProjectorService';
+import { estimateLlmRequestBytes } from '#/agent/contextProjector/requestSize';
 import {
   DEFAULT_REQUEST_BYTE_BUDGET_BYTES,
   LlmRequesterConfigSchema,
@@ -23,7 +24,6 @@ import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
 import {
   AgentLLMRequesterService,
   KIMI_CODE_INFINITE_RETRY_ENV,
-  estimateLlmRequestBytes,
 } from '#/agent/llmRequester/llmRequesterService';
 import { createMachineRequester } from '#/agent/loop/machine/requester';
 import { IAgentMediaResolverService } from '#/agent/media/mediaResolver';

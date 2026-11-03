@@ -722,6 +722,7 @@ export * from '#/features/dateChange/dateChangeService';
 export * from '#/agent/contextProjector/contextProjector';
 export * from '#/agent/contextProjector/contextProjectorService';
 export * from '#/agent/contextProjector/mediaProjection';
+export * from '#/agent/contextProjector/requestSize';
 export * from '#/agent/tokenCounting/tokenCounting';
 export * from '#/agent/tokenCounting/tokenCountingOps';
 export * from '#/session/tokenCounting/sessionTokenCounting';
