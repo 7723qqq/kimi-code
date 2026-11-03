@@ -290,17 +290,24 @@ describe('AppendLogStore', () => {
     expect(await collect<Rec>(SCOPE, KEY)).toEqual([{ n: 1 }]);
   });
 
-  it('retries a failed append once storage recovers and writes the batch exactly once', async () => {
-    const failure = new Error('shared append failed');
+  it('recovers no-write and partial disk-full failures without releasing owners', async () => {
+    const failure = Object.assign(new Error('no space left on device'), { code: 'ENOSPC' });
     let reportFailure!: (error: unknown) => void;
     const reportedFailure = new Promise<unknown>((resolve) => {
       reportFailure = resolve;
     });
+    let diskFull = true;
+    let partialFailure = false;
     let appendAttempts = 0;
     const originalAppend = storage.append.bind(storage);
     storage.append = async (...args) => {
       appendAttempts++;
-      if (appendAttempts === 1) throw failure;
+      if (diskFull) {
+        if (partialFailure) {
+          await originalAppend(args[0], args[1], args[2].subarray(0, 5), args[3]);
+        }
+        throw failure;
+      }
       return originalAppend(...args);
     };
 
@@ -310,16 +317,38 @@ describe('AppendLogStore', () => {
     expect(await reportedFailure).toBe(failure);
 
     firstOwner.dispose();
-    await record.flush();
+    await expect(record.flush()).rejects.toBe(failure);
     expect(appendAttempts).toBe(2);
-    expect(await collect<Rec>(SCOPE, KEY)).toEqual([{ n: 1 }]);
 
-    finalOwner.dispose();
-    const replacementOwner = record.acquire(SCOPE, KEY);
+    diskFull = false;
     record.append(SCOPE, KEY, { n: 2 });
     await record.flush();
+
+    expect(appendAttempts).toBe(4);
     expect(await collect<Rec>(SCOPE, KEY)).toEqual([{ n: 1 }, { n: 2 }]);
-    replacementOwner.dispose();
+
+    diskFull = true;
+    partialFailure = true;
+    record.append(SCOPE, KEY, { n: 3 });
+    await expect(record.flush()).rejects.toBe(failure);
+
+    const readFailure = new Error('recovery read failed');
+    const originalReadStream = storage.readStream.bind(storage);
+    let failRead = true;
+    storage.readStream = async function* (scope, key, range) {
+      if (failRead) throw readFailure;
+      yield* originalReadStream(scope, key, range);
+    };
+    await expect(record.flush()).rejects.toBe(readFailure);
+    expect(appendAttempts).toBe(5);
+
+    failRead = false;
+    diskFull = false;
+    await record.flush();
+
+    expect(appendAttempts).toBe(6);
+    expect(await collect<Rec>(SCOPE, KEY)).toEqual([{ n: 1 }, { n: 2 }, { n: 3 }]);
+    finalOwner.dispose();
   });
 
   it('rewrite atomically replaces the whole log', async () => {
@@ -534,7 +563,7 @@ describe('AppendLogStore', () => {
     expect(await collect<Rec>(SCOPE, KEY)).toEqual([{ n: 9 }, { n: 2 }]);
   });
 
-  it('close waits for every key before reporting the first sticky failure', async () => {
+  it('close waits for every key before reporting the first append failure', async () => {
     const failedScope = 'agents/a';
     const pendingScope = 'agents/b';
     const failure = new Error('first key failed');
@@ -906,6 +935,27 @@ describe('AppendLogStore session lock integration', () => {
 
     log.append<Rec>(SCOPE, KEY, { n: 2 });
     await log.flush();
+    expect(log.externallyModified(SCOPE, KEY)).toBe(false);
+
+    appendFileSync(join(homeDir, SCOPE, KEY), `${JSON.stringify({ n: 3 })}\n`);
+    expect(log.externallyModified(SCOPE, KEY)).toBe(true);
+
+    const failure = new Error('append failed after external modification');
+    const originalAppend = storage.append.bind(storage);
+    let failAppend = true;
+    storage.append = async (...args) => {
+      if (failAppend) throw failure;
+      return originalAppend(...args);
+    };
+    log.append<Rec>(SCOPE, KEY, { n: 4 });
+    await expect(log.flush()).rejects.toBe(failure);
+    expect(log.externallyModified(SCOPE, KEY)).toBe(true);
+
+    failAppend = false;
+    await log.flush();
+    expect(log.externallyModified(SCOPE, KEY)).toBe(true);
+
+    await readAll();
     expect(log.externallyModified(SCOPE, KEY)).toBe(false);
   });
 
