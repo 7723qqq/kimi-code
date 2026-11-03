@@ -25,7 +25,11 @@ import { type AgentTaskSettlement } from '#/agent/task/types';
 import { IAgentToolActivationService } from '#/agent/toolActivation/toolActivation';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { SubagentToolInputSchema, type SubagentToolInput } from '#/agent/tools/agent/agent';
-import { SubagentTask } from '#/agent/tools/agent/subagent-task';
+import {
+  NO_PARTIAL_OUTPUT,
+  PARTIAL_OUTPUT_NOTICE,
+  SubagentTask,
+} from '#/agent/tools/agent/subagent-task';
 import { IAgentUserToolService, type UserToolRegistration } from '#/agent/userTool/userTool';
 import {
   normalizeAgentProfile,
@@ -76,6 +80,7 @@ import {
 import {
   DEFAULT_SUBAGENT_TIMEOUT_MS,
   SECONDARY_MODEL_SECTION,
+  SUBAGENT_SECTION,
 } from '#/session/subagent/configSection';
 import { TOOL_SELECT_FLAG_ID } from '#/agent/toolSelect/flag';
 import { SUBAGENT_FORK_FLAG_ID } from '#/session/subagent/flag';
@@ -314,6 +319,7 @@ interface AgentLifecycleStubOptions {
     request: AgentRunRequest,
     options: RunAgentOptions,
   ) => Promise<AgentRunCompletion>;
+  readonly partialOutput?: (agentId: string) => string;
   readonly createError?: Error;
   readonly handleServices?: ReadonlyMap<string, ReadonlyMap<unknown, unknown>>;
 }
@@ -512,7 +518,7 @@ function createAgentLifecycleStub(options: AgentLifecycleStubOptions = {}): Agen
         agentId: agent.agentId,
         turn: {} as AgentRunHandle['turn'],
         completion,
-        partialOutput: () => '',
+        partialOutput: () => options.partialOutput?.(agent.agentId) ?? '',
       };
     }),
     get: mock((agentId: string) => contextsByAgentId.get(agentId)),
@@ -3503,8 +3509,67 @@ describe('Agent tool execution contract', () => {
     expect(result.output).toContain('status: failed');
     expect(result.output).toContain('stop_reason: cancelled');
     expect(result.output).toContain('The subagent was stopped before it finished by user.');
+    expect(result.output).toContain(NO_PARTIAL_OUTPUT);
     expect(result.output).not.toContain('resume_hint:');
     expect(result.output).toContain('next_step: The user stopped this subagent.');
+  });
+
+  it('hands back the text a foreground subagent wrote before the user stopped it', async () => {
+    const lifecycle = createAgentLifecycleStub({
+      createAgentIds: ['agent-child'],
+      runCompletion: (_agentId, _request, options) =>
+        new Promise((_resolve, reject) => {
+          options.signal.addEventListener(
+            'abort',
+            () => {
+              reject(options.signal.reason);
+            },
+            { once: true },
+          );
+        }),
+      partialOutput: () => 'Found the loop at src/parser.ts:42; not verified yet.',
+    });
+    const context = createAgentToolContext(lifecycle);
+    const controller = new AbortController();
+
+    const resultPromise = executeAgentTool(
+      context,
+      { prompt: 'Investigate', description: 'Find cause' },
+      controller.signal,
+    );
+    await waitForAssertion(() => {
+      expect(context.get(IAgentTaskService).list(false)).toHaveLength(1);
+    });
+    controller.abort(userCancellationReason());
+    const result = await resultPromise;
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('status: failed');
+    expect(result.output).toContain('stop_reason: cancelled');
+    expect(result.output).toContain(
+      `${PARTIAL_OUTPUT_NOTICE}\n\nFound the loop at src/parser.ts:42; not verified yet.`,
+    );
+    expect(result.output).not.toContain(NO_PARTIAL_OUTPUT);
+    expect(result.output).toContain('next_step: The user stopped this subagent.');
+  });
+
+  it('keeps a completed foreground subagent result free of partial-output notices', async () => {
+    const lifecycle = createAgentLifecycleStub({
+      createAgentIds: ['agent-child'],
+      partialOutput: () => 'Working notes that should not be repeated.',
+    });
+    const context = createAgentToolContext(lifecycle);
+
+    const result = await executeAgentTool(context, {
+      prompt: 'Investigate',
+      description: 'Find cause',
+    });
+
+    expect(result.isError ?? false).toBe(false);
+    expect(result.output).toContain('status: completed');
+    expect(result.output).toContain('child result');
+    expect(result.output).not.toContain('[partial output]');
+    expect(result.output).not.toContain('Working notes that should not be repeated.');
   });
 
   it('reports the reason when a foreground subagent is stopped for another cause', async () => {
