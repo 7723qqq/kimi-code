@@ -76,6 +76,9 @@ packages/migration-legacy/test/resume.integration.test.ts
 # node-pty dropped in favour of Bun's built-in terminal support
 scripts/fix-node-pty-perms.mjs
 
+# Moved to scripts/test/release-trigger.test.ts
+scripts/release-trigger.test.mjs
+
 # Superseded by simple-git-hooks (the pre-commit hook is installed by the
 # `postinstall` script; DEVELOP.md documents simple-git-hooks + lint-staged).
 # The Node-era husky directory has no callers in this fork.

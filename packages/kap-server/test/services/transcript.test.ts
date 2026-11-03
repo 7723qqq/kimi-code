@@ -6044,6 +6044,85 @@ describe('WireRecordCache', () => {
       expect(JSON.stringify(snap4!.items)).not.toContain('fourth');
       expect(JSON.stringify(snap4!.items)).not.toContain('dead summary');
       expect(snap4).toEqual(await coldTranscriptService(home).readColdSnapshot('s1', 'main'));
+      expect(service.projections.size).toBe(1);
+      service.dropSession('s1');
+      expect(service.projections.size).toBe(0);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it('rebuilds when appended records change an already projected message boundary', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'wire-cache-retroactive-'));
+    try {
+      const wireDir = join(home, 'sessions', 'ws', 's1', 'agents', 'main');
+      await mkdir(wireDir, { recursive: true });
+      const wirePath = join(wireDir, 'wire.jsonl');
+      const input = [{ type: 'text', text: 'steered prompt' }];
+      await writeFile(
+        wirePath,
+        wireText([
+          { type: 'turn.steer', input, origin: { kind: 'user' }, time: 1 },
+          {
+            type: 'context.append_message',
+            message: {
+              id: 'prompt-1',
+              role: 'user',
+              content: input,
+              toolCalls: [],
+              origin: { kind: 'user' },
+            },
+            time: 2,
+          },
+        ]),
+      );
+      const service = coldTranscriptService(home);
+      await service.readColdSnapshot('s1', 'main');
+      await appendFile(
+        wirePath,
+        wireText([
+          {
+            type: 'turn.prompt',
+            turnId: 7,
+            promptId: 'prompt-1',
+            input,
+            origin: { kind: 'user' },
+            time: 3,
+          },
+        ]),
+      );
+      expect(await service.readColdSnapshot('s1', 'main')).toEqual(
+        await coldTranscriptService(home).readColdSnapshot('s1', 'main'),
+      );
+
+      await appendFile(
+        wirePath,
+        wireText([
+          {
+            type: 'context.append_loop_event',
+            event: { type: 'step.begin', uuid: 'step-1' },
+            time: 4,
+          },
+        ]),
+      );
+      await service.readColdSnapshot('s1', 'main');
+      await appendFile(
+        wirePath,
+        wireText([
+          {
+            type: 'context.append_loop_event',
+            event: {
+              type: 'content.part',
+              stepUuid: 'step-1',
+              part: { type: 'text', text: 'late answer' },
+            },
+            time: 5,
+          },
+        ]),
+      );
+      expect(await service.readColdSnapshot('s1', 'main')).toEqual(
+        await coldTranscriptService(home).readColdSnapshot('s1', 'main'),
+      );
       service.dropSession('s1');
     } finally {
       await rm(home, { recursive: true, force: true });

@@ -144,21 +144,38 @@ interface StepDraft {
 
 const FALLBACK_ORIGIN: TurnOrigin = { kind: 'other' };
 
+export interface HistoryProjectionOptions {
+  readonly taskOriginTurnTaskIds?: ReadonlySet<string>;
+  readonly steeredContents?: ReadonlyMap<string, ReadonlyMap<string, number>>;
+  readonly steeredByMessageId?: ReadonlyMap<string, readonly string[]>;
+  readonly turnPromptIds?: ReadonlySet<string>;
+}
+
+export interface HistoryMessageProjector {
+  syncOptions(options?: HistoryProjectionOptions): void;
+  add(message: HistoryMessage): void;
+  result(): AgentTranscriptSnapshot;
+}
+
 export function groupMessagesIntoSnapshot(
   messages: readonly HistoryMessage[],
-  options?: {
-    readonly taskOriginTurnTaskIds?: ReadonlySet<string>;
-    readonly steeredContents?: ReadonlyMap<string, ReadonlyMap<string, number>>;
-    readonly steeredByMessageId?: ReadonlyMap<string, readonly string[]>;
-    readonly turnPromptIds?: ReadonlySet<string>;
-  },
+  options?: HistoryProjectionOptions,
 ): AgentTranscriptSnapshot {
+  const projector = createHistoryMessageProjector();
+  projector.syncOptions(options);
+  for (const message of messages) projector.add(message);
+  return projector.result();
+}
+
+export function createHistoryMessageProjector(): HistoryMessageProjector {
   const items: TranscriptItem[] = [];
+  const turnIndices = new Map<string, number>();
   const attachments: TranscriptAttachment[] = [];
-  const steeredContents = new Map(
-    [...(options?.steeredContents ?? [])].map(([key, byKind]) => [key, new Map(byKind)]),
-  );
-  const steeredByMessageId = new Map(options?.steeredByMessageId);
+  const steeredContents = new Map<string, Map<string, number>>();
+  const consumedSteeredContents = new Map<string, Map<string, number>>();
+  const steeredByMessageId = new Map<string, readonly string[]>();
+  const consumedSteerMessageIds = new Set<string>();
+  let options: HistoryProjectionOptions | undefined;
   let turn: TurnDraft | undefined;
   let pendingNotificationFrames: {
     text: string;
@@ -170,6 +187,25 @@ export function groupMessagesIntoSnapshot(
   }[] = [];
   let nextOrdinal = 0;
   let markerCount = 0;
+
+  const syncOptions = (next?: HistoryProjectionOptions): void => {
+    options = next;
+    steeredByMessageId.clear();
+    for (const [id, promptIds] of next?.steeredByMessageId ?? []) {
+      if (!consumedSteerMessageIds.has(id)) steeredByMessageId.set(id, promptIds);
+    }
+    steeredContents.clear();
+    for (const [key, byKind] of next?.steeredContents ?? []) {
+      for (const [kind, total] of byKind) {
+        const consumed = consumedSteeredContents.get(key)?.get(kind) ?? 0;
+        const remaining = total - consumed;
+        if (remaining <= 0) continue;
+        const target = steeredContents.get(key) ?? new Map<string, number>();
+        target.set(kind, remaining);
+        steeredContents.set(key, target);
+      }
+    }
+  };
 
   const foldTurnOpeningInput = (
     message: HistoryMessage,
@@ -242,6 +278,7 @@ export function groupMessagesIntoSnapshot(
       const ordinal = nextOrdinal;
       nextOrdinal += 1;
       turn = { turnId: `t${ordinal}`, ordinal, origin, steps: [] };
+      turnIndices.set(turn.turnId, items.length);
       items.push(draftToTurnItem(turn));
     }
     return turn;
@@ -272,7 +309,7 @@ export function groupMessagesIntoSnapshot(
         promptIds: pending.promptIds,
         origin: pending.origin,
       });
-      syncTurnItem(items, targetTurn);
+      syncTurnItem(items, turnIndices, targetTurn);
     }
   };
 
@@ -295,6 +332,7 @@ export function groupMessagesIntoSnapshot(
       attachmentIds,
       steps: [],
     };
+    turnIndices.set(turn.turnId, items.length);
     items.push(draftToTurnItem(turn));
     return turn;
   };
@@ -320,7 +358,7 @@ export function groupMessagesIntoSnapshot(
   };
 
   let prevNonTaskRole: string | undefined;
-  for (const entry of messages) {
+  const add = (entry: HistoryMessage): void => {
     const content =
       entry.content === undefined ? undefined : withoutUserPromptSubmitHookParts(entry.content);
     const hookParts =
@@ -328,7 +366,7 @@ export function groupMessagesIntoSnapshot(
         ? []
         : entry.content.filter(isUserPromptSubmitHookPart);
     const message = content === entry.content ? entry : { ...entry, content };
-    if (message.role === 'system') continue;
+    if (message.role === 'system') return;
     const originKind = message.origin?.kind;
     const isTaskOrigin =
       originKind === 'task' ||
@@ -349,12 +387,12 @@ export function groupMessagesIntoSnapshot(
               : undefined;
           startTurn(mapOrigin(message), opening?.text || undefined, opening?.attachmentIds);
         }
-        continue;
+        return;
       }
       const markerKey = originKind !== undefined ? MARKER_USER_ORIGINS[originKind] : undefined;
       if (markerKey !== undefined && !isUserSlashOrigin(message.origin)) {
         pushMarker(markerKey, { text: textOf(message), origin: message.origin });
-        continue;
+        return;
       }
       const contentKey = JSON.stringify(message.content ?? []);
       const steerKind = originKind ?? 'user';
@@ -365,12 +403,20 @@ export function groupMessagesIntoSnapshot(
           ? steeredByMessageId.get(message.id)
           : undefined;
       const steeredById = steeredPromptIds !== undefined;
-      if (steeredById && message.id !== undefined) steeredByMessageId.delete(message.id);
+      if (steeredById && message.id !== undefined) {
+        steeredByMessageId.delete(message.id);
+        consumedSteerMessageIds.add(message.id);
+      }
       const steeredByKind =
         opensAsTurnPrompt || steeredById ? undefined : steeredContents.get(contentKey);
       const steeredRemaining = steeredByKind?.get(steerKind) ?? 0;
       if (steeredById || (steeredByKind !== undefined && steeredRemaining > 0)) {
-        if (!steeredById) steeredByKind!.set(steerKind, steeredRemaining - 1);
+        if (!steeredById) {
+          steeredByKind!.set(steerKind, steeredRemaining - 1);
+          const consumed = consumedSteeredContents.get(contentKey) ?? new Map<string, number>();
+          consumed.set(steerKind, (consumed.get(steerKind) ?? 0) + 1);
+          consumedSteeredContents.set(contentKey, consumed);
+        }
         const opening = foldTurnOpeningInput(extractBundledSkillMarkers(message));
         pendingNotificationFrames.push({
           text: opening.text,
@@ -383,10 +429,12 @@ export function groupMessagesIntoSnapshot(
               : undefined,
           steered: true,
         });
-        continue;
+        return;
       }
       if (markerKey !== undefined) {
-        const opening = isUserSlashOrigin(message.origin) ? foldTurnOpeningInput(message) : undefined;
+        const opening = isUserSlashOrigin(message.origin)
+          ? foldTurnOpeningInput(message)
+          : undefined;
         pushMarker(markerKey, { text: opening?.text ?? textOf(message), origin: message.origin });
         if (opening !== undefined) {
           startTurn(
@@ -396,7 +444,7 @@ export function groupMessagesIntoSnapshot(
             triggerPromptIdOf(message),
           );
         }
-        continue;
+        return;
       }
       if (isTaskOrigin) {
         const origin = message.origin as { taskId?: unknown } | undefined;
@@ -410,10 +458,10 @@ export function groupMessagesIntoSnapshot(
         if (opensOwn) {
           const opening = foldTurnOpeningInput(message);
           startTurn(mapOrigin(message), opening.text, opening.attachmentIds);
-          continue;
+          return;
         }
         pendingNotificationFrames.push({ text: notificationFrameText(textOf(message)), taskId });
-        continue;
+        return;
       }
       const bundled = bundledSkillActivations(message);
       if (bundled.length > 0) {
@@ -425,7 +473,7 @@ export function groupMessagesIntoSnapshot(
           opening.attachmentIds,
           triggerPromptIdOf(message),
         );
-        continue;
+        return;
       }
       const opening = foldTurnOpeningInput(message);
       startTurn(
@@ -434,7 +482,7 @@ export function groupMessagesIntoSnapshot(
         opening.attachmentIds,
         triggerPromptIdOf(message),
       );
-      continue;
+      return;
     }
 
     if (message.role === 'assistant') {
@@ -499,8 +547,8 @@ export function groupMessagesIntoSnapshot(
           input: parseArguments(call.arguments),
         });
       }
-      syncTurnItem(items, current);
-      continue;
+      syncTurnItem(items, turnIndices, current);
+      return;
     }
 
     if (message.role === 'tool') {
@@ -514,14 +562,47 @@ export function groupMessagesIntoSnapshot(
           error: message.isError ? output : undefined,
         };
         replaceToolFrame(turn!, message.toolCallId!, patched);
-        syncTurnItem(items, turn!);
+        syncTurnItem(items, turnIndices, turn!);
       }
     }
-  }
+  };
 
-  flushSteeredLeftovers();
+  const snapshot = (): AgentTranscriptSnapshot => ({
+    items: [...items],
+    tasks: [],
+    interactions: [],
+    attachments: [...attachments],
+    todos: [],
+    prompts: [],
+    meta: {},
+  });
 
-  return { items, tasks: [], interactions: [], attachments, todos: [], prompts: [], meta: {} };
+  const result = (): AgentTranscriptSnapshot => {
+    if (!pendingNotificationFrames.some((pending) => pending.steered)) return snapshot();
+    const savedItems = [...items];
+    const savedTurnIndices = new Map(turnIndices);
+    const savedTurn = turn;
+    const savedPending = pendingNotificationFrames;
+    const savedNextOrdinal = nextOrdinal;
+    if (turn !== undefined) {
+      turn = {
+        ...turn,
+        steps: turn.steps.map((step) => ({ ...step, frames: [...step.frames] })),
+      };
+    }
+    flushSteeredLeftovers();
+    const output = snapshot();
+    items.length = 0;
+    items.push(...savedItems);
+    turnIndices.clear();
+    for (const [id, index] of savedTurnIndices) turnIndices.set(id, index);
+    turn = savedTurn;
+    pendingNotificationFrames = savedPending;
+    nextOrdinal = savedNextOrdinal;
+    return output;
+  };
+
+  return { syncOptions, add, result };
 }
 
 function notificationFrameText(text: string): string {
@@ -669,9 +750,13 @@ function draftToTurnItem(draft: TurnDraft): TranscriptItem {
   };
 }
 
-function syncTurnItem(items: TranscriptItem[], draft: TurnDraft): void {
-  const index = items.findIndex((entry) => entry.kind === 'turn' && entry.turnId === draft.turnId);
-  if (index >= 0) items[index] = draftToTurnItem(draft);
+function syncTurnItem(
+  items: TranscriptItem[],
+  indices: ReadonlyMap<string, number>,
+  draft: TurnDraft,
+): void {
+  const index = indices.get(draft.turnId);
+  if (index !== undefined) items[index] = draftToTurnItem(draft);
 }
 
 function currentTurnToolFrame(

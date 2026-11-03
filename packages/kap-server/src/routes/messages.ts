@@ -16,6 +16,7 @@ import {
   MessageNotFoundError,
   SessionNotFoundError,
 } from '../services/messages/messageHistory';
+import type { WireProjectionService } from '../services/transcript/wireProjection';
 
 interface MessageRouteHost {
   get(
@@ -52,7 +53,11 @@ const messageIdParamSchema = z.object({
   message_id: z.string().min(1),
 });
 
-export function registerMessagesRoutes(app: MessageRouteHost, core: Scope): void {
+export function registerMessagesRoutes(
+  app: MessageRouteHost,
+  core: Scope,
+  projections: WireProjectionService,
+): void {
   const listRoute = defineRoute(
     {
       method: 'GET',
@@ -71,7 +76,7 @@ export function registerMessagesRoutes(app: MessageRouteHost, core: Scope): void
     async (req, reply) => {
       try {
         const { session_id } = req.params;
-        const page = await listMessages(core, session_id, req.query);
+        const page = await listMessages(core, session_id, req.query, projections);
         reply.send(okEnvelope(page, req.id));
       } catch (error) {
         sendMappedError(reply, req, error);
@@ -101,7 +106,7 @@ export function registerMessagesRoutes(app: MessageRouteHost, core: Scope): void
     async (req, reply) => {
       try {
         const { session_id, message_id } = req.params;
-        const message = await getMessage(core, session_id, message_id);
+        const message = await getMessage(core, session_id, message_id, projections);
         reply.send(okEnvelope(message, req.id));
       } catch (error) {
         sendMappedError(reply, req, error);

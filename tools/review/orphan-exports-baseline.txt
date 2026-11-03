@@ -46,6 +46,7 @@ extractFromWireLine  packages/kap-server/src/search/wireExtract.ts
 fetchWorkspaceSnapshot  apps/kimi-inspect/src/snapshots/api.ts
 findAltScreenSearchMatches  packages/pi-tui/src/alt-screen-search.ts
 flushTelemetrySync  packages/telemetry/src/index.ts
+foldWireRecordFacts  packages/transcript/src/history/foldFacts.ts
 followWorkspaceHandlers  packages/agent-core-v2/src/app/sessionManager/sessionLookup.ts
 formatGitBadge  apps/kimi-code/src/utils/git/git-status.ts
 fromLlmMessage  packages/agent-core-v2/src/llm-adapter/contract/message.ts
@@ -70,6 +71,7 @@ readCompoundIndexImage  packages/minidb/src/gen-codec.ts
 readSecondaryIndexImage  packages/minidb/src/gen-codec.ts
 readStdinText  apps/kimi-code/src/utils/process/stdin.ts
 readTextDocsImage  packages/minidb/src/gen-codec.ts
+reduceContextTranscript  packages/agent-core-v2/src/agent/contextMemory/contextTranscript.ts
 refreshCacheHintConfigInBackground  apps/kimi-code/src/utils/cache-hint-config.ts
 renderDiffLines  apps/kimi-code/src/tui/components/media/diff-preview.ts
 renderHeaderContent  apps/kimi-code/src/tui/components/messages/truncated-header-line.ts

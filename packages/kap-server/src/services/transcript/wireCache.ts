@@ -8,6 +8,13 @@ export interface ContextRecord {
 export interface WireRecordCacheOptions {
   readonly maxEntries?: number;
   readonly maxTotalBytes?: number;
+  readonly onEvict?: (wirePath: string) => void;
+}
+
+export interface WireRecordSnapshot {
+  readonly records: ContextRecord[];
+  readonly generation: number;
+  readonly revision: number;
 }
 
 const DEFAULT_MAX_ENTRIES = 256;
@@ -18,10 +25,13 @@ interface WireCacheEntry {
   offset: number;
   size: number;
   mtimeMs: number;
+  ctimeMs: number;
   ino: number;
   lineCount: number;
   records: ContextRecord[];
   tail: Buffer;
+  generation: number;
+  revision: number;
   chain: Promise<void>;
 }
 
@@ -29,27 +39,43 @@ export class WireRecordCache {
   private readonly entries = new Map<string, WireCacheEntry>();
   private readonly maxEntries: number;
   private readonly maxTotalBytes: number;
+  private readonly onEvict?: (wirePath: string) => void;
 
   constructor(options: WireRecordCacheOptions = {}) {
     this.maxEntries = options.maxEntries ?? DEFAULT_MAX_ENTRIES;
     this.maxTotalBytes = options.maxTotalBytes ?? DEFAULT_MAX_TOTAL_BYTES;
+    this.onEvict = options.onEvict;
   }
 
   get size(): number {
     return this.entries.size;
   }
 
-  read(wirePath: string): Promise<ContextRecord[]> {
+  async read(wirePath: string): Promise<ContextRecord[]> {
+    return (await this.readSnapshot(wirePath)).records;
+  }
+
+  delete(wirePath: string): void {
+    const entry = this.entries.get(wirePath);
+    if (entry === undefined) return;
+    this.entries.delete(wirePath);
+    this.onEvict?.(wirePath);
+  }
+
+  readSnapshot(wirePath: string): Promise<WireRecordSnapshot> {
     let entry = this.entries.get(wirePath);
     if (entry === undefined) {
       entry = {
         offset: 0,
         size: 0,
         mtimeMs: 0,
+        ctimeMs: 0,
         ino: 0,
         lineCount: 0,
         records: [],
         tail: EMPTY_BUFFER,
+        generation: 0,
+        revision: 0,
         chain: Promise.resolve(),
       };
     } else {
@@ -64,7 +90,7 @@ export class WireRecordCache {
     return run;
   }
 
-  private async sync(wirePath: string, entry: WireCacheEntry): Promise<ContextRecord[]> {
+  private async sync(wirePath: string, entry: WireCacheEntry): Promise<WireRecordSnapshot> {
     let st: Awaited<ReturnType<typeof stat>>;
     try {
       st = await stat(wirePath);
@@ -75,22 +101,31 @@ export class WireRecordCache {
     const replaced = entry.ino !== 0 && st.ino !== entry.ino;
     const shrank = st.size < entry.size;
     const rewrittenInPlace =
-      entry.ino !== 0 && st.size === entry.size && st.mtimeMs !== entry.mtimeMs;
+      entry.ino !== 0 &&
+      st.size === entry.size &&
+      (st.mtimeMs !== entry.mtimeMs || st.ctimeMs !== entry.ctimeMs);
     if (replaced || shrank || rewrittenInPlace) {
       entry.offset = 0;
       entry.size = 0;
       entry.lineCount = 0;
       entry.records = [];
       entry.tail = EMPTY_BUFFER;
+      entry.generation += 1;
+      entry.revision += 1;
     }
     if (st.size > entry.size) {
       await this.readAppended(wirePath, entry, st.size);
     }
     entry.size = entry.offset + entry.tail.length;
     entry.mtimeMs = st.mtimeMs;
+    entry.ctimeMs = st.ctimeMs;
     entry.ino = st.ino;
     this.trimOverflow(wirePath);
-    return snapshotRecords(entry);
+    return {
+      records: snapshotRecords(entry),
+      generation: entry.generation,
+      revision: entry.revision,
+    };
   }
 
   private async readAppended(wirePath: string, entry: WireCacheEntry, size: number): Promise<void> {
@@ -133,10 +168,13 @@ export class WireRecordCache {
     entry.lineCount = lineCount;
     entry.offset += start;
     entry.tail = start === region.length ? EMPTY_BUFFER : Buffer.from(region.subarray(start));
+    entry.revision += 1;
   }
 
   private evict(wirePath: string, entry: WireCacheEntry): void {
-    if (this.entries.get(wirePath) === entry) this.entries.delete(wirePath);
+    if (this.entries.get(wirePath) !== entry) return;
+    this.entries.delete(wirePath);
+    this.onEvict?.(wirePath);
   }
 
   private trimOverflow(keepPath: string): void {
@@ -146,6 +184,7 @@ export class WireRecordCache {
       if (this.entries.size <= this.maxEntries && total <= this.maxTotalBytes) return;
       if (path === keepPath) continue;
       this.entries.delete(path);
+      this.onEvict?.(path);
       total -= entry.size;
     }
   }

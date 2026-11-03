@@ -1,9 +1,10 @@
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
+  IAgentBlobService,
   IAgentContextMemoryService,
   IAgentLifecycleService,
   IWireService,
@@ -279,6 +280,36 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
     expect(body.data.items.every((m) => m.role === 'user')).toBe(true);
     expect(body.data.items).toHaveLength(2);
     expect(body.data.items.every((m) => MSG_ID.test(m.id))).toBe(true);
+  });
+
+  it('rehydrates only the appended suffix across repeated reads', async () => {
+    const id = await createSession();
+    await seedMainAgentMessages(id, [
+      { role: 'user', content: [{ type: 'text', text: 'first' }], toolCalls: [] },
+      { role: 'assistant', content: [{ type: 'text', text: 'second' }], toolCalls: [] },
+    ]);
+    const session = getLiveSessionById(server!.core.accessor, id)!;
+    const agent = session.accessor.get(IAgentLifecycleService).handleOf('main')!;
+    const loadParts = spyOn(agent.accessor.get(IAgentBlobService), 'loadParts');
+    try {
+      const first = await getJson<PageWire>(`/api/v1/sessions/${id}/messages?page_size=100`);
+      expect(first.body.data.items).toHaveLength(2);
+      expect(loadParts).toHaveBeenCalledTimes(2);
+
+      const second = await getJson<PageWire>(`/api/v1/sessions/${id}/messages?page_size=100`);
+      expect(second.body.data).toEqual(first.body.data);
+      expect(loadParts).toHaveBeenCalledTimes(2);
+
+      await seedMainAgentMessages(id, [
+        { role: 'user', content: [{ type: 'text', text: 'third' }], toolCalls: [] },
+      ]);
+      const third = await getJson<PageWire>(`/api/v1/sessions/${id}/messages?page_size=100`);
+      expect(third.body.data.items).toHaveLength(3);
+      expect(third.body.data.items.slice(1)).toEqual(first.body.data.items);
+      expect(loadParts).toHaveBeenCalledTimes(3);
+    } finally {
+      loadParts.mockRestore();
+    }
   });
 
   it('reads the persisted full transcript for a cold session', async () => {

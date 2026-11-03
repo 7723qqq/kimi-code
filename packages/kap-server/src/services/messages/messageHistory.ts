@@ -1,23 +1,14 @@
 import {
-  AGENT_WIRE_RECORD_KEY,
-  IAgentBlobService,
-  IAgentContextMemoryService,
-  IAgentScopeContext,
-  IAppendLogStore,
   ISessionIndex,
   IWireService,
-  createContextTranscriptReducer,
   resumeSessionById,
-  type ContextMessage,
-  type ContextTranscript,
   type IAgentScopeHandle,
   type Scope,
-  type WireRecord,
 } from '@moonshot-ai/agent-core-v2';
 
 import type { Message, MessageRole } from '../../protocol/message';
 import { ensureMainAgent } from '../../transport/mainAgent';
-import { toProtocolMessage } from './messageProjection';
+import type { WireProjectionService } from '../transcript/wireProjection';
 
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 100;
@@ -67,36 +58,51 @@ export async function listMessages(
   core: Scope,
   sessionId: string,
   query: MessageListQuery,
+  projections: WireProjectionService,
 ): Promise<PageResponse<Message>> {
-  const all = await loadMessages(core, sessionId);
-  const desc = [...all].reverse();
+  const all = await loadMessages(core, sessionId, projections);
+  const descendingIndex = (id: string): number => {
+    for (let index = all.length - 1, descending = 0; index >= 0; index--, descending++) {
+      if (all[index]!.id === id) return descending;
+    }
+    return -1;
+  };
 
-  let slice: Message[];
+  let start = 0;
+  let end = all.length;
   if (query.before_id !== undefined) {
-    const pivotIndex = desc.findIndex((m) => m.id === query.before_id);
+    const pivotIndex = descendingIndex(query.before_id);
     if (pivotIndex < 0) throw new MessageCursorNotFoundError(query.before_id);
-    slice = desc.slice(pivotIndex + 1);
+    start = pivotIndex + 1;
   } else if (query.after_id !== undefined) {
-    const pivotIndex = desc.findIndex((m) => m.id === query.after_id);
+    const pivotIndex = descendingIndex(query.after_id);
     if (pivotIndex < 0) throw new MessageCursorNotFoundError(query.after_id);
-    slice = desc.slice(0, pivotIndex);
-  } else {
-    slice = desc;
+    end = pivotIndex;
   }
-
-  const filtered = query.role !== undefined ? slice.filter((m) => m.role === query.role) : slice;
 
   const requestedSize = query.page_size ?? DEFAULT_PAGE_SIZE;
   const pageSize = Math.min(Math.max(requestedSize, 1), MAX_PAGE_SIZE);
-  return { items: filtered.slice(0, pageSize), has_more: filtered.length > pageSize };
+  const items: Message[] = [];
+  let hasMore = false;
+  for (let index = start; index < end; index++) {
+    const message = all[all.length - 1 - index]!;
+    if (query.role !== undefined && message.role !== query.role) continue;
+    if (items.length === pageSize) {
+      hasMore = true;
+      break;
+    }
+    items.push(message);
+  }
+  return { items, has_more: hasMore };
 }
 
 export async function getMessage(
   core: Scope,
   sessionId: string,
   messageId: string,
+  projections: WireProjectionService,
 ): Promise<Message> {
-  const all = await loadMessages(core, sessionId);
+  const all = await loadMessages(core, sessionId, projections);
   const entry = all.find((m) => m.id === messageId);
   if (entry === undefined) {
     throw new MessageNotFoundError(sessionId, messageId);
@@ -104,7 +110,11 @@ export async function getMessage(
   return entry;
 }
 
-async function loadMessages(core: Scope, sessionId: string): Promise<Message[]> {
+async function loadMessages(
+  core: Scope,
+  sessionId: string,
+  projections: WireProjectionService,
+): Promise<Message[]> {
   const summary = await core.accessor.get(ISessionIndex).get(sessionId);
   if (summary === undefined) {
     throw new SessionNotFoundError(sessionId);
@@ -113,74 +123,15 @@ async function loadMessages(core: Scope, sessionId: string): Promise<Message[]> 
   const session = await resumeSessionById(core.accessor, sessionId);
   if (session === undefined) return [];
   const agent = await ensureMainAgent(session);
-
-  return loadMessageHistory(core, agent, sessionId, summary.createdAt);
+  return loadMessageHistory(agent, sessionId, summary.createdAt, projections);
 }
 
 export async function loadMessageHistory(
-  core: Scope,
   agent: IAgentScopeHandle,
   sessionId: string,
   sessionCreatedAtMs: number,
+  projections: WireProjectionService,
 ): Promise<Message[]> {
-  const transcript = await readTranscript(core, agent);
-  const contextMessages = agent.accessor.get(IAgentContextMemoryService).get();
-  const merged = mergeLiveTail(transcript, contextMessages);
-  const entries = await rehydrate(agent, merged.messages);
-
-  let previousMs = Number.NEGATIVE_INFINITY;
-  return entries.map((msg, index) => {
-    const baseMs = merged.times[index] ?? sessionCreatedAtMs + index;
-    const createdAtMs = Math.max(previousMs + 1, baseMs);
-    previousMs = createdAtMs;
-    return toProtocolMessage(sessionId, index, msg, sessionCreatedAtMs, createdAtMs);
-  });
-}
-
-async function rehydrate(
-  agent: IAgentScopeHandle,
-  messages: readonly ContextMessage[],
-): Promise<readonly ContextMessage[]> {
-  const blobs = agent.accessor.get(IAgentBlobService);
-  let changed = false;
-  const out: ContextMessage[] = [];
-  for (const msg of messages) {
-    const content = await blobs.loadParts(msg.content);
-    if (content === msg.content) {
-      out.push(msg);
-      continue;
-    }
-    changed = true;
-    out.push({ ...msg, content: [...content] });
-  }
-  return changed ? out : messages;
-}
-
-async function readTranscript(core: Scope, agent: IAgentScopeHandle): Promise<ContextTranscript> {
   await agent.accessor.get(IWireService).flush();
-  const scope = agent.accessor.get(IAgentScopeContext).scope();
-  const reducer = createContextTranscriptReducer();
-  for await (const record of core.accessor
-    .get(IAppendLogStore)
-    .read<WireRecord>(scope, AGENT_WIRE_RECORD_KEY)) {
-    reducer.add(record);
-  }
-  return reducer.result();
-}
-
-function mergeLiveTail(
-  transcript: ContextTranscript,
-  contextMessages: readonly ContextMessage[],
-): {
-  readonly messages: readonly ContextMessage[];
-  readonly times: readonly (number | undefined)[];
-} {
-  if (contextMessages.length <= transcript.foldedLength) {
-    return { messages: transcript.entries, times: transcript.times };
-  }
-  const tail = contextMessages.slice(transcript.foldedLength);
-  return {
-    messages: [...transcript.entries, ...tail],
-    times: [...transcript.times, ...tail.map(() => undefined)],
-  };
+  return projections.readMessages(agent, sessionId, sessionCreatedAtMs);
 }

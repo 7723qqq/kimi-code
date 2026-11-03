@@ -31,6 +31,7 @@ import {
 import { sessionSnapshotResponseSchema } from '../src/protocol/rest-snapshot';
 import { emptySessionUsage } from '../src/protocol/session';
 import { registerSnapshotRoutes } from '../src/routes/snapshot';
+import { WireProjectionService } from '../src/services/transcript/wireProjection';
 import { type RunningServer, startServer } from '../src/start';
 import { authHeaders } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
@@ -183,6 +184,7 @@ describe('server-v2 snapshot route enrichment', () => {
       {
         core: core as never,
         broadcaster: broadcaster as never,
+        projections: new WireProjectionService(join(tmpdir(), 'kimi-snapshot-empty-wire')),
       },
     );
 
@@ -327,6 +329,7 @@ describe('server-v2 snapshot route enrichment', () => {
       {
         core: core as never,
         broadcaster: broadcaster as never,
+        projections: new WireProjectionService(join(tmpdir(), 'kimi-snapshot-empty-wire')),
       },
     );
 

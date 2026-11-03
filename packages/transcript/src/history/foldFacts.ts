@@ -174,15 +174,32 @@ function readTodoItems(raw: unknown): TodoItem[] {
   return items;
 }
 
+export interface WireRecordFactsProjector {
+  syncBase(base: AgentTranscriptSnapshot): void;
+  add(record: HistoryWireRecord): void;
+  result(base: AgentTranscriptSnapshot): AgentTranscriptSnapshot;
+}
+
+export interface WireRecordFactsProjectionOptions {
+  readonly agentId?: string;
+  readonly resolvePlanRevisionKey?: (key: string) => string;
+  readonly activeWireTurnId?: number;
+}
+
 export function foldWireRecordFacts(
   records: Iterable<HistoryWireRecord>,
   base: AgentTranscriptSnapshot,
-  options?: {
-    readonly agentId?: string;
-    readonly resolvePlanRevisionKey?: (key: string) => string;
-    readonly activeWireTurnId?: number;
-  },
+  options?: WireRecordFactsProjectionOptions,
 ): AgentTranscriptSnapshot {
+  const projector = createWireRecordFactsProjector(options);
+  projector.syncBase(base);
+  for (const record of records) projector.add(record);
+  return projector.result(base);
+}
+
+export function createWireRecordFactsProjector(
+  options?: WireRecordFactsProjectionOptions,
+): WireRecordFactsProjector {
   const tasks = new Map<string, TranscriptTask>();
   const interactions = new Map<string, TranscriptInteraction>();
   const endedTurns = new Map<number, HistoryWireRecord>();
@@ -218,14 +235,16 @@ export function foldWireRecordFacts(
   const activeCancelTurnIds = new Set<number>();
   let markerSeq = 0;
   const usedRefIds = new Set<string>();
-  for (const item of base.items) {
-    if (item.kind === 'marker') {
-      const match = /^m(\d+)$/.exec(item.markerId);
-      if (match !== null) markerSeq = Math.max(markerSeq, Number(match[1]));
-    } else if (item.kind === 'taskref') {
-      usedRefIds.add(item.refId);
+  const syncBase = (base: AgentTranscriptSnapshot): void => {
+    for (const item of base.items) {
+      if (item.kind === 'marker') {
+        const match = /^m(\d+)$/.exec(item.markerId);
+        if (match !== null) markerSeq = Math.max(markerSeq, Number(match[1]));
+      } else if (item.kind === 'taskref') {
+        usedRefIds.add(item.refId);
+      }
     }
-  }
+  };
   const pushMarker = (marker: string, record: HistoryWireRecord): void => {
     markerSeq += 1;
     const item: TranscriptMarker = {
@@ -295,7 +314,7 @@ export function foldWireRecordFacts(
     }
   };
 
-  for (const record of records) {
+  const add = (record: HistoryWireRecord): void => {
     switch (record.type) {
       case 'subagent.spawned': {
         if (options?.agentId !== undefined && record['parentAgentId'] !== options.agentId) break;
@@ -322,9 +341,7 @@ export function foldWireRecordFacts(
               runInBackground: record['runInBackground'] === true,
               model: typeof record['model'] === 'string' ? record['model'] : undefined,
               thinkingEffort:
-                typeof record['thinkingEffort'] === 'string'
-                  ? record['thinkingEffort']
-                  : undefined,
+                typeof record['thinkingEffort'] === 'string' ? record['thinkingEffort'] : undefined,
             },
             recordTimeIso(record),
           ),
@@ -642,271 +659,282 @@ export function foldWireRecordFacts(
       default:
         break;
     }
-  }
-
-  for (const [id, entity] of interactions) {
-    if (entity.state === 'pending') {
-      interactions.set(id, { ...entity, state: 'cancelled' });
-    }
-  }
-
-  const baseTurns = base.items.filter((item): item is TranscriptTurn => item.kind === 'turn');
-  const ordinalByPromptId = new Map(
-    baseTurns.flatMap((turn) =>
-      turn.triggerPromptId === undefined ? [] : [[turn.triggerPromptId, turn.ordinal] as const],
-    ),
-  );
-  const claimedOrdinals = new Set<number>();
-  const ordinalByRawTurnId = new Map<number, number>();
-  const claimBaseOrdinal = (
-    predicate: (turn: TranscriptTurn) => boolean = () => true,
-  ): number | undefined => {
-    const turn = baseTurns.find(
-      (candidate) => !claimedOrdinals.has(candidate.ordinal) && predicate(candidate),
-    );
-    if (turn === undefined) return undefined;
-    claimedOrdinals.add(turn.ordinal);
-    return turn.ordinal;
   };
-  const lastRawTurnId = Math.max(nextTurnId - 1, ...endedTurns.keys(), ...interruptedSteps.keys());
-  const rawTurnIds = Array.from({ length: lastRawTurnId + 1 }, (_, turnId) => turnId).filter(
-    (turnId) =>
-      !hiddenTurnIds.has(turnId) &&
-      (!hasExplicitTurnId ||
-        turnOrigins.has(turnId) ||
-        endedTurns.has(turnId) ||
-        interruptedSteps.has(turnId)),
-  );
-  for (const turnId of rawTurnIds) {
-    const promptId = turnPromptIds.get(turnId);
-    const matchedOrdinal = promptId === undefined ? undefined : ordinalByPromptId.get(promptId);
-    if (matchedOrdinal !== undefined && !claimedOrdinals.has(matchedOrdinal)) {
-      claimedOrdinals.add(matchedOrdinal);
-      ordinalByRawTurnId.set(turnId, matchedOrdinal);
-    }
-  }
-  for (const turnId of rawTurnIds) {
-    if (ordinalByRawTurnId.has(turnId)) continue;
-    const origin = turnOrigins.get(turnId);
-    const strictOrigin = turnOrigins.has(turnId) && !isUndoAnchorTurnOrigin(origin);
-    if (!strictOrigin) continue;
-    const originKind = mapTurnOrigin(origin).kind;
-    const fallbackOrdinal = claimBaseOrdinal(
-      (candidate) =>
-        candidate.triggerPromptId === undefined && candidate.origin.kind === originKind,
-    );
-    if (fallbackOrdinal !== undefined) ordinalByRawTurnId.set(turnId, fallbackOrdinal);
-  }
-  for (const turnId of rawTurnIds) {
-    if (ordinalByRawTurnId.has(turnId)) continue;
-    const promptId = turnPromptIds.get(turnId);
-    const origin = turnOrigins.get(turnId);
-    const strictOrigin = turnOrigins.has(turnId) && !isUndoAnchorTurnOrigin(origin);
-    if (promptId === undefined || strictOrigin) continue;
-    const emptyPromptOrdinal = claimBaseOrdinal(
-      (candidate) => candidate.triggerPromptId === undefined && candidate.origin.kind === 'other',
-    );
-    if (emptyPromptOrdinal !== undefined) {
-      ordinalByRawTurnId.set(turnId, emptyPromptOrdinal);
-    }
-  }
-  for (const turnId of rawTurnIds) {
-    if (ordinalByRawTurnId.has(turnId)) continue;
-    const promptId = turnPromptIds.get(turnId);
-    const origin = turnOrigins.get(turnId);
-    const strictOrigin = turnOrigins.has(turnId) && !isUndoAnchorTurnOrigin(origin);
-    if (promptId !== undefined || strictOrigin) continue;
-    const fallbackOrdinal = claimBaseOrdinal();
-    if (fallbackOrdinal !== undefined) ordinalByRawTurnId.set(turnId, fallbackOrdinal);
-  }
 
-  const endedByOrdinal = new Map<number, HistoryWireRecord>();
-  for (const [turnId, record] of endedTurns) {
-    const ordinal = ordinalByRawTurnId.get(turnId);
-    if (ordinal !== undefined) endedByOrdinal.set(ordinal, record);
-  }
-
-  const interruptedByOrdinal = new Map<number, Map<number, HistoryWireRecord>>();
-  for (const [turnId, steps] of interruptedSteps) {
-    const ordinal = ordinalByRawTurnId.get(turnId);
-    if (ordinal !== undefined) interruptedByOrdinal.set(ordinal, steps);
-  }
-
-  const items =
-    endedByOrdinal.size > 0 || interruptedByOrdinal.size > 0
-      ? base.items.map((item) => {
-          if (item.kind !== 'turn') return item;
-          const record = endedByOrdinal.get(item.ordinal);
-          const interrupted = interruptedByOrdinal.get(item.ordinal);
-          if (record === undefined && interrupted === undefined) return item;
-          const steps = ((): TranscriptTurn['steps'] => {
-            if (interrupted === undefined) return item.steps;
-            const hitOrdinals = new Set<number>();
-            const patched = item.steps.map((step) => {
-              const hit = interrupted.get(step.ordinal);
-              if (hit === undefined) return step;
-              const stepPayload = hit as TurnStepInterruptedPayload;
-              if (typeof stepPayload.reason !== 'string') return step;
-              hitOrdinals.add(step.ordinal);
-              return {
-                ...step,
-                state: 'interrupted' as const,
-                endedAt: recordTimeIso(hit) ?? step.endedAt,
-                endReason: stepPayload.reason,
-                endMessage:
-                  typeof stepPayload.message === 'string' ? stepPayload.message : undefined,
-              };
-            });
-            for (const [stepOrdinal, hit] of interrupted) {
-              if (hitOrdinals.has(stepOrdinal)) continue;
-              const stepPayload = hit as TurnStepInterruptedPayload;
-              if (typeof stepPayload.reason !== 'string') continue;
-              patched.push({
-                kind: 'step',
-                stepId: `${item.turnId}.${stepOrdinal}`,
-                turnId: item.turnId,
-                ordinal: stepOrdinal,
-                state: 'interrupted',
-                frames: [],
-                endedAt: recordTimeIso(hit),
-                endReason: stepPayload.reason,
-                endMessage:
-                  typeof stepPayload.message === 'string' ? stepPayload.message : undefined,
-              });
-            }
-            return patched.toSorted((a, b) => a.ordinal - b.ordinal);
-          })();
-          if (record === undefined) return { ...item, steps };
-          const payload = record as TurnEndedPayload;
-          return {
-            ...item,
-            steps,
-            state: mapTurnEndState(payload.reason) ?? item.state,
-            endedAt: recordTimeIso(record) ?? item.endedAt,
-            durationMs:
-              typeof payload.durationMs === 'number' ? payload.durationMs : item.durationMs,
-            error: readTurnErrorMessage(payload.error) ?? item.error,
-          };
-        })
-      : base.items;
-
-  const wireIdByOrdinal = new Map<number, number>();
-  if (hasExplicitTurnId) {
-    for (const [rawTurnId, ordinal] of ordinalByRawTurnId) {
-      wireIdByOrdinal.set(ordinal, rawTurnId);
-    }
-  }
-  const wedgedTurnIds = new Set<number>();
-  if (wireIdByOrdinal.size > 0) {
-    let latestPromptTurnId: number | undefined;
-    for (const rawTurnId of turnOrigins.keys()) {
-      if (latestPromptTurnId === undefined || rawTurnId > latestPromptTurnId) {
-        latestPromptTurnId = rawTurnId;
+  const result = (base: AgentTranscriptSnapshot): AgentTranscriptSnapshot => {
+    const projectedInteractions = new Map(interactions);
+    for (const [id, entity] of projectedInteractions) {
+      if (entity.state === 'pending') {
+        projectedInteractions.set(id, { ...entity, state: 'cancelled' });
       }
     }
-    for (const rawTurnId of turnOrigins.keys()) {
-      if (endedTurns.has(rawTurnId) || activeCancelTurnIds.has(rawTurnId)) continue;
-      if (rawTurnId === latestPromptTurnId && options?.activeWireTurnId === rawTurnId) continue;
-      wedgedTurnIds.add(rawTurnId);
+
+    const baseTurns = base.items.filter((item): item is TranscriptTurn => item.kind === 'turn');
+    const ordinalByPromptId = new Map(
+      baseTurns.flatMap((turn) =>
+        turn.triggerPromptId === undefined ? [] : [[turn.triggerPromptId, turn.ordinal] as const],
+      ),
+    );
+    const claimedOrdinals = new Set<number>();
+    const ordinalByRawTurnId = new Map<number, number>();
+    const claimBaseOrdinal = (
+      predicate: (turn: TranscriptTurn) => boolean = () => true,
+    ): number | undefined => {
+      const turn = baseTurns.find(
+        (candidate) => !claimedOrdinals.has(candidate.ordinal) && predicate(candidate),
+      );
+      if (turn === undefined) return undefined;
+      claimedOrdinals.add(turn.ordinal);
+      return turn.ordinal;
+    };
+    const lastRawTurnId = Math.max(
+      nextTurnId - 1,
+      ...endedTurns.keys(),
+      ...interruptedSteps.keys(),
+    );
+    const rawTurnIds = Array.from({ length: lastRawTurnId + 1 }, (_, turnId) => turnId).filter(
+      (turnId) =>
+        !hiddenTurnIds.has(turnId) &&
+        (!hasExplicitTurnId ||
+          turnOrigins.has(turnId) ||
+          endedTurns.has(turnId) ||
+          interruptedSteps.has(turnId)),
+    );
+    for (const turnId of rawTurnIds) {
+      const promptId = turnPromptIds.get(turnId);
+      const matchedOrdinal = promptId === undefined ? undefined : ordinalByPromptId.get(promptId);
+      if (matchedOrdinal !== undefined && !claimedOrdinals.has(matchedOrdinal)) {
+        claimedOrdinals.add(matchedOrdinal);
+        ordinalByRawTurnId.set(turnId, matchedOrdinal);
+      }
     }
-  }
-  const realignedItems =
-    wireIdByOrdinal.size === 0
-      ? items
-      : (() => {
-          const keptOrdinals = new Set<number>();
-          for (const item of items) {
-            if (item.kind === 'turn' && !wireIdByOrdinal.has(item.ordinal)) {
-              keptOrdinals.add(item.ordinal);
-            }
-          }
-          return items.map((item) => {
+    for (const turnId of rawTurnIds) {
+      if (ordinalByRawTurnId.has(turnId)) continue;
+      const origin = turnOrigins.get(turnId);
+      const strictOrigin = turnOrigins.has(turnId) && !isUndoAnchorTurnOrigin(origin);
+      if (!strictOrigin) continue;
+      const originKind = mapTurnOrigin(origin).kind;
+      const fallbackOrdinal = claimBaseOrdinal(
+        (candidate) =>
+          candidate.triggerPromptId === undefined && candidate.origin.kind === originKind,
+      );
+      if (fallbackOrdinal !== undefined) ordinalByRawTurnId.set(turnId, fallbackOrdinal);
+    }
+    for (const turnId of rawTurnIds) {
+      if (ordinalByRawTurnId.has(turnId)) continue;
+      const promptId = turnPromptIds.get(turnId);
+      const origin = turnOrigins.get(turnId);
+      const strictOrigin = turnOrigins.has(turnId) && !isUndoAnchorTurnOrigin(origin);
+      if (promptId === undefined || strictOrigin) continue;
+      const emptyPromptOrdinal = claimBaseOrdinal(
+        (candidate) => candidate.triggerPromptId === undefined && candidate.origin.kind === 'other',
+      );
+      if (emptyPromptOrdinal !== undefined) {
+        ordinalByRawTurnId.set(turnId, emptyPromptOrdinal);
+      }
+    }
+    for (const turnId of rawTurnIds) {
+      if (ordinalByRawTurnId.has(turnId)) continue;
+      const promptId = turnPromptIds.get(turnId);
+      const origin = turnOrigins.get(turnId);
+      const strictOrigin = turnOrigins.has(turnId) && !isUndoAnchorTurnOrigin(origin);
+      if (promptId !== undefined || strictOrigin) continue;
+      const fallbackOrdinal = claimBaseOrdinal();
+      if (fallbackOrdinal !== undefined) ordinalByRawTurnId.set(turnId, fallbackOrdinal);
+    }
+
+    const endedByOrdinal = new Map<number, HistoryWireRecord>();
+    for (const [turnId, record] of endedTurns) {
+      const ordinal = ordinalByRawTurnId.get(turnId);
+      if (ordinal !== undefined) endedByOrdinal.set(ordinal, record);
+    }
+
+    const interruptedByOrdinal = new Map<number, Map<number, HistoryWireRecord>>();
+    for (const [turnId, steps] of interruptedSteps) {
+      const ordinal = ordinalByRawTurnId.get(turnId);
+      if (ordinal !== undefined) interruptedByOrdinal.set(ordinal, steps);
+    }
+
+    const items =
+      endedByOrdinal.size > 0 || interruptedByOrdinal.size > 0
+        ? base.items.map((item) => {
             if (item.kind !== 'turn') return item;
-            const wireId = wireIdByOrdinal.get(item.ordinal);
-            if (wireId === undefined) return item;
-            const renumber = wireId !== item.ordinal && !keptOrdinals.has(wireId);
-            const nextTurnId = renumber ? exportTurnKey(wireId) : item.turnId;
-            const wedged = wedgedTurnIds.has(wireId);
+            const record = endedByOrdinal.get(item.ordinal);
+            const interrupted = interruptedByOrdinal.get(item.ordinal);
+            if (record === undefined && interrupted === undefined) return item;
+            const steps = ((): TranscriptTurn['steps'] => {
+              if (interrupted === undefined) return item.steps;
+              const hitOrdinals = new Set<number>();
+              const patched = item.steps.map((step) => {
+                const hit = interrupted.get(step.ordinal);
+                if (hit === undefined) return step;
+                const stepPayload = hit as TurnStepInterruptedPayload;
+                if (typeof stepPayload.reason !== 'string') return step;
+                hitOrdinals.add(step.ordinal);
+                return {
+                  ...step,
+                  state: 'interrupted' as const,
+                  endedAt: recordTimeIso(hit) ?? step.endedAt,
+                  endReason: stepPayload.reason,
+                  endMessage:
+                    typeof stepPayload.message === 'string' ? stepPayload.message : undefined,
+                };
+              });
+              for (const [stepOrdinal, hit] of interrupted) {
+                if (hitOrdinals.has(stepOrdinal)) continue;
+                const stepPayload = hit as TurnStepInterruptedPayload;
+                if (typeof stepPayload.reason !== 'string') continue;
+                patched.push({
+                  kind: 'step',
+                  stepId: `${item.turnId}.${stepOrdinal}`,
+                  turnId: item.turnId,
+                  ordinal: stepOrdinal,
+                  state: 'interrupted',
+                  frames: [],
+                  endedAt: recordTimeIso(hit),
+                  endReason: stepPayload.reason,
+                  endMessage:
+                    typeof stepPayload.message === 'string' ? stepPayload.message : undefined,
+                });
+              }
+              return patched.toSorted((a, b) => a.ordinal - b.ordinal);
+            })();
+            if (record === undefined) return { ...item, steps };
+            const payload = record as TurnEndedPayload;
             return {
               ...item,
-              turnId: nextTurnId,
-              ordinal: renumber ? wireId : item.ordinal,
-              startedAt:
-                item.startedAt ?? turnStartedTimes.get(wireId) ?? turnPromptTimes.get(wireId),
-              state: wedged ? 'failed' : item.state,
-              wedged: wedged ? true : item.wedged,
-              steps: renumber
-                ? item.steps.map((step) => renameTurnStep(step, item.turnId, nextTurnId))
-                : item.steps,
+              steps,
+              state: mapTurnEndState(payload.reason) ?? item.state,
+              endedAt: recordTimeIso(record) ?? item.endedAt,
+              durationMs:
+                typeof payload.durationMs === 'number' ? payload.durationMs : item.durationMs,
+              error: readTurnErrorMessage(payload.error) ?? item.error,
             };
-          });
-        })();
+          })
+        : base.items;
 
-  const modesTouched =
-    planActive !== undefined ||
-    swarmActive !== undefined ||
-    helloWorldActive !== undefined ||
-    helloWorldStage !== undefined ||
-    towerActive !== undefined;
-  const meta: TranscriptMeta = {
-    ...base.meta,
-    goal: goalTouched ? goal : base.meta.goal,
-    modes: modesTouched
-      ? {
-          ...base.meta.modes,
-          plan:
-            planActive === undefined
-              ? base.meta.modes?.plan
-              : planActive
-                ? (planRevision ?? {})
-                : undefined,
-          swarm: swarmActive === undefined ? base.meta.modes?.swarm : swarmActive ? {} : undefined,
-          'hello-world':
-            helloWorldActive === false
-              ? undefined
-              : helloWorldActive === undefined && helloWorldStage === undefined
-                ? base.meta.modes?.['hello-world']
-                : {
-                    trigger: base.meta.modes?.['hello-world']?.trigger,
-                    stage: helloWorldStage,
-                  },
-          tower: towerActive === undefined ? base.meta.modes?.tower : towerActive ? {} : undefined,
+    const wireIdByOrdinal = new Map<number, number>();
+    if (hasExplicitTurnId) {
+      for (const [rawTurnId, ordinal] of ordinalByRawTurnId) {
+        wireIdByOrdinal.set(ordinal, rawTurnId);
+      }
+    }
+    const wedgedTurnIds = new Set<number>();
+    if (wireIdByOrdinal.size > 0) {
+      let latestPromptTurnId: number | undefined;
+      for (const rawTurnId of turnOrigins.keys()) {
+        if (latestPromptTurnId === undefined || rawTurnId > latestPromptTurnId) {
+          latestPromptTurnId = rawTurnId;
         }
-      : base.meta.modes,
+      }
+      for (const rawTurnId of turnOrigins.keys()) {
+        if (endedTurns.has(rawTurnId) || activeCancelTurnIds.has(rawTurnId)) continue;
+        if (rawTurnId === latestPromptTurnId && options?.activeWireTurnId === rawTurnId) continue;
+        wedgedTurnIds.add(rawTurnId);
+      }
+    }
+    const realignedItems =
+      wireIdByOrdinal.size === 0
+        ? items
+        : (() => {
+            const keptOrdinals = new Set<number>();
+            for (const item of items) {
+              if (item.kind === 'turn' && !wireIdByOrdinal.has(item.ordinal)) {
+                keptOrdinals.add(item.ordinal);
+              }
+            }
+            return items.map((item) => {
+              if (item.kind !== 'turn') return item;
+              const wireId = wireIdByOrdinal.get(item.ordinal);
+              if (wireId === undefined) return item;
+              const renumber = wireId !== item.ordinal && !keptOrdinals.has(wireId);
+              const nextTurnId = renumber ? exportTurnKey(wireId) : item.turnId;
+              const wedged = wedgedTurnIds.has(wireId);
+              return {
+                ...item,
+                turnId: nextTurnId,
+                ordinal: renumber ? wireId : item.ordinal,
+                startedAt:
+                  item.startedAt ?? turnStartedTimes.get(wireId) ?? turnPromptTimes.get(wireId),
+                state: wedged ? 'failed' : item.state,
+                wedged: wedged ? true : item.wedged,
+                steps: renumber
+                  ? item.steps.map((step) => renameTurnStep(step, item.turnId, nextTurnId))
+                  : item.steps,
+              };
+            });
+          })();
+
+    const modesTouched =
+      planActive !== undefined ||
+      swarmActive !== undefined ||
+      helloWorldActive !== undefined ||
+      helloWorldStage !== undefined ||
+      towerActive !== undefined;
+    const meta: TranscriptMeta = {
+      ...base.meta,
+      goal: goalTouched ? goal : base.meta.goal,
+      modes: modesTouched
+        ? {
+            ...base.meta.modes,
+            plan:
+              planActive === undefined
+                ? base.meta.modes?.plan
+                : planActive
+                  ? (planRevision ?? {})
+                  : undefined,
+            swarm:
+              swarmActive === undefined ? base.meta.modes?.swarm : swarmActive ? {} : undefined,
+            'hello-world':
+              helloWorldActive === false
+                ? undefined
+                : helloWorldActive === undefined && helloWorldStage === undefined
+                  ? base.meta.modes?.['hello-world']
+                  : {
+                      trigger: base.meta.modes?.['hello-world']?.trigger,
+                      stage: helloWorldStage,
+                    },
+            tower:
+              towerActive === undefined ? base.meta.modes?.tower : towerActive ? {} : undefined,
+          }
+        : base.meta.modes,
+    };
+
+    let restoredItems = appended.length > 0 ? [...realignedItems, ...appended] : realignedItems;
+    if (subagentRefs.size > 0) {
+      restoredItems = restoredItems.map((item) => {
+        if (item.kind !== 'turn') return item;
+        return {
+          ...item,
+          steps: item.steps.map((step) => ({
+            ...step,
+            frames: step.frames.map((frame) => {
+              if (frame.kind !== 'tool') return frame;
+              const refs = subagentRefs.get(frame.toolCallId);
+              if (refs === undefined) return frame;
+              return {
+                ...frame,
+                agentRefs: [...refs.values()]
+                  .toSorted((a, b) => (a.index ?? 0) - (b.index ?? 0))
+                  .map(({ ref }) => ref),
+              };
+            }),
+          })),
+        };
+      });
+    }
+
+    return {
+      ...base,
+      items: restoredItems,
+      tasks: [...tasks.values()],
+      interactions: [...projectedInteractions.values()],
+      todos: todo !== undefined ? [todo] : base.todos,
+      meta,
+    };
   };
 
-  let restoredItems = appended.length > 0 ? [...realignedItems, ...appended] : realignedItems;
-  if (subagentRefs.size > 0) {
-    restoredItems = restoredItems.map((item) => {
-      if (item.kind !== 'turn') return item;
-      return {
-        ...item,
-        steps: item.steps.map((step) => ({
-          ...step,
-          frames: step.frames.map((frame) => {
-            if (frame.kind !== 'tool') return frame;
-            const refs = subagentRefs.get(frame.toolCallId);
-            if (refs === undefined) return frame;
-            return {
-              ...frame,
-              agentRefs: [...refs.values()]
-                .toSorted((a, b) => (a.index ?? 0) - (b.index ?? 0))
-                .map(({ ref }) => ref),
-            };
-          }),
-        })),
-      };
-    });
-  }
-
-  return {
-    ...base,
-    items: restoredItems,
-    tasks: [...tasks.values()],
-    interactions: [...interactions.values()],
-    todos: todo !== undefined ? [todo] : base.todos,
-    meta,
-  };
+  return { syncBase, add, result };
 }
 
 function renameTurnStep(

@@ -23,6 +23,7 @@ import {
 import { emptySessionUsage, type SessionUsage } from '../protocol/session';
 import { readLegacyStatus, type LegacyStatusSnapshot } from '../services/legacyStatus/legacyStatus';
 import { loadMessageHistory } from '../services/messages/messageHistory';
+import type { WireProjectionService } from '../services/transcript/wireProjection';
 import { ensureMainAgent } from '../transport/mainAgent';
 import { type SessionEventBroadcaster } from '../transport/ws/v1/sessionEventBroadcaster';
 import { interactionAgentId, toWireApproval } from './approvals';
@@ -51,10 +52,11 @@ interface SnapshotRouteHost {
 export interface SnapshotRouteDeps {
   readonly core: Scope;
   readonly broadcaster: SessionEventBroadcaster;
+  readonly projections: WireProjectionService;
 }
 
 export function registerSnapshotRoutes(app: SnapshotRouteHost, deps: SnapshotRouteDeps): void {
-  const { core, broadcaster } = deps;
+  const { core, broadcaster, projections } = deps;
 
   const route = defineRoute(
     {
@@ -73,7 +75,7 @@ export function registerSnapshotRoutes(app: SnapshotRouteHost, deps: SnapshotRou
     async (req, reply) => {
       const { session_id } = req.params;
       try {
-        const data = await assembleSnapshot(core, broadcaster, session_id);
+        const data = await assembleSnapshot(core, broadcaster, projections, session_id);
         reply.send(okEnvelope(data, req.id));
       } catch (error) {
         if (error instanceof SnapshotNotFoundError) {
@@ -90,6 +92,7 @@ export function registerSnapshotRoutes(app: SnapshotRouteHost, deps: SnapshotRou
 async function assembleSnapshot(
   core: Scope,
   broadcaster: SessionEventBroadcaster,
+  projections: WireProjectionService,
   sessionId: string,
 ): Promise<SessionSnapshotResponse> {
   const handle = await resumeSessionById(core.accessor, sessionId);
@@ -112,7 +115,7 @@ async function assembleSnapshot(
     usage: toSnapshotUsage(status),
   };
 
-  const all = await loadMessageHistory(core, main, sessionId, meta.createdAt);
+  const all = await loadMessageHistory(main, sessionId, meta.createdAt, projections);
   const hasMore = all.length > SNAPSHOT_MESSAGE_PAGE_SIZE;
   const items = all.slice(-SNAPSHOT_MESSAGE_PAGE_SIZE);
 
