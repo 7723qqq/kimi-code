@@ -7,7 +7,6 @@ import {
   DEFAULT_CATALOG_URL,
   removeProviderFromConfig,
   resolveCatalogImport,
-  SECONDARY_DERIVED_MODEL_ALIAS,
   type Catalog,
   type KimiConfig,
   type RefreshProviderModelsResponse,
@@ -508,19 +507,18 @@ async function handleCustomRegistryAddViaDialog(host: SlashCommandHost): Promise
 
 /**
  * End every add flow with the model selector so the user can pick the new
- * provider's default model. Copy without the v1-synthesized `__secondary__`
- * derived entry — never selectable in a picker. The initial tab is the first
- * new provider's own tab, falling back to the first id when the refreshed
- * config carried no alias for it yet.
+ * provider's default model. The initial tab is the first new provider's own
+ * tab, falling back to the first id when the refreshed config carried no
+ * alias for it yet.
  */
 async function mountProviderModelSelector(
   host: SlashCommandHost,
   providerIds: readonly string[],
 ): Promise<void> {
-  const rawModels = { ...(await host.harness.getConfig().then((c) => c.models ?? {})) };
-  delete rawModels[SECONDARY_DERIVED_MODEL_ALIAS];
   const stateModels = Object.fromEntries(
-    Object.entries(rawModels).map(([alias, model]) => [alias, effectiveModelForHost(host, model)]),
+    Object.entries(await host.harness.getConfig().then((c) => c.models ?? {})).map(
+      ([alias, model]) => [alias, effectiveModelForHost(host, model)],
+    ),
   );
   const firstNewAlias = Object.keys(stateModels).find((alias) =>
     providerIds.some((providerId) => alias.startsWith(`${providerId}/`)),

@@ -760,13 +760,16 @@ describe('AgentSwarmTool', () => {
       host.swarmService,
       makeAgentScopeContext({ agentId: host.callerAgentId, agentScope: '' }),
       swarmMode,
-      stubConfig({ defaultModel: 'provider/fast', models: { 'provider/fast': 'fast and cheap' } }),
+      stubConfig({
+        defaultModel: 'provider/fast',
+        models: { 'provider/fast': 'fast and cheap', 'provider/smart': 'hard tasks' },
+      }),
       stubFlag(true),
       realSubagents(
         stubSwarmCatalog(),
         stubConfig({
           defaultModel: 'provider/fast',
-          models: { 'provider/fast': 'fast and cheap' },
+          models: { 'provider/fast': 'fast and cheap', 'provider/smart': 'hard tasks' },
         }),
         stubCallerProfile(),
       ),
@@ -1443,19 +1446,22 @@ describe('AgentSwarmTool', () => {
     );
   });
 
-  it('lets the tool call opt back into the primary model', async () => {
+  it('runs on the main model only when the pool lists it explicitly', async () => {
     const host = mockSwarmHost();
     const tool = new AgentSwarmTool(
       host.swarmService,
       makeAgentScopeContext({ agentId: host.callerAgentId, agentScope: '' }),
       mockSwarmMode(),
-      stubConfig({ defaultModel: 'provider/fast', models: { 'provider/fast': 'fast and cheap' } }),
+      stubConfig({
+        defaultModel: 'provider/fast',
+        models: { 'provider/fast': 'fast and cheap', 'main-model': 'hard tasks' },
+      }),
       stubFlag(true),
       realSubagents(
         stubSwarmCatalog(),
         stubConfig({
           defaultModel: 'provider/fast',
-          models: { 'provider/fast': 'fast and cheap' },
+          models: { 'provider/fast': 'fast and cheap', 'main-model': 'hard tasks' },
         }),
         stubCallerProfile({ modelAlias: 'main-model', thinkingLevel: 'high' }),
       ),
@@ -1468,7 +1474,7 @@ describe('AgentSwarmTool', () => {
         description: 'Review files',
         prompt_template: 'Review {{item}}',
         items: ['src/a.ts', 'src/b.ts'],
-        model: 'primary',
+        model: 'main-model',
       }),
     );
 
@@ -1479,8 +1485,8 @@ describe('AgentSwarmTool', () => {
             plan: {
               profileName: 'coder',
               model: 'main-model',
-              modelSource: 'primary_override',
-              thinking: 'high',
+              modelSource: 'secondary_pool',
+              thinking: undefined,
               fork: false,
             },
           }),
@@ -1488,8 +1494,8 @@ describe('AgentSwarmTool', () => {
             plan: {
               profileName: 'coder',
               model: 'main-model',
-              modelSource: 'primary_override',
-              thinking: 'high',
+              modelSource: 'secondary_pool',
+              thinking: undefined,
               fork: false,
             },
           }),
@@ -1521,7 +1527,7 @@ describe('AgentSwarmTool', () => {
     );
 
     expect(configured.description).toContain(
-      'Available models (pass via model): provider/fast [default], main-model, primary (your current model and thinking level).',
+      'Available models (pass via model): provider/fast [default], main-model.',
     );
 
     const unconfigured = new AgentSwarmTool(

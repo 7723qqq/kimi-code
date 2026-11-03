@@ -389,7 +389,7 @@ On success, `data` is the config object; its fields mirror the top-level domains
 
 #### `POST /api/v1/config`
 
-Merge-patches the global configuration: each top-level domain in the body is deep-merged into that domain, and domains absent from the body are left untouched. Setting `yolo` to `true` is shorthand for `default_permission_mode: "yolo"`; a rejected patch (invalid value) returns `40001` with the underlying message.
+Merge-patches the global configuration: each top-level domain in the body is deep-merged into that domain, and domains absent from the body are left untouched. Setting `yolo` to `true` is shorthand for `default_permission_mode: "yolo"`; a rejected patch (invalid value) returns `40001` with the underlying message. The `secondary_model` domain also accepts `null`, which removes the entire `[secondary_model]` section so subsequently spawned subagents inherit their caller's current model and thinking level.
 
 Domains are written one at a time, in body order, so a multi-domain patch is not atomic. When one domain cannot be persisted — `config.toml` is unreadable or unparsable, the engine refuses to overwrite it, and no further domain is attempted — the response is `50003` instead of `40001`, and `msg` names both sides of the split: `... (applied: planMode, telemetry; failed: models)`. `applied` lists the camelCase domains already written to disk (the caller must decide whether to roll them back), `failed` names the domain whose write aborted. A `40001` therefore means the request itself was rejected before any write, while `50003` means the patch was valid but could not be fully persisted (fix `config.toml` and reload, then retry).
 
@@ -416,7 +416,7 @@ The body is a partial config object — any subset of the response domains above
 | `loop_control` | body | object | Agent loop control parameters |
 | `background` | body | object | Background task runtime parameters |
 | `subagent` | body | object | Subagent configuration |
-| `secondary_model` | body | object | Secondary model pool for subagents |
+| `secondary_model` | body | object or null | Secondary model pool for subagents; `null` clears the section and restores caller-model inheritance |
 | `experimental` | body | object | Experimental flag id → enabled |
 | `telemetry` | body | boolean | Whether anonymous telemetry is enabled |
 | `mcp` | body | object | MCP server configuration |

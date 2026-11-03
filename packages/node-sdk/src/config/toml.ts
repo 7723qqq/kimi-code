@@ -45,7 +45,6 @@ import {
   type ThinkingConfig,
   validateConfig,
 } from './schema';
-import { applySecondaryModelConfig, stripSecondaryModelConfig } from './secondary-model';
 
 /* ------------------------------------------------------------------ */
 /*  Key helpers – reuse generic snake / camel conversion instead of    */
@@ -123,7 +122,7 @@ export function loadRuntimeConfig(
   filePath: string,
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): KimiConfig {
-  return applySecondaryModelConfig(applyEnvModelConfig(readConfigFile(filePath), env), env);
+  return applyEnvModelConfig(readConfigFile(filePath), env);
 }
 
 export interface RuntimeConfigLoadResult {
@@ -220,8 +219,6 @@ export function loadRuntimeConfigSafe(
   } catch (error) {
     envWarnings.push(`Ignoring KIMI_MODEL_* environment overrides: ${describeUnknownError(error)}`);
   }
-  // Never throws: the secondary overlay only copies already-validated entries.
-  config = applySecondaryModelConfig(config, env);
 
   return { config, fileWarnings, envWarnings, fileError };
 }
@@ -500,11 +497,7 @@ function transformLoopControlData(data: Record<string, unknown>): Record<string,
 /* ------------------------------------------------------------------ */
 
 export async function writeConfigFile(filePath: string, config: KimiConfig): Promise<void> {
-  // Final guard: never persist the env-synthesized model/provider or the
-  // secondary-model runtime view to disk, even if a caller passes back the
-  // runtime config as a patch (see stripEnvModelConfig /
-  // stripSecondaryModelConfig / the getConfig -> setConfig round-trip).
-  const validated = validateConfig(stripSecondaryModelConfig(stripEnvModelConfig(config)));
+  const validated = validateConfig(stripEnvModelConfig(config));
   await mkdir(dirname(filePath), { recursive: true, mode: 0o700 });
   await atomicWrite(filePath, `${stringifyToml(configToTomlData(validated))}\n`);
 }
@@ -766,11 +759,7 @@ function secondaryModelToToml(
 ): Record<string, unknown> {
   const out = cloneRecord(rawSecondaryModel);
   for (const [key, value] of Object.entries(secondaryModel)) {
-    if (key === 'capabilities' && Array.isArray(value)) {
-      out[camelToSnake(key)] = [...value];
-    } else {
-      setDefined(out, camelToSnake(key), value);
-    }
+    setDefined(out, camelToSnake(key), value);
   }
   return out;
 }

@@ -447,22 +447,23 @@ describe('SessionSubagentService planSpawn and spawn', () => {
     expect(plan.thinking).toBeUndefined();
   });
 
-  it('passes [secondary_model].default_effort with the forced model', async () => {
+  it('passes [secondary_model].default_effort with a lone default_model', async () => {
     modelIds.add('provider/fast');
-    const svc = service({
-      [SECONDARY_MODEL_SECTION]: {
-        force: true,
-        defaultModel: 'provider/fast',
-        defaultEffort: 'max',
+    const svc = service(
+      {
+        [SECONDARY_MODEL_SECTION]: {
+          defaultModel: 'provider/fast',
+          defaultEffort: 'max',
+        },
       },
-    });
+    );
 
     const plan = await svc.planSpawn({ callerAgentId: CALLER_ID, profileName: 'coder' });
 
     expect(plan).toEqual({
       profileName: 'coder',
       model: 'provider/fast',
-      modelSource: 'forced',
+      modelSource: 'secondary_pool',
       thinking: 'max',
       fork: false,
     });
