@@ -241,6 +241,8 @@ export const McpConfigSchema = z.object({
    * the client built-in default when unset.
    */
   toolTimeoutMs: McpTimeoutMsSchema.optional(),
+  reconnectInitialDelayMs: McpTimeoutMsSchema.optional(),
+  reconnectMaxDelayMs: McpTimeoutMsSchema.optional(),
 });
 
 export type McpConfig = z.infer<typeof McpConfigSchema>;

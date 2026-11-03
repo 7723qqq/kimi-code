@@ -422,8 +422,12 @@ In print mode (`kimi -p "<prompt>"`), Kimi Code stays alive after the main agent
 | `default_deferred` | `boolean` | `false` | Global default for [loading tools on demand](../customization/mcp.md#loading-tools-on-demand): when `true`, every MCP server's tools load on demand unless the server opts out; a per-server `deferred` field in `mcp.json` wins |
 | `auto_defer_tool_threshold` | `integer` | `24` | Automatically defer MCP servers with at least this many enabled tools when dynamic tool loading is available; `0` disables auto-defer. A per-server `deferred` field in `mcp.json` wins |
 | `compact_tool_schemas` | `boolean` | `false` | Trim MCP parameter descriptions to their first sentence and drop schema titles and examples before tools enter the prompt; parameter types, required fields, enums, and constraints are preserved |
+| `reconnect_initial_delay_ms` | `integer` | `5000` (5 seconds) | Initial delay in milliseconds before the first automatic reconnect attempt for a workspace-level MCP server that failed to connect or dropped unexpectedly; the delay doubles after each failed attempt |
+| `reconnect_max_delay_ms` | `integer` | `300000` (5 minutes) | Cap in milliseconds for the automatic reconnect backoff delay of workspace-level MCP servers |
 
 `startup_timeout_ms`, `tool_timeout_ms`, and `auto_defer_tool_threshold` can be overridden by the `KIMI_MCP_STARTUP_TIMEOUT_MS`, `KIMI_MCP_TOOL_TIMEOUT_MS`, and `KIMI_MCP_AUTO_DEFER_TOOL_THRESHOLD` environment variables respectively, which take higher priority than `config.toml`. See [MCP](../customization/mcp.md) for the full MCP server configuration.
+
+`reconnect_initial_delay_ms` and `reconnect_max_delay_ms` can likewise be overridden by the `KIMI_MCP_RECONNECT_INITIAL_DELAY_MS` and `KIMI_MCP_RECONNECT_MAX_DELAY_MS` environment variables. Automatic reconnect applies only to workspace-level MCP servers and stops for permanent failures (unknown command, invalid configuration, rejected static credentials); see [MCP](../customization/mcp.md).
 
 ## `identity`
 

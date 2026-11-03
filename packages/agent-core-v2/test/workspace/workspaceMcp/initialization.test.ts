@@ -94,6 +94,7 @@ describe('Workspace MCP initialization', () => {
         });
         reg.definePartialInstance(IConfigService, {
           ready,
+          onDidSectionChange: Event.None as IConfigService['onDidSectionChange'],
           get: <T = unknown>(domain: string): T =>
             (domain === MCP_SECTION ? mcpSection : undefined) as T,
         });

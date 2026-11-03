@@ -79,6 +79,20 @@ export class WorkspaceMcpConfigService extends Disposable implements IWorkspaceM
         );
       }),
     );
+    this._register(
+      this.config.onDidSectionChange((event) => {
+        if (event.domain !== MCP_SECTION) return;
+        const value = toMcpTunables(event.value as McpSection | undefined);
+        const previous = toMcpTunables(event.previousValue as McpSection | undefined);
+        if (
+          value.reconnectInitialDelayMs === previous.reconnectInitialDelayMs &&
+          value.reconnectMaxDelayMs === previous.reconnectMaxDelayMs
+        ) {
+          return;
+        }
+        this.tunablesEmitter.fire(value);
+      }),
+    );
     void this.watchConfigFiles();
   }
 

@@ -143,7 +143,7 @@ export class HttpMcpClient implements MCPClient {
         return;
       }
       if (isSseReconnectionExhaustedError(error)) {
-        this.fireSessionEvidence({ kind: 'hard', reason: { error } });
+        this.fireSessionEvidence({ kind: 'weak', reason: { error } });
       }
     };
   }

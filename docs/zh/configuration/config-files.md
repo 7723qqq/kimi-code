@@ -422,8 +422,12 @@ k3-max = "同一模型的 max Thinking 档位。适合最难的子任务。"
 | `default_deferred` | `boolean` | `false` | [按需加载工具](../customization/mcp.md#按需加载工具)的全局默认：设为 `true` 时所有 MCP server 的工具按需加载，除非 server 自行排除；`mcp.json` 中单个 server 的 `deferred` 字段优先于本节 |
 | `auto_defer_tool_threshold` | `integer` | `24` | 动态工具加载可用时，启用工具数达到该值的 MCP server 自动 deferred；`0` 表示关闭自动 deferred。`mcp.json` 中单个 server 的 `deferred` 字段优先于本节 |
 | `compact_tool_schemas` | `boolean` | `false` | 把 MCP 参数描述截到首句，并移除 schema 的 `title` 与 `examples` 后再进入 prompt；参数类型、必填字段、枚举与约束保持不变 |
+| `reconnect_initial_delay_ms` | `integer` | `5000`（5 秒） | workspace 级 MCP server 首次连接失败或意外断连后，首次自动重连前的等待时间（毫秒）；每次失败后再翻倍 |
+| `reconnect_max_delay_ms` | `integer` | `300000`（5 分钟） | workspace 级 MCP server 自动重连退避等待的上限（毫秒） |
 
 `startup_timeout_ms`、`tool_timeout_ms` 和 `auto_defer_tool_threshold` 可分别被环境变量 `KIMI_MCP_STARTUP_TIMEOUT_MS`、`KIMI_MCP_TOOL_TIMEOUT_MS` 和 `KIMI_MCP_AUTO_DEFER_TOOL_THRESHOLD` 覆盖，优先级高于配置文件。MCP server 的完整配置方式见 [MCP](../customization/mcp.md)。
+
+`reconnect_initial_delay_ms` 和 `reconnect_max_delay_ms` 同样可分别被环境变量 `KIMI_MCP_RECONNECT_INITIAL_DELAY_MS` 和 `KIMI_MCP_RECONNECT_MAX_DELAY_MS` 覆盖。自动重连只作用于 workspace 级 MCP server，遇到无法自行恢复的失败（命令不存在、配置非法、server 拒绝静态凭据）会停止重试；详见 [MCP](../customization/mcp.md)。
 
 ## `identity`
 

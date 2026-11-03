@@ -232,6 +232,7 @@ export class AgentMcpService extends Service implements IAgentMcpService {
       return;
     }
     if (entry.status === 'disabled') {
+      this.resolveServerFailure(entry, 'disabled');
       const removed = this.unregisterMcpServer(entry.name);
       if (removed) {
         void this.dispatcher.dispatch(

@@ -8,7 +8,7 @@ import type { FetchLike } from '@moonshot-ai/kimi-code-oauth';
 
 import { ErrorCodes, Error2 } from '#/errors';
 
-import { buildMcpRemoteHeaders } from './client-remote';
+import { buildMcpRemoteHeaders, classifyRemoteStartupError } from './client-remote';
 import {
   buildRequestOptions,
   KIMI_MCP_CLIENT_NAME,
@@ -46,7 +46,7 @@ export class SseMcpClient implements MCPClient {
   private pendingSessionEvidence: SessionEvidence | undefined;
   private hardEvidenceFired = false;
 
-  constructor(config: McpServerSseConfig, options: SseMcpClientOptions = {}) {
+  constructor(private readonly config: McpServerSseConfig, options: SseMcpClientOptions = {}) {
     const envLookup = options.envLookup ?? ((name) => process.env[name]);
     const headers = buildMcpRemoteHeaders(config, envLookup);
 
@@ -74,7 +74,7 @@ export class SseMcpClient implements MCPClient {
       await this.client.connect(this.transport, buildRequestOptions(this.startupTimeoutMs));
     } catch (error) {
       await this.closeStartedClient();
-      throw error;
+      throw classifyRemoteStartupError(this.config, error);
     }
     if (this.closed) {
       await this.closeStartedClient();

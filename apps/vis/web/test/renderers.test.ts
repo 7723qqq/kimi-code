@@ -61,7 +61,7 @@ const HISTORICAL_OR_HEADER_TYPES = new Set([
 ]);
 
 describe('wire renderers', () => {
-  it('covers every durable record in the current core-v2 wire manifest', async () => {
+  it('covers every durable record and renders MCP failure resolution', async () => {
     const manifestPath = resolve(
       import.meta.dirname,
       '../../../../packages/agent-core-v2/docs/wire-manifest.d.ts',
@@ -78,6 +78,17 @@ describe('wire renderers', () => {
       .toSorted();
 
     expect(renderedCurrentTypes).toEqual(upstreamTypes);
+    const renderer = WIRE_RENDERERS['mcp.server_failure_resolved'];
+    const headline = renderer.headline({
+      type: 'mcp.server_failure_resolved',
+      agentId: 'main',
+      serverName: 'example',
+      transport: 'http',
+      resolution: 'recovered',
+    });
+    const markup = renderToStaticMarkup(headline.main);
+    expect(markup).toContain('example');
+    expect(markup).toContain('recovered');
   });
 
   it('renders a change-notifier snapshot written before the belief fields existed', () => {
