@@ -1,3 +1,4 @@
+import { t } from '@moonshot-ai/kimi-i18n';
 import picomatch from 'picomatch';
 
 import { createDecorator } from '#/_base/di/instantiation';
@@ -6,6 +7,8 @@ import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { errorMessage } from '#/_base/utils/errorMessage';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { WarningIssued } from '#/agent/profile/profileOps';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IFlagService } from '#/app/flag/flag';
 import { parseAppliesTo } from '#/app/memory/memoryPaths';
@@ -14,6 +17,7 @@ import { IMemoryStore } from '#/app/memory/memoryStore';
 import { LifecycleScope } from '#/app/scopes';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { IHostProcessService } from '#/os/interface/hostProcess';
+import { IEventDispatcher } from '#/state/eventDispatcher';
 
 import { buildIndex, cachePath, readAnyIndex, readIndex, writeIndex } from './cache';
 import { GIT_MEMORY_FLAG_ID } from './flag';
@@ -71,6 +75,7 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
   private headLoaded = false;
   private headFailure: { readonly reason: GitUnavailableReason; readonly at: number } | undefined;
   private headLoading: Promise<void> | undefined;
+  private unavailableNotified = false;
   protected repoRoot = '';
   protected pathPrefix = '';
   private readonly renderedPaths = new Set<string>();
@@ -89,6 +94,8 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
     @IAgentContextMemoryService private readonly contextMemory: IAgentContextMemoryService,
     @IMemoryStore private readonly memoryStore: IMemoryStore,
     @IMemoryRepo private readonly memoryRepo: IMemoryRepo,
+    @IEventDispatcher private readonly dispatcher: IEventDispatcher,
+    @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
   ) {
     super();
     this.reminders.register('git_memory_signal', ({ isNewTurn }) =>
@@ -374,6 +381,34 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
     }
   }
 
+  private notifyUnavailable(reason: GitUnavailableReason): void {
+    if (this.unavailableNotified || !this.enabled()) return;
+    this.unavailableNotified = true;
+    const cwd = this.bootstrap.cwd;
+    let message: string;
+    switch (reason) {
+      case 'not-a-repo':
+        message = t('gitMemory.unavailable.notARepo', { cwd });
+        break;
+      case 'spawn-failed':
+        message = t('gitMemory.unavailable.spawnFailed', { cwd });
+        break;
+      case 'permission':
+        message = t('gitMemory.unavailable.permission', { cwd });
+        break;
+      case 'timeout':
+        message = t('gitMemory.unavailable.timeout', { cwd });
+        break;
+    }
+    void this.dispatcher.dispatch(
+      new WarningIssued({
+        agentId: this.scopeContext.agentId,
+        code: 'git-memory-unavailable',
+        message,
+      }),
+    );
+  }
+
   private async ensureIndex(): Promise<GitMemoryIndex | undefined> {
     if (this.indexLoaded) return this.index;
     if (
@@ -429,6 +464,7 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
             reason: result.reason,
             detail: result.detail,
           });
+          this.notifyUnavailable(result.reason);
         })
         .catch((error) => {
           const detail = errorMessage(error);
@@ -438,6 +474,7 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
             reason: 'timeout',
             detail,
           });
+          this.notifyUnavailable('timeout');
         })
         .finally(() => {
           this.headLoading = undefined;

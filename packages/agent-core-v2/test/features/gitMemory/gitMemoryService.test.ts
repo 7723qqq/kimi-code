@@ -1,10 +1,17 @@
-import { describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { Readable, Writable } from 'node:stream';
 
+import { getLocale, setLocale } from '@moonshot-ai/kimi-i18n';
+
+import { WarningIssued } from '#/agent/profile/profileOps';
 import { buildIndex } from '#/features/gitMemory/cache';
 import { GitMemoryService } from '#/features/gitMemory/gitMemoryService';
 import type { RepoHeadResult } from '#/features/gitMemory/gitReader';
 import type { CommitRecord, GitMemoryIndex } from '#/features/gitMemory/types';
+
+const previousLocale = getLocale();
+beforeAll(() => setLocale('en'));
+afterAll(() => setLocale(previousLocale));
 
 const SHA_A = 'a'.repeat(40);
 const SHA_B = 'b'.repeat(40);
@@ -47,6 +54,7 @@ interface Harness {
   readonly indexAttempts: number;
   readonly registered: string[];
   readonly warnings: readonly { message: string; payload: unknown }[];
+  readonly events: readonly WarningIssued[];
   advance(ms: number): void;
   probeHead(): Promise<unknown>;
 }
@@ -72,10 +80,23 @@ const HEAD_FAILURES = [
   {
     reason: 'not-a-repo',
     detail: 'fatal: not a git repository (or any of the parent directories): .git',
+    guidance: 'not inside a git repository',
   },
-  { reason: 'spawn-failed', detail: 'git executable missing' },
-  { reason: 'permission', detail: 'fatal: Permission denied' },
-  { reason: 'timeout', detail: 'fatal: temporary failure' },
+  {
+    reason: 'spawn-failed',
+    detail: 'git executable missing',
+    guidance: 'Git executable is unavailable',
+  },
+  {
+    reason: 'permission',
+    detail: 'fatal: Permission denied',
+    guidance: 'git config --global --add safe.directory',
+  },
+  {
+    reason: 'timeout',
+    detail: 'fatal: temporary failure',
+    guidance: 'will retry automatically',
+  },
 ] as const;
 
 function harness(
@@ -101,6 +122,7 @@ function harness(
     now: 0,
     registered: [] as string[],
     warnings: [] as { message: string; payload: unknown }[],
+    events: [] as WarningIssued[],
   };
   const defaultHead: RepoHeadResult =
     options.head !== undefined || options.stub !== undefined
@@ -193,6 +215,13 @@ function harness(
         {
           lastCommitSha: async (path: string) => `a${path.replace(/[^a-z]/gi, '').padEnd(39, '0')}`,
         } as never,
+        {
+          dispatch: (event: WarningIssued) => {
+            state.events.push(event);
+            return Promise.resolve();
+          },
+        } as never,
+        { agentId: 'main' } as never,
       );
       this.stub = options.stub;
     }
@@ -229,6 +258,9 @@ function harness(
     get warnings() {
       return state.warnings;
     },
+    get events() {
+      return state.events;
+    },
     advance(ms: number) {
       state.now += ms;
     },
@@ -243,6 +275,7 @@ describe('git memory service', () => {
     expect(await h.service.signalBlock('fix a.ts')).toBe('');
     expect(await h.service.fileBlock('a.ts')).toBe('');
     expect(h.spawns).toBe(0);
+    expect(h.events).toHaveLength(0);
   });
 
   it('never throws when git fails', async () => {
@@ -405,6 +438,40 @@ describe('git memory availability cache', () => {
   }
 });
 
+describe('git memory unavailable warning', () => {
+  for (const failure of HEAD_FAILURES) {
+    it(`dispatches one actionable warning for ${failure.reason}`, async () => {
+      const h = harness({
+        flagOn: true,
+        headResults: [{ kind: 'unavailable', reason: failure.reason, detail: failure.detail }],
+      });
+      await h.probeHead();
+      expect(h.events).toHaveLength(1);
+      expect(h.events[0]).toMatchObject({
+        type: 'warning',
+        agentId: 'main',
+        code: 'git-memory-unavailable',
+      });
+      expect(h.events[0]?.message).toContain('/repo');
+      expect(h.events[0]?.message).toContain(failure.guidance);
+    });
+  }
+
+  it('dispatches only once across the repo, file and signal channels', async () => {
+    const failure = {
+      kind: 'unavailable',
+      reason: 'not-a-repo',
+      detail: 'fatal: not a git repository',
+    } as const;
+    const h = harness({ flagOn: true, headResults: [failure] });
+    await h.service.repoBlock();
+    await h.service.fileBlock('a.ts');
+    await h.service.signalBlock('fix a.ts');
+    expect(h.events).toHaveLength(1);
+    expect(h.events[0]).toMatchObject({ code: 'git-memory-unavailable', agentId: 'main' });
+  });
+});
+
 describe('git memory written entries', () => {
   const scoped = {
     path: 'global/tui.md',
@@ -479,6 +546,7 @@ describe('git memory repo map', () => {
     const h = harness({ flagOn: false, head, tree: TREE });
     expect(await h.service.repoMap('packages', 3)).toBe('');
     expect(h.spawns).toBe(0);
+    expect(h.events).toHaveLength(0);
   });
 });
 

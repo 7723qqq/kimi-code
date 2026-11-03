@@ -69,6 +69,17 @@ export const zh: DeepPartial<typeof import('./en').default> = {
     paginationMutuallyExclusive: 'before_id 和 after_id 互斥',
     indexHtmlNotAFile: 'index.html 不是文件',
   },
+  gitMemory: {
+    unavailable: {
+      notARepo:
+        'Git Memory 不可用：{{cwd}} 不在 git 仓库内。请从仓库目录启动 Kimi Code 以启用该功能。',
+      spawnFailed:
+        'Git Memory 无法用于 {{cwd}}：Git 可执行文件不可用。请安装 Git 或修正 PATH 后重试。',
+      permission:
+        'Git Memory 无法访问 {{cwd}}：Git 权限不足。请检查仓库权限；若原因是 dubious ownership，请执行 git config --global --add safe.directory <path>。',
+      timeout: 'Git Memory 暂时无法用于 {{cwd}}，Kimi Code 将自动重试。',
+    },
+  },
   plugin: {
     manifestNotFound: '在 {{path}} 未找到清单文件',
     manifestParseFailed: '解析 {{name}} 失败: {{error}}',

@@ -67,6 +67,19 @@ export const en = {
     indexHtmlNotAFile: 'index.html is not a file',
   },
 
+  gitMemory: {
+    unavailable: {
+      notARepo:
+        'Git Memory is unavailable because {{cwd}} is not inside a git repository. Start Kimi Code from a repository directory to enable it.',
+      spawnFailed:
+        'Git Memory is unavailable for {{cwd}} because the Git executable is unavailable. Install Git or fix PATH, then retry.',
+      permission:
+        'Git Memory cannot access {{cwd}} because Git denied permission. Check the repository permissions; for dubious ownership, run git config --global --add safe.directory <path>.',
+      timeout:
+        'Git Memory is temporarily unavailable for {{cwd}}. Kimi Code will retry automatically.',
+    },
+  },
+
   plugin: {
     manifestNotFound: 'No manifest at {{path}}',
     manifestParseFailed: 'Failed to parse {{name}}: {{error}}',
