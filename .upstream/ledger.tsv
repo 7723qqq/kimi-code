@@ -28,7 +28,7 @@ pr	sha	title	cluster	verdict	probe	evidence	batch_done	approved_by	updated	files
 4342	4a24ae12389f1bc5db33c1aed39a092bfeb2fc13	feat: import Claude Code and Codex sessions	B7	pending	-	-	no	-	2026-10-30	48
 4540	4b58a0cda232a638a2ae9290990511ae7a95b2fe	fix(agent-core-v2): keep archived sessions out of session lists before the index	B5	ported	manual:ported in 0e2aecce8c	ported as 0e2aecce8c	no	-	2026-11-03	3
 4445	4ba65932026395efac8de533e38899439e6a9229	docs(changelog): sync 2.3.3 from apps/kimi-code/CHANGELOG.md	B11	pending	-	-	no	-	2026-10-30	2
-4283	4be3f0b741e13677f441c84eee40795ccc1df1db	fix(agent-core-v2): reconnect MCP servers automatically after transient failures	B1	pending	-	-	no	-	2026-10-30	46
+4283	4be3f0b741e13677f441c84eee40795ccc1df1db	fix(agent-core-v2): reconnect MCP servers automatically after transient failures	B1	ported	manual:ported in 15b9e2d42e	ported as 15b9e2d42e onto the earlier fork port 78b6c8e165; restores the sse startup classification and the disabled-episode close, fixes weak evidence classification, ports the full retry/probe suite with fork-calibrated emission assertions	no	-	2026-11-03	46
 4530	59632096d26ed581940ac2c3ea91db3d3f9f527b	docs: make PR descriptions easier to understand in the write-pr skill	B11	pending	-	-	no	-	2026-10-30	2
 4062	5f3ab5fac81e050fc2fa10787dd560655f377d16	feat: remote environments for SSH and Docker execution targets (phase 1: creatio	B9	pending	-	-	no	-	2026-10-30	452
 4507	5fc3de897e20828e15c75defd3cb92a6c2ff8c18	perf(tui): keep only the subagent preview tail	B6	pending	-	-	no	-	2026-10-30	4
