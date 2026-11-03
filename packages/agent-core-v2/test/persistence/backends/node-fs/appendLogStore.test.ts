@@ -123,8 +123,8 @@ describe('AppendLogStore', () => {
     expect(spy.count).toBe(1);
   });
 
-  it('later flush reports an ambiguous auto-flush failure without retrying the batch', async () => {
-    const failure = new Error('append failed after commit');
+  it('later flush reports an append conflict without retrying the batch', async () => {
+    const failure = new Error('append failed after unexpected content appeared');
     let markAppendStarted!: () => void;
     const appendStarted = new Promise<void>((resolve) => {
       markAppendStarted = resolve;
@@ -143,7 +143,7 @@ describe('AppendLogStore', () => {
       appendAttempts++;
       markAppendStarted();
       await appendGate;
-      await originalAppend(...args);
+      await originalAppend(args[0], args[1], enc.encode('unexpected\n'), args[3]);
       throw failure;
     };
 
@@ -153,9 +153,38 @@ describe('AppendLogStore', () => {
     releaseAppend();
     expect(await reportedFailure).toBe(failure);
 
-    await expect(record.flush()).rejects.toBe(failure);
+    await expect(record.flush()).rejects.toMatchObject({ code: 'storage.corrupted' });
     expect(appendAttempts).toBe(1);
-    expect(new TextDecoder().decode(await storage.read(SCOPE, KEY))).toBe('{"n":1}\n{"n":2}\n');
+    expect(new TextDecoder().decode(await storage.read(SCOPE, KEY))).toBe('unexpected\n');
+  });
+
+  it('recovers an ambiguous full-write failure and keeps later records on the next flush', async () => {
+    const failure = new Error('append failed after commit');
+    let appendAttempts = 0;
+    const originalAppend = storage.append.bind(storage);
+    storage.append = async (...args) => {
+      appendAttempts++;
+      if (appendAttempts === 1) {
+        await originalAppend(...args);
+        throw failure;
+      }
+      return originalAppend(...args);
+    };
+
+    record.append<Rec>(SCOPE, KEY, { n: 1 });
+    record.append<Rec>(SCOPE, KEY, { n: 2 });
+    await expect(record.flush()).rejects.toBe(failure);
+
+    record.append<Rec>(SCOPE, KEY, { n: 3 });
+    await record.flush();
+
+    expect(await collect<Rec>(SCOPE, KEY)).toEqual([{ n: 1 }, { n: 2 }, { n: 3 }]);
+    expect(new TextDecoder().decode(await storage.read(SCOPE, KEY))).toBe(
+      '{"n":1}\n{"n":2}\n{"n":3}\n',
+    );
+
+    await record.flush();
+    expect(await collect<Rec>(SCOPE, KEY)).toEqual([{ n: 1 }, { n: 2 }, { n: 3 }]);
   });
 
   it('reacquire after final release waits for retiring storage before fresh I/O', async () => {
@@ -807,22 +836,32 @@ describe('AppendLogStore', () => {
     expect(events).toEqual([`${SCOPE}/${KEY}`]);
   });
 
-  it('emits onDidWrite for batches persisted before a later drain failure', async () => {
+  it('emits onDidWrite only after a fully appended batch is synchronized', async () => {
     const events: string[] = [];
     record.onDidWrite((write) => events.push(`${write.scope}/${write.key}`));
     const original = storage.append.bind(storage);
+    const failure = Object.assign(new Error('disk full'), { code: 'ENOSPC' });
     let calls = 0;
+    let retryData: Uint8Array | undefined;
     storage.append = async (scope, key, data, options) => {
       calls += 1;
-      if (calls > 1) throw new Error('disk full');
       const result = await original(scope, key, data, options);
-      record.append<Rec>(scope, key, { n: 2 });
+      if (calls === 1) record.append<Rec>(scope, key, { n: 2 });
+      if (calls === 2) throw failure;
+      if (calls === 3) retryData = data;
       return result;
     };
 
     record.append<Rec>(SCOPE, KEY, { n: 1 });
-    await expect(record.flush()).rejects.toThrow('disk full');
+    await expect(record.flush()).rejects.toBe(failure);
     expect(events).toEqual([`${SCOPE}/${KEY}`]);
+
+    await record.flush();
+
+    expect(calls).toBe(3);
+    expect(retryData?.byteLength).toBe(0);
+    expect(events).toEqual([`${SCOPE}/${KEY}`, `${SCOPE}/${KEY}`]);
+    expect(await collect<Rec>(SCOPE, KEY)).toEqual([{ n: 1 }, { n: 2 }]);
   });
 });
 

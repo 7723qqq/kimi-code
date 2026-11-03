@@ -33,7 +33,6 @@ interface AppendRecovery {
   readonly encoded: Uint8Array;
   readonly baseLength: number;
   readonly externallyModifiedAtStart: boolean;
-  readonly error: unknown;
 }
 
 interface LogState {
@@ -445,14 +444,8 @@ export class AppendLogStore extends Disposable implements IAppendLogStore {
       const externallyModifiedAtStart =
         recovery?.externallyModifiedAtStart ?? this.externallyModified(scope, key);
       try {
-        const writable = encoded.subarray(offset);
-        if (recovery !== undefined && writable.length === 0) {
-          state.recovery = undefined;
-          state.pending.splice(0, batch.length);
-          throw recovery.error;
-        }
-        state.inFlightBytes = writable.length;
-        await this.storage.append(scope, key, writable, { durable: true });
+        state.inFlightBytes = encoded.length - offset;
+        await this.storage.append(scope, key, encoded.subarray(offset), { durable: true });
         state.inFlightBytes = 0;
         state.recovery = undefined;
         wrote = true;
@@ -467,7 +460,7 @@ export class AppendLogStore extends Disposable implements IAppendLogStore {
           }
           throw state.storageFailure.error;
         }
-        state.recovery = { batch, encoded, baseLength, externallyModifiedAtStart, error };
+        state.recovery = { batch, encoded, baseLength, externallyModifiedAtStart };
         throw error;
       }
       if (state.cutoverEpoch !== cutoverEpoch) return wrote;
