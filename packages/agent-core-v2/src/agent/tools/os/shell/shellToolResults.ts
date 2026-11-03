@@ -3,6 +3,7 @@ import { userCancellationReason } from '#/_base/utils/abort';
 import type { IAgentTaskService } from '#/agent/task/task';
 import type { IHostProcess } from '#/os/interface/hostProcess';
 import { type ToolOutputAccumulatorResult, ToolOutputAccumulator } from '#/tool/output-accumulator';
+import { outputNextStep, outputSizeLine } from '#/tool/outputPointer';
 import { DEFAULT_TOOL_RESULT_MAX_CHARS, type ExecutableToolResult } from '#/tool/toolContract';
 
 import {
@@ -144,9 +145,9 @@ export class ShellToolResults {
     }
 
     const taskOutputHint = this.allowBackground()
-      ? `\nnext_step: Use TaskOutput(task_id="${taskId}") to query the task output.`
+      ? `\n${outputNextStep('task-output', taskId)}`
       : '';
-    const taskInfo = `task_id: ${taskId}\noutput_size_bytes: ${String(output.outputSizeBytes)}${taskOutputHint}`;
+    const taskInfo = `task_id: ${taskId}\n${outputSizeLine('bytes', output.outputSizeBytes)}${taskOutputHint}`;
     const existingSuffix = result.spill?.suffix;
     return {
       ...result,

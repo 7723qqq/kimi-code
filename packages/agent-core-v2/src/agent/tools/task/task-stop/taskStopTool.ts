@@ -4,8 +4,9 @@ import { formatTaskWallTime } from '#/agent/task/wallTime';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { NO_PARTIAL_OUTPUT, type SubagentTaskInfo } from '#/agent/tools/agent/subagent-task';
 import { toInputJsonSchema } from '#/tool/input-schema';
+import { outputSizeLine } from '#/tool/outputPointer';
 import { matchesGlobRuleSubject } from '#/tool/rule-match';
-import { type ToolExecution } from '#/tool/toolContract';
+import { type ToolExecution, ToolSideEffects } from '#/tool/toolContract';
 
 import { ITaskStopTool, TaskStopInputSchema, type TaskStopInput } from './task-stop';
 import TASK_STOP_DESCRIPTION from './task-stop.md?raw';
@@ -15,6 +16,7 @@ const OUTPUT_PREVIEW_BYTES = 32 * 1024;
 export class TaskStopTool implements ITaskStopTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'TaskStop' as const;
+  readonly sideEffect = ToolSideEffects.write;
   readonly description = TASK_STOP_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(TaskStopInputSchema);
 
@@ -85,7 +87,10 @@ async function agentOutputLines(
     output.fullOutputAvailable && output.outputPath !== undefined ? output.outputPath : undefined;
   const lines: string[] = [];
   if (info.agentId !== undefined) lines.push(`agent_id: ${info.agentId}`);
-  if (outputPath !== undefined) lines.push(`output_path: ${outputPath}`);
+  if (outputPath !== undefined) {
+    lines.push(`output_path: ${outputPath}`);
+    lines.push(outputSizeLine('bytes', output.outputSizeBytes));
+  }
   lines.push('');
   if (output.truncated) {
     lines.push(
