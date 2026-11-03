@@ -61,15 +61,15 @@ export async function startCallbackServer(): Promise<CallbackServer> {
     void closeServer();
   };
 
-  const sockets = new Set<Socket>();
+  const unusedSockets = new Set<Socket>();
   const server: Server = createServer((req, res) => {
-    sockets.delete(req.socket);
+    unusedSockets.delete(req.socket);
     handle(req, res);
   });
 
   server.on('connection', (socket) => {
-    sockets.add(socket);
-    socket.on('close', () => sockets.delete(socket));
+    unusedSockets.add(socket);
+    socket.once('close', () => unusedSockets.delete(socket));
   });
 
   function handle(req: IncomingMessage, res: ServerResponse): void {
@@ -136,8 +136,7 @@ export async function startCallbackServer(): Promise<CallbackServer> {
         resolve();
       });
 
-      for (const socket of sockets) socket.destroy();
-      sockets.clear();
+      for (const socket of unusedSockets) socket.destroy();
     });
     return closeServerPromise;
   };
