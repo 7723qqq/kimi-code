@@ -1,4 +1,4 @@
-import { describe, expect, it, mock, type Mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
 
 /**
  * Scenario: /secondary-model command behavior in the interactive TUI.
@@ -9,6 +9,7 @@ import { describe, expect, it, mock, type Mock } from 'bun:test';
  */
 import type { ModelAlias } from '@moonshot-ai/kimi-code-sdk';
 
+import { getLocale, setLocale } from '#/i18n';
 import type { SlashCommandHost } from '#/tui/commands';
 import { handleSecondaryModelCommand } from '#/tui/commands/config';
 import { TabbedModelSelectorComponent } from '#/tui/components/dialogs/tabbed-model-selector';
@@ -90,6 +91,12 @@ function mountedPicker(host: {
 }
 
 describe('handleSecondaryModelCommand', () => {
+  // The command's copy is localized at call time; these assertions check the
+  // English strings, so pin the locale instead of inheriting the host's.
+  const previousLocale = getLocale();
+  beforeEach(() => setLocale('en'));
+  afterEach(() => setLocale(previousLocale));
+
   it('opens the picker filtered to user models, with the configured default as current', async () => {
     const { host } = makeHost({ secondaryModel: { defaultModel: 'cheap' } });
 
