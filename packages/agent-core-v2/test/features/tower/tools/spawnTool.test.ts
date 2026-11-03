@@ -95,6 +95,7 @@ describe('TowerSpawnTool', () => {
     await git(repo, 'init', '-b', 'main');
     await git(repo, 'config', 'user.email', 'tower-test@example.com');
     await git(repo, 'config', 'user.name', 'Tower Test');
+    await git(repo, 'config', 'core.autocrlf', 'false');
     await writeFile(join(repo, 'README.md'), '# fixture\n');
     await git(repo, 'add', 'README.md');
     await git(repo, 'commit', '-m', 'initial');
