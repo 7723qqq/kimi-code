@@ -3209,6 +3209,57 @@ describe('foldWireRecordFacts (cold facts)', () => {
     expect(second.steps[0]?.stepId).toBe('t7.1');
   });
 
+  it('keeps forked turns unique and in order when an inherited turn holds the first wire id', () => {
+    const ownIds = [0, 1, 2, 3];
+    const base = groupMessagesIntoSnapshot([
+      {
+        role: 'user',
+        id: 'inherited',
+        content: [{ type: 'text', text: 'inherited prompt' }],
+        toolCalls: [],
+        origin: { kind: 'user' },
+      },
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'inherited answer' }],
+        toolCalls: [],
+      },
+      ...ownIds.flatMap((rawId) => [
+        {
+          role: 'user' as const,
+          id: `p${rawId}`,
+          content: [{ type: 'text' as const, text: `prompt ${rawId}` }],
+          toolCalls: [],
+          origin: { kind: 'user' },
+        },
+        {
+          role: 'assistant' as const,
+          content: [{ type: 'text' as const, text: `answer ${rawId}` }],
+          toolCalls: [],
+        },
+      ]),
+    ]);
+    const folded = foldWireRecordFacts(
+      ownIds.flatMap((rawId) => [
+        { type: 'turn.prompt', turnId: rawId, promptId: `p${rawId}`, origin: { kind: 'user' } },
+        { type: 'turn.ended', turnId: rawId, reason: 'completed' },
+      ]),
+      base,
+    );
+    const turns = folded.items.filter((item) => item.kind === 'turn');
+    expect(turns.map((turn) => turn.prompt)).toEqual([
+      'inherited prompt',
+      'prompt 0',
+      'prompt 1',
+      'prompt 2',
+      'prompt 3',
+    ]);
+    expect(new Set(turns.map((turn) => turn.turnId)).size).toBe(turns.length);
+    const ordinals = turns.map((turn) => turn.ordinal);
+    expect(ordinals).toEqual(ordinals.toSorted((a, b) => a - b));
+    expect(new Set(ordinals).size).toBe(ordinals.length);
+  });
+
   it('marks a turn without terminal events as wedged once a later turn starts, and wedgifies a dangling tail unless it is live', () => {
     const base = groupMessagesIntoSnapshot([
       {
