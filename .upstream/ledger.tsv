@@ -38,7 +38,7 @@ pr	sha	title	cluster	verdict	probe	evidence	batch_done	approved_by	updated	files
 4062	5f3ab5fac81e050fc2fa10787dd560655f377d16	feat: remote environments for SSH and Docker execution targets (phase 1: creatio	B9	pending	-	-	no	-	2026-10-30	452
 4507	5fc3de897e20828e15c75defd3cb92a6c2ff8c18	perf(tui): keep only the subagent preview tail	B6	pending	-	-	no	-	2026-10-30	4
 4488	62399b32a79d49e8c0bf481b14475ed181a4cec8	chore: sync web dist from code-app	B11	pending	-	-	no	-	2026-10-30	139
-4513	67045e5ec536e4aa70e39ab32658bd6ce755b72d	fix: handle duplicate workspace source folders and fs roots	B4	pending	-	-	no	-	2026-10-30	6
+4513	67045e5ec536e4aa70e39ab32658bd6ce755b72d	fix: handle duplicate workspace source folders and fs roots	B4	pending	-	blocked on #4336: the REST workspace create/update schemas carry no additional_dirs, so there is no duplicate-folder path to reject with 40006 here	no	-	2026-11-04	6
 4456	68a283894163204e93b072cef20db164015a5cad	fix(agent-core-v2): keep the prompt cache through auto compaction	B2	ported	manual:ported in c3ae1a0c14	ported as c3ae1a0c14 (upstream implementation replaces local equivalent; fork features re-applied)	no	-	2026-11-03	15
 4617	6974ac880d405d5565a2189925f3bef6daea6892	fix(tui): keep wrapped Grep and Glob glance lines indented	B6	pending	manual:	not analysed yet; post-2.5.0 commit on upstream main	no	-	2026-11-04	3
 4435	70a661c873bfc30f0f0de954e0d13ad0a0ed3855	fix(server): allow Shiki WASM in CSP	B1	ported	test:packages/kap-server/test/securityHeaders.test.ts#allows WebAssembly compilation without allowing JavaScript eval	1 pass	no	-	2026-11-04	5
@@ -75,7 +75,7 @@ pr	sha	title	cluster	verdict	probe	evidence	batch_done	approved_by	updated	files
 4469	b9fa2b15c4969c53d809bb9515d059046fbc0bc3	fix(dev): avoid CI run response buffer overflow	B10	pending	-	-	no	-	2026-10-30	2
 4542	bd0d4de3f895446680bb7d46dcd7f0f299889735	chore: sync web dist from code-app	B11	pending	-	-	no	-	2026-10-30	141
 4516	be89803bc6db08ff8335c1dc12ade79e3bbed56e	fix(kap-server): turn the global search index off by default	B4	ported	test:packages/kap-server/test/search/searchService.e2e.test.ts#rejects with index_unavailable while the global search gate is off	already present: the global search index is off by default and search reports index_unavailable	no	-	2026-11-04	12
-4511	bfdfde1e20674c184547fd1c9c8bc24396db8079	fix(kap-server): search all workspace source folders	B4	pending	-	-	no	-	2026-10-30	2
+4511	bfdfde1e20674c184547fd1c9c8bc24396db8079	fix(kap-server): search all workspace source folders	B4	in_progress	-	fs side already passes ws.additionalDirs into acquireWorkspaceFs, but workspaceCreateSchema has no additional_dirs field, so upstream's 183-line route test needs #4336 first	no	-	2026-11-04	2
 4611	cc6b98ec0eb19236c9498b55ccb68dc07d7c5b4e	feat(vscode): auto-refresh model catalog	unassigned	pending	-	-	no	-	2026-11-03	9
 4557	cca9bae3d7a4c0eba95aec76e1b7aef912238973	chore: sync release 2026-10-30 back to main	B11	ported	manual:	2.4.1 内容手动落地：readTool.ts token 上限 + read.md 精简、profile-shared/system.md 分节（coding/delivering-work/project-information）、bash.md/bashTool 模板化、agent/ask-user/edit/glob/grep/write/task/wait-for/cron/goal/plan/todo 提示词、docs en+zh [read] 与 Read 段、CHANGELOG 2.4.1 段、package.json 2.4.1	no	-	2026-11-04	65
 4661	d065fd011dd43c6d718e6b9f703cfd98540f4c78	chore: sync web dist from code-app	B11	pending	manual:	generated web bundle; PLAYBOOK keeps the fork own dist-web, so per-file alignment is not the practice	no	-	2026-11-04	77
