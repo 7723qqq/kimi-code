@@ -103,6 +103,9 @@ export default {
     // wire.unknown_record
     wireUnknownRecord: 'Unknown wire record',
     wireUnknownRecordAction: 'The record was written by a newer version; upgrade or drop it.',
+    // wire.version_too_low
+    wireVersionTooLow: 'Wire version is too old for this client',
+    wireVersionTooLowAction: 'Upgrade the tool that wrote this session, then reopen it.',
     // not_implemented
     notImplemented: 'Not implemented',
     // internal
@@ -1662,6 +1665,7 @@ export default {
         hintSteer: '  ↑ to edit · ctrl-s to steer immediately',
         hintAfterTask: '  ↑ to edit · will send after current task',
         earlierHidden: '  … {{count}} earlier queued message(s) hidden',
+        modelSwitch: 'Compact, then switch to {{name}} with thinking {{effort}}',
       },
       btwPanel: {
         readyForSideQuestion: 'Ready for a side question…',
@@ -1934,6 +1938,10 @@ export default {
       modelSwitchCompactionCancelled: 'Compaction cancelled — model unchanged.',
       modelSwitchAbortedModelUnchanged: 'Model switch aborted — model unchanged.',
       modelSwitchCompactFailed: 'Failed to compact: {{error}}. Model unchanged.',
+      modelSwitchCompactionSkipped:
+        'Skipped compaction — the context was already compacted. Switching model.',
+      modelSwitchCompactUnavailable:
+        "Couldn't compact while the agent is still running — model unchanged. Pause the goal or switch with Continue as-is.",
       failedToApplyStartupFlags: 'Failed to apply startup flags: {{message}}',
       providerModelsAdded_one: '{{provider}} · +{{count}} model.',
       providerModelsAdded_other: '{{provider}} · +{{count}} models.',
@@ -2852,6 +2860,7 @@ export default {
       configThinkingSetSession: 'Thinking set to {{effort}} for this session only.',
       configModelSavedDefault: 'Saved {{name}} with thinking {{effort}} as default.',
       configModelAlreadyUsing: 'Already using {{name}} with thinking {{effort}}.',
+      configModelSwitchNextTurn: 'Takes effect from the next turn.',
       configModelMigrationRecommend: 'We recommend switching from {{from}} to {{to}}.',
       configModelMigrationCheckFailed: 'Failed to check model migration.',
       configModelMigrationSaveFailed: 'Failed to save model migration preference.',

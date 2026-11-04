@@ -22,6 +22,35 @@ describe('QueuePaneComponent', () => {
     expect(output).toContain('ctrl-s to steer immediately');
   });
 
+  it('renders a queued model switch as its own row and keeps it a steer barrier', () => {
+    const component = new QueuePaneComponent({
+      isCompacting: false,
+      isStreaming: true,
+      canSteerImmediately: true,
+      messages: [
+        {
+          text: '/model model-b',
+          mode: 'model-switch',
+          alias: 'model-b',
+          thinking: 'low',
+          persist: 'session',
+          queuedAfterCompactionSerial: 0,
+        },
+        { text: 'after switch' },
+      ],
+      availableModels: {
+        'model-b': { provider: 'custom', model: 'model-b', maxContextSize: 100, displayName: 'Model B' },
+      },
+    });
+
+    const output = stripAnsi(component.render(120).join('\n'));
+
+    expect(output).toContain('Compact, then switch to Model B with thinking low');
+    expect(output).not.toContain('❯ /model model-b');
+    expect(output).not.toContain('ctrl-s to steer immediately');
+    expect(output).toContain('will send after current task');
+  });
+
   it('caps a deep queue and keeps the newest messages visible', () => {
     // A queue grows while the user keeps typing; without a ceiling the pane
     // pushed the editor off screen on a short terminal.

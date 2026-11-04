@@ -17,6 +17,7 @@ export {
   handlePlanCommand,
   handleSpecCommand,
   handleThemeCommand,
+  runQueuedModelSwitch,
   showExperimentsPanel,
   showModelPicker,
   showPermissionPicker,

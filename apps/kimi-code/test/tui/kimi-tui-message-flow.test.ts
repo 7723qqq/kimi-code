@@ -61,7 +61,7 @@ import { SessionReplayRenderer } from '#/tui/controllers/session-replay';
 import { StreamingUIController, type StreamingUIHost } from '#/tui/controllers/streaming-ui';
 import { SurveyController } from '#/tui/controllers/survey-controller';
 import { KimiTUI, type KimiTUIStartupInput, type TUIState } from '#/tui/kimi-tui';
-import { type QueuedMessage, type TranscriptEntry } from '#/tui/types';
+import { type QueuedMessage, type TranscriptEntry, isPromptQueuedMessage } from '#/tui/types';
 import { ImageAttachmentStore } from '#/tui/utils/image-attachment-store';
 import { extractMediaAttachments, type ExtractionResult } from '#/tui/utils/image-placeholder';
 import { firstTokenAverageMs, formatStatDuration } from '#/tui/utils/session-stats';
@@ -169,6 +169,10 @@ interface MessageDriver {
   appendTranscriptEntry(entry: TranscriptEntry): void;
   persistInputHistory(text: string): Promise<void>;
   sendQueuedMessage(session: unknown, item: QueuedMessage): void;
+  enqueueModelSwitch(alias: string, thinking: string, persist: string): void;
+  drainQueueIfIdle(): void;
+  steerQueuedMessagesIntoRunningTurn(manual?: boolean): void;
+  completedCompactionSerial: number;
   recallLastQueued(): QueuedMessage | undefined;
   recallStashedMedia(extraction: ExtractionResult | undefined): void;
   clearQueuedMessages(): void;
@@ -692,6 +696,21 @@ function emitTurn(
     { type: 'turn.ended', agentId: 'main', turnId, reason: 'completed' } as Event,
     () => {},
   );
+}
+
+function sessionEventEmitter(session: ReturnType<typeof makeSession>) {
+  const listeners = new Set<(event: unknown) => void>();
+  (session.onEvent as unknown as {
+    mockImplementation: (fn: (listener: (event: unknown) => void) => () => void) => void;
+  }).mockImplementation((listener) => {
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+    };
+  });
+  return (event: unknown): void => {
+    for (const listener of [...listeners]) listener(event);
+  };
 }
 
 async function makeExportedSessionZip(content = 'session zip'): Promise<string> {
@@ -2052,7 +2071,7 @@ describe('KimiTUI message flow', () => {
     thinking: { enabled: true },
   });
 
-  it('blocks an effort switch once the waited-out first prompt starts a turn (v2 engine)', async () => {
+  it('applies an effort switch without a next-turn notice while the waited-out first prompt has not sent a request (v2 engine)', async () => {
     const lazySession = makeSession({ id: 'ses-lazy' });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
@@ -2081,9 +2100,212 @@ describe('KimiTUI message flow', () => {
     resolveCreate(lazySession);
     await waitForAssertion(() => {
       expect(lazySession.prompt).toHaveBeenCalledWith('hello', { promptId: undefined });
-      expect(stripSgr(renderTranscript(driver))).toContain('Cannot switch models while streaming');
+      expect(lazySession.setThinking).toHaveBeenCalledWith('low');
+      expect(stripSgr(renderTranscript(driver))).toContain('Thinking set to low.');
+      expect(stripSgr(renderTranscript(driver))).not.toContain('Takes effect from the next turn.');
     });
-    expect(lazySession.setThinking).not.toHaveBeenCalled();
+    expect(lazySession.prompt).toHaveBeenCalledTimes(1);
+  });
+
+  it('promises a next-turn effort switch only after the submitted turn sends a request', async () => {
+    const session = makeSession();
+    const { driver } = await makeDriver(session, {
+      getConfig: mock(async () => thinkingModelsConfig()),
+      setConfig: mock(async () => ({ providers: {} })),
+    });
+    driver.state.appState.model = 'k2';
+    driver.state.appState.thinkingEffort = 'high';
+    driver.state.appState.availableModels = {
+      k2: {
+        provider: 'custom',
+        model: 'kimi-k2',
+        displayName: 'K2',
+        maxContextSize: 100,
+        capabilities: ['thinking'],
+        supportEfforts: ['low', 'high', 'max'],
+        defaultEffort: 'high',
+      },
+    };
+    const sendQueued = () => {};
+    driver.streamingUI.setStep(3);
+    driver.handleUserInput('hello');
+    expect(driver.state.appState.streamingPhase).toBe('waiting');
+    expect(driver.streamingUI.getTurnContext()).toEqual({ turnId: undefined, step: 3 });
+
+    driver.handleUserInput('/effort low');
+    await waitForAssertion(() =>
+      expect(stripSgr(renderTranscript(driver))).toContain('Thinking set to low.'),
+    );
+    expect(session.setThinking).toHaveBeenCalledWith('low');
+    expect(stripSgr(renderTranscript(driver))).not.toContain('Takes effect from the next turn.');
+
+    driver.sessionEventHandler.handleEvent(
+      { type: 'turn.started', agentId: 'main', turnId: 2 } as Event,
+      sendQueued,
+    );
+    expect(driver.streamingUI.getTurnContext()).toEqual({ turnId: '2', step: 0 });
+
+    driver.handleUserInput('/effort high');
+    await waitForAssertion(() =>
+      expect(stripSgr(renderTranscript(driver))).toContain('Thinking set to high.'),
+    );
+    expect(session.setThinking).toHaveBeenCalledWith('high');
+    expect(stripSgr(renderTranscript(driver))).not.toContain('Takes effect from the next turn.');
+
+    driver.sessionEventHandler.handleEvent(
+      { type: 'turn.step.started', agentId: 'main', turnId: 2, step: 1 } as Event,
+      sendQueued,
+    );
+    expect(driver.streamingUI.getTurnContext()).toEqual({ turnId: '2', step: 1 });
+
+    driver.handleUserInput('/effort max');
+    await waitForAssertion(() =>
+      expect(stripSgr(renderTranscript(driver))).toContain(
+        'Thinking set to max. Takes effect from the next turn.',
+      ),
+    );
+    expect(session.setThinking).toHaveBeenCalledWith('max');
+  });
+
+  it('compacts and switches before sending the next queued prompt', async () => {
+    const session = makeSession();
+    const emitSessionEvent = sessionEventEmitter(session);
+    const { driver } = await makeDriver(session);
+    const calls: string[] = [];
+    session.compact.mockImplementation(async () => {
+      calls.push('compact');
+    });
+    const originalSetModel = session.setModel.getMockImplementation();
+    const originalSetThinking = session.setThinking.getMockImplementation();
+    if (originalSetModel === undefined || originalSetThinking === undefined) {
+      throw new Error('expected mocked session setters');
+    }
+    let resolveSetModel!: () => void;
+    const setModelGate = new Promise<void>((resolve) => {
+      resolveSetModel = resolve;
+    });
+    session.setModel.mockImplementation(async (alias: string) => {
+      calls.push(`setModel:${alias}`);
+      await setModelGate;
+      await originalSetModel(alias);
+    });
+    session.setThinking.mockImplementation(async (effort: string) => {
+      calls.push(`setThinking:${effort}`);
+      await originalSetThinking(effort);
+    });
+    session.prompt.mockImplementation(async (input: unknown) => {
+      calls.push(`prompt:${String(input)}`);
+    });
+
+    driver.state.appState.streamingPhase = 'waiting';
+    driver.enqueueModelSwitch('model-b', 'low', 'session');
+    driver.handleUserInput('after switch');
+    expect(driver.state.queuedMessages).toEqual([
+      {
+        text: '/model model-b',
+        mode: 'model-switch',
+        alias: 'model-b',
+        thinking: 'low',
+        persist: 'session',
+        queuedAfterCompactionSerial: 0,
+      },
+      expect.objectContaining({ text: 'after switch' }),
+    ]);
+
+    driver.state.appState.streamingPhase = 'idle';
+    driver.drainQueueIfIdle();
+    await waitForAssertion(() => expect(session.compact).toHaveBeenCalledWith({}));
+
+    const completed = {
+      type: 'compaction.completed',
+      agentId: 'main',
+      sessionId: 'ses-1',
+      result: { summary: 's', compactedCount: 1, tokensBefore: 10, tokensAfter: 5 },
+    } as Event;
+    driver.sessionEventHandler.handleEvent(completed, () => {});
+    emitSessionEvent(completed);
+    await waitForAssertion(() => expect(session.setModel).toHaveBeenCalledWith('model-b'));
+
+    driver.handleUserInput('typed during switch');
+    expect(session.prompt).not.toHaveBeenCalled();
+    const phase: string = driver.state.appState.streamingPhase;
+    expect(phase).toBe('waiting');
+    expect(driver.state.queuedMessages.map((item) => item.text)).toEqual([
+      'after switch',
+      'typed during switch',
+    ]);
+
+    resolveSetModel();
+    await waitForAssertion(() =>
+      expect(session.prompt).toHaveBeenCalledWith('after switch', { promptId: undefined }),
+    );
+    expect(calls).toEqual([
+      'compact',
+      'setModel:model-b',
+      'setThinking:low',
+      'prompt:after switch',
+    ]);
+    expect(driver.state.queuedMessages.map((item) => item.text)).toEqual(['typed during switch']);
+    expect(stripSgr(renderTranscript(driver))).toContain(
+      'Switched to model-b with thinking low for this session only.',
+    );
+    expect(stripSgr(renderTranscript(driver))).not.toContain('Takes effect from the next turn.');
+  });
+
+  it('keeps queued prompts in place on Ctrl-S until a dequeued model switch applies', async () => {
+    const session = makeSession();
+    const { driver } = await makeDriver(session);
+    driver.state.appState.streamingPhase = 'waiting';
+    driver.streamingUI.setTurnId('1');
+    driver.enqueueModelSwitch('model-b', 'low', 'session');
+    driver.handleUserInput('after switch');
+
+    driver.steerQueuedMessagesIntoRunningTurn(true);
+
+    expect(session.steer).not.toHaveBeenCalled();
+    expect(driver.state.queuedMessages.map((item) => item.text)).toEqual([
+      '/model model-b',
+      'after switch',
+    ]);
+  });
+
+  it('skips a queued model-switch compaction after another compaction completes', async () => {
+    const session = makeSession();
+    const { driver } = await makeDriver(session);
+    driver.enqueueModelSwitch('model-b', 'low', 'session');
+    driver.completedCompactionSerial = 1;
+
+    driver.drainQueueIfIdle();
+
+    await waitForAssertion(() => expect(session.setModel).toHaveBeenCalledWith('model-b'));
+    expect(session.compact).not.toHaveBeenCalled();
+    expect(stripSgr(renderTranscript(driver))).toContain('Skipped compaction');
+  });
+
+  it('continues with the next queued prompt when model-switch compaction fails', async () => {
+    const session = makeSession();
+    const { driver } = await makeDriver(session);
+    session.compact.mockRejectedValue(new Error('engine busy'));
+    driver.enqueueModelSwitch('model-b', 'low', 'session');
+    driver.handleUserInput('after switch');
+
+    driver.drainQueueIfIdle();
+
+    await waitForAssertion(() =>
+      expect(session.prompt).toHaveBeenCalledWith('after switch', { promptId: undefined }),
+    );
+    expect(session.setModel).not.toHaveBeenCalled();
+  });
+
+  it('recalls a queued model switch into the editor on up arrow', async () => {
+    const session = makeSession();
+    const { driver } = await makeDriver(session);
+    driver.enqueueModelSwitch('model-b', 'low', 'session');
+
+    const recalled = driver.recallLastQueued();
+
+    expect(recalled).toMatchObject({ mode: 'model-switch', alias: 'model-b', thinking: 'low' });
+    expect(driver.state.queuedMessages).toEqual([]);
   });
 
   it('applies an effort switch after waiting out an in-flight lazy creation (v2 engine)', async () => {
@@ -3955,16 +4177,19 @@ command = "vim"
       expect(driver.state.queuedMessages).toHaveLength(1);
     });
     const queued = driver.state.queuedMessages[0];
-    const parts = queued?.parts as Array<{
+    if (queued === undefined || !isPromptQueuedMessage(queued)) {
+      throw new Error('expected a queued prompt');
+    }
+    const parts = queued.parts as Array<{
       type: string;
       text?: string;
       videoUrl?: { url: string };
     }>;
     expect(parts?.[0]).toEqual({ type: 'text', text: 'describe ' });
     expect(parts?.[1]).toEqual({ type: 'video_url', videoUrl: { url: 'kimi-file://file-v1' } });
-    expect(queued?.videoAttachmentIds).toEqual([attachment.id]);
+    expect(queued.videoAttachmentIds).toEqual([attachment.id]);
 
-    driver.sendQueuedMessage(session, queued!);
+    driver.sendQueuedMessage(session, queued);
     expect(session.prompt.mock.calls[0]?.[0]).toEqual(parts);
   });
 
@@ -7421,12 +7646,15 @@ capabilities = ["image_in", "video_in"]
       expect(driver.state.queuedMessages).toHaveLength(1);
     });
     const queued = driver.state.queuedMessages[0];
-    expect(queued?.parts).toEqual([
+    if (queued === undefined || !isPromptQueuedMessage(queued)) {
+      throw new Error('expected a queued prompt');
+    }
+    expect(queued.parts).toEqual([
       { type: 'text', text: 'describe ' },
       { type: 'image_url', imageUrl: { url: 'data:image/png;base64,qrs=' } },
     ]);
 
-    driver.sendQueuedMessage(session, queued!);
+    driver.sendQueuedMessage(session, queued);
 
     expect(session.prompt).toHaveBeenCalledWith(
       [
@@ -7571,6 +7799,7 @@ capabilities = ["image_in", "video_in"]
       expect(driver.state.queuedMessages).toHaveLength(1);
     });
     const requeued = driver.state.queuedMessages[0]!;
+    if (!isPromptQueuedMessage(requeued)) throw new Error('expected a queued prompt');
     expect(requeued.parts).toContainEqual({
       type: 'image_url',
       imageUrl: { url: 'kimi-file://file-recall' },
@@ -7607,9 +7836,12 @@ capabilities = ["image_in", "video_in"]
       expect(driver.state.queuedMessages).toHaveLength(1);
     });
     const queued = driver.state.queuedMessages[0];
-    const parts = queued?.parts as Array<{ type: string; videoUrl?: { url: string } }>;
+    if (queued === undefined || !isPromptQueuedMessage(queued)) {
+      throw new Error('expected a queued prompt');
+    }
+    const parts = queued.parts as Array<{ type: string; videoUrl?: { url: string } }>;
     expect(parts?.[1]).toEqual({ type: 'video_url', videoUrl: { url: 'kimi-file://file-v1' } });
-    expect(queued?.videoAttachmentIds).toEqual([attachment.id]);
+    expect(queued.videoAttachmentIds).toEqual([attachment.id]);
   });
 
   it('steers consecutive image-only messages without a whitespace-only separator part', async () => {

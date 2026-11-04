@@ -7,14 +7,15 @@ import { t } from '#/i18n';
 import { getLlmNotSetMessage, MAIN_AGENT_ID } from '../constant/kimi-tui';
 import { MEDIA_INGESTION_SUBMIT_WAIT_MS } from '../constant/media';
 import type { TUIState } from '../tui-state';
-import type {
-  AppState,
-  InlineSkillActivation,
-  LivePaneState,
-  PreparedSkillActivations,
-  QueuedMessage,
-  SteerInputItem,
-  TranscriptEntry,
+import {
+  isPromptQueuedMessage,
+  type AppState,
+  type InlineSkillActivation,
+  type LivePaneState,
+  type PreparedSkillActivations,
+  type QueuedMessage,
+  type SteerInputItem,
+  type TranscriptEntry,
 } from '../types';
 import { formatErrorMessage } from '../utils/event-payload';
 import type { ImageAttachmentStore, MediaAttachment } from '../utils/image-attachment-store';
@@ -477,9 +478,10 @@ export class MessageDispatchController {
     // A recall restores the draft into the editor — it is not a discard:
     // consumes the retains only, keeping the staged daemon uploads alive
     // (see `releaseRecalled`) so the restored draft resubmits them.
+    const prompt = isPromptQueuedMessage(last) ? last : undefined;
     this.staging.releaseRecalled([
-      ...(last.imageAttachmentIds ?? []),
-      ...(last.videoAttachmentIds ?? []),
+      ...(prompt?.imageAttachmentIds ?? []),
+      ...(prompt?.videoAttachmentIds ?? []),
     ]);
     return last;
   }
@@ -568,28 +570,37 @@ export class MessageDispatchController {
       this.sendSkillActivation(session, item.skillName, item.skillArgs ?? '');
       return;
     }
-    if (item.inlineSkillActivations !== undefined && item.inlineSkillActivations.length > 0) {
+    // Queued /compact and model switches drain through KimiTUI's own
+    // dispatcher; putting the item back keeps it visible and intact instead of
+    // sending its text as a prompt.
+    if (item.mode === 'compact' || item.mode === 'model-switch') {
+      this.host.state.queuedMessages.push(item);
+      this.host.updateQueueDisplay();
+      return;
+    }
+    const prompt = isPromptQueuedMessage(item) ? item : undefined;
+    if (prompt?.inlineSkillActivations !== undefined && prompt.inlineSkillActivations.length > 0) {
       // Media was extracted and validated at enqueue time; reuse the queued
       // parts rather than re-extracting from a possibly-cleared image store.
       // Expiring daemon refs refresh at dispatch, same as the plain tail below.
       const refreshed =
-        item.parts === undefined
+        prompt.parts === undefined
           ? []
           : [
               ...refreshExpiringImageFileRefs(
-                item.parts,
-                item.imageAttachmentIds ?? [],
+                prompt.parts,
+                prompt.imageAttachmentIds ?? [],
                 this.imageStore,
               ),
             ];
       this.beginSessionRequest();
-      void this.runInlineSkillActivations(session, item.text, item.inlineSkillActivations, {
+      void this.runInlineSkillActivations(session, prompt.text, prompt.inlineSkillActivations, {
         parts: refreshed,
         hasMedia: refreshed.length > 0,
         imageAttachmentIds:
-          item.imageAttachmentIds !== undefined ? [...item.imageAttachmentIds] : [],
+          prompt.imageAttachmentIds !== undefined ? [...prompt.imageAttachmentIds] : [],
         videoAttachmentIds:
-          item.videoAttachmentIds !== undefined ? [...item.videoAttachmentIds] : [],
+          prompt.videoAttachmentIds !== undefined ? [...prompt.videoAttachmentIds] : [],
         imageSnapshots: [],
       }).catch((error: unknown) => {
         this.failSessionRequest(
@@ -599,14 +610,18 @@ export class MessageDispatchController {
       return;
     }
     const parts =
-      item.parts === undefined
+      prompt?.parts === undefined
         ? undefined
-        : refreshExpiringImageFileRefs(item.parts, item.imageAttachmentIds ?? [], this.imageStore);
+        : refreshExpiringImageFileRefs(
+            prompt.parts,
+            prompt.imageAttachmentIds ?? [],
+            this.imageStore,
+          );
     this.host.harness.withInteractiveAgent(item.agentId ?? MAIN_AGENT_ID, () => {
       this.sendMessageInternal(session, item.text, {
         parts,
-        imageAttachmentIds: item.imageAttachmentIds,
-        videoAttachmentIds: item.videoAttachmentIds,
+        imageAttachmentIds: prompt?.imageAttachmentIds,
+        videoAttachmentIds: prompt?.videoAttachmentIds,
       });
     });
   }
@@ -889,9 +904,9 @@ export class MessageDispatchController {
       // An inline-skill bundle steers as its own group so its prompt and its
       // activations reach the model together; plain items coalesce into one
       // run while no bundle separates them.
-      const group = [first];
-      if (first.inlineSkillActivations === undefined) {
-        while (pending[0] !== undefined && pending[0].inlineSkillActivations === undefined) {
+      const group: QueuedMessage[] = [first];
+      if (!hasInlineSkillActivations(first)) {
+        while (pending[0] !== undefined && !hasInlineSkillActivations(pending[0])) {
           const next = pending.shift()!;
           if (this.host.state.queuedMessages.includes(next)) group.push(next);
         }
@@ -900,7 +915,7 @@ export class MessageDispatchController {
       this.host.updateQueueDisplay();
       const items = group.map((message) => {
         const item = toSteerInputItem(message);
-        if (message.parts === undefined) return item;
+        if (!isPromptQueuedMessage(message) || message.parts === undefined) return item;
         return {
           ...item,
           parts: refreshExpiringImageFileRefs(
@@ -1153,20 +1168,29 @@ export class MessageDispatchController {
 }
 
 function isSteerableQueuedMessage(message: QueuedMessage): boolean {
-  return (
-    message.inlineSkillActivations === undefined &&
-    message.mode !== 'bash' &&
-    message.mode !== 'skill'
-  );
+  if (
+    message.mode === 'bash' ||
+    message.mode === 'skill' ||
+    message.mode === 'compact' ||
+    message.mode === 'model-switch'
+  ) {
+    return false;
+  }
+  return message.inlineSkillActivations === undefined;
+}
+
+function hasInlineSkillActivations(message: QueuedMessage): boolean {
+  return isPromptQueuedMessage(message) && message.inlineSkillActivations !== undefined;
 }
 
 function toSteerInputItem(message: QueuedMessage): SteerInputItem {
+  const prompt = isPromptQueuedMessage(message) ? message : undefined;
   return {
     text: message.text,
-    parts: message.parts,
-    imageAttachmentIds: message.imageAttachmentIds,
-    videoAttachmentIds: message.videoAttachmentIds,
-    mediaSnapshots: message.mediaSnapshots,
-    inlineSkillActivations: message.inlineSkillActivations,
+    parts: prompt?.parts,
+    imageAttachmentIds: prompt?.imageAttachmentIds,
+    videoAttachmentIds: prompt?.videoAttachmentIds,
+    mediaSnapshots: prompt?.mediaSnapshots,
+    inlineSkillActivations: prompt?.inlineSkillActivations,
   };
 }

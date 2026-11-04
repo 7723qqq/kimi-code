@@ -97,6 +97,9 @@ export default {
     // wire.unknown_record
     wireUnknownRecord: '未知的 wire 记录',
     wireUnknownRecordAction: '该记录由更新的版本写入；请升级或删除它。',
+    // wire.version_too_low
+    wireVersionTooLow: 'wire 版本过旧，当前客户端无法读取',
+    wireVersionTooLowAction: '请升级写入该会话的工具后重新打开。',
     // not_implemented
     notImplemented: '未实现',
     // internal
@@ -1612,6 +1615,7 @@ export default {
         hintSteer: '  ↑ 编辑 · ctrl-s 立即引导',
         hintAfterTask: '  ↑ 编辑 · 当前任务完成后发送',
         earlierHidden: '  … 已隐藏较早的 {{count}} 条排队消息',
+        modelSwitch: '压缩后切换到 {{name}}，思考 {{effort}}',
       },
       btwPanel: {
         readyForSideQuestion: '准备进行旁路提问…',
@@ -1854,6 +1858,9 @@ export default {
       modelSwitchCompactionCancelled: '压缩已取消：模型未变更。',
       modelSwitchAbortedModelUnchanged: '模型切换已中止：模型未变更。',
       modelSwitchCompactFailed: '压缩失败：{{error}}。模型未变更。',
+      modelSwitchCompactionSkipped: '已跳过压缩：上下文刚刚压缩过。正在切换模型。',
+      modelSwitchCompactUnavailable:
+        'agent 仍在运行时无法压缩：模型未变更。请暂停目标，或选择「继续当前状态」进行切换。',
       failedToApplyStartupFlags: '应用启动标志失败：{{message}}',
       providerModelsAdded_one: '{{provider}} · 新增 {{count}} 个模型。',
       providerModelsAdded_other: '{{provider}} · 新增 {{count}} 个模型。',
@@ -2766,6 +2773,7 @@ export default {
       configThinkingSetSession: '思考模式已设置为 {{effort}}（仅本次会话）。',
       configModelSavedDefault: '已将 {{name}}（思考 {{effort}}）保存为默认。',
       configModelAlreadyUsing: '已在使用 {{name}}，思考模式 {{effort}}。',
+      configModelSwitchNextTurn: '将在下一轮生效。',
       configModelMigrationRecommend: '建议从 {{from}} 切换到 {{to}}。',
       configModelMigrationCheckFailed: '检查模型迁移失败。',
       configModelMigrationSaveFailed: '保存模型迁移偏好失败。',

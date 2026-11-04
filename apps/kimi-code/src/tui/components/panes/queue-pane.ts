@@ -1,16 +1,19 @@
 import { Container, truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
+import type { ModelAlias } from '@moonshot-ai/kimi-code-sdk';
 
 import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
 
 import { SELECT_POINTER } from '../../constant/symbols';
-import type { QueuedMessage } from '../../types';
+import { isQueuedCompactionBarrier, type QueuedMessage } from '../../types';
+import { modelDisplayName } from '../dialogs/model-selector';
 
 export interface QueuePaneOptions {
   readonly messages: readonly QueuedMessage[];
   readonly isCompacting: boolean;
   readonly isStreaming: boolean;
   readonly canSteerImmediately: boolean;
+  readonly availableModels?: Record<string, ModelAlias>;
   /** Terminal rows, so the pane can hold itself to a share of the screen. */
   readonly terminalRows?: () => number;
 }
@@ -34,6 +37,7 @@ export class QueuePaneComponent extends Container {
   private readonly messages: readonly QueuedMessage[];
   private readonly hint: string | undefined;
   private readonly terminalRows: () => number;
+  private readonly availableModels: Record<string, ModelAlias>;
   /** Which optional rows the current budget allows; set by `visibleMessages`. */
   private drawnHint = true;
   private drawnNotice = false;
@@ -42,14 +46,15 @@ export class QueuePaneComponent extends Container {
     super();
     this.messages = options.messages;
     this.terminalRows = options.terminalRows ?? (() => 0);
+    this.availableModels = options.availableModels ?? {};
 
     if (options.messages.length > 0) {
-      // Bash commands (`! …`) are not steerable, and a queued /compact
-      // barriers everything behind it — only advertise Ctrl-S when an item
-      // ahead of the first /compact would actually steer.
-      const firstCompact = options.messages.findIndex((m) => m.mode === 'compact');
+      // Bash commands (`! …`) are not steerable, and a queued /compact or
+      // model switch barriers everything behind it — only advertise Ctrl-S
+      // when an item ahead of the first barrier would actually steer.
+      const firstBarrier = options.messages.findIndex(isQueuedCompactionBarrier);
       const steerableWindow =
-        firstCompact === -1 ? options.messages : options.messages.slice(0, firstCompact);
+        firstBarrier === -1 ? options.messages : options.messages.slice(0, firstBarrier);
       const hasSteerable = steerableWindow.some((m) => m.mode !== 'bash');
       const canSteer = options.canSteerImmediately && hasSteerable;
       this.hint =
@@ -131,6 +136,15 @@ export class QueuePaneComponent extends Container {
     for (const item of visible) {
       const singleLine = item.text.replaceAll(/\s+/g, ' ').trim();
       const prefix = `  ${SELECT_POINTER} `;
+      if (item.mode === 'model-switch') {
+        const text = t('tui.dialogs.queuePane.modelSwitch', {
+          name: modelDisplayName(item.alias, this.availableModels[item.alias]),
+          effort: item.thinking,
+        });
+        const availableWidth = Math.max(1, width - visibleWidth(prefix));
+        lines.push(accent(prefix + truncateToWidth(text, availableWidth, ELLIPSIS)));
+        continue;
+      }
       if (item.mode === 'bash') {
         // Shell commands get a `$ ` prompt and the shell-mode hue so they read
         // as commands, not as plain text that would be sent to the model.

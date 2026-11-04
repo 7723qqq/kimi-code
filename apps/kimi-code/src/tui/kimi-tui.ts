@@ -17,6 +17,7 @@ import type {
   PromptPart,
   Session,
   SkillSummary,
+  ThinkingEffort,
   TokenUsage,
   TurnEndedEvent,
   TurnStartedEvent,
@@ -72,6 +73,7 @@ import {
   buildSkillSlashCommands,
   goalObjectiveLengthWarning,
   isExperimentalFlagEnabled,
+  runQueuedModelSwitch,
   setExperimentalFeatures,
   sortSlashCommands,
   type KimiSlashCommand,
@@ -171,6 +173,8 @@ import type { ColorToken, ResolvedTheme, ThemeName } from './theme';
 import { createTUIState, type TUIState } from './tui-state';
 import {
   INITIAL_LIVE_PANE,
+  isPromptQueuedMessage,
+  isQueuedCompactionBarrier,
   sumTokenUsage,
   type AppState,
   type InlineSkillActivation,
@@ -178,7 +182,10 @@ import {
   type KimiTUIOptions,
   type LivePaneState,
   type LoginProgressSpinnerHandle,
+  type ModelSwitchPersistence,
   type QueuedMessage,
+  type QueuedPromptMessage,
+  type QueuedSkillActivation,
   type SteerInputItem,
   type TranscriptEntry,
   type TUIStartupOptions,
@@ -426,6 +433,8 @@ export class KimiTUI {
   lastCompactionTrigger: CompactionStartedEvent['trigger'] | undefined;
   /** Bumped on every completed auto compaction; queued /compact items snapshot it. */
   autoCompactionSerial = 0;
+  /** Bumped on every completed compaction; queued model switches snapshot it. */
+  completedCompactionSerial = 0;
   private terminalFocusTrackingDispose: (() => void) | undefined;
   private terminalThemeTrackingDispose: (() => void) | undefined;
   private clipboardImageHintController: ClipboardImageHintController | undefined;
@@ -1898,9 +1907,10 @@ export class KimiTUI {
     // A recall restores the draft into the editor — it is not a discard:
     // consumes the retains only, keeping the staged daemon uploads alive
     // (see `releaseRecalled`) so the restored draft resubmits them.
+    const prompt = isPromptQueuedMessage(last) ? last : undefined;
     this.staging.releaseRecalled([
-      ...(last.imageAttachmentIds ?? []),
-      ...(last.videoAttachmentIds ?? []),
+      ...(prompt?.imageAttachmentIds ?? []),
+      ...(prompt?.videoAttachmentIds ?? []),
     ]);
     return last;
   }
@@ -1930,7 +1940,15 @@ export class KimiTUI {
     },
     mode?: 'prompt' | 'bash',
   ): void {
-    this.state.queuedMessages.push(this.toQueuedMessage(text, options, mode));
+    if (mode === 'bash') {
+      this.state.queuedMessages.push({
+        text,
+        agentId: this.harness.interactiveAgentId,
+        mode,
+      });
+    } else {
+      this.state.queuedMessages.push(this.toQueuedMessage(text, options));
+    }
     this.track('input_queue');
   }
 
@@ -1939,8 +1957,7 @@ export class KimiTUI {
     options?: SendMessageOptions & {
       readonly inlineSkillActivations?: readonly InlineSkillActivation[];
     },
-    mode?: 'prompt' | 'bash',
-  ): QueuedMessage {
+  ): QueuedPromptMessage {
     return {
       text,
       agentId: this.harness.interactiveAgentId,
@@ -1953,7 +1970,7 @@ export class KimiTUI {
         options?.videoAttachmentIds !== undefined && options.videoAttachmentIds.length > 0
           ? options.videoAttachmentIds
           : undefined,
-      mode,
+      mode: undefined,
       mediaSnapshots: options?.mediaSnapshots,
       inlineSkillActivations: options?.inlineSkillActivations,
     };
@@ -1972,6 +1989,23 @@ export class KimiTUI {
     this.updateQueueDisplay();
     this.state.ui.requestRender();
     return true;
+  }
+
+  enqueueModelSwitch(
+    alias: string,
+    thinking: ThinkingEffort,
+    persist: ModelSwitchPersistence,
+  ): void {
+    this.state.queuedMessages.push({
+      text: `/model ${alias}`,
+      mode: 'model-switch',
+      alias,
+      thinking,
+      persist,
+      queuedAfterCompactionSerial: this.completedCompactionSerial,
+    });
+    this.updateQueueDisplay();
+    this.state.ui.requestRender();
   }
 
   beginSessionRequest(): void {
@@ -2057,22 +2091,28 @@ export class KimiTUI {
       void session.compact({ instruction: item.compactInstruction }).catch(retryOrDrop);
       return;
     }
+    if (item.mode === 'model-switch') {
+      if (this.session !== session) return;
+      void runQueuedModelSwitch(this, item);
+      return;
+    }
     if (item.mode === 'bash') {
       this.staging.releaseQueued([item]);
       void this.runShellCommandFromInput(item.text);
       return;
     }
-    if (item.inlineSkillActivations !== undefined && item.inlineSkillActivations.length > 0) {
+    const prompt = isPromptQueuedMessage(item) ? item : undefined;
+    if (prompt?.inlineSkillActivations !== undefined && prompt.inlineSkillActivations.length > 0) {
       // Media was extracted and validated at enqueue time; reuse the queued
       // parts rather than re-extracting from a possibly-cleared image store.
       // Expiring daemon refs refresh at dispatch, same as the plain tail below.
       const refreshed =
-        item.parts === undefined
+        prompt.parts === undefined
           ? []
           : [
               ...refreshExpiringImageFileRefs(
-                item.parts,
-                item.imageAttachmentIds ?? [],
+                prompt.parts,
+                prompt.imageAttachmentIds ?? [],
                 this.imageStore,
               ),
             ];
@@ -2080,26 +2120,30 @@ export class KimiTUI {
         parts: refreshed,
         hasMedia: refreshed.length > 0,
         imageAttachmentIds:
-          item.imageAttachmentIds !== undefined ? [...item.imageAttachmentIds] : [],
+          prompt.imageAttachmentIds !== undefined ? [...prompt.imageAttachmentIds] : [],
         videoAttachmentIds:
-          item.videoAttachmentIds !== undefined ? [...item.videoAttachmentIds] : [],
+          prompt.videoAttachmentIds !== undefined ? [...prompt.videoAttachmentIds] : [],
         imageSnapshots: [],
-        mediaSnapshots: item.mediaSnapshots,
+        mediaSnapshots: prompt.mediaSnapshots,
       };
       this.beginSessionRequest();
-      this.runInlineSkillActivations(session, item.text, item.inlineSkillActivations, extraction);
+      this.runInlineSkillActivations(session, prompt.text, prompt.inlineSkillActivations, extraction);
       return;
     }
     const parts =
-      item.parts === undefined
+      prompt?.parts === undefined
         ? undefined
-        : refreshExpiringImageFileRefs(item.parts, item.imageAttachmentIds ?? [], this.imageStore);
+        : refreshExpiringImageFileRefs(
+            prompt.parts,
+            prompt.imageAttachmentIds ?? [],
+            this.imageStore,
+          );
     this.harness.withInteractiveAgent(item.agentId ?? MAIN_AGENT_ID, () => {
       this.sendMessageInternal(session, item.text, {
         parts,
-        imageAttachmentIds: item.imageAttachmentIds,
-        videoAttachmentIds: item.videoAttachmentIds,
-        occupiedRetry: item.occupiedRetry,
+        imageAttachmentIds: prompt?.imageAttachmentIds,
+        videoAttachmentIds: prompt?.videoAttachmentIds,
+        occupiedRetry: prompt?.occupiedRetry,
       });
     });
   }
@@ -2427,21 +2471,25 @@ export class KimiTUI {
   steerQueuedMessagesIntoRunningTurn(manual = false): void {
     const session = this.session;
     if (session === undefined || this.steeringQueuedMessages.size > 0) return;
+    if (this.state.queuedMessageDispatchPending) return;
     if (manual ? !this.canManuallySteer() : !this.canSteerQueueIntoRunningTurn()) return;
-    // A queued /compact is a FIFO barrier for steering, manual or automatic:
-    // messages behind it must wait for the compaction, not jump into the
-    // pre-compaction context.
-    const firstCompact = this.state.queuedMessages.findIndex(
-      (message) => message.mode === 'compact',
-    );
+    // Compaction and model-switch items are FIFO barriers for steering:
+    // messages behind them must not jump into the pre-compaction context.
+    const firstBarrier = this.state.queuedMessages.findIndex(isQueuedCompactionBarrier);
     const beforeBarrier = this.state.queuedMessages.slice(
       0,
-      firstCompact === -1 ? this.state.queuedMessages.length : firstCompact,
+      firstBarrier === -1 ? this.state.queuedMessages.length : firstBarrier,
     );
-    const batch = manual
-      ? beforeBarrier.filter((message) => message.mode !== 'bash')
-      : beforeBarrier;
-    if (batch.length === 0 || (!manual && !batch.every(isSteerableQueuedMessage))) return;
+    const batch: SteerableQueuedMessage[] = beforeBarrier.filter(
+      (message): message is SteerableQueuedMessage =>
+        message.mode !== 'bash' && message.mode !== 'compact' && message.mode !== 'model-switch',
+    );
+    if (
+      batch.length === 0 ||
+      (!manual && (batch.length !== beforeBarrier.length || !batch.every(isSteerableQueuedMessage)))
+    ) {
+      return;
+    }
     const pending = [...batch];
     const sendNext = (): void => {
       if (this.deferUserMessages || this.state.appState.isCompacting) return;
@@ -2457,9 +2505,9 @@ export class KimiTUI {
         }
         return;
       }
-      const group = [first];
-      if (first.inlineSkillActivations === undefined) {
-        while (pending[0] !== undefined && pending[0].inlineSkillActivations === undefined) {
+      const group: SteerableQueuedMessage[] = [first];
+      if (!hasInlineSkillActivations(first)) {
+        while (pending[0] !== undefined && !hasInlineSkillActivations(pending[0])) {
           const next = pending.shift()!;
           if (this.state.queuedMessages.includes(next)) group.push(next);
         }
@@ -2468,7 +2516,7 @@ export class KimiTUI {
       this.updateQueueDisplay();
       const items = group.map((message) => {
         const item = toSteerInputItem(message);
-        if (message.parts === undefined) return item;
+        if (!isPromptQueuedMessage(message) || message.parts === undefined) return item;
         return {
           ...item,
           parts: refreshExpiringImageFileRefs(
@@ -2485,7 +2533,7 @@ export class KimiTUI {
           for (const message of group) this.steeringQueuedMessages.delete(message);
           if (this.session !== session) return;
           if (steered || manual) {
-            const done = new Set(group);
+            const done = new Set<QueuedMessage>(group);
             this.state.queuedMessages = this.state.queuedMessages.filter(
               (message) => !done.has(message),
             );
@@ -2520,7 +2568,7 @@ export class KimiTUI {
     return this.steeringQueuedMessages.size > 0;
   }
 
-  private drainQueueIfIdle(): void {
+  drainQueueIfIdle(): void {
     if (
       this.state.appState.streamingPhase !== 'idle' ||
       this.deferUserMessages ||
@@ -4097,6 +4145,7 @@ export class KimiTUI {
         isCompacting: this.state.appState.isCompacting,
         isStreaming: this.state.appState.streamingPhase !== 'idle',
         canSteerImmediately: !this.deferUserMessages && !this.isSteeringQueuedMessages(),
+        availableModels: this.state.appState.availableModels,
       }),
     );
   }
@@ -4856,21 +4905,28 @@ export class KimiTUI {
   }
 }
 
-function isSteerableQueuedMessage(message: QueuedMessage): boolean {
-  return (
-    message.inlineSkillActivations === undefined &&
-    message.mode !== 'bash' &&
-    message.mode !== 'compact'
-  );
+type SteerableQueuedMessage = QueuedPromptMessage | QueuedSkillActivation;
+
+function hasInlineSkillActivations(message: SteerableQueuedMessage): boolean {
+  return isPromptQueuedMessage(message) && message.inlineSkillActivations !== undefined;
 }
 
-function toSteerInputItem(message: QueuedMessage): SteerInputItem {
+function isSteerableQueuedMessage(message: QueuedMessage): boolean {
+  if (message.mode === 'bash' || message.mode === 'compact' || message.mode === 'model-switch') {
+    return false;
+  }
+  const prompt = isPromptQueuedMessage(message) ? message : undefined;
+  return prompt === undefined || prompt.inlineSkillActivations === undefined;
+}
+
+function toSteerInputItem(message: SteerableQueuedMessage): SteerInputItem {
+  const prompt = isPromptQueuedMessage(message) ? message : undefined;
   return {
     text: message.text,
-    parts: message.parts,
-    imageAttachmentIds: message.imageAttachmentIds,
-    videoAttachmentIds: message.videoAttachmentIds,
-    mediaSnapshots: message.mediaSnapshots,
-    inlineSkillActivations: message.inlineSkillActivations,
+    parts: prompt?.parts,
+    imageAttachmentIds: prompt?.imageAttachmentIds,
+    videoAttachmentIds: prompt?.videoAttachmentIds,
+    mediaSnapshots: prompt?.mediaSnapshots,
+    inlineSkillActivations: prompt?.inlineSkillActivations,
   };
 }

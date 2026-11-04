@@ -45,7 +45,7 @@
 import type { Event } from '@moonshot-ai/kimi-code-sdk';
 
 import { MAIN_AGENT_ID } from '../constant/kimi-tui';
-import type { QueuedMessage } from '../types';
+import { isPromptQueuedMessage, type QueuedMessage } from '../types';
 
 /** Narrowed event shapes consumed by the tracker (see `handleTurnStarted`). */
 type TurnStartedEvent = Extract<Event, { type: 'turn.started' }>;
@@ -240,7 +240,7 @@ export class StagingLeaseTracker {
   }
 
   releaseQueued(items: readonly QueuedMessage[]): void {
-    const fileIds = items.flatMap((item) =>
+    const fileIds = items.filter(isPromptQueuedMessage).flatMap((item) =>
       this.effects.takeFileIds([
         ...(item.imageAttachmentIds ?? []),
         ...(item.videoAttachmentIds ?? []),

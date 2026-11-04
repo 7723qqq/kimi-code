@@ -58,7 +58,12 @@ import {
   type TuiConfig,
   type TuiMode,
 } from '../config';
-import { getNoActiveSessionMessage, getTuiModeRestartNotice } from '../constant/kimi-tui';
+import {
+  getNoActiveSessionMessage,
+  getTuiModeRestartNotice,
+  MAIN_AGENT_ID,
+} from '../constant/kimi-tui';
+import type { QueuedModelSwitch } from '../types';
 import { formatErrorMessage } from '../utils/event-payload';
 import { setMarkdownMermaidMode, type MermaidRenderMode } from '../utils/markdown-options';
 import {
@@ -590,11 +595,8 @@ export function matchedModelSwitchRule(
   alias: string,
 ): ModelSwitchRule | undefined {
   const prevAlias = host.state.appState.model;
-  // Effort-only switches and re-picks of the live alias lose no cache. A
-  // streaming switch keeps the existing behavior: performModelSwitch rejects
-  // it with an error, so the dialog must not precede that rejection.
+  // Re-picks of the live alias lose no cache.
   if (alias === prevAlias) return undefined;
-  if (host.state.appState.streamingPhase !== 'idle') return undefined;
   if (!hasConversationHistory(host)) return undefined;
   const fromModelId = host.state.appState.availableModels[prevAlias]?.model;
   const toModelId = host.state.appState.availableModels[alias]?.model;
@@ -605,9 +607,8 @@ export function matchedModelSwitchRule(
 /**
  * Fire a compaction and wait for it to settle before the model switch. The
  * compact RPC resolves as soon as the engine *starts* compacting — the
- * completed/cancelled/failed outcome arrives later as an event — and
- * performModelSwitch rejects any switch while the session is busy, so the
- * switch must hold until one of those events lands. True only when the
+ * completed/cancelled/failed outcome arrives later as an event. The switch
+ * must wait because compaction reads the current model. True only when the
  * compaction completed on the same session; any other outcome shows a
  * message and leaves the model unchanged.
  */
@@ -621,6 +622,7 @@ export async function compactForModelSwitch(
     settle = resolve;
   });
   const unsubscribe = session.onEvent((event) => {
+    if (event.agentId !== MAIN_AGENT_ID) return;
     if (event.type === 'compaction.completed') settle('completed');
     else if (event.type === 'compaction.cancelled') settle('cancelled');
     else if (event.type === 'error' && event.code === ErrorCodes.COMPACTION_FAILED) {
@@ -645,9 +647,13 @@ export async function compactForModelSwitch(
     }
     return false;
   } catch (error) {
-    host.showError(
-      t('tui.statusMessages.modelSwitchCompactFailed', { error: formatErrorMessage(error) }),
-    );
+    if ((error as { readonly code?: unknown }).code === ErrorCodes.COMPACTION_UNABLE) {
+      host.showError(t('tui.statusMessages.modelSwitchCompactUnavailable'));
+    } else {
+      host.showError(
+        t('tui.statusMessages.modelSwitchCompactFailed', { error: formatErrorMessage(error) }),
+      );
+    }
     return false;
   } finally {
     clearTimeout(timer);
@@ -662,6 +668,7 @@ async function runModelSwitchAction(
   thinking: ThinkingEffort,
   persist: ModelSwitchPersistence,
 ): Promise<void> {
+  const busy = host.state.appState.streamingPhase !== 'idle' || host.state.appState.isCompacting;
   switch (action) {
     case 'cancel':
       return;
@@ -679,14 +686,64 @@ async function runModelSwitchAction(
       await performModelSwitch(host, alias, thinking, persist);
       return;
     }
-    case 'compact': {
-      // Compact with the current model first, then switch: the new model
-      // starts from the compacted context.
-      if (host.session !== undefined && !(await compactForModelSwitch(host, host.session))) {
+    case 'compact':
+      if (busy) {
+        host.enqueueModelSwitch(alias, thinking, persist);
         return;
       }
-      await performModelSwitch(host, alias, thinking, persist);
+      await runModelSwitchWithQueueHeld(host, () =>
+        compactThenPerformModelSwitch(host, alias, thinking, persist),
+      );
       return;
+  }
+}
+
+export async function runQueuedModelSwitch(
+  host: SlashCommandHost,
+  item: QueuedModelSwitch,
+): Promise<void> {
+  await runModelSwitchWithQueueHeld(host, async () => {
+    if (item.queuedAfterCompactionSerial === host.completedCompactionSerial) {
+      await compactThenPerformModelSwitch(host, item.alias, item.thinking, item.persist);
+      return;
+    }
+    host.showNotice(t('tui.statusMessages.modelSwitchCompactionSkipped'));
+    await performModelSwitch(host, item.alias, item.thinking, item.persist, {
+      appliesNextTurn: false,
+    });
+  });
+}
+
+async function compactThenPerformModelSwitch(
+  host: SlashCommandHost,
+  alias: string,
+  thinking: ThinkingEffort,
+  persist: ModelSwitchPersistence,
+): Promise<void> {
+  if (host.session !== undefined && !(await compactForModelSwitch(host, host.session))) return;
+  await performModelSwitch(host, alias, thinking, persist, { appliesNextTurn: false });
+}
+
+async function runModelSwitchWithQueueHeld(
+  host: SlashCommandHost,
+  action: () => Promise<unknown>,
+): Promise<void> {
+  const session = host.session;
+  host.state.queuedMessageDispatchPending = true;
+  host.setAppState({ streamingPhase: 'waiting', streamingStartTime: Date.now() });
+  try {
+    await action();
+  } finally {
+    host.state.queuedMessageDispatchPending = false;
+    if (
+      (session === undefined || host.session === session) &&
+      !host.streamingUI.hasActiveTurn() &&
+      host.state.appState.streamingPhase !== 'shell' &&
+      !host.state.appState.isCompacting
+    ) {
+      host.resetLivePane();
+      host.setAppState({ streamingPhase: 'idle' });
+      host.drainQueueIfIdle();
     }
   }
 }
