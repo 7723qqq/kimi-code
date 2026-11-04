@@ -140,6 +140,7 @@ export interface PluginRecord {
   readonly source: PluginSource;
   readonly origin: PluginOrigin;
   readonly catalogId?: string;
+  readonly marketplaceSource?: string;
   readonly enabled: boolean;
   readonly state: PluginState;
   readonly installedAt: string;
