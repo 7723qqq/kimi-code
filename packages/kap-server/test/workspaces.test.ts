@@ -24,6 +24,8 @@ interface WorkspaceWire {
   id: string;
   root: string;
   name: string;
+  kind: string;
+  additional_dirs: string[];
   created_at: string;
   last_opened_at: string;
   session_count: number;
@@ -125,6 +127,32 @@ describe('server-v2 /api/v1/workspaces', () => {
     expect(typeof body.data.session_count).toBe('number');
     expect(Number.isNaN(Date.parse(body.data.created_at))).toBe(false);
     expect(Number.isNaN(Date.parse(body.data.last_opened_at))).toBe(false);
+  });
+
+  it('creates a managed workspace with source folders and a retry-safe id', async () => {
+    const root = home as string;
+    const extra = await mkdtemp(join(tmpdir(), 'ws-route-extra-'));
+    try {
+      const first = await postJson<WorkspaceWire>('/api/v1/workspaces', {
+        root,
+        name: 'managed-proj',
+        additional_dirs: [extra],
+        idempotency_key: 'route-key-1',
+      });
+      expect(first.body.code).toBe(0);
+      expect(first.body.data.id).toMatch(/^wm_[0-9a-f-]{36}$/);
+      expect(first.body.data.kind).toBe('managed');
+      expect(first.body.data.additional_dirs).toEqual([extra]);
+
+      const retry = await postJson<WorkspaceWire>('/api/v1/workspaces', {
+        root,
+        additional_dirs: [extra],
+        idempotency_key: 'route-key-1',
+      });
+      expect(retry.body.data.id).toBe(first.body.data.id);
+    } finally {
+      await rm(extra, { recursive: true, force: true });
+    }
   });
 
   it('derives the default name from the root when name is omitted', async () => {

@@ -124,7 +124,15 @@ export function registerWorkspacesRoutes(app: WorkspaceRouteHost, core: Scope): 
         reply.send(errEnvelope(ErrorCode.FS_PATH_NOT_FOUND, `root ${root} does not exist`, req.id));
         return;
       }
-      const ws = await core.accessor.get(IWorkspaceService).createOrTouch(root, req.body.name);
+      const ws =
+        req.body.additional_dirs !== undefined || req.body.idempotency_key !== undefined
+          ? await core.accessor.get(IWorkspaceService).create({
+              root,
+              name: req.body.name,
+              additionalDirs: req.body.additional_dirs,
+              idempotencyKey: req.body.idempotency_key,
+            })
+          : await core.accessor.get(IWorkspaceService).createOrTouch(root, req.body.name);
       reply.send(okEnvelope(await toWireWorkspace(core, ws), req.id));
     },
   );
@@ -405,6 +413,8 @@ export async function toWireWorkspace(core: Scope, ws: Workspace): Promise<Works
     id: ws.id,
     root: ws.root,
     name: ws.name,
+    kind: ws.kind,
+    additional_dirs: [...ws.additionalDirs],
     created_at: new Date(ws.createdAt).toISOString(),
     last_opened_at: new Date(ws.lastOpenedAt).toISOString(),
     session_count: sessionCount,
