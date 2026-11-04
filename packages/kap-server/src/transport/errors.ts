@@ -74,6 +74,7 @@ export interface UnmappedCodeReporter {
 const PUBLIC_DETAIL_CODES: ReadonlySet<string> = new Set([
   ErrorCodes.SESSION_OCCUPIED,
   ErrorCodes.SESSION_STALE,
+  ErrorCodes.WIRE_VERSION_TOO_LOW,
 ]);
 
 export function mapError(

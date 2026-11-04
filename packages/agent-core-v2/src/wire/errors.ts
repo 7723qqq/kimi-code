@@ -28,10 +28,10 @@ export const WireErrors = {
       public: true,
     },
     'wire.version_too_low': {
-      title: 'Wire reader upgrade required',
+      title: 'Kimi Code upgrade required',
       retryable: false,
       public: true,
-      action: 'Upgrade Kimi Code to read this session.',
+      action: 'Upgrade Kimi Code to the latest version to read this session.',
     },
     'records.write_failed': {
       retryable: false,

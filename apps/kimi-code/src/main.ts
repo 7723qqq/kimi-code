@@ -12,6 +12,7 @@ import {
   resolveGlobalLogPath,
 } from '@moonshot-ai/kimi-code-sdk/logging';
 import { isProxyConfigured, resolveKimiHome } from '@moonshot-ai/kimi-code-sdk/runtime';
+import { ErrorCodes, isKimiError } from '@moonshot-ai/kimi-code-sdk';
 import { installCrashHandlers, shutdownTelemetry, track } from '@moonshot-ai/kimi-telemetry';
 
 import { t } from '#/i18n';
@@ -400,7 +401,14 @@ async function bootstrap(): Promise<void> {
 main();
 
 async function logStartupFailure(operation: string, error: unknown): Promise<void> {
-  log.error('startup failed', { operation, error });
+  log.error('startup failed', {
+    operation,
+    error,
+    details:
+      isKimiError(error) && error.code === ErrorCodes.WIRE_VERSION_TOO_LOW
+        ? error.details
+        : undefined,
+  });
   try {
     await flushDiagnosticLogs();
   } catch {
