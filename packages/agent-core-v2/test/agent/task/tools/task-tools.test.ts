@@ -117,8 +117,15 @@ interface FakeTaskEntry {
   output: AgentTaskOutputSnapshot;
 }
 
+const neverFires = () => ({ dispose: () => {} });
+
 class FakeTaskService implements IAgentTaskService {
   declare readonly _serviceBrand: undefined;
+
+  readonly onDidAppendOutput = neverFires;
+  readonly onDidChangeTask = neverFires;
+
+  refresh(): void {}
 
   readonly stopCalls: Array<{ taskId: string; reason: string | undefined }> = [];
   readonly suppressCalls: string[] = [];

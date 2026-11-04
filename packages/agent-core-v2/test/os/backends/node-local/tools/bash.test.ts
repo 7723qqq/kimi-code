@@ -570,6 +570,9 @@ function createFakeTaskService(
 
   const service: IAgentTaskService = {
     _serviceBrand: undefined,
+    onDidAppendOutput: () => ({ dispose: () => {} }),
+    onDidChangeTask: () => ({ dispose: () => {} }),
+    refresh(): void {},
     track(): never {
       throw new Error('fake IAgentTaskService.track is not implemented');
     },

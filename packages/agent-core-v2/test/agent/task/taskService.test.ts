@@ -201,6 +201,31 @@ describe('AgentTaskService', () => {
     await svc.stop(id);
   });
 
+  it('fires onDidChangeTask on registration, refresh and terminal state, and onDidAppendOutput per chunk', async () => {
+    const svc = ix.get(IAgentTaskService);
+    const changes: Array<{ taskId: string; status: string }> = [];
+    const chunks: Array<{ taskId: string; offset: number; text: string }> = [];
+    disposables.add(
+      svc.onDidChangeTask((info) => {
+        changes.push({ taskId: info.taskId, status: info.status });
+      }),
+    );
+    disposables.add(svc.onDidAppendOutput((chunk) => chunks.push({ ...chunk })));
+
+    const taskId = svc.registerTask(outputtingTask('first\nsecond\n'));
+    expect(changes[0]).toEqual({ taskId, status: 'running' });
+
+    svc.refresh(taskId);
+    expect(changes.filter((change) => change.taskId === taskId)).toHaveLength(2);
+
+    await svc.wait(taskId, 1000);
+
+    expect(chunks).toEqual([
+      { taskId, offset: 0, text: 'first\nsecond\n' },
+    ]);
+    expect(changes.at(-1)).toEqual({ taskId, status: 'completed' });
+  });
+
   it('wait with a timeout beyond the timer ceiling does not resolve immediately', async () => {
     const svc = ix.get(IAgentTaskService);
     const taskId = svc.registerTask(fakeProcessTask());

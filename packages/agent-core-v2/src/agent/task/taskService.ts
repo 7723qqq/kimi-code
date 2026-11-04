@@ -4,6 +4,7 @@ import { join } from 'pathe';
 import { z } from 'zod';
 
 import { Disposable } from '#/_base/di/lifecycle';
+import { Emitter, type Event } from '#/_base/event';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { abortable, userCancellationReason } from '#/_base/utils/abort';
@@ -48,6 +49,7 @@ import {
   type AgentTaskLoadOptions,
   type AgentTask,
   type AgentTaskInfo,
+  type AgentTaskOutputChunk,
   type AgentTaskOutputSnapshot,
   type AgentTaskStatus,
   type AgentTaskTrackOptions,
@@ -225,6 +227,11 @@ export const taskActiveTaskReminderPendingKey = defineState<boolean>(
 export class AgentTaskService extends Disposable implements IAgentTaskService {
   declare readonly _serviceBrand: undefined;
 
+  private readonly _onDidAppendOutput = this._register(new Emitter<AgentTaskOutputChunk>());
+  readonly onDidAppendOutput: Event<AgentTaskOutputChunk> = this._onDidAppendOutput.event;
+  private readonly _onDidChangeTask = this._register(new Emitter<AgentTaskInfo>());
+  readonly onDidChangeTask: Event<AgentTaskInfo> = this._onDidChangeTask.event;
+
   private readonly tasks = new Map<string, ManagedTask>();
   private readonly settledOrder: string[] = [];
   private exitSuppressionArmed = false;
@@ -373,6 +380,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     const timeoutMs = options.timeoutMs ?? task.timeoutMs;
     const entryOptions: RegisterAgentTaskOptions = {
       detached,
+      detachable: options.detachable,
       timeoutMs,
       detachTimeoutMs: options.detachTimeoutMs,
       autoBackgroundOnTimeout: options.autoBackgroundOnTimeout,
@@ -442,6 +450,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       void this.persistLive(entry);
       this.recordTaskStarted(this.toInfo(entry));
     }
+    this.fireChange(entry);
     return entry.taskId;
   }
 
@@ -526,11 +535,22 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       void this.persistLive(entry);
       this.recordTaskStarted(this.toInfo(entry));
     }
+    this.fireChange(entry);
 
     return {
       taskId,
       onDidDetach: entry.foregroundRelease?.promise ?? Promise.resolve('terminal' as const),
     };
+  }
+
+  refresh(taskId: string): void {
+    const entry = this.tasks.get(taskId);
+    if (entry === undefined || TERMINAL_STATUSES.has(entry.status)) return;
+    this.fireChange(entry);
+  }
+
+  private fireChange(entry: ManagedTask): void {
+    this._onDidChangeTask.fire(this.toInfo(entry));
   }
 
   getTask(taskId: string): AgentTaskInfo | undefined {
@@ -702,6 +722,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     this.startOutputPersist(entry);
     void this.persistLive(entry);
     this.recordTaskStarted(this.toInfo(entry));
+    this.fireChange(entry);
     foregroundRelease.resolve(viaTimeout ? 'timeout_detached' : 'detached');
     return this.toInfo(entry);
   }
@@ -1020,6 +1041,13 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
   private appendOutput(entry: ManagedTask, chunk: string): void {
     const chunkBytes = Buffer.byteLength(chunk, 'utf-8');
     entry.outputSizeBytes += chunkBytes;
+    if (chunk.length > 0) {
+      this._onDidAppendOutput.fire({
+        taskId: entry.taskId,
+        offset: entry.outputSizeBytes - chunkBytes,
+        text: chunk,
+      });
+    }
     this.appendRetainedOutput(entry, chunk, chunkBytes);
     this.publishTaskOutput(entry, chunk);
 
@@ -1135,6 +1163,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     if (TERMINAL_STATUSES.has(entry.status)) return false;
     entry.status = settlement.status;
     entry.endedAt = this.nowMs();
+    this.fireChange(entry);
     entry.stopReason =
       settlement.stopReason ?? (settlement.status === 'killed' ? entry.stopReason : undefined);
     entry.foregroundSignalCleanup?.();

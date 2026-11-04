@@ -124,7 +124,7 @@ describe('sliceMainRecordsAtTurn', () => {
       { type: 'turn.ended', turnId: 7, reason: 'completed', time: 3.5 },
       userTurnRecord('legacy tail', 4),
     ];
-    expect(sliceMainRecordsAtTurn(mixed, 'ses_source', 0).records).toEqual([mixed[0]]);
+    expect(sliceMainRecordsAtTurn(mixed, 'ses_source', 0).records).toEqual([mixed[0]!]);
     expect(sliceMainRecordsAtTurn(mixed, 'ses_source', 7).records).toEqual(mixed.slice(0, 4));
 
     const queued = { type: 'agent.input.submitted', entry: { meta: { promptId: 'queued' } } };
