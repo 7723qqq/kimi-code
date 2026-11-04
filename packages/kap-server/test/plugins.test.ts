@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -266,6 +266,28 @@ describe('server-v2 /api/v1 plugins', () => {
     createdDirs.push(noManifest);
     const unloadable = await call('POST', '/api/v1/plugins', { source: noManifest });
     expect(unloadable.body.code).toBe(40001);
+  });
+
+  it('caches the catalog availability for later install checks', async () => {
+    const { body } = await call<{ entries: { id: string }[] }>(
+      'GET',
+      '/api/v1/plugins/marketplace',
+    );
+    expect(body.code).toBe(0);
+
+    const cachePath = join(home!, 'plugins', 'availability.json');
+    const cache = JSON.parse(await readFile(cachePath, 'utf8')) as {
+      version: number;
+      sources: Record<string, Record<string, unknown>>;
+    };
+    expect(cache.version).toBe(1);
+    const sources = Object.values(cache.sources);
+    expect(sources).toHaveLength(1);
+    const cached = Object.keys(sources[0]!);
+    expect(cached).toContain('demo-plugin');
+    expect(cached).toContain('kimi-webbridge');
+    const listed = new Set(body.data.entries.map((entry) => entry.id));
+    for (const id of cached) expect(listed).toContain(id);
   });
 
   it('serves the marketplace catalog merged with live install state', async () => {

@@ -4,11 +4,15 @@ import { resolve } from 'node:path';
 import {
   computeUpdateStatus,
   ErrorCodes as DomainErrorCodes,
+  IBootstrapService,
   ICapabilityService,
   IPluginService,
+  PluginAvailabilityStore,
   PluginErrors,
   isError2,
+  marketplaceEntryVisibleOnHost,
   parsePluginMarketplace,
+  pluginClientForIdentity,
   readPluginMarketplace,
   withLatestVersions,
   type MarketplaceLocation,
@@ -177,6 +181,9 @@ export function registerPluginsRoutes(
         }
       }
       marketplace = await withLatestVersions(marketplace, fetchImpl);
+      const bootstrap = core.accessor.get(IBootstrapService);
+      await new PluginAvailabilityStore(bootstrap.homeDir).update(marketplace);
+      const client = pluginClientForIdentity(bootstrap.clientIdentity.platform);
       const installed = await core.accessor.get(IPluginService).listPlugins();
       const byId = new Map(installed.map((p) => [p.id, p]));
       const supportedCapabilityIds = new Set<string>(
@@ -188,6 +195,7 @@ export function registerPluginsRoutes(
       );
       const entries: PluginMarketplaceEntryWire[] = [];
       for (const entry of marketplace.plugins) {
+        if (!marketplaceEntryVisibleOnHost(entry, client, bootstrap.platform)) continue;
         const capabilityRow =
           opts.marketplaceIsDefault === true ? CAPABILITY_ROW_IDS[entry.id] : undefined;
         if (
