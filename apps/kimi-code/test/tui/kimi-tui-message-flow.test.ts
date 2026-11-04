@@ -2252,6 +2252,70 @@ describe('KimiTUI message flow', () => {
     expect(stripSgr(renderTranscript(driver))).not.toContain('Takes effect from the next turn.');
   });
 
+  it('does not switch the model when a child agent compaction completes first', async () => {
+    const session = makeSession();
+    const emitSessionEvent = sessionEventEmitter(session);
+    const { driver } = await makeDriver(session);
+    driver.enqueueModelSwitch('model-b', 'low', 'session');
+
+    driver.drainQueueIfIdle();
+    await waitForAssertion(() => expect(session.compact).toHaveBeenCalledWith({}));
+
+    const result = { summary: 's', compactedCount: 1, tokensBefore: 10, tokensAfter: 5 };
+    emitSessionEvent({ type: 'compaction.completed', agentId: 'child-1', sessionId: 'ses-1', result });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(session.setModel).not.toHaveBeenCalled();
+
+    emitSessionEvent({ type: 'compaction.completed', agentId: 'main', sessionId: 'ses-1', result });
+    await waitForAssertion(() => expect(session.setModel).toHaveBeenCalledWith('model-b'));
+  });
+
+  it('keeps a tower-mode submission queued until the dequeued model switch applies', async () => {
+    const session = makeSession();
+    const emitSessionEvent = sessionEventEmitter(session);
+    const { driver } = await makeDriver(session);
+    session.compact.mockImplementation(async () => {});
+    let resolveSetModel!: () => void;
+    const setModelGate = new Promise<void>((resolve) => {
+      resolveSetModel = resolve;
+    });
+    const originalSetModel = session.setModel.getMockImplementation();
+    if (originalSetModel === undefined) throw new Error('expected a mocked setModel');
+    session.setModel.mockImplementation(async (alias: string) => {
+      await setModelGate;
+      await originalSetModel(alias);
+    });
+    driver.state.appState.towerMode = true;
+    driver.state.appState.streamingPhase = 'waiting';
+    driver.enqueueModelSwitch('model-b', 'low', 'session');
+    driver.handleUserInput('first after');
+    driver.state.appState.streamingPhase = 'idle';
+    driver.drainQueueIfIdle();
+    await waitForAssertion(() => expect(session.compact).toHaveBeenCalled());
+    emitSessionEvent({
+      type: 'compaction.completed',
+      agentId: 'main',
+      sessionId: 'ses-1',
+      result: { summary: 's', compactedCount: 1, tokensBefore: 10, tokensAfter: 5 },
+    });
+    await waitForAssertion(() => expect(session.setModel).toHaveBeenCalledWith('model-b'));
+
+    driver.state.appState.streamingPhase = 'waiting';
+    driver.handleUserInput('typed during switch');
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(session.steer).not.toHaveBeenCalled();
+    expect(driver.state.queuedMessages.map((item) => item.text)).toEqual([
+      'first after',
+      'typed during switch',
+    ]);
+
+    resolveSetModel();
+    await waitForAssertion(() =>
+      expect(session.prompt).toHaveBeenCalledWith('first after', { promptId: undefined }),
+    );
+  });
+
   it('keeps queued prompts in place on Ctrl-S until a dequeued model switch applies', async () => {
     const session = makeSession();
     const { driver } = await makeDriver(session);
