@@ -847,6 +847,13 @@ describe('Session.prompt events', () => {
       ).resolves.toHaveLength(1);
       await fork.close();
 
+      await expect(
+        harness.forkSession({ id: source.id, turnIndex: 0 }),
+      ).rejects.toMatchObject({
+        name: 'KimiError',
+        code: 'request.invalid',
+      });
+
       releaseResponse();
       await ended;
       await source.close();
