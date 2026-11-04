@@ -1621,9 +1621,11 @@ Every endpoint that returns a workspace uses this wire shape. Registration and r
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `id` | string | Workspace id, a `wd_<slug>_<hash12>` string derived from the root path |
+| `id` | string | Workspace id: a `wd_<slug>_<hash12>` string derived from the root path, or a `wm_<uuid>` string for a managed workspace |
 | `root` | string | Absolute path of the project directory |
 | `name` | string | Display name, 1–100 characters; defaults to the root's base name |
+| `kind` | string | `managed` for a workspace created explicitly, `implicit` for one registered by opening a session in it |
+| `additional_dirs` | string[] | Source folders registered next to the root |
 | `created_at` | string | Registration time, ISO 8601 |
 | `last_opened_at` | string | Last time the workspace was opened or re-registered, ISO 8601 |
 | `session_count` | integer | Number of sessions in the workspace |
@@ -1642,10 +1644,15 @@ Registers a workspace and returns it. Registration is idempotent on the root pat
 | --- | --- | --- | --- |
 | `root` | body | string | **Required.** Absolute path of an existing directory |
 | `name` | body | string | Display name, 1–100 characters. Default the root's base name |
+| `additional_dirs` | body | string[] | Source folders to register next to the root, at most 64. Relative entries resolve against `root` |
+| `idempotency_key` | body | string | Retry key, 1–200 characters. A repeated request with the same key returns the same workspace, including after a restart |
+
+Supplying `additional_dirs` or `idempotency_key` creates a managed workspace (a `wm_<uuid>` id with `kind: managed`) instead of registering the root implicitly, so a caller can hold several workspaces rooted at the same directory.
 
 On success, `data` is [the workspace object](#the-workspace-object).
 
 - `40001`: `root` is missing or not an absolute path (`details` lists the field)
+- `40006`: `additional_dirs` repeats itself or names the root; `msg` is `Duplicate source folder: <actual path>` and `details` is `[{ "path": "additional_dirs.N", "directory": "<resolved absolute path>" }]`
 - `40409`: `root` does not exist or is not a directory
 
 #### `PATCH /api/v1/workspaces/{workspace_id}`

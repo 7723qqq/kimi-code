@@ -13,8 +13,8 @@ import {
 } from '@moonshot-ai/agent-core-v2';
 
 import { errEnvelope, okEnvelope } from '../envelope';
-import { requestLog } from '../lib/requestLog';
-import { defineRoute } from '../middleware/defineRoute';
+import { workspaceRootKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
+import { requestLog } from '../lib/requestLog';import { defineRoute } from '../middleware/defineRoute';
 import { detailsSchema } from '../protocol/common';
 import { ErrorCode } from '../protocol/error-codes';
 import {
@@ -124,6 +124,11 @@ export function registerWorkspacesRoutes(app: WorkspaceRouteHost, core: Scope): 
         reply.send(errEnvelope(ErrorCode.FS_PATH_NOT_FOUND, `root ${root} does not exist`, req.id));
         return;
       }
+      const duplicate = findDuplicateDir(root, req.body.additional_dirs);
+      if (duplicate !== undefined) {
+        reply.send(buildDuplicateDirEnvelope(duplicate, req.id));
+        return;
+      }
       const ws =
         req.body.additional_dirs !== undefined || req.body.idempotency_key !== undefined
           ? await core.accessor.get(IWorkspaceService).create({
@@ -158,9 +163,18 @@ export function registerWorkspacesRoutes(app: WorkspaceRouteHost, core: Scope): 
     },
     async (req, reply) => {
       const { workspace_id } = req.params;
-      const ws = await core.accessor
-        .get(IWorkspaceService)
-        .update(workspace_id, { name: req.body.name });
+      const duplicate = findDuplicateDir(
+        undefined,
+        req.body.additional_dirs,
+      );
+      if (duplicate !== undefined) {
+        reply.send(buildDuplicateDirEnvelope(duplicate, req.id));
+        return;
+      }
+      const ws = await core.accessor.get(IWorkspaceService).update(workspace_id, {
+        name: req.body.name,
+        additionalDirs: req.body.additional_dirs,
+      });
       if (ws === undefined) {
         reply.send(
           errEnvelope(
@@ -419,6 +433,43 @@ export async function toWireWorkspace(core: Scope, ws: Workspace): Promise<Works
     last_opened_at: new Date(ws.lastOpenedAt).toISOString(),
     session_count: sessionCount,
   };
+}
+
+function buildDuplicateDirEnvelope(
+  duplicate: { readonly index: number; readonly directory: string },
+  requestId: string,
+): {
+  code: number;
+  msg: string;
+  data: null;
+  request_id: string;
+  details: { path: string; directory: string }[];
+} {
+  const details = [
+    { path: `additional_dirs.${duplicate.index}`, directory: duplicate.directory },
+  ];
+  return {
+    code: ErrorCode.WORKSPACE_DUPLICATE_DIR,
+    msg: `Duplicate source folder: ${duplicate.directory}`,
+    data: null,
+    request_id: requestId,
+    details,
+  };
+}
+
+function findDuplicateDir(
+  root: string | undefined,
+  dirs: readonly string[] | undefined,
+): { readonly index: number; readonly directory: string } | undefined {
+  if (dirs === undefined) return undefined;
+  const seen = new Set<string>();
+  if (root !== undefined) seen.add(workspaceRootKey(root));
+  for (const [index, dir] of dirs.entries()) {
+    const key = workspaceRootKey(dir);
+    if (seen.has(key)) return { index, directory: resolve(dir) };
+    seen.add(key);
+  }
+  return undefined;
 }
 
 function buildValidationEnvelope(

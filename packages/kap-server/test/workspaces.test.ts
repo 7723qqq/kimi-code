@@ -155,6 +155,30 @@ describe('server-v2 /api/v1/workspaces', () => {
     }
   });
 
+  it('rejects a duplicate source folder with 40006 and names the field', async () => {
+    const root = home as string;
+    const extra = await mkdtemp(join(tmpdir(), 'ws-route-dup-'));
+    try {
+      const duplicated = await postJson<null>('/api/v1/workspaces', {
+        root,
+        additional_dirs: [extra, extra],
+      });
+      expect(duplicated.body.code).toBe(40006);
+      expect(duplicated.body.msg).toBe(`Duplicate source folder: ${extra}`);
+      expect((duplicated.body as { details?: unknown }).details).toEqual([
+        { path: 'additional_dirs.1', directory: extra },
+      ]);
+
+      const sameAsRoot = await postJson<null>('/api/v1/workspaces', {
+        root,
+        additional_dirs: [root],
+      });
+      expect(sameAsRoot.body.code).toBe(40006);
+    } finally {
+      await rm(extra, { recursive: true, force: true });
+    }
+  });
+
   it('derives the default name from the root when name is omitted', async () => {
     const root = home as string;
     const { body } = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });

@@ -34,7 +34,8 @@ export const workspaceCreateSchema = z.object({
 export type WorkspaceCreate = z.infer<typeof workspaceCreateSchema>;
 
 export const workspaceUpdateSchema = z.object({
-  name: z.string().min(1).max(100),
+  name: z.string().min(1).max(100).optional(),
+  additional_dirs: z.array(z.string().min(1)).max(64).optional(),
 });
 
 export type WorkspaceUpdate = z.infer<typeof workspaceUpdateSchema>;

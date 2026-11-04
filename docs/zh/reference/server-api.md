@@ -1619,9 +1619,11 @@ schema 还接受共享消息格式中的 `tool_use`、`tool_result` 和 `thinkin
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `id` | string | 工作区 id，由根路径派生的 `wd_<slug>_<hash12>` 字符串 |
+| `id` | string | 工作区 id：由根路径派生的 `wd_<slug>_<hash12>` 字符串，或托管工作区的 `wm_<uuid>` 字符串 |
 | `root` | string | 项目目录的绝对路径 |
 | `name` | string | 显示名，1–100 个字符；默认取根目录的基名 |
+| `kind` | string | `managed` 表示显式创建的工作区，`implicit` 表示在其中有会话时自动注册的工作区 |
+| `additional_dirs` | string[] | 与根目录并列注册的源文件夹 |
 | `created_at` | string | 注册时间，ISO 8601 |
 | `last_opened_at` | string | 最近一次打开或重新注册工作区的时间，ISO 8601 |
 | `session_count` | integer | 工作区内的会话数 |
@@ -1640,10 +1642,15 @@ schema 还接受共享消息格式中的 `tool_use`、`tool_result` 和 `thinkin
 | --- | --- | --- | --- |
 | `root` | body | string | **必填。** 已存在目录的绝对路径 |
 | `name` | body | string | 显示名，1–100 个字符。默认根目录的基名 |
+| `additional_dirs` | body | string[] | 与根目录并列注册的源文件夹，最多 64 项。相对路径从 `root` 解析 |
+| `idempotency_key` | body | string | 重试键，1–200 个字符。相同键的重复请求返回同一个工作区，重启后依然如此 |
+
+提供 `additional_dirs` 或 `idempotency_key` 时创建的是托管工作区（`wm_<uuid>` id，`kind: managed`），而不是隐式注册根目录，因此调用方可以让多个工作区共用同一个目录作为根。
 
 成功时 `data` 为 [workspace 对象](#workspace-对象)。
 
 - `40001`：`root` 缺失或不是绝对路径（`details` 会列出该字段）
+- `40006`：`additional_dirs` 自身重复或指向根目录；`msg` 为 `Duplicate source folder: <实际路径>`，`details` 为 `[{ "path": "additional_dirs.N", "directory": "<解析后的绝对路径>" }]`
 - `40409`：`root` 不存在或不是目录
 
 #### `PATCH /api/v1/workspaces/{workspace_id}`
