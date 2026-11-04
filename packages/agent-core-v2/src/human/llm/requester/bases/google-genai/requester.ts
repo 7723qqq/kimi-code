@@ -2,6 +2,7 @@ import { GoogleGenAI as GenAIClient, type GenerateContentParameters } from '@goo
 import { assign, shake } from 'radashi';
 
 import type { LlmModel } from '#/llm/model';
+import type { LlmRemoteErrorMessage } from '#/llm/errors';
 import type { ProtocolBase, ProtocolRequesterOptions, TraitContext } from '#/llm/protocol/base';
 import { resolveModelConnection } from '#/llm/protocol/connection';
 import { resolveMaxCompletionCap, type FormatRequestInput } from '#/llm/protocol/format';
@@ -120,6 +121,7 @@ interface GoogleGenAITransport {
   readonly format: ReturnType<typeof createGoogleGenAIFormat>;
   readonly resolveClient: (request: LlmClientContext) => GenAIClient;
   readonly signal: AbortSignal;
+  readonly classifyError?: (error: unknown) => LlmRemoteErrorMessage | undefined;
   readonly onEvent?: (event: LlmRequestEvent) => void;
 }
 
@@ -127,7 +129,7 @@ async function executeGoogleGenAIRequest(
   request: GoogleGenAIRequestParams,
   transport: GoogleGenAITransport,
 ): Promise<void> {
-  const { connection, ctx, format, resolveClient, signal, onEvent } = transport;
+  const { connection, ctx, format, resolveClient, signal, classifyError, onEvent } = transport;
   const client = resolveClient({
     model: ctx.model,
     headers: mergeRequestHeaders(
@@ -150,28 +152,36 @@ async function executeGoogleGenAIRequest(
   ]);
   const parse = format.createStreamParser();
   let messageId: string | undefined;
-  for await (const chunk of stream) {
-    if (signal.aborted) {
-      throw createAbortException();
+  try {
+    for await (const chunk of stream) {
+      if (signal.aborted) {
+        throw createAbortException();
+      }
+      let failed = false;
+      parse(chunk, {
+        onDelta: (part) => onEvent?.({ type: 'llm.streaming.part', part }),
+        onFinish: (finish) => onEvent?.({ type: 'llm.streaming.finish', finish }),
+        onMessageId: (id) => {
+          if (id === messageId) return;
+          messageId = id;
+          onEvent?.({ type: 'llm.streaming.message_id', messageId: id });
+        },
+        onUsage: (usage) => onEvent?.({ type: 'llm.streaming.usage', usage }),
+        onError: (message) => {
+          failed = true;
+          onEvent?.({ type: 'llm.failed.remote', error: message });
+        },
+      });
+      if (failed) {
+        return;
+      }
     }
-    let failed = false;
-    parse(chunk, {
-      onDelta: (part) => onEvent?.({ type: 'llm.streaming.part', part }),
-      onFinish: (finish) => onEvent?.({ type: 'llm.streaming.finish', finish }),
-      onMessageId: (id) => {
-        if (id === messageId) return;
-        messageId = id;
-        onEvent?.({ type: 'llm.streaming.message_id', messageId: id });
-      },
-      onUsage: (usage) => onEvent?.({ type: 'llm.streaming.usage', usage }),
-      onError: (message) => {
-        failed = true;
-        onEvent?.({ type: 'llm.failed.remote', error: message });
-      },
+  } catch (error) {
+    onEvent?.({
+      type: 'llm.failed.remote',
+      error: convertGoogleGenAIError(error, (e) => classifyError?.(e), 'stream'),
     });
-    if (failed) {
-      return;
-    }
+    return;
   }
   onEvent?.({ type: 'llm.done' });
 }
@@ -220,6 +230,7 @@ export function createGoogleGenAIRequester(options?: GoogleGenAIRequesterOptions
           format,
           resolveClient,
           signal,
+          classifyError,
           onEvent,
         });
       } catch (error) {

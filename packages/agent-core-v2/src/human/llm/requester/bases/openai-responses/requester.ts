@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 import { assign, shake } from 'radashi';
 
-import { headersToRecord } from '#/llm/errors';
+import { headersToRecord, type LlmRemoteErrorMessage } from '#/llm/errors';
 import type { LlmModel } from '#/llm/model';
 import type { ProtocolBase, ProtocolRequesterOptions, TraitContext } from '#/llm/protocol/base';
 import { resolveModelConnection } from '#/llm/protocol/connection';
@@ -122,6 +122,7 @@ interface OpenAIResponsesTransport {
   readonly format: ReturnType<typeof createOpenAIResponsesFormat>;
   readonly resolveClient: (request: LlmClientContext) => OpenAI;
   readonly signal: AbortSignal;
+  readonly classifyError?: (error: unknown) => LlmRemoteErrorMessage | undefined;
   readonly onEvent?: (event: LlmRequestEvent) => void;
 }
 
@@ -129,7 +130,8 @@ async function executeOpenAIResponsesRequest(
   request: OpenAIResponsesRequestParams,
   transport: OpenAIResponsesTransport,
 ): Promise<void> {
-  const { connection, trait, ctx, format, resolveClient, signal, onEvent } = transport;
+  const { connection, trait, ctx, format, resolveClient, signal, classifyError, onEvent } =
+    transport;
   const client = resolveClient({
     model: ctx.model,
     headers: mergeRequestHeaders(
@@ -152,25 +154,33 @@ async function executeOpenAIResponsesRequest(
           },
   });
   let messageId: string | undefined;
-  for await (const chunk of stream) {
-    let failed = false;
-    parse(chunk, {
-      onDelta: (part) => onEvent?.({ type: 'llm.streaming.part', part }),
-      onFinish: (finish) => onEvent?.({ type: 'llm.streaming.finish', finish }),
-      onMessageId: (id) => {
-        if (id === messageId) return;
-        messageId = id;
-        onEvent?.({ type: 'llm.streaming.message_id', messageId: id });
-      },
-      onUsage: (usage) => onEvent?.({ type: 'llm.streaming.usage', usage }),
-      onError: (message) => {
-        failed = true;
-        onEvent?.({ type: 'llm.failed.remote', error: message });
-      },
-    });
-    if (failed) {
-      return;
+  try {
+    for await (const chunk of stream) {
+      let failed = false;
+      parse(chunk, {
+        onDelta: (part) => onEvent?.({ type: 'llm.streaming.part', part }),
+        onFinish: (finish) => onEvent?.({ type: 'llm.streaming.finish', finish }),
+        onMessageId: (id) => {
+          if (id === messageId) return;
+          messageId = id;
+          onEvent?.({ type: 'llm.streaming.message_id', messageId: id });
+        },
+        onUsage: (usage) => onEvent?.({ type: 'llm.streaming.usage', usage }),
+        onError: (message) => {
+          failed = true;
+          onEvent?.({ type: 'llm.failed.remote', error: message });
+        },
+      });
+      if (failed) {
+        return;
+      }
     }
+  } catch (error) {
+    onEvent?.({
+      type: 'llm.failed.remote',
+      error: convertOpenAIError(error, (e) => classifyError?.(e), 'stream'),
+    });
+    return;
   }
   onEvent?.({ type: 'llm.done' });
 }
@@ -221,6 +231,7 @@ export function createOpenAIResponsesRequester(
           format,
           resolveClient,
           signal,
+          classifyError,
           onEvent,
         });
       } catch (error) {

@@ -6,13 +6,17 @@ import {
   APIError as RawOpenAISDKAPIError,
   OpenAIError as RawOpenAISDKError,
 } from 'openai';
+import { APIError as RawAnthropicAPIError } from '@anthropic-ai/sdk';
+import { ApiError as RawGoogleApiError } from '@google/genai';
 
 import { classifyKimiQuotaError } from '#/llm-kimi/errors';
 import { kimiConnection, kimiOpenAITrait } from '#/llm-kimi/trait';
 import { UNKNOWN_CAPABILITY } from '#/llm/capability';
 import { createAssistantMessage, createUserMessage, type Message } from '#/llm/message';
 import type { LlmModel } from '#/llm/model';
+import { convertGoogleGenAIError } from '#/llm/requester/bases/google-genai/format';
 import { createGoogleGenAIRequester } from '#/llm/requester/bases/google-genai/requester';
+import { convertAnthropicError } from '#/llm/requester/bases/anthropic/format';
 import { convertOpenAIError } from '#/llm/requester/bases/openai/format';
 import { createOpenAIRequester } from '#/llm/requester/bases/openai/requester';
 import type { LlmRequester, LlmRequestEvent } from '#/llm/requester/requester';
@@ -424,5 +428,45 @@ describe('requester error conversion', () => {
       error: { kind: 'syntax', code: 'request_format' },
     });
     expect(clientFactory).not.toHaveBeenCalled();
+  });
+});
+
+describe('stream-source error classification', () => {
+  it('classifies an anthropic mid-stream failure by its error type', () => {
+    const failure = convertAnthropicError(
+      new RawAnthropicAPIError(
+        400,
+        { type: 'error', error: { type: 'rate_limit_error', message: 'slow down' } },
+        'stream failure',
+        new Headers(),
+      ),
+      undefined,
+      'stream',
+    );
+    expect(failure).toMatchObject({
+      kind: 'rate_limit',
+      message: 'slow down',
+      retryable: true,
+    });
+    expect(failure['statusCode']).toBeUndefined();
+  });
+
+  it('classifies a google-genai mid-stream failure by its business code', () => {
+    const failure = convertGoogleGenAIError(
+      new RawGoogleApiError({
+        message: JSON.stringify({
+          error: { code: 429, message: 'quota', status: 'RESOURCE_EXHAUSTED' },
+        }),
+        status: 429,
+      }),
+      undefined,
+      'stream',
+    );
+    expect(failure).toMatchObject({
+      kind: 'rate_limit',
+      message: 'quota',
+      retryable: true,
+    });
+    expect(failure['statusCode']).toBeUndefined();
   });
 });

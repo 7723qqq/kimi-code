@@ -14,6 +14,7 @@ import {
   parseRetryAfterMs,
   toLlmErrorMessage,
   toLlmStatusErrorMessage,
+  toLlmStreamErrorMessage,
   toLlmTransportErrorMessage,
   type LlmRemoteErrorMessage,
 } from '#/llm/errors';
@@ -314,6 +315,7 @@ export const anthropicFormat: ProtocolFormat<AnthropicRawStreamEvent> = createAn
 export function convertAnthropicError(
   error: unknown,
   classifyErrorHook?: (error: unknown) => LlmRemoteErrorMessage | undefined,
+  source?: 'stream',
 ): LlmRemoteErrorMessage {
   if (isAbortError(error)) {
     return toLlmErrorMessage(error);
@@ -328,14 +330,49 @@ export function convertAnthropicError(
   if (error instanceof RawAnthropicSDKConnectionError) {
     return { kind: 'connection', message: error.message, retryable: true };
   }
-  if (error instanceof RawAnthropicSDKAPIError && typeof error.status === 'number') {
-    return toLlmStatusErrorMessage({
-      statusCode: error.status,
-      message: error.message,
+  if (error instanceof RawAnthropicSDKAPIError) {
+    const body = (error as { error?: { error?: { type?: unknown; message?: unknown } } }).error;
+    const message = typeof body?.error?.message === 'string' ? body.error.message : '';
+    const type =
+      (typeof body?.error?.type === 'string' ? body.error.type : undefined) ??
+      (typeof (error as { type?: unknown }).type === 'string'
+        ? (error as { type: string }).type
+        : undefined);
+    const statusCode = source === 'stream' ? undefined : error.status;
+    const statusInfo = {
       requestId: error.requestID ?? null,
       retryAfterMs: parseRetryAfterMs(error.headers),
       headers: headersToRecord(error.headers),
-    });
+    };
+    if (type === 'insufficient_quota' || type === 'exceeded_current_quota_error') {
+      return { kind: 'quota_exhausted', message, statusCode, retryable: false, ...statusInfo };
+    }
+    if (type === 'overloaded_error' || type === 'engine_overloaded_error') {
+      return { kind: 'overloaded', message, statusCode, retryable: true, ...statusInfo };
+    }
+    if (
+      type === 'rate_limit_error' ||
+      type === 'rate_limit_reached_error' ||
+      type === 'rate_limit_exceeded'
+    ) {
+      return { kind: 'rate_limit', message, statusCode, retryable: true, ...statusInfo };
+    }
+    if (type === 'context_length_exceeded') {
+      return { kind: 'context_overflow', message, statusCode, retryable: false, ...statusInfo };
+    }
+    if (statusCode !== undefined) {
+      return toLlmStatusErrorMessage({
+        statusCode,
+        message: message.length > 0 ? message : error.message,
+        ...statusInfo,
+      });
+    }
+    if (body !== undefined) {
+      return toLlmStreamErrorMessage({ businessCode: error.status, message, ...statusInfo });
+    }
+    if (source === 'stream') {
+      return toLlmStreamErrorMessage({ businessCode: error.status, message: '', ...statusInfo });
+    }
   }
   if (error instanceof Error) {
     return toLlmTransportErrorMessage(error.message);

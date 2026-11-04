@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { assign, shake } from 'radashi';
 
-import { headersToRecord } from '#/llm/errors';
+import { headersToRecord, type LlmRemoteErrorMessage } from '#/llm/errors';
 import { providerImagePolicy } from '#/llm/media/image-formats';
 import type { LlmModel } from '#/llm/model';
 import type { ProtocolBase, ProtocolRequesterOptions, TraitContext } from '#/llm/protocol/base';
@@ -194,6 +194,7 @@ interface AnthropicTransport {
   readonly format: ReturnType<typeof createAnthropicFormat>;
   readonly resolveClient: (request: LlmClientContext) => Anthropic;
   readonly signal: AbortSignal;
+  readonly classifyError?: (error: unknown) => LlmRemoteErrorMessage | undefined;
   readonly onEvent?: (event: LlmRequestEvent) => void;
 }
 
@@ -201,7 +202,7 @@ async function executeAnthropicRequest(
   request: AnthropicRequestParams,
   transport: AnthropicTransport,
 ): Promise<void> {
-  const { connection, ctx, format, resolveClient, signal, onEvent } = transport;
+  const { connection, ctx, format, resolveClient, signal, classifyError, onEvent } = transport;
   const client = resolveClient({
     model: ctx.model,
     headers: mergeRequestHeaders(connection?.defaultHeaders?.(ctx), ctx.model.defaultHeaders),
@@ -218,25 +219,33 @@ async function executeAnthropicRequest(
   onEvent?.({ type: 'llm.streaming.headers', headers: headersToRecord(response.headers) ?? {} });
   const parse = format.createStreamParser();
   let messageId: string | undefined;
-  for await (const event of stream) {
-    let failed = false;
-    parse(event, {
-      onDelta: (part) => onEvent?.({ type: 'llm.streaming.part', part }),
-      onFinish: (finish) => onEvent?.({ type: 'llm.streaming.finish', finish }),
-      onMessageId: (id) => {
-        if (id === messageId) return;
-        messageId = id;
-        onEvent?.({ type: 'llm.streaming.message_id', messageId: id });
-      },
-      onUsage: (usage) => onEvent?.({ type: 'llm.streaming.usage', usage }),
-      onError: (message) => {
-        failed = true;
-        onEvent?.({ type: 'llm.failed.remote', error: message });
-      },
-    });
-    if (failed) {
-      return;
+  try {
+    for await (const event of stream) {
+      let failed = false;
+      parse(event, {
+        onDelta: (part) => onEvent?.({ type: 'llm.streaming.part', part }),
+        onFinish: (finish) => onEvent?.({ type: 'llm.streaming.finish', finish }),
+        onMessageId: (id) => {
+          if (id === messageId) return;
+          messageId = id;
+          onEvent?.({ type: 'llm.streaming.message_id', messageId: id });
+        },
+        onUsage: (usage) => onEvent?.({ type: 'llm.streaming.usage', usage }),
+        onError: (message) => {
+          failed = true;
+          onEvent?.({ type: 'llm.failed.remote', error: message });
+        },
+      });
+      if (failed) {
+        return;
+      }
     }
+  } catch (error) {
+    onEvent?.({
+      type: 'llm.failed.remote',
+      error: convertAnthropicError(error, (e) => classifyError?.(e), 'stream'),
+    });
+    return;
   }
   onEvent?.({ type: 'llm.done' });
 }
