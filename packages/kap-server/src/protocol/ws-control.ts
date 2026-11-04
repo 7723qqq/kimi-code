@@ -4,7 +4,16 @@ import { z } from 'zod';
 
 import { eventSchema } from './events-zod';
 import { interactionEventMessageSchema } from './interaction';
-import { taskEventMessageSchema, taskListMessageSchema } from './ws-task';
+import {
+  taskBackgroundMessageSchema,
+  taskEventMessageSchema,
+  taskListMessageSchema,
+  taskOutputMessageSchema,
+  taskResponseMessageSchema,
+  taskStopMessageSchema,
+  taskUnwatchMessageSchema,
+  taskWatchMessageSchema,
+} from './ws-task';
 
 export const WS_PROTOCOL_VERSION = 2;
 
@@ -327,6 +336,41 @@ export const clientControlOperations = [
     description: 'Abort a running prompt in a session.',
   },
   {
+    type: 'task.watch',
+    direction: 'client_to_server',
+    kind: 'control',
+    messageSchema: taskWatchMessageSchema,
+    ackSchema: taskResponseMessageSchema,
+    description:
+      'Stream the output of one task owned by agent_id to this connection without a session subscription. The first chunk covers at most tail_bytes; since_offset resumes after output the client already has.',
+  },
+  {
+    type: 'task.unwatch',
+    direction: 'client_to_server',
+    kind: 'control',
+    messageSchema: taskUnwatchMessageSchema,
+    ackSchema: taskResponseMessageSchema,
+    description: "Stop streaming one task's output to this connection.",
+  },
+  {
+    type: 'task.stop',
+    direction: 'client_to_server',
+    kind: 'control',
+    messageSchema: taskStopMessageSchema,
+    ackSchema: taskResponseMessageSchema,
+    description:
+      'Stop one task; the reply carries its state, and an ended task just replies with it.',
+  },
+  {
+    type: 'task.background',
+    direction: 'client_to_server',
+    kind: 'control',
+    messageSchema: taskBackgroundMessageSchema,
+    ackSchema: taskResponseMessageSchema,
+    description:
+      'Stop the tool call that started a task from waiting for it, so the task keeps running in the background; the reply carries its state.',
+  },
+  {
     type: 'pong',
     direction: 'client_to_server',
     kind: 'control',
@@ -401,6 +445,15 @@ export const taskEventOperation = {
     'Full state of one task of a subscribed agent, sent on every change; the frame for an ended task is its last one.',
 } as const satisfies WsOperationDefinition;
 
+export const taskOutputEventOperation = {
+  type: 'task.output',
+  direction: 'server_to_client',
+  kind: 'event',
+  messageSchema: taskOutputMessageSchema,
+  description:
+    'Task output starting at a UTF-8 byte offset, sent only to connections watching the task.',
+} as const satisfies WsOperationDefinition;
+
 export const wsOperations = [
   ...clientControlOperations,
   ...serverSystemOperations,
@@ -408,6 +461,7 @@ export const wsOperations = [
   interactionEventOperation,
   taskListEventOperation,
   taskEventOperation,
+  taskOutputEventOperation,
 ] as const satisfies readonly WsOperationDefinition[];
 
 export function getClientControlOperation(

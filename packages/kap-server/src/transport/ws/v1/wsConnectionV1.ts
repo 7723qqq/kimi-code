@@ -14,7 +14,7 @@ import {
 } from '../../../protocol/ws-control';
 import type { CredentialValidator } from '../../../services/auth/credentials';
 import type { IConnectionRegistry } from '../connectionRegistry';
-import { buildAck, buildPing, buildResyncRequired, buildServerHello } from './protocol';
+import { buildAck, buildPing, buildResponse, buildResyncRequired, buildServerHello } from './protocol';
 import {
   type AgentFilter,
   type BroadcastDelivery,
@@ -25,6 +25,14 @@ import {
   type TargetSubscription,
 } from './sessionEventBroadcaster';
 import { type JournalLogger } from './sessionEventJournal';
+import { TaskRequests, type TaskSource } from './taskRequests';
+
+const TASK_REQUEST_TYPES: ReadonlySet<string> = new Set([
+  'task.watch',
+  'task.unwatch',
+  'task.stop',
+  'task.background',
+]);
 
 const DEFAULT_MAX_BUFFER_SIZE = 1000;
 
@@ -42,12 +50,14 @@ const DEFAULT_BACKPRESSURE_MAX_DELAY_MS = 100;
 interface InboundFrame {
   type: string;
   id?: string;
+  request_id?: unknown;
   payload?: Record<string, unknown>;
 }
 
 export interface WsConnectionV1Options {
   readonly socket: WebSocket;
   readonly broadcaster: SessionEventBroadcaster;
+  readonly taskSource: TaskSource;
   readonly connectionRegistry: IConnectionRegistry;
   readonly validateCredential?: CredentialValidator;
   readonly remoteAddress: string | null;
@@ -75,6 +85,7 @@ export class WsConnectionV1 implements BroadcastTarget {
   private readonly maxBatchSize: number;
   private readonly highWaterMarkBytes: number;
   private readonly heartbeatIntervalMs: number;
+  private readonly taskRequests: TaskRequests;
   private readonly logger?: JournalLogger;
   private readonly clock: Clock;
 
@@ -107,6 +118,14 @@ export class WsConnectionV1 implements BroadcastTarget {
     this.maxBatchSize = opts.maxBatchSize ?? DEFAULT_MAX_BATCH_SIZE;
     this.highWaterMarkBytes = opts.highWaterMarkBytes ?? DEFAULT_HIGH_WATER_MARK_BYTES;
     this.heartbeatIntervalMs = opts.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
+    this.taskRequests = new TaskRequests(opts.taskSource, {
+      respond: (requestId, code, msg, task) => {
+        this.sendImmediateFrame(buildResponse(requestId, code, msg, task));
+      },
+      output: (frame) => {
+        this.sendSubscribedFrame(frame);
+      },
+    });
 
     this.socket.on('message', (data: RawData) => this.onMessage(data));
     this.socket.on('close', () => this.onClose());
@@ -152,6 +171,16 @@ export class WsConnectionV1 implements BroadcastTarget {
     }
     if (typeof frame?.type !== 'string') return;
     this.lastInboundAt = this.clock.now();
+
+    if (TASK_REQUEST_TYPES.has(frame.type)) {
+      const requestId = frame.request_id;
+      if (typeof requestId !== 'string' || requestId.length === 0) {
+        this.close(1008, 'invalid message');
+        return;
+      }
+      this.taskRequests.handle(requestId, frame);
+      return;
+    }
 
     switch (frame.type) {
       case 'pong':
@@ -504,6 +533,7 @@ export class WsConnectionV1 implements BroadcastTarget {
     }
     if (this.heartbeatTimer !== undefined) this.clock.clearInterval(this.heartbeatTimer);
     this.outbound = [];
+    this.taskRequests.dispose();
     this.broadcaster.removeGlobalTarget(this);
     for (const sid of this.subscriptions.keys()) this.broadcaster.unsubscribe(sid, this);
   }

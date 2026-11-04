@@ -573,6 +573,9 @@ function createFakeTaskService(
     onDidAppendOutput: () => ({ dispose: () => {} }),
     onDidChangeTask: () => ({ dispose: () => {} }),
     refresh(): void {},
+    async readOutputTail(): Promise<{ readonly offset: number; readonly data: Uint8Array }> {
+      return { offset: 0, data: new Uint8Array() };
+    },
     track(): never {
       throw new Error('fake IAgentTaskService.track is not implemented');
     },

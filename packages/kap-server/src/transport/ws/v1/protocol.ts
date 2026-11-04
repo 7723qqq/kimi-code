@@ -1,3 +1,5 @@
+import type { TaskResponseMessage } from '../../../protocol/ws-task';
+
 export interface ServerHelloPayload {
   ws_connection_id: string;
   protocol_version: number;
@@ -70,4 +72,13 @@ export function buildResyncRequired(
       ...(epoch !== undefined ? { epoch } : {}),
     },
   };
+}
+
+export function buildResponse(
+  requestId: string,
+  code: number,
+  msg?: string,
+  task?: TaskResponseMessage['task'],
+): TaskResponseMessage {
+  return { type: 'response', request_id: requestId, code, msg, task };
 }

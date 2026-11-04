@@ -4,6 +4,7 @@ import type { WebSocket } from 'ws';
 
 import type { IConnectionRegistry } from '../src/transport/ws/connectionRegistry';
 import type { SessionEventBroadcaster } from '../src/transport/ws/v1/sessionEventBroadcaster';
+import type { TaskSource } from '../src/transport/ws/v1/taskRequests';
 import {
   type WsConnectionV1Options,
   WsConnectionV1,
@@ -80,10 +81,15 @@ function makeRegistry(): IConnectionRegistry {
   };
 }
 
+function makeTaskSource(): TaskSource {
+  return async () => ({ kind: 'task_not_found' });
+}
+
 function makeConn(socket: FakeSocket, opts: Partial<WsConnectionV1Options> = {}): WsConnectionV1 {
   return new WsConnectionV1({
     socket: socket as unknown as WebSocket,
     broadcaster: makeBroadcaster(),
+    taskSource: makeTaskSource(),
     connectionRegistry: makeRegistry(),
     remoteAddress: null,
     userAgent: null,

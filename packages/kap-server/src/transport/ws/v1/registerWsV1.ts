@@ -6,6 +6,7 @@ import { selectWsBearerProtocol } from '../bearerProtocol';
 import { type IConnectionRegistry } from '../connectionRegistry';
 import type { SessionEventBroadcaster } from './sessionEventBroadcaster';
 import type { JournalLogger } from './sessionEventJournal';
+import { createTaskSource } from './taskRequests';
 import { WsConnectionV1 } from './wsConnectionV1';
 
 export const WS_PATH = '/api/v1/ws';
@@ -26,11 +27,13 @@ export function registerWsV1(core: Scope, opts: RegisterWsV1Options): WebSocketS
   void core;
   const wss = new WebSocketServer({ noServer: true, handleProtocols: selectWsBearerProtocol });
   const { registry, broadcaster } = opts;
+  const taskSource = createTaskSource(core);
 
   wss.on('connection', (socket, req) => {
     const conn = new WsConnectionV1({
       socket,
       broadcaster,
+      taskSource,
       connectionRegistry: registry,
       validateCredential: opts.validateCredential,
       remoteAddress: req.socket.remoteAddress ?? null,

@@ -127,6 +127,10 @@ class FakeTaskService implements IAgentTaskService {
 
   refresh(): void {}
 
+  async readOutputTail(): Promise<{ readonly offset: number; readonly data: Uint8Array }> {
+    return { offset: 0, data: new Uint8Array() };
+  }
+
   readonly stopCalls: Array<{ taskId: string; reason: string | undefined }> = [];
   readonly suppressCalls: string[] = [];
   readonly waitCalls: Array<{ taskId: string; timeoutMs: number | undefined }> = [];
