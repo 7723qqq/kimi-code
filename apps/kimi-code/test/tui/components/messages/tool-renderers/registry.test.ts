@@ -147,6 +147,18 @@ describe('tool-result registry', () => {
     expect(out).toBe('  src/a.ts, src/b.ts, src/c.ts, +2 more');
   });
 
+  it('keeps the expanded Grep glance indented when it wraps', () => {
+    const renderer = pickResultRenderer('Grep');
+    const [glance] = renderer(
+      call('Grep', { pattern: 'foo' }),
+      result('src/alpha.ts\nsrc/beta.ts\nsrc/gamma.ts\nsrc/delta.ts'),
+      expandedCtx,
+    );
+    const lines = glance!.render(24).map((line) => strip(line).trimEnd());
+    expect(lines.length).toBeGreaterThan(1);
+    for (const line of lines) expect(line).toMatch(/^ {2}\S/);
+  });
+
   it('keeps the "+N more" count when the glance samples overflow the width', () => {
     const renderer = pickResultRenderer('Grep');
     const out = strip(
