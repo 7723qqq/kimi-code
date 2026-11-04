@@ -24,7 +24,7 @@ pr	sha	title	cluster	verdict	probe	evidence	batch_done	approved_by	updated	files
 4541	3a0b86ea06e7983d0c6313b969be7e5c91a5288e	fix: queue ACP requests until startup completes	B5	ported	test:packages/acp-server/test/initialize.test.ts#answers an initialize request sent before startup completes	1 pass	no	-	2026-11-04	4
 4520	3ed0e68f3bbfb3d9ef5bfad0e7b0de2c497e3d00	feat: merge skills across workspace directories	B4	pending	-	-	no	-	2026-10-30	28
 4595	40590f6cc81d5d4f7ec585562560bcc1eecf0eba	chore: sync web dist from code-app	unassigned	pending	-	-	no	-	2026-11-03	147
-4672	41c341434ae24e45bfe0f2232ec11b80531ac717	ci: release packages	B11	pending	manual:	release commit; AGENTS.md forbids version bumps in this fork; closing it as not-applicable needs sign-off	no	-	2026-11-04	63
+4672	41c341434ae24e45bfe0f2232ec11b80531ac717	ci: release packages	B11	not-applicable	manual:	release commit; this fork follows upstream versions and AGENTS.md forbids running the version/publish scripts here	yes	user	2026-11-04	63
 4643	42cb675304e7c08f14acae59efef90e960f5cc73	fix(mcp): isolate OAuth authorization cancellation per waiter	unassigned	pending	-	-	no	-	2026-11-03	9
 4650	444c609e8e6629d43fb7fd571a8db48ce5a41570	feat(agent-core-v2): allow private addresses in local FetchURL	unassigned	ported	manual:ported in 98f2f860f4	ported as 98f2f860f4; fork deltas (undiciFetch default, IHostTimers deadline, streaming cap) re-applied on the upstream shape	no	-	2026-11-03	2
 4428	461c6e92d53cd4ff473fbe63fd1d238df819ef3f	feat(kap-server): push approvals and questions as interaction frames	B5	pending	-	-	no	-	2026-10-30	36
@@ -86,7 +86,7 @@ pr	sha	title	cluster	verdict	probe	evidence	batch_done	approved_by	updated	files
 4544	e24e1e1919d729edaa8fe0d60b820cd8f4fdd2b5	feat(agent-core-v2): support running session forks by turn	unassigned	pending	-	-	no	-	2026-11-03	41
 4457	e2ad1dcf214337ecfb5ca160fa36d5ef73560ab6	feat: support symlinked directories in file tree	B4	pending	-	-	no	-	2026-10-30	9
 4418	e3efbb9d3b2241412edfe9b704fc33b09a4c2054	feat(agent-core-v2): limit subagents to the configured model pool	B3	ported	test:packages/agent-core-v2/test/app/config/config.test.ts#resolves the spawn binding: pool default, explicit alias, inherit without pool	1 pass	no	-	2026-11-04	36
-4667	e44d7d698046fea32dc5d32caae7c8e8b0f1a1e6	chore: sync web dist from code-app	B11	pending	manual:	generated bundle; PLAYBOOK keeps the fork own dist-web, so per-file alignment is not the practice; closing it as not-applicable needs sign-off	no	-	2026-11-04	139
+4667	e44d7d698046fea32dc5d32caae7c8e8b0f1a1e6	chore: sync web dist from code-app	B11	not-applicable	manual:	web dist sync; this fork keeps its own dist-web and does not align generated bundles file by file (PLAYBOOK), and the TUI bundle is built from source here	yes	user	2026-11-04	139
 4658	e9de788a174939e3e9eb55aa9504bfafbb7ca39b	fix(transcript): keep realigned turn ids unique when folding cold facts	B5	ported	test:packages/transcript/test/layers.test.ts#keeps forked turns unique and in order	1 pass	no	-	2026-11-04	3
 4365	eb1205c4023a5ed719bf62f2257c67cbe56a0aba	fix(agent-core-v2): truncate tool results on code point boundaries	B2	ported	test:packages/agent-core-v2/test/_base/text/code-points.test.ts#never emits a lone surrogate across randomized cuts	1 pass	no	-	2026-11-04	10
 4535	ebc2a9f9607414b1ddfc66a75d8725ea5fe47049	feat: sync running tasks over WebSocket and drop the REST task API	unassigned	pending	-	-	no	-	2026-11-03	202

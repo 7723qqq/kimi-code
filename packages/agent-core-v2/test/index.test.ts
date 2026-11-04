@@ -16,6 +16,7 @@ import { type Event2Class } from '#/app/event/event2';
 import { ToolsUpdateStore } from '#/features/todo/todoOps';
 import {
   WIRE_PROTOCOL_VERSION,
+  WIRE_MIN_READER_VERSION,
   EVENT2_REGISTRY,
   IAgentContextMemoryService,
   IAgentGoalService,
@@ -175,6 +176,7 @@ describe('v1 wire vocabulary', () => {
       {
         type: 'metadata',
         protocol_version: WIRE_PROTOCOL_VERSION,
+        min_protocol_version: WIRE_MIN_READER_VERSION,
         created_at: expect.any(Number),
       },
       {
@@ -217,6 +219,7 @@ describe('v1 wire vocabulary', () => {
       {
         type: 'metadata',
         protocol_version: WIRE_PROTOCOL_VERSION,
+        min_protocol_version: WIRE_MIN_READER_VERSION,
         created_at: expect.any(Number),
       },
       {
@@ -384,6 +387,7 @@ describe('AgentRecords persistence metadata', () => {
       {
         type: 'metadata',
         protocol_version: WIRE_PROTOCOL_VERSION,
+        min_protocol_version: WIRE_MIN_READER_VERSION,
         created_at: 1,
       },
       {
@@ -405,7 +409,7 @@ describe('AgentRecords persistence metadata', () => {
 
   it('keeps restore history stable after a consumer stops reading the journal early', async () => {
     persistence.records.push(
-      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
+      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, min_protocol_version: WIRE_MIN_READER_VERSION, created_at: 1 },
       ...['first', 'second'].map((text) => ({
         type: 'context.append_message',
         message: {
@@ -498,7 +502,7 @@ describe('AgentRecords persistence metadata', () => {
 
   it('restores goal.* records during replay', async () => {
     persistence.records.push(
-      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
+      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, min_protocol_version: WIRE_MIN_READER_VERSION, created_at: 1 },
       {
         type: 'goal.create',
         goalId: 'g1',
@@ -526,7 +530,7 @@ describe('AgentRecords persistence metadata', () => {
 
   it('restores forked records as fork boundaries that clear copied goals', async () => {
     persistence.records.push(
-      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
+      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, min_protocol_version: WIRE_MIN_READER_VERSION, created_at: 1 },
       {
         type: 'goal.create',
         goalId: 'source-goal',
@@ -552,7 +556,7 @@ describe('AgentRecords persistence metadata', () => {
 
   it('keeps goals created after the forked boundary', async () => {
     persistence.records.push(
-      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
+      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, min_protocol_version: WIRE_MIN_READER_VERSION, created_at: 1 },
       {
         type: 'goal.create',
         goalId: 'source-goal',
@@ -579,7 +583,7 @@ describe('AgentRecords persistence metadata', () => {
 
   it('does not add a fork-cleared reminder when a forked record has no copied goal', async () => {
     persistence.records.push(
-      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
+      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, min_protocol_version: WIRE_MIN_READER_VERSION, created_at: 1 },
       { type: 'forked', time: 2 },
     );
 
@@ -589,7 +593,7 @@ describe('AgentRecords persistence metadata', () => {
 
   it('keeps context size tracking live across runtime restore', async () => {
     await ctx.restore([
-      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
+      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, min_protocol_version: WIRE_MIN_READER_VERSION, created_at: 1 },
       {
         type: 'context.append_message',
         message: {

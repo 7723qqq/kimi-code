@@ -289,6 +289,7 @@ export type KimiErrorCode =
   | 'wire.duplicate_op'
   | 'wire.migration_missing'
   | 'wire.unknown_record'
+  | 'wire.version_too_low'
   | 'modelsDev.catalog_entry_not_found'
   | 'modelsDev.catalog_unavailable'
   | 'modelsDev.import_invalid'

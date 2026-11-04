@@ -7,6 +7,7 @@ export const WireErrors = {
     WIRE_UNKNOWN_RECORD: 'wire.unknown_record',
     WIRE_MIGRATION_MISSING: 'wire.migration_missing',
     WIRE_CYCLE: 'wire.cycle',
+    WIRE_VERSION_TOO_LOW: 'wire.version_too_low',
     RECORDS_WRITE_FAILED: 'records.write_failed',
   },
   info: {
@@ -25,6 +26,12 @@ export const WireErrors = {
     'wire.migration_missing': {
       retryable: false,
       public: true,
+    },
+    'wire.version_too_low': {
+      title: 'Wire reader upgrade required',
+      retryable: false,
+      public: true,
+      action: 'Upgrade Kimi Code to read this session.',
     },
     'records.write_failed': {
       retryable: false,

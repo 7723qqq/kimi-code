@@ -23,7 +23,10 @@ import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { defineState } from '#/state/state';
 import { humanEventType } from '#/wire/human';
-import { WIRE_PROTOCOL_VERSION } from '#/wire/migration/migration';
+import {
+  WIRE_MIN_READER_VERSION,
+  WIRE_PROTOCOL_VERSION,
+} from '#/wire/migration/migration';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
 
 import {
@@ -256,7 +259,7 @@ describe('wire.jsonl round-trip', () => {
     ]);
 
     expect(await collect(makeReader(storage), 'legacy')).toEqual([
-      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
+      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, min_protocol_version: WIRE_MIN_READER_VERSION, created_at: 1 },
       {
         type: 'tools.update_store',
         key: 'todo',
