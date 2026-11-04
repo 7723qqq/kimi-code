@@ -50,6 +50,7 @@ import {
   type AgentTask,
   type AgentTaskInfo,
   type AgentTaskOutputChunk,
+  type AgentTaskOutputTail,
   type AgentTaskOutputSnapshot,
   type AgentTaskStatus,
   type AgentTaskTrackOptions,
@@ -656,6 +657,13 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       fullOutputAvailable: false,
       preview: available.subarray(previewOffset).toString('utf-8'),
     };
+  }
+
+  async readOutputTail(taskId: string, maxBytes: number): Promise<AgentTaskOutputTail> {
+    const tail = await this.persistence.readTaskOutputTailBytes(taskId, maxBytes);
+    if (tail !== undefined) return tail;
+    const snapshot = await this.getOutputSnapshot(taskId, Math.max(0, Math.trunc(maxBytes)));
+    return { offset: 0, data: new TextEncoder().encode(snapshot.preview) };
   }
 
   async readOutput(taskId: string, tail?: number): Promise<string> {

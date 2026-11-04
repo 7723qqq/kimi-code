@@ -95,6 +95,7 @@ export interface IAgentTaskService {
   persistOutput(taskId: string): void;
   getOutputSnapshot(taskId: string, maxPreviewBytes: number): Promise<AgentTaskOutputSnapshot>;
   readOutput(taskId: string, tail?: number): Promise<string>;
+  readOutputTail(taskId: string, maxBytes: number): Promise<AgentTaskOutputTail>;
   suppressTerminalNotification(taskId: string): Promise<void>;
   suppressAllTerminalNotifications(): Promise<void>;
   markTasksDeliveredViaWait(tasks: readonly AgentTaskWaitDelivery[]): void;
