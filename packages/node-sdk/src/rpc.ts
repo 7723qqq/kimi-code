@@ -33,6 +33,7 @@ import type {
   ExportSessionInput,
   ExportSessionResult,
   CreateGoalInput,
+  EditGoalObjectiveInput,
   FileMeta,
   ForkSessionInput,
   GenerateSessionTitleInput,
@@ -496,6 +497,10 @@ export abstract class SDKRpcClientBase {
   abstract createGoal(input: SessionIdRpcInput & CreateGoalInput): Promise<GoalSnapshot>;
 
   abstract getGoal(input: SessionIdRpcInput): Promise<GoalToolResult>;
+
+  abstract editGoalObjective(
+    input: SessionIdRpcInput & EditGoalObjectiveInput,
+  ): Promise<GoalSnapshot>;
 
   abstract pauseGoal(input: SessionIdRpcInput): Promise<GoalSnapshot>;
 

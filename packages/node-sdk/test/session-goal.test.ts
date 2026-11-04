@@ -6,6 +6,7 @@ import { Session } from '#/session';
 function makeSession() {
   const rpc = {
     createGoal: mock(async () => ({ goalId: 'g1' })),
+    editGoalObjective: mock(async () => ({ goalId: 'g1' })),
     getGoal: mock(async () => ({ goal: null })),
     pauseGoal: mock(async () => ({ goalId: 'g1' })),
     resumeGoal: mock(async () => ({ goalId: 'g1' })),
@@ -35,6 +36,15 @@ describe('Session goal methods', () => {
     const { session, rpc } = makeSession();
     await session.getGoal();
     expect(rpc.getGoal).toHaveBeenCalledWith({ sessionId: 'ses_goal' });
+  });
+
+  it('editGoalObjective forwards the objective with sessionId', async () => {
+    const { session, rpc } = makeSession();
+    await session.editGoalObjective({ objective: 'Ship feature Y' });
+    expect(rpc.editGoalObjective).toHaveBeenCalledWith({
+      sessionId: 'ses_goal',
+      objective: 'Ship feature Y',
+    });
   });
 
   it('pauseGoal forwards sessionId', async () => {

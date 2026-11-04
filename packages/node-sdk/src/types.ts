@@ -193,6 +193,10 @@ export interface CreateGoalInput {
   readonly replace?: boolean;
 }
 
+export interface EditGoalObjectiveInput {
+  readonly objective: string;
+}
+
 export type TextPromptPart = Extract<ContentPart, { type: 'text' }>;
 export type PromptPart = Extract<ContentPart, { type: 'text' | 'image_url' | 'video_url' }>;
 

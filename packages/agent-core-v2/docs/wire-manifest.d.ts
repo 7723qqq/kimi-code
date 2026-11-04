@@ -364,6 +364,7 @@ interface GoalUpdatePayload {
   _name: 'goal.update';
   agentId: string;
   goalId?: string;
+  objective?: string;
   status?: 'active' | 'paused' | 'blocked' | 'complete' | 'budget_limited' | 'usage_limited';
   reason?: string;
   turnsUsed?: number;

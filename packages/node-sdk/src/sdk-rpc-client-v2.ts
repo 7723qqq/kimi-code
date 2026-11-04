@@ -66,7 +66,7 @@
  *   `ISessionInitService` through the session scope; `getSessionWarnings` →
  *   rebuilt over the profile's cached AGENTS.md warning plus the engine's
  *   `prepareSystemPromptContext` (no v2 aggregate service exists).
- * - `createGoal` / `getGoal` / `pauseGoal` / `resumeGoal` / `cancelGoal` →
+ * - `createGoal` / `editGoalObjective` / `getGoal` / `pauseGoal` / `resumeGoal` / `cancelGoal` →
  *   the target agent scope's `IAgentGoalService`; `getCronTasks` →
  *   with the v1 snapshot
  *   shape restored; `listBackgroundTasks` / `getBackgroundTaskOutput` → the
@@ -308,6 +308,7 @@ import type {
   ConfigDiagnostics,
   CreateGoalInput,
   CreateSessionOptions,
+  EditGoalObjectiveInput,
   ExportSessionInput,
   ExportSessionResult,
   FileMeta,
@@ -2604,6 +2605,13 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   override async getGoal(input: SessionIdRpcInput): Promise<GoalToolResult> {
     const agent = await this.agentScope(input.sessionId);
     return agent.accessor.get(IAgentGoalService).getGoal();
+  }
+
+  override async editGoalObjective(
+    input: SessionIdRpcInput & EditGoalObjectiveInput,
+  ): Promise<GoalSnapshot> {
+    const agent = await this.agentScope(input.sessionId);
+    return agent.accessor.get(IAgentGoalService).editGoalObjective({ objective: input.objective });
   }
 
   override async pauseGoal(input: SessionIdRpcInput): Promise<GoalSnapshot> {
