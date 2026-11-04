@@ -39,6 +39,56 @@ const TEXT_INDEX_NAME = 'body';
 const TRI_INDEX_NAME = 'tri';
 const WIRE_FILENAME = 'wire.jsonl';
 const TEXT_BUILD_TMP_SUFFIX = '.tmpbuild';
+const SEARCH_WIRE_PROTOCOL_VERSION = '1.5';
+
+function assertSearchWireReaderVersion(line: string): void {
+  let record: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(line) as unknown;
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new TypeError('Agent wire metadata is malformed');
+    }
+    record = parsed as Record<string, unknown>;
+  } catch {
+    throw new TypeError('Agent wire metadata is malformed');
+  }
+  if (record['type'] !== 'metadata') return;
+  const protocolVersion = record['protocol_version'];
+  const createdAt = record['created_at'];
+  const minReaderVersion = record['min_protocol_version'];
+  if (typeof protocolVersion !== 'string' || typeof createdAt !== 'number') {
+    throw new TypeError('Agent wire metadata is malformed');
+  }
+  if (minReaderVersion === undefined) return;
+  if (typeof minReaderVersion !== 'string' || !/^\d+(\.\d+)*$/.test(minReaderVersion)) {
+    throw new TypeError('Agent wire metadata is malformed');
+  }
+  const current = SEARCH_WIRE_PROTOCOL_VERSION.split('.');
+  const required = minReaderVersion.split('.');
+  for (let index = 0; index < Math.max(current.length, required.length); index++) {
+    const diff = Number(current[index] ?? '0') - Number(required[index] ?? '0');
+    if (diff < 0) {
+      const error = new Error(
+        `This wire.jsonl requires reader protocol ${minReaderVersion}; current Kimi Code supports ${SEARCH_WIRE_PROTOCOL_VERSION}. Upgrade Kimi Code to read this session.`,
+      ) as Error & { code: string };
+      error.code = 'wire.version_too_low';
+      throw error;
+    }
+    if (diff > 0) return;
+  }
+}
+
+function isSearchWireCompatibilityError(error: unknown): boolean {
+  if (error instanceof TypeError && error.message === 'Agent wire metadata is malformed') {
+    return true;
+  }
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === 'wire.version_too_low'
+  );
+}
 
 const FILE_META_PREFIX = '\0meta\\file\\';
 const SESSION_META_PREFIX = '\0meta\\session\\';
@@ -993,6 +1043,7 @@ export class SearchIndexCore {
     let byteCursor = offset;
     let position = offset;
     let wireError: unknown;
+    let compatibilityFailure = false;
     try {
       let pending: Buffer = EMPTY_BUFFER;
       let finishing = false;
@@ -1031,14 +1082,23 @@ export class SearchIndexCore {
           pending = EMPTY_BUFFER;
           const lineOffset = byteCursor;
           byteCursor += lineBuf.length + 1;
-          ({ turnState, stepState } = this.collectWireLine(
-            ops,
-            summary,
-            file,
-            lineBuf.toString('utf8'),
-            lineOffset,
-            { turnState, stepState },
-          ));
+          const line = lineBuf.toString('utf8');
+          try {
+            if (lineOffset === 0) assertSearchWireReaderVersion(line);
+            ({ turnState, stepState } = this.collectWireLine(
+              ops,
+              summary,
+              file,
+              line,
+              lineOffset,
+              { turnState, stepState },
+            ));
+          } catch (error) {
+            if (!isSearchWireCompatibilityError(error)) throw error;
+            wireError = error;
+            compatibilityFailure = true;
+            break;
+          }
           completedRecord = true;
           start = nl + 1;
         }
@@ -1046,6 +1106,7 @@ export class SearchIndexCore {
           pending.length > 0
             ? Buffer.concat([pending, slice.subarray(start)])
             : Buffer.from(slice.subarray(start));
+        if (compatibilityFailure) break;
         if (finishing && completedRecord) break;
         if (ops.length >= WIRE_BATCH_OPS) {
           ops.push({ op: 'set', key: metaKey, value: fileMeta(byteCursor, turnState, stepState) });
@@ -1059,6 +1120,13 @@ export class SearchIndexCore {
       }
     } finally {
       await handle.close();
+    }
+
+    if (compatibilityFailure) {
+      await this.deleteFileDocs(db, fileMeta(0, initialTurnState(), initialStepState()));
+      await db.del(metaKey);
+      if (legacyKey !== null) await db.del(legacyKey);
+      return { truncated: false, failed: true, error: errorMessage(wireError) };
     }
 
     const truncated = position < size && syncBudgetExhausted(budget);

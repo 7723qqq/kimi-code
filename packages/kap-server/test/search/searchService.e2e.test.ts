@@ -322,6 +322,25 @@ describe('GlobalSearchService', () => {
     );
   });
 
+  it('does not index a wire that needs a newer reader, and reports it', async () => {
+    const s1 = summary('s1', 'newer reader', T1);
+    await writeTitle(home!, s1.id, s1.title!);
+    await writeWire(home!, 's1', 'main', [
+      JSON.stringify({
+        type: 'metadata',
+        protocol_version: '1.5',
+        min_protocol_version: '99.0',
+        created_at: T1,
+      }),
+      userLine('needle that must not be indexed', T2),
+    ]);
+    const service = track(makeService(home!, staticIndex([s1])));
+    await service.reindex();
+
+    const found = await service.search({ query: 'needle' });
+    expect(found.items.filter((item) => item.sessionId === 's1')).toHaveLength(0);
+  });
+
   it('indexes user and assistant text and finds Chinese and English terms', async () => {
     const s1 = summary('s1', '搜索重构讨论', T1);
     await writeTitle(home!, s1.id, s1.title!);
