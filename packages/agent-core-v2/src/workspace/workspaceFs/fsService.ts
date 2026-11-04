@@ -159,8 +159,12 @@ export class WorkspaceFsService implements IWorkspaceFsService {
   }
 
   async list(req: FsListRequest): Promise<FsListResponse> {
-    const abs = await this.resolveWithin(req.path);
-    const rel = this.toRel(abs);
+    const anchored = this.path.isAbsolute(req.path);
+    const abs = anchored ? await this.resolveRegisteredRoot(req.path) : await this.resolveWithin(req.path);
+    const base = anchored ? this.anchorRoot(abs) : this.workDir;
+    const rel = anchored ? this.toRelFrom(base, abs) : this.toRel(abs);
+    const absOf = (relPath: string): string =>
+      relPath === '' || relPath === '.' ? base : this.path.join(base, relPath);
 
     let topStat: HostFileStat;
     try {
@@ -174,7 +178,7 @@ export class WorkspaceFsService implements IWorkspaceFsService {
       });
     }
 
-    const gitignore = req.follow_gitignore ? await this.matcher() : undefined;
+    const gitignore = req.follow_gitignore ? await this.matcherFor(base) : undefined;
 
     const items: FsEntry[] = [];
     const childrenByPath: Record<string, FsEntry[]> = {};
@@ -198,7 +202,7 @@ export class WorkspaceFsService implements IWorkspaceFsService {
       const entry = queue.shift()!;
       let names: readonly string[];
       try {
-        names = (await this.hostFs.readdir(this.absOf(entry.relPath))).map((e) => e.name);
+        names = (await this.hostFs.readdir(absOf(entry.relPath))).map((e) => e.name);
       } catch (error) {
         if (entry.relPath === (rel === '.' ? '' : rel)) {
           throw mapFsError(error, req.path);
@@ -219,7 +223,7 @@ export class WorkspaceFsService implements IWorkspaceFsService {
           }
         }
         if (req.exclude_globs && matchesAnyGlob(childRel, req.exclude_globs)) continue;
-        const st = await this.hostFs.lstat(this.absOf(childRel)).catch(() => undefined);
+        const st = await this.hostFs.lstat(absOf(childRel)).catch(() => undefined);
         if (st === undefined || (ancestorOfAllowed && !st.isDirectory)) continue;
         if (
           ancestorOfAllowed &&
@@ -229,6 +233,7 @@ export class WorkspaceFsService implements IWorkspaceFsService {
             req.exclude_globs,
             req.show_hidden,
             probeBudget,
+            absOf,
           ))
         )
           continue;
@@ -279,12 +284,13 @@ export class WorkspaceFsService implements IWorkspaceFsService {
     excludeGlobs: readonly string[] | undefined,
     showHidden: boolean,
     budget: { visited: number },
+    absOf: (rel: string) => string,
   ): Promise<boolean> {
     const walk = async (rel: string, depth: number): Promise<boolean> => {
       if (depth > PROBE_MAX_DEPTH || budget.visited >= PROBE_MAX_ENTRIES) return true;
       let names: readonly string[];
       try {
-        names = (await this.hostFs.readdir(this.absOf(rel))).map((e) => e.name);
+        names = (await this.hostFs.readdir(absOf(rel))).map((e) => e.name);
       } catch {
         return false;
       }
@@ -295,7 +301,7 @@ export class WorkspaceFsService implements IWorkspaceFsService {
         const childRel = `${rel}/${name}`;
         if (excludeGlobs !== undefined && matchesAnyGlob(childRel, excludeGlobs)) continue;
         if (matchesAnyGlob(childRel, globs)) return true;
-        const st = await this.hostFs.lstat(this.absOf(childRel)).catch(() => undefined);
+        const st = await this.hostFs.lstat(absOf(childRel)).catch(() => undefined);
         if (st?.isDirectory === true && globCanMatchBelow(childRel, globs)) {
           if (await walk(childRel, depth + 1)) return true;
         }
@@ -525,33 +531,39 @@ export class WorkspaceFsService implements IWorkspaceFsService {
   }
 
   async search(req: FsSearchRequest): Promise<FsSearchResponse> {
+    const roots = await this.suggestRoots();
     if (req.query === '') {
-      const listed = await this.list({
-        path: '.',
-        depth: 1,
-        limit: req.limit,
-        show_hidden: false,
-        follow_gitignore: req.follow_gitignore,
-        exclude_globs: req.exclude_globs,
-        sort: 'type_first',
-        include_git_status: false,
-      });
-      const items = listed.items
-        .filter(
-          (entry) =>
-            req.include_globs === undefined || matchesAnyGlob(entry.path, req.include_globs),
-        )
-        .map((entry) => ({
-          path: entry.path,
-          name: entry.name,
-          kind: entry.kind,
-          score: 1,
-          match_positions: [],
-        }));
-      return { items, truncated: listed.truncated };
+      const items: FsSearchHit[] = [];
+      let truncated = false;
+      for (const root of roots) {
+        const listed = await this.list({
+          path: root.dir,
+          depth: 1,
+          limit: req.limit,
+          show_hidden: false,
+          follow_gitignore: req.follow_gitignore,
+          exclude_globs: req.exclude_globs,
+          sort: 'type_first',
+          include_git_status: false,
+        });
+        truncated = truncated || listed.truncated;
+        for (const entry of listed.items) {
+          const display = this.suggestDisplayPath(root, entry.path);
+          if (req.include_globs !== undefined && !matchesAnyGlob(display, req.include_globs)) {
+            continue;
+          }
+          items.push({
+            path: display,
+            name: entry.name,
+            kind: entry.kind,
+            score: 1,
+            match_positions: [],
+          });
+        }
+      }
+      return { items: items.slice(0, Math.min(req.limit, SEARCH_HARD_CAP)), truncated };
     }
 
-    const roots = await this.suggestRoots();
     const candidates: FsSearchHit[] = [];
     const queryLower = req.query.toLowerCase();
     for (const root of roots) {
@@ -1332,6 +1344,26 @@ export class WorkspaceFsService implements IWorkspaceFsService {
     const cwd = this.workDir;
     if (abs === cwd) return '.';
     const rel = this.path.relative(cwd, abs);
+    if (rel === '') return '.';
+    return rel.split(this.path.separator).join('/');
+  }
+
+  private anchorRoot(abs: string): string {
+    const dirs = [
+      this.workDir,
+      ...this.workspaceDirs.additionalDirs.map((dir) => this.path.resolve(dir)),
+    ];
+    let best: string | undefined;
+    for (const dir of dirs) {
+      if (!isInsideOrEqual(this.path, abs, dir)) continue;
+      if (best === undefined || dir.length > best.length) best = dir;
+    }
+    return best ?? this.workDir;
+  }
+
+  private toRelFrom(base: string, abs: string): string {
+    if (abs === base) return '.';
+    const rel = this.path.relative(base, abs);
     if (rel === '') return '.';
     return rel.split(this.path.separator).join('/');
   }

@@ -767,6 +767,11 @@ describe('WorkspaceFsService.search', () => {
       follow_gitignore: false,
     });
     expect(onlyExtra.items.map((item) => item.path)).toEqual(['/extra/only-extra.ts']);
+
+    const topLevel = await fs.search({ query: '', limit: 50, follow_gitignore: false });
+    expect(topLevel.items.map((item) => item.path)).toEqual(
+      expect.arrayContaining(['shared.ts', '/extra/shared.ts', '/extra/only-extra.ts']),
+    );
   });
 
   it('reports symlinks as kind symlink and does not recurse into them', async () => {
@@ -1628,6 +1633,41 @@ describe('WorkspaceFsService.grep', () => {
 });
 
 describe('WorkspaceFsService.list', () => {
+  it('lists a registered source folder by its absolute path and keeps entries relative to it', async () => {
+    const fs = makeSession(
+      { 'primary.ts': '', '/extra/only.ts': '', '/extra/nested/deep.ts': '' },
+      emptyHandler,
+      [],
+      undefined,
+      [],
+      undefined,
+      {},
+      ['/extra'],
+    );
+
+    const listed = await fs.list({
+      path: '/extra',
+      depth: 1,
+      limit: 200,
+      show_hidden: false,
+      follow_gitignore: false,
+      sort: 'type_first',
+      include_git_status: false,
+    });
+    expect(listed.items.map((entry) => entry.path).toSorted()).toEqual(['nested', 'only.ts']);
+
+    const nested = await fs.list({
+      path: '/extra/nested',
+      depth: 1,
+      limit: 200,
+      show_hidden: false,
+      follow_gitignore: false,
+      sort: 'type_first',
+      include_git_status: false,
+    });
+    expect(nested.items.map((entry) => entry.path)).toEqual(['nested/deep.ts']);
+  });
+
   it('lists files and directories with kinds', async () => {
     const fs = makeSession({ 'src/a.ts': '', 'src/sub/b.ts': '', 'README.md': '' }, emptyHandler);
     const result = await fs.list({
