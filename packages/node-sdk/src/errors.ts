@@ -1033,6 +1033,12 @@ export const KIMI_ERROR_INFO = {
     public: true,
     action: 'The wire file predates the supported migration chain; start a new session.',
   },
+  'wire.version_too_low': {
+    title: 'Kimi Code upgrade required',
+    retryable: false,
+    public: true,
+    action: 'Upgrade Kimi Code to the latest version to read this session.',
+  },
   'wire.unknown_record': {
     title: 'Unknown wire record',
     retryable: false,
