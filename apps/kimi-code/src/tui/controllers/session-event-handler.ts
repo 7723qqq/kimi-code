@@ -48,6 +48,7 @@ import {
   type RenderTimerHandle,
 } from '#/utils/render-clock';
 import { formatStepDebugTiming } from '#/utils/usage/debug-timing';
+import { isTurnPromptEvent, isTurnSteerEvent, isUserSteerOrigin } from '../utils/steer-delivery';
 
 import { createGoal as startGoalCommand } from '../commands/goal';
 import { MoonLoader } from '../components/chrome/moon-loader';
@@ -165,6 +166,10 @@ export interface SessionEventHost {
   sendQueuedMessage(session: Session, item: QueuedMessage): void;
   shiftQueuedMessage(): QueuedMessage | undefined;
   steerQueuedMessagesIntoRunningTurn(): void;
+  acknowledgeSteerDelivery?(input: unknown, promptIds?: readonly string[]): void;
+  acknowledgeSteerTurnPrompt?(promptId: string | undefined, input: unknown, origin: unknown): void;
+  acknowledgeSteerTurnStarted?(promptId?: string): void;
+  releaseSteerDelivery?(promptId: string): void;
   lastCompactionTrigger: CompactionStartedEvent['trigger'] | undefined;
   autoCompactionSerial: number;
   completedCompactionSerial: number;
@@ -345,6 +350,18 @@ export class SessionEventHandler {
       this.host.streamingUI.setTurnId(String(event.turnId));
     }
 
+    const rawEvent: object = event;
+    if (isTurnSteerEvent(rawEvent)) {
+      if (isUserSteerOrigin(rawEvent)) {
+        this.host.acknowledgeSteerDelivery?.(rawEvent.input, rawEvent.promptIds);
+      }
+      return;
+    }
+    if (isTurnPromptEvent(rawEvent)) {
+      this.host.acknowledgeSteerTurnPrompt?.(rawEvent.promptId, rawEvent.input, rawEvent.origin);
+      return;
+    }
+
     switch (event.type) {
       case 'turn.started':
         this.handleTurnBegin(event);
@@ -446,6 +463,11 @@ export class SessionEventHandler {
         break;
       case 'tool.list.updated':
         break;
+      case 'prompt.completed':
+        if (event.reason === 'blocked' || event.reason === 'failed') {
+          this.host.releaseSteerDelivery?.(event.promptId);
+        }
+        break;
       default:
         break;
     }
@@ -463,6 +485,7 @@ export class SessionEventHandler {
   // ---------------------------------------------------------------------------
 
   private handleTurnBegin(event: TurnStartedEvent): void {
+    this.host.acknowledgeSteerTurnStarted?.(event.promptId);
     this.host.handleTurnStarted?.(event);
     this.currentTurnHasAssistantText = false;
     if (event.origin?.kind === 'plugin_command') {

@@ -40,7 +40,14 @@ export class StickyUserMessageComponent implements Component {
         ? currentTheme.boldFg('roleUser', USER_MESSAGE_BULLET) +
           this.judgment.component.colorText(this.judgment.summary)
         : currentTheme.boldFg('roleUser', USER_MESSAGE_BULLET + this.judgment.summary);
-    return [truncateToWidth(text, safeWidth, TRUNCATION_ELLIPSIS)];
+    const line = truncateToWidth(text, safeWidth, TRUNCATION_ELLIPSIS);
+    if (
+      this.judgment.component instanceof UserMessageComponent &&
+      this.judgment.component.isSteerPending()
+    ) {
+      return [currentTheme.fade(line)];
+    }
+    return [line];
   }
 
   handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {

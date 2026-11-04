@@ -177,12 +177,14 @@ describe('SessionEventWiring status snapshot fold', () => {
       sub.bus.emit({
         type: 'turn.prompt',
         turnId: 1,
+        promptId: 'prompt-1',
         input: [{ type: 'text', text: '<notification>internal only</notification>' }],
         origin: { kind: 'task', taskId: 'task_1' },
       });
       sub.bus.emit({
         type: 'turn.started',
         turnId: 1,
+        promptId: 'prompt-1',
         origin: { kind: 'user' },
         prompt: 'describe this',
         promptAttachments: [{ kind: 'image', fileId: 'f_1' }],
@@ -204,8 +206,55 @@ describe('SessionEventWiring status snapshot fold', () => {
       turnId: 1,
       sessionId: 's1',
       agentId: 'agent-1',
+      promptId: 'prompt-1',
       prompt: 'describe this',
     });
     expect(events[1]).not.toHaveProperty('promptAttachments');
+  });
+
+  it.each(['blocked', 'failed'] as const)(
+    'forwards prompt.completed(%s) so rejected prompts can settle clients',
+    (reason) => {
+      const sub = new FakeAgentHandle('agent-1');
+      const { sink, events } = collectingSink();
+      const wiring = new SessionEventWiring(makeSession([sub]), sink);
+      try {
+        sub.bus.emit({
+          type: 'prompt.completed',
+          promptId: 'prompt-1',
+          finishedAt: '2026-01-01T00:00:00.000Z',
+          reason,
+        });
+      } finally {
+        wiring.dispose();
+      }
+
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        type: 'prompt.completed',
+        sessionId: 's1',
+        agentId: 'agent-1',
+        promptId: 'prompt-1',
+        reason,
+      });
+    },
+  );
+
+  it('keeps prompt.completed(completed) on the internal bus', () => {
+    const sub = new FakeAgentHandle('agent-1');
+    const { sink, events } = collectingSink();
+    const wiring = new SessionEventWiring(makeSession([sub]), sink);
+    try {
+      sub.bus.emit({
+        type: 'prompt.completed',
+        promptId: 'prompt-1',
+        finishedAt: '2026-01-01T00:00:00.000Z',
+        reason: 'completed',
+      });
+    } finally {
+      wiring.dispose();
+    }
+
+    expect(events).toHaveLength(0);
   });
 });

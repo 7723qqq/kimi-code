@@ -41,6 +41,7 @@ export class UserMessageComponent implements Component {
   private readonly skillNames?: readonly string[];
   private spacerComponent: Spacer;
   private imageThumbnails: ImageThumbnail[];
+  private steerPending: boolean;
 
   private renderCache: { width: number; lines: string[] } | undefined;
 
@@ -49,10 +50,12 @@ export class UserMessageComponent implements Component {
     images?: ImageAttachment[],
     bullet?: string,
     skillNames?: readonly string[],
+    steerPending = false,
   ) {
     this.text = text;
     this.bullet = bullet;
     this.skillNames = skillNames;
+    this.steerPending = steerPending;
     this.spacerComponent = new Spacer(1);
     // The thumbnails are rendered manually inside render(), so their async
     // sixel pixel swap must poke this component's render cache — a child
@@ -63,6 +66,16 @@ export class UserMessageComponent implements Component {
 
   private markRenderDirty(): void {
     this.renderCache = undefined;
+  }
+
+  isSteerPending(): boolean {
+    return this.steerPending;
+  }
+
+  setSteerPending(pending: boolean): void {
+    if (this.steerPending === pending) return;
+    this.steerPending = pending;
+    this.markRenderDirty();
   }
 
   colorText(text: string): string {
@@ -127,7 +140,8 @@ export class UserMessageComponent implements Component {
     const textLines = new Text(this.colorText(this.text), 0, 0).render(contentWidth);
     for (let i = 0; i < textLines.length; i++) {
       const prefix = i === 0 ? bullet : ' '.repeat(bulletWidth);
-      lines.push(prefix + textLines[i]);
+      const line = prefix + textLines[i];
+      lines.push(this.steerPending ? currentTheme.fade(line) : line);
     }
 
     // Images — indented to align with text after the bullet

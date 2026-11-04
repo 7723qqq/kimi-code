@@ -2202,6 +2202,11 @@ export class KimiTUI {
       options?.imageAttachmentIds !== undefined && options.imageAttachmentIds.length > 0
         ? options.imageAttachmentIds
         : undefined;
+    const goalActive = this.state.appState.goal?.status === 'active';
+    const goalSteerIntoRunningTurn =
+      goalActive &&
+      this.state.appState.streamingPhase !== 'idle' &&
+      this.state.appState.streamingPhase !== 'shell';
     const entry: TranscriptEntry = {
       id: nextTranscriptId(),
       kind: 'user',
@@ -2209,6 +2214,7 @@ export class KimiTUI {
       renderMode: 'plain',
       content: input,
       imageAttachmentIds,
+      steerPending: goalSteerIntoRunningTurn ? true : undefined,
     };
     this.appendTranscriptEntry(entry);
     // A goal-active steer is buffered into the running goal turn — no new
@@ -2236,7 +2242,6 @@ export class KimiTUI {
             originalsDirForSession(session),
           )
         : input;
-    const goalActive = this.state.appState.goal?.status === 'active';
     // The lease normally arrives pre-created by sendNormalUserInput (carrying
     // its exact-binding submission id). Queued dispatches and steer batches
     // arrive with raw ids instead: a prompt submission carrying staged
@@ -2278,8 +2283,14 @@ export class KimiTUI {
     // turn, or launches a turn of its own if the loop just ended.
     if (goalActive) {
       if (runningTurnId !== undefined) this.staging.bindToTurn(stagingLease, runningTurnId);
-      const request = this.messageDispatch.trackPendingEntries([entry], session.steer(sdkInput));
+      const request = this.messageDispatch.trackPendingEntries(
+        [entry],
+        this.messageDispatch.trackSteerSubmission([entry], sdkInput, () =>
+          session.steer(sdkInput),
+        ),
+      );
       this.staging.trackDispatch(stagingLease, request, (error) => {
+        this.messageDispatch.releaseSteerEntries([entry]);
         const recovered = this.messageDispatch.handlePromptConflict({
           session,
           error,
@@ -2468,6 +2479,22 @@ export class KimiTUI {
     );
   }
 
+  acknowledgeSteerDelivery(input: unknown, promptIds?: readonly string[]): void {
+    this.messageDispatch.acknowledgeSteerDelivery(input, promptIds);
+  }
+
+  acknowledgeSteerTurnPrompt(promptId: string | undefined, input: unknown, origin: unknown): void {
+    this.messageDispatch.acknowledgeSteerTurnPrompt(promptId, input, origin);
+  }
+
+  acknowledgeSteerTurnStarted(promptId?: string): void {
+    this.messageDispatch.acknowledgeSteerTurnStarted(promptId);
+  }
+
+  releaseSteerDelivery(promptId: string): void {
+    this.messageDispatch.releaseSteerDelivery(promptId);
+  }
+
   steerQueuedMessagesIntoRunningTurn(manual = false): void {
     const session = this.session;
     if (session === undefined || this.steeringQueuedMessages.size > 0) return;
@@ -2645,6 +2672,7 @@ export class KimiTUI {
         item.imageAttachmentIds !== undefined && item.imageAttachmentIds.length > 0
           ? item.imageAttachmentIds
           : undefined,
+      steerPending: startsNewTurn ? undefined : true,
     }));
     for (const entry of steeredEntries) this.appendTranscriptEntry(entry);
     const mediaAttachmentIds = input.flatMap((item) => [
@@ -2664,13 +2692,16 @@ export class KimiTUI {
     // retires its media at session close instead.
     if (currentTurnId !== undefined && prepared === undefined)
       this.staging.bindToTurn(stagingLease, currentTurnId);
+    const payload = combineSteerInput(resolvedInput);
     const request = this.messageDispatch.trackPendingEntries(
       steeredEntries,
-      prepared === undefined
-        ? session.steer(combineSteerInput(resolvedInput))
-        : session.promptWithSkills(combineSteerInput(resolvedInput), prepared.skills, {
-            steerIfActive: true,
-          }),
+      this.messageDispatch.trackSteerSubmission(steeredEntries, payload, () =>
+        prepared === undefined
+          ? session.steer(payload)
+          : session.promptWithSkills(payload, prepared.skills, {
+              steerIfActive: true,
+            }),
+      ),
     );
     if (onSettled !== undefined) {
       void request.then(
@@ -2679,6 +2710,7 @@ export class KimiTUI {
       );
     }
     this.staging.trackDispatch(stagingLease, request, (error) => {
+      this.messageDispatch.releaseSteerEntries(steeredEntries);
       if (this.session !== session) {
         onSettled?.(false);
         return;
@@ -3156,6 +3188,7 @@ export class KimiTUI {
     previous?.setQuestionHandler(undefined);
     this.approvalController.cancelAll(reason);
     this.questionController.cancelAll(reason);
+    this.messageDispatch.resetSteerDeliveries();
     this.session = undefined;
     this.state.swarmModeEntry = undefined;
     this.state.helloWorldModeEntry = undefined;
@@ -3303,6 +3336,7 @@ export class KimiTUI {
     this.resetTokenSpeed();
     this.surveyController.reset();
     this.streamingUI.discardPending();
+    this.messageDispatch.resetSteerDeliveries();
     if (options?.keepQueuedMessages !== true) this.clearQueuedMessages();
     this.programStatus.resetSession();
     this.state.swarmModeEntry = undefined;
@@ -3553,7 +3587,13 @@ export class KimiTUI {
         for (const [command, skillName] of this.skillCommandMap) {
           if (entry.skillNames?.includes(skillName)) skillNames.add(command.replace(/^skill:/, ''));
         }
-        return new UserMessageComponent(entry.content, images, entry.bullet, [...skillNames]);
+        return new UserMessageComponent(
+          entry.content,
+          images,
+          entry.bullet,
+          [...skillNames],
+          entry.steerPending === true,
+        );
       }
       case 'skill_activation':
         return new SkillActivationComponent(

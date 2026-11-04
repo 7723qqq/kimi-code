@@ -30,6 +30,7 @@ import type { ScopedCaller } from './session.js';
 export type PromptLaunchResult =
   | import('@moonshot-ai/agent-core-v2').PromptLaunchResult
   | undefined;
+export type SteerResult = import('@moonshot-ai/agent-core-v2').SteerResult;
 export type PromptWithSkillsInput = Parameters<IAgentSkillService['promptWithSkills']>[0];
 export type PromptWithSkillsResult = Awaited<ReturnType<IAgentSkillService['promptWithSkills']>>;
 export type ShellCommandResult = Awaited<ReturnType<IAgentShellCommandService['run']>>;
@@ -58,7 +59,7 @@ export interface AgentFacade {
    * `queued` when the submission queued behind a running turn.
    */
   promptWithSkills(input: PromptWithSkillsInput): Promise<PromptWithSkillsResult>;
-  steer(input: { input: readonly ContentPart[] }): Promise<PromptLaunchResult>;
+  steer(input: { input: readonly ContentPart[] }): Promise<SteerResult>;
   /**
    * Activate a skill as a user-slash activation: the engine renders the skill
    * prompt and drives it as a normal turn (same settlement/event flow as
@@ -110,7 +111,7 @@ export function createAgentFacade(call: ScopedCaller, scope: ScopeRef): AgentFac
         input,
       ]) as Promise<PromptWithSkillsResult>,
     steer: (input) =>
-      call(scope, 'agentPromptService', 'submitSteer', [input]) as Promise<PromptLaunchResult>,
+      call(scope, 'agentPromptService', 'submitSteer', [input]) as Promise<SteerResult>,
     activateSkill: (input) =>
       call(scope, 'agentSkillService', 'activate', [input]) as Promise<PromptLaunchResult>,
     cancel: (input) =>

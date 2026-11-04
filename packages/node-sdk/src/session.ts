@@ -36,6 +36,7 @@ import type {
   PluginSummary,
   PromptInput,
   PromptSkillActivation,
+  PromptSubmissionResult,
   ReloadSessionOptions,
   ReloadSummary,
   ResumedSessionState,
@@ -177,13 +178,13 @@ export class Session {
     });
   }
 
-  async promptWithSkills(
+  promptWithSkills(
     input: string | PromptInput,
     skills: readonly PromptSkillActivation[],
     options?: { readonly steerIfActive?: boolean },
-  ): Promise<void> {
+  ): Promise<PromptSubmissionResult> {
     this.ensureOpen();
-    await this.rpc.promptWithSkills({
+    return this.rpc.promptWithSkills({
       sessionId: this.id,
       input: normalizePromptInput(input),
       skills,
@@ -212,9 +213,9 @@ export class Session {
     return this.rpc.cancelShellCommand({ sessionId: this.id, commandId });
   }
 
-  async steer(input: string | PromptInput): Promise<void> {
+  steer(input: string | PromptInput): Promise<PromptSubmissionResult> {
     this.ensureOpen();
-    await this.rpc.steer({
+    return this.rpc.steer({
       sessionId: this.id,
       input: normalizePromptInput(input),
     });

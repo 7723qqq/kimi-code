@@ -1,9 +1,15 @@
 import { randomUUID } from 'node:crypto';
 
-import type { KimiHarness, PromptPart, Session } from '@moonshot-ai/kimi-code-sdk';
+import type {
+  KimiHarness,
+  PromptPart,
+  PromptSubmissionResult,
+  Session,
+} from '@moonshot-ai/kimi-code-sdk';
 
 import { t } from '#/i18n';
 
+import { UserMessageComponent } from '../components/messages/user-message';
 import { getLlmNotSetMessage, MAIN_AGENT_ID } from '../constant/kimi-tui';
 import { MEDIA_INGESTION_SUBMIT_WAIT_MS } from '../constant/media';
 import type { TUIState } from '../tui-state';
@@ -30,7 +36,16 @@ import {
 } from '../utils/image-placeholder';
 import type { ExtractionResult } from '../utils/image-placeholder';
 import { isSessionOccupiedError } from '../utils/session-lock-errors';
+import {
+  isInTurnUserOrigin,
+  steerEventParts,
+  steerMatchTexts,
+  steerPayloadText,
+  takeDeliveredSteerBatches,
+  type SteerDeliveryBatch,
+} from '../utils/steer-delivery';
 import { combineSteerInput } from '../utils/steer-input';
+import { getTranscriptComponentEntry } from '../utils/transcript-component-metadata';
 import { nextTranscriptId } from '../utils/transcript-id';
 import type { BtwPanelController } from './btw-panel';
 import type { CacheHintController } from './cache-hint-controller';
@@ -91,6 +106,11 @@ function nonEmptyIds(ids: readonly number[] | undefined): readonly number[] | un
   return ids !== undefined && ids.length > 0 ? ids : undefined;
 }
 
+type PendingSteerDelivery = SteerDeliveryBatch<TranscriptEntry> & {
+  readonly mediaOnly: boolean;
+  readonly promptId?: string;
+};
+
 /**
  * Owns the send path: user input submission, media extraction/staging-lease
  * hand-off, queueing and draining, prompt/steer/skill/plugin dispatch, and
@@ -103,6 +123,8 @@ export class MessageDispatchController {
   private readonly imageStore: ImageAttachmentStore;
   private readonly steeringQueuedMessages = new Set<QueuedMessage>();
   private readonly pendingPromptEntries = new Set<TranscriptEntry>();
+  private pendingSteerDeliveries: PendingSteerDelivery[] = [];
+  private readonly consumedSteerPromptIds = new Set<string>();
 
   constructor(
     host: MessageDispatchHost,
@@ -1074,6 +1096,7 @@ export class MessageDispatchController {
       content: item.text,
       skillNames: item.inlineSkillActivations?.map((activation) => activation.skillName),
       imageAttachmentIds: nonEmptyIds(item.imageAttachmentIds),
+      steerPending: startsNewTurn ? undefined : true,
     }));
     for (const entry of steeredEntries) this.host.appendTranscriptEntry(entry);
 
@@ -1098,12 +1121,14 @@ export class MessageDispatchController {
     if (currentTurnId !== undefined && prepared === undefined) {
       this.staging.bindToTurn(stagingLease, currentTurnId);
     }
-    const request =
+    const payload = combineSteerInput(resolvedInput);
+    const request = this.trackSteerSubmission(steeredEntries, payload, () =>
       prepared === undefined
-        ? session.steer(combineSteerInput(resolvedInput))
-        : session.promptWithSkills(combineSteerInput(resolvedInput), prepared.skills, {
+        ? session.steer(payload)
+        : session.promptWithSkills(payload, prepared.skills, {
             steerIfActive: true,
-          });
+          }),
+    );
     if (onSettled !== undefined) {
       void request.then(
         () => onSettled(true),
@@ -1111,6 +1136,7 @@ export class MessageDispatchController {
       );
     }
     this.staging.trackDispatch(stagingLease, request, (error) => {
+      this.releaseSteerEntries(steeredEntries);
       if (this.host.session !== session) {
         onSettled?.(false);
         return;
@@ -1132,7 +1158,153 @@ export class MessageDispatchController {
     });
   }
 
-  trackPendingEntries(entries: readonly TranscriptEntry[], request: Promise<void>): Promise<void> {
+  private turnCanAcceptSteer(): boolean {
+    const phase = this.host.state.appState.streamingPhase;
+    return phase !== 'idle' && phase !== 'shell' && !this.host.state.appState.isCompacting;
+  }
+
+  trackSteerSubmission(
+    entries: readonly TranscriptEntry[],
+    payload: string | readonly { readonly type: string; readonly text?: string }[],
+    submit: () => Promise<PromptSubmissionResult>,
+  ): Promise<void> {
+    this.notePendingSteer(entries, payload);
+    if (!this.turnCanAcceptSteer()) this.setSteerEntriesPending(entries, false);
+    return submit().then((result) => {
+      this.applySteerSubmission(entries, result);
+    });
+  }
+
+  acknowledgeSteerDelivery(input: unknown, promptIds?: readonly string[]): void {
+    if (promptIds !== undefined && promptIds.length > 0) {
+      this.acknowledgeSteerPromptIds(promptIds);
+      return;
+    }
+    this.acknowledgeLegacySteerDelivery(input);
+  }
+
+  acknowledgeSteerTurnPrompt(promptId: string | undefined, input: unknown, origin: unknown): void {
+    const delivered = promptId === undefined ? false : this.acknowledgeSteerPromptIds([promptId]);
+    if (!delivered && isInTurnUserOrigin(origin)) this.acknowledgeLegacySteerDelivery(input);
+  }
+
+  acknowledgeSteerTurnStarted(promptId?: string): void {
+    if (promptId !== undefined) this.acknowledgeSteerPromptIds([promptId]);
+  }
+
+  releaseSteerDelivery(promptId: string): void {
+    const batch = this.pendingSteerDeliveries.find((batch) => batch.promptId === promptId);
+    if (batch !== undefined) this.releaseSteerEntries(batch.entries);
+  }
+
+  private acknowledgeSteerPromptIds(promptIds: readonly string[]): boolean {
+    const ids = new Set(promptIds);
+    const delivered = this.pendingSteerDeliveries.filter(
+      (batch) => batch.promptId !== undefined && ids.has(batch.promptId),
+    );
+    this.pendingSteerDeliveries = this.pendingSteerDeliveries.filter(
+      (batch) => !delivered.includes(batch),
+    );
+    if (this.pendingSteerDeliveries.length > 0) {
+      const deliveredIds = new Set(delivered.map((batch) => batch.promptId));
+      for (const id of promptIds) {
+        if (!deliveredIds.has(id)) this.consumedSteerPromptIds.add(id);
+      }
+    }
+    for (const batch of delivered) this.setSteerEntriesPending(batch.entries, false);
+    if (this.pendingSteerDeliveries.length === 0) this.consumedSteerPromptIds.clear();
+    return delivered.length > 0;
+  }
+
+  private acknowledgeLegacySteerDelivery(input: unknown): void {
+    const { texts, hasMedia } = steerEventParts(input);
+    let pending = this.pendingSteerDeliveries;
+    const delivered: PendingSteerDelivery[] = [];
+    const candidates = steerMatchTexts(texts);
+    for (const text of candidates) {
+      const step = takeDeliveredSteerBatches(pending, text);
+      delivered.push(...step.delivered);
+      pending = pending.filter((batch) => !step.delivered.includes(batch));
+    }
+    if (texts.length === 0 && hasMedia) {
+      const index = pending.findIndex((batch) => batch.mediaOnly);
+      if (index >= 0) {
+        delivered.push(pending[index]!);
+        pending = pending.filter((_, item) => item !== index);
+      }
+    }
+    if (delivered.length === 0) return;
+    this.pendingSteerDeliveries = pending;
+    for (const batch of delivered) this.setSteerEntriesPending(batch.entries, false);
+    if (this.pendingSteerDeliveries.length === 0) this.consumedSteerPromptIds.clear();
+  }
+
+  private notePendingSteer(
+    entries: readonly TranscriptEntry[],
+    payload: string | readonly { readonly type: string; readonly text?: string }[],
+  ): void {
+    const payloadText = steerPayloadText(payload);
+    const displayText = entries.map((entry) => entry.content).join('\n\n');
+    this.pendingSteerDeliveries.push({
+      entries,
+      text: payloadText.length > 0 ? payloadText : displayText,
+      mediaOnly: payloadText.length === 0,
+    });
+  }
+
+  private applySteerSubmission(
+    entries: readonly TranscriptEntry[],
+    result: PromptSubmissionResult | undefined,
+  ): void {
+    if (result === undefined) return;
+    const index = this.pendingSteerDeliveries.findIndex((batch) =>
+      batch.entries.some((entry) => entries.includes(entry)),
+    );
+    if (index < 0) return;
+    if (result.state === 'blocked' || (result.state === 'running' && !result.steered)) {
+      this.releaseSteerEntries(entries);
+      return;
+    }
+    const batch = this.pendingSteerDeliveries[index]!;
+    this.pendingSteerDeliveries[index] = { ...batch, promptId: result.promptId };
+    if (this.consumedSteerPromptIds.delete(result.promptId)) {
+      this.releaseSteerEntries(entries);
+      return;
+    }
+    this.setSteerEntriesPending(entries, true);
+  }
+
+  releaseSteerEntries(entries: readonly TranscriptEntry[]): void {
+    const doomed = new Set(entries);
+    this.pendingSteerDeliveries = this.pendingSteerDeliveries.filter(
+      (batch) => !batch.entries.some((entry) => doomed.has(entry)),
+    );
+    this.setSteerEntriesPending(entries, false);
+    if (this.pendingSteerDeliveries.length === 0) this.consumedSteerPromptIds.clear();
+  }
+
+  resetSteerDeliveries(): void {
+    const entries = this.pendingSteerDeliveries.flatMap((batch) => batch.entries);
+    this.pendingSteerDeliveries = [];
+    this.consumedSteerPromptIds.clear();
+    this.setSteerEntriesPending(entries, false);
+  }
+
+  private setSteerEntriesPending(entries: readonly TranscriptEntry[], pending: boolean): void {
+    const targets = new Set(entries);
+    for (const entry of entries) {
+      if (pending) entry.steerPending = true;
+      else delete entry.steerPending;
+    }
+    for (const child of this.host.state.transcriptContainer.children) {
+      const entry = getTranscriptComponentEntry(child);
+      if (entry === undefined || !targets.has(entry)) continue;
+      if (child instanceof UserMessageComponent) child.setSteerPending(pending);
+    }
+    this.host.state.ui.requestRender();
+  }
+
+  trackPendingEntries<T>(entries: readonly TranscriptEntry[], request: Promise<T>): Promise<T> {
     for (const entry of entries) this.pendingPromptEntries.add(entry);
     const settle = (): void => {
       for (const entry of entries) this.pendingPromptEntries.delete(entry);

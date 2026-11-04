@@ -12,7 +12,12 @@ import type { IAgentCommandService } from '@moonshot-ai/agent-core-v2';
 import type { IAgentRuntimeBindingService } from '@moonshot-ai/agent-core-v2';
 import type { SessionActivityState } from '@moonshot-ai/agent-core-v2';
 import type { IAgentProfileService } from '@moonshot-ai/agent-core-v2';
-import type { PromptLaunchResult, PromptPayload, SteerPayload } from '@moonshot-ai/agent-core-v2';
+import type {
+  PromptLaunchResult,
+  PromptPayload,
+  SteerPayload,
+  SteerResult,
+} from '@moonshot-ai/agent-core-v2';
 import type { IAgentShellCommandService } from '@moonshot-ai/agent-core-v2';
 import type { IAgentSkillService } from '@moonshot-ai/agent-core-v2';
 import type { ContentPart } from '@moonshot-ai/agent-core-v2';
@@ -181,6 +186,7 @@ import {
   setPermissionPayloadSchema,
   shellCommandResultSchema,
   steerPayloadSchema,
+  steerResultSchema,
   stopTaskPayloadSchema,
   tokenUsageSchema,
   usageStatusSchema,
@@ -608,6 +614,7 @@ const _steerPayload: AssertWireToEngine<typeof steerPayloadSchema, SteerPayload>
 const _activateSkillPayload: AssertWire<typeof activateSkillPayloadSchema, ActivateSkillPayload> =
   true;
 const _promptLaunchResult: AssertWire<typeof promptLaunchResultSchema, PromptLaunchResult> = true;
+const _steerResult: AssertWire<typeof steerResultSchema, SteerResult> = true;
 type PromptWithSkillsResult = Awaited<ReturnType<IAgentSkillService['promptWithSkills']>>;
 const _promptWithSkillsResult: AssertWire<
   typeof promptWithSkillsResultSchema,
