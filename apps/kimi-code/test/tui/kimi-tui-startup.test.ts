@@ -2483,7 +2483,7 @@ describe('KimiTUI startup', () => {
 
     await driver.start();
 
-    expect(getWorkspaceTrustInfo).toHaveBeenCalledWith('/tmp/proj-a');
+    expect(getWorkspaceTrustInfo).toHaveBeenCalledWith('/tmp/proj-a', { additionalDirs: [] });
     expect(getWorkspaceTrustInfo.mock.invocationCallOrder[0]!).toBeLessThan(
       migrationSpy.mock.invocationCallOrder[0]!,
     );

@@ -62,6 +62,9 @@ function service(
         additionalDirs: [],
         configPath: join(cwd, 'settings.local.json'),
       }),
+      resolveAdditionalDirs: async (_baseDir: string, additionalDirs: readonly string[]) => [
+        ...additionalDirs,
+      ],
     } as unknown as IProjectLocalConfigService,
     {
       _serviceBrand: undefined,
@@ -123,6 +126,35 @@ describe('WorkspaceTrustDisclosureService additional dirs', () => {
       expect(activation.additionalDirs).toEqual([]);
     } finally {
       await rm(project, { recursive: true, force: true });
+    }
+  });
+
+  it('discloses a directory that is about to be added but is not registered yet', async () => {
+    const project = await mkdtemp(join(tmpdir(), 'trust-project-'));
+    const pending = await mkdtemp(join(tmpdir(), 'trust-pending-'));
+    await mkdir(join(pending, '.kimi-code', 'skills', 'draft'), { recursive: true });
+    await writeFile(
+      join(pending, '.kimi-code', 'skills', 'draft', 'SKILL.md'),
+      '---\nname: draft\ndescription: draft skill\n---\n',
+    );
+
+    try {
+      const activation = await service(project, []).describeGatedActivation([pending]);
+      const resolved = await Promise.all(
+        activation.additionalDirs.map(async (dir) => {
+          try {
+            return await realpath(dir);
+          } catch {
+            return dir;
+          }
+        }),
+      );
+
+      expect(resolved).toContain(await realpath(pending));
+      expect(resolved).toContain(await realpath(join(pending, '.kimi-code', 'skills')));
+    } finally {
+      await rm(project, { recursive: true, force: true });
+      await rm(pending, { recursive: true, force: true });
     }
   });
 });

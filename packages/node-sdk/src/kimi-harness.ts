@@ -50,6 +50,7 @@ import type {
   Unsubscribe,
   UploadFileOptions,
   WorkspaceTrustInfo,
+  WorkspaceTrustInfoOptions,
 } from '#/types';
 
 export interface KimiHarnessRuntimeOptions {
@@ -423,8 +424,11 @@ export class KimiHarness {
    * Trust state of `workDir`. Querying may register the workDir as a
    * workspace, which session creation would do anyway.
    */
-  async getWorkspaceTrustInfo(workDir: string): Promise<WorkspaceTrustInfo> {
-    return this.rpc.getWorkspaceTrustInfo(workDir);
+  async getWorkspaceTrustInfo(
+    workDir: string,
+    options?: WorkspaceTrustInfoOptions,
+  ): Promise<WorkspaceTrustInfo> {
+    return this.rpc.getWorkspaceTrustInfo(workDir, options);
   }
 
   /**

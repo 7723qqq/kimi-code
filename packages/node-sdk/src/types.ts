@@ -145,6 +145,11 @@ export interface WorkspaceTrustInstructionSources {
 }
 
 /** Trust state of a workspace directory, plus everything trusting it would activate. */
+export interface WorkspaceTrustInfoOptions {
+  /** Directories the caller is about to add to the workspace, disclosed before they are registered. */
+  readonly additionalDirs?: readonly string[];
+}
+
 export interface WorkspaceTrustInfo {
   readonly trusted: boolean;
   /** Project-level MCP servers that trusting would start. */
