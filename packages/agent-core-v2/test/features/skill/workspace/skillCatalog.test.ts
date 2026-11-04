@@ -204,6 +204,8 @@ function workspaceDirsStub(additionalDirs: readonly string[] = []): IWorkspaceDi
     _serviceBrand: undefined,
     ready: Promise.resolve(),
     additionalDirs,
+    sharedAdditionalDirs: additionalDirs,
+    primaryByWorkspace: {},
     onDidChange: () => ({ dispose: () => {} }),
     addDir: async () => ({ projectRoot: '', configPath: '', additionalDirs, persisted: false }),
     mergeAdditionalDirs: async () => {},
@@ -603,6 +605,52 @@ describe('WorkspaceSkillCatalogService', () => {
         host.dispose();
       }
     });
+  });
+
+  it('merges skills across shared workspace directories and skips session-only ones', async () => {
+    const primary = await mkdtemp(join(tmpdir(), 'skill-primary-'));
+    const extra = await mkdtemp(join(tmpdir(), 'skill-extra-'));
+    const sessionOnly = await mkdtemp(join(tmpdir(), 'skill-session-'));
+    for (const dir of [primary, extra, sessionOnly]) {
+      await mkdir(join(dir, '.kimi-code', 'skills'), { recursive: true });
+    }
+    const seen: SkillRoot[] = [];
+    class RootDiscovery implements ISkillDiscovery {
+      declare readonly _serviceBrand: undefined;
+      async discover(roots: readonly SkillRoot[]) {
+        seen.push(...roots);
+        return { skills: [], skipped: [], scannedRoots: [], scannedDirectories: [] };
+      }
+    }
+    const dirs = {
+      ...workspaceDirsStub([extra, sessionOnly]),
+      sharedAdditionalDirs: [extra],
+      primaryByWorkspace: { wd_test: primary },
+    } as unknown as IWorkspaceDirs;
+    const source = new WorkspaceRootSkillSource(
+      new RootDiscovery(),
+      workspaceContextStub(primary),
+      configStub(),
+      stubBootstrap('/home'),
+      dirs,
+    );
+
+    try {
+      await source.load();
+      const projectPaths = seen
+        .filter((root) => root.source === 'project')
+        .map((root) => root.path.replaceAll('\\', '/'));
+      const expected = async (dir: string): Promise<string> =>
+        (await realpath(join(dir, '.kimi-code', 'skills'))).replaceAll('\\', '/');
+      expect(projectPaths).toContain(await expected(primary));
+      expect(projectPaths).toContain(await expected(extra));
+      expect(projectPaths).not.toContain(await expected(sessionOnly));
+    } finally {
+      source.dispose();
+      await rm(primary, { recursive: true, force: true });
+      await rm(extra, { recursive: true, force: true });
+      await rm(sessionOnly, { recursive: true, force: true });
+    }
   });
 
   it('feeds skipped skills from file sources into the merged catalog', async () => {

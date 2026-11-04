@@ -93,7 +93,7 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
     this.states.set(workspaceDirsRegistryDirsKey, value);
   }
 
-  private get primaryByWorkspace(): Readonly<Record<string, string>> {
+  get primaryByWorkspace(): Readonly<Record<string, string>> {
     return this.states.get(workspaceDirsPrimaryByWorkspaceKey);
   }
 
@@ -103,8 +103,12 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
 
   private readonly ephemeralRefs = new Map<string, number>();
 
+  get sharedAdditionalDirs(): readonly string[] {
+    return [...new Set([...this.fileDirs, ...this.registryDirs])];
+  }
+
   get additionalDirs(): readonly string[] {
-    return [...new Set([...this.fileDirs, ...this.registryDirs, ...this.ephemeralDirs])];
+    return [...new Set([...this.sharedAdditionalDirs, ...this.ephemeralDirs])];
   }
 
   addDir(input: WorkspaceAddDirInput): Promise<WorkspaceAdditionalDirsResult> {
@@ -233,12 +237,12 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
         dirs.push(dir);
       }
     }
-    const beforeDirs = this.additionalDirs;
+    const beforeDirs = this.sharedAdditionalDirs;
     const beforePrimary = this.primaryByWorkspace;
     this.registryDirs = dirs;
     this.primaryByWorkspace = primary;
     if (
-      !sameStringList(beforeDirs, this.additionalDirs) ||
+      !sameStringList(beforeDirs, this.sharedAdditionalDirs) ||
       !samePrimaryByWorkspace(beforePrimary, primary)
     ) {
       this.onDidChangeEmitter.fire();
@@ -246,9 +250,9 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
   }
 
   private setFileDirs(dirs: readonly string[]): boolean {
-    const before = this.additionalDirs;
+    const before = this.sharedAdditionalDirs;
     this.fileDirs = dirs;
-    return !sameStringList(before, this.additionalDirs);
+    return !sameStringList(before, this.sharedAdditionalDirs);
   }
 
   private unionEphemeral(dirs: readonly string[]): boolean {

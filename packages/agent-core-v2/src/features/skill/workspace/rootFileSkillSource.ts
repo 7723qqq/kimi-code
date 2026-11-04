@@ -61,8 +61,13 @@ export class WorkspaceRootSkillSource extends Disposable implements IWorkspaceRo
       }),
     );
     this._register(this.dirs.onDidChange(() => this.onDidChangeEmitter.fire()));
-    this.watchReady = this.updateProjectSkillRootWatch([]).then(() => undefined);
+    this.watchReady = this.updateProjectSkillRootWatches([]).then(() => undefined);
     void this.watchReady.catch(() => undefined);
+  }
+
+  private get workDirs(): readonly string[] {
+    const primary = this.dirs.primaryByWorkspace[this.workspace.workspaceId] ?? this.workspace.cwd;
+    return [primary, this.workspace.cwd, ...this.dirs.sharedAdditionalDirs];
   }
 
   async load(): Promise<SkillContribution> {
@@ -74,38 +79,46 @@ export class WorkspaceRootSkillSource extends Disposable implements IWorkspaceRo
     const mergeAllAvailableSkills =
       this.config.get<MergeAllAvailableSkillsConfig>(MERGE_ALL_AVAILABLE_SKILLS_SECTION) ?? true;
     await this.dirs.ready;
-    const workDirs = [this.workspace.cwd, ...this.dirs.additionalDirs];
     const discover = async () =>
-      this.discovery.discover(await projectRootsForDirs(workDirs, { mergeAllAvailableSkills }));
+      this.discovery.discover(await projectRootsForDirs(this.workDirs, { mergeAllAvailableSkills }));
     let contribution = await discover();
-    while (await this.updateProjectSkillRootWatch(contribution.scannedDirectories)) {
+    while (await this.updateProjectSkillRootWatches(contribution.scannedDirectories)) {
       contribution = await discover();
     }
     return contribution;
   }
 
-  private async updateProjectSkillRootWatch(
+  private async updateProjectSkillRootWatches(
     scannedDirectories: readonly string[],
   ): Promise<boolean> {
-    const { projectRoot, candidates } = await projectSkillRootCandidates(this.workspace.cwd);
-    const signature = [...scannedDirectories].toSorted().join('\0');
+    const watches = new Map<string, readonly string[]>();
+    for (const workDir of this.workDirs) {
+      const { projectRoot, candidates } = await projectSkillRootCandidates(workDir);
+      if (!watches.has(projectRoot)) watches.set(projectRoot, candidates);
+    }
+    const signature = JSON.stringify({
+      watches: [...watches],
+      scannedDirectories: [...scannedDirectories].toSorted(),
+    });
     if (signature === this.watchSignature) return false;
     const resources = this.watchResources.add(new DisposableStore());
-    const handle = watchCandidates(projectRoot, candidates, {
-      ignored: subtreeWatchFilter(projectRoot, candidates, {
-        scannedDirectories,
-        keepEntryFile: 'SKILL.md',
-      }),
-      signal: true,
-    });
-    resources.add(handle);
-    resources.add(
-      handle.onDidChange(() => {
-        this.watchDebounce.cancelAndSet(() => this.onDidChangeEmitter.fire(), WATCH_DEBOUNCE_MS);
-      }),
-    );
     try {
-      await handle.ready;
+      for (const [projectRoot, candidates] of watches) {
+        const handle = watchCandidates(projectRoot, candidates, {
+          ignored: subtreeWatchFilter(projectRoot, candidates, {
+            scannedDirectories,
+            keepEntryFile: 'SKILL.md',
+          }),
+          signal: true,
+        });
+        resources.add(handle);
+        resources.add(
+          handle.onDidChange(() => {
+            this.watchDebounce.cancelAndSet(() => this.onDidChangeEmitter.fire(), WATCH_DEBOUNCE_MS);
+          }),
+        );
+        await handle.ready;
+      }
     } catch (error) {
       this.watchResources.delete(resources);
       throw error;
