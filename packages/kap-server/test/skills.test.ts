@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 
@@ -96,8 +96,11 @@ describe('server-v2 /api/v1 skills', () => {
     if (agents.handleOf('main') === undefined) await agents.create({ agentId: 'main' });
   }
 
-  async function registerWorkspace(root: string): Promise<string> {
-    const { body } = await postJson<{ id: string }>('/api/v1/workspaces', { root });
+  async function registerWorkspace(root: string, additionalDirs?: readonly string[]): Promise<string> {
+    const { body } = await postJson<{ id: string }>('/api/v1/workspaces', {
+      root,
+      additional_dirs: additionalDirs,
+    });
     expect(body.code).toBe(0);
     return body.data.id;
   }
@@ -569,6 +572,32 @@ describe('server-v2 /api/v1 skills', () => {
       expect(seeded).toBeDefined();
       expect(seeded?.source).toBe('project');
       expect(seeded?.description).toBe('e2e test skill e2e-greeting');
+    });
+
+    it('merges additional-dir skills with the primary winning collisions', async () => {
+      const primary = await makeWorkspaceDir();
+      const secondary = await makeWorkspaceDir();
+      await seedProjectSkill(primary, 'e2e-primary');
+      await seedProjectSkill(primary, 'e2e-shared');
+      await seedProjectSkill(secondary, 'e2e-secondary');
+      await seedProjectSkill(secondary, 'e2e-shared');
+      const wid = await registerWorkspace(primary, [secondary]);
+      const sid = await createSession(primary);
+
+      const [wsRes, sessRes] = await Promise.all([
+        getJson<{ skills: SkillWire[] }>(`/api/v1/workspaces/${wid}/skills`),
+        getJson<{ skills: SkillWire[] }>(`/api/v1/sessions/${sid}/skills`),
+      ]);
+      const wsSkills = listSkillsResponseSchema.parse(wsRes.body.data).skills;
+      const sessSkills = listSkillsResponseSchema.parse(sessRes.body.data).skills;
+
+      expect(wsSkills.some((skill) => skill.name === 'e2e-primary')).toBe(true);
+      expect(wsSkills.some((skill) => skill.name === 'e2e-secondary')).toBe(true);
+      const primaryRoot = (await realpath(primary)).replaceAll('\\', '/');
+      expect(wsSkills.find((skill) => skill.name === 'e2e-shared')?.path).toContain(primaryRoot);
+
+      const names = (xs: readonly { name: string }[]) => [...new Set(xs.map((s) => s.name))].toSorted();
+      expect(names(sessSkills)).toEqual(names(wsSkills));
     });
 
     it('matches the session listing for the same cwd', async () => {
