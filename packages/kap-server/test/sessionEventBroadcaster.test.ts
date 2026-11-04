@@ -527,7 +527,14 @@ function collectingTarget(): {
           deliveries.push(delivery);
           return;
         }
-        if (frame.type === 'task' || frame.type === 'task.list') {
+        if (
+          frame.type === 'task' ||
+          frame.type === 'task.list' ||
+          frame.type === 'agent' ||
+          frame.type === 'usage' ||
+          frame.type === 'goal' ||
+          frame.type === 'todo'
+        ) {
           taskMessages.push(frame as { readonly type: string });
           return;
         }
@@ -690,6 +697,7 @@ describe('SessionEventBroadcaster', () => {
     });
     main.set(IAgentProfileService, {
       getModel: () => 'example-model',
+      getEffectiveThinkingLevel: () => 'high',
       getModelCapabilities: () => ({ max_context_tokens: 128_000 }),
     });
     main.set(ISessionUsageService, { status: () => usage });
@@ -733,6 +741,7 @@ describe('SessionEventBroadcaster', () => {
     sub.set(ISessionTokenCountingService, { statusSize: () => 10 });
     sub.set(IAgentProfileService, {
       getModel: () => 'sub-model',
+      getEffectiveThinkingLevel: () => 'high',
       getModelCapabilities: () => ({ max_context_tokens: 128_000 }),
     });
     sub.set(ISessionUsageService, { status: () => usage });
@@ -767,6 +776,7 @@ describe('SessionEventBroadcaster', () => {
     main.set(ISessionTokenCountingService, { statusSize: () => 10 });
     main.set(IAgentProfileService, {
       getModel: () => 'example-model',
+      getEffectiveThinkingLevel: () => 'high',
       getModelCapabilities: () => ({ max_context_tokens: 128_000, max_input_tokens: 64_000 }),
     });
     main.set(ISessionUsageService, { status: () => usage });
@@ -789,6 +799,7 @@ describe('SessionEventBroadcaster', () => {
     main.set(ISessionTokenCountingService, { statusSize: () => 10 });
     main.set(IAgentProfileService, {
       getModel: () => 'ghost-model',
+      getEffectiveThinkingLevel: () => 'high',
       getModelCapabilities: () => ({ max_context_tokens: 0 }),
     });
     main.set(ISessionUsageService, { status: () => ({}) });
@@ -812,6 +823,7 @@ describe('SessionEventBroadcaster', () => {
     main.set(ISessionTokenCountingService, { statusSize: () => 10 });
     main.set(IAgentProfileService, {
       getModel: () => '',
+      getEffectiveThinkingLevel: () => 'high',
       getModelCapabilities: () => ({ max_context_tokens: 0 }),
     });
     main.set(ISessionUsageService, { status: () => ({}) });
@@ -840,6 +852,7 @@ describe('SessionEventBroadcaster', () => {
     main.set(ISessionTokenCountingService, { statusSize: () => 10 });
     main.set(IAgentProfileService, {
       getModel: () => '',
+      getEffectiveThinkingLevel: () => 'high',
       getModelCapabilities: () => ({ max_context_tokens: 0 }),
     });
     main.set(ISessionUsageService, { status: () => ({}) });

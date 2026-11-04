@@ -171,6 +171,12 @@ describe('server-v2 GET /api/v1/connections', () => {
       expect(list['session_id']).toBe(sessionId);
       expect(list['agent_id']).toBe('main');
       expect(list['tasks']).toEqual([]);
+
+      const agent = await waitForFrame(frames, 'agent');
+      expect(agent).toMatchObject({ session_id: sessionId, agent_id: 'main', status: 'idle' });
+
+      const todo = await waitForFrame(frames, 'todo');
+      expect(todo).toMatchObject({ session_id: sessionId, agent_id: 'main', items: [] });
     } finally {
       ws.close();
     }

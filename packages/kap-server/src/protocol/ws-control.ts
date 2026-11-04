@@ -5,6 +5,12 @@ import { z } from 'zod';
 import { eventSchema } from './events-zod';
 import { interactionEventMessageSchema } from './interaction';
 import {
+  agentEventMessageSchema,
+  goalEventMessageSchema,
+  todoEventMessageSchema,
+  usageEventMessageSchema,
+} from './ws-agent';
+import {
   taskBackgroundMessageSchema,
   taskEventMessageSchema,
   taskListMessageSchema,
@@ -454,6 +460,40 @@ export const taskOutputEventOperation = {
     'Task output starting at a UTF-8 byte offset, sent only to connections watching the task.',
 } as const satisfies WsOperationDefinition;
 
+export const agentEventOperation = {
+  type: 'agent',
+  direction: 'server_to_client',
+  kind: 'event',
+  messageSchema: agentEventMessageSchema,
+  description:
+    'Status, model and mode flags of a subscribed agent; sent when a connection starts receiving it and on every change.',
+} as const satisfies WsOperationDefinition;
+
+export const usageEventOperation = {
+  type: 'usage',
+  direction: 'server_to_client',
+  kind: 'event',
+  messageSchema: usageEventMessageSchema,
+  description: 'Context-window usage of a subscribed agent, throttled to one frame per interval.',
+} as const satisfies WsOperationDefinition;
+
+export const goalEventOperation = {
+  type: 'goal',
+  direction: 'server_to_client',
+  kind: 'event',
+  messageSchema: goalEventMessageSchema,
+  description:
+    "The main agent's goal state, or a frame without a goal when none is active; sent on every change.",
+} as const satisfies WsOperationDefinition;
+
+export const todoEventOperation = {
+  type: 'todo',
+  direction: 'server_to_client',
+  kind: 'event',
+  messageSchema: todoEventMessageSchema,
+  description: 'The agent todo list as items, sent on every change.',
+} as const satisfies WsOperationDefinition;
+
 export const wsOperations = [
   ...clientControlOperations,
   ...serverSystemOperations,
@@ -462,6 +502,10 @@ export const wsOperations = [
   taskListEventOperation,
   taskEventOperation,
   taskOutputEventOperation,
+  agentEventOperation,
+  usageEventOperation,
+  goalEventOperation,
+  todoEventOperation,
 ] as const satisfies readonly WsOperationDefinition[];
 
 export function getClientControlOperation(
