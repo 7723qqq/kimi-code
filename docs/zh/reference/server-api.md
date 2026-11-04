@@ -1573,7 +1573,7 @@ schema 还接受共享消息格式中的 `tool_use`、`tool_result` 和 `thinkin
 
 列出插件市场目录并合并实时安装状态。目录按请求从配置的市场 URL 拉取（超时 10 秒）；使用默认目录时，目录中缺少的内置能力会作为条目合并进来（带 `capabilityId`），而当前平台不支持的能力对应条目会被剔除。
 
-成功时 `data` 为 `{ entries }`，每项为 `{ id, tier, displayName, description?, shortDescription?, longDescription?, homepage?, keywords?, version?, source, platforms?, installed?, updateAvailable?, capabilityId? }`：`tier` 为 `official` / `curated` / `third-party`；插件已安装时 `installed` 为 `{ version?, enabled }`；`updateAvailable` 标记目录版本新于已安装版本的条目。条目的 `source` 即 `POST /api/v1/plugins` 的 `source` 字段取值。
+成功时 `data` 为 `{ entries }`，每项为 `{ id, tier, classification?, displayName, description?, cliDescription?, homepage?, keywords?, version?, source, iconUrl?, sha256sum?, filename?, platforms?, defaultLocale?, locale?, billing?, installed?, updateAvailable?, capabilityId? }`：`tier` 为 `official` / `curated` / `third-party`，`classification` 为 `official` / `third_party`；插件已安装时 `installed` 为 `{ version?, enabled }`；`updateAvailable` 标记目录版本新于已安装版本的条目。条目的 `source` 即 `POST /api/v1/plugins` 的 `source` 字段取值；`defaultLocale` 声明 `description`/`cliDescription` 的语言，`locale` 存放各语言文案。
 
 返回前会按宿主过滤：条目的 `clients` 必须包含 `cli`（或省略），`platforms` 必须包含本守护进程的平台（或只含 `cloud`），否则该行不会出现。同一次目录读取会写入 `$KIMI_CODE_HOME/plugins/availability.json`，已安装列表据此隐藏那些目录条目已不再面向本机的插件。
 

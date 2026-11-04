@@ -43,12 +43,21 @@ export type InstallPluginRequest = z.infer<typeof installPluginRequestSchema>;
 export const pluginMarketplaceEntrySchema = z.object({
   id: z.string(),
   tier: z.enum(['official', 'curated', 'third-party']),
+  classification: z.enum(['official', 'third_party']).optional(),
   displayName: z.string(),
   description: z.string().optional(),
+  cliDescription: z.string().optional(),
   homepage: z.string().optional(),
   keywords: z.array(z.string()).optional(),
   version: z.string().optional(),
   source: z.string(),
+  iconUrl: z.string().optional(),
+  sha256sum: z.string().optional(),
+  filename: z.string().optional(),
+  platforms: z.array(z.enum(['darwin', 'win32', 'linux', 'cloud'])).optional(),
+  defaultLocale: z.string().optional(),
+  locale: z.record(z.string(), z.unknown()).optional(),
+  billing: z.unknown().optional(),
   installed: z
     .object({
       version: z.string().optional(),
