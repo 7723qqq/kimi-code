@@ -442,6 +442,23 @@ describe('server-v2 /api/v1 fs routes', () => {
     expect(body.code).toBe(ErrorCode.FS_GIT_UNAVAILABLE);
   });
 
+  it('fs:git_status:batch reports a per-root error instead of failing the request', async () => {
+    const id = await createSession();
+    const body = await postFs<{
+      results: Record<string, unknown>;
+      errors: Record<string, { code: number; msg: string }>;
+    }>(id, 'git_status:batch', { roots: [work as string], include_pull_request: false });
+    expect(body.code).toBe(0);
+    expect(body.data.results).toEqual({});
+    expect(body.data.errors[work as string]?.code).toBe(ErrorCode.FS_GIT_UNAVAILABLE);
+  });
+
+  it('fs:pull_request maps a non-git workspace to FS_GIT_UNAVAILABLE', async () => {
+    const id = await createSession();
+    const body = await postFs<null>(id, 'pull_request', {});
+    expect(body.code).toBe(ErrorCode.FS_GIT_UNAVAILABLE);
+  });
+
   it('rejects an unknown action with VALIDATION_FAILED', async () => {
     const id = await createSession();
     const body = await postFs<null>(id, 'bogus', {});

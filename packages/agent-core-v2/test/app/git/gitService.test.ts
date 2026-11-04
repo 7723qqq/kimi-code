@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { isAbsolute, join } from 'node:path';
+import { isAbsolute, basename, delimiter, join } from 'node:path';
 
 import { normalize } from 'pathe';
 
@@ -109,7 +109,7 @@ describe('GitService', () => {
       writeFileSync(join(repo, 'a.txt'), 'a2\n');
       writeFileSync(join(repo, 'b.txt'), 'b2\n');
 
-      const result = await service.status(repo, new Set(['a.txt']));
+      const result = await service.status(repo, { pathFilter: new Set(['a.txt']) });
       expect(result.entries).toEqual({ 'a.txt': 'modified' });
     });
 
@@ -201,6 +201,47 @@ describe('GitService', () => {
         service.diff(repo, 'missing.txt', join(repo, 'missing.txt')),
       ).rejects.toMatchObject({ code: ErrorCodes.FS_PATH_NOT_FOUND });
     });
+  });
+
+  describe('pullRequest', () => {
+    it('re-reads the pull request after a branch switch and skips gh on a detached HEAD', async () => {
+      writeFileSync(join(repo, 'a.txt'), 'hello\n');
+      commitAll('init');
+      const fakeBin = mkdtempSync(join(tmpdir(), 'fake-gh-'));
+      writeFileSync(
+        join(fakeBin, process.platform === 'win32' ? 'gh.cmd' : 'gh'),
+        process.platform === 'win32'
+          ? '@echo {"number":7,"url":"https://github.com/acme/repo/pull/7","state":"OPEN","isDraft":false}\r\n'
+          : `#!/bin/sh\necho '{"number":7,"url":"https://github.com/acme/repo/pull/7","state":"OPEN","isDraft":false}'\n`,
+        { mode: 0o755 },
+      );
+      const originalPath = process.env['PATH'];
+      process.env['PATH'] = `${fakeBin}${delimiter}${originalPath ?? ''}`;
+      const spawn = spyOn(HostProcessService.prototype, 'spawn');
+      const ghCalls = (): number =>
+        spawn.mock.calls.filter(
+          ([command]) => basename(command).replace(/\.(cmd|exe|bat)$/i, '') === 'gh',
+        ).length;
+      try {
+        await expect(service.pullRequest(repo)).resolves.toMatchObject({ number: 7 });
+        await service.status(repo);
+        expect(ghCalls()).toBe(1);
+
+        git(repo, 'checkout', '-q', '-b', 'feature');
+        await service.pullRequest(repo);
+        expect(ghCalls()).toBe(2);
+
+        git(repo, 'checkout', '-q', '--detach');
+        await expect(service.pullRequest(repo)).resolves.toBeNull();
+        await expect(service.status(repo)).resolves.toMatchObject({ branch: '', pullRequest: null });
+        expect(ghCalls()).toBe(2);
+      } finally {
+        if (originalPath === undefined) delete process.env['PATH'];
+        else process.env['PATH'] = originalPath;
+        spawn.mockRestore();
+        rmSync(fakeBin, { recursive: true, force: true });
+      }
+    }, 15000);
   });
 
   describe('findWorkTree', () => {

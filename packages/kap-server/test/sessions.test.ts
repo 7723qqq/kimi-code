@@ -2836,8 +2836,8 @@ describe('server-v2 /api/v1/sessions:btw', () => {
     );
     const realFetch = globalThis.fetch;
     spyOn(globalThis, 'fetch').mockImplementation((async (
-      input: RequestInfo | URL,
-      init?: RequestInit,
+      input: Parameters<typeof fetch>[0],
+      init?: Parameters<typeof fetch>[1],
     ) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       if (!url.startsWith(modelBase)) return realFetch(input, init);

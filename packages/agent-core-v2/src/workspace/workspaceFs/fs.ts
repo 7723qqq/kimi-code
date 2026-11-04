@@ -4,19 +4,44 @@ import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiatio
 import { isoDateTimeSchema } from '#/_base/utils/isoDateTime';
 import {
   fsGitStatusSchema,
+  type FsBatchError,
   type FsDiffRequest,
   type FsDiffResponse,
+  type FsGitStatusBatchRequest,
+  type FsGitStatusBatchResponse,
   type FsGitStatusRequest,
   type FsGitStatusResponse,
+  type FsPullRequest,
+  type FsPullRequestBatchRequest,
+  type FsPullRequestBatchResponse,
+  type FsPullRequestRequest,
 } from '#/app/git/git';
 
 export {
   fsDiffRequestSchema,
   fsDiffResponseSchema,
+  fsGitStatusBatchRequestSchema,
+  fsGitStatusBatchResponseSchema,
   fsGitStatusRequestSchema,
   fsGitStatusResponseSchema,
+  fsPullRequestBatchRequestSchema,
+  fsPullRequestBatchResponseSchema,
+  fsPullRequestRequestSchema,
+  fsPullRequestSchema,
 } from '#/app/git/git';
-export type { FsDiffRequest, FsDiffResponse, FsGitStatusRequest, FsGitStatusResponse };
+export type {
+  FsBatchError,
+  FsDiffRequest,
+  FsDiffResponse,
+  FsGitStatusBatchRequest,
+  FsGitStatusBatchResponse,
+  FsGitStatusRequest,
+  FsGitStatusResponse,
+  FsPullRequest,
+  FsPullRequestBatchRequest,
+  FsPullRequestBatchResponse,
+  FsPullRequestRequest,
+};
 
 export const fsKindSchema = z.enum(['file', 'directory', 'symlink']);
 export type FsKind = z.infer<typeof fsKindSchema>;
@@ -258,6 +283,9 @@ export interface IWorkspaceFsService {
   suggest(req: FsSuggestRequest): Promise<FsSuggestResponse>;
   grep(req: FsGrepRequest): Promise<FsGrepResponse>;
   gitStatus(req: FsGitStatusRequest): Promise<FsGitStatusResponse>;
+  gitStatusBatch(req: FsGitStatusBatchRequest): Promise<FsGitStatusBatchResponse>;
+  pullRequest(req: FsPullRequestRequest): Promise<FsPullRequest | null>;
+  pullRequestBatch(req: FsPullRequestBatchRequest): Promise<FsPullRequestBatchResponse>;
   diff(req: FsDiffRequest): Promise<FsDiffResponse>;
   resolvePath(relPath: string): Promise<FsPathResolved>;
   resolveDownload(relPath: string): Promise<FsDownloadResolved>;

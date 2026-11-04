@@ -162,6 +162,7 @@ const gitStub: IGitService = {
   diff: async () => {
     throw new Error2(ErrorCodes.FS_GIT_UNAVAILABLE, 'not used in these tests');
   },
+  pullRequest: async (cwd: string) => gitState.responses.get(cwd)?.pullRequest ?? null,
   findWorkTree: async () => null,
 };
 
