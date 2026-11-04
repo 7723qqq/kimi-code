@@ -23,12 +23,37 @@ export interface PluginAgentRoot {
   readonly source: 'plugin';
 }
 
+export interface PluginInterfaceOverride {
+  readonly displayName?: string;
+  readonly description?: string;
+  readonly iconUrl?: string;
+}
+
 export interface PluginInterface {
   readonly displayName?: string;
   readonly shortDescription?: string;
   readonly longDescription?: string;
   readonly developerName?: string;
   readonly websiteURL?: string;
+  readonly defaultLocale?: string;
+  readonly locales?: string;
+  readonly mcpOverrides?: Readonly<Record<string, PluginInterfaceOverride>>;
+  readonly skillOverrides?: Readonly<Record<string, PluginInterfaceOverride>>;
+}
+
+export interface PluginSkillInfo {
+  readonly name: string;
+  readonly displayName?: string;
+  readonly description?: string;
+}
+
+export interface PluginSkillRecord extends PluginSkillInfo {
+  readonly overrideKey: string;
+}
+
+export interface PluginCapabilities {
+  readonly skills: readonly PluginSkillInfo[];
+  readonly mcpServers: readonly PluginMcpServerInfo[];
 }
 
 export interface PluginManifest {

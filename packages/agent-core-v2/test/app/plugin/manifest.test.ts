@@ -394,4 +394,65 @@ describe('plugin manifest parser', () => {
     expect(result.diagnostics).toEqual([]);
     expect(result.manifest?.sessionStart).toEqual({ skill: 'onboarding' });
   });
+
+  it('reads localized plugin interface fields and their overrides', async () => {
+    await writeFile(
+      join(dir, 'kimi.plugin.json'),
+      JSON.stringify({
+        name: 'demo',
+        interface: {
+          displayName: 'Demo',
+          defaultLocale: 'en',
+          locales: './locales.json',
+          mcpOverrides: {
+            search: { displayName: 'Search', description: 'Adds search', iconUrl: 'https://x/y.png' },
+            empty: {},
+          },
+          skillOverrides: {
+            review: { displayName: 'Review' },
+          },
+        },
+      }),
+      'utf8',
+    );
+
+    const result = await parseManifest(dir);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.manifest?.interface).toEqual({
+      defaultLocale: 'en',
+      displayName: 'Demo',
+      locales: './locales.json',
+      mcpOverrides: {
+        search: { displayName: 'Search', description: 'Adds search', iconUrl: 'https://x/y.png' },
+      },
+      shortDescription: undefined,
+      longDescription: undefined,
+      developerName: undefined,
+      websiteURL: undefined,
+      skillOverrides: { review: { displayName: 'Review' } },
+    });
+  });
+
+  it('keeps an interface that only carries locale metadata', async () => {
+    await writeFile(
+      join(dir, 'kimi.plugin.json'),
+      JSON.stringify({ name: 'demo', interface: { defaultLocale: 'zh' } }),
+      'utf8',
+    );
+
+    const result = await parseManifest(dir);
+
+    expect(result.manifest?.interface).toEqual({
+      defaultLocale: 'zh',
+      displayName: undefined,
+      shortDescription: undefined,
+      longDescription: undefined,
+      developerName: undefined,
+      websiteURL: undefined,
+      locales: undefined,
+      mcpOverrides: undefined,
+      skillOverrides: undefined,
+    });
+  });
 });

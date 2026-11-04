@@ -9,6 +9,7 @@ import {
   type PluginCommandEntry,
   type PluginDiagnostic,
   type PluginInterface,
+  type PluginInterfaceOverride,
   type PluginManifest,
   type PluginManifestKind,
 } from './types';
@@ -598,9 +599,30 @@ function readInterface(raw: unknown): PluginInterface | undefined {
     longDescription: stringField(raw, 'longDescription'),
     developerName: stringField(raw, 'developerName'),
     websiteURL: stringField(raw, 'websiteURL'),
+    defaultLocale: stringField(raw, 'defaultLocale'),
+    locales: stringField(raw, 'locales'),
+    mcpOverrides: readInterfaceOverrides(raw['mcpOverrides']),
+    skillOverrides: readInterfaceOverrides(raw['skillOverrides']),
   };
   const hasAny = Object.values(out).some((value) => value !== undefined);
   return hasAny ? out : undefined;
+}
+
+function readInterfaceOverrides(raw: unknown): PluginInterface['mcpOverrides'] {
+  if (!isObject(raw)) return undefined;
+  const entries: Array<[string, PluginInterfaceOverride]> = [];
+  for (const [name, value] of Object.entries(raw)) {
+    if (!isObject(value)) continue;
+    const override: PluginInterfaceOverride = {
+      displayName: stringField(value, 'displayName'),
+      description: stringField(value, 'description'),
+      iconUrl: stringField(value, 'iconUrl'),
+    };
+    if (Object.values(override).some((field) => field !== undefined)) {
+      entries.push([name, override]);
+    }
+  }
+  return entries.length === 0 ? undefined : Object.fromEntries(entries);
 }
 
 function stringField(raw: Record<string, unknown>, key: string): string | undefined {
