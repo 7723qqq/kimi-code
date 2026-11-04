@@ -335,7 +335,13 @@ export class Program {
         runtime.fs!,
       );
       const dirs = own(
-        new WorkspaceDirsService(this.context, localConfig, this.dependencies.log, state),
+        new WorkspaceDirsService(
+          this.context,
+          localConfig,
+          this.dependencies.log,
+          state,
+          this.dependencies.workspaces,
+        ),
       );
       const git = new WorkspaceGitService(this.context, this.dependencies.git);
       const fs = new WorkspaceFsService(

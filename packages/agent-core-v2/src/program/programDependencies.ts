@@ -10,6 +10,7 @@ import type { IMcpConfigStore } from '#/app/mcpConfig/configStore';
 import type { IPluginService } from '#/app/plugin/plugin';
 import type { ISessionManager } from '#/app/sessionManager/sessionManager';
 import type { IAppStateService } from '#/app/state/appState';
+import type { IWorkspaceService } from '#/app/workspace/workspace';
 import type { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { IBuiltinSkillSource } from '#/features/skill/catalog/builtinSkillSource';
 import type { IUserFileSkillSource } from '#/features/skill/catalog/userFileSkillSource';
@@ -45,6 +46,7 @@ export interface ProgramSessionControllerInput {
 
 export interface ProgramDependencies {
   readonly appState: IAppStateService;
+  readonly workspaces: IWorkspaceService;
   readonly bootstrap: IBootstrapService;
   readonly config: IConfigService;
   readonly git: LiveRef<IGitService>;

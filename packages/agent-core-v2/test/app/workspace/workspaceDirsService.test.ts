@@ -8,6 +8,7 @@ import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IProjectLocalConfigService } from '#/app/projectLocalConfig/projectLocalConfig';
+import { IWorkspaceService } from '#/app/workspace/workspace';
 import { ErrorCodes, Error2 } from '#/errors';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
@@ -27,6 +28,7 @@ describe('WorkspaceDirsService session sandbox', () => {
   let homeDir: string;
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
+  let registered: readonly { id: string; root: string; name: string; kind: 'managed' | 'implicit'; additionalDirs: readonly string[]; createdAt: number; lastOpenedAt: number }[] = [];
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), 'kimi-workspace-dirs-'));
@@ -56,6 +58,10 @@ describe('WorkspaceDirsService session sandbox', () => {
           withContext: () => ix.get(ILogService),
         } as never);
         reg.define(IProjectLocalConfigService, FileProjectLocalConfigService);
+        reg.definePartialInstance(IWorkspaceService, {
+          list: async () => registered,
+          get: async (id: string) => registered.find((entry) => entry.id === id),
+        } as never);
         reg.define(IWorkspaceDirs, WorkspaceDirsService);
       },
     });
@@ -129,4 +135,26 @@ describe('WorkspaceDirsService session sandbox', () => {
       expect(dirs.additionalDirs).toEqual([]);
     },
   );
+
+  it('includes source folders registered on the workspace', async () => {
+    const extra = join(root, 'extra');
+    await mkdir(extra, { recursive: true });
+    registered = [
+      {
+        id: 'ws_test',
+        root: workspaceDir,
+        name: 'workspace',
+        kind: 'managed',
+        additionalDirs: [extra],
+        createdAt: 1,
+        lastOpenedAt: 2,
+      },
+    ];
+    try {
+      const dirs = await service();
+      expect(dirs.additionalDirs).toEqual([extra]);
+    } finally {
+      registered = [];
+    }
+  });
 });
