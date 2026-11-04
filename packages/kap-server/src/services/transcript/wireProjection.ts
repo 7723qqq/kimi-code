@@ -505,7 +505,9 @@ function scanRecord(scan: ColdScanState, record: WireRecord): void {
   const origin = (record as { origin?: { kind?: unknown; taskId?: unknown } }).origin;
   if (origin === undefined) return;
   if (
-    (origin.kind === 'task' || origin.kind === 'background_task') &&
+    (origin.kind === 'task' ||
+      origin.kind === 'background_task' ||
+      origin.kind === 'task_notification') &&
     typeof origin.taskId === 'string'
   ) {
     scan.taskOriginTurnTaskIds.add(origin.taskId);
