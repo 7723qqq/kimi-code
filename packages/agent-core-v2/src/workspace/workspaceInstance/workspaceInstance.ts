@@ -62,8 +62,16 @@ export class WorkspaceInstance {
     } catch (error) {
       errors.push(error);
     }
-    await this.unitHost.dispose();
-    await this.runtimes.dispose();
+    try {
+      await this.unitHost.dispose();
+    } catch (error) {
+      errors.push(error);
+    }
+    try {
+      await this.runtimes.dispose();
+    } catch (error) {
+      errors.push(error);
+    }
     this.lifecycle = 'disposed';
     if (errors.length === 1) throw errors[0];
     if (errors.length > 1) throw new AggregateError(errors, `workspace ${this.id} disposal failed`);

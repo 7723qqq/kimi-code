@@ -461,4 +461,41 @@ describe('WorkspaceLifecycleService over the real manager', () => {
       await value.dispose();
     }
   });
+
+  it('keeps disposing the remaining parts when one of them throws', async () => {
+    const value = manager([workspace('one')]);
+    const lease = await value.acquire({ workspaceId: 'one' });
+    const calls: string[] = [];
+    const parts = lease.instance as unknown as {
+      program: { dispose(): Promise<void> };
+      unitHost: { dispose(): Promise<void> };
+      runtimes: { dispose(): Promise<void> };
+    };
+    parts.program = {
+      dispose: async () => {
+        calls.push('program');
+        throw new Error('program dispose failed');
+      },
+    };
+    parts.unitHost = {
+      dispose: async () => {
+        calls.push('unitHost');
+      },
+    };
+    parts.runtimes = {
+      dispose: async () => {
+        calls.push('runtimes');
+        throw new Error('runtimes dispose failed');
+      },
+    };
+
+    try {
+      await expect(lease.instance.dispose()).rejects.toBeInstanceOf(AggregateError);
+      expect(calls).toEqual(['program', 'unitHost', 'runtimes']);
+      expect((lease.instance as unknown as { lifecycle: string }).lifecycle).toBe('disposed');
+    } finally {
+      lease.dispose();
+      await value.dispose();
+    }
+  });
 });
