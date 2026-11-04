@@ -743,7 +743,7 @@ describe('message-level tools', () => {
     ]);
   });
 
-  it('drops system message tools without a trait', async () => {
+  it('drops tool-declaration-only system messages without a trait', async () => {
     const client = stubOpenAIClient(chatCompletionChunks);
     const requester = createOpenAIRequester({ clientFactory: client.clientFactory });
     await requester.generate(
@@ -752,7 +752,8 @@ describe('message-level tools', () => {
       { signal: new AbortController().signal },
     );
     const bodyMessages = client.body()['messages'] as Record<string, unknown>[];
-    expect(bodyMessages[0]?.['tools']).toBeUndefined();
+    expect(bodyMessages.some((message) => message['role'] === 'system')).toBe(false);
+    expect(bodyMessages).toHaveLength(messages.length);
   });
 });
 
