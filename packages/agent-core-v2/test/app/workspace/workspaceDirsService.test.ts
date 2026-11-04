@@ -136,6 +136,37 @@ describe('WorkspaceDirsService session sandbox', () => {
     },
   );
 
+  it('names the offending path when an additional dir is invalid', async () => {
+    const dirs = await service();
+    expect(dirs.additionalDirs).toEqual([]);
+    const config = ix.get(IProjectLocalConfigService);
+    const missing = join(root, 'no-such-dir');
+
+    const statFailure = await config
+      .resolveAdditionalDirs(workspaceDir, [missing], 'session')
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    expect(statFailure).toBeInstanceOf(Error2);
+    expect((statFailure as Error2).message).toContain('no-such-dir');
+
+    const notADir = join(workspaceDir, 'local.toml');
+    const typeFailure = await config.resolveAdditionalDirs(workspaceDir, [notADir], 'session').then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(typeFailure).toBeInstanceOf(Error2);
+    expect((typeFailure as Error2).message).toContain('local.toml');
+
+    const empty = await config.resolveAdditionalDirs(workspaceDir, ['  '], 'session').then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(empty).toBeInstanceOf(Error2);
+    expect((empty as Error2).message).toBe('workspace.additional_dir must not be empty');
+  });
+
   it('includes source folders registered on the workspace', async () => {
     const extra = join(root, 'extra');
     await mkdir(extra, { recursive: true });

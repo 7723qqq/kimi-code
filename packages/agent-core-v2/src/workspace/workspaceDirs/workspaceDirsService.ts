@@ -63,7 +63,10 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
       await this.reloadFromDisk();
       await this.reloadFromRegistry();
     });
-    void this.ready.then(() => this.watchLocalToml());
+    void this.ready.then(
+      () => this.watchLocalToml(),
+      () => undefined,
+    );
   }
 
   private get fileDirs(): readonly string[] {

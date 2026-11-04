@@ -62,6 +62,7 @@ export class WorkspaceRootSkillSource extends Disposable implements IWorkspaceRo
     );
     this._register(this.dirs.onDidChange(() => this.onDidChangeEmitter.fire()));
     this.watchReady = this.updateProjectSkillRootWatch([]).then(() => undefined);
+    void this.watchReady.catch(() => undefined);
   }
 
   async load(): Promise<SkillContribution> {
