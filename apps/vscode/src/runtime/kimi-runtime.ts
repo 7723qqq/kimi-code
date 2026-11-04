@@ -8,6 +8,7 @@ import {
 import { setTelemetryContext, track, withTelemetryContext } from '@moonshot-ai/kimi-telemetry';
 
 import { areSameFsPath } from '../utils/fs-path';
+import { Events } from '../../shared/bridge';
 import {
   corePermissionForLegacyApproval,
   legacyApprovalMetadata,
@@ -17,6 +18,7 @@ import {
   type LegacyApprovalFlags,
 } from './legacy-approval';
 import type { RuntimeBroadcast } from './session-runtime';
+import { startModelCatalogRefresh } from './model-catalog-refresh';
 import { SessionRuntime } from './session-runtime';
 
 export interface KimiRuntimeOptions {
@@ -53,6 +55,7 @@ export class KimiRuntime {
   private readonly broadcast: RuntimeBroadcast;
   private readonly captureBaseline: KimiRuntimeOptions['captureBaseline'];
   private readonly log: KimiRuntimeOptions['log'];
+  private readonly disposeModelCatalogRefresh: () => void;
   private readonly sessions = new Map<string, SessionRuntime>();
   private readonly sessionByView = new Map<string, string>();
   private readonly viewChains = new Map<string, Promise<void>>();
@@ -78,6 +81,13 @@ export class KimiRuntime {
           setContext: setTelemetryContext,
         },
       });
+    this.disposeModelCatalogRefresh = startModelCatalogRefresh({
+      harness: this.harness,
+      onChanged: () => {
+        this.broadcast(Events.ModelCatalogChanged, {});
+      },
+      log: this.log,
+    });
   }
 
   getSessionForView(webviewId: string): SessionRuntime | undefined {
@@ -259,6 +269,7 @@ export class KimiRuntime {
   }
 
   async dispose(): Promise<void> {
+    this.disposeModelCatalogRefresh();
     if (this.closed) return;
     this.closed = true;
     await Promise.all([...this.sessions.values()].map((session) => session.close()));

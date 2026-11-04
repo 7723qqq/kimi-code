@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { ExtensionConfig } from 'shared/types';
 
 import { bridge, Events } from '@/services';
@@ -65,8 +65,10 @@ export function useAppInit(): AppInitState {
     modelsCount: 0,
   });
   const [initKey, setInitKey] = useState(0);
+  const catalogApplied = useRef(false);
   const {
     initModels,
+    setModels,
     setExtensionConfig,
     setWireSlashCommands,
     setIsLoggedIn,
@@ -74,6 +76,7 @@ export function useAppInit(): AppInitState {
   } = useSettingsStore();
 
   const refresh = useCallback(() => {
+    catalogApplied.current = false;
     setState({ status: 'loading', errorMessage: null, modelsCount: 0 });
     setInitKey((k) => k + 1);
   }, []);
@@ -89,7 +92,28 @@ export function useAppInit(): AppInitState {
 
   useEffect(() => {
     let cancelled = false;
+    let latestRead = 0;
+    const unsubscribe = bridge.on(Events.ModelCatalogChanged, () => {
+      const read = ++latestRead;
+      void bridge
+        .getModels()
+        .then(({ models }) => {
+          if (!cancelled && read === latestRead) {
+            catalogApplied.current = true;
+            setModels(models);
+          }
+        })
+        .catch((error: unknown) => {
+          console.error('[AppInit] Failed to refresh models:', error);
+        });
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [setModels]);
 
+  useEffect(() => {
     async function init() {
       try {
         const workspace = await bridge.checkWorkspace();
@@ -127,13 +151,13 @@ export function useAppInit(): AppInitState {
 
         setIsLoggedIn(loginStatus.loggedIn);
         initModels(
-          kimiConfig.models,
+          catalogApplied.current ? useSettingsStore.getState().models : kimiConfig.models,
           kimiConfig.defaultModel,
           kimiConfig.defaultThinking,
           kimiConfig.defaultThinkingEffort,
         );
 
-        const modelsCount = kimiConfig.models?.length ?? 0;
+        const modelsCount = useSettingsStore.getState().models.length;
 
         if (modelsCount === 0 && !loginStatus.loggedIn) {
           setState({ status: 'not-logged-in', errorMessage: null, modelsCount });

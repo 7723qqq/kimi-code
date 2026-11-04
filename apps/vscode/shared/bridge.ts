@@ -94,6 +94,7 @@ export const Events = {
   InsertMention: 'insertMention',
   NewConversation: 'newConversation',
   FileChangesUpdated: 'fileChangesUpdated',
+  ModelCatalogChanged: 'modelCatalogChanged',
   RollbackInput: 'rollbackInput',
   LoginUrl: 'loginUrl',
 } as const;
