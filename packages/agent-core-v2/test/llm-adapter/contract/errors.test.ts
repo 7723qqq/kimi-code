@@ -16,6 +16,8 @@ import {
   isRetryableGenerateError,
   normalizeAPIStatusError,
   throwIfAbortError,
+  errorFromLlmMessage,
+  llmMessageFromError,
 } from '#/llm-adapter/contract/errors';
 
 class APIUserAbortError extends Error {
@@ -176,5 +178,98 @@ describe('classifyApiError', () => {
   it('falls back to other for unknown values', () => {
     expect(classifyApiError(new Error('boom')).kind).toBe('other');
     expect(classifyApiError('boom').kind).toBe('other');
+  });
+});
+
+describe('model error retryability', () => {
+  it('never retries aborts and retries transient failures', () => {
+    expect(isRetryableGenerateError(createAbortError())).toBe(false);
+    expect(isRetryableGenerateError(new APIConnectionError('Connection error.'))).toBe(true);
+    expect(isRetryableGenerateError(new APITimeoutError('Request timed out.'))).toBe(true);
+    expect(isRetryableGenerateError(new APIProviderRateLimitError('Too many requests'))).toBe(true);
+    expect(isRetryableGenerateError(new APIProviderOverloadedError(529, 'Overloaded'))).toBe(true);
+    expect(isRetryableGenerateError(new APIStatusError(503, 'Service unavailable'))).toBe(true);
+    expect(isRetryableGenerateError(new APIStatusError(400, 'Bad request'))).toBe(false);
+    expect(isRetryableGenerateError(new APIStatusError(401, 'Unauthorized'))).toBe(false);
+  });
+
+  it('does not retry provider-filtered empty responses', () => {
+    expect(
+      isRetryableGenerateError(new APIEmptyResponseError('filtered', { finishReason: 'filtered' })),
+    ).toBe(false);
+    expect(
+      isRetryableGenerateError(new APIEmptyResponseError('empty', { finishReason: 'completed' })),
+    ).toBe(true);
+    expect(isRetryableGenerateError(new APIEmptyResponseError('empty'))).toBe(true);
+  });
+
+  it('honors an explicit non-retryable status error', () => {
+    const deterministic = new APIStatusError(
+      503,
+      'do not retry this',
+      null,
+      null,
+      undefined,
+      undefined,
+      false,
+    );
+    expect(isRetryableGenerateError(deterministic)).toBe(false);
+  });
+
+  it('keeps a status-less rate limit retryable without synthesizing HTTP 429', () => {
+    const error = errorFromLlmMessage({
+      kind: 'rate_limit',
+      message: 'backend stream rate limit',
+      requestId: 'req-stream',
+      retryAfterMs: null,
+      headers: { 'x-trace-id': 'trace-stream' },
+      retryable: true,
+    });
+    expect(error).toBeInstanceOf(APIProviderRateLimitError);
+    expect(error).toMatchObject({
+      statusCode: undefined,
+      requestId: 'req-stream',
+      traceId: 'trace-stream',
+      retryable: true,
+    });
+    expect(isRetryableGenerateError(error)).toBe(true);
+    expect(llmMessageFromError(error)).toMatchObject({
+      kind: 'rate_limit',
+      statusCode: undefined,
+      headers: { 'x-trace-id': 'trace-stream' },
+      retryable: true,
+    });
+  });
+
+  it('keeps quota exhaustion non-retryable without synthesizing HTTP 429', () => {
+    const error = errorFromLlmMessage({
+      kind: 'quota_exhausted',
+      message: 'backend quota failure',
+      requestId: null,
+      retryAfterMs: null,
+      headers: null,
+      retryable: false,
+    });
+    expect(error).toBeInstanceOf(APIProviderQuotaExhaustedError);
+    expect(error).toMatchObject({ statusCode: undefined, retryable: false });
+    expect(isRetryableGenerateError(error)).toBe(false);
+    expect(llmMessageFromError(error)).toMatchObject({
+      kind: 'quota_exhausted',
+      retryable: false,
+    });
+  });
+
+  it('carries an explicit retryability through the reverse mapping', () => {
+    const transient = errorFromLlmMessage({
+      kind: 'status',
+      message: 'stream failure',
+      statusCode: undefined,
+      requestId: null,
+      retryAfterMs: null,
+      headers: null,
+      retryable: true,
+    });
+    expect(transient).toMatchObject({ retryable: true });
+    expect(llmMessageFromError(transient)).toMatchObject({ kind: 'status', retryable: true });
   });
 });

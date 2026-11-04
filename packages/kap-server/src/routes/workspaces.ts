@@ -10,11 +10,12 @@ import {
   IWorkspaceTrustStore,
   type Scope,
   type Workspace,
+  workspaceRootKey,
 } from '@moonshot-ai/agent-core-v2';
 
 import { errEnvelope, okEnvelope } from '../envelope';
-import { workspaceRootKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
-import { requestLog } from '../lib/requestLog';import { defineRoute } from '../middleware/defineRoute';
+import { requestLog } from '../lib/requestLog';
+import { defineRoute } from '../middleware/defineRoute';
 import { detailsSchema } from '../protocol/common';
 import { ErrorCode } from '../protocol/error-codes';
 import {

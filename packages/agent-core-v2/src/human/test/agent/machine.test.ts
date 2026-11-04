@@ -375,6 +375,7 @@ describe('agent machine tool failure', () => {
               requestId: null,
               retryAfterMs: null,
               headers: null,
+              retryable: true,
             },
           });
           return Promise.resolve();
@@ -1124,6 +1125,7 @@ describe('agent machine llm retry', () => {
               requestId: null,
               retryAfterMs: null,
               headers: null,
+              retryable: true,
             },
           });
           return Promise.resolve();

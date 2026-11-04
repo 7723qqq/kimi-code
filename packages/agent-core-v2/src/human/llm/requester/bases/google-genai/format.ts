@@ -314,18 +314,18 @@ export function convertGoogleGenAIError(
   if (error instanceof Error) {
     const msg = error.message;
     if (TIMEOUT_RE.test(msg)) {
-      return { kind: 'timeout', message: msg };
+      return { kind: 'timeout', message: msg, retryable: true };
     }
     if (NETWORK_RE.test(msg) || (error instanceof TypeError && msg.includes('fetch'))) {
-      return { kind: 'connection', message: msg };
+      return { kind: 'connection', message: msg, retryable: true };
     }
     const statusCode = (error as { code?: number }).code;
     if (typeof statusCode === 'number') {
       return toLlmStatusErrorMessage({ statusCode, message: msg });
     }
-    return { kind: 'provider', message: `GoogleGenAI error: ${msg}` };
+    return { kind: 'provider', message: `GoogleGenAI error: ${msg}`, retryable: true };
   }
-  return { kind: 'unknown', message: `GoogleGenAI error: ${String(error)}` };
+  return { kind: 'unknown', message: `GoogleGenAI error: ${String(error)}`, retryable: false };
 }
 
 function parseRetryInfoDelayMs(message: string): number | null {

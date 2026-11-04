@@ -201,15 +201,15 @@ function errorFromOpenAIResponsesEvent(
     headers: null,
   };
   if (isContextOverflowErrorCode(code)) {
-    return { kind: 'context_overflow', message: fullMessage, statusCode: 400, ...statusInfo };
+    return { kind: 'context_overflow', message: fullMessage, retryable: false, ...statusInfo };
   }
   if (isOpenAIInsufficientQuotaCode(code)) {
-    return { kind: 'quota_exhausted', message: fullMessage, statusCode: 429, ...statusInfo };
+    return { kind: 'quota_exhausted', message: fullMessage, retryable: false, ...statusInfo };
   }
   if (code === 'rate_limit_exceeded' || readEmbeddedStatusCode(message) === 429) {
-    return { kind: 'rate_limit', message: fullMessage, statusCode: 429, ...statusInfo };
+    return { kind: 'rate_limit', message: fullMessage, retryable: true, ...statusInfo };
   }
-  return { kind: 'provider', message: fullMessage };
+  return { kind: 'provider', message: fullMessage, retryable: true };
 }
 
 function parseNestedGatewayStreamError(message: string):
@@ -654,6 +654,7 @@ export function createOpenAIResponsesFormat(): ProtocolFormat {
             sink.onError?.({
               kind: 'provider',
               message: `OpenAI Responses response.failed: ${formatResponsesFailedResponse(response)}`,
+              retryable: true,
             });
             return;
           }

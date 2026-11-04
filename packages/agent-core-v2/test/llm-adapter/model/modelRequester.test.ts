@@ -290,6 +290,7 @@ describe('ModelRequesterImpl request execution', () => {
           requestId: null,
           retryAfterMs: null,
           headers: null,
+          retryable: false,
         },
       });
     const impl = new ModelRequesterImpl(
@@ -316,6 +317,7 @@ describe('ModelRequesterImpl request execution', () => {
           requestId: null,
           retryAfterMs: null,
           headers: null,
+          retryable: false,
         },
       });
     const impl = new ModelRequesterImpl(
@@ -340,6 +342,7 @@ describe('ModelRequesterImpl request execution', () => {
           requestId: null,
           retryAfterMs: null,
           headers: null,
+          retryable: true,
         },
       });
     const impl = new ModelRequesterImpl(
@@ -359,7 +362,10 @@ describe('ModelRequesterImpl request execution', () => {
     expect((syntaxFailure as { code: string }).code).toBe(PROVIDER_API_ERROR_CODE);
 
     requester.handler = (_i, emit) =>
-      emit({ type: 'llm.failed.remote', error: { kind: 'abort', message: 'aborted' } });
+      emit({
+        type: 'llm.failed.remote',
+        error: { kind: 'abort', message: 'aborted', retryable: false },
+      });
     const aborted = await collect(impl.request(INPUT)).catch((error: unknown) => error);
     expect(isAbortError(aborted)).toBe(true);
 

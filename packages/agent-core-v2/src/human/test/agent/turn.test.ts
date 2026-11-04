@@ -30,7 +30,15 @@ function statusError(
   message: string,
   retryAfterMs: number | null = null,
 ): LlmErrorMessage {
-  return { kind: 'status', statusCode, message, requestId: null, retryAfterMs, headers: null };
+  return {
+    kind: 'status',
+    statusCode,
+    message,
+    requestId: null,
+    retryAfterMs,
+    headers: null,
+    retryable: [408, 409, 429, 500, 502, 503, 504, 529].includes(statusCode),
+  };
 }
 
 function createStubRequester(
@@ -203,7 +211,11 @@ describe('turn machine llm retry', () => {
       'think_only',
       statusError(429, 'rate limited'),
       statusError(500, 'server error'),
-      { kind: 'provider', message: 'Error: upstream error, status_code=429: too many requests' },
+      {
+        kind: 'provider',
+        message: 'Error: upstream error, status_code=429: too many requests',
+        retryable: true,
+      },
       'ok',
     ]);
     const { actor, clock, retrying, failed } = startTurnActor(requester, {
@@ -364,6 +376,7 @@ describe('turn machine llm retry', () => {
           requestId: null,
           retryAfterMs: 2000,
           headers: null,
+          retryable: true,
         },
         2000,
       ],

@@ -18,7 +18,7 @@ const messages = [createUserMessage('hi')];
 
 const ABORT_EVENT = {
   type: 'llm.failed.remote',
-  error: { kind: 'abort', message: 'The operation was aborted.' },
+  error: { kind: 'abort', message: 'The operation was aborted.', retryable: false },
 };
 
 interface StuckStreamClient {

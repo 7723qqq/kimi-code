@@ -323,10 +323,10 @@ export function convertAnthropicError(
     return hooked;
   }
   if (error instanceof RawAnthropicSDKConnectionTimeoutError) {
-    return { kind: 'timeout', message: error.message };
+    return { kind: 'timeout', message: error.message, retryable: true };
   }
   if (error instanceof RawAnthropicSDKConnectionError) {
-    return { kind: 'connection', message: error.message };
+    return { kind: 'connection', message: error.message, retryable: true };
   }
   if (error instanceof RawAnthropicSDKAPIError && typeof error.status === 'number') {
     return toLlmStatusErrorMessage({
@@ -340,5 +340,5 @@ export function convertAnthropicError(
   if (error instanceof Error) {
     return toLlmTransportErrorMessage(error.message);
   }
-  return { kind: 'unknown', message: String(error) };
+  return { kind: 'unknown', message: String(error), retryable: false };
 }

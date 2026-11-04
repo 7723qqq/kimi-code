@@ -2,6 +2,7 @@ import {
   APIConnectionError,
   APIEmptyResponseError,
   APIProviderQuotaExhaustedError,
+  APIProviderRateLimitError,
   APIStatusError,
   APITimeoutError,
   ChatProviderError,
@@ -1079,6 +1080,8 @@ export interface KimiErrorOptions {
   readonly details?: Record<string, unknown>;
   /** Original error or value. Local-only; never serialized to the wire. */
   readonly cause?: unknown;
+  /** Overrides the code's default retryability (e.g. a non-retryable quota 429). */
+  readonly retryable?: boolean;
 }
 
 /**
@@ -1091,6 +1094,7 @@ export class KimiError extends Error {
   readonly code: KimiErrorCode;
   readonly details?: Record<string, unknown>;
   override readonly cause?: unknown;
+  readonly retryable: boolean;
 
   constructor(code: KimiErrorCode, message: string, options: KimiErrorOptions = {}) {
     super(message);
@@ -1098,6 +1102,7 @@ export class KimiError extends Error {
     this.code = code;
     this.details = options.details;
     this.cause = options.cause;
+    this.retryable = options.retryable ?? KIMI_ERROR_INFO[code].retryable;
   }
 }
 
@@ -1167,7 +1172,7 @@ export function toKimiErrorPayload(error: unknown): KimiErrorPayload {
       message: error.message,
       name: error.name,
       details: error.details,
-      retryable: KIMI_ERROR_INFO[error.code].retryable,
+      retryable: error.retryable,
     };
   }
 
@@ -1175,20 +1180,20 @@ export function toKimiErrorPayload(error: unknown): KimiErrorPayload {
     const code: KimiErrorCode =
       error instanceof APIProviderQuotaExhaustedError
         ? ErrorCodes.PROVIDER_API_ERROR
-        : error.statusCode === 429
+        : error instanceof APIProviderRateLimitError || error.statusCode === 429
           ? ErrorCodes.PROVIDER_RATE_LIMIT
           : error.statusCode === 401
             ? ErrorCodes.PROVIDER_AUTH_ERROR
             : ErrorCodes.PROVIDER_API_ERROR;
     return {
       code,
-      message: sanitizeStatusErrorMessage(error.message),
+      message: error.message,
       name: error.name,
       details: {
         statusCode: error.statusCode,
         requestId: error.requestId,
       },
-      retryable: KIMI_ERROR_INFO[code].retryable,
+      retryable: explicitRetryable(error) ?? KIMI_ERROR_INFO[code].retryable,
     };
   }
 
@@ -1197,7 +1202,8 @@ export function toKimiErrorPayload(error: unknown): KimiErrorPayload {
       code: ErrorCodes.PROVIDER_CONNECTION_ERROR,
       message: error.message,
       name: error.name,
-      retryable: KIMI_ERROR_INFO[ErrorCodes.PROVIDER_CONNECTION_ERROR].retryable,
+      retryable:
+        explicitRetryable(error) ?? KIMI_ERROR_INFO[ErrorCodes.PROVIDER_CONNECTION_ERROR].retryable,
     };
   }
 
@@ -1243,11 +1249,9 @@ export function toKimiErrorPayload(error: unknown): KimiErrorPayload {
   };
 }
 
-function sanitizeStatusErrorMessage(message: string): string {
-  const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(message);
-  const extracted = titleMatch?.[1]?.trim();
-  const normalized = extracted !== undefined && extracted.length > 0 ? extracted : message;
-  return normalized.replaceAll('\r', '');
+function explicitRetryable(error: unknown): boolean | undefined {
+  const value = (error as { readonly retryable?: unknown }).retryable;
+  return typeof value === 'boolean' ? value : undefined;
 }
 
 export function fromKimiErrorPayload(payload: KimiErrorPayload): KimiError {

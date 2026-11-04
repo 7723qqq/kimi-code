@@ -197,7 +197,11 @@ describe('isRetryableGenerateError', () => {
     ['Invalid data URL for image: data:image/png;base64'],
     ['Unsupported media type for base64 image: image/avif, url: data:image/avif;base64,AAAA'],
   ])('does not retry deterministic provider validation error: %s', (message) => {
-    expect(isRetryableGenerateError(new ChatProviderError(message))).toBe(false);
+    expect(
+      isRetryableGenerateError(
+        new ChatProviderError(message, 'provider.api_error', undefined, false),
+      ),
+    ).toBe(false);
   });
 });
 
@@ -299,7 +303,12 @@ describe('isImageFormatError', () => {
     expect(isRetryableGenerateError(new ChatProviderError('transient blip'))).toBe(true);
     expect(
       isRetryableGenerateError(
-        new ChatProviderError('Unsupported media type for base64 image: image/avif'),
+        new ChatProviderError(
+          'Unsupported media type for base64 image: image/avif',
+          'provider.api_error',
+          undefined,
+          false,
+        ),
       ),
     ).toBe(false);
     expect(isRetryableGenerateError(new APIStatusError(400, 'unsupported image format'))).toBe(

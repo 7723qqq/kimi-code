@@ -70,6 +70,7 @@ import {
   buildDaemonFileUrl,
   createKimiHarness,
   ErrorCodes,
+  fromKimiErrorPayload,
   isDaemonFileUrl,
   isKimiError,
   KimiHarness,
@@ -86,6 +87,7 @@ import { setEnv, restoreEnvs, setGlobal, restoreGlobals } from './helpers/stubs'
 import { waitForAssertion, waitUntil } from './helpers/waitFor';
 import { recordingTelemetry, type TelemetryRecord } from './telemetry';
 import { TEST_IDENTITY } from './test-identity';
+import { APIProviderRateLimitError, APIStatusError } from '@moonshot-ai/kosong';
 
 function rejectingHostEnvironment(): IHostEnvironment {
   const ready = Promise.reject(
@@ -298,6 +300,22 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       await client.close();
     }
   }, 15_000);
+
+  it('preserves backend messages verbatim and recognizes a rate-limit status error', () => {
+    const rateLimit = new APIProviderRateLimitError('backend stream rate limit', 'req-stream', null);
+    expect(toKimiErrorPayload(rateLimit)).toMatchObject({
+      code: ErrorCodes.PROVIDER_RATE_LIMIT,
+      message: 'backend stream rate limit',
+      details: { statusCode: 429, requestId: 'req-stream' },
+      retryable: true,
+    });
+
+    const message = '<html><title>Backend title</title><body>Backend body</body></html>\r\n';
+    expect(toKimiErrorPayload(new APIStatusError(502, message))).toMatchObject({
+      code: ErrorCodes.PROVIDER_API_ERROR,
+      message,
+    });
+  });
 
   it('restates engine MCP management Error2s as KimiError, undeclared codes as internal', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-'));

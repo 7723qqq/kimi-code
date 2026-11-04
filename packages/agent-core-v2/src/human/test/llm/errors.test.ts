@@ -30,6 +30,7 @@ describe('convertOpenAIError', () => {
     expect(convertOpenAIError(new DOMException('x', 'AbortError'))).toEqual({
       kind: 'abort',
       message: 'x',
+      retryable: false,
     });
   });
 
@@ -48,10 +49,10 @@ describe('convertOpenAIError', () => {
   it('maps connection errors to their kinds', () => {
     expect(
       convertOpenAIError(new RawOpenAISDKConnectionTimeoutError({ message: 'request timed out' })),
-    ).toEqual({ kind: 'timeout', message: 'request timed out' });
+    ).toEqual({ kind: 'timeout', message: 'request timed out', retryable: true });
     expect(
       convertOpenAIError(new RawOpenAISDKConnectionError({ message: 'connection refused' })),
-    ).toEqual({ kind: 'connection', message: 'connection refused' });
+    ).toEqual({ kind: 'connection', message: 'connection refused', retryable: true });
   });
 
   it('maps 429 to rate_limit with retry-after', () => {
@@ -68,14 +69,34 @@ describe('convertOpenAIError', () => {
     });
   });
 
-  it('maps insufficient_quota to quota_exhausted', () => {
+  it('maps insufficient_quota to quota_exhausted with the backend message', () => {
     const raw = new RawOpenAISDKAPIError(
       429,
-      { error: { message: 'insufficient_quota' } },
-      'insufficient_quota',
+      { message: 'backend quota message', code: 'insufficient_quota' },
+      'SDK-composed fallback',
       new Headers(),
     );
-    expect(convertOpenAIError(raw)).toMatchObject({ kind: 'quota_exhausted', statusCode: 429 });
+    expect(convertOpenAIError(raw)).toMatchObject({
+      kind: 'quota_exhausted',
+      message: 'backend quota message',
+      statusCode: 429,
+      retryable: false,
+    });
+  });
+
+  it('prefers the backend body message over the SDK-composed message', () => {
+    const raw = new RawOpenAISDKAPIError(
+      400,
+      { message: 'backend validation message', type: 'invalid_request_error' },
+      '400 SDK-composed text',
+      new Headers(),
+    );
+    expect(convertOpenAIError(raw)).toMatchObject({
+      kind: 'status',
+      message: 'backend validation message',
+      statusCode: 400,
+      retryable: false,
+    });
   });
 
   it('maps context overflow messages to context_overflow', () => {
@@ -178,6 +199,7 @@ describe('convertOpenAIError', () => {
     expect(convertOpenAIError(raw)).toEqual({
       kind: 'connection',
       message: 'network connection failed',
+      retryable: true,
     });
   });
 
@@ -185,6 +207,7 @@ describe('convertOpenAIError', () => {
     expect(convertOpenAIError(new RawOpenAISDKError('boom'))).toEqual({
       kind: 'provider',
       message: 'Error: boom',
+      retryable: true,
     });
   });
 
@@ -192,15 +215,21 @@ describe('convertOpenAIError', () => {
     expect(convertOpenAIError(new Error('deadline exceeded timeout'))).toEqual({
       kind: 'timeout',
       message: 'deadline exceeded timeout',
+      retryable: true,
     });
     expect(convertOpenAIError(new Error('plain'))).toEqual({
       kind: 'provider',
       message: 'Error: plain',
+      retryable: true,
     });
   });
 
   it('wraps non-error values as unknown', () => {
-    expect(convertOpenAIError('nope')).toEqual({ kind: 'unknown', message: 'nope' });
+    expect(convertOpenAIError('nope')).toEqual({
+      kind: 'unknown',
+      message: 'nope',
+      retryable: false,
+    });
   });
 });
 
@@ -224,13 +253,25 @@ describe('classifyKimiQuotaError', () => {
     }
   });
 
-  it('classifies by message wording', () => {
+  it('does not classify by message wording alone', () => {
     const classified = classifyKimiQuotaError({
       status: 429,
       message: 'insufficient balance',
       headers: new Headers(),
     });
-    expect(classified).toMatchObject({ kind: 'quota_exhausted', statusCode: 429 });
+    expect(classified).toBeUndefined();
+  });
+
+  it('classifies a nested structured quota error without a status', () => {
+    const classified = classifyKimiQuotaError({
+      error: { code: 'exceeded_current_quota_error', message: 'quota exhausted' },
+      headers: new Headers(),
+    });
+    expect(classified).toMatchObject({
+      kind: 'quota_exhausted',
+      message: 'quota exhausted',
+      retryable: false,
+    });
   });
 
   it('ignores 429 without quota signals', () => {
@@ -299,7 +340,12 @@ describe('requester error conversion', () => {
       clientFactory: failingOpenAIClient(
         new RawOpenAISDKAPIError(
           429,
-          { error: { message: 'check your account balance' } },
+          {
+            error: {
+              code: 'exceeded_current_quota_error',
+              message: 'check your account balance',
+            },
+          },
           'check your account balance',
           new Headers(),
         ),
