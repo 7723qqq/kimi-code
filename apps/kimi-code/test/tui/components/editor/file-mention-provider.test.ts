@@ -333,6 +333,35 @@ describe('FileMentionProvider', () => {
     );
   });
 
+  it('reaches an additional root even when the primary root exhausts the scan cap', async () => {
+    const fixture = ensureBigFixture();
+    const provider = new FileMentionProvider([], fixture.workDir, NO_FD, [fixture.extraDir]);
+
+    const result = await provider.getSuggestions(['@target-needle'], 0, '@target-needle'.length, {
+      signal: ctrl(),
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.items.map((item) => item.value)).toContain(
+      `@${join(fixture.extraDir, 'deep', 'target-needle.ts').replaceAll('\\', '/')}`,
+    );
+  });
+
+  it('deduplicates a fallback root equal to the working directory', async () => {
+    mkdirSync(join(workDir, 'deep'), { recursive: true });
+    writeFileSync(join(workDir, 'deep', 'target-needle.ts'), 'export {};');
+    const provider = new FileMentionProvider([], workDir, join(workDir, 'missing-fd'), [workDir]);
+
+    const result = await provider.getSuggestions(['@target-needle'], 0, '@target-needle'.length, {
+      signal: ctrl(),
+    });
+
+    expect(result).not.toBeNull();
+    const values = result!.items.map((item) => item.value);
+    expect(values).toContain('@deep/target-needle.ts');
+    expect(new Set(values).size).toBe(values.length);
+  });
+
   it.if(IS_FD_INSTALLED)(
     'uses fd for additionalDirs even when cwd is large enough to exhaust the fallback scanner',
     async () => {

@@ -189,6 +189,7 @@ export const ErrorCodes = {
   WIRE_CYCLE: 'wire.cycle',
   WIRE_DUPLICATE_OP: 'wire.duplicate_op',
   WIRE_MIGRATION_MISSING: 'wire.migration_missing',
+  WIRE_VERSION_TOO_LOW: 'wire.version_too_low',
   WIRE_UNKNOWN_RECORD: 'wire.unknown_record',
   WORKSPACE_NOT_FOUND: 'workspace.not_found',
   NOT_IMPLEMENTED: 'not_implemented',
