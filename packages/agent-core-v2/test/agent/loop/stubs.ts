@@ -300,6 +300,7 @@ export function stubLoopWithHooks(options: StubLoopOptions = {}): StubLoop {
       return true;
     },
     tryAcquireQuiescence: () => toDisposable(() => {}),
+    tryAcquireHistorySnapshot: () => toDisposable(() => {}),
     buildAttachBundle: () => stubAttachBundle(),
     attachEngine: () => stubAttachEngine(),
     resetMachineEngine: () => Promise.resolve(),
