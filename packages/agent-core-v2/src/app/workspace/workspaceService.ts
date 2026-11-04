@@ -1,5 +1,7 @@
 import { basename, isAbsolute } from 'pathe';
 
+import { randomUUID } from 'node:crypto';
+
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { encodeWorkDirKey, workspaceRootKey } from '#/_base/utils/workdir-slug';
@@ -10,7 +12,12 @@ import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
-import { IWorkspaceService, type Workspace, type WorkspaceUpdate } from './workspace';
+import {
+  IWorkspaceService,
+  type Workspace,
+  type WorkspaceCreate,
+  type WorkspaceUpdate,
+} from './workspace';
 import {
   collectAliasIds,
   compactSessionIndexIfStale,
@@ -53,8 +60,136 @@ export class WorkspaceService implements IWorkspaceService {
     });
   }
 
-  createOrTouch(root: string, name?: string): Promise<Workspace> {
+  create(input: WorkspaceCreate): Promise<Workspace> {
     return this.runExclusive(async () => {
+      await this.requireDirectory(input.root);
+      const additionalDirs = await this.normalizeAdditionalDirs(
+        input.root,
+        input.additionalDirs ?? [],
+      );
+      await this.ensureMerged();
+      const catalog = await this.loadCatalog();
+      const idempotencyKeys = { ...catalog.idempotencyKeys };
+      const mapped =
+        input.idempotencyKey === undefined ? undefined : idempotencyKeys[input.idempotencyKey];
+      const existing =
+        mapped === undefined ? undefined : catalog.workspaces.find((ws) => ws.id === mapped);
+      if (existing !== undefined) return existing;
+      const now = Date.now();
+      const ws: Workspace = {
+        id: `wm_${randomUUID()}`,
+        root: input.root,
+        name: input.name ?? basename(input.root),
+        kind: 'managed',
+        additionalDirs,
+        createdAt: now,
+        lastOpenedAt: now,
+      };
+      if (input.idempotencyKey !== undefined) idempotencyKeys[input.idempotencyKey] = ws.id;
+      await this.store.save({
+        workspaces: [...catalog.workspaces, ws],
+        deletedIds: catalog.deletedIds,
+        idempotencyKeys,
+      });
+      this.event.publish(new WorkspaceCreated({ payload: { workspace: ws } }));
+      return ws;
+    });
+  }
+
+  touch(id: string): Promise<Workspace | undefined> {
+    return this.runExclusive(async () => {
+      await this.ensureMerged();
+      const catalog = await this.loadCatalog();
+      const existing = catalog.workspaces.find((ws) => ws.id === id);
+      if (existing === undefined) return undefined;
+      await this.requireDirectory(existing.root);
+      const touched: Workspace = { ...existing, lastOpenedAt: Date.now() };
+      await this.store.save({
+        workspaces: catalog.workspaces.map((ws) => (ws.id === id ? touched : ws)),
+        deletedIds: catalog.deletedIds,
+        idempotencyKeys: catalog.idempotencyKeys,
+      });
+      this.event.publish(new WorkspaceUpdated({ payload: { workspace: touched } }));
+      return touched;
+    });
+  }
+
+  setPrimary(id: string, path: string): Promise<Workspace | undefined> {
+    return this.runExclusive(async () => {
+      await this.ensureMerged();
+      const catalog = await this.loadCatalog();
+      const existing = catalog.workspaces.find((ws) => ws.id === id);
+      if (existing === undefined) return undefined;
+      const resolved = isAbsolute(path) ? path : `${existing.root}/${path}`;
+      await this.requireDirectory(resolved);
+      const resolvedKey = workspaceRootKey(resolved);
+      if (resolvedKey === workspaceRootKey(existing.root)) return existing;
+      const wasAdditional = existing.additionalDirs.some(
+        (dir) => workspaceRootKey(dir) === resolvedKey,
+      );
+      if (!wasAdditional) {
+        throw new Error2(
+          ErrorCodes.FS_PATH_NOT_FOUND,
+          `primary ${path} is not one of this workspace's source folders`,
+        );
+      }
+      const updated: Workspace = {
+        ...existing,
+        root: resolved,
+        additionalDirs: [
+          ...existing.additionalDirs.filter((dir) => workspaceRootKey(dir) !== resolvedKey),
+          existing.root,
+        ],
+      };
+      await this.store.save({
+        workspaces: catalog.workspaces.map((ws) => (ws.id === id ? updated : ws)),
+        deletedIds: catalog.deletedIds,
+        idempotencyKeys: catalog.idempotencyKeys,
+      });
+      this.event.publish(new WorkspaceUpdated({ payload: { workspace: updated } }));
+      return updated;
+    });
+  }
+
+  private async requireDirectory(root: string): Promise<void> {
+    let stat;
+    try {
+      stat = await this.hostFs.stat(root);
+    } catch (error) {
+      const code = (unwrapErrorCause(error) as NodeJS.ErrnoException | undefined)?.code;
+      if (code === 'ENOENT' || code === 'ENOTDIR') {
+        throw new Error2(ErrorCodes.FS_PATH_NOT_FOUND, `workspace root ${root} does not exist`);
+      }
+      throw error;
+    }
+    if (!stat.isDirectory) {
+      try {
+        stat = await this.hostFs.stat(await this.hostFs.realpath(root));
+      } catch {}
+    }
+    if (!stat.isDirectory) {
+      throw new Error2(ErrorCodes.FS_PATH_NOT_FOUND, `workspace root ${root} is not a directory`);
+    }
+  }
+
+  private async normalizeAdditionalDirs(
+    root: string,
+    dirs: readonly string[],
+  ): Promise<readonly string[]> {
+    const rootKey = workspaceRootKey(root);
+    const kept: string[] = [];
+    for (const dir of dirs) {
+      const resolved = isAbsolute(dir) ? dir : `${root}/${dir}`;
+      await this.requireDirectory(resolved);
+      const key = workspaceRootKey(resolved);
+      if (key === rootKey) continue;
+      if (kept.some((entry) => workspaceRootKey(entry) === key)) continue;
+      kept.push(resolved);
+    }
+    return kept;
+  }
+
+  createOrTouch(root: string, name?: string): Promise<Workspace> {    return this.runExclusive(async () => {
       let stat;
       try {
         stat = await this.hostFs.stat(root);

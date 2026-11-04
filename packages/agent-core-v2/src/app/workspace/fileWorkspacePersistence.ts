@@ -82,7 +82,16 @@ export class FileWorkspacePersistence extends Disposable implements IWorkspacePe
     const deletedIds = Array.isArray(rawDeleted)
       ? rawDeleted.filter((id): id is string => typeof id === 'string')
       : [];
-    return { workspaces, deletedIds };
+    const rawKeys = (file as { idempotency_keys?: unknown }).idempotency_keys;
+    const idempotencyKeys =
+      typeof rawKeys === 'object' && rawKeys !== null
+        ? Object.fromEntries(
+            Object.entries(rawKeys as Record<string, unknown>).filter(
+              (entry): entry is [string, string] => typeof entry[1] === 'string',
+            ),
+          )
+        : undefined;
+    return { workspaces, deletedIds, idempotencyKeys };
   }
 
   async save(catalog: WorkspaceCatalog): Promise<void> {
@@ -101,6 +110,9 @@ export class FileWorkspacePersistence extends Disposable implements IWorkspacePe
       version: WORKSPACE_CATALOG_VERSION,
       workspaces: record,
       deleted_workspace_ids: [...catalog.deletedIds],
+      ...(catalog.idempotencyKeys === undefined
+        ? {}
+        : { idempotency_keys: { ...catalog.idempotencyKeys } }),
     };
     await this.docs.set(WORKSPACE_CATALOG_SCOPE, WORKSPACE_CATALOG_KEY, file);
     this.changeEmitter.fire();

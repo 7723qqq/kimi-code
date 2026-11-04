@@ -934,6 +934,11 @@ function registerSessionExportServices(
       lastOpenedAt: 2,
     }),
     update: async () => undefined,
+    create: async () => {
+      throw new Error('create should not be called by session export');
+    },
+    touch: async () => undefined,
+    setPrimary: async () => undefined,
     delete: async () => {},
   });
   reg.define(ISessionExportService, SessionExportService);

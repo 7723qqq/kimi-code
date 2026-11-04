@@ -783,6 +783,64 @@ describe('WorkspaceService (file-backed)', () => {
     expect([...ids]).toEqual(['s_live']);
     expect(compacted).toHaveLength(1);
   });
+
+  it('create mints a wm_ id, keeps additional dirs, and dedupes retries by idempotency key', async () => {
+    const extra = await fsp.mkdtemp(join(os.tmpdir(), 'ws-extra-'));
+    try {
+      const registry = build();
+      const first = await registry.create({
+        root: homeDir,
+        name: 'Primary',
+        additionalDirs: [extra],
+        idempotencyKey: 'key-1',
+      });
+      expect(first.id.startsWith('wm_')).toBe(true);
+      expect(first.kind).toBe('managed');
+      expect(first.name).toBe('Primary');
+      expect(first.additionalDirs).toEqual([extra]);
+
+      const retry = await registry.create({ root: homeDir, idempotencyKey: 'key-1' });
+      expect(retry.id).toBe(first.id);
+
+      const other = await registry.create({ root: homeDir, idempotencyKey: 'key-2' });
+      expect(other.id).not.toBe(first.id);
+
+      const afterRestart = await restart().create({ root: homeDir, idempotencyKey: 'key-1' });
+      expect(afterRestart.id).toBe(first.id);
+    } finally {
+      await fsp.rm(extra, { recursive: true, force: true });
+    }
+  });
+
+  it('create rejects a missing additional dir and drops one that duplicates the root', async () => {
+    const registry = build();
+    await expect(
+      registry.create({ root: homeDir, additionalDirs: [join(homeDir, 'missing-dir')] }),
+    ).rejects.toMatchObject({ code: 'fs.path_not_found' });
+
+    const same = await registry.create({ root: homeDir, additionalDirs: [homeDir] });
+    expect(same.additionalDirs).toEqual([]);
+  });
+
+  it('touch bumps lastOpenedAt and setPrimary swaps a source folder into the root', async () => {
+    const extra = await fsp.mkdtemp(join(os.tmpdir(), 'ws-extra-'));
+    try {
+      const registry = build();
+      const created = await registry.create({ root: homeDir, additionalDirs: [extra] });
+      const touched = await registry.touch(created.id);
+      expect(touched?.lastOpenedAt).toBeGreaterThanOrEqual(created.lastOpenedAt);
+
+      const promoted = await registry.setPrimary(created.id, extra);
+      expect(promoted?.root).toBe(extra);
+      expect(promoted?.additionalDirs).toEqual([homeDir]);
+
+      await expect(registry.setPrimary(created.id, join(extra, 'nope'))).rejects.toMatchObject({
+        code: 'fs.path_not_found',
+      });
+    } finally {
+      await fsp.rm(extra, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('workspaceRootKey', () => {

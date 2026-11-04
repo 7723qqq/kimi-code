@@ -16,11 +16,13 @@ export interface PersistedWorkspaceFile {
   readonly version: number;
   readonly workspaces: Record<string, PersistedWorkspaceEntry>;
   readonly deleted_workspace_ids: string[];
+  readonly idempotency_keys?: Record<string, string>;
 }
 
 export interface WorkspaceCatalog {
   readonly workspaces: readonly Workspace[];
   readonly deletedIds: readonly string[];
+  readonly idempotencyKeys?: Record<string, string>;
 }
 
 export interface IWorkspacePersistence {

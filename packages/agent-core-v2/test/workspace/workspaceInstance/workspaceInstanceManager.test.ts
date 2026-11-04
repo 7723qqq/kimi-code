@@ -161,6 +161,13 @@ function manager(
       return value;
     }),
     update: async () => undefined,
+    create: mock(async (input: { root: string }) => {
+      const value = values.find((entry) => entry.root === input.root);
+      if (value === undefined) throw new Error(`unknown root ${input.root}`);
+      return value;
+    }),
+    touch: async () => undefined,
+    setPrimary: async () => undefined,
     delete: async () => {},
   };
   const args: unknown[] = [
