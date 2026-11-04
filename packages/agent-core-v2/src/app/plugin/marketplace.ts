@@ -8,19 +8,51 @@ import { isRecord } from '#/_base/utils/guards';
 
 export const KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV = 'KIMI_CODE_PLUGIN_MARKETPLACE_URL';
 
+export const PLUGIN_MARKETPLACE_CLASSIFICATIONS = ['official', 'third_party'] as const;
 export const PLUGIN_MARKETPLACE_TIERS = ['official', 'curated'] as const;
+export const PLUGIN_MARKETPLACE_PLATFORMS = ['macos', 'windows', 'linux', 'cloud'] as const;
 
+export type PluginMarketplaceClassification = (typeof PLUGIN_MARKETPLACE_CLASSIFICATIONS)[number];
 export type PluginMarketplaceTier = (typeof PLUGIN_MARKETPLACE_TIERS)[number];
+export type PluginMarketplacePlatform = 'darwin' | 'win32' | 'linux' | 'cloud';
+
+export interface PluginMarketplaceLocalizedText {
+  readonly cliDescription?: string;
+  readonly longDescription?: string;
+  readonly shortDescription?: string;
+}
+
+export interface PluginMarketplaceLocale {
+  readonly defaultLocale?: string;
+  readonly [key: string]: string | PluginMarketplaceLocalizedText | undefined;
+}
+
+export interface PluginMarketplaceDistribution {
+  readonly category: PluginMarketplaceClassification;
+  readonly region?: string;
+  readonly defaultInstall?: boolean;
+  readonly weight?: number;
+  readonly userLevel?: unknown;
+}
 
 export interface PluginMarketplaceEntry {
   readonly id: string;
   readonly displayName: string;
   readonly source: string;
+  readonly classification?: PluginMarketplaceClassification;
   readonly tier?: PluginMarketplaceTier;
   readonly version?: string;
   readonly description?: string;
   readonly homepage?: string;
   readonly keywords?: readonly string[];
+  readonly iconUrl?: string;
+  readonly sha256sum?: string;
+  readonly filename?: string;
+  readonly cliDescription?: string;
+  readonly locale?: PluginMarketplaceLocale;
+  readonly platforms?: readonly PluginMarketplacePlatform[];
+  readonly distribution?: PluginMarketplaceDistribution;
+  readonly billing?: unknown;
   readonly builtIn?: boolean;
 }
 
@@ -192,15 +224,33 @@ function parseMarketplaceEntry(
     throw new Error(`Plugin marketplace entry ${id} must define "source".`);
   }
   const resolvedSource = resolveEntrySource(source, location, home);
+  const distribution = parseDistribution(value['distribution'], id);
+  const tier =
+    distribution === undefined
+      ? parseMarketplaceTier(value, id)
+      : distribution.category === 'official'
+        ? 'official'
+        : 'curated';
   return {
     id,
     displayName: stringField(value, 'displayName') ?? stringField(value, 'name') ?? id,
     source: resolvedSource,
-    tier: parseMarketplaceTier(value, id),
+    classification:
+      distribution?.category ??
+      (tier === 'official' ? 'official' : tier === 'curated' ? 'third_party' : undefined),
+    tier,
     version: stringField(value, 'version') ?? deriveVersionFromGithubSource(resolvedSource),
     description: stringField(value, 'description') ?? stringField(value, 'shortDescription'),
     homepage: stringField(value, 'homepage') ?? stringField(value, 'websiteURL'),
     keywords: stringArrayField(value, 'keywords'),
+    iconUrl: stringField(value, 'iconUrl'),
+    sha256sum: parseSha256sum(value, id),
+    filename: stringField(value, 'filename'),
+    cliDescription: stringField(value, 'cliDescription'),
+    locale: parseLocale(value['locale'], id),
+    platforms: parsePlatforms(value['platforms'], id),
+    distribution,
+    billing: value['billing'],
   };
 }
 
@@ -234,6 +284,108 @@ function parseMarketplaceTier(
   throw new Error(
     `Plugin marketplace entry ${id} "tier" must be one of: ${PLUGIN_MARKETPLACE_TIERS.join(', ')}.`,
   );
+}
+
+function parseDistribution(
+  value: unknown,
+  id: string,
+): PluginMarketplaceDistribution | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) {
+    throw new TypeError(`Plugin marketplace entry ${id} must define "distribution".`);
+  }
+  const category = stringField(value, 'category');
+  if (!(PLUGIN_MARKETPLACE_CLASSIFICATIONS as readonly string[]).includes(category ?? '')) {
+    throw new Error(
+      `Plugin marketplace entry ${id} "distribution.category" must be one of: ${PLUGIN_MARKETPLACE_CLASSIFICATIONS.join(', ')}.`,
+    );
+  }
+  return {
+    category: category as PluginMarketplaceClassification,
+    region: stringField(value, 'region'),
+    defaultInstall: booleanField(value, 'defaultInstall', id),
+    weight: numberField(value, 'weight', id),
+    userLevel: value['userLevel'],
+  };
+}
+
+function parsePlatforms(
+  value: unknown,
+  id: string,
+): readonly PluginMarketplacePlatform[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new TypeError(`Plugin marketplace entry ${id} "platforms" must be a non-empty array.`);
+  }
+  const platforms = value.map((platform) => {
+    if (platform === 'macos' || platform === 'darwin') return 'darwin' as const;
+    if (platform === 'windows' || platform === 'win32') return 'win32' as const;
+    if (platform === 'linux') return 'linux' as const;
+    if (platform === 'cloud') return 'cloud' as const;
+    throw new Error(
+      `Plugin marketplace entry ${id} "platforms" must contain only: ${[...PLUGIN_MARKETPLACE_PLATFORMS, 'darwin', 'win32'].join(', ')}.`,
+    );
+  });
+  return [...new Set(platforms)];
+}
+
+function parseSha256sum(value: Record<string, unknown>, id: string): string | undefined {
+  const sha256sum = stringField(value, 'sha256sum');
+  if (sha256sum !== undefined && !/^[A-Fa-f0-9]{64}$/.test(sha256sum)) {
+    throw new Error(`Plugin marketplace entry ${id} "sha256sum" must be a SHA-256 hex digest.`);
+  }
+  return sha256sum;
+}
+
+function parseLocale(value: unknown, id: string): PluginMarketplaceLocale | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) {
+    throw new TypeError(`Plugin marketplace entry ${id} "locale" must be an object.`);
+  }
+  const locale: Record<string, string | PluginMarketplaceLocalizedText | undefined> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof entry === 'string') {
+      locale[key] = entry;
+      continue;
+    }
+    if (!isRecord(entry)) {
+      throw new TypeError(
+        `Plugin marketplace entry ${id} "locale.${key}" must be a string or an object.`,
+      );
+    }
+    locale[key] = {
+      cliDescription: stringField(entry, 'cliDescription'),
+      longDescription: stringField(entry, 'longDescription'),
+      shortDescription: stringField(entry, 'shortDescription'),
+    };
+  }
+  return locale;
+}
+
+function booleanField(
+  value: Record<string, unknown>,
+  field: string,
+  id: string,
+): boolean | undefined {
+  const raw = value[field];
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'boolean') {
+    throw new TypeError(`Plugin marketplace entry ${id} "${field}" must be a boolean.`);
+  }
+  return raw;
+}
+
+function numberField(
+  value: Record<string, unknown>,
+  field: string,
+  id: string,
+): number | undefined {
+  const raw = value[field];
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) {
+    throw new TypeError(`Plugin marketplace entry ${id} "${field}" must be a number.`);
+  }
+  return raw;
 }
 
 function resolveEntrySource(source: string, location: MarketplaceLocation, home: string): string {
