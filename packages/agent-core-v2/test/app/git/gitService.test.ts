@@ -1,8 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 
 import { normalize } from 'pathe';
 
@@ -143,6 +143,32 @@ describe('GitService', () => {
         rmSync(notRepo, { recursive: true, force: true });
       }
     });
+
+    it('spawns git through its resolved PATH entry and never one inside the working directory', async () => {
+      writeFileSync(join(repo, 'a.txt'), 'hello\n');
+      commitAll('init');
+      const spawn = spyOn(HostProcessService.prototype, 'spawn');
+
+      await service.status(repo);
+      expect(spawn.mock.calls.every(([command]) => isAbsolute(command))).toBe(true);
+
+      const planted = join(repo, 'bin');
+      mkdirSync(planted);
+      writeFileSync(join(planted, 'git'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+      const originalPath = process.env['PATH'];
+      process.env['PATH'] = planted;
+      spawn.mockClear();
+      try {
+        await expect(service.status(repo)).rejects.toMatchObject({
+          code: ErrorCodes.FS_GIT_UNAVAILABLE,
+        });
+        expect(spawn).not.toHaveBeenCalled();
+      } finally {
+        if (originalPath === undefined) delete process.env['PATH'];
+        else process.env['PATH'] = originalPath;
+        spawn.mockRestore();
+      }
+    }, 15000);
   });
 
   describe('diff', () => {
