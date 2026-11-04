@@ -3,6 +3,7 @@ import { normalize } from 'pathe';
 import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
+import { workspaceRootKey } from '#/_base/utils/workdir-slug';
 import {
   loadAgentsMdForRoots,
   splitAgentsMdFiles,
@@ -23,6 +24,7 @@ import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
 import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
 import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
 import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
@@ -44,6 +46,19 @@ import {
 const AGENTS_MD_CHANGE_VARIANT = 'agents_md_change';
 const SKILLS_CHANGE_VARIANT = 'skills_change';
 const SUBAGENTS_CHANGE_VARIANT = 'subagents_change';
+const WORKSPACE_DIRS_CHANGE_VARIANT = 'workspace_dirs_change';
+
+interface WorkspacePrimaryChange {
+  readonly workspaceId: string;
+  readonly from: string;
+  readonly to: string;
+}
+
+interface WorkspaceDirsChanges {
+  readonly primary: readonly WorkspacePrimaryChange[];
+  readonly added: readonly string[];
+  readonly removed: readonly string[];
+}
 
 const SKILL_LISTING_MARKER = 'DISREGARD any earlier skill listings';
 
@@ -57,6 +72,7 @@ export class AgentChangeNotifierService extends Disposable implements IAgentChan
   declare readonly _serviceBrand: undefined;
 
   private muted = false;
+  private workspaceDirsNotificationTail: Promise<void> = Promise.resolve();
 
   private legacySubagentBaseline:
     | { readonly names: readonly string[]; readonly pool: SubagentModelPoolSnapshot | undefined }
@@ -78,6 +94,7 @@ export class AgentChangeNotifierService extends Disposable implements IAgentChan
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
     @ILogService private readonly log: ILogService,
+    @ISessionWorkspaceInfo private readonly workspaceInfo: ISessionWorkspaceInfo,
   ) {
     super();
     this.states.contributeState(changeNotifierSnapshotKey);
@@ -94,6 +111,11 @@ export class AgentChangeNotifierService extends Disposable implements IAgentChan
     this._register(
       this.agentCatalog.onDidChange(() => {
         void this.notifySubagentChanges();
+      }),
+    );
+    this._register(
+      this.workspaceInfo.onDidChange(() => {
+        void this.notifyWorkspaceDirsChanges();
       }),
     );
     void this.agentCatalog.ready.then(() => {
@@ -322,6 +344,66 @@ export class AgentChangeNotifierService extends Disposable implements IAgentChan
     }
   }
 
+  notifyWorkspaceDirsChanges(): Promise<void> {
+    return this.enqueueWorkspaceDirsNotification(() => this.notifyWorkspaceDirsChangesNow());
+  }
+
+  private enqueueWorkspaceDirsNotification<T>(work: () => Promise<T>): Promise<T> {
+    const run = this.workspaceDirsNotificationTail.then(work, work);
+    this.workspaceDirsNotificationTail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  private async notifyWorkspaceDirsChangesNow(): Promise<void> {
+    if (this.scopeContext.agentId !== MAIN_AGENT_ID || this.muted) return;
+    try {
+      await this.workspaceInfo.ready;
+      if (this.muted) return;
+      const primaryByWorkspace = { ...this.workspaceInfo.primaryByWorkspace };
+      const additionalDirs = [...this.workspaceInfo.additionalDirs];
+      const snapshot = this.snapshot;
+      if (
+        samePrimarySnapshot(snapshot.workspacePrimaryByWorkspace, primaryByWorkspace) &&
+        sameDirectorySnapshot(snapshot.workspaceAdditionalDirs, additionalDirs)
+      ) {
+        return;
+      }
+      if (this.muted) return;
+      await this.recordSnapshot({
+        workspacePrimaryByWorkspace: primaryByWorkspace,
+        workspaceAdditionalDirs: additionalDirs,
+      });
+      if (this.muted) {
+        await this.recordSnapshot({
+          workspacePrimaryByWorkspace: snapshot.workspacePrimaryByWorkspace,
+          workspaceAdditionalDirs: snapshot.workspaceAdditionalDirs,
+        });
+        return;
+      }
+      if (
+        snapshot.workspacePrimaryByWorkspace === undefined &&
+        snapshot.workspaceAdditionalDirs === undefined
+      ) {
+        return;
+      }
+      const changes = diffWorkspaceDirs(
+        snapshot.workspacePrimaryByWorkspace ?? {},
+        snapshot.workspaceAdditionalDirs ?? [],
+        primaryByWorkspace,
+        additionalDirs,
+      );
+      if (changes.primary.length + changes.added.length + changes.removed.length === 0) return;
+      this.reminder.notify(workspaceDirsChangeText(changes, this.sessionContext.cwd), {
+        variant: WORKSPACE_DIRS_CHANGE_VARIANT,
+      });
+    } catch (error) {
+      this.log.warn('workspace directory change notification failed', { error });
+    }
+  }
+
   private async recordSnapshot(patch: Partial<ChangeNotifierSnapshotState>): Promise<void> {
     const next = { ...this.snapshot, ...patch };
     await this.dispatcher.dispatch(
@@ -335,6 +417,12 @@ export class AgentChangeNotifierService extends Disposable implements IAgentChan
           next.modelPool !== undefined
             ? { ...next.modelPool, models: { ...next.modelPool.models } }
             : null,
+        workspacePrimaryByWorkspace:
+          next.workspacePrimaryByWorkspace !== undefined
+            ? { ...next.workspacePrimaryByWorkspace }
+            : null,
+        workspaceAdditionalDirs:
+          next.workspaceAdditionalDirs !== undefined ? [...next.workspaceAdditionalDirs] : null,
       }),
     );
   }
@@ -506,6 +594,100 @@ function subagentsChangeText(diff: {
   }
   lines.push(
     'You can use them right away — the Agent tool validates subagent_type against the live catalog.',
+  );
+  return lines.join('\n');
+}
+
+
+function samePrimarySnapshot(
+  previous: Readonly<Record<string, string>> | undefined,
+  current: Readonly<Record<string, string>>,
+): boolean {
+  if (previous === undefined) return false;
+  const previousIds = Object.keys(previous);
+  const currentIds = Object.keys(current);
+  return (
+    previousIds.length === currentIds.length &&
+    previousIds.every((id) => {
+      const before = previous[id];
+      const after = current[id];
+      return (
+        before !== undefined &&
+        after !== undefined &&
+        workspaceRootKey(before) === workspaceRootKey(after)
+      );
+    })
+  );
+}
+
+function sameDirectorySnapshot(
+  previous: readonly string[] | undefined,
+  current: readonly string[],
+): boolean {
+  if (previous === undefined) return false;
+  const before = directoryKeys(previous);
+  const after = directoryKeys(current);
+  return before.size === after.size && [...before].every((path) => after.has(path));
+}
+
+function directoryKeys(dirs: readonly string[]): Set<string> {
+  return new Set(dirs.map((dir) => workspaceRootKey(dir)));
+}
+
+function directoryDifference(
+  left: readonly string[],
+  right: readonly string[],
+  excluded: ReadonlySet<string>,
+): string[] {
+  const rightKeys = directoryKeys(right);
+  const seen = new Set<string>();
+  return left.filter((dir) => {
+    const key = workspaceRootKey(dir);
+    if (rightKeys.has(key) || excluded.has(key) || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function diffWorkspaceDirs(
+  previousPrimary: Readonly<Record<string, string>>,
+  previousDirs: readonly string[],
+  currentPrimary: Readonly<Record<string, string>>,
+  currentDirs: readonly string[],
+): WorkspaceDirsChanges {
+  const primary: WorkspacePrimaryChange[] = [];
+  for (const workspaceId of Object.keys(currentPrimary).toSorted()) {
+    const from = previousPrimary[workspaceId];
+    const to = currentPrimary[workspaceId];
+    if (from === undefined || to === undefined) continue;
+    if (workspaceRootKey(from) !== workspaceRootKey(to)) {
+      primary.push({ workspaceId, from, to });
+    }
+  }
+  const primaryPaths = new Set(
+    primary.flatMap((change) => [workspaceRootKey(change.from), workspaceRootKey(change.to)]),
+  );
+  return {
+    primary,
+    added: directoryDifference(currentDirs, previousDirs, primaryPaths),
+    removed: directoryDifference(previousDirs, currentDirs, primaryPaths),
+  };
+}
+
+function workspaceDirsChangeText(changes: WorkspaceDirsChanges, cwd: string): string {
+  const lines = ['Project directory configuration changed.'];
+  for (const change of changes.primary) {
+    lines.push(
+      `Primary directory for project ${change.workspaceId}: ${change.from} -> ${change.to}.`,
+    );
+  }
+  if (changes.added.length > 0) lines.push(`Added directories: ${changes.added.join(', ')}.`);
+  if (changes.removed.length > 0) {
+    lines.push(`Removed directories: ${changes.removed.join(', ')}.`);
+  }
+  lines.push(`Session cwd remains ${cwd}.`);
+  lines.push(
+    'The updated directory set is already effective for subsequent tool calls and supersedes earlier directory information.',
   );
   return lines.join('\n');
 }

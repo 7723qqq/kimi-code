@@ -47,6 +47,7 @@ function stubWorkspaceDirs(additionalDirs: readonly string[] = []): IWorkspaceDi
     onDidChange: () => ({ dispose: () => {} }),
     addDir: () => Promise.reject(new Error('not supported in tests')),
     mergeAdditionalDirs: () => Promise.resolve({ dispose: () => {} }),
+    reload: () => Promise.resolve(),
     sessionInfo: () => {
       throw new Error('not supported in tests');
     },

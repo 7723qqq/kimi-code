@@ -29,6 +29,10 @@ export const workspaceDirsRegistryDirsKey = defineState<readonly string[]>(
   'workspaceDirs.registryDirs',
   () => [],
 );
+export const workspaceDirsPrimaryByWorkspaceKey = defineState<Readonly<Record<string, string>>>(
+  'workspaceDirs.primaryByWorkspace',
+  () => ({}),
+);
 
 export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
   declare readonly _serviceBrand: undefined;
@@ -52,6 +56,7 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
     this.states.contributeState(workspaceDirsFileDirsKey);
     this.states.contributeState(workspaceDirsEphemeralDirsKey);
     this.states.contributeState(workspaceDirsRegistryDirsKey);
+    this.states.contributeState(workspaceDirsPrimaryByWorkspaceKey);
     this.projectRoot = workspace.cwd;
     this.configPath = '';
     this.ready = this.enqueue(async () => {
@@ -83,6 +88,14 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
 
   private set registryDirs(value: readonly string[]) {
     this.states.set(workspaceDirsRegistryDirsKey, value);
+  }
+
+  private get primaryByWorkspace(): Readonly<Record<string, string>> {
+    return this.states.get(workspaceDirsPrimaryByWorkspaceKey);
+  }
+
+  private set primaryByWorkspace(value: Readonly<Record<string, string>>) {
+    this.states.set(workspaceDirsPrimaryByWorkspaceKey, value);
   }
 
   private readonly ephemeralRefs = new Map<string, number>();
@@ -130,14 +143,25 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
     return !sameStringList(before, this.additionalDirs);
   }
 
+  reload(): Promise<void> {
+    return this.enqueue(async () => {
+      await this.reloadFromDisk();
+      await this.reloadFromRegistry();
+    });
+  }
+
   sessionInfo(): ISessionWorkspaceInfo {
     const currentDirs = (): readonly string[] => this.additionalDirs;
+    const currentPrimary = (): Readonly<Record<string, string>> => this.primaryByWorkspace;
     return {
       _serviceBrand: undefined,
       ready: this.ready,
       onDidChange: this.onDidChange,
       get additionalDirs() {
         return currentDirs();
+      },
+      get primaryByWorkspace() {
+        return currentPrimary();
       },
     };
   }
@@ -195,18 +219,25 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
         : [current, ...registered.filter((entry) => entry.id !== current.id)];
     const cwdKey = workspaceRootKey(this.workspace.cwd);
     const dirs: string[] = [];
+    const primary: Record<string, string> = {};
     for (const entry of entries) {
       const set = [entry.root, ...entry.additionalDirs];
       if (!set.some((dir) => workspaceRootKey(dir) === cwdKey)) continue;
+      primary[entry.id] = entry.root;
       for (const dir of set) {
         if (workspaceRootKey(dir) === cwdKey) continue;
         if (dirs.some((kept) => workspaceRootKey(kept) === workspaceRootKey(dir))) continue;
         dirs.push(dir);
       }
     }
-    const before = this.additionalDirs;
+    const beforeDirs = this.additionalDirs;
+    const beforePrimary = this.primaryByWorkspace;
     this.registryDirs = dirs;
-    if (!sameStringList(before, this.additionalDirs)) {
+    this.primaryByWorkspace = primary;
+    if (
+      !sameStringList(beforeDirs, this.additionalDirs) ||
+      !samePrimaryByWorkspace(beforePrimary, primary)
+    ) {
       this.onDidChangeEmitter.fire();
     }
   }
@@ -258,4 +289,13 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
 
 function sameStringList(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
+function samePrimaryByWorkspace(
+  a: Readonly<Record<string, string>>,
+  b: Readonly<Record<string, string>>,
+): boolean {
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  return keys.every((key) => a[key] === b[key]);
 }
