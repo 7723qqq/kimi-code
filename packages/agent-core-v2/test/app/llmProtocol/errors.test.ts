@@ -299,7 +299,7 @@ describe('isImageFormatError', () => {
     expect(isImageFormatError(new APIStatusError(400, 'invalid media type'))).toBe(false);
   });
 
-  it('is excluded from the transient-retry fallback so dedicated recovery fires first', () => {
+  it('honors normalized retryability before dedicated image recovery', () => {
     expect(isRetryableGenerateError(new ChatProviderError('transient blip'))).toBe(true);
     expect(
       isRetryableGenerateError(

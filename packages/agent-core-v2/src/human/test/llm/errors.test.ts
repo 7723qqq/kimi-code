@@ -469,4 +469,51 @@ describe('stream-source error classification', () => {
     });
     expect(failure['statusCode']).toBeUndefined();
   });
+
+  it('keeps an initial HTTP 429 as the status while a stream business 429 drops it', () => {
+    const rawError = () =>
+      new RawGoogleApiError({
+        message: JSON.stringify({ error: { code: 429, message: 'quota', status: 'RESOURCE_EXHAUSTED' } }),
+        status: 429,
+      });
+
+    expect(convertGoogleGenAIError(rawError())).toMatchObject({
+      kind: 'rate_limit',
+      statusCode: 429,
+      retryable: true,
+    });
+    expect(convertGoogleGenAIError(rawError(), undefined, 'stream')).toMatchObject({
+      kind: 'rate_limit',
+      statusCode: undefined,
+      retryable: true,
+    });
+  });
+
+  it('classifies a structured context code before the HTTP fallback', () => {
+    const failure = convertOpenAIError(
+      new RawOpenAISDKAPIError(
+        400,
+        { message: 'too long', code: 'context_length_exceeded' },
+        'too long',
+        new Headers(),
+      ),
+    );
+    expect(failure).toMatchObject({ kind: 'context_overflow', retryable: false });
+  });
+
+  it('preserves diagnostics for an unknown OpenAI stream business code', () => {
+    const failure = convertOpenAIError(
+      new RawOpenAISDKAPIError(
+        429,
+        { error: { message: 'backend stream rate limit', code: 'mystery_code' } },
+        'backend stream rate limit',
+        new Headers({ 'x-trace-id': 'trace-stream' }),
+      ),
+      undefined,
+      'stream',
+    );
+    expect(failure).toMatchObject({ kind: 'rate_limit', retryable: true });
+    expect(failure['statusCode']).toBeUndefined();
+    expect(failure.headers).toMatchObject({ 'x-trace-id': 'trace-stream' });
+  });
 });

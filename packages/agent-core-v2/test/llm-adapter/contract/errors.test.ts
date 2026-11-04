@@ -13,6 +13,8 @@ import {
   classifyApiError,
   createAbortError,
   isAbortError,
+  isImageFormatError,
+  isRecoverableRequestStructureError,
   isRetryableGenerateError,
   normalizeAPIStatusError,
   throwIfAbortError,
@@ -271,5 +273,81 @@ describe('model error retryability', () => {
     });
     expect(transient).toMatchObject({ retryable: true });
     expect(llmMessageFromError(transient)).toMatchObject({ kind: 'status', retryable: true });
+  });
+});
+
+describe('model error HTTP status source', () => {
+  it('uses explicit retryability instead of the HTTP status class', () => {
+    const retryableClientError = new APIStatusError(
+      400,
+      'retry this',
+      null,
+      null,
+      undefined,
+      undefined,
+      true,
+    );
+    const deterministicServerError = new APIStatusError(
+      503,
+      'do not retry this',
+      null,
+      null,
+      undefined,
+      undefined,
+      false,
+    );
+
+    expect(isRetryableGenerateError(retryableClientError)).toBe(true);
+    expect(isRetryableGenerateError(deterministicServerError)).toBe(false);
+  });
+
+  it('preserves a real model HTTP status', () => {
+    const error = errorFromLlmMessage({
+      kind: 'status',
+      message: 'backend HTTP 503',
+      statusCode: 503,
+      requestId: 'req-http',
+      retryAfterMs: null,
+      headers: { 'x-trace-id': 'trace-http' },
+      retryable: true,
+    });
+
+    expect(error).toMatchObject({
+      message: 'backend HTTP 503',
+      statusCode: 503,
+      traceId: 'trace-http',
+      retryable: true,
+    });
+    expect(isRetryableGenerateError(error)).toBe(true);
+    expect(llmMessageFromError(error)).toMatchObject({
+      headers: { 'x-trace-id': 'trace-http' },
+      retryable: true,
+    });
+  });
+
+  it('preserves a provider error code with its status and trace id', () => {
+    const error = new APIStatusError(
+      403,
+      'Forbidden',
+      'req-http',
+      null,
+      'trace-http',
+      'provider.auth_error',
+    );
+
+    expect(error).toMatchObject({
+      code: 'provider.auth_error',
+      statusCode: 403,
+      traceId: 'trace-http',
+    });
+    expect(isRetryableGenerateError(error)).toBe(false);
+  });
+
+  it('does not apply message recovery patterns without a real HTTP status', () => {
+    const structural = new APIStatusError(undefined, 'tool_use followed by tool_result');
+    const image = new APIStatusError(undefined, 'unsupported image format');
+
+    expect(isRecoverableRequestStructureError(structural)).toBe(false);
+    expect(isImageFormatError(image)).toBe(false);
   });
 });
