@@ -135,6 +135,6 @@ describe('startModelCatalogRefresh', () => {
     await flush();
 
     expect(stub.refreshCalls).toBe(1);
-    expect(log).toHaveBeenCalledWith('Model catalog refresh failed', expect.anything());
+    expect(log).toHaveBeenCalledWith('model_catalog_refresh_failed', expect.anything());
   });
 });

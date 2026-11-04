@@ -24,13 +24,13 @@ export function startModelCatalogRefresh(options: ModelCatalogRefreshOptions): (
     try {
       const result = await options.harness.refreshProviderModels({ scope: 'all' });
       if (result.failed.length > 0) {
-        options.log('Model catalog refresh completed with failures', result.failed);
+        options.log('model_catalog_refresh_partial', result.failed);
       }
       if (!disposed && result.changed.length > 0) {
         options.onChanged();
       }
     } catch (error) {
-      options.log('Model catalog refresh failed', error);
+      options.log('model_catalog_refresh_failed', error);
     } finally {
       refreshing = false;
     }
@@ -51,7 +51,7 @@ export function startModelCatalogRefresh(options: ModelCatalogRefreshOptions): (
         timer.unref?.();
       }
     } catch (error) {
-      options.log('Failed to start model catalog refresh', error);
+      options.log('model_catalog_refresh_start_failed', error);
     }
   })();
 

@@ -14,6 +14,7 @@ function info(overrides: Partial<PluginInfo> = {}): PluginInfo {
     displayName: 'Demo',
     version: '1.0.0',
     enabled: true,
+    origin: 'custom',
     state: 'ok',
     skillCount: 0,
     mcpServerCount: 0,

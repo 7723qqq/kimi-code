@@ -3398,7 +3398,7 @@ export class KimiTUI {
         replayTurnLimit: REPLAY_TURN_LIMIT,
       });
     } catch (error) {
-      log.error('failed to resume session', {
+      log.error('resume_session_failed', {
         sessionId: targetSessionId,
         error,
         details:

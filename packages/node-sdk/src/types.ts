@@ -87,9 +87,24 @@ export type {
   PluginGithubRef,
   PluginInfo,
   PluginMcpServerInfo,
+  PluginOrigin,
   PluginSource,
   PluginSummary,
   ReloadSummary,
+} from '@moonshot-ai/agent-core-v2';
+export type {
+  MarketplaceLocation,
+  MarketplaceUpdateStatus,
+  PluginClient,
+  PluginMarketplace,
+  PluginMarketplaceClassification,
+  PluginMarketplaceDistribution,
+  PluginMarketplaceEntry,
+  PluginMarketplaceLocale,
+  PluginMarketplaceLocalizedText,
+  PluginMarketplacePlatform,
+  PluginMarketplaceTier,
+  ReadPluginMarketplaceOptions,
 } from '@moonshot-ai/agent-core-v2';
 export type { SkillSummary } from '@moonshot-ai/agent-core-v2';
 export type { ToolInfo } from '#/tool';

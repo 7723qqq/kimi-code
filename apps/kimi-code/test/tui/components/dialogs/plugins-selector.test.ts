@@ -64,6 +64,7 @@ const superpowers = {
   hookCount: 0,
   commandCount: 0,
   hasErrors: false,
+  origin: 'custom' as const,
   source: 'local-path' as const,
 };
 
@@ -146,6 +147,7 @@ describe('plugins selector dialogs', () => {
         hookCount: 0,
         commandCount: 0,
         hasErrors: false,
+        origin: 'custom',
         source: 'zip-url',
         originalSource: 'https://code.kimi.com/kimi-code/plugins/official/kimi-datasource.zip',
       }),
@@ -162,6 +164,7 @@ describe('plugins selector dialogs', () => {
         hookCount: 0,
         commandCount: 0,
         hasErrors: false,
+        origin: 'custom',
         source: 'zip-url',
         originalSource: 'https://code.kimi.com/kimi-code/plugins/curated/superpowers.zip',
       }),
@@ -178,6 +181,7 @@ describe('plugins selector dialogs', () => {
         hookCount: 0,
         commandCount: 0,
         hasErrors: false,
+        origin: 'custom',
         source: 'zip-url',
         originalSource: 'https://cdn.kimi.com/kimi-computer-use/latest/kimi-cu-plugin.zip',
       }),
@@ -194,6 +198,7 @@ describe('plugins selector dialogs', () => {
         hookCount: 0,
         commandCount: 0,
         hasErrors: false,
+        origin: 'custom',
         source: 'zip-url',
         originalSource: 'https://code.kimi.com/demo.zip',
       }),
@@ -210,6 +215,7 @@ describe('plugins selector dialogs', () => {
         hookCount: 0,
         commandCount: 0,
         hasErrors: false,
+        origin: 'custom',
         source: 'local-path',
         originalSource: 'https://code.kimi.com/kimi-code/plugins/official/local',
       }),
@@ -229,6 +235,7 @@ describe('plugins selector dialogs', () => {
         hookCount: 0,
         commandCount: 0,
         hasErrors: false,
+        origin: 'custom',
         source: 'zip-url',
         originalSource,
       });
@@ -258,6 +265,7 @@ describe('plugins selector dialogs', () => {
       id: 'kimi-datasource',
       displayName: 'Kimi Datasource',
       enabled: true,
+      origin: 'custom' as const,
       state: 'ok' as const,
       skillCount: 0,
       mcpServerCount: 0,
@@ -270,6 +278,7 @@ describe('plugins selector dialogs', () => {
     expect(
       isOfficialPluginInstall({
         ...base,
+        origin: 'custom',
         source: 'zip-url',
         originalSource: 'https://code.kimi.com/kimi-code/plugins/official/kimi-datasource.zip',
       }),
@@ -277,6 +286,7 @@ describe('plugins selector dialogs', () => {
     expect(
       isOfficialPluginInstall({
         ...base,
+        origin: 'custom',
         source: 'zip-url',
         originalSource: 'https://code.kimi.ai/kimi-code/plugins/official/kimi-datasource.zip',
       }),
@@ -286,6 +296,7 @@ describe('plugins selector dialogs', () => {
         ...base,
         id: 'kimi-cu',
         displayName: 'Kimi Computer Use',
+        origin: 'custom',
         source: 'zip-url',
         originalSource: 'https://cdn.kimi.com/kimi-computer-use/latest/kimi-cu-plugin.zip',
       }),
@@ -297,6 +308,7 @@ describe('plugins selector dialogs', () => {
     expect(
       isOfficialPluginInstall({
         ...base,
+        origin: 'custom',
         source: 'zip-url',
         originalSource: 'http://127.0.0.1:58627/kimi-code/plugins/official/kimi-datasource.zip',
       }),
@@ -304,6 +316,7 @@ describe('plugins selector dialogs', () => {
     expect(
       isOfficialPluginInstall({
         ...base,
+        origin: 'custom',
         source: 'zip-url',
         originalSource: 'https://example.test/kimi-code/plugins/official/kimi-datasource.zip',
       }),
@@ -316,6 +329,7 @@ describe('plugins selector dialogs', () => {
         ...superpowers,
         id: 'kimi-cu',
         displayName: 'Kimi Computer Use',
+        origin: 'custom',
         source: 'zip-url',
         originalSource: 'https://cdn.kimi.com/kimi-computer-use/latest/kimi-cu-plugin.zip',
       },
@@ -323,6 +337,7 @@ describe('plugins selector dialogs', () => {
         ...superpowers,
         id: 'kimi-webbridge',
         displayName: 'Kimi Browser Extension',
+        origin: 'custom',
         source: 'zip-url',
         originalSource: 'https://code.kimi.com/kimi-code/plugins/official/kimi-webbridge.zip',
       },
@@ -1022,6 +1037,7 @@ describe('plugins selector dialogs', () => {
         hookCount: 0,
         commandCount: 0,
         hasErrors: false,
+        origin: 'custom',
         source: 'local-path',
         installedAt: '2026-05-29T00:00:00.000Z',
         root: '/plugins/kimi-datasource',
