@@ -395,6 +395,61 @@ describe('plugin manifest parser', () => {
     expect(result.manifest?.sessionStart).toEqual({ skill: 'onboarding' });
   });
 
+  it('loads interface locale files keyed by file name', async () => {
+    await mkdir(join(dir, 'locales'), { recursive: true });
+    await writeFile(
+      join(dir, 'locales', 'en.json'),
+      JSON.stringify({ displayName: 'Demo', shortDescription: 'A demo' }),
+      'utf8',
+    );
+    await writeFile(
+      join(dir, 'locales', 'zh.json'),
+      JSON.stringify({ displayName: '示例' }),
+      'utf8',
+    );
+    await writeFile(join(dir, 'locales', 'notes.txt'), 'ignored', 'utf8');
+    await writeFile(
+      join(dir, 'kimi.plugin.json'),
+      JSON.stringify({ name: 'demo', interface: { locales: './locales' } }),
+      'utf8',
+    );
+
+    const result = await parseManifest(dir);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.interfaceLocales).toEqual({
+      en: expect.objectContaining({ displayName: 'Demo', shortDescription: 'A demo' }),
+      zh: expect.objectContaining({ displayName: '示例' }),
+    });
+  });
+
+  it('warns about a locale file with no display fields and a locale path that is not a directory', async () => {
+    await mkdir(join(dir, 'locales'), { recursive: true });
+    await writeFile(join(dir, 'locales', 'en.json'), JSON.stringify({ unrelated: true }), 'utf8');
+    await writeFile(
+      join(dir, 'kimi.plugin.json'),
+      JSON.stringify({ name: 'demo', interface: { locales: './locales' } }),
+      'utf8',
+    );
+
+    const emptyFields = await parseManifest(dir);
+    expect(emptyFields.interfaceLocales).toBeUndefined();
+    expect(emptyFields.diagnostics.map((d) => d.message)).toEqual([
+      '"interface.locales" file has no supported display fields (en.json)',
+    ]);
+
+    await writeFile(
+      join(dir, 'kimi.plugin.json'),
+      JSON.stringify({ name: 'demo', interface: { locales: './kimi.plugin.json' } }),
+      'utf8',
+    );
+    const notADirectory = await parseManifest(dir);
+    expect(notADirectory.interfaceLocales).toBeUndefined();
+    expect(notADirectory.diagnostics.map((d) => d.message)).toContain(
+      '"interface.locales" path is not a directory',
+    );
+  });
+
   it('reads localized plugin interface fields and their overrides', async () => {
     await writeFile(
       join(dir, 'kimi.plugin.json'),
@@ -403,7 +458,6 @@ describe('plugin manifest parser', () => {
         interface: {
           displayName: 'Demo',
           defaultLocale: 'en',
-          locales: './locales.json',
           mcpOverrides: {
             search: { displayName: 'Search', description: 'Adds search', iconUrl: 'https://x/y.png' },
             empty: {},
@@ -422,7 +476,6 @@ describe('plugin manifest parser', () => {
     expect(result.manifest?.interface).toEqual({
       defaultLocale: 'en',
       displayName: 'Demo',
-      locales: './locales.json',
       mcpOverrides: {
         search: { displayName: 'Search', description: 'Adds search', iconUrl: 'https://x/y.png' },
       },

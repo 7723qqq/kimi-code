@@ -150,6 +150,7 @@ export interface PluginRecord {
   readonly skillInstructions?: string;
   readonly skillCount: number;
   readonly manifest?: PluginManifest;
+  readonly interfaceLocales?: Readonly<Record<string, PluginInterface>>;
   readonly manifestKind?: PluginManifestKind;
   readonly manifestPath?: string;
   readonly shadowedManifestPath?: string;

@@ -1,4 +1,4 @@
-import { readdir, realpath, stat } from 'node:fs/promises';
+import { readdir, readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 import { HookDefSchema, type HookDefConfig } from '#/features/externalHooks/configSection';
@@ -56,6 +56,7 @@ const KNOWN_TOP_LEVEL_FIELDS = [
 
 export interface ParsedManifestResult {
   readonly manifest?: PluginManifest;
+  readonly interfaceLocales?: Readonly<Record<string, PluginInterface>>;
   readonly manifestKind?: PluginManifestKind;
   readonly manifestPath?: string;
   readonly shadowedManifestPath?: string;
@@ -169,7 +170,14 @@ export async function parseManifest(pluginRoot: string): Promise<ParsedManifestR
     systemPrompt,
   };
 
-  return { manifest, manifestKind, manifestPath, shadowedManifestPath, diagnostics };
+  return {
+    manifest,
+    interfaceLocales: await readInterfaceLocales(pluginRoot, manifest, diagnostics),
+    manifestKind,
+    manifestPath,
+    shadowedManifestPath,
+    diagnostics,
+  };
 }
 
 function recordUnsupportedRuntimeFields(
@@ -620,6 +628,64 @@ function readInterfaceOverrides(raw: unknown): PluginInterface['mcpOverrides'] {
     };
     if (Object.values(override).some((field) => field !== undefined)) {
       entries.push([name, override]);
+    }
+  }
+  return entries.length === 0 ? undefined : Object.fromEntries(entries);
+}
+
+async function readInterfaceLocales(
+  pluginRoot: string,
+  manifest: PluginManifest,
+  diagnostics: PluginDiagnostic[],
+): Promise<Readonly<Record<string, PluginInterface>> | undefined> {
+  const value = manifest.interface?.locales;
+  if (value === undefined) return undefined;
+  const localeRoot = await resolvePluginPathField({
+    pluginRoot,
+    field: 'interface.locales',
+    value,
+    diagnostics,
+  });
+  if (localeRoot === undefined) return undefined;
+  if (!(await isDir(localeRoot))) {
+    diagnostics.push({ severity: 'warn', message: '"interface.locales" path is not a directory' });
+    return undefined;
+  }
+  let files: string[];
+  try {
+    files = await readdir(localeRoot);
+  } catch (error) {
+    diagnostics.push({
+      severity: 'warn',
+      message: `Failed to read "interface.locales": ${(error as Error).message}`,
+    });
+    return undefined;
+  }
+  const entries: Array<[string, PluginInterface]> = [];
+  for (const file of files) {
+    if (!file.endsWith('.json')) continue;
+    const locale = file.slice(0, -'.json'.length);
+    const real = await realpath(path.join(localeRoot, file)).catch(() => undefined);
+    if (real === undefined || !isWithin(real, localeRoot) || !(await isFile(real))) {
+      diagnostics.push({ severity: 'warn', message: `"interface.locales" file is invalid (${file})` });
+      continue;
+    }
+    try {
+      const raw: unknown = JSON.parse(await readFile(real, 'utf8'));
+      const localized = readInterface(raw);
+      if (localized === undefined) {
+        diagnostics.push({
+          severity: 'warn',
+          message: `"interface.locales" file has no supported display fields (${file})`,
+        });
+        continue;
+      }
+      entries.push([locale, localized]);
+    } catch (error) {
+      diagnostics.push({
+        severity: 'warn',
+        message: `Failed to parse interface locale "${locale}": ${(error as Error).message}`,
+      });
     }
   }
   return entries.length === 0 ? undefined : Object.fromEntries(entries);

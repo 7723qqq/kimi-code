@@ -669,6 +669,7 @@ async function recordFrom(input: {
     github: input.github,
     skillCount: await countDiscoveredPluginSkills(input.id, parsed.manifest, input.discoverSkills),
     manifest: parsed.manifest,
+    interfaceLocales: parsed.interfaceLocales,
     manifestKind: parsed.manifestKind,
     manifestPath: parsed.manifestPath,
     shadowedManifestPath: parsed.shadowedManifestPath,
