@@ -13,9 +13,9 @@
  * Migrated so far:
  * - `getExperimentalFeatures` → `klient.global.flags.list()`
  * - `listWorkspaceSkills` → not covered by the klient facade, so it goes
- *   through the `engineAccessor` escape hatch (the workspace handler's
+ *   through the `engineAccessor` escape hatch (the workspace instance's
  *   `IWorkspaceSkillCatalog`) instead.
- * - `suggestFiles` → same escape hatch (the workspace handler's
+ * - `suggestFiles` → same escape hatch (the workspace instance's
  *   `IWorkspaceFsService`).
  * - `getConfig` / `setConfig` / `removeProvider` / `getConfigDiagnostics` →
  *   `klient.global.config.*`, with the v1 `KimiConfig` shape restored by the
@@ -31,7 +31,8 @@
  *   `updateSessionMetadata` / `addAdditionalDir` → the session lifecycle
  *   batch: `klient.global.sessions.list` plus the `klient.session(id)`
  *   metadata mutations where the facade reaches, and the
- *   `IWorkspaceLifecycleService` / handler chain / session-scope services through
+ *   `ISessionManager`, `IWorkspaceInstanceManager`, and session-scope services
+ *   through
  *   {@link engineAccessor} where it does not (explicit session ids, resume,
  *   fork ids, delete, the workspace-level add-dir surface). The v1 `SessionSummary` / `SessionMeta`
  *   shapes are restored by the pure mapping layer in
@@ -528,7 +529,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       }),
       // A session closed without going through this client (archive, an
       // engine-initiated close) drops its wiring with the scope. Close events
-      // fire per workspace handler, so follow every handler — present and
+      // fire per workspace instance, so follow every instance — present and
       // future — through the App-scope registry.
       followSessionLifecycles(this.app.accessor, (service) =>
         service.onDidCloseSession((closed) => {
@@ -694,11 +695,11 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   }
 
   /**
-   * Through the workspace handler's `IWorkspaceSkillCatalog` — the engine's
+   * Through the workspace instance's `IWorkspaceSkillCatalog` — the engine's
    * own merged view (builtin / user / explicit / extra / workspace-root /
    * plugin), so the session-less list matches what a session would serve.
-   * `handlerFor` is create-or-get: session creation materializes the handler
-   * anyway.
+   * `IWorkspaceInstanceManager.acquire` is create-or-get: session creation
+   * materializes the instance anyway.
    */
   override async listWorkspaceSkills(workDir: string): Promise<readonly SkillSummary[]> {
     const lease = await this.engineAccessor
@@ -714,7 +715,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   }
 
   /**
-   * Through the workspace handler's `IWorkspaceFsService` — the same engine
+   * Through the workspace instance's `IWorkspaceFsService` — the same engine
    * suggest the kap-server `fs:suggest` routes serve (fuzzy scoring,
    * directories included, gitignore respected), so in-process hosts match
    * the web client's @ mention results.
@@ -759,7 +760,8 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
 
   /**
    * klient has no workspace-trust facade; composed directly from the engine
-   * via {@link engineAccessor} — the same `handlerFor({ root })` path
+   * via {@link engineAccessor} — the same `IWorkspaceInstanceManager.acquire({ root })`
+   * path
    * `createSession` takes. The disclosure of what trusting would activate is
    * computed inside the engine by `WorkspaceTrustDisclosureService`.
    */
@@ -1025,7 +1027,8 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   //
   // The v2 engine splits what v1's SessionStore + in-memory session map did
   // across the app-scope `ISessionIndex` (persisted read model),
-  // `IWorkspaceLifecycleService` (live workspace handlers and, under them, the
+  // `ISessionManager` (live sessions and per-workspace lifecycle controllers),
+  // `IWorkspaceInstanceManager` (leased workspace `Program` instances), and
   // live session scopes), and the session-scope
   // metadata/workspace services. The klient facade covers listing and the
   // metadata mutations of a LIVE session; everything that needs an explicit
@@ -1447,7 +1450,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
 
   /**
    * v1 semantics: register the workDir as a workspace and create the session
-   * (the handler's `ISessionLifecycleService.create` does both; the klient facade
+   * (the App-scoped `ISessionManager.create` does both; the klient facade
    * wrapper is bypassed because it takes neither an explicit session id nor
    * caller metadata). The `model` / `thinking` / `permission` options are the
    * main-agent configuration v1 applies eagerly at creation: supplying any of
@@ -1548,7 +1551,8 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   }
 
   /**
-   * Through `engineAccessor` (the handler chain's `ISessionLifecycleService.fork`) because the
+   * Through `engineAccessor` (the App-scoped `ISessionManager.fork`) because
+   * the
    * klient facade fork takes no explicit target id. `turnIndex` truncation and
    * the live-source busy rejection (v1's `SESSION_FORK_ACTIVE_TURN`) are the
    * engine's own now, so their failures cross the in-process call with v1's
@@ -1593,7 +1597,8 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   }
 
   /**
-   * Through `engineAccessor` (the handler chain's
+   * Through `engineAccessor` (the App-scoped `ISessionManager.delete`)
+   * `ISessionManager.delete`
    * `ISessionLifecycleService.delete`) because the klient facade's
    * `session(id).delete()` reports a missing session with its own
    * `RPCError(NOT_FOUND)` where v1's store failure is a
@@ -1624,7 +1629,8 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
 
   /**
    * Materializes the session through `engineAccessor`
-   * (`resumeSessionById` through the handler chain; the facade only offers `restore`,
+   * (`resumeSessionById` through `ISessionManager`; the facade only offers
+   * `restore`,
    * which would also clear the archived flag — v1's resume does not).
    * `includeSubagents` / `replayTurnLimit` shape the returned per-agent
    * snapshot exactly like v1: subagent states are folded best-effort from
@@ -1634,7 +1640,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   override async resumeSession(input: ResumeSessionInput): Promise<ResumedSessionSummary> {
     // v1 re-resolves caller-provided additional dirs on every resume and
     // merges them over the workspace-local set; the engine's resume options
-    // union them into the handler's shared in-memory set while the session
+    // union them into the workspace-local shared in-memory set while the
     // scope is materialized. Unlike v1, the v2
     // engine has no caller `mcpServers` channel on create/resume (caller
     // servers are an ACP-side concern to be designed separately).
@@ -1834,7 +1840,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   }
 
   /**
-   * Through the session's handler (`IWorkspaceDirs`, workspace scope) — the
+   * Through the leased `WorkspaceInstance.program.dirs` (`IWorkspaceDirs`) — the
    * workspace-level add-dir surface: `persist: true` (default) appends to the
    * project-local `.kimi-code/local.toml`, `persist: false` joins the
    * handler's shared in-memory set. The set is shared by every session of
@@ -3005,7 +3011,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
 
   /**
    * Through the session scope (the seeded `ISessionMcpHandle.connectionManager`
-   * — the workspace handler's one shared manager). This is a live snapshot:
+   * — the workspace instance's one shared manager). This is a live snapshot:
    * create/resume no longer waits for MCP startup, so entries may still be
    * pending. The v2 `McpServerEntry` is field-identical with v1's
    * `McpServerInfo` (the cast bridges the two packages' type declarations).
@@ -3016,9 +3022,10 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   }
 
   /**
-   * Workspace-level MCP view (the handler's one shared connection set), so
+   * Workspace-level MCP view (the workspace `Program`'s shared connection set),
+   * so
    * `/mcp` is inspectable on a v2 session-less startup before any session
-   * exists. Awaits `ready` so a fresh handler's initial connect settles
+   * exists. Awaits `ready` so a fresh instance's initial connect settles
    * before the list is read.
    * Same `McpServerEntry`-as-`McpServerInfo` cast as listMcpServers.
    */
@@ -3077,7 +3084,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * validate, optionally persist to the user-level file, then upsert through
    * `connect`. Two accepted gaps against v1: the v2 entry carries no
    * `source`/`config` tags (the manager does not track origins), and the one
-   * shared manager per workspace handler makes an unpersisted add visible to
+   * shared manager per workspace instance makes an unpersisted add visible to
    * sibling sessions of the same workspace. The same merged-view limitation
    * as {@link reconnectMcpServer} applies.
    */

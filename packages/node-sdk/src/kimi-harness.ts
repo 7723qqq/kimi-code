@@ -370,7 +370,7 @@ export class KimiHarness {
 
   /**
    * Workspace-level MCP server list, no session required. The engine owns one
-   * shared connection set per workspace handler, so `/mcp` is inspectable
+   * shared connection set per workspace `Program`, so `/mcp` is inspectable
    * before the first session exists.
    */
   async listWorkspaceMcpServers(workDir: string): Promise<readonly McpServerInfo[]> {
