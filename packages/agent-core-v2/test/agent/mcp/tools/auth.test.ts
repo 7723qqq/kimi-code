@@ -51,6 +51,7 @@ describe('createMcpAuthTool', () => {
   it('returns the authorization URL via status updates and final output on success', async () => {
     let reconnectCalls = 0;
     const oauthService = fakeOAuthService(async () => ({
+      waitId: 'wait-1',
       authorizationUrl: new URL('https://example.com/authorize?state=abc'),
       complete: async () => undefined,
       cancel: async () => undefined,
@@ -110,6 +111,7 @@ describe('createMcpAuthTool', () => {
 
   it('returns isError and surfaces the URL when complete rejects', async () => {
     const oauthService = fakeOAuthService(async () => ({
+      waitId: 'wait-1',
       authorizationUrl: new URL('https://example.com/authorize?state=abc'),
       complete: async () => {
         throw new Error('OAuth callback timed out');
@@ -128,6 +130,7 @@ describe('createMcpAuthTool', () => {
 
   it('returns isError when reconnect after success fails', async () => {
     const oauthService = fakeOAuthService(async () => ({
+      waitId: 'wait-1',
       authorizationUrl: new URL('https://example.com/authorize?state=abc'),
       complete: async () => undefined,
       cancel: async () => undefined,
@@ -148,6 +151,7 @@ describe('createMcpAuthTool', () => {
     const oauthService = fakeOAuthService(async () => {
       beginCalled = true;
       return {
+        waitId: 'wait-1',
         authorizationUrl: new URL('https://example.com/authorize?state=abc'),
         complete: async () => undefined,
         cancel: async () => undefined,

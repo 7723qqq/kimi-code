@@ -1435,6 +1435,7 @@ describe('McpManagementService', () => {
       );
       const cancel = mock(async () => undefined);
       const begin = spyOn(oauth, 'beginAuthorization').mockResolvedValue({
+        waitId: 'wait-1',
         authorizationUrl: new URL('https://project.example.test/authorize'),
         complete: mock(async () => undefined),
         cancel,
@@ -1660,6 +1661,7 @@ describe('McpManagementService', () => {
       });
       const cancel = mock(async () => undefined);
       const beginSpy = spyOn(oauth, 'beginAuthorization').mockResolvedValue({
+        waitId: 'wait-1',
         authorizationUrl: new URL('https://oauthable.example.test/authorize'),
         complete: mock(async () => undefined),
         cancel,

@@ -13,6 +13,7 @@ import {
 export { MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE } from '#/tool/toolContract';
 
 export interface McpOAuthAuthorizationUrlUpdateData {
+  readonly waitId: string;
   readonly serverName: string;
   readonly authorizationUrl: string;
   readonly expiresAt?: number;
@@ -83,6 +84,7 @@ export function createMcpAuthTool(options: CreateMcpAuthToolOptions): Executable
     const urlText = flow.authorizationUrl.toString();
     const waitTimeoutMs = timeoutMs ?? DEFAULT_AUTH_TIMEOUT_MS;
     const customData: McpOAuthAuthorizationUrlUpdateData = {
+      waitId: flow.waitId,
       serverName,
       authorizationUrl: urlText,
       expiresAt: Date.now() + waitTimeoutMs,

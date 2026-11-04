@@ -179,7 +179,7 @@ describe('startCallbackServer', () => {
 });
 
 describe('McpOAuthService cancellation', () => {
-  it('rejects an in-flight completion when the authorization flow is cancelled', async () => {
+  it('rejects an in-flight completion when its authorization wait is cancelled', async () => {
     const service = new McpOAuthService({ store: createMemoryMcpOAuthStore() });
     cleanups.push(() => service.dispose());
     const registrationServer = await startRegistrationServer();
@@ -205,9 +205,16 @@ describe('McpOAuthService cancellation', () => {
 
     const flow = await service.beginAuthorization('example', 'https://mcp.example.test/rpc');
     const completion = flow.complete({ timeoutMs: 10_000 });
+    const settled = completion.then(
+      () => ({ ok: true as const }),
+      (error: unknown) => ({ ok: false as const, error }),
+    );
 
     await flow.cancel();
 
-    await expect(completion).rejects.toThrow('OAuth callback listener closed');
+    const outcome = await settled;
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) throw new Error('expected the completion to reject');
+    expect((outcome.error as Error).message).toContain('OAuth authorization wait cancelled');
   }, 15000);
 });

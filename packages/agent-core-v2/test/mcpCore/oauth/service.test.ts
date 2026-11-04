@@ -921,6 +921,60 @@ describe('McpOAuthService interactive flow serialization', () => {
     expect(authServer.counts.exchange).toBe(1);
   }, 15000);
 
+  it('keeps a joined completion alive when the first completing caller aborts', async () => {
+    const fixture = makeFixture();
+    cleanups.push(() => fixture.service.dispose());
+    const authServer = await startFakeAuthServer();
+    const provider = await readyProvider(fixture);
+    await provider.saveDiscoveryState(authServerState(authServer.url).discovery);
+
+    const first = await fixture.service.beginAuthorization(SERVER_NAME, SERVER_URL);
+    const second = await fixture.service.beginAuthorization(SERVER_NAME, SERVER_URL);
+    const controller = new AbortController();
+    const firstCompletion = first.complete({ signal: controller.signal, timeoutMs: 10_000 });
+    const firstSettled = firstCompletion.then(
+      () => 'resolved' as const,
+      () => 'rejected' as const,
+    );
+    const secondCompletion = second.complete({ timeoutMs: 10_000 });
+    controller.abort();
+
+    await expect(firstSettled).resolves.toBe('rejected');
+    await deliverCallback(second);
+    await secondCompletion;
+    expect(authServer.counts.exchange).toBe(1);
+  }, 15000);
+
+  it('keeps the callback timeout from limiting the token exchange', async () => {
+    const gated = await startGatedExchangeAuthServer();
+    const fixture = makeFixture();
+    cleanups.push(() => fixture.service.dispose());
+    cleanups.push(() => {
+      gated.releaseExchange();
+    });
+    const provider = fixture.service.getProvider(SERVER_NAME, gated.url);
+    await provider.ready;
+    const state = authServerState(gated.url);
+    await provider.saveDiscoveryState(state.discovery);
+    await provider.saveClientInformation(state.client);
+
+    const flow = await fixture.service.beginAuthorization(SERVER_NAME, gated.url);
+    const timeoutMs = 100;
+    const completion = flow
+      .complete({ timeoutMs })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    await deliverCallback(flow);
+    await gated.exchangeStarted;
+    await new Promise((resolve) => setTimeout(resolve, timeoutMs + 20));
+    gated.releaseExchange();
+
+    expect(await completion).toBeUndefined();
+    expect((await fixture.service.tokenState(SERVER_NAME, gated.url)).hasTokens).toBe(true);
+  }, 15000);
+
   it('keeps the shared flow active when the first handle cancels, so a joined handle completes', async () => {
     const fixture = makeFixture();
     cleanups.push(() => fixture.service.dispose());

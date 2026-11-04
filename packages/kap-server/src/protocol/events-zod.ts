@@ -564,6 +564,7 @@ export const toolUpdateSchema = z.object({
 }) satisfies z.ZodType<ToolUpdate>;
 
 export const mcpOAuthAuthorizationUrlUpdateDataSchema = z.object({
+  waitId: z.string(),
   serverName: z.string(),
   authorizationUrl: z.string(),
   expiresAt: z.number().optional(),

@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import {
   auth,
   discoverOAuthServerInfo,
@@ -5,6 +7,7 @@ import {
 } from '@modelcontextprotocol/sdk/client/auth.js';
 import type { OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
 
+import { abortable, createDeadlineAbortSignal } from '#/_base/utils/abort';
 import type { ILogger as Logger } from '#/_base/log/log';
 import { ErrorCodes, Error2, isError2 } from '#/errors';
 
@@ -51,6 +54,7 @@ export interface BeginAuthorizationOptions {
 }
 
 export interface BeginAuthorizationResult {
+  readonly waitId: string;
   readonly authorizationUrl: URL;
   complete(opts?: { signal?: AbortSignal; timeoutMs?: number }): Promise<void>;
   cancel(): Promise<void>;
@@ -124,6 +128,7 @@ export class McpOAuthService {
   private readonly refreshes = new Map<string, Promise<void>>();
   private readonly refreshTimers = new Map<string, McpOAuthScheduledTask>();
   private readonly activeAuthorizations = new Map<string, ActiveAuthorization>();
+  private readonly authorizationWaits = new Map<string, () => Promise<void>>();
   private readonly backgroundTasks = new Set<Promise<unknown>>();
   private shuttingDown = false;
   private shutdownPromise: Promise<void> | undefined;
@@ -357,7 +362,7 @@ export class McpOAuthService {
       serverName,
       serverUrl,
       options,
-      controller.signal,
+      controller,
       serverRef,
     );
     this.activeAuthorizations.set(storeKey, { started, controller, serverRef });
@@ -371,13 +376,18 @@ export class McpOAuthService {
     return flow.attach();
   }
 
+  async cancelAuthorizationWait(waitId: string): Promise<void> {
+    await this.authorizationWaits.get(waitId)?.();
+  }
+
   private async startAuthorizationFlow(
     serverName: string,
     serverUrl: string | URL,
     options: BeginAuthorizationOptions,
-    signal: AbortSignal,
+    controller: AbortController,
     serverRef: { current: CallbackServer | undefined },
   ): Promise<SharedAuthorizationFlow> {
+    const { signal } = controller;
     const storeKey = mcpOAuthStoreKey(serverName, serverUrl);
     const provider =
       options.clientLabel === undefined
@@ -450,15 +460,22 @@ export class McpOAuthService {
     let settled = false;
     let completion: Promise<void> | undefined;
     let attachedHandles = 0;
+    let callbackSettled = false;
+    const callbackDeadlines = new Set<() => void>();
+    const waitIds = new Set<string>();
     const settle = async (): Promise<void> => {
       if (settled) return;
       settled = true;
-      this.activeAuthorizations.delete(storeKey);
+      if (this.activeAuthorizations.get(storeKey)?.serverRef === serverRef) {
+        this.activeAuthorizations.delete(storeKey);
+      }
+      for (const waitId of waitIds) this.authorizationWaits.delete(waitId);
+      waitIds.clear();
       provider.resetFlow();
       await callbackServer.close().catch(() => undefined);
     };
 
-    const startCompletion: BeginAuthorizationResult['complete'] = (opts = {}) => {
+    const startCompletion = (): Promise<void> => {
       if (completion !== undefined) return completion;
       if (settled) {
         return Promise.reject(
@@ -467,9 +484,10 @@ export class McpOAuthService {
       }
       completion = (async () => {
         try {
-          const { code, state } = await callbackServer.waitForCode({
-            signal: opts.signal,
-            timeoutMs: opts.timeoutMs,
+          const { code, state } = await callbackServer.waitForCode({ signal }).finally(() => {
+            callbackSettled = true;
+            for (const clear of callbackDeadlines) clear();
+            callbackDeadlines.clear();
           });
           const expectedState = provider.expectedState();
           if (expectedState !== undefined && state !== expectedState) {
@@ -481,10 +499,7 @@ export class McpOAuthService {
           const finalResult = await auth(provider as OAuthClientProvider, {
             serverUrl,
             authorizationCode: code,
-            fetchFn: this.authFetch(
-              provider,
-              opts.signal === undefined ? [signal] : [signal, opts.signal],
-            ),
+            fetchFn: this.authFetch(provider, [signal]),
           });
           if (finalResult !== 'AUTHORIZED') {
             throw new Error2(
@@ -495,7 +510,7 @@ export class McpOAuthService {
           }
         } catch (error) {
           await settle();
-          throw wrapAuthError(`OAuth flow for "${serverName}" failed`, error);
+          throw error;
         }
         await settle();
       })();
@@ -505,14 +520,29 @@ export class McpOAuthService {
 
     const attach = (): BeginAuthorizationResult => {
       attachedHandles += 1;
+      const waitId = randomUUID();
+      const waiter = new AbortController();
       let detached = false;
+      let waiting: Promise<void> | undefined;
       const detach = async (): Promise<void> => {
         if (detached) return;
         detached = true;
+        this.authorizationWaits.delete(waitId);
+        waitIds.delete(waitId);
         attachedHandles -= 1;
-        if (attachedHandles === 0) await settle();
+        if (attachedHandles === 0 && !settled) {
+          controller.abort(new Error('OAuth authorization wait cancelled'));
+          await settle();
+        }
       };
+      const cancel = async (): Promise<void> => {
+        waiter.abort(new Error('OAuth authorization wait cancelled'));
+        await detach();
+      };
+      waitIds.add(waitId);
+      this.authorizationWaits.set(waitId, cancel);
       return {
+        waitId,
         authorizationUrl,
         complete: async (opts = {}) => {
           if (detached) {
@@ -521,13 +551,37 @@ export class McpOAuthService {
               'OAuth flow already completed or cancelled',
             );
           }
-          try {
-            await startCompletion(opts);
-          } finally {
-            await detach();
-          }
+          waiting ??= (async () => {
+            const waitSignal =
+              opts.signal === undefined
+                ? waiter.signal
+                : AbortSignal.any([waiter.signal, opts.signal]);
+            const deadline =
+              opts.timeoutMs === undefined || callbackSettled
+                ? undefined
+                : createDeadlineAbortSignal(waitSignal, opts.timeoutMs);
+            if (deadline !== undefined) callbackDeadlines.add(deadline.clear);
+            try {
+              await abortable(
+                startCompletion(),
+                deadline === undefined
+                  ? waitSignal
+                  : AbortSignal.any([waitSignal, deadline.signal]),
+              );
+            } catch (error) {
+              throw wrapAuthError(
+                `OAuth flow for "${serverName}" failed`,
+                deadline?.timedOut() ? new Error('OAuth callback timed out') : error,
+              );
+            } finally {
+              deadline?.clear();
+              if (deadline !== undefined) callbackDeadlines.delete(deadline.clear);
+              await detach();
+            }
+          })();
+          await waiting;
         },
-        cancel: detach,
+        cancel,
       };
     };
 
