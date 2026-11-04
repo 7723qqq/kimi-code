@@ -114,6 +114,8 @@ export function useAppInit(): AppInitState {
   }, [setModels]);
 
   useEffect(() => {
+    let cancelled = false;
+
     async function init() {
       try {
         const workspace = await bridge.checkWorkspace();
