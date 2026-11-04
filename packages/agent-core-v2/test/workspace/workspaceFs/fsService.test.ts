@@ -113,7 +113,27 @@ function fakeFs(
     err.code = 'ENOENT';
     return err;
   };
-  const lstatImpl = async (p: string) => {
+  const rewritePrefix = (input: string): string => {
+    let current = input;
+    for (let hops = 0; hops < 10; hops += 1) {
+      let longest: string | undefined;
+      for (const linkPath of symlinkSet) {
+        if (
+          (current.startsWith(`${linkPath}/`) || current === linkPath) &&
+          (longest === undefined || linkPath.length > longest.length)
+        ) {
+          longest = linkPath;
+        }
+      }
+      if (longest === undefined) return current;
+      const target = symlinkTargetMap.get(longest);
+      if (target === undefined) return current;
+      current = `${target}${current.slice(longest.length)}`;
+    }
+    return current;
+  };
+  const lstatImpl = async (rawPath: string) => {
+    const p = symlinkSet.has(rawPath) ? rawPath : rewritePrefix(rawPath);
     if (fileMap.has(p)) {
       const c = fileMap.get(p)!;
       const rel = p.startsWith(`${WORK_DIR}/`) ? p.slice(WORK_DIR.length + 1) : p;
@@ -168,8 +188,14 @@ function fakeFs(
       }
       return lstatImpl(cur);
     },
-    readdir: async (p) => {
-      if (!isDir(p)) throw enoent(p);
+    readdir: async (rawPath) => {
+      let p = rawPath;
+      for (let hops = 0; hops < 10 && symlinkSet.has(p); hops += 1) {
+        const target = symlinkTargetMap.get(p);
+        if (target === undefined) break;
+        p = isAbsolute(target) ? target : join(p, '..', target);
+      }
+      if (!isDir(p)) throw enoent(rawPath);
       const prefix = `${p}/`;
       const children = new Map<string, HostDirEntry>();
       const addDir = (name: string): void => {
@@ -2055,6 +2081,85 @@ describe('WorkspaceFsService symlink confinement', () => {
     ).rejects.toMatchObject({ code: 'fs.path_escapes' });
   });
 
+  it('expands a symlinked directory inside the workspace and marks it as a directory', async () => {
+    const fs = makeSession(
+      { 'real/inner.ts': '', 'top.ts': '' },
+      emptyHandler,
+      [],
+      defaultGitStub(),
+      [],
+      undefined,
+      { link: join(WORK_DIR, 'real') },
+    );
+
+    const listed = await fs.list({
+      path: '.',
+      depth: 2,
+      limit: 200,
+      show_hidden: false,
+      follow_gitignore: false,
+      sort: 'name_asc',
+      include_git_status: false,
+    });
+    const link = listed.items.find((entry) => entry.path === 'link');
+    expect(link?.kind).toBe('symlink');
+    expect(link?.is_directory).toBe(true);
+    expect(listed.children_by_path?.['link']?.map((entry) => entry.path)).toEqual([
+      'link/inner.ts',
+    ]);
+  });
+
+  it('does not expand a symlink whose target is outside the workspace', async () => {
+    const fs = makeSession(
+      { 'top.ts': '', '/outside/secret.ts': '' },
+      emptyHandler,
+      [],
+      defaultGitStub(),
+      [],
+      undefined,
+      { link: '/outside' },
+    );
+
+    const listed = await fs.list({
+      path: '.',
+      depth: 2,
+      limit: 200,
+      show_hidden: false,
+      follow_gitignore: false,
+      sort: 'name_asc',
+      include_git_status: false,
+    });
+    expect(listed.items.find((entry) => entry.path === 'link')?.is_directory).toBeUndefined();
+    expect(listed.children_by_path?.['link']).toBeUndefined();
+  });
+
+  it('expands an external symlink only when the caller allows it', async () => {
+    const fs = makeSession(
+      { 'top.ts': '', '/outside/deep.ts': '' },
+      emptyHandler,
+      [],
+      defaultGitStub(),
+      [],
+      undefined,
+      { link: '/outside' },
+    );
+
+    const listed = await fs.list({
+      path: '.',
+      depth: 2,
+      limit: 200,
+      show_hidden: false,
+      follow_gitignore: false,
+      sort: 'name_asc',
+      include_git_status: false,
+      allow_external_symlinks: true,
+    });
+    expect(listed.items.find((entry) => entry.path === 'link')?.is_directory).toBe(true);
+    expect(listed.children_by_path?.['link']?.map((entry) => entry.path)).toEqual([
+      'link/deep.ts',
+    ]);
+  });
+
   it('rejects stat, mkdir, resolvePath and resolveDownload through a symlinked directory', async () => {
     const fs = escapeSession();
     await expect(fs.stat({ path: 'docs/secret.txt' })).rejects.toMatchObject({
@@ -2071,8 +2176,7 @@ describe('WorkspaceFsService symlink confinement', () => {
     });
   });
 
-  it('rejects statMany when any path escapes through a symlinked directory', async () => {
-    const fs = escapeSession();
+  it('rejects statMany when any path escapes through a symlinked directory', async () => {    const fs = escapeSession();
     await expect(fs.statMany({ paths: ['docs/secret.txt'] })).rejects.toMatchObject({
       code: 'fs.path_escapes',
     });

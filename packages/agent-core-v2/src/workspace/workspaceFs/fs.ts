@@ -57,6 +57,7 @@ export const fsEntrySchema = z.object({
   language_id: z.string().optional(),
   is_binary: z.boolean().optional(),
   is_symlink_to: z.string().optional(),
+  is_directory: z.boolean().optional(),
   git_status: fsGitStatusSchema.optional(),
   child_count: z.number().int().nonnegative().optional(),
 });
@@ -105,6 +106,7 @@ export const fsListRequestSchema = z.object({
   allow_ignored_globs: z.array(z.string()).optional(),
   sort: fsListSortSchema.default('type_first'),
   include_git_status: z.boolean().default(false),
+  allow_external_symlinks: z.boolean().optional(),
 });
 export type FsListRequest = z.infer<typeof fsListRequestSchema>;
 
@@ -124,6 +126,7 @@ export const fsReadRequestSchema = z.object({
   offset: z.number().int().nonnegative().default(0),
   length: z.number().int().min(1).max(10_485_760).default(1_048_576),
   encoding: fsReadEncodingRequestSchema.default('auto'),
+  allow_external_symlinks: z.boolean().optional(),
 });
 export type FsReadRequest = z.infer<typeof fsReadRequestSchema>;
 
@@ -288,7 +291,7 @@ export interface IWorkspaceFsService {
   pullRequestBatch(req: FsPullRequestBatchRequest): Promise<FsPullRequestBatchResponse>;
   diff(req: FsDiffRequest): Promise<FsDiffResponse>;
   resolvePath(relPath: string): Promise<FsPathResolved>;
-  resolveDownload(relPath: string): Promise<FsDownloadResolved>;
+  resolveDownload(relPath: string, allowExternalSymlinks?: boolean): Promise<FsDownloadResolved>;
 }
 
 export const IWorkspaceFsService: ServiceIdentifier<IWorkspaceFsService> =
