@@ -59,6 +59,7 @@ function makeBroadcaster(): SessionEventBroadcaster {
     addGlobalTarget: () => {},
     removeGlobalTarget: () => {},
     getCursor: async () => ({ seq: 0, epoch: '' }),
+    sendPendingInteractions: () => {},
     getBufferedSince: async () => ({
       events: [],
       resyncRequired: false,
@@ -238,6 +239,7 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
       addGlobalTarget: () => {},
       removeGlobalTarget: () => {},
       getCursor: async () => ({ seq: 0, epoch: '' }),
+      sendPendingInteractions: () => {},
       getBufferedSince: async () => ({
         events: [],
         resyncRequired: false,
@@ -251,6 +253,43 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
   function controlFrame(type: string, payload: Record<string, unknown>): string {
     return JSON.stringify({ type, id: 'req-1', payload });
   }
+
+  it('sends the pending interactions of each accepted session right after the ack', async () => {
+    const socket = new FakeSocket();
+    const { broadcaster } = makeCapturingBroadcaster();
+    broadcaster.sendPendingInteractions = (sessionId, target) => {
+      target.send(
+        {
+          type: 'interaction',
+          session_id: sessionId,
+          agent_id: 'main',
+          event_created_at: new Date(0).toISOString(),
+          interaction_id: 'q1',
+          status: 'pending',
+          kind: 'question',
+          request: { questions: [{ id: 'q_0', question: 'Pick', options: [] }] },
+        },
+        'immediate',
+      );
+    };
+    const conn = makeConn(socket, { broadcaster });
+    const types = () =>
+      (socket.frames() as { type: string }[])
+        .map((f) => f.type)
+        .filter((type) => type !== 'server_hello');
+
+    socket.emit('message', controlFrame('subscribe', { session_ids: ['s1'] }));
+    await waitForAssertion(() => expect(types()).toEqual(['ack', 'interaction']));
+
+    socket.emit(
+      'message',
+      controlFrame('subscribe_v2', { session_id: 's1', transcript: { main: 'delta' } }),
+    );
+    await waitForAssertion(() =>
+      expect(types()).toEqual(['ack', 'interaction', 'ack', 'interaction']),
+    );
+    conn.close();
+  });
 
   it('forwards subscribe_v2 grades and transcript_since to the broadcaster and stores them per session', async () => {
     const socket = new FakeSocket();
@@ -914,6 +953,7 @@ describe('WsConnectionV1 global target registration', () => {
       removeGlobalTarget: (target: unknown) => removed.push(target),
       addDiEventTarget: (target: unknown) => diOptIns.push(target),
       getCursor: async () => ({ seq: 0, epoch: '' }),
+      sendPendingInteractions: () => {},
       getBufferedSince: async () => ({
         events: [],
         resyncRequired: false,
