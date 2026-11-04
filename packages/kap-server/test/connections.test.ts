@@ -81,6 +81,20 @@ describe('server-v2 GET /api/v1/connections', () => {
     ws.send(JSON.stringify(frame));
   }
 
+  async function waitForFrame(
+    frames: readonly Record<string, unknown>[],
+    type: string,
+    timeoutMs = 2000,
+  ): Promise<Record<string, unknown>> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const hit = frames.find((frame) => frame['type'] === type);
+      if (hit !== undefined) return hit;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error(`frame ${type} not observed within ${timeoutMs}ms`);
+  }
+
   async function waitForSize(target: number, timeoutMs = 1000): Promise<void> {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
@@ -135,6 +149,28 @@ describe('server-v2 GET /api/v1/connections', () => {
       await new Promise((r) => setTimeout(r, 50));
       connections = await listConnections();
       expect(connections[0]!.subscriptions).not.toContain(sessionId);
+    } finally {
+      ws.close();
+    }
+  });
+
+  it('pushes task.list for an agent the connection starts receiving', async () => {
+    const sessionId = await createSession(home as string);
+    const ws = await connect();
+    const frames: Array<Record<string, unknown>> = [];
+    ws.on('message', (data: Buffer) => {
+      frames.push(JSON.parse(data.toString('utf8')) as Record<string, unknown>);
+    });
+    try {
+      send(ws, {
+        type: 'subscribe_v2',
+        id: 'v2-1',
+        payload: { session_id: sessionId, transcript: { main: 'delta' } },
+      });
+      const list = await waitForFrame(frames, 'task.list');
+      expect(list['session_id']).toBe(sessionId);
+      expect(list['agent_id']).toBe('main');
+      expect(list['tasks']).toEqual([]);
     } finally {
       ws.close();
     }
