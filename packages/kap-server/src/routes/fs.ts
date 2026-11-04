@@ -32,6 +32,7 @@ import {
   fsGrepRequestSchema,
   fsListManyRequestSchema,
   fsListRequestSchema,
+  fsListResponseSchema,
   fsMkdirRequestSchema,
   fsPullRequestBatchRequestSchema,
   fsPullRequestRequestSchema,
@@ -103,6 +104,13 @@ const fsDownloadQuerySchema = z
   .strict();
 
 const workspaceFsSearchBodySchema = fsSearchRequestSchema
+  .extend({
+    workspace: z.string().min(1),
+    runtime_id: z.string().min(1).optional(),
+  })
+  .strict();
+
+const workspaceFsListBodySchema = fsListRequestSchema
   .extend({
     workspace: z.string().min(1),
     runtime_id: z.string().min(1).optional(),
@@ -479,6 +487,54 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
     fsActionRoute.path,
     fsActionRoute.options,
     fsActionRoute.handler as unknown as Parameters<FsRouteHost['post']>[2],
+  );
+
+  const workspaceListRoute = defineRoute(
+    {
+      method: 'POST',
+      path: '/workspace/fs::list',
+      body: workspaceFsListBodySchema,
+      success: { data: fsListResponseSchema },
+      errors: {
+        [ErrorCode.VALIDATION_FAILED]: { detailsSchema },
+        [ErrorCode.WORKSPACE_NOT_FOUND]: {},
+        [ErrorCode.FS_PATH_NOT_FOUND]: {},
+        [ErrorCode.FS_PERMISSION_DENIED]: {},
+        [ErrorCode.FS_PATH_ESCAPES_SESSION]: {},
+      },
+      description:
+        'List files and directories in a workspace without a session. `workspace` accepts a registered workspace id or an absolute root (registered on the spot).',
+      tags: ['fs'],
+      operationId: 'workspaceFsList',
+    },
+    async (req, reply) => {
+      const { workspace, runtime_id, ...listRequest } = req.body;
+      let runtimeFs: RuntimeFsScope | undefined;
+      try {
+        runtimeFs = await resolveWorkspaceFs(core, workspace, runtime_id ?? 'local', ['fs']);
+        if (runtimeFs === undefined) {
+          reply.send(
+            errEnvelope(
+              ErrorCode.WORKSPACE_NOT_FOUND,
+              `workspace ${workspace} does not exist`,
+              req.id,
+            ),
+          );
+          return;
+        }
+        const data = await runtimeFs.fs.list({ ...listRequest, include_git_status: false });
+        reply.send(okEnvelope(data, req.id));
+      } catch (err) {
+        sendMappedError(reply, req, err);
+      } finally {
+        if (runtimeFs !== undefined) releaseRuntimeFs(runtimeFs);
+      }
+    },
+  );
+  app.post(
+    workspaceListRoute.path,
+    workspaceListRoute.options,
+    workspaceListRoute.handler as unknown as Parameters<FsRouteHost['post']>[2],
   );
 
   const workspaceSearchRoute = defineRoute(

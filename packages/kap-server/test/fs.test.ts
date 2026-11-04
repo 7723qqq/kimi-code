@@ -939,4 +939,174 @@ describe('server-v2 /api/v1 fs routes', () => {
     });
     expect(body.code).toBe(ErrorCode.RUNTIME_NOT_FOUND);
   });
+
+  interface RegisteredWorkspaceWire {
+    id: string;
+    root: string;
+    additional_dirs: string[];
+  }
+
+  async function createRegisteredWorkspace(
+    additionalDirs: readonly string[] = [],
+  ): Promise<RegisteredWorkspaceWire> {
+    const res = await fetch(`${base}/api/v1/workspaces`, {
+      method: 'POST',
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
+      body: JSON.stringify({ root: work, additional_dirs: [...additionalDirs] }),
+    } as never);
+    const body = (await res.json()) as Envelope<RegisteredWorkspaceWire>;
+    expect(body.code).toBe(0);
+    return body.data;
+  }
+
+  function rootSpecific(path: string): string {
+    return path.split(sep).join('/');
+  }
+
+  it('workspace fs:search searches registered source folders including cold session refs', async () => {
+    const extra = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-extra-'));
+    try {
+      await writeFile(join(work!, 'shared.ts'), 'primary');
+      await writeFile(join(extra, 'shared.ts'), 'secondary');
+      await writeFile(join(extra, 'secondary-only.ts'), '');
+      const workspace = await createRegisteredWorkspace([extra]);
+      const extraShared = rootSpecific(join(extra, 'shared.ts'));
+      const extraSecondary = rootSpecific(join(extra, 'secondary-only.ts'));
+
+      const shared = await postWorkspaceSearch<{ items: SuggestItemWire[] }>({
+        workspace: workspace.id,
+        query: 'shared',
+      });
+      expect(shared.code).toBe(0);
+      expect(shared.data.items.map((item) => item.path)).toHaveLength(2);
+      expect(shared.data.items.map((item) => item.path)).toEqual(
+        expect.arrayContaining(['shared.ts', extraShared]),
+      );
+
+      const empty = await postWorkspaceSearch<{ items: SuggestItemWire[] }>({
+        workspace: workspace.id,
+        query: '',
+      });
+      expect(empty.code).toBe(0);
+      expect(empty.data.items.map((item) => item.path)).toEqual(
+        expect.arrayContaining(['shared.ts', extraShared, extraSecondary]),
+      );
+
+      const cold = await postFs<{ items: SuggestItemWire[] }>(workspace.id, 'search', {
+        query: 'secondary-only',
+      });
+      expect(cold.code).toBe(0);
+      expect(cold.data.items.map((item) => item.path)).toEqual([extraSecondary]);
+    } finally {
+      await rm(extra, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    }
+  });
+
+  it('workspace fs:suggest searches registered source folders with root-specific paths', async () => {
+    const extra = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-extra-'));
+    try {
+      await writeFile(join(work!, 'shared.ts'), 'primary');
+      await writeFile(join(extra, 'shared.ts'), 'secondary');
+      const workspace = await createRegisteredWorkspace([extra]);
+      const extraShared = rootSpecific(join(extra, 'shared.ts'));
+
+      const body = await postWorkspaceSuggest<{ items: SuggestItemWire[] }>({
+        workspace: workspace.id,
+        query: 'shared',
+      });
+      expect(body.code).toBe(0);
+      expect(body.data.items.map((item) => item.path)).toEqual(
+        expect.arrayContaining(['shared.ts', extraShared]),
+      );
+    } finally {
+      await rm(extra, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    }
+  });
+
+  async function postWorkspaceList<T>(body: unknown): Promise<Envelope<T>> {
+    const res = await fetch(`${base}/api/v1/workspace/fs:list`, {
+      method: 'POST',
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
+      body: JSON.stringify({ runtime_id: 'local', ...(body as object) }),
+    } as never);
+    return (await res.json()) as Envelope<T>;
+  }
+
+  it('workspace fs:list respects registered source folder boundaries', async () => {
+    const extra = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-extra-'));
+    const outside = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-outside-'));
+    try {
+      await writeFile(join(work!, 'primary.ts'), '');
+      await writeFile(join(extra, 'secondary.ts'), '');
+      await writeFile(join(outside, 'outside.ts'), '');
+      const workspace = await createRegisteredWorkspace([extra]);
+
+      const primary = await postWorkspaceList<{ items: { path: string }[] }>({
+        workspace: workspace.id,
+        path: '.',
+        depth: 1,
+      });
+      expect(primary.code).toBe(0);
+      expect(primary.data.items.map((item) => item.path)).toEqual(['primary.ts']);
+
+      const additional = await postWorkspaceList<{ items: { path: string }[] }>({
+        workspace: workspace.id,
+        path: extra,
+        depth: 1,
+      });
+      expect(additional.code).toBe(0);
+      expect(additional.data.items.map((item) => item.path)).toEqual(['secondary.ts']);
+
+      const rejected = await postWorkspaceList<null>({
+        workspace: workspace.id,
+        path: outside,
+        depth: 1,
+      });
+      expect(rejected.code).toBe(ErrorCode.FS_PATH_ESCAPES_SESSION);
+    } finally {
+      await Promise.all([
+        rm(extra, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }),
+        rm(outside, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }),
+      ]);
+    }
+  });
+
+  it('workspace fs routes use the latest registered source folders', async () => {
+    const first = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-first-'));
+    const second = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-second-'));
+    try {
+      await writeFile(join(first, 'first-only.ts'), '');
+      await writeFile(join(second, 'second-only.ts'), '');
+      const workspace = await createRegisteredWorkspace([first]);
+
+      const before = await postWorkspaceSearch<{ items: SuggestItemWire[] }>({
+        workspace: workspace.id,
+        query: 'only',
+      });
+      expect(before.code).toBe(0);
+      expect(before.data.items.map((item) => item.path)).toContain(
+        rootSpecific(join(first, 'first-only.ts')),
+      );
+
+      const patched = await fetch(`${base}/api/v1/workspaces/${workspace.id}`, {
+        method: 'PATCH',
+        headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
+        body: JSON.stringify({ additional_dirs: [second] }),
+      } as never);
+      const patchedBody = (await patched.json()) as Envelope<RegisteredWorkspaceWire>;
+      expect(patchedBody.code).toBe(0);
+
+      const after = await postWorkspaceSearch<{ items: SuggestItemWire[] }>({
+        workspace: workspace.id,
+        query: 'only',
+      });
+      expect(after.code).toBe(0);
+      expect(after.data.items.map((item) => item.path)).toContain(
+        rootSpecific(join(second, 'second-only.ts')),
+      );
+    } finally {
+      await rm(first, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      await rm(second, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    }
+  });
 });
