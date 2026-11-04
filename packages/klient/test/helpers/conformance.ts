@@ -132,6 +132,7 @@ export function defineKlientConformance(
         mainHandle.accessor.get(IAgentContextMemoryService).append({
           role: 'user',
           content: [{ type: 'text', text: 'fork through this turn' }],
+          toolCalls: [],
           origin: { kind: 'user' },
         });
         await mainHandle.accessor.get(IWireService).flush();

@@ -3,6 +3,7 @@ import { transcriptGradeSpecSchema, transcriptSeqSchema } from '@moonshot-ai/tra
 import { z } from 'zod';
 
 import { eventSchema } from './events-zod';
+import { interactionEventMessageSchema } from './interaction';
 
 export const WS_PROTOCOL_VERSION = 2;
 
@@ -372,10 +373,20 @@ export const sessionEventOperation = {
   description: 'Session-scoped agent event envelope; frame type is the payload event type.',
 } as const satisfies WsOperationDefinition;
 
+export const interactionEventOperation = {
+  type: 'interaction',
+  direction: 'server_to_client',
+  kind: 'event',
+  messageSchema: interactionEventMessageSchema,
+  description:
+    'Flat, unsequenced approval or question state for a subscribed session; pending interactions are re-sent after every accepted subscription.',
+} as const satisfies WsOperationDefinition;
+
 export const wsOperations = [
   ...clientControlOperations,
   ...serverSystemOperations,
   sessionEventOperation,
+  interactionEventOperation,
 ] as const satisfies readonly WsOperationDefinition[];
 
 export function getClientControlOperation(

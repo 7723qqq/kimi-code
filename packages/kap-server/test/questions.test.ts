@@ -1,8 +1,8 @@
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { randomUUID } from 'node:crypto';
 
 import {
   ensureMainAgent,
@@ -12,11 +12,11 @@ import {
   type QuestionRequest,
   type QuestionResult,
 } from '@moonshot-ai/agent-core-v2';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
-import { authHeaders } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
-import { removeTempHome } from './helpers/tempHome';
+import { authHeaders } from './helpers/auth';
 
 interface Envelope<T> {
   code: number;
@@ -26,48 +26,12 @@ interface Envelope<T> {
   details?: { path: string; message: string }[];
 }
 
-interface QuestionOptionWire {
-  id: string;
-  label: string;
-  description?: string;
+interface RespondWire {
+  outcome: string;
+  ended_at: string;
 }
 
-interface QuestionItemWire {
-  id: string;
-  question: string;
-  header?: string;
-  body?: string;
-  options: QuestionOptionWire[];
-  multi_select?: boolean;
-  allow_other?: boolean;
-  other_label?: string;
-  other_description?: string;
-}
-
-interface QuestionWire {
-  question_id: string;
-  session_id: string;
-  turn_id?: number;
-  tool_call_id?: string;
-  questions: QuestionItemWire[];
-  created_at: string;
-}
-
-interface ListWire {
-  items: QuestionWire[];
-}
-
-interface ResolveWire {
-  resolved: true;
-  resolved_at: string;
-}
-
-interface DismissWire {
-  dismissed: true;
-  dismissed_at: string;
-}
-
-describe('server-v2 /api/v1/sessions/{sid}/questions', () => {
+describe('server-v2 /api/v1/sessions/{sid}/interactions (question)', () => {
   let server: RunningServer | undefined;
   let home: string | undefined;
   let base: string;
@@ -90,7 +54,7 @@ describe('server-v2 /api/v1/sessions/{sid}/questions', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await removeTempHome(home);
+      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
       home = undefined;
     }
   });
@@ -107,13 +71,6 @@ describe('server-v2 /api/v1/sessions/{sid}/questions', () => {
         hasBody ? { 'content-type': 'application/json' } : {},
       ),
       body: hasBody ? JSON.stringify(body) : undefined,
-    } as never);
-    return { status: res.status, body: (await res.json()) as Envelope<T> };
-  }
-
-  async function getJson<T>(path: string): Promise<{ status: number; body: Envelope<T> }> {
-    const res = await fetch(`${base}${path}`, {
-      headers: authHeaders(server as RunningServer),
     } as never);
     return { status: res.status, body: (await res.json()) as Envelope<T> };
   }
@@ -155,6 +112,10 @@ describe('server-v2 /api/v1/sessions/{sid}/questions', () => {
     return interactions.wait<QuestionResult>(parked.id);
   }
 
+  function pendingQuestions(sessionId: string) {
+    return interactions.findAll({ kind: 'question', resolved: false, tags: { sessionId } });
+  }
+
   function makeRequest(id: string): QuestionRequest {
     return {
       id,
@@ -168,53 +129,28 @@ describe('server-v2 /api/v1/sessions/{sid}/questions', () => {
     };
   }
 
-  it('lists a pending question projected onto the wire shape', async () => {
-    const sid = await createSession();
-    enqueueQuestion(sid, makeRequest('q-1'));
-
-    const { body } = await getJson<ListWire>(`/api/v1/sessions/${sid}/questions?status=pending`);
-    expect(body.code).toBe(0);
-    expect(body.data.items).toHaveLength(1);
-    const item = body.data.items[0]!;
-    expect(item.question_id).toBe('q-1');
-    expect(item.session_id).toBe(sid);
-    expect(item.tool_call_id).toBe('tc-q-1');
-    expect(item.questions).toEqual([
-      {
-        id: 'q_0',
-        question: 'Pick one',
-        options: [
-          { id: 'opt_0_0', label: 'Yes' },
-          { id: 'opt_0_1', label: 'No', description: 'decline' },
-        ],
-        allow_other: true,
-      },
-    ]);
-    expect(Number.isNaN(Date.parse(item.created_at))).toBe(false);
-    expect(item).not.toHaveProperty('expires_at');
-  });
-
   it('resolves a pending question', async () => {
     const sid = await createSession();
     enqueueQuestion(sid, makeRequest('q-2'));
 
-    const { body } = await postJson<ResolveWire>(`/api/v1/sessions/${sid}/questions/q-2`, {
+    const { body } = await postJson<RespondWire>(`/api/v1/sessions/${sid}/interactions/q-2`, {
+      kind: 'question',
       answers: { q_0: { kind: 'single', option_id: 'opt_0_0' } },
       method: 'number_key',
     });
     expect(body.code).toBe(0);
-    expect(body.data.resolved).toBe(true);
-    expect(Number.isNaN(Date.parse(body.data.resolved_at))).toBe(false);
+    expect(body.data.outcome).toBe('answered');
+    expect(Number.isNaN(Date.parse(body.data.ended_at))).toBe(false);
 
-    const listed = await getJson<ListWire>(`/api/v1/sessions/${sid}/questions?status=pending`);
-    expect(listed.body.data.items).toHaveLength(0);
+    expect(pendingQuestions(sid)).toEqual([]);
   });
 
   it('flattens the protocol response into the in-process result', async () => {
     const sid = await createSession();
     const resultPromise: Promise<QuestionResult> = requestQuestion(sid, makeRequest('q-3'));
 
-    await postJson<ResolveWire>(`/api/v1/sessions/${sid}/questions/q-3`, {
+    await postJson<RespondWire>(`/api/v1/sessions/${sid}/interactions/q-3`, {
+      kind: 'question',
       answers: {
         q_0: { kind: 'multi', option_ids: ['opt_0_0', 'opt_0_1'] },
       },
@@ -246,8 +182,11 @@ describe('server-v2 /api/v1/sessions/{sid}/questions', () => {
 
   it('translates ids to text across single / other / multi_with_other kinds', async () => {
     const sid = await createSession();
-    const single: Promise<QuestionResult> = requestQuestion(sid, makeTwoQuestionRequest('q-t1'));
-    await postJson<ResolveWire>(`/api/v1/sessions/${sid}/questions/q-t1`, {
+    const single: Promise<QuestionResult> = requestQuestion(sid, 
+      makeTwoQuestionRequest('q-t1'),
+    );
+    await postJson<RespondWire>(`/api/v1/sessions/${sid}/interactions/q-t1`, {
+      kind: 'question',
       answers: {
         q_0: { kind: 'single', option_id: 'opt_0_1' },
         q_1: {
@@ -261,8 +200,11 @@ describe('server-v2 /api/v1/sessions/{sid}/questions', () => {
       answers: { 'Which animal?': 'Dog', 'Which colors?': 'Red, Green, Custom' },
     });
 
-    const other: Promise<QuestionResult> = requestQuestion(sid, makeTwoQuestionRequest('q-t2'));
-    await postJson<ResolveWire>(`/api/v1/sessions/${sid}/questions/q-t2`, {
+    const other: Promise<QuestionResult> = requestQuestion(sid, 
+      makeTwoQuestionRequest('q-t2'),
+    );
+    await postJson<RespondWire>(`/api/v1/sessions/${sid}/interactions/q-t2`, {
+      kind: 'question',
       answers: {
         q_0: { kind: 'other', text: 'Hippopotamus' },
         q_1: { kind: 'skipped' },
@@ -275,12 +217,12 @@ describe('server-v2 /api/v1/sessions/{sid}/questions', () => {
 
   it('keeps unknown and cross-question option ids verbatim (stale client)', async () => {
     const sid = await createSession();
-    const resultPromise: Promise<QuestionResult> = requestQuestion(
-      sid,
+    const resultPromise: Promise<QuestionResult> = requestQuestion(sid, 
       makeTwoQuestionRequest('q-t3'),
     );
 
-    await postJson<ResolveWire>(`/api/v1/sessions/${sid}/questions/q-t3`, {
+    await postJson<RespondWire>(`/api/v1/sessions/${sid}/interactions/q-t3`, {
+      kind: 'question',
       answers: {
         q_0: { kind: 'single', option_id: 'opt_0_9' },
         q_9: { kind: 'single', option_id: 'opt_9_0' },
@@ -299,12 +241,12 @@ describe('server-v2 /api/v1/sessions/{sid}/questions', () => {
 
   it('produces an empty answers record when all questions are skipped (not a dismissal)', async () => {
     const sid = await createSession();
-    const resultPromise: Promise<QuestionResult> = requestQuestion(
-      sid,
+    const resultPromise: Promise<QuestionResult> = requestQuestion(sid, 
       makeTwoQuestionRequest('q-t4'),
     );
 
-    await postJson<ResolveWire>(`/api/v1/sessions/${sid}/questions/q-t4`, {
+    await postJson<RespondWire>(`/api/v1/sessions/${sid}/interactions/q-t4`, {
+      kind: 'question',
       answers: {
         q_0: { kind: 'skipped' },
         q_1: { kind: 'skipped' },
@@ -318,36 +260,40 @@ describe('server-v2 /api/v1/sessions/{sid}/questions', () => {
     const sid = await createSession();
     const resultPromise: Promise<QuestionResult> = requestQuestion(sid, makeRequest('q-4'));
 
-    const { body } = await postJson<DismissWire>(`/api/v1/sessions/${sid}/questions/q-4:dismiss`);
-    expect(body.code).toBe(40909);
-    expect(body.data.dismissed).toBe(true);
-    expect(Number.isNaN(Date.parse(body.data.dismissed_at))).toBe(false);
+    const { body } = await postJson<RespondWire>(`/api/v1/sessions/${sid}/interactions/q-4`, {
+      kind: 'question',
+      dismissed: true,
+    });
+    expect(body.code).toBe(0);
+    expect(body.data.outcome).toBe('dismissed');
+    expect(Number.isNaN(Date.parse(body.data.ended_at))).toBe(false);
 
     await expect(resultPromise).resolves.toBeNull();
-    const listed = await getJson<ListWire>(`/api/v1/sessions/${sid}/questions?status=pending`);
-    expect(listed.body.data.items).toHaveLength(0);
+    expect(pendingQuestions(sid)).toEqual([]);
   });
 
   it('returns 40902 on a duplicate resolve (recently-resolved window)', async () => {
     const sid = await createSession();
     enqueueQuestion(sid, makeRequest('q-5'));
-    await postJson<ResolveWire>(`/api/v1/sessions/${sid}/questions/q-5`, {
+    await postJson<RespondWire>(`/api/v1/sessions/${sid}/interactions/q-5`, {
+      kind: 'question',
       answers: { q_0: { kind: 'single', option_id: 'opt_0_0' } },
     });
 
-    const dup = await postJson<{ resolved: false }>(`/api/v1/sessions/${sid}/questions/q-5`, {
+    const dup = await postJson<null>(`/api/v1/sessions/${sid}/interactions/q-5`, {
+      kind: 'question',
       answers: { q_0: { kind: 'single', option_id: 'opt_0_0' } },
     });
     expect(dup.body.code).toBe(40902);
-    expect(dup.body.data).toEqual({ resolved: false });
   });
 
-  it('returns 40405 for an unknown question id', async () => {
+  it('returns 40404 for an unknown question id', async () => {
     const sid = await createSession();
-    const { body } = await postJson<null>(`/api/v1/sessions/${sid}/questions/nope`, {
+    const { body } = await postJson<null>(`/api/v1/sessions/${sid}/interactions/nope`, {
+      kind: 'question',
       answers: { q_0: { kind: 'single', option_id: 'opt_0_0' } },
     });
-    expect(body.code).toBe(40405);
+    expect(body.code).toBe(40404);
   });
 
   it('resolves a question whose id contains a colon', async () => {
@@ -363,15 +309,14 @@ describe('server-v2 /api/v1/sessions/{sid}/questions', () => {
       ],
     });
 
-    const list = await getJson<ListWire>(`/api/v1/sessions/${sid}/questions?status=pending`);
-    expect(list.body.data.items[0]!.question_id).toBe('AskUserQuestion:0');
+    expect(pendingQuestions(sid).map((i) => i.id)).toEqual(['AskUserQuestion:0']);
 
-    const { body } = await postJson<ResolveWire>(
-      `/api/v1/sessions/${sid}/questions/AskUserQuestion%3A0`,
-      { answers: { q_0: { kind: 'single', option_id: 'opt_0_0' } } },
+    const { body } = await postJson<RespondWire>(
+      `/api/v1/sessions/${sid}/interactions/AskUserQuestion%3A0`,
+      { kind: 'question', answers: { q_0: { kind: 'single', option_id: 'opt_0_0' } } },
     );
     expect(body.code).toBe(0);
-    expect(body.data.resolved).toBe(true);
+    expect(body.data.outcome).toBe('answered');
     await expect(resultPromise).resolves.toEqual({ answers: { 'Pick one': 'Yes' } });
   });
 
@@ -387,26 +332,34 @@ describe('server-v2 /api/v1/sessions/{sid}/questions', () => {
       ],
     });
 
-    const list = await getJson<ListWire>(`/api/v1/sessions/${sid}/questions?status=pending`);
-    const item = list.body.data.items[0]!;
-    expect(item.tool_call_id).toBe('AskUserQuestion:0');
-    expect(item.question_id).not.toBe('AskUserQuestion:0');
+    const [item] = pendingQuestions(sid);
+    expect(item!.tags['toolCallId']).toBe('AskUserQuestion:0');
+    expect(item!.id).not.toBe('AskUserQuestion:0');
 
-    const { body } = await postJson<ResolveWire>(
-      `/api/v1/sessions/${sid}/questions/${encodeURIComponent(item.question_id)}`,
-      { answers: { q_0: { kind: 'single', option_id: 'opt_0_0' } } },
+    const { body } = await postJson<RespondWire>(
+      `/api/v1/sessions/${sid}/interactions/${encodeURIComponent(item!.id)}`,
+      { kind: 'question', answers: { q_0: { kind: 'single', option_id: 'opt_0_0' } } },
     );
     expect(body.code).toBe(0);
-    expect(body.data.resolved).toBe(true);
+    expect(body.data.outcome).toBe('answered');
     await expect(resultPromise).resolves.toEqual({ answers: { 'Pick one': 'Yes' } });
   });
 
-  it('keeps 40001 for a colon tail that matches no pending question', async () => {
+  it('rejects a body with both answers and dismissed, or with neither', async () => {
     const sid = await createSession();
-    const { body } = await postJson<null>(`/api/v1/sessions/${sid}/questions/q-9:0`, {
+    enqueueQuestion(sid, makeRequest('q-6'));
+    const url = `/api/v1/sessions/${sid}/interactions/q-6`;
+
+    const both = await postJson<null>(url, {
+      kind: 'question',
       answers: { q_0: { kind: 'single', option_id: 'opt_0_0' } },
+      dismissed: true,
     });
-    expect(body.code).toBe(40001);
+    expect(both.body.code).toBe(40001);
+    const neither = await postJson<null>(url, { kind: 'question' });
+    expect(neither.body.code).toBe(40001);
+
+    expect(pendingQuestions(sid).map((i) => i.id)).toEqual(['q-6']);
   });
 
   it('returns 40902 on a duplicate resolve of a colon-id question', async () => {
@@ -416,20 +369,24 @@ describe('server-v2 /api/v1/sessions/{sid}/questions', () => {
       toolCallId: 'AskUserQuestion:1',
       questions: [{ question: 'Pick one', options: [{ label: 'Yes' }] }],
     });
-    const url = `/api/v1/sessions/${sid}/questions/AskUserQuestion%3A1`;
-    await postJson<ResolveWire>(url, {
+    const url = `/api/v1/sessions/${sid}/interactions/AskUserQuestion%3A1`;
+    await postJson<RespondWire>(url, {
+      kind: 'question',
       answers: { q_0: { kind: 'single', option_id: 'opt_0_0' } },
     });
 
-    const dup = await postJson<{ resolved: false }>(url, {
+    const dup = await postJson<null>(url, {
+      kind: 'question',
       answers: { q_0: { kind: 'single', option_id: 'opt_0_0' } },
     });
     expect(dup.body.code).toBe(40902);
-    expect(dup.body.data).toEqual({ resolved: false });
   });
 
   it('returns 40401 for an unknown session', async () => {
-    const { body } = await getJson<null>('/api/v1/sessions/nope/questions?status=pending');
+    const { body } = await postJson<null>('/api/v1/sessions/nope/interactions/nope', {
+      kind: 'question',
+      dismissed: true,
+    });
     expect(body.code).toBe(40401);
   });
 });

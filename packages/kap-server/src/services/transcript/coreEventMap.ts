@@ -68,7 +68,6 @@ import {
 import {
   applySubagentRunToTask,
   buildSubagentSpawnTask,
-  mapInteractionEndState,
   mapTaskKind,
   mapTurnEndState,
   mapTurnOrigin,
@@ -96,6 +95,7 @@ import {
   type TurnHeader,
 } from '@moonshot-ai/transcript';
 
+import { interactionOutcome } from '../../protocol/interaction-wire';
 import { toWireQuestion } from '../../protocol/question-wire';
 import { LegacyActivityTracker, phaseFromDomainEvent } from '../legacyStatus/legacyActivity';
 import { toLegacyPhase, type LegacyActivityApproval } from '../legacyStatus/legacyStatus';
@@ -1793,7 +1793,7 @@ export class AgentTranscriptProjector {
     const record = this.interactions.get(id);
     if (record === undefined) return [];
     this.interactions.delete(id);
-    const state = mapInteractionEndState(record.interactionKind, response);
+    const state = interactionOutcome(record.interactionKind, response);
     const ops: TranscriptOperation[] = [
       { op: 'interaction.upsert', interaction: { ...record, state, response } },
     ];

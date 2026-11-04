@@ -26,7 +26,7 @@ import { loadMessageHistory } from '../services/messages/messageHistory';
 import type { WireProjectionService } from '../services/transcript/wireProjection';
 import { ensureMainAgent } from '../transport/mainAgent';
 import { type SessionEventBroadcaster } from '../transport/ws/v1/sessionEventBroadcaster';
-import { interactionAgentId, toWireApproval } from './approvals';
+import { interactionAgentId, toWireApproval } from '../protocol/interaction-wire';
 import { resolveSessionFacts, toWireSession } from './sessions';
 
 const SNAPSHOT_MESSAGE_PAGE_SIZE = 100;

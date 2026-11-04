@@ -3,7 +3,7 @@
  * `process.env.KIMI_SERVER_URL ?? http://127.0.0.1:58627`.
  *
  * Every test gates on a `daemonReachable()` check so CI / dev machines
- * without a running server stay green. Run a server (`bun run dev:server` from
+ * without a running server stay green. Run a server (`pnpm dev:server` from
  * repo root) to exercise these locally.
  *
  * Coverage:
@@ -13,10 +13,13 @@
  *   4. `waitForFrame` times out cleanly (no zombie waiters).
  *   5. Created session is observable via `getSession`.
  */
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it } from 'vitest';
 
-import type { FileMeta } from '@moonshot-ai/agent-core-v2';
-import type { ModelCatalogItem, ProviderCatalogItem } from '@moonshot-ai/agent-core-v2';
+import type { FileMeta } from '@moonshot-ai/agent-core-v2/app/file/fileService';
+import type {
+  ModelCatalogItem,
+  ProviderCatalogItem,
+} from '@moonshot-ai/agent-core-v2/llm-adapter/model/catalog';
 import { ErrorCode } from '@moonshot-ai/kap-server/protocol/error-codes';
 import type { Message } from '@moonshot-ai/kap-server/protocol/message';
 import type { SessionStatusResponse } from '@moonshot-ai/kap-server/protocol/rest-session';
@@ -242,8 +245,7 @@ describeLive('DaemonClient (live server required)', () => {
       expect(beforeCompact.items.some((m) => m.role === 'assistant')).toBe(true);
 
       const populatedCompactRequest = {
-        instruction:
-          'Preserve the compact-test code word and the fact that the assistant replied OK.',
+        instruction: 'Preserve the compact-test code word and the fact that the assistant replied OK.',
       };
       successLog('request', {
         method: 'POST',
@@ -468,8 +470,8 @@ describe('DaemonClient session action helpers', () => {
     expect(parseRecordedJsonBody(calls[2])).toEqual({});
   });
 
-  it('child-session and pending reverse-RPC helpers call recovery routes', async () => {
-    const log = createCaseLogger('client helper: children + pending');
+  it('child-session and interaction helpers call recovery routes', async () => {
+    const log = createCaseLogger('client helper: children + interactions');
     const calls: FetchCall[] = [];
     const child = testSession({ id: 'sess_child', title: 'Child session' });
     const client = new DaemonClient({
@@ -478,9 +480,7 @@ describe('DaemonClient session action helpers', () => {
         [
           okEnvelope(child),
           okEnvelope({ items: [child], has_more: false }),
-          okEnvelope({ items: [] }),
-          okEnvelope({ items: [] }),
-          okEnvelope({ dismissed: true, dismissed_at: '2026-06-09T00:00:00.000Z' }),
+          okEnvelope({ outcome: 'dismissed', ended_at: '2026-06-09T00:00:00.000Z' }),
         ],
         calls,
       ),
@@ -495,32 +495,24 @@ describe('DaemonClient session action helpers', () => {
     await expect(
       client.listChildren('sess_parent', { page_size: 5, busy: false }),
     ).resolves.toEqual({ items: [child], has_more: false });
-    await expect(client.listPendingApprovals('sess_parent')).resolves.toEqual({ items: [] });
-    await expect(client.listPendingQuestions('sess_parent')).resolves.toEqual({ items: [] });
-    await expect(client.dismissQuestion('sess_parent', 'question_1')).resolves.toEqual({
-      dismissed: true,
-      dismissed_at: '2026-06-09T00:00:00.000Z',
+    await expect(
+      client.respondInteraction('sess_parent', 'question_1', { kind: 'question', dismissed: true }),
+    ).resolves.toEqual({
+      outcome: 'dismissed',
+      ended_at: '2026-06-09T00:00:00.000Z',
     });
 
     log('fetch calls', calls);
     expect(calls.map((call) => [call.init.method, call.url])).toEqual([
       ['POST', 'http://server.example.test/api/v1/sessions/sess_parent/children'],
-      [
-        'GET',
-        'http://server.example.test/api/v1/sessions/sess_parent/children?page_size=5&busy=false',
-      ],
-      ['GET', 'http://server.example.test/api/v1/sessions/sess_parent/approvals?status=pending'],
-      ['GET', 'http://server.example.test/api/v1/sessions/sess_parent/questions?status=pending'],
-      [
-        'POST',
-        'http://server.example.test/api/v1/sessions/sess_parent/questions/question_1:dismiss',
-      ],
+      ['GET', 'http://server.example.test/api/v1/sessions/sess_parent/children?page_size=5&busy=false'],
+      ['POST', 'http://server.example.test/api/v1/sessions/sess_parent/interactions/question_1'],
     ]);
     expect(parseRecordedJsonBody(calls[0])).toEqual({
       title: 'Child session',
       metadata: { topic: 'side-question' },
     });
-    expect(parseRecordedJsonBody(calls[4])).toEqual({});
+    expect(parseRecordedJsonBody(calls[2])).toEqual({ kind: 'question', dismissed: true });
   });
 
   it('uploadFile posts multipart form data and deleteFile hits the file route', async () => {
@@ -529,7 +521,13 @@ describe('DaemonClient session action helpers', () => {
     const file = testFile({ id: 'file_png', name: 'tiny.png', media_type: 'image/png', size: 3 });
     const client = new DaemonClient({
       baseUrl: 'http://server.example.test',
-      fetchImpl: recordingFetchSequence([okEnvelope(file), okEnvelope({ deleted: true })], calls),
+      fetchImpl: recordingFetchSequence(
+        [
+          okEnvelope(file),
+          okEnvelope({ deleted: true }),
+        ],
+        calls,
+      ),
     });
 
     await expect(
@@ -715,9 +713,7 @@ function testSessionStatus(): SessionStatusResponse {
   };
 }
 
-function textFromMessages(
-  messages: Array<{ content: Array<{ type: string; text?: string }> }>,
-): string {
+function textFromMessages(messages: Array<{ content: Array<{ type: string; text?: string }> }>): string {
   return messages
     .flatMap((message) => message.content)
     .filter((part) => part.type === 'text')

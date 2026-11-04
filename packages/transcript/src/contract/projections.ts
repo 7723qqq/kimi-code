@@ -34,12 +34,24 @@ export function mapInteractionEndState(
   kind: InteractionKind,
   response: unknown,
 ): InteractionState {
+  if (isEngineCancellation(response)) return 'cancelled';
   if (kind === 'question') return response === null ? 'dismissed' : 'answered';
   const decision = (response as { decision?: unknown } | null | undefined)?.decision;
   if (decision === 'approved' || decision === 'rejected' || decision === 'cancelled') {
     return decision;
   }
   return 'cancelled';
+}
+
+function isEngineCancellation(response: unknown): boolean {
+  if (typeof response !== 'object' || response === null) return false;
+  const value = response as { readonly cancelled?: unknown; readonly reason?: unknown };
+  return (
+    value.cancelled === true &&
+    (value.reason === 'turn_ended' ||
+      value.reason === 'agent_closed' ||
+      value.reason === 'unsupported')
+  );
 }
 
 export type SubagentRunEventType =

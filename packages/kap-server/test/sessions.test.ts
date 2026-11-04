@@ -1554,6 +1554,7 @@ describe('server-v2 /api/v1/sessions', () => {
     main.accessor.get(IAgentContextMemoryService).append({
       role: 'user',
       content: [{ type: 'text', text: 'selected through REST' }],
+      toolCalls: [],
       origin: { kind: 'user' },
     });
     await main.accessor.get(IWireService).flush();

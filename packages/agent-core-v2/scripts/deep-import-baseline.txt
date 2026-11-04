@@ -122,16 +122,15 @@ packages/kap-server/src/openapi/transforms.ts app/git/git
 packages/kap-server/src/openapi/transforms.ts workspace/workspaceFs/fs
 packages/kap-server/src/protocol/approval.ts _base/utils/isoDateTime
 packages/kap-server/src/protocol/events-zod.ts _base/utils/isoDateTime
+packages/kap-server/src/protocol/interaction.ts _base/utils/isoDateTime
 packages/kap-server/src/protocol/message.ts _base/utils/isoDateTime
 packages/kap-server/src/protocol/question.ts _base/utils/isoDateTime
-packages/kap-server/src/protocol/rest-approval.ts _base/utils/isoDateTime
 packages/kap-server/src/protocol/rest-connection.ts _base/utils/isoDateTime
 packages/kap-server/src/protocol/rest-file.ts app/file/fileService
 packages/kap-server/src/protocol/rest-meta.ts _base/utils/isoDateTime
 packages/kap-server/src/protocol/rest-modelCatalog.ts llm-adapter/model/catalog
 packages/kap-server/src/protocol/rest-prompt.ts _base/utils/isoDateTime
 packages/kap-server/src/protocol/rest-prompt.ts app/sessionLegacy/sessionProtocol
-packages/kap-server/src/protocol/rest-question.ts _base/utils/isoDateTime
 packages/kap-server/src/protocol/rest-session.ts app/sessionLegacy/sessionProtocol
 packages/kap-server/src/protocol/rest-terminal.ts os/interface/terminal
 packages/kap-server/src/protocol/session.ts _base/utils/isoDateTime

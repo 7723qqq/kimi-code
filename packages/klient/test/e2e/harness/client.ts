@@ -1,5 +1,3 @@
-import type { AuthSummary } from '@moonshot-ai/agent-core-v2/app/authLegacy/authLegacy';
-import type { FileMeta } from '@moonshot-ai/agent-core-v2/app/file/fileService';
 /**
  * `DaemonClient` — wire-level test client for the kimi-code server.
  *
@@ -18,18 +16,18 @@ import type {
   FsBrowseResponse,
   FsHomeResponse,
 } from '@moonshot-ai/agent-core-v2/app/hostFolderBrowser/hostFolderBrowser';
+import type { AuthSummary } from '@moonshot-ai/agent-core-v2/app/authLegacy/authLegacy';
+import type { FileMeta } from '@moonshot-ai/agent-core-v2/app/file/fileService';
 import type { UpdateSessionProfileRequest as SessionUpdate } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
 import type {
   ProviderCatalogItem,
   SetDefaultModelResponse,
 } from '@moonshot-ai/agent-core-v2/llm-adapter/model/catalog';
-import type { ApprovalRequest, ApprovalResponse } from '@moonshot-ai/kap-server/protocol/approval';
 import type { Message } from '@moonshot-ai/kap-server/protocol/message';
-import type { QuestionRequest, QuestionResponse } from '@moonshot-ai/kap-server/protocol/question';
 import type {
-  ApprovalResolveResult,
-  ListPendingApprovalsResponse,
-} from '@moonshot-ai/kap-server/protocol/rest-approval';
+  InteractionRespondRequest,
+  InteractionRespondResult,
+} from '@moonshot-ai/kap-server/protocol/interaction';
 import type {
   ListModelsResponse,
   ListProvidersResponse,
@@ -43,10 +41,6 @@ import type {
   PromptSubmitResult,
   PromptThinking,
 } from '@moonshot-ai/kap-server/protocol/rest-prompt';
-import type {
-  ListPendingQuestionsResponse,
-  QuestionResolveResult,
-} from '@moonshot-ai/kap-server/protocol/rest-question';
 import type {
   CompactSessionRequest,
   CompactSessionResponse,
@@ -70,7 +64,6 @@ import { ulid } from 'ulid';
 import { WebSocket as WsWebSocket } from 'ws';
 
 import { HttpClient } from './http.js';
-import { installReverseRpcHandler } from './reverse-rpc.js';
 import { DEFAULT_FRAME_TIMEOUT_MS, waitForSessionBusy } from './wait.js';
 import { type AnyFrame, WsClient } from './ws.js';
 
@@ -126,10 +119,9 @@ export const DEFAULT_PROMPT_CONTROLS = {
  * `DEFAULT_PROMPT_CONTROLS` when omitted. `metadata` carries through
  * verbatim.
  */
-export type PromptSubmitInput = Pick<PromptSubmission, 'content'> &
-  Partial<
-    Pick<PromptSubmission, 'metadata' | 'model' | 'thinking' | 'permission_mode' | 'plan_mode'>
-  >;
+export type PromptSubmitInput =
+  Pick<PromptSubmission, 'content'>
+  & Partial<Pick<PromptSubmission, 'metadata' | 'model' | 'thinking' | 'permission_mode' | 'plan_mode'>>;
 
 function fillPromptDefaults(input: PromptSubmitInput): PromptSubmission {
   return { ...DEFAULT_PROMPT_CONTROLS, ...input };
@@ -194,12 +186,9 @@ export class DaemonClient {
   getSession(sid: string): Promise<Session> {
     return this.http.getSession(sid);
   }
-  listSessions(query?: {
-    page_size?: number;
-    before_id?: string;
-    after_id?: string;
-    workspace_id?: string;
-  }): Promise<{ items: Session[]; has_more: boolean }> {
+  listSessions(
+    query?: { page_size?: number; before_id?: string; after_id?: string; workspace_id?: string },
+  ): Promise<{ items: Session[]; has_more: boolean }> {
     return this.http.listSessions(query);
   }
   updateSession(sid: string, body: SessionUpdate): Promise<Session> {
@@ -208,10 +197,16 @@ export class DaemonClient {
   forkSession(sid: string, body: ForkSessionRequest = {}): Promise<Session> {
     return this.http.forkSession(sid, body);
   }
-  compactSession(sid: string, body: CompactSessionRequest = {}): Promise<CompactSessionResponse> {
+  compactSession(
+    sid: string,
+    body: CompactSessionRequest = {},
+  ): Promise<CompactSessionResponse> {
     return this.http.compactSession(sid, body);
   }
-  undoSession(sid: string, body: UndoSessionRequest = { count: 1 }): Promise<UndoSessionResponse> {
+  undoSession(
+    sid: string,
+    body: UndoSessionRequest = { count: 1 },
+  ): Promise<UndoSessionResponse> {
     return this.http.undoSession(sid, body);
   }
   archiveSession(sid: string): Promise<{ archived: true }> {
@@ -273,7 +268,10 @@ export class DaemonClient {
    * legacy default-filled path) to first establish session state, then
    * exercise the "content-only prompt inherits session state" contract.
    */
-  submitPromptStateful(sid: string, body: PromptSubmission): Promise<PromptSubmitResult> {
+  submitPromptStateful(
+    sid: string,
+    body: PromptSubmission,
+  ): Promise<PromptSubmitResult> {
     return this.http.submitPrompt(sid, body);
   }
   listPrompts(sid: string): Promise<PromptListResponse> {
@@ -291,28 +289,12 @@ export class DaemonClient {
   abortSession(sid: string): Promise<SessionAbortResponse> {
     return this.http.abortSession(sid);
   }
-  resolveApproval(
+  respondInteraction(
     sid: string,
-    aid: string,
-    body: ApprovalResponse,
-  ): Promise<ApprovalResolveResult> {
-    return this.http.resolveApproval(sid, aid, body);
-  }
-  listPendingApprovals(sid: string): Promise<ListPendingApprovalsResponse> {
-    return this.http.listPendingApprovals(sid);
-  }
-  resolveQuestion(
-    sid: string,
-    qid: string,
-    body: QuestionResponse,
-  ): Promise<QuestionResolveResult> {
-    return this.http.resolveQuestion(sid, qid, body);
-  }
-  listPendingQuestions(sid: string): Promise<ListPendingQuestionsResponse> {
-    return this.http.listPendingQuestions(sid);
-  }
-  dismissQuestion(sid: string, qid: string): Promise<{ dismissed: true; dismissed_at: string }> {
-    return this.http.dismissQuestion(sid, qid);
+    interactionId: string,
+    body: InteractionRespondRequest,
+  ): Promise<InteractionRespondResult> {
+    return this.http.respondInteraction(sid, interactionId, body);
   }
 
   // ── WS lifecycle ────────────────────────────────────────────────────────
@@ -417,7 +399,10 @@ export class DaemonClient {
     predicate: (frame: AnyFrame) => boolean,
     opts?: { timeoutMs?: number },
   ): Promise<AnyFrame> {
-    return this._requireWs().waitForFrame(predicate, opts?.timeoutMs ?? DEFAULT_FRAME_TIMEOUT_MS);
+    return this._requireWs().waitForFrame(
+      predicate,
+      opts?.timeoutMs ?? DEFAULT_FRAME_TIMEOUT_MS,
+    );
   }
 
   /** Poll `/sessions/{sid}` until its aggregate work flag reaches `busy`. */
@@ -427,56 +412,6 @@ export class DaemonClient {
     opts?: { timeoutMs?: number; pollMs?: number },
   ): Promise<Session> {
     return waitForSessionBusy(this.http, sid, busy, opts);
-  }
-
-  // ── Reverse RPC (approval + question) ───────────────────────────────────
-  /**
-   * Install a handler invoked on every `event.approval.requested` frame.
-   * The handler's return value is POSTed to `/sessions/{sid}/approvals/{aid}`.
-   * Returns an unsubscribe handle (also auto-disposed by `close()`).
-   */
-  onApprovalRequested(
-    handler: (req: ApprovalRequest) => Promise<ApprovalResponse> | ApprovalResponse,
-  ): () => void {
-    const ws = this._requireWs();
-    const unsubscribe = installReverseRpcHandler<ApprovalRequest, ApprovalResponse>(ws, {
-      requestEventType: 'event.approval.requested',
-      idField: 'approval_id',
-      buildPath: (sid, aid) => `/sessions/${sid}/approvals/${aid}`,
-      handler,
-      postResolve: (sid, aid, body) => this.http.resolveApproval(sid, aid, body),
-      logger: this._logger,
-    });
-    this._disposers.push(unsubscribe);
-    return () => {
-      const idx = this._disposers.indexOf(unsubscribe);
-      if (idx >= 0) this._disposers.splice(idx, 1);
-      unsubscribe();
-    };
-  }
-
-  /**
-   * Install a handler invoked on every `event.question.requested` frame.
-   * Returns an unsubscribe handle (also auto-disposed by `close()`).
-   */
-  onQuestionAsked(
-    handler: (req: QuestionRequest) => Promise<QuestionResponse> | QuestionResponse,
-  ): () => void {
-    const ws = this._requireWs();
-    const unsubscribe = installReverseRpcHandler<QuestionRequest, QuestionResponse>(ws, {
-      requestEventType: 'event.question.requested',
-      idField: 'question_id',
-      buildPath: (sid, qid) => `/sessions/${sid}/questions/${qid}`,
-      handler,
-      postResolve: (sid, qid, body) => this.http.resolveQuestion(sid, qid, body),
-      logger: this._logger,
-    });
-    this._disposers.push(unsubscribe);
-    return () => {
-      const idx = this._disposers.indexOf(unsubscribe);
-      if (idx >= 0) this._disposers.splice(idx, 1);
-      unsubscribe();
-    };
   }
 
   // ── High-level convenience ──────────────────────────────────────────────
