@@ -12,6 +12,7 @@ import {
   sanitizeStatusErrorMessage,
   toLlmErrorMessage,
   toLlmStatusErrorMessage,
+  toLlmStreamErrorMessage,
   toLlmTransportErrorMessage,
   type LlmRemoteErrorMessage,
 } from '#/llm/errors';
@@ -388,6 +389,7 @@ function isOpenAIInsufficientQuotaError(
 export function convertOpenAIError(
   error: unknown,
   classifyErrorHook?: (error: unknown) => LlmRemoteErrorMessage | undefined,
+  source?: 'stream',
 ): LlmRemoteErrorMessage {
   if (isAbortError(error)) {
     return toLlmErrorMessage(error);
@@ -407,6 +409,7 @@ export function convertOpenAIError(
     const message = openAIErrorMessage(body);
     const code = openAIErrorCode(error, body);
     const type = openAIErrorType(error, body);
+    const statusCode = source === 'stream' ? undefined : error.status;
     const statusInfo = {
       requestId: error.requestID ?? null,
       retryAfterMs: parseRetryAfterMs(error.headers),
@@ -416,7 +419,7 @@ export function convertOpenAIError(
       return {
         kind: 'quota_exhausted',
         message: message.length > 0 ? message : sanitizeStatusErrorMessage(error.message),
-        statusCode: error.status,
+        statusCode,
         retryable: false,
         ...statusInfo,
       };
@@ -425,7 +428,7 @@ export function convertOpenAIError(
       return {
         kind: 'overloaded',
         message: message.length > 0 ? message : error.message,
-        statusCode: error.status,
+        statusCode,
         retryable: true,
         ...statusInfo,
       };
@@ -434,14 +437,14 @@ export function convertOpenAIError(
       return {
         kind: 'context_overflow',
         message: message.length > 0 ? message : error.message,
-        statusCode: error.status,
+        statusCode,
         retryable: false,
         ...statusInfo,
       };
     }
-    if (typeof error.status === 'number') {
+    if (statusCode !== undefined) {
       return toLlmStatusErrorMessage({
-        statusCode: error.status,
+        statusCode,
         message: message.length > 0 ? message : error.message,
         ...statusInfo,
       });
@@ -455,12 +458,10 @@ export function convertOpenAIError(
           ...statusInfo,
         };
       }
-      return {
-        kind: 'status',
-        message,
-        retryable: false,
-        ...statusInfo,
-      };
+      return toLlmStreamErrorMessage({ businessCode: error.status, message, ...statusInfo });
+    }
+    if (source === 'stream') {
+      return toLlmStreamErrorMessage({ businessCode: error.status, message: '', ...statusInfo });
     }
   }
   if (

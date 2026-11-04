@@ -256,6 +256,29 @@ export function toLlmStatusErrorMessage(input: LlmStatusErrorInput): LlmRemoteEr
   return { kind: 'status', message: input.message, ...info };
 }
 
+export function toLlmStreamErrorMessage(
+  input: Omit<LlmStatusErrorInput, 'statusCode'> & { readonly businessCode?: number },
+): LlmRemoteErrorMessage {
+  const info: LlmStatusErrorInfo = {
+    requestId: input.requestId ?? null,
+    retryAfterMs: input.retryAfterMs ?? null,
+    headers: input.headers ?? null,
+    retryable:
+      input.retryable ??
+      (input.businessCode === undefined || RETRYABLE_HTTP_STATUS_CODES.has(input.businessCode)),
+  };
+  if (input.businessCode === 429) {
+    return { kind: 'rate_limit', message: input.message, ...info };
+  }
+  if (input.businessCode === 529) {
+    return { kind: 'overloaded', message: input.message, ...info };
+  }
+  if (input.businessCode === 413) {
+    return { kind: 'request_too_large', message: input.message, ...info };
+  }
+  return { kind: 'status', message: input.message, ...info };
+}
+
 export function parseRetryAfterMs(headers: unknown): number | null {
   const raw =
     headers !== null &&

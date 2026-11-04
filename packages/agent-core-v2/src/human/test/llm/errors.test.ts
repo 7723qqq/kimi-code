@@ -301,6 +301,31 @@ describe('requester error conversion', () => {
       }) as never;
   }
 
+  function throwingStreamClient(error: unknown) {
+    return () =>
+      ({
+        chat: {
+          completions: {
+            create: () => ({
+              withResponse: () =>
+                Promise.resolve({
+                  data: {
+                    async *[Symbol.asyncIterator]() {
+                      yield {
+                        id: 'chunk-1',
+                        choices: [{ index: 0, delta: { content: 'partial' }, finish_reason: null }],
+                      };
+                      throw error;
+                    },
+                  },
+                  response: { headers: new Headers() },
+                }),
+            }),
+          },
+        },
+      }) as never;
+  }
+
   async function generateEvents(
     requester: LlmRequester,
     input: readonly Message[] = messages,
@@ -313,6 +338,33 @@ describe('requester error conversion', () => {
     );
     return events;
   }
+
+  it.each([
+    [429, undefined, 'rate_limit', true],
+    [529, undefined, 'overloaded', true],
+    [413, undefined, 'request_too_large', false],
+    [undefined, 'rate_limit_exceeded', 'rate_limit', true],
+    [undefined, 'engine_overloaded_error', 'overloaded', true],
+    [undefined, 'insufficient_quota', 'quota_exhausted', false],
+    [undefined, 'context_length_exceeded', 'context_overflow', false],
+  ] as const)(
+    'classifies a mid-stream failure (status %s, code %s) as %s',
+    async (status, code, kind, retryable) => {
+      const body = code === undefined ? { message: 'stream failure' } : { message: 'stream failure', code };
+      const requester = createOpenAIRequester({
+        clientFactory: throwingStreamClient(
+          new RawOpenAISDKAPIError(status, body, 'stream failure', new Headers()),
+        ),
+      });
+
+      const events = await generateEvents(requester);
+      const failure = events.at(-1) as { type: string; error?: Record<string, unknown> };
+
+      expect(failure).toMatchObject({ type: 'llm.failed.remote' });
+      expect(failure.error).toMatchObject({ kind, retryable });
+      expect(failure.error?.['statusCode']).toBeUndefined();
+    },
+  );
 
   it('converts a 429 response to rate_limit', async () => {
     const requester = createOpenAIRequester({

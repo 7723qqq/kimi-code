@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 import { assign, shake } from 'radashi';
 
-import { headersToRecord } from '#/llm/errors';
+import { headersToRecord, type LlmRemoteErrorMessage } from '#/llm/errors';
 import { modelKey, type LlmModel } from '#/llm/model';
 import {
   type FamilyMaxOutputDefaults,
@@ -228,6 +228,7 @@ interface OpenAITransport {
   readonly reasoning: ReasoningKeyDialect;
   readonly resolveClient: (request: LlmClientContext) => OpenAI;
   readonly signal: AbortSignal;
+  readonly classifyError?: (error: unknown) => LlmRemoteErrorMessage | undefined;
   readonly onEvent?: (event: LlmRequestEvent) => void;
   readonly log?: LlmLogger;
 }
@@ -236,8 +237,18 @@ async function executeOpenAIRequest(
   request: OpenAIRequestParams,
   transport: OpenAITransport,
 ): Promise<void> {
-  const { connection, trait, ctx, format, reasoning, resolveClient, signal, onEvent, log } =
-    transport;
+  const {
+    connection,
+    trait,
+    ctx,
+    format,
+    reasoning,
+    resolveClient,
+    signal,
+    classifyError,
+    onEvent,
+    log,
+  } = transport;
   const client = resolveClient({
     model: ctx.model,
     headers: mergeRequestHeaders(
@@ -261,26 +272,34 @@ async function executeOpenAIRequest(
           },
   });
   let messageId: string | undefined;
-  for await (const chunk of stream) {
-    reasoning.observe(chunk.choices?.[0]?.delta);
-    let failed = false;
-    parse(chunk, {
-      onDelta: (part) => onEvent?.({ type: 'llm.streaming.part', part }),
-      onFinish: (finish) => onEvent?.({ type: 'llm.streaming.finish', finish }),
-      onMessageId: (id) => {
-        if (id === messageId) return;
-        messageId = id;
-        onEvent?.({ type: 'llm.streaming.message_id', messageId: id });
-      },
-      onUsage: (usage) => onEvent?.({ type: 'llm.streaming.usage', usage }),
-      onError: (message) => {
-        failed = true;
-        onEvent?.({ type: 'llm.failed.remote', error: message });
-      },
-    });
-    if (failed) {
-      return;
+  try {
+    for await (const chunk of stream) {
+      reasoning.observe(chunk.choices?.[0]?.delta);
+      let failed = false;
+      parse(chunk, {
+        onDelta: (part) => onEvent?.({ type: 'llm.streaming.part', part }),
+        onFinish: (finish) => onEvent?.({ type: 'llm.streaming.finish', finish }),
+        onMessageId: (id) => {
+          if (id === messageId) return;
+          messageId = id;
+          onEvent?.({ type: 'llm.streaming.message_id', messageId: id });
+        },
+        onUsage: (usage) => onEvent?.({ type: 'llm.streaming.usage', usage }),
+        onError: (message) => {
+          failed = true;
+          onEvent?.({ type: 'llm.failed.remote', error: message });
+        },
+      });
+      if (failed) {
+        return;
+      }
     }
+  } catch (error) {
+    onEvent?.({
+      type: 'llm.failed.remote',
+      error: convertOpenAIError(error, (e) => classifyError?.(e), 'stream'),
+    });
+    return;
   }
   onEvent?.({ type: 'llm.done' });
 }
@@ -342,6 +361,7 @@ export function createOpenAIRequester(options?: OpenAIRequesterOptions): LlmRequ
           reasoning,
           resolveClient,
           signal,
+          classifyError,
           onEvent,
           log: options?.log,
         });
