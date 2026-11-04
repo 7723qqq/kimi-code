@@ -37,6 +37,7 @@ export function registerFileHistoryRoutes(app: FileHistoryRouteHost, core: Scope
       success: { data: fileHistoryChangesResponseSchema },
       errors: {
         [ErrorCode.SESSION_NOT_FOUND]: {},
+        [ErrorCode.WIRE_VERSION_TOO_LOW]: {},
       },
       description: "List one turn's file changes from the turn-level file history",
       tags: ['sessions'],

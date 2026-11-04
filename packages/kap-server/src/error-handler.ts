@@ -17,6 +17,12 @@ interface ErrorHandlerHost {
 export function installErrorHandler(app: ErrorHandlerHost): void {
   app.setErrorHandler((err, req, reply) => {
     const requestId = req.id;
+    if (isError2(err) && err.code === ErrorCodes.WIRE_VERSION_TOO_LOW) {
+      reply
+        .status(200)
+        .send(errEnvelope(ErrorCode.WIRE_VERSION_TOO_LOW, err.message, requestId, err.stack));
+      return;
+    }
     if (isError2(err) && err.code === ErrorCodes.CONFIG_INVALID) {
       reply
         .status(200)

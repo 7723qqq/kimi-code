@@ -68,6 +68,7 @@ export function registerMessagesRoutes(
       errors: {
         [ErrorCode.VALIDATION_FAILED]: { detailsSchema },
         [ErrorCode.SESSION_NOT_FOUND]: {},
+        [ErrorCode.WIRE_VERSION_TOO_LOW]: {},
         [ErrorCode.PAGE_TOKEN_MISMATCH]: {},
       },
       description: 'List messages for a session',

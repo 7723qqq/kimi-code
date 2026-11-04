@@ -346,6 +346,7 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
       errors: {
         [ErrorCode.VALIDATION_FAILED]: {},
         [ErrorCode.SESSION_NOT_FOUND]: {},
+        [ErrorCode.WIRE_VERSION_TOO_LOW]: {},
         [ErrorCode.FS_PATH_NOT_FOUND]: {},
         [ErrorCode.FS_IS_DIRECTORY]: {},
         [ErrorCode.FS_IS_BINARY]: {},
