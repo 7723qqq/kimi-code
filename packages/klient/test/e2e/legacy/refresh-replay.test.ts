@@ -331,13 +331,6 @@ describeLive('refresh-replay (live server required)', () => {
       expect(items.some((m) => m.role === 'user')).toBe(true);
       expect(items.some((m) => m.role === 'assistant')).toBe(true);
 
-      // `GET /tasks` returns the documented `{items:[]}` envelope shape.
-      const tasks = await getEnvelope<{ items: unknown[] }>(
-        `/sessions/${encodeURIComponent(session.id)}/tasks`,
-        log,
-      );
-      log('tasks snapshot', tasks);
-      expect(Array.isArray(tasks.items)).toBe(true);
     },
     PROMPT_TIMEOUT_MS + 30_000,
   );

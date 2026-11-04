@@ -2,6 +2,7 @@ import { rm } from 'node:fs/promises';
 
 import { isInstantiationServiceDisposedError } from '@moonshot-ai/agent-core-v2';
 import type {
+  AgentTaskInfo,
   ApprovalRequest,
   ApprovalResponse,
   Event2,
@@ -61,7 +62,6 @@ import {
   interactionAgentId,
   interactionOutcome,
 } from '../../../protocol/interaction-wire';
-import type { AgentTaskInfo } from '@moonshot-ai/agent-core-v2/agent/task/types';
 import { toWireWorkspace } from '../../../routes/workspaces';
 import {
   legacyApprovalsOf,

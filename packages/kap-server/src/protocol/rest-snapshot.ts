@@ -1,10 +1,10 @@
+import { isoDateTimeSchema } from '@moonshot-ai/agent-core-v2/_base/utils/isoDateTime';
 import { z } from 'zod';
 
 import { approvalRequestSchema } from './approval';
 import { messageSchema } from './message';
 import { questionRequestSchema } from './question';
 import { sessionSchema } from './session';
-import { taskSchema } from './task';
 
 export const inFlightToolCallSchema = z.object({
   tool_call_id: z.string().min(1),
@@ -31,7 +31,21 @@ export const inFlightTurnSchema = z.object({
 });
 export type InFlightTurn = z.infer<typeof inFlightTurnSchema>;
 
-export const snapshotSubagentSchema = taskSchema.extend({
+export const snapshotSubagentSchema = z.object({
+  id: z.string().min(1),
+  session_id: z.string().min(1),
+  kind: z.enum(['subagent', 'bash', 'tool']),
+  description: z.string(),
+  status: z.enum(['running', 'completed', 'failed', 'cancelled']),
+  command: z.string().optional(),
+  created_at: isoDateTimeSchema,
+  started_at: isoDateTimeSchema.optional(),
+  completed_at: isoDateTimeSchema.optional(),
+  output_preview: z.string().optional(),
+  output_bytes: z.number().int().nonnegative().optional(),
+  model: z.string().optional(),
+  thinking_effort: z.string().optional(),
+  agent_id: z.string().optional(),
   subagent_phase: z
     .enum(['queued', 'working', 'suspended', 'completed', 'failed', 'cancelled'])
     .optional(),

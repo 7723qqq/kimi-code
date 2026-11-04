@@ -434,7 +434,6 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
           { name: 'prompts', description: 'Prompt submission & abort' },
           { name: 'interactions', description: 'Approval and question responses' },
           { name: 'tools', description: 'Tool & MCP server management' },
-          { name: 'tasks', description: 'Task management' },
           { name: 'fs', description: 'Filesystem operations' },
           { name: 'files', description: 'File upload & download' },
           { name: 'remote-control', description: 'Remote Control tunnel' },

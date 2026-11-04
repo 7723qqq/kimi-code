@@ -1,6 +1,9 @@
-import { IAgentLifecycleService, type IDisposable } from '@moonshot-ai/agent-core-v2';
-import { IAgentTaskService } from '@moonshot-ai/agent-core-v2/agent/task/task';
-import type { AgentTaskInfo } from '@moonshot-ai/agent-core-v2/agent/task/types';
+import {
+  IAgentLifecycleService,
+  IAgentTaskService,
+  type AgentTaskInfo,
+  type IDisposable,
+} from '@moonshot-ai/agent-core-v2';
 
 import type { TaskState } from '../../../protocol/ws-task';
 import { toTaskState } from './taskState';

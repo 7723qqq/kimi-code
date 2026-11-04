@@ -1,10 +1,13 @@
-import { getOrRestoreAgent, resumeSessionById, type IDisposable, type Scope } from '@moonshot-ai/agent-core-v2';
 import {
+  getOrRestoreAgent,
   IAgentTaskService,
+  resumeSessionById,
+  type AgentTaskInfo,
   type AgentTaskOutputChunk,
   type AgentTaskOutputTail,
-} from '@moonshot-ai/agent-core-v2/agent/task/task';
-import type { AgentTaskInfo } from '@moonshot-ai/agent-core-v2/agent/task/types';
+  type IDisposable,
+  type Scope,
+} from '@moonshot-ai/agent-core-v2';
 
 import { ErrorCode } from '../../../protocol/error-codes';
 import {
