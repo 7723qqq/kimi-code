@@ -9,10 +9,12 @@ import { isRecord } from '#/_base/utils/guards';
 export const KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV = 'KIMI_CODE_PLUGIN_MARKETPLACE_URL';
 
 export const PLUGIN_MARKETPLACE_CLASSIFICATIONS = ['official', 'third_party'] as const;
+export const PLUGIN_MARKETPLACE_CLIENTS = ['desktop', 'cli'] as const;
 export const PLUGIN_MARKETPLACE_TIERS = ['official', 'curated'] as const;
 export const PLUGIN_MARKETPLACE_PLATFORMS = ['macos', 'windows', 'linux', 'cloud'] as const;
 
 export type PluginMarketplaceClassification = (typeof PLUGIN_MARKETPLACE_CLASSIFICATIONS)[number];
+export type PluginClient = (typeof PLUGIN_MARKETPLACE_CLIENTS)[number];
 export type PluginMarketplaceTier = (typeof PLUGIN_MARKETPLACE_TIERS)[number];
 export type PluginMarketplacePlatform = 'darwin' | 'win32' | 'linux' | 'cloud';
 
@@ -40,6 +42,7 @@ export interface PluginMarketplaceEntry {
   readonly displayName: string;
   readonly source: string;
   readonly classification?: PluginMarketplaceClassification;
+  readonly clients?: readonly PluginClient[];
   readonly tier?: PluginMarketplaceTier;
   readonly version?: string;
   readonly description?: string;
@@ -80,6 +83,42 @@ export interface ReadPluginMarketplaceOptions {
   readonly homeDir?: string;
   readonly fetchImpl?: FetchLike;
   readonly sourceCheckoutLocation?: () => Promise<MarketplaceLocation | undefined>;
+}
+
+export function pluginClientForIdentity(identity: string): PluginClient {
+  return identity === 'kimi_code_desktop' ? 'desktop' : 'cli';
+}
+
+export function marketplaceEntrySupportsClient(
+  entry: Pick<PluginMarketplaceEntry, 'clients'>,
+  client: PluginClient,
+): boolean {
+  return entry.clients === undefined || entry.clients.includes(client);
+}
+
+export function marketplaceEntryInstallableOnHost(
+  entry: Pick<PluginMarketplaceEntry, 'clients' | 'platforms'>,
+  client: PluginClient,
+  platform: NodeJS.Platform,
+): boolean {
+  if (!marketplaceEntrySupportsClient(entry, client)) return false;
+  return (
+    entry.platforms === undefined ||
+    entry.platforms.some((candidate) => candidate === platform)
+  );
+}
+
+export function marketplaceEntryVisibleOnHost(
+  entry: Pick<PluginMarketplaceEntry, 'clients' | 'platforms'>,
+  client: PluginClient,
+  platform: NodeJS.Platform,
+): boolean {
+  if (!marketplaceEntrySupportsClient(entry, client)) return false;
+  if (entry.platforms === undefined) return true;
+  return (
+    entry.platforms.some((candidate) => candidate === platform) ||
+    entry.platforms.every((candidate) => candidate === 'cloud')
+  );
 }
 
 export function computeUpdateStatus(
@@ -247,6 +286,7 @@ function parseMarketplaceEntry(
     sha256sum: parseSha256sum(value, id),
     filename: stringField(value, 'filename'),
     cliDescription: stringField(value, 'cliDescription'),
+    clients: parseClients(value['clients']),
     locale: parseLocale(value['locale'], id),
     platforms: parsePlatforms(value['platforms'], id),
     distribution,
@@ -284,6 +324,18 @@ function parseMarketplaceTier(
   throw new Error(
     `Plugin marketplace entry ${id} "tier" must be one of: ${PLUGIN_MARKETPLACE_TIERS.join(', ')}.`,
   );
+}
+
+function parseClients(value: unknown): readonly PluginClient[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) return [];
+  return [
+    ...new Set(
+      value.filter((client): client is PluginClient =>
+        (PLUGIN_MARKETPLACE_CLIENTS as readonly unknown[]).includes(client),
+      ),
+    ),
+  ];
 }
 
 function parseDistribution(

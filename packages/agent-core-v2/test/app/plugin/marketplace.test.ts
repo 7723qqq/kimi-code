@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'bun:test';
 
 import {
+  marketplaceEntryInstallableOnHost,
+  marketplaceEntryVisibleOnHost,
   parsePluginMarketplace,
+  pluginClientForIdentity,
   type MarketplaceLocation,
 } from '#/app/plugin/marketplace';
 
@@ -74,6 +77,39 @@ describe('parsePluginMarketplace integrity fields', () => {
       cliDescription: 'Installs the sample plugin',
       billing: { plan: 'free' },
     });
+  });
+});
+
+describe('parsePluginMarketplace clients', () => {
+  it('keeps known clients, drops unknown ones and leaves an absent list open', () => {
+    expect(parse({ clients: ['desktop', 'cli', 'browser'] }).clients).toEqual(['desktop', 'cli']);
+    expect(parse({ clients: ['cli', 'cli'] }).clients).toEqual(['cli']);
+    expect(parse({ clients: 'desktop' }).clients).toEqual([]);
+    expect(parse({}).clients).toBeUndefined();
+  });
+});
+
+describe('marketplace host matching', () => {
+  it('maps the desktop identity and defaults everything else to cli', () => {
+    expect(pluginClientForIdentity('kimi_code_desktop')).toBe('desktop');
+    expect(pluginClientForIdentity('kimi_code_vscode')).toBe('cli');
+  });
+
+  it('requires both the client and the platform to be supported', () => {
+    const desktopOnly = { clients: ['desktop' as const], platforms: ['darwin' as const] };
+    expect(marketplaceEntryInstallableOnHost(desktopOnly, 'desktop', 'darwin')).toBe(true);
+    expect(marketplaceEntryInstallableOnHost(desktopOnly, 'cli', 'darwin')).toBe(false);
+    expect(marketplaceEntryInstallableOnHost(desktopOnly, 'desktop', 'win32')).toBe(false);
+    expect(marketplaceEntryInstallableOnHost({}, 'cli', 'linux')).toBe(true);
+  });
+
+  it('lets a cloud-only entry be visible on any host but installable on none of them', () => {
+    const cloudOnly = { platforms: ['cloud' as const] };
+    expect(marketplaceEntryVisibleOnHost(cloudOnly, 'cli', 'win32')).toBe(true);
+    expect(marketplaceEntryInstallableOnHost(cloudOnly, 'cli', 'win32')).toBe(false);
+    expect(
+      marketplaceEntryVisibleOnHost({ platforms: ['linux'], clients: ['desktop'] }, 'cli', 'linux'),
+    ).toBe(false);
   });
 });
 
