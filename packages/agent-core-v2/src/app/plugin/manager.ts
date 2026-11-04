@@ -29,6 +29,7 @@ import {
   type PluginInfo,
   type PluginMcpServerEntry,
   type PluginMcpServerInfo,
+  type PluginOrigin,
   type PluginRecord,
   type PluginSource,
   type PluginSummary,
@@ -423,6 +424,8 @@ export class PluginManager {
       id: record.id,
       root: record.root,
       source: record.source,
+      origin: record.origin,
+      catalogId: record.catalogId,
       enabled: record.enabled,
       installedAt: record.installedAt,
       updatedAt: record.updatedAt,
@@ -442,6 +445,8 @@ export class PluginManager {
       installedAt: entry.installedAt,
       updatedAt: entry.updatedAt,
       originalSource: entry.originalSource,
+      origin: entry.origin,
+      catalogId: entry.catalogId,
       capabilities: entry.capabilities,
       github: entry.github,
       source: entry.source,
@@ -639,6 +644,8 @@ async function recordFrom(input: {
   installedAt: string;
   updatedAt?: string;
   originalSource?: string;
+  origin?: PluginOrigin;
+  catalogId?: string;
   capabilities?: PluginCapabilityState;
   github?: PluginGithubMetadata;
   source?: PluginSource;
@@ -651,6 +658,8 @@ async function recordFrom(input: {
     id: input.id,
     root: input.root,
     source: input.source ?? 'local-path',
+    origin: input.origin ?? 'unknown',
+    catalogId: input.catalogId,
     enabled: input.enabled,
     state: hasError || parsed.manifest === undefined ? 'error' : 'ok',
     installedAt: input.installedAt,
@@ -682,6 +691,8 @@ function recordToSummary(record: PluginRecord): PluginSummary {
     commandCount: record.manifest?.commands?.length ?? 0,
     hasErrors: record.diagnostics.some((d) => d.severity === 'error'),
     source: record.source,
+    origin: record.origin,
+    catalogId: record.catalogId,
     originalSource: record.originalSource,
     github: record.github,
   };

@@ -166,6 +166,53 @@ describe('PluginService (plugin boundary)', () => {
     }
   });
 
+  it('reads an installed record written before origins existed as an unknown origin', async () => {
+    const home = await makeHome();
+    const pluginRoot = await makePluginDir('legacy-origin', {});
+    createdDirs.push(pluginRoot);
+    await writeInstalledFile(home, JSON.stringify(installedFile('legacy-origin', pluginRoot)));
+    const host = makeHost(home);
+    try {
+      const svc = host.app.accessor.get(IPluginService);
+      await expect(svc.listPlugins()).resolves.toEqual([
+        expect.objectContaining({ id: 'legacy-origin', origin: 'unknown', catalogId: undefined }),
+      ]);
+    } finally {
+      host.dispose();
+    }
+  });
+
+  it('keeps a marketplace origin and its catalog id across a reload', async () => {
+    const home = await makeHome();
+    const pluginRoot = await makePluginDir('catalog-origin', {});
+    createdDirs.push(pluginRoot);
+    const file = installedFile('catalog-origin', pluginRoot);
+    await writeInstalledFile(
+      home,
+      JSON.stringify({
+        version: 1,
+        plugins: [{ ...file.plugins[0], origin: 'marketplace', catalogId: 'catalog-entry' }],
+      }),
+    );
+    const host = makeHost(home);
+    try {
+      const svc = host.app.accessor.get(IPluginService);
+      await expect(svc.listPlugins()).resolves.toEqual([
+        expect.objectContaining({
+          id: 'catalog-origin',
+          origin: 'marketplace',
+          catalogId: 'catalog-entry',
+        }),
+      ]);
+      await svc.reloadPlugins();
+      await expect(svc.listPlugins()).resolves.toEqual([
+        expect.objectContaining({ origin: 'marketplace', catalogId: 'catalog-entry' }),
+      ]);
+    } finally {
+      host.dispose();
+    }
+  });
+
   it('degrades consumption-plane reads to empty when installed.json is corrupt', async () => {
     const home = await makeHome();
     await writeInstalledFile(home, '{ not json');

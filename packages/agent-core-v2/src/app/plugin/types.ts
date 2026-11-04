@@ -119,6 +119,7 @@ export interface PluginCommandEntry {
 
 export type PluginManifestKind = 'kimi-plugin-root' | 'kimi-plugin-dir';
 export type PluginSource = 'local-path' | 'zip-url' | 'github';
+export type PluginOrigin = 'marketplace' | 'custom' | 'unknown';
 export type PluginState = 'ok' | 'error';
 
 export interface PluginGithubRef {
@@ -137,6 +138,8 @@ export interface PluginRecord {
   readonly id: string;
   readonly root: string;
   readonly source: PluginSource;
+  readonly origin: PluginOrigin;
+  readonly catalogId?: string;
   readonly enabled: boolean;
   readonly state: PluginState;
   readonly installedAt: string;
@@ -166,6 +169,8 @@ export interface PluginSummary {
   readonly commandCount: number;
   readonly hasErrors: boolean;
   readonly source: PluginSource;
+  readonly origin: PluginOrigin;
+  readonly catalogId?: string;
   readonly originalSource?: string;
   readonly github?: PluginGithubMetadata;
 }
