@@ -122,7 +122,7 @@ describe('Session.cancel', () => {
 });
 
 describe('KimiHarness.forkSession', () => {
-  it('rejects while the source session has an active turn', async () => {
+  it('forks a source session that has an active turn', async () => {
     const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-fork-active-home-');
     const workDir = await makeTempDir(tempDirs, 'kimi-sdk-fork-active-work-');
     await writeFakeModelConfig(homeDir);
@@ -136,14 +136,13 @@ describe('KimiHarness.forkSession', () => {
       await session.prompt('keep this turn active');
       await started;
       try {
-        await expect(
-          harness.forkSession({
-            id: session.id,
-            forkId: 'ses_fork_active_child',
-          }),
-        ).rejects.toMatchObject({
-          code: 'session.fork_active_turn',
+        const fork = await harness.forkSession({
+          id: session.id,
+          forkId: 'ses_fork_active_child',
         });
+        expect(fork.id).toBe('ses_fork_active_child');
+        expect(fork.summary?.lastPrompt).toBe('keep this turn active');
+        await fork.close();
       } finally {
         await session.cancel().catch(() => undefined);
         await ended.catch(() => undefined);

@@ -12,11 +12,15 @@ import { join } from 'node:path';
 
 import { Service } from '@moonshot-ai/agent-core-v2/_base/di/service';
 import { CommandContribution } from '@moonshot-ai/agent-core-v2/agent/command/commandContribution';
+import { IAgentContextMemoryService } from '@moonshot-ai/agent-core-v2/agent/contextMemory/contextMemory';
 import { IFeatureManager } from '@moonshot-ai/agent-core-v2/app/feature/featureManager';
 import {
   resetModelsDevUpstreamForTest,
   setModelsDevUpstreamForTest,
 } from '@moonshot-ai/agent-core-v2/app/kosongConfig/modelsDevUpstream';
+import { getLiveSessionById } from '@moonshot-ai/agent-core-v2/app/sessionManager/sessionLookup';
+import { IAgentLifecycleService } from '@moonshot-ai/agent-core-v2/session/agentLifecycle/agentLifecycle';
+import { IWireService } from '@moonshot-ai/agent-core-v2/wire/wire';
 
 import type { Klient } from '../../src/index.js';
 import type { TestEngine } from './engine.js';
@@ -118,6 +122,20 @@ export function defineKlientConformance(
         title: 'conformance parent',
       });
       try {
+        const parentHandle = getLiveSessionById(target.app.accessor, parent.id)!;
+        const main = await parentHandle.accessor
+          .get(IAgentLifecycleService)
+          .create({ agentId: 'main' });
+        const mainHandle = parentHandle.accessor
+          .get(IAgentLifecycleService)
+          .handleOf(main.agentId)!;
+        mainHandle.accessor.get(IAgentContextMemoryService).append({
+          role: 'user',
+          content: [{ type: 'text', text: 'fork through this turn' }],
+          origin: { kind: 'user' },
+        });
+        await mainHandle.accessor.get(IWireService).flush();
+
         const child = await target.klient.session(parent.id).createChild();
         try {
           expect(child.custom?.['parent_session_id']).toBe(parent.id);
@@ -126,10 +144,11 @@ export function defineKlientConformance(
         } finally {
           await target.klient.session(child.id).close();
         }
-        const forked = await target.klient.session(parent.id).fork();
+        const forked = await target.klient.session(parent.id).fork({ turnIndex: 0 });
         try {
           expect(forked.custom?.['parent_session_id']).toBeUndefined();
           expect(forked.custom?.['child_session_kind']).toBeUndefined();
+          expect(forked.lastPrompt).toBe('fork through this turn');
         } finally {
           await target.klient.session(forked.id).close();
         }

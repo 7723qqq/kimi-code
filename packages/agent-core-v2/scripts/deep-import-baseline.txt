@@ -266,8 +266,12 @@ packages/klient/src/transports/memory/serviceRegistry.ts workspace/workspaceInst
 packages/klient/test/e2e/invalid-input-matrix.test.ts llm-adapter/model/model
 packages/klient/test/helpers/conformance.ts _base/di/service
 packages/klient/test/helpers/conformance.ts agent/command/commandContribution
+packages/klient/test/helpers/conformance.ts agent/contextMemory/contextMemory
 packages/klient/test/helpers/conformance.ts app/feature/featureManager
 packages/klient/test/helpers/conformance.ts app/kosongConfig/modelsDevUpstream
+packages/klient/test/helpers/conformance.ts app/sessionManager/sessionLookup
+packages/klient/test/helpers/conformance.ts session/agentLifecycle/agentLifecycle
+packages/klient/test/helpers/conformance.ts wire/wire
 packages/migration-legacy/src/sessions/migrate-one.ts features/todo/todoItem
 packages/migration-legacy/src/sessions/state-writer.ts session/sessionMetadata/sessionMetadata
 packages/migration-legacy/src/sessions/subagents.ts features/todo/todoItem

@@ -121,6 +121,7 @@ function replayAgentToWebviewEvents(
                 type: 'TurnBegin',
                 payload: {
                   user_input: imported?.input ?? replayUserInput(visibleContent, message.origin),
+                  turnIndex: record.turnId,
                 },
               },
               sessionId,

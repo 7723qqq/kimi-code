@@ -16,9 +16,11 @@ const MODEL_URL = 'https://model.example.test/v1/chat/completions';
 const fakeProviderState: {
   calls: Array<{ readonly systemPrompt: string; readonly history: unknown }>;
   responseText: string;
+  responseGate: Promise<void> | undefined;
 } = {
   calls: [],
   responseText: 'hello from fake provider',
+  responseGate: undefined,
 };
 
 function sseChunk(delta: Record<string, unknown>, finishReason: string | null = null): string {
@@ -44,6 +46,7 @@ const tempDirs: string[] = [];
 beforeEach(() => {
   fakeProviderState.calls.length = 0;
   fakeProviderState.responseText = 'hello from fake provider';
+  fakeProviderState.responseGate = undefined;
   fetchStub = spyOn(globalThis, 'fetch').mockImplementation((async (
     input: string | URL | Request,
     init?: RequestInit,
@@ -61,6 +64,7 @@ beforeEach(() => {
       systemPrompt: typeof system?.content === 'string' ? system.content : '',
       history: messages,
     });
+    await fakeProviderState.responseGate;
     return new Response(sseBody(fakeProviderState.responseText), {
       status: 200,
       headers: { 'Content-Type': 'text/event-stream' },
@@ -691,7 +695,7 @@ describe('Session.prompt events', () => {
       const fork = await harness.forkSession({
         id: source.id,
         forkId: 'ses_turn_fork_undo_child',
-        turnIndex: 2,
+        turnIndex: 3,
       });
       await fork.close();
       const resumed = await harness.resumeSession({ id: fork.id });
@@ -809,31 +813,60 @@ describe('Session.prompt events', () => {
     }
   });
 
-  it('rejects an out-of-range historical turn without creating the fork', async () => {
+  it('forks the active user prompt while the first turn is still running', async () => {
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
     const harness = createKimiHarness({ identity: TEST_IDENTITY, homeDir });
+    let releaseResponse!: () => void;
+    const responseGate = new Promise<void>((resolve) => {
+      releaseResponse = resolve;
+    });
 
     try {
       await configureFakeProvider(harness);
       const source = await harness.createSession({ id: 'ses_turn_fork_range_source', workDir });
-      await runPrompt(source, 'only question', 'only answer');
+      fakeProviderState.responseGate = responseGate;
+      const started = waitForEvent(source, (event) => event.type === 'turn.started');
+      const ended = waitForEvent(source, (event) => event.type === 'turn.ended');
+      await source.prompt('only question');
+      await started;
 
-      await expect(
-        harness.forkSession({
-          id: source.id,
-          forkId: 'ses_turn_fork_range_child',
-          turnIndex: 1,
-        }),
-      ).rejects.toMatchObject({
-        name: 'KimiError',
-        code: 'request.invalid',
-        details: { turnIndex: 1, availableTurns: 1 },
+      const fork = await harness.forkSession({
+        id: source.id,
+        forkId: 'ses_turn_fork_range_child',
       });
+      expect(fork.summary).toMatchObject({
+        lastPrompt: 'only question',
+        lastTurnReason: 'cancelled',
+      });
+      expect(visibleReplayText(fork.getResumeState()?.agents['main']?.replay ?? [])).toEqual([
+        'user:only question',
+      ]);
       await expect(
         harness.listSessions({ sessionId: 'ses_turn_fork_range_child' }),
-      ).resolves.toEqual([]);
+      ).resolves.toHaveLength(1);
+      await fork.close();
+
+      releaseResponse();
+      await ended;
+      await source.close();
+      const completedSource = await harness.resumeSession({ id: source.id });
+      expect(
+        visibleReplayText(completedSource.getResumeState()?.agents['main']?.replay ?? []),
+      ).toEqual(['user:only question', 'assistant:hello from fake provider']);
+
+      const resumed = await harness.resumeSession({ id: 'ses_turn_fork_range_child' });
+      await runPrompt(resumed, 'fork question', 'fork answer');
+      await resumed.close();
+      const reloaded = await harness.resumeSession({ id: 'ses_turn_fork_range_child' });
+      expect(reloaded.getResumeState()?.agents['main']).toMatchObject({ userTurnCount: 2 });
+      expect(visibleReplayText(reloaded.getResumeState()?.agents['main']?.replay ?? [])).toEqual([
+        'user:only question',
+        'user:fork question',
+        'assistant:fork answer',
+      ]);
     } finally {
+      releaseResponse();
       await harness.close();
     }
   });

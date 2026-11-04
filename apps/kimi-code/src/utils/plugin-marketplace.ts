@@ -11,7 +11,7 @@
 import { stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
-import { PluginAvailabilityStore } from '@moonshot-ai/agent-core-v2/app/plugin/availability';
+import { PluginAvailabilityStore } from '@moonshot-ai/agent-core-v2';
 import {
   parsePluginMarketplace,
   readPluginMarketplace,

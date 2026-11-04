@@ -390,6 +390,7 @@ const eventHandlers: Record<string, EventHandler> = {
       role: 'user',
       content: payload.user_input,
       timestamp: Date.now(),
+      turnIndex: payload.turnIndex,
       forkable: payload.forkable,
     });
 
@@ -399,6 +400,7 @@ const eventHandlers: Record<string, EventHandler> = {
       content: '',
       timestamp: Date.now(),
       steps: [],
+      turnIndex: payload.turnIndex,
       forkable: payload.forkable,
     });
 

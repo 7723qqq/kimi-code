@@ -2518,6 +2518,7 @@ describe('foldAgentWireReplay turn limiting', () => {
         {
           type: 'message',
           time: 3,
+          turnId: 0,
           message: {
             role: 'user',
             content: [{ type: 'text', text: 'kept question' }],
@@ -2642,6 +2643,7 @@ describe('foldAgentWireReplay turn limiting', () => {
       {
         type: 'message',
         time: 12,
+        turnId: 1,
         message: {
           role: 'user',
           content: [{ type: 'text', text: 'last question' }],
