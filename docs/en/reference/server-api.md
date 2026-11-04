@@ -1575,7 +1575,11 @@ On success, `data` is the plugin summary documented under `GET /api/v1/plugins` 
 
 Lists the plugin marketplace catalog merged with live install state. The catalog is fetched per request (10-second timeout) from the configured marketplace URL; with the default catalog, built-in capabilities missing from the catalog are merged in as rows (with `capabilityId` set) and rows whose capability is unsupported on this platform are dropped.
 
-On success, `data` is `{ entries }` where each item is `{ id, tier, displayName, description?, homepage?, keywords?, version?, source, installed?, updateAvailable?, capabilityId? }`: `tier` is `official` / `curated` / `third-party`, `installed` is `{ version?, enabled }` when the plugin is installed, and `updateAvailable` marks rows whose catalog version is newer than the installed one. An entry's `source` feeds the `source` field of `POST /api/v1/plugins`.
+On success, `data` is `{ entries }` where each item is `{ id, tier, displayName, description?, shortDescription?, longDescription?, homepage?, keywords?, version?, source, platforms?, installed?, updateAvailable?, capabilityId? }`: `tier` is `official` / `curated` / `third-party`, `installed` is `{ version?, enabled }` when the plugin is installed, and `updateAvailable` marks rows whose catalog version is newer than the installed one. An entry's `source` feeds the `source` field of `POST /api/v1/plugins`.
+
+Entries are filtered by host before they are returned: a catalog entry's `clients` must include `cli` (or be omitted) and its `platforms` must include this daemon's platform (or contain only `cloud`), otherwise the row is left out. The same catalog read is recorded in `$KIMI_CODE_HOME/plugins/availability.json`, which the installed list uses to hide a plugin whose catalog entry no longer targets this host.
+
+Plugin summaries elsewhere on this page also carry `origin` (`marketplace` / `custom` / `unknown`) and an optional `catalogId`.
 
 - `50001`: the marketplace is unreachable or returned an invalid catalog
 

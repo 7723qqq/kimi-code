@@ -11,6 +11,7 @@
 import { stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
+import { PluginAvailabilityStore } from '@moonshot-ai/agent-core-v2/app/plugin/availability';
 import {
   parsePluginMarketplace,
   readPluginMarketplace,
@@ -20,6 +21,7 @@ import {
   type PluginMarketplace,
   type PluginMarketplaceEntry,
 } from '@moonshot-ai/agent-core-v2/app/plugin/marketplace';
+import { resolveKimiHome } from '@moonshot-ai/kimi-code-sdk/runtime';
 
 import {
   KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV,
@@ -29,6 +31,7 @@ import { kimiCodePluginMarketplaceUrl } from '#/constant/region-urls';
 
 export {
   computeUpdateStatus,
+  marketplaceEntryVisibleOnHost,
   PLUGIN_MARKETPLACE_TIERS,
   withBuiltInEntries,
   type PluginMarketplace,
@@ -53,6 +56,14 @@ export interface LoadPluginMarketplaceOptions {
    * background via {@link withMarketplaceLatestVersions} and re-renders.
    */
   readonly skipLatestVersions?: boolean;
+  /** Overrides the home directory holding the plugin availability cache. */
+  readonly kimiHomeDir?: string;
+  /**
+   * Called after the catalog has been recorded in the availability cache, with
+   * whether anything changed. Callers use it to re-read the installed list so
+   * an entry that just became unsupported stops being offered.
+   */
+  readonly reconcileAvailability?: (changed: boolean) => Promise<void>;
 }
 
 /**
@@ -101,6 +112,10 @@ export async function loadPluginMarketplace(
     options.skipLatestVersions === true
       ? parsePluginMarketplace(read.raw, read.location)
       : await withLatestVersions(parsePluginMarketplace(read.raw, read.location), fetchImpl);
+  const availability = new PluginAvailabilityStore(options.kimiHomeDir ?? resolveKimiHome());
+  await availability.refresh().catch(() => undefined);
+  const changed = await availability.update(marketplace).catch(() => false);
+  await options.reconcileAvailability?.(changed);
   return options.builtInEntries !== undefined
     ? withBuiltInEntries(marketplace, options.builtInEntries)
     : marketplace;

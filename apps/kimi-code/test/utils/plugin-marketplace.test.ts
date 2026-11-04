@@ -103,7 +103,7 @@ describe('loadPluginMarketplace', () => {
 
     expect(marketplace.source).toBe(file);
     expect(marketplace.version).toBe('1');
-    expect(marketplace.plugins.slice(0, 2)).toEqual([
+    expect(marketplace.plugins.slice(0, 2)).toMatchObject([
       {
         id: 'kimi-datasource',
         displayName: 'Kimi Datasource',

@@ -27,7 +27,11 @@ import { formatPluginSourceLabel, pluginTrustLabel } from '#/tui/utils/plugin-so
 import { printableChar } from '#/tui/utils/printable-key';
 import { layoutTabStrip, type TabStripSpan } from '#/tui/utils/tab-strip';
 import { wrapText as wrapOverviewDescription } from '#/tui/utils/wrap-text';
-import { computeUpdateStatus, type PluginMarketplaceEntry } from '#/utils/plugin-marketplace';
+import {
+  computeUpdateStatus,
+  marketplaceEntryVisibleOnHost,
+  type PluginMarketplaceEntry,
+} from '#/utils/plugin-marketplace';
 
 import { ChoicePickerComponent } from './choice-picker';
 
@@ -494,10 +498,12 @@ export class PluginsPanelComponent extends Container implements Focusable {
 
   private get marketplaceEntries(): readonly PluginMarketplaceEntry[] {
     if (this.market.status !== 'loaded') return [];
-    return this.market.entries.toSorted(
-      (a, b) =>
-        Number(this.isMarketplaceEntryInstalled(b)) - Number(this.isMarketplaceEntryInstalled(a)),
-    );
+    return this.market.entries
+      .filter((entry) => marketplaceEntryVisibleOnHost(entry, 'cli', process.platform))
+      .toSorted(
+        (a, b) =>
+          Number(this.isMarketplaceEntryInstalled(b)) - Number(this.isMarketplaceEntryInstalled(a)),
+      );
   }
 
   private get installedVersions(): ReadonlyMap<string, string | undefined> {

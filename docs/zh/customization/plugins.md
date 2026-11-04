@@ -75,6 +75,10 @@ Plugins 把可复用的 Kimi Code CLI 能力打包成可安装单元：可以添
 }
 ```
 
+条目还可以声明 `clients`（`desktop`、`cli` 或两者）与 `platforms`（`macos`、`windows`、`linux`、`cloud`）。`clients` 选择产品宿主，`platforms` 选择操作系统；两者都要匹配条目才会被列出，省略 `clients` 表示两个宿主都可用。仅声明 `cloud` 的条目在任何宿主都可见，但无法在本机安装。
+
+已安装的 plugin 仍统一存放在 `$KIMI_CODE_HOME` 下，最近一次成功读取的目录缓存在 `$KIMI_CODE_HOME/plugins/availability.json`。当目录修改了某个条目的 client 或 platform 规则，下一次成功刷新会在本机隐藏或恢复该插件的既有安装，既不重新安装也不改动其文件。
+
 ## 官方插件
 
 官方插件是 Kimi 官方维护的 plugin 和内置产品能力，目前有以下三种：

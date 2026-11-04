@@ -379,6 +379,10 @@ async function loadMarketplaceCatalog(
       workDir: host.state.appState.workDir,
       source,
       skipLatestVersions: true,
+      reconcileAvailability: async (changed) => {
+        if (!changed) return;
+        await reloadPlugins(host);
+      },
     });
     marketplace =
       builtInEntries !== undefined ? withBuiltInEntries(catalog, builtInEntries) : catalog;

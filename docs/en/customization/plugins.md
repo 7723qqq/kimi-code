@@ -75,6 +75,10 @@ Pass a custom marketplace JSON path or URL to `/plugins marketplace <source>`, o
 }
 ```
 
+An entry can also declare `clients` (`desktop`, `cli`, or both) and `platforms` (`macos`, `windows`, `linux`, `cloud`). `clients` selects the product host and `platforms` the operating system; both must match for the entry to be listed, and an omitted `clients` means both hosts. A `cloud`-only entry stays visible everywhere but cannot be installed locally.
+
+Installed plugins stay shared under `$KIMI_CODE_HOME`, and the last successful catalog read is cached in `$KIMI_CODE_HOME/plugins/availability.json`. When the catalog changes its client or platform rules, the next successful refresh hides or restores an existing installation on this host without reinstalling it or touching its files.
+
 ## Official Plugins
 
 Official plugins are plugins and built-in product capabilities maintained by Kimi. There are currently three:
