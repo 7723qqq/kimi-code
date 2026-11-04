@@ -122,6 +122,9 @@ export const pluginGithubMetadataSchema = z.object({
 export const pluginSummarySchema = z.object({
   id: z.string(),
   displayName: z.string(),
+  description: z.string().optional(),
+  shortDescription: z.string().optional(),
+  longDescription: z.string().optional(),
   version: z.string().optional(),
   enabled: z.boolean(),
   state: pluginStateSchema,
@@ -132,6 +135,9 @@ export const pluginSummarySchema = z.object({
   commandCount: z.number(),
   hasErrors: z.boolean(),
   source: pluginSourceSchema,
+  origin: z.enum(['marketplace', 'custom', 'unknown']),
+  catalogId: z.string().optional(),
+  marketplaceSource: z.string().optional(),
   originalSource: z.string().optional(),
   github: pluginGithubMetadataSchema.optional(),
 });

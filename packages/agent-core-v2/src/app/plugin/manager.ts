@@ -696,6 +696,9 @@ function recordToSummary(record: PluginRecord): PluginSummary {
   return {
     id: record.id,
     displayName: record.manifest?.interface?.displayName ?? record.id,
+    description: record.manifest?.description,
+    shortDescription: record.manifest?.interface?.shortDescription,
+    longDescription: record.manifest?.interface?.longDescription,
     version: record.manifest?.version,
     enabled: record.enabled,
     state: record.state,
