@@ -153,6 +153,7 @@ describe('promptWithSkills', () => {
     });
     expect(steered.turn_id).toBe(0);
     expect(steered.state).toBe('running');
+    expect(steered.steered).toBe(true);
     expect(steered.prompt_id).toBeTruthy();
 
     hold.release();
@@ -205,6 +206,7 @@ describe('promptWithSkills', () => {
         steerIfActive,
       });
       expect(queued.state).toBe('queued');
+      expect(queued.steered).toBe(false);
       expect(queued.turn_id).toBeUndefined();
 
       hold.release();
