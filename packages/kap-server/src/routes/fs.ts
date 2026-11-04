@@ -100,6 +100,7 @@ const sessionIdAndTailParamSchema = z.object({
 const fsDownloadQuerySchema = z
   .object({
     runtime_id: z.string().min(1).optional(),
+    allow_external_symlinks: z.enum(['true', 'false']).optional(),
   })
   .strict();
 
@@ -758,7 +759,10 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
         runtimeFs = await acquireSessionFs(core, session_id, req.query.runtime_id ?? 'local', [
           'fs',
         ]);
-        resolved = await runtimeFs.fs.resolveDownload(relPath);
+        resolved = await runtimeFs.fs.resolveDownload(
+          relPath,
+          req.query.allow_external_symlinks === 'true',
+        );
       } catch (err) {
         if (runtimeFs !== undefined) releaseRuntimeFs(runtimeFs);
         sendMappedError(reply, req, err);

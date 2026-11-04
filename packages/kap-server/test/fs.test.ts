@@ -494,6 +494,20 @@ describe('server-v2 /api/v1 fs routes', () => {
       );
       const downloadBody = (await res.json()) as Envelope<null>;
       expect(downloadBody.code).toBe(ErrorCode.FS_PATH_ESCAPES_SESSION);
+
+      const allowedRead = await postFs<{ content: string }>(id, 'read', {
+        path: 'docs/secret.txt',
+        allow_external_symlinks: true,
+      });
+      expect(allowedRead.code).toBe(0);
+      expect(allowedRead.data.content).toBe('top-secret');
+
+      const allowedDownload = await fetch(
+        `${base}/api/v1/sessions/${id}/fs/docs/secret.txt:download?runtime_id=local&allow_external_symlinks=true`,
+        { headers: authHeaders(server as RunningServer) } as never,
+      );
+      expect(allowedDownload.status).toBe(200);
+      expect(await allowedDownload.text()).toBe('top-secret');
     } finally {
       await rm(outside, { recursive: true, force: true });
     }

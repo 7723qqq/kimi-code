@@ -1762,7 +1762,7 @@ schema 还接受共享消息格式中的 `tool_use`、`tool_result` 和 `thinkin
 | `sort` | body | string | `type_first`（默认）/ `name_asc` / `name_desc` / `mtime_desc` / `size_desc` |
 | `include_git_status` | body | boolean | 附带每个条目的 git 状态。默认 `false` |
 
-成功时 `data` 为 `{ items, truncated }`——`depth` 大于 1 时另附 `children_by_path`（路径 → 条目的映射）。每项是一个条目对象 `{ path, name, kind, size?, modified_at, etag?, mime?, language_id?, is_binary?, is_symlink_to?, git_status?, child_count? }`，其中 `kind` 为 `file` / `directory` / `symlink`；`git_status`（仅 `include_git_status: true` 时存在）为 `clean` / `modified` / `added` / `deleted` / `renamed` / `untracked` / `ignored` / `conflicted` 之一；`truncated` 表示 `limit` 截断了列表。
+成功时 `data` 为 `{ items, truncated }`——`depth` 大于 1 时另附 `children_by_path`（路径 → 条目的映射）。每项是一个条目对象 `{ path, name, kind, size?, modified_at, etag?, mime?, language_id?, is_binary?, is_directory?, is_symlink_to?, git_status?, child_count? }`，其中 `kind` 为 `file` / `directory` / `symlink`，`is_directory` 标记目标为目录的符号链接；`git_status`（仅 `include_git_status: true` 时存在）为 `clean` / `modified` / `added` / `deleted` / `renamed` / `untracked` / `ignored` / `conflicted` 之一；`truncated` 表示 `limit` 或符号链接递归预算截断了列表。通过展开符号链接目录到达的条目每次请求上限为 10,000 条；普通目录递归不受此限制。
 
 - `40001`：请求体校验失败
 - `40401`：会话不存在
