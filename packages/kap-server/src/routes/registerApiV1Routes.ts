@@ -176,7 +176,11 @@ export async function registerApiV1Routes(
         apiV1 as unknown as Parameters<typeof registerQuestionsRoutes>[0],
         core,
       );
-      registerPromptsRoutes(apiV1 as unknown as Parameters<typeof registerPromptsRoutes>[0], core);
+      registerPromptsRoutes(
+        apiV1 as unknown as Parameters<typeof registerPromptsRoutes>[0],
+        core,
+        opts.transcriptService,
+      );
       registerRemoteControlRoutes(
         apiV1 as unknown as Parameters<typeof registerRemoteControlRoutes>[0],
         { ...opts.remoteControl, telemetry: core.accessor.get(ITelemetryService) },
