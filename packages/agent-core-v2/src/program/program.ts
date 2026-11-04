@@ -485,6 +485,7 @@ export class Program {
         this.dependencies.bootstrap,
         this.dependencies.config,
         localConfig,
+        dirs,
         trust,
         skills,
         agentProfiles,
