@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 import { eventSchema } from './events-zod';
 import { interactionEventMessageSchema } from './interaction';
+import { taskEventMessageSchema, taskListMessageSchema } from './ws-task';
 
 export const WS_PROTOCOL_VERSION = 2;
 
@@ -382,11 +383,31 @@ export const interactionEventOperation = {
     'Flat, unsequenced approval or question state for a subscribed session; pending interactions are re-sent after every accepted subscription.',
 } as const satisfies WsOperationDefinition;
 
+export const taskListEventOperation = {
+  type: 'task.list',
+  direction: 'server_to_client',
+  kind: 'event',
+  messageSchema: taskListMessageSchema,
+  description:
+    'Every task an agent is running right now, sent when a connection starts receiving that agent; it replaces the client list.',
+} as const satisfies WsOperationDefinition;
+
+export const taskEventOperation = {
+  type: 'task',
+  direction: 'server_to_client',
+  kind: 'event',
+  messageSchema: taskEventMessageSchema,
+  description:
+    'Full state of one task of a subscribed agent, sent on every change; the frame for an ended task is its last one.',
+} as const satisfies WsOperationDefinition;
+
 export const wsOperations = [
   ...clientControlOperations,
   ...serverSystemOperations,
   sessionEventOperation,
   interactionEventOperation,
+  taskListEventOperation,
+  taskEventOperation,
 ] as const satisfies readonly WsOperationDefinition[];
 
 export function getClientControlOperation(

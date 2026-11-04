@@ -512,21 +512,32 @@ function collectingTarget(): {
   target: BroadcastTarget;
   envelopes: EventEnvelope[];
   interactionMessages: InteractionEventMessage[];
+  taskMessages: Array<{ readonly type: string }>;
   deliveries: BroadcastDelivery[];
 } {
   const envelopes: EventEnvelope[] = [];
   const interactionMessages: InteractionEventMessage[] = [];
+  const taskMessages: Array<{ readonly type: string }> = [];
   const deliveries: BroadcastDelivery[] = [];
   return {
     target: {
       send: (frame, delivery = 'subscription') => {
-        if (frame.type === 'interaction') interactionMessages.push(frame as InteractionEventMessage);
-        else envelopes.push(frame as EventEnvelope);
+        if (frame.type === 'interaction') {
+          interactionMessages.push(frame as InteractionEventMessage);
+          deliveries.push(delivery);
+          return;
+        }
+        if (frame.type === 'task' || frame.type === 'task.list') {
+          taskMessages.push(frame as { readonly type: string });
+          return;
+        }
+        envelopes.push(frame as EventEnvelope);
         deliveries.push(delivery);
       },
     },
     envelopes,
     interactionMessages,
+    taskMessages,
     deliveries,
   };
 }
