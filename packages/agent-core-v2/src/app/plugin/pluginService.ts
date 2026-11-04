@@ -16,6 +16,7 @@ import type { McpServerConfig } from '#/mcpCore/config-schema';
 
 import { PluginAvailabilityStore } from './availability';
 import { PluginManager } from './manager';
+import { pluginClientForIdentity, type PluginClient } from './marketplace';
 import {
   type GetPluginInfoInput,
   type InstallPluginInput,
@@ -63,6 +64,8 @@ export class PluginService extends Service implements IPluginService {
   private readonly envOAuthHost: string | undefined;
   private readonly manager: PluginManager;
   private readonly availability: PluginAvailabilityStore;
+  private readonly client: PluginClient;
+  private readonly platform: NodeJS.Platform;
   private initialLoadPromise: Promise<void> | undefined;
   private snapshotLoaded = false;
   private loadError: Error | undefined;
@@ -92,10 +95,21 @@ export class PluginService extends Service implements IPluginService {
       pluginNodeRunner: bootstrap.args.pluginNodeRunner,
     });
     this.availability = new PluginAvailabilityStore(this.homeDir);
+    this.client = pluginClientForIdentity(bootstrap.clientIdentity.platform);
+    this.platform = bootstrap.platform;
   }
 
   listPlugins(): Promise<readonly PluginSummary[]> {
-    return this.runManagementRead(async () => this.manager.summaries());
+    return this.runManagementRead(async () => {
+      await this.availability.refresh().catch(() => undefined);
+      const visible = new Set(
+        this.manager
+          .list()
+          .filter((record) => this.availability.supports(record, this.client, this.platform))
+          .map((record) => record.id),
+      );
+      return this.manager.summaries().filter((summary) => visible.has(summary.id));
+    });
   }
 
   installPlugin(input: InstallPluginInput): Promise<PluginSummary> {

@@ -261,6 +261,55 @@ describe('PluginService (plugin boundary)', () => {
     }
   });
 
+  it('hides an installed plugin the cached catalog marks for another client', async () => {
+    const home = await makeHome();
+    const desktopOnly = await makePluginDir('desktop-only', {});
+    const everywhere = await makePluginDir('everywhere', {});
+    createdDirs.push(desktopOnly, everywhere);
+    await writeInstalledFile(
+      home,
+      JSON.stringify({
+        version: 1,
+        plugins: [
+          { ...installedFile('desktop-only', desktopOnly).plugins[0], origin: 'marketplace', catalogId: 'desktop-only' },
+          { ...installedFile('everywhere', everywhere).plugins[0], origin: 'marketplace', catalogId: 'everywhere' },
+        ],
+      }),
+    );
+    await writeFile(
+      path.join(home, 'plugins', 'availability.json'),
+      JSON.stringify({
+        version: 1,
+        sources: {
+          [pluginAvailabilitySourceKey('https://market.example/plugins/marketplace')]: {
+            'desktop-only': {
+              clients: ['desktop'],
+              platforms: ['linux'],
+              checkedAt: '2026-01-01T00:00:00.000Z',
+            },
+            everywhere: {
+              clients: ['cli', 'desktop'],
+              platforms: ['linux'],
+              checkedAt: '2026-01-01T00:00:00.000Z',
+            },
+          },
+        },
+      }),
+      'utf8',
+    );
+    const host = makeHost(home);
+    try {
+      const svc = host.app.accessor.get(IPluginService);
+      const listed = await svc.listPlugins();
+      expect(listed.map((plugin) => plugin.id)).toEqual(['everywhere']);
+      await expect(svc.getPluginInfo({ id: 'desktop-only' })).resolves.toMatchObject({
+        id: 'desktop-only',
+      });
+    } finally {
+      host.dispose();
+    }
+  });
+
   it('degrades consumption-plane reads to empty when installed.json is corrupt', async () => {
     const home = await makeHome();
     await writeInstalledFile(home, '{ not json');
