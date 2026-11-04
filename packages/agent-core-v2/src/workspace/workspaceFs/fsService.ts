@@ -551,27 +551,30 @@ export class WorkspaceFsService implements IWorkspaceFsService {
       return { items, truncated: listed.truncated };
     }
 
-    const matcher = req.follow_gitignore ? await this.matcher() : undefined;
+    const roots = await this.suggestRoots();
     const candidates: FsSearchHit[] = [];
     const queryLower = req.query.toLowerCase();
-
-    await this.walk(this.workDir, '', matcher, async (relPath, name, kind) => {
-      const score = computeFuzzyScore(name, queryLower);
-      if (score <= 0) return;
-      if (req.include_globs && !matchesAnyGlob(relPath, req.include_globs)) {
-        return;
-      }
-      if (req.exclude_globs && matchesAnyGlob(relPath, req.exclude_globs)) {
-        return;
-      }
-      candidates.push({
-        path: relPath,
-        name,
-        kind,
-        score,
-        match_positions: computeMatchPositions(relPath, queryLower),
+    for (const root of roots) {
+      const matcher = req.follow_gitignore ? await this.matcherFor(root.dir) : undefined;
+      await this.walk(root.dir, '', matcher, async (relPath, name, kind) => {
+        const score = computeFuzzyScore(name, queryLower);
+        if (score <= 0) return;
+        const display = this.suggestDisplayPath(root, relPath);
+        if (req.include_globs && !matchesAnyGlob(display, req.include_globs)) {
+          return;
+        }
+        if (req.exclude_globs && matchesAnyGlob(display, req.exclude_globs)) {
+          return;
+        }
+        candidates.push({
+          path: display,
+          name,
+          kind,
+          score,
+          match_positions: computeMatchPositions(display, queryLower),
+        });
       });
-    });
+    }
 
     candidates.sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;

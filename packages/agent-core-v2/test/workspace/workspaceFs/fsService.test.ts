@@ -744,6 +744,31 @@ describe('WorkspaceFsService.search', () => {
     expect(paths).not.toContain('src/bar.ts');
   });
 
+  it('searches every registered source folder and reports root-specific paths', async () => {
+    const fs = makeSession(
+      { 'shared.ts': 'primary', '/extra/shared.ts': 'secondary', '/extra/only-extra.ts': '' },
+      emptyHandler,
+      [],
+      undefined,
+      [],
+      undefined,
+      {},
+      ['/extra'],
+    );
+
+    const shared = await fs.search({ query: 'shared', limit: 50, follow_gitignore: false });
+    expect(shared.items.map((item) => item.path).toSorted()).toEqual(
+      ['/extra/shared.ts', 'shared.ts'].toSorted(),
+    );
+
+    const onlyExtra = await fs.search({
+      query: 'only-extra',
+      limit: 50,
+      follow_gitignore: false,
+    });
+    expect(onlyExtra.items.map((item) => item.path)).toEqual(['/extra/only-extra.ts']);
+  });
+
   it('reports symlinks as kind symlink and does not recurse into them', async () => {
     const fs = makeSession(
       { 'src/real.ts': '', 'src/target/inside.ts': '' },
