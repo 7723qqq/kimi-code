@@ -270,6 +270,19 @@ export class PluginAvailabilityStore {
     return { clients: [], platforms: [], checkedAt: '' };
   }
 
+  matchByArtifact(
+    artifactSource: string,
+  ): { readonly marketplaceSource: string; readonly catalogId: string } | undefined {
+    const digest = pluginAvailabilitySourceKey(artifactSource);
+    for (const [marketplaceSource, entries] of Object.entries(this.current.sources)) {
+      const match = Object.entries(entries).find(
+        ([, entry]) => entry.artifactSourceKey === digest,
+      );
+      if (match !== undefined) return { marketplaceSource, catalogId: match[0] };
+    }
+    return undefined;
+  }
+
   supports(record: AvailabilityRecord, client: PluginClient, platform: NodeJS.Platform): boolean {
     const entry = this.entryFor(record);
     return entry === undefined || marketplaceEntryInstallableOnHost(entry, client, platform);

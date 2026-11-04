@@ -88,7 +88,14 @@ export class PluginManager {
     return this.records.get(normalizePluginId(id));
   }
 
-  async install(source: string): Promise<PluginRecord> {
+  async install(
+    source: string,
+    provenance?: {
+      readonly origin: PluginOrigin;
+      readonly catalogId?: string;
+      readonly marketplaceSource?: string;
+    },
+  ): Promise<PluginRecord> {
     const resolved = resolveInstallSource(source);
 
     let sourceRoot: string;
@@ -158,6 +165,9 @@ export class PluginManager {
         installedAt: existing?.installedAt ?? now,
         updatedAt: now,
         originalSource,
+        origin: provenance?.origin,
+        catalogId: provenance?.catalogId,
+        marketplaceSource: provenance?.marketplaceSource,
         source: sourceType,
         capabilities: existing?.capabilities,
         github,
@@ -426,6 +436,7 @@ export class PluginManager {
       source: record.source,
       origin: record.origin,
       catalogId: record.catalogId,
+      marketplaceSource: record.marketplaceSource,
       enabled: record.enabled,
       installedAt: record.installedAt,
       updatedAt: record.updatedAt,
@@ -447,6 +458,7 @@ export class PluginManager {
       originalSource: entry.originalSource,
       origin: entry.origin,
       catalogId: entry.catalogId,
+      marketplaceSource: entry.marketplaceSource,
       capabilities: entry.capabilities,
       github: entry.github,
       source: entry.source,
@@ -646,6 +658,7 @@ async function recordFrom(input: {
   originalSource?: string;
   origin?: PluginOrigin;
   catalogId?: string;
+  marketplaceSource?: string;
   capabilities?: PluginCapabilityState;
   github?: PluginGithubMetadata;
   source?: PluginSource;
@@ -660,6 +673,7 @@ async function recordFrom(input: {
     source: input.source ?? 'local-path',
     origin: input.origin ?? 'unknown',
     catalogId: input.catalogId,
+    marketplaceSource: input.marketplaceSource,
     enabled: input.enabled,
     state: hasError || parsed.manifest === undefined ? 'error' : 'ok',
     installedAt: input.installedAt,
@@ -694,6 +708,7 @@ function recordToSummary(record: PluginRecord): PluginSummary {
     source: record.source,
     origin: record.origin,
     catalogId: record.catalogId,
+    marketplaceSource: record.marketplaceSource,
     originalSource: record.originalSource,
     github: record.github,
   };

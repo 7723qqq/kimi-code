@@ -19,6 +19,7 @@ import {
 import { ILogService } from '#/_base/log/log';
 import type { FetchLike } from '#/_base/utils/fetchLike';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { pluginAvailabilitySourceKey } from '#/app/plugin/availability';
 import { IPluginService } from '#/app/plugin/plugin';
 import { PluginService } from '#/app/plugin/pluginService';
 import * as pluginStore from '#/app/plugin/store';
@@ -208,6 +209,53 @@ describe('PluginService (plugin boundary)', () => {
       await expect(svc.listPlugins()).resolves.toEqual([
         expect.objectContaining({ origin: 'marketplace', catalogId: 'catalog-entry' }),
       ]);
+    } finally {
+      host.dispose();
+    }
+  });
+
+  it('marks an install that came from a cached catalog entry as a marketplace plugin', async () => {
+    const home = await makeHome();
+    const pluginRoot = await makePluginDir('catalog-install', {});
+    createdDirs.push(pluginRoot);
+    await writeValidInstalledFile(home);
+    await writeInstalledFile(
+      home,
+      JSON.stringify({ version: 1, plugins: [] }),
+    );
+    await mkdir(path.join(home, 'plugins'), { recursive: true });
+    await writeFile(
+      path.join(home, 'plugins', 'availability.json'),
+      JSON.stringify({
+        version: 1,
+        sources: {
+          [pluginAvailabilitySourceKey('https://market.example/plugins/marketplace')]: {
+            'catalog-install': {
+              artifactSourceKey: pluginAvailabilitySourceKey(pluginRoot),
+              checkedAt: '2026-01-01T00:00:00.000Z',
+            },
+          },
+        },
+      }),
+      'utf8',
+    );
+    const host = makeHost(home);
+    try {
+      const svc = host.app.accessor.get(IPluginService);
+      const installed = await svc.installPlugin({ source: pluginRoot });
+      expect(installed).toMatchObject({
+        id: 'catalog-install',
+        origin: 'marketplace',
+        catalogId: 'catalog-install',
+      });
+
+      const persisted = JSON.parse(
+        await readFile(path.join(home, 'plugins', 'installed.json'), 'utf8'),
+      ) as { plugins: { id: string; origin?: string; catalogId?: string }[] };
+      expect(persisted.plugins.find((entry) => entry.id === 'catalog-install')).toMatchObject({
+        origin: 'marketplace',
+        catalogId: 'catalog-install',
+      });
     } finally {
       host.dispose();
     }

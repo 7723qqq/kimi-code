@@ -173,6 +173,7 @@ export interface PluginSummary {
   readonly source: PluginSource;
   readonly origin: PluginOrigin;
   readonly catalogId?: string;
+  readonly marketplaceSource?: string;
   readonly originalSource?: string;
   readonly github?: PluginGithubMetadata;
 }

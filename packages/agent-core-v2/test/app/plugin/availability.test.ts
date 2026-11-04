@@ -138,6 +138,15 @@ describe('PluginAvailabilityStore lookups', () => {
     ).toBeUndefined();
   });
 
+  it('resolves a marketplace install source back to its catalog entry', async () => {
+    const store = await seeded();
+    expect(store.matchByArtifact('https://example.com/desktop.zip')).toEqual({
+      marketplaceSource: pluginAvailabilitySourceKey(MARKET),
+      catalogId: 'desktop-only',
+    });
+    expect(store.matchByArtifact('https://example.com/not-in-catalog.zip')).toBeUndefined();
+  });
+
   it('treats a plugin the cache has never seen as supported', async () => {
     const store = await seeded();
     expect(

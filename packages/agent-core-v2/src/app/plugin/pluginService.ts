@@ -6,8 +6,7 @@ import { AsyncEmitter, Emitter, type Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { LifecycleScope } from '#/app/scopes';
-import type { PluginToggleEvent } from '#/app/telemetry/events';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
+import type { PluginToggleEvent } from '#/app/telemetry/events';import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { BugIndicatingError, Error2, PluginErrors } from '#/errors';
 import type { HookDef } from '#/features/externalHooks/internal/types';
 import { ISkillDiscovery } from '#/features/skill/catalog/skillDiscovery';
@@ -15,6 +14,7 @@ import type { SkillRoot } from '#/features/skill/catalog/types';
 import { IProviderService } from '#/llm-adapter/provider/provider';
 import type { McpServerConfig } from '#/mcpCore/config-schema';
 
+import { PluginAvailabilityStore } from './availability';
 import { PluginManager } from './manager';
 import {
   type GetPluginInfoInput,
@@ -62,6 +62,7 @@ export class PluginService extends Service implements IPluginService {
   private readonly envBaseUrl: string | undefined;
   private readonly envOAuthHost: string | undefined;
   private readonly manager: PluginManager;
+  private readonly availability: PluginAvailabilityStore;
   private initialLoadPromise: Promise<void> | undefined;
   private snapshotLoaded = false;
   private loadError: Error | undefined;
@@ -90,6 +91,7 @@ export class PluginService extends Service implements IPluginService {
       log: this.log,
       pluginNodeRunner: bootstrap.args.pluginNodeRunner,
     });
+    this.availability = new PluginAvailabilityStore(this.homeDir);
   }
 
   listPlugins(): Promise<readonly PluginSummary[]> {
@@ -98,7 +100,18 @@ export class PluginService extends Service implements IPluginService {
 
   installPlugin(input: InstallPluginInput): Promise<PluginSummary> {
     return this.runNotifiedMutation(async () => {
-      const record = await this.manager.install(input.source);
+      await this.availability.refresh().catch(() => undefined);
+      const match = this.availability.matchByArtifact(input.source);
+      const record = await this.manager.install(
+        input.source,
+        match === undefined
+          ? undefined
+          : {
+              origin: 'marketplace',
+              catalogId: match.catalogId,
+              marketplaceSource: match.marketplaceSource,
+            },
+      );
       const info = this.manager.info(record.id);
       if (info === undefined)
         throw new BugIndicatingError(`Plugin "${record.id}" missing right after install`);
