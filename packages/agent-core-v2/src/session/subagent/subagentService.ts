@@ -180,7 +180,7 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
               model: plan.model,
               thinking: plan.thinking,
             },
-            labels: opts.labels,
+            labels,
             environmentId: callerBinding.environmentId,
             environmentCwd: callerBinding.cwd,
           });
