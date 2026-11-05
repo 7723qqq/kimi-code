@@ -646,7 +646,7 @@ describe('SessionManager closeIfIdle', () => {
       { locks },
     );
     managers.push(manager);
-    return { manager, handle, resume, close, locks };
+    return { manager, handle, resume, close, locks, activeAt: state.activeAt };
   }
 
   const create = (fake: ReturnType<typeof setup>): Promise<ISessionScopeHandle> =>
@@ -659,12 +659,13 @@ describe('SessionManager closeIfIdle', () => {
 
   it('reclaims after the activity idle timeout and reloads only once', async () => {
     const fake = setup();
+    jest.setSystemTime(fake.activeAt);
     expect(await fake.manager.closeIfIdle('session-1', 0)).toBe(false);
     await create(fake);
-    jest.setSystemTime(Date.now() + 999);
+    jest.setSystemTime(fake.activeAt + 999);
     expect(await fake.manager.closeIfIdle('session-1', 1000)).toBe(false);
     await fake.manager.resume('session-1');
-    jest.setSystemTime(Date.now() + 1);
+    jest.setSystemTime(fake.activeAt + 1000);
     expect(await fake.manager.closeIfIdle('session-1', 1000)).toBe(true);
     expect(fake.manager.get('session-1')).toBeUndefined();
     await fake.manager.resume('session-1');

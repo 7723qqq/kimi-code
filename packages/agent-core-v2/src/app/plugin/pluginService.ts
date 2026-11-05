@@ -102,14 +102,15 @@ export class PluginService extends Service implements IPluginService {
 
   listPlugins(): Promise<readonly PluginSummary[]> {
     return this.runManagementRead(async () => {
+      const records = this.manager.list();
+      const summaries = this.manager.summaries();
       await this.availability.refresh().catch(() => undefined);
       const visible = new Set(
-        this.manager
-          .list()
+        records
           .filter((record) => this.availability.supports(record, this.client, this.platform))
           .map((record) => record.id),
       );
-      return this.manager.summaries().filter((summary) => visible.has(summary.id));
+      return summaries.filter((summary) => visible.has(summary.id));
     });
   }
 
