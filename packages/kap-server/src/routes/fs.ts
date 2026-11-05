@@ -23,12 +23,15 @@ import { IGitService } from '@moonshot-ai/agent-core-v2/app/git/git';
 import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
 import {
   fsDiffRequestSchema,
+  fsGitStatusBatchRequestSchema,
   fsGitStatusRequestSchema,
   fsGrepRequestSchema,
   fsListManyRequestSchema,
   fsListRequestSchema,
   fsListResponseSchema,
   fsMkdirRequestSchema,
+  fsPullRequestBatchRequestSchema,
+  fsPullRequestRequestSchema,
   fsReadRequestSchema,
   fsSearchRequestSchema,
   fsSearchResponseSchema,
@@ -89,27 +92,36 @@ const sessionIdAndTailParamSchema = z.object({
   tail: z.string().min(1),
 });
 
-const fsDownloadQuerySchema = z.object({
-  allow_external_symlinks: z.enum(['true', 'false']).optional(),
-});
+const fsDownloadQuerySchema = z
+  .object({
+    allow_external_symlinks: z.enum(['true', 'false']).optional(),
+  })
+  .strict();
 
 const workspaceFsListBodySchema = fsListRequestSchema
   .omit({ include_git_status: true })
   .extend({
     workspace: z.string().min(1),
-  });
+  })
+  .strict();
 
-const workspaceFsSearchBodySchema = fsSearchRequestSchema.extend({
-  workspace: z.string().min(1),
-});
+const workspaceFsSearchBodySchema = fsSearchRequestSchema
+  .extend({
+    workspace: z.string().min(1),
+  })
+  .strict();
 
-const workspaceFsSuggestBodySchema = fsSuggestRequestSchema.extend({
-  workspace: z.string().min(1),
-});
+const workspaceFsSuggestBodySchema = fsSuggestRequestSchema
+  .extend({
+    workspace: z.string().min(1),
+  })
+  .strict();
 
-const rootFsSuggestBodySchema = fsSuggestRequestSchema.extend({
-  roots: z.array(z.string().min(1)).min(1).max(32),
-});
+const rootFsSuggestBodySchema = fsSuggestRequestSchema
+  .extend({
+    roots: z.array(z.string().min(1)).min(1).max(32),
+  })
+  .strict();
 
 const detailsSchema = z.array(z.object({ path: z.string(), message: z.string() }));
 
@@ -123,6 +135,9 @@ const FS_ACTIONS = [
   'search',
   'grep',
   'git_status',
+  'git_status:batch',
+  'pull_request',
+  'pull_request:batch',
   'diff',
   'open',
   'open-in',
@@ -276,6 +291,15 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
             return;
           case 'git_status':
             await handleGitStatus(environmentFs.fs, req, reply);
+            return;
+          case 'git_status:batch':
+            await handleGitStatusBatch(environmentFs.fs, req, reply);
+            return;
+          case 'pull_request':
+            await handlePullRequest(environmentFs.fs, req, reply);
+            return;
+          case 'pull_request:batch':
+            await handlePullRequestBatch(environmentFs.fs, req, reply);
             return;
           case 'diff':
             await handleDiff(environmentFs.fs, req, reply);
@@ -754,6 +778,40 @@ async function handleGitStatus(fs: IWorkspaceFsService, req: Req, reply: Reply):
     return;
   }
   const data = await fs.gitStatus(parsed.data);
+  reply.send(okEnvelope(data, req.id));
+}
+
+async function handleGitStatusBatch(fs: IWorkspaceFsService, req: Req, reply: Reply): Promise<void> {
+  const parsed = fsGitStatusBatchRequestSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    reply.send(buildValidationEnvelope(parsed.error.issues, req.id));
+    return;
+  }
+  const data = await fs.gitStatusBatch(parsed.data);
+  reply.send(okEnvelope(data, req.id));
+}
+
+async function handlePullRequest(fs: IWorkspaceFsService, req: Req, reply: Reply): Promise<void> {
+  const parsed = fsPullRequestRequestSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    reply.send(buildValidationEnvelope(parsed.error.issues, req.id));
+    return;
+  }
+  const data = await fs.pullRequest(parsed.data);
+  reply.send(okEnvelope(data, req.id));
+}
+
+async function handlePullRequestBatch(
+  fs: IWorkspaceFsService,
+  req: Req,
+  reply: Reply,
+): Promise<void> {
+  const parsed = fsPullRequestBatchRequestSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    reply.send(buildValidationEnvelope(parsed.error.issues, req.id));
+    return;
+  }
+  const data = await fs.pullRequestBatch(parsed.data);
   reply.send(okEnvelope(data, req.id));
 }
 

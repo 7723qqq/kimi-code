@@ -454,12 +454,11 @@ describe('WorkspaceService (file-backed)', () => {
     expect(await restart().get(created.id)).toBeUndefined();
   });
 
-  it('rejects createOrTouch when the root directory does not exist', async () => {
+  it('defers a missing root to the first binding instead of rejecting at registration', async () => {
     const missing = join(homeDir, 'never-created');
-    await expect(build().createOrTouch(missing)).rejects.toMatchObject({
-      code: ErrorCodes.FS_PATH_NOT_FOUND,
-    });
-    expect(await build().list()).toEqual([]);
+    const ws = await build().createOrTouch(missing);
+    expect(ws.root).toBe(missing);
+    expect(await build().list()).toHaveLength(1);
   });
 
   it('rejects createOrTouch when the root is not a directory', async () => {
@@ -484,12 +483,11 @@ describe('WorkspaceService (file-backed)', () => {
     },
   );
 
-  it('rejects createOrTouch when a parent of the root is not a directory', async () => {
+  it('defers a non-directory parent of the root to the first binding', async () => {
     const file = join(homeDir, 'a-file.txt');
     await fsp.writeFile(file, 'hi', 'utf8');
-    await expect(build().createOrTouch(join(file, 'child'))).rejects.toMatchObject({
-      code: ErrorCodes.FS_PATH_NOT_FOUND,
-    });
+    const ws = await build().createOrTouch(join(file, 'child'));
+    expect(ws.root).toBe(join(file, 'child'));
   });
 
   it('collapses duplicate registered entries for the same root, preferring the canonical id', async () => {

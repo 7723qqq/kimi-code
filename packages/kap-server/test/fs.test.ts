@@ -225,10 +225,10 @@ describe('server-v2 /api/v1 fs routes', () => {
   it('fs:list expands in-workspace symlink directories and keeps outside links closed', async () => {
     await mkdir(join(work!, 'real/nested'), { recursive: true });
     await writeFile(join(work!, 'real/nested/inside.txt'), '');
-    await symlink(join(work!, 'real'), join(work!, 'link'));
+    await linkDirectory(join(work!, 'real'), join(work!, 'link'));
     const outside = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-outside-'));
     await writeFile(join(outside, 'secret.txt'), '');
-    await symlink(outside, join(work!, 'outside-link'));
+    await linkDirectory(outside, join(work!, 'outside-link'));
     try {
       const id = await createSession();
       const recursive = await postFs<{
@@ -569,7 +569,7 @@ describe('server-v2 /api/v1 fs routes', () => {
       expect(allowedRead.data.content).toBe('top-secret');
 
       const allowedDownload = await fetch(
-        `${base}/api/v1/sessions/${id}/fs/docs/secret.txt:download?runtime_id=local&allow_external_symlinks=true`,
+        `${base}/api/v1/sessions/${id}/fs/docs/secret.txt:download?allow_external_symlinks=true`,
         { headers: authHeaders(server as RunningServer) } as never,
       );
       expect(allowedDownload.status).toBe(200);
@@ -614,7 +614,7 @@ describe('server-v2 /api/v1 fs routes', () => {
   it('workspace fs:list expands symlink directories without a session', async () => {
     await mkdir(join(work!, 'real/nested'), { recursive: true });
     await writeFile(join(work!, 'real/nested/inside.txt'), '');
-    await symlink(join(work!, 'real'), join(work!, 'link'));
+    await linkDirectory(join(work!, 'real'), join(work!, 'link'));
 
     const root = await postWorkspaceList<{
       items: FsEntryWire[];
@@ -643,6 +643,7 @@ describe('server-v2 /api/v1 fs routes', () => {
   });
 
   it('workspace fs:list maps permission errors to FS_PERMISSION_DENIED', async () => {
+    if (process.platform === 'win32') return;
     if (process.getuid?.() === 0) return;
     const blocked = join(work!, 'blocked');
     await mkdir(blocked);
@@ -658,7 +659,7 @@ describe('server-v2 /api/v1 fs routes', () => {
   it('workspace fs:list can open external symlink directories when enabled', async () => {
     const outside = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-workspace-outside-'));
     await writeFile(join(outside, 'secret.txt'), '');
-    await symlink(outside, join(work!, 'outside-link'));
+    await linkDirectory(outside, join(work!, 'outside-link'));
     try {
       const root = await postWorkspaceList<{
         items: FsEntryWire[];
@@ -1121,14 +1122,6 @@ describe('server-v2 /api/v1 fs routes', () => {
     expect(body.code).toBe(ErrorCode.VALIDATION_FAILED);
   });
 
-  it('fs:suggest maps an unknown runtime to ENVIRONMENT_NOT_FOUND', async () => {
-    const body = await postRootSuggest<null>({
-      roots: [work],
-      query: 'x',
-      runtime_id: 'no-such-runtime',
-    });
-    expect(body.code).toBe(ErrorCode.ENVIRONMENT_NOT_FOUND);
-  });
 
   interface RegisteredWorkspaceWire {
     id: string;

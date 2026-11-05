@@ -176,10 +176,12 @@ export function registerWorkspaceFsRoutes(app: WorkspaceFsRouteHost, core: Scope
   );
 }
 
-const fsContentQuerySchema = z.object({
-  path: z.string().min(1),
-  environment_id: z.string().min(1).optional(),
-});
+const fsContentQuerySchema = z
+  .object({
+    path: z.string().min(1),
+    environment_id: z.string().min(1).optional(),
+  })
+  .strict();
 
 interface FsContentRequest {
   id: string;
@@ -317,14 +319,18 @@ async function handleFsContent(
   }
 }
 
-const fsMkdirBodySchema = z.object({
+const fsMkdirBodySchema = z
+  .object({
   path: z.string().min(1),
   environment_id: z.string().min(1).optional(),
-});
+  })
+  .strict();
 
-const fsMkdirResponseSchema = z.object({
+const fsMkdirResponseSchema = z
+  .object({
   path: z.string(),
-});
+  })
+  .strict();
 
 interface FsMkdirRequest {
   id: string;

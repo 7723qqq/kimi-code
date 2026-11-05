@@ -542,6 +542,13 @@ describe('server-v2 /api/v1 fs:content and fs:mkdir with environment_id', () => 
     return `${base}/api/v1/fs:content?${query.toString()}`;
   }
 
+  // The remote fs is rooted at remoteRoot, so an absolute request path is
+  // mapped onto it by dropping the drive/leading separator instead of joining
+  // the two, which on Windows would produce 'remoteC:...'.
+  function remoteMirror(requestPath: string): string {
+    return join(remoteRoot as string, requestPath.replace(/^[A-Za-z]:/, '').replace(/^[\/]+/, ''));
+  }
+
   async function postMkdir(body: unknown): Promise<Envelope<{ path: string } | null>> {
     const res = await fetch(`${base}/api/v1/fs:mkdir`, {
       method: 'POST',
@@ -553,7 +560,7 @@ describe('server-v2 /api/v1 fs:content and fs:mkdir with environment_id', () => 
 
   it('reads stat, sample, and body from the environment fs when the path exists on both filesystems', async () => {
     const requestPath = join(localRoot as string, 'shared.txt');
-    const remoteFile = join(remoteRoot as string, requestPath);
+    const remoteFile = remoteMirror(requestPath);
     await mkdir(dirname(remoteFile), { recursive: true });
     await writeFile(remoteFile, 'remote-bytes');
     await writeFile(requestPath, 'local-decoy');
@@ -568,13 +575,13 @@ describe('server-v2 /api/v1 fs:content and fs:mkdir with environment_id', () => 
 
   it('creates directories on the environment fs, never on the server-local disk', async () => {
     const requestPath = join(localRoot as string, 'made-remote');
-    await mkdir(join(remoteRoot as string, localRoot as string), { recursive: true });
+    await mkdir(dirname(remoteMirror(requestPath)), { recursive: true });
 
     const body = await postMkdir({ path: requestPath, environment_id: 'remote-test' });
     expect(body.code).toBe(0);
     expect(body.data?.path).toBe(requestPath);
 
-    const remoteStat = await stat(join(remoteRoot as string, requestPath));
+    const remoteStat = await stat(remoteMirror(requestPath));
     expect(remoteStat.isDirectory()).toBe(true);
     await expect(stat(requestPath)).rejects.toThrow();
   });
