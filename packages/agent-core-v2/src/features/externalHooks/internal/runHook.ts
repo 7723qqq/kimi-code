@@ -250,6 +250,7 @@ function allowResult(input: {
   readonly errored?: boolean;
   readonly structuredOutput?: boolean;
   readonly error?: string;
+  readonly outputTruncated?: boolean;
 }): HookResult {
   return {
     action: 'allow',

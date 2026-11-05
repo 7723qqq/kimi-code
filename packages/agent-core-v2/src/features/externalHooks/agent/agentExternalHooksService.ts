@@ -35,7 +35,6 @@ import type {
 import { AgentEvent2 } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
 import { toKimiErrorPayload } from '#/errors';
-import { fromCorePart } from '#human/message';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';

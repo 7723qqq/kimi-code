@@ -1,3 +1,4 @@
+import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { stat } from 'node:fs/promises';

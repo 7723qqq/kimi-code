@@ -23,8 +23,6 @@ import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
 import { watchCandidates } from '#human/utils/watch';
-import { projectRoots } from '#/workspace/workspaceDirs/workspaceDirs';
-import { watches } from '#/workspace/workspaceDirs/workspaceDirs';
 
 export const WORKSPACE_ROOT_SKILL_SOURCE_ID = 'workspace';
 

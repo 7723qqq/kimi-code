@@ -74,7 +74,7 @@ export class MediaReadContextService extends Service implements IMediaReadContex
   }
 
   getMediaReadContext(): MediaReadContext | undefined {
-    if (!this.environment.isAvailable(['fs'])) return undefined;
+    if (!this.runtime.isAvailable(['fs'])) return undefined;
     const modelAlias = this.profile.getModel();
     let videoUploader: VideoUploader | undefined;
     let model: Model | undefined;

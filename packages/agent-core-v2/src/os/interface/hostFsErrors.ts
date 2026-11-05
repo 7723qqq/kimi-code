@@ -79,7 +79,6 @@ const REASONS: Record<HostFsErrorCode, string> = {
   'os.fs.already_exists': 'path already exists',
   'os.fs.permission_denied': 'permission denied',
   'os.fs.not_empty': 'directory is not empty',
-  'os.fs.directory_too_large': 'directory listing exceeds the supported limit',
   'os.fs.unavailable': 'filesystem resource unavailable',
   'os.fs.directory_too_large': 'directory listing exceeds the supported limit',
   'os.fs.unknown': 'unrecognized filesystem error',

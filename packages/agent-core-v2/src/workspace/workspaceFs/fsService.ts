@@ -69,7 +69,6 @@ import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
 import { IWorkspaceGitService } from '#/workspace/workspaceGit/workspaceGit';
-import { IEnvironmentResolver } from '#/workspace/workspaceInstance/workspaceInstanceManager';
 
 import { type FsDownloadResolved, type FsPathResolved, IWorkspaceFsService } from './fs';
 import { readStream, runCommand } from './internal/fsProcess';

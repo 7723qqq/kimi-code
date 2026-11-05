@@ -6,7 +6,7 @@ import type { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ErrorCodes, Error2 } from '#/errors';
 import type { McpOAuthService } from '#/mcpCore/oauth/service';
 import { HostProcessError, HostProcessErrorCode } from '#/os/interface/hostProcess';
-import { RuntimeError } from '#/environment/environmentRegistry';
+import { EnvironmentError } from '#/environment/environmentRegistry';
 import type { ToolDescription as Tool } from '#human/llm/message';
 
 import { HttpMcpClient } from './client-http';
@@ -1011,8 +1011,8 @@ function computeEnabledNames(config: McpServerConfig, tools: readonly Tool[]): S
 
 function classifyStartupFailure(error: unknown): McpFailureKind {
   if (error instanceof McpClassifiedStartupError) return error.failureKind;
-  if (error instanceof RuntimeError) {
-    return error.code === 'runtime.unavailable' ? 'transport' : 'config';
+  if (error instanceof EnvironmentError) {
+    return error.code === 'environment.unavailable' ? 'transport' : 'config';
   }
   if (
     error instanceof Error2 &&

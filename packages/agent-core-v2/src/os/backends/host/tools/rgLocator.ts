@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createWriteStream, existsSync } from 'node:fs';
-import { chmod, copyFile, mkdir, mkdtemp, rename, rm, stat } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, mkdtemp, rename, rm, stat, readFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -10,7 +10,7 @@ import {
   resolveKimiRegion,
   type KimiRegion,
 } from '@moonshot-ai/kimi-code-oauth';
-import { basename, join } from 'pathe';
+import { basename, join, dirname } from 'pathe';
 import { extract as extractTar } from 'tar';
 import { type Entry, fromBuffer as yauzlFromBuffer } from 'yauzl';
 
