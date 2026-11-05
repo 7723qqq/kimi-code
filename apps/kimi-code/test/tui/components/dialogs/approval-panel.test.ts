@@ -577,21 +577,18 @@ describe('ApprovalPanelComponent', () => {
   });
 });
 
-  it('shows the environment identifier next to the title for remote-bound sessions', () => {
-    const pending = makePending();
-    const withEnv: PendingApproval = {
-      data: { ...pending.data, environment: 'ssh:dev-box' },
-    };
-    const dialog = new ApprovalPanelComponent(withEnv, () => {});
-    const out = strip(dialog.render(80).join('\n'));
-    const titleLine = out.split('\n').find((line) => line.includes('Approve WriteFile?'));
-    expect(titleLine).toBeDefined();
-    expect(titleLine).toContain('ssh:dev-box');
-  });
+describe('ApprovalPanelComponent — interrupting an approval', () => {
+  const choices = [
+    { label: 'Approve once', response: 'approved' as const },
+    { label: 'Approve for this session', response: 'approved_for_session' as const },
+    { label: 'Reject', response: 'rejected' as const },
+    { label: 'Reject with feedback', response: 'rejected' as const, requires_feedback: true },
+  ];
 
-  describe('docked (fullscreen)', () => {
-    function goalPending(): PendingApproval {
-      return {
+  const make = (wasTyping?: boolean) => {
+    const responses: Array<{ response: string; feedback?: string | undefined }> = [];
+    const panel = new ApprovalPanelComponent(
+      {
         data: {
           id: 'a',
           tool_call_id: 't',

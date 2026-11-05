@@ -90,7 +90,9 @@ describe('Session plan, compact, usage, and resume APIs', () => {
       await session.setPlanMode(true);
       const firstPlan = await session.getPlan();
       if (firstPlan === null) throw new Error('expected first plan');
-      const plansDir = dirname(firstPlan.path);
+      const firstPlanPath = firstPlan.path;
+      if (firstPlanPath === null) throw new Error('expected first plan path');
+      const plansDir = dirname(firstPlanPath);
       await expect(markdownFiles(plansDir)).resolves.toEqual([]);
 
       await session.setPlanMode(false);
@@ -98,8 +100,10 @@ describe('Session plan, compact, usage, and resume APIs', () => {
       const secondPlan = await session.getPlan();
       if (secondPlan === null) throw new Error('expected second plan');
 
-      expect(secondPlan.path).not.toBe(firstPlan.path);
-      expect(dirname(secondPlan.path)).toBe(plansDir);
+      const secondPlanPath = secondPlan.path;
+      if (secondPlanPath === null) throw new Error('expected second plan path');
+      expect(secondPlanPath).not.toBe(firstPlanPath);
+      expect(dirname(secondPlanPath)).toBe(plansDir);
       await expect(markdownFiles(plansDir)).resolves.toEqual([]);
     } finally {
       await harness.close();
@@ -243,8 +247,10 @@ describe('Session plan, compact, usage, and resume APIs', () => {
       await source.setPlanMode(true);
       const sourcePlan = await source.getPlan();
       if (sourcePlan === null) throw new Error('expected source plan');
-      await mkdir(dirname(sourcePlan.path), { recursive: true });
-      await writeFile(sourcePlan.path, 'source plan', 'utf-8');
+      const sourcePlanPath = sourcePlan.path;
+      if (sourcePlanPath === null) throw new Error('expected source plan path');
+      await mkdir(dirname(sourcePlanPath), { recursive: true });
+      await writeFile(sourcePlanPath, 'source plan', 'utf-8');
 
       const fork = await harness.forkSession({
         id: source.id,

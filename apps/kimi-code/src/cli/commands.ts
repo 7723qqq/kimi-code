@@ -2,11 +2,16 @@ import { CODE_SHIM_SUBCOMMAND } from '@moonshot-ai/agent-core-v2/features/codeRu
 import { KIMI_NODE_FALLBACK_SUBCOMMAND } from '@moonshot-ai/kimi-code-sdk/runtime';
 import { Command, InvalidArgumentError, Option } from 'commander';
 
-import { EXEC_SERVER_COMMAND } from './exec-server';
+import { CLI_COMMAND_NAME } from '#/constant/app';
+import { t } from '#/i18n';
+import { registerMigrateCommand, type MigrateCommandOptions } from '#/migration/command';
+import { registerImportSessionsCommand } from '#/session-import/command';
+
 import type { CLIOptions } from './options';
 import { registerAcpCommand } from './sub/acp';
 import { registerAppCommand } from './sub/app';
 import { registerDoctorCommand } from './sub/doctor';
+import { EXEC_SERVER_COMMAND } from './exec-server';
 import { registerExportCommand } from './sub/export';
 import { registerForkCommand } from './sub/fork';
 import { registerInstallDesktopCommand } from './sub/install-desktop';
@@ -21,12 +26,8 @@ export type MainCommandHandler = (opts: CLIOptions) => void;
 export type MigrateCommandHandler = (options: MigrateCommandOptions) => void;
 export type PluginNodeRunnerHandler = (entry: string, args: readonly string[]) => void;
 export type UpgradeCommandHandler = (yes: boolean) => void | Promise<void>;
-export type UpdateDownloadHandler = (
-  version: string,
-  manual: boolean,
-  intent: InstallIntent,
-  channel: UpdateChannel,
-) => void;
+export type UpdateDownloadHandler = (version: string, manual: boolean) => void;
+export type CodeShimHandler = () => void;
 export type ExecServerCommandHandler = (listen: string) => void;
 
 export function createProgram(
@@ -36,6 +37,7 @@ export function createProgram(
   onPluginNodeRunner: PluginNodeRunnerHandler = () => {},
   onUpgrade: UpgradeCommandHandler = () => {},
   onUpdateDownload: UpdateDownloadHandler = () => {},
+  onCodeShim: CodeShimHandler = () => {},
   onExecServer: ExecServerCommandHandler = () => {},
 ): Command {
   const program = new Command(CLI_COMMAND_NAME)
@@ -108,10 +110,7 @@ export function createProgram(
     .addOption(new Option('--yes').hideHelp().default(false))
     .addOption(new Option('--auto-approve').hideHelp().default(false))
     .addOption(
-      // The [environments] config layer resolves the id and default cwd.
-      // Hidden from help output.
-      new Option('--environment <id>', 'Bind the new session to the configured environment <id>.')
-        .hideHelp(),
+      new Option('--environment <id>', 'Bind the new session to the configured environment <id>.').hideHelp(),
     )
     .addOption(
       new Option(
@@ -119,7 +118,7 @@ export function createProgram(
         'Set the working directory on the environment selected by --environment.',
       ).hideHelp(),
     )
-    .option('--plan', 'Start in plan mode.', false);
+    .option('--plan', t('cli.optionDescriptions.plan'), false);
 
   registerExportCommand(program);
   registerForkCommand(program);
@@ -164,9 +163,6 @@ export function createProgram(
       onPluginNodeRunner(entry, args);
     });
 
-  // Self-spawned worker for native staged updates (detached background
-  // download, or foreground from `kimi upgrade` — `--manual` marks the
-  // latter's stage as user-requested). Hidden: not user-facing.
   program
     .command(CODE_SHIM_SUBCOMMAND, { hidden: true })
     .allowUnknownOption(true)
@@ -174,13 +170,6 @@ export function createProgram(
       onCodeShim();
     });
 
-  // Remote-executor entry (remote-environment spec §6). The exact argv shapes
-  // `exec-server` and `exec-server --listen stdio` are pre-dispatched in
-  // `src/main.ts` before this program is even loaded; this hidden command owns
-  // every other spelling (`--listen=stdio`, unsupported transports, excess
-  // args) so they still route to the executor or fail with a clean stderr
-  // error. `--listen` defaults to stdio, the only supported transport, so a
-  // bare invocation reaching this program agrees with the light path.
   program
     .command(EXEC_SERVER_COMMAND, { hidden: true })
     .option('--listen <transport>', 'Transport to listen on. Only "stdio" is supported.', 'stdio')

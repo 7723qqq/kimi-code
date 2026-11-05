@@ -8,7 +8,8 @@ import { createKimiHarness } from '@moonshot-ai/kimi-code-sdk';
 import { Command } from 'commander';
 
 import { registerExportCommand } from '#/cli/sub/export';
-import { createKimiCodeHostIdentity } from '#/cli/host-identity';
+import { createKimiCodeHostIdentity } from '#/cli/version';
+import { readE2EFlags } from '#test/helpers/e2e-flags';
 
 const GLOBAL_LOG = 'logs/global/kimi-code.log';
 const MAIN_WIRE = 'agents/main/wire.jsonl';

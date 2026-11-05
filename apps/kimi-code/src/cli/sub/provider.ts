@@ -36,8 +36,36 @@ import { removeProviderFromConfig } from '@moonshot-ai/kimi-code-sdk/config-mapp
 import { DEFAULT_CATALOG_URL } from '@moonshot-ai/kimi-code-sdk/runtime';
 import type { Command } from 'commander';
 
-import { createKimiCodeHostIdentity, createKimiCodeUserAgent } from '#/cli/host-identity';
-import { fetchCatalogOrBuiltIn } from '#/utils/catalog-fetch';
+import { createKimiCodeUserAgent } from '#/cli/version';
+import { t, type TranslationKey } from '#/i18n';
+import {
+  buildAddPatch,
+  CAPABILITY_NAMES,
+  formatEffortList,
+  mergeKeyValueText,
+  parseList,
+  planEditWrite,
+  PROVIDER_WIRE_TYPES,
+  validateProviderForm,
+  type ProviderFormError,
+  type ProviderFormModelRow,
+  type ProviderFormToggle,
+  type ProviderFormValue,
+  type ProviderWireType,
+} from '#/utils/provider-form';
+import { isLoginAccountProviderId, isProviderIdLocked } from '#/utils/provider-managed';
+import { persistProviderWrite, providerSectionsOf } from '#/utils/provider-write';
+
+// The catalog helpers and the catalog fetcher ride the SDK catalog module
+// (kosong kernel); they load on dispatch so registering the command group
+// stays light. DEFAULT_CATALOG_URL is registration-time and comes from the
+// zero-dependency runtime module instead.
+type CatalogModule = typeof import('@moonshot-ai/kimi-code-sdk/catalog');
+let catalogPromise: Promise<CatalogModule> | undefined;
+function loadCatalog(): Promise<CatalogModule> {
+  catalogPromise ??= import('@moonshot-ai/kimi-code-sdk/catalog');
+  return catalogPromise;
+}
 
 interface WritableLike {
   write(chunk: string): boolean;

@@ -1123,23 +1123,19 @@ describe('SessionPickerComponent', () => {
 
     it('ignores input while a selection is in flight', async () => {
       const { promise, resolve } = deferred();
-      const onSelect = vi.fn(() => promise);
-      const onDeleteRequest = vi.fn(async () => {});
-      const requestRender = vi.fn();
+      const onSelect = mock(() => promise);
+      const onDeleteRequest = mock(async () => {});
       const component = new SessionPickerComponent({
         sessions: [alpha, beta],
         loading: false,
         currentSessionId: '',
         onSelect,
-        onCancel: vi.fn(),
-        requestRender,
+        onCancel: mock(),
         onDeleteRequest,
       });
 
       component.handleInput('\r');
-      expect(onSelect).toHaveBeenCalledOnce();
-      expect(renderPlain(component)).toContain('Resuming session…');
-      expect(requestRender).toHaveBeenCalledOnce();
+      expect(onSelect).toHaveBeenCalledTimes(1);
 
       component.handleInput(CTRL_X);
       expect(renderPlain(component)).not.toContain('Delete session');
@@ -1150,8 +1146,6 @@ describe('SessionPickerComponent', () => {
 
       resolve();
       await flushMicrotasks();
-      expect(renderPlain(component)).not.toContain('Resuming session…');
-      expect(requestRender).toHaveBeenCalledTimes(2);
 
       component.handleInput(CTRL_X);
       expect(renderPlain(component)).toContain('Delete session "Alpha session"? [y/N]');

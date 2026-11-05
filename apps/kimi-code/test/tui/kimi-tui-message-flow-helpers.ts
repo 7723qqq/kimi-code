@@ -72,6 +72,7 @@ export interface ModelSelectorDriver extends MessageDriver {
 export function makeStartupInput(): KimiTUIStartupInput {
   return {
     cliOptions: {
+      environment: undefined,
       session: undefined,
       continue: false,
       yolo: false,

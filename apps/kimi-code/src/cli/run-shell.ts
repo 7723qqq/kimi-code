@@ -24,9 +24,17 @@ import { toTerminalHyperlink } from '#/utils/terminal-hyperlink';
 import { restoreTerminalModes } from '#/utils/terminal-restore';
 
 import { resolveAgentProfileSelection } from './agent-selection';
-import { createCliTelemetryBootstrap, initializeCliTelemetry } from './telemetry';
-import { detectNativeInstall } from './update/source';
-import { createKimiCodeHostIdentity } from './host-identity';
+import { createTelemetryHarness } from './harness';
+import type { CLIOptions } from './options';
+import { initializeCliTelemetry } from './telemetry';
+
+/** The `node:child_process` surface the shell startup touches `stty` through. */
+export interface RunShellChildProcess {
+  readonly execFileSync: typeof execFileSync;
+  readonly spawnSync: typeof spawnSync;
+}
+
+const SYSTEM_CHILD_PROCESS: RunShellChildProcess = { execFileSync, spawnSync };
 
 export async function runShell(
   opts: CLIOptions,
@@ -56,16 +64,11 @@ export async function runShell(
   });
 
   const workDir = process.cwd();
-  const telemetryBootstrap = createCliTelemetryBootstrap();
-  const telemetryClient: TelemetryClient = {
-    track,
-    withContext: withTelemetryContext,
-    setContext: setTelemetryContext,
-  };
-  let tui!: KimiTUI;
-  const harnessOptions: KimiHarnessOptions = {
-    homeDir: telemetryBootstrap.homeDir,
-    identity: createKimiCodeHostIdentity(version),
+  // The agent-core-v2 route is the only engine (same engine as `kimi -p`):
+  // the harness is the SDK's v2-backed client, so the whole TUI runs on the
+  // agent-core-v2 engine.
+  const { harness, telemetryBootstrap } = createTelemetryHarness({
+    version,
     skillDirs: opts.skillsDirs,
     // The TUI renders the mid-turn update panel; declaring it here is what
     // makes the engine offer NotifyUser to this process and to no other host.
@@ -79,15 +82,6 @@ export async function runShell(
         outcome: 'error',
         reason: outcome.reason,
       });
-    },
-    sshPassword: {
-      prompt: (environmentId) => tui.promptSshPassword(environmentId),
-      // ssh runs this as SSH_ASKPASS; `src/main.ts` recognises the askpass
-      // environment before argv, so re-entering this binary (SEA) or this
-      // script under the same node flags (npm / tsx dev) lands in the helper.
-      askpassCommand: detectNativeInstall()
-        ? [process.execPath]
-        : [process.execPath, ...process.execArgv, process.argv[1]!],
     },
     sessionStartedProperties: { yolo: opts.yolo, auto: opts.auto, plan: opts.plan, afk: false },
   });
@@ -144,7 +138,14 @@ export async function runShell(
   // Resolve --agent/--agent-file once for the startup session; validateOptions
   // has already rejected them alongside --session/--continue.
   const agentProfile = await resolveAgentProfileSelection(opts, workDir);
-  tui = new KimiTUI(harness, {
+  // Degraded native workers (embeddable-asset install failures) are appended to
+  // the same dim startup notice as tui.toml parse errors, so a broken install
+  // is visible on screen instead of only in the trace file.
+  const startupNotice = combineStartupNotice(
+    configWarning,
+    runOptions.startupWarnings?.length ? runOptions.startupWarnings.join('\n') : undefined,
+  );
+  const tui = new KimiTUI(harness, {
     cliOptions: opts,
     agentProfile,
     additionalDirs: opts.addDirs?.length ? opts.addDirs : undefined,

@@ -90,7 +90,7 @@ export async function handleFeedbackCommand(host: SlashCommandHost): Promise<voi
       'Codebase attachment is not supported for remote sessions — the scanner only reads the local filesystem.',
     );
   }
-  const level = await promptFeedbackAttachment(host, remoteSession);
+  const level = await promptFeedbackAttachment(host);
   if (level === undefined) {
     host.showStatus(getFeedbackStatusCancelled());
     return;

@@ -9,8 +9,7 @@
 import type { ListSessionsOptions, SessionSummary } from '@moonshot-ai/kimi-code-sdk';
 import type { Command } from 'commander';
 
-import { createCliTelemetryBootstrap } from '#/cli/telemetry';
-import { createKimiCodeHostIdentity } from '#/cli/host-identity';
+import { t } from '#/i18n';
 
 interface WritableLike {
   write(chunk: string): boolean;
@@ -121,7 +120,7 @@ function formatRow(summary: SessionSummary, showWorkDir: boolean): string {
 }
 
 function sanitizeField(value: string): string {
-  return value.replaceAll(/[\x00-\x1F\x7F]+/g, ' ').trim();
+  return value.replaceAll(/[\x00-\x1f\x7f]+/g, ' ').trim();
 }
 
 function formatTimestamp(epochMs: number): string {

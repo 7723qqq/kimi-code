@@ -27,13 +27,11 @@ import {
 } from '#/tui/easter-eggs/dance';
 import { currentTheme } from '#/tui/theme';
 import type { ColorPalette } from '#/tui/theme/colors';
-import type { AppState, EnvironmentSlotState } from '#/tui/types';
-import { PERMISSION_MODE_DISPLAY_NAMES } from '#/tui/utils/permission-mode';
-import { SpinnerTicker } from '#/tui/utils/spinner-ticker';
-import {
-  StatusLineCommandRunner,
-  type StatusLinePayload,
-} from '#/tui/utils/status-line-command';
+import type { AppState } from '#/tui/types';
+import { permissionModeDisplayName } from '#/tui/utils/permission-mode';
+import { formatContextStatus } from '#/tui/utils/session-stats';
+import { StatusLineCommandRunner, type StatusLinePayload } from '#/tui/utils/status-line-command';
+import { createLocaleKeyedTipRotation, TIP_ROTATE_INTERVAL_MS } from '#/tui/utils/tip-rotation';
 import {
   createGitStatusCache,
   formatGitBadgeBase,
@@ -50,10 +48,9 @@ import {
 /** What the footer's fixed ctrl+o hint offers: expand collapsed tool output, or collapse it again. */
 export type ToolOutputExpandHint = 'expand' | 'collapse';
 
-const DEFAULT_STATUS_LINE_ITEMS = ['mode', 'goal', 'model', 'tasks', 'environment', 'cwd', 'git'] as const;
+const DEFAULT_STATUS_LINE_ITEMS = ['mode', 'goal', 'model', 'tasks', 'cwd', 'git'] as const;
 
 const MAX_CWD_SEGMENTS = 3;
-const MAX_ENVIRONMENT_REASON_WIDTH = 40;
 const GOAL_TIMER_INTERVAL_MS = 1_000;
 /**
  * Thinking-suffix breathing ramp. The visible cycle is the contract, not the
@@ -161,18 +158,39 @@ function modelDisplayName(state: AppState): string {
   return effective?.displayName ?? effective?.model ?? state.model;
 }
 
-function isRemoteEnvironment(environment: AppState['environment']): environment is EnvironmentSlotState {
-  return environment !== undefined && environment.environmentId !== 'local';
+/**
+ * The "thinking" suffix of the model slot, e.g. `thinking: high`, or `''` when
+ * effort is off. Split out of `buildSlots` so the pulse timer can compare the
+ * exact text the ramp colours; a second copy of these effort rules that drifted
+ * from the render path would either freeze the punctuation or repaint forever.
+ */
+function thinkingSuffixLabel(state: AppState): string {
+  const effort = state.thinkingEffort;
+  if (effort === 'off') return '';
+  const rawCurrentModel = state.availableModels[state.model];
+  const currentModel =
+    rawCurrentModel === undefined ? undefined : effectiveModelAlias(rawCurrentModel);
+  // Only effort-capable models (those declaring support_efforts) show the
+  // concrete effort; legacy boolean models keep the plain "thinking" suffix.
+  const hasEfforts = (currentModel?.supportEfforts?.length ?? 0) > 0;
+  return hasEfforts && effort !== 'on'
+    ? t('tui.chrome.footer.thinkingEffort', { effort })
+    : t('tui.chrome.footer.thinking');
 }
 
-function shortenCwd(path: string, home: string | undefined): string {
+function shortenCwd(path: string): string {
   if (!path) return path;
-  let work = path;
-  if (home !== undefined && home.length > 0 && path === home) {
+  // Windows processes launched from cmd/PowerShell often have no HOME; use
+  // the OS homedir and normalize separators so `~` abbreviation and the
+  // segment cap work for backslash paths too.
+  const home = homedir().replaceAll('\\', '/');
+  const work0 = path.replaceAll('\\', '/');
+  let work = work0;
+  if (home.length > 0 && work0 === home) {
     return '~';
   }
-  if (home !== undefined && home.length > 0 && path.startsWith(home + '/')) {
-    work = '~' + path.slice(home.length);
+  if (home.length > 0 && work0.startsWith(home + '/')) {
+    work = '~' + work0.slice(home.length);
   }
 
   const segments = work.split('/').filter((s) => s.length > 0);
@@ -223,11 +241,17 @@ export class FooterComponent implements Component {
    */
   private statsShownProbe: (() => boolean) | null = null;
   private goalSnapshotKey: string | null = null;
-  private goalObservedAtMs = Date.now();
-  private goalTimer: ReturnType<typeof setInterval> | null = null;
-  private readonly environmentSpinner = new SpinnerTicker(() => {
-    this.onRefresh();
-  });
+  private goalObservedAtMs: number | null = null;
+  private goalTimer: RenderTimerHandle | null = null;
+  private pulseTimer: RenderTimerHandle | null = null;
+  private pulsePhase = 0;
+  /**
+   * The pulse output the frame was last painted for, as `pulseOutput()` returned
+   * it at that phase. `null` doubles as "nothing on screen consumes the ramp"
+   * and as the starting "unknown", which makes the first tick after an arm
+   * repaint rather than trust a comparison it never established.
+   */
+  private lastPulseOutput: string | null = null;
   private statusLineRunner: StatusLineCommandRunner | null = null;
   /**
    * Non-terminal background-task counts split by kind so the footer can
@@ -260,7 +284,6 @@ export class FooterComponent implements Component {
     });
     this.syncGoalClock(state.goal);
     this.syncGoalTimer(state.goal);
-    this.syncEnvironmentSpinner(state.environment);
     this.syncStatusLineRunner(state);
   }
 
@@ -274,7 +297,7 @@ export class FooterComponent implements Component {
     }
     this.syncGoalClock(state.goal);
     this.syncGoalTimer(state.goal);
-    this.syncEnvironmentSpinner(state.environment);
+    this.syncPulseTimer(state.thinkingEffort !== 'off' && state.streamingPhase !== 'idle');
     this.syncStatusLineRunner(state);
     this.state = state;
   }
@@ -535,7 +558,6 @@ export class FooterComponent implements Component {
       goal: [],
       model: [],
       tasks: [],
-      environment: [],
       cwd: [],
       git: [],
       tips: [],
@@ -617,53 +639,10 @@ export class FooterComponent implements Component {
     }
     slots['tasks'] = taskBadges;
 
-    // Environment slot: the local environment renders nothing; a remote binding
-    // shows its bare environment id ahead of the cwd — error-colored while
-    // disconnected, with the first connect-error line appended so the failure
-    // reason is visible at a glance. A pending environment (never connected or
-    // deliberately reaped while idle) is not a failure and renders dim like a
-    // ready one. While connecting, a braille spinner ticks ahead of the id (see
-    // syncEnvironmentSpinner for the bounded timer).
-    const environment = state.environment;
-    const remote = isRemoteEnvironment(environment);
-    if (remote) {
-      const tone =
-        environment.status === 'disconnected'
-          ? colors.error
-          : environment.status === 'ready' || environment.status === 'pending'
-            ? colors.textDim
-            : colors.warning;
-      const label = environment.environmentId;
-      const reason =
-        environment.status === 'disconnected' && environment.connectError !== undefined
-          ? environment.connectError.split('\n', 1)[0]
-          : undefined;
-      const spinner =
-        environment.status === 'connecting' ? `${this.environmentSpinner.current} ` : '';
-      slots['environment'] = [
-        chalk.hex(tone)(
-          reason === undefined
-            ? `${spinner}${label}`
-            : `${spinner}${label} (${truncateToWidth(reason, MAX_ENVIRONMENT_REASON_WIDTH, '…')})`,
-        ),
-      ];
-    }
-
-    // A remote-bound session works on the target host, so the slot shows the
-    // binding cwd rather than the frozen local workDir. The environment-info
-    // surface (getEnvironment/listEnvironments) does not carry the remote home dir,
-    // so the remote path shortens by segments only and never claims ~ — a
-    // wrong ~ would be worse than a full path.
-    const bindingCwd = remote ? environment.cwd : undefined;
-    const cwd =
-      bindingCwd !== undefined
-        ? shortenCwd(bindingCwd, undefined)
-        : shortenCwd(state.workDir, process.env['HOME']);
+    const cwd = shortenCwd(state.workDir);
     if (cwd) slots['cwd'] = [chalk.hex(colors.textDim)(cwd)];
 
-    // The git badge reads the local filesystem; a remote-bound session's
-    // repository state lives on the target host, so the slot stays hidden.
-    const git = remote ? null : this.gitCache.getStatus();
+    const git = this.gitCache.getStatus();
     if (git !== null) slots['git'] = [formatFooterGitBadge(git, colors)];
 
     return slots;
@@ -673,10 +652,8 @@ export class FooterComponent implements Component {
     const state = this.state;
     return {
       model: modelDisplayName(state),
-      cwd: isRemoteEnvironment(state.environment) && state.environment.cwd !== undefined
-        ? state.environment.cwd
-        : state.workDir,
-      gitBranch: isRemoteEnvironment(state.environment) ? null : (this.gitCache.getStatus()?.branch ?? null),
+      cwd: state.workDir,
+      gitBranch: this.gitCache.getStatus()?.branch ?? null,
       permissionMode: state.permissionMode,
       planMode: state.planMode,
       specMode: state.specMode,
@@ -719,23 +696,69 @@ export class FooterComponent implements Component {
     }
   }
 
-  /**
-   * The connecting spinner ticks on the shared braille ticker — the slot state
-   * itself only changes with the environment status. The ticker is strictly
-   * bounded to the connecting status: it starts when the slot enters
-   * connecting and stops the moment the status moves on, so no always-on
-   * ticker exists. Each frame repaints through onRefresh.
-   */
-  private syncEnvironmentSpinner(environment: AppState['environment']): void {
-    const connecting =
-      environment !== undefined &&
-      environment.environmentId !== 'local' &&
-      environment.status === 'connecting';
-    if (connecting) {
-      this.environmentSpinner.start();
-    } else {
-      this.environmentSpinner.stop();
+  private syncPulseTimer(thinking: boolean): void {
+    if (thinking) {
+      if (this.pulseTimer !== null) return;
+      this.pulseTimer = this.armInterval(() => {
+        this.tickPulse();
+      }, THINKING_PULSE_INTERVAL_MS);
+      return;
     }
+    if (this.pulseTimer !== null) {
+      this.clock.clearInterval(this.pulseTimer);
+      this.pulseTimer = null;
+    }
+    this.pulsePhase = 0;
+    // The gate flip that lands here is itself a state update, so the resting
+    // phase is painted by that render; the next arm starts from "unknown" and
+    // repaints once rather than trust a comparison from the previous turn.
+    this.lastPulseOutput = null;
+  }
+
+  /**
+   * Advance the breathing ramp one step, and repaint only when the step changes
+   * what the ramp draws.
+   *
+   * The ramp reaches the screen in exactly one place — the colour of the model
+   * slot's "thinking" suffix, see `pulseOutput` — so comparing that produced
+   * string answers the whole question "would this tick change a single character
+   * of the frame?". Skipping the repaint on an unchanged string is safe because
+   * nothing else about the phase is observable: `pulsePhase` is private, this
+   * timer is its only writer, and every other input the suffix depends on
+   * (model, effort, the /dance takeover, the palette) arrives through `setState`
+   * or a theme switch, both of which repaint on their own. The guard can
+   * therefore only drop repaints that would redraw the frame byte for byte.
+   *
+   * The saving is not theoretical: with colours off (NO_COLOR, a dumb terminal,
+   * piped output) chalk hands back the bare suffix and all eight phases produce
+   * the identical string, so a long "thinking" turn costs one repaint per arm
+   * instead of five per second.
+   */
+  private tickPulse(): void {
+    this.pulsePhase = (this.pulsePhase + THINKING_PULSE_STEP) % 1;
+    const produced = this.pulseOutput();
+    if (produced === this.lastPulseOutput) return;
+    this.lastPulseOutput = produced;
+    this.onRefresh();
+  }
+
+  /**
+   * The text the ramp paints, or `null` when it reaches nothing on screen: the
+   * ramp only colours the model slot's thinking suffix, so a missing model name,
+   * an empty suffix, or the /dance takeover (which renders the whole label on its
+   * own clock) all mean that a phase change draws exactly the same frame.
+   *
+   * The *coloured* string is what gets compared — not the phase, and not the
+   * colour alone — because the coloured string is what chalk actually puts on
+   * the frame: at colour level 0 every phase hands back the same characters.
+   */
+  private pulseOutput(): string | null {
+    const state = this.state;
+    if (isRainbowDancing()) return null;
+    if (modelDisplayName(state).length === 0) return null;
+    const label = thinkingSuffixLabel(state);
+    if (label.length === 0) return null;
+    return chalk.hex(pulseSuffixColor(this.pulsePhase, currentTheme.palette))(label);
   }
 
   dispose(): void {
@@ -744,7 +767,24 @@ export class FooterComponent implements Component {
       this.clock.clearInterval(this.goalTimer);
       this.goalTimer = null;
     }
-    this.environmentSpinner.dispose();
+    if (this.pulseTimer !== null) {
+      this.clock.clearInterval(this.pulseTimer);
+      this.pulseTimer = null;
+    }
+    this.statusLineRunner?.dispose();
+    this.statusLineRunner = null;
+  }
+
+  /**
+   * Arm a repeating timer on the injected clock. Only the system clock's
+   * handles are unref'd — a footer animation must never be the reason the
+   * process stays alive — while an injected clock (a test's fake) owns
+   * liveness itself and hands back handles whose `unref` means "cancel".
+   */
+  private armInterval(callback: () => void, intervalMs: number): RenderTimerHandle {
+    const handle = this.clock.setInterval(callback, intervalMs);
+    if (this.clock === SYSTEM_RENDER_CLOCK) handle.unref?.();
+    return handle;
   }
 
   private goalWallClockMs(goal: AppState['goal']): number | undefined {

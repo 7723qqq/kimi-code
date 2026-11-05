@@ -10,7 +10,9 @@ import { runPrompt } from '#/cli/run-prompt';
 import { runShell } from '#/cli/run-shell';
 import { formatStartupError } from '#/cli/startup-error';
 import { runUpdatePreflight } from '#/cli/update/preflight';
-import { handleMainCommand, handleUpgradeCommand, main } from '#/cli/main';
+import * as versionModule from '#/cli/version';
+import { handleMainCommand, handleUpgradeCommand, main, workerInstallWarnings } from '#/main';
+import type { WorkerInstallDescriptor } from '#/main';
 
 const mocks = (() => {
   const parse = mock();
@@ -141,6 +143,7 @@ class ExitCalled extends Error {
 
 function defaultOpts(): CLIOptions {
   return {
+    environment: undefined,
     session: undefined,
     continue: false,
     yolo: false,
@@ -152,7 +155,6 @@ function defaultOpts(): CLIOptions {
     skillsDirs: [],
     agent: undefined,
     agentFiles: [],
-    environment: undefined,
   };
 }
 
@@ -257,6 +259,7 @@ describe('main entry command handling', () => {
     const opts: CLIOptions = {
       ...defaultOpts(),
       prompt: 'explain the repo',
+    environment: undefined,
     };
     mocks.validateOptions.mockReturnValue({ options: opts, uiMode: 'print' });
     mocks.runUpdatePreflight.mockResolvedValue('continue');

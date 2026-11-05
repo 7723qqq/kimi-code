@@ -1116,51 +1116,7 @@ describe('fullscreen layout', () => {
     expect(transcriptTop).toBe(0);
     expect(selectedOption(picker)).toBe('0');
 
-    state.ui.stop();
-  });
-
-  it('treats the local goal prompt as blocking and restores Updates on cancel', async () => {
-    const { state, vt } = await mountFullscreen(24);
-    onTestFinished(() => state.ui.stop());
-    const notifications = new NotifyController(state);
-    notifications.setEnabled(true);
-    state.notifyPanel.upsert({
-      id: 'n1',
-      agentId: 'main',
-      time: 0,
-      title: 'Reading updates',
-      text: 'detailed update body',
-    });
-    state.notifyPanelContainer.addChild(state.notifyPanel);
-    expect(notifications.focusPanel()).toBe(true);
-    state.notifyPanel.setEnded(true);
-    state.ui.setFocus(state.editor);
-    state.ui.requestRender();
-    await vt.waitForRender();
-    expect(screenRows(vt).join('\n')).toContain('detailed update body');
-
-    const host = {
-      state,
-      session: {},
-      surveyController: { notifyDisplaced: () => {} },
-      disposeEditorReplacement() {},
-      modelMigration: { retry: () => {} },
-      showError: vi.fn(),
-      showStatus: vi.fn(),
-      showNotice: vi.fn(),
-      track: vi.fn(),
-      sendNormalUserInput: vi.fn(),
-      mountEditorReplacement(panel: Component & Focusable, onDisplaced?: () => void) {
-        KimiTUI.prototype.mountEditorReplacement.call(host, panel, onDisplaced);
-      },
-      restoreEditor() {
-        KimiTUI.prototype.restoreEditor.call(host);
-      },
-      restoreInputText() {
-        KimiTUI.prototype.restoreEditor.call(host);
-      },
-    } as unknown as SlashCommandHost;
-    await handleGoalCommand(host, 'Ship feature X');
+    vt.sendInput('\u001B[6~');
     await vt.waitForRender();
 
     // The key went to the panel: it paged its own list and the transcript
@@ -1198,12 +1154,8 @@ describe('fullscreen layout', () => {
       onSelect: (value) => picked.push(value),
       onCancel: () => {},
     });
-    const host = {
-      state,
-      surveyController: { notifyDisplaced: () => {} },
-      disposeEditorReplacement() {},
-    } as unknown as KimiTUI;
-    KimiTUI.prototype.mountEditorReplacement.call(host, picker);
+    mountPanel(state, picker);
+    alt.renderNow();
     await vt.waitForRender();
 
     // The click has to land past the settling window, or it is the click that
@@ -1224,61 +1176,15 @@ describe('fullscreen layout', () => {
     alt.stop();
   });
 
-  it('lets an approval wait faded while Updates is read, and hands the keyboard over and back', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(10_000);
-    onTestFinished(() => {
-      vi.useRealTimers();
-    });
-    const { state, vt } = await mountFullscreen(40);
-    const host = {
-      state,
-      surveyController: { notifyDisplaced: () => {} },
-      disposeEditorReplacement() {},
-      modelMigration: { retry: () => {} },
-    } as unknown as KimiTUI;
-    const notifications = new NotifyController(state);
-    notifications.setEnabled(true);
-    state.notifyPanel.upsert({ id: 'n1', agentId: 'main', time: 0, title: 'Running the tests', text: 'main body' });
-    state.notifyPanel.upsert({ id: 'n2', agentId: 'agent-1', agentName: 'coder', time: 1, text: 'coder body' });
-    expect(state.notifyPanel.prevChannel()).toBe(true);
-    state.notifyPanelContainer.addChild(state.notifyPanel);
-    expect(notifications.focusPanel()).toBe(true);
-    await vt.waitForRender();
-
-    const responses: unknown[] = [];
-    const pending = pendingApproval();
-    pending.data.choices = [
-      { label: 'Approve once', response: 'approved' },
-      { label: 'Reject', response: 'rejected' },
-    ];
-    const panel = new ApprovalPanelComponent(pending, (response) => responses.push(response), undefined, undefined, {
-      layout: { maxBodyRows: 6 },
-      onFocusUpdates: () => notifications.focusPanel(),
-    });
-    state.livePane.pendingApproval = pending;
-    notifications.setPrompt(true);
-    KimiTUI.prototype.mountEditorReplacement.call(host, panel);
-    await vt.waitForRender();
-
-    let rows = screenRows(vt);
-    expect(state.notifyPanel.focused).toBe(true);
-    expect(rows.join('\n')).toContain('main body');
-    expect(rows.join('\n')).toContain('esc back to approval');
-    vt.sendInput('1');
-    vt.sendInput('\r');
-    await vt.waitForRender();
-    expect(responses).toEqual([]);
-    expect(panel.focused).toBe(true);
-
-    vt.sendInput('\u000E');
-    await vt.waitForRender();
-    expect(state.notifyPanel.focused).toBe(true);
-    rows = screenRows(vt);
-    const choice = rows.findIndex((row) => row.includes('2. Reject'));
-    const click = (): void => {
-      vt.sendInput(`\u001B[<0;8;${String(choice + 1)}M`);
-      vt.sendInput(`\u001B[<0;8;${String(choice + 1)}m`);
+  it('leaves the transcript viewport in charge of a component that claims no keys', async () => {
+    const { state, vt } = await mountFullscreen();
+    const alt = state.ui as TuiAltScreen;
+    state.transcriptContainer.addChild(
+      new Text(Array.from({ length: 200 }, (_, index) => `line ${index}`).join('\n'), 0, 0),
+    );
+    const plain: Component = {
+      render: () => ['plain'],
+      invalidate: () => {},
     };
     state.editorContainer.clear();
     state.editorContainer.addChild(plain);

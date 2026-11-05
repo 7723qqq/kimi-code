@@ -17,7 +17,13 @@ import type { TurnEndedEvent } from '#/agent/loop/turnOps';
 import type { PluginCommandActivatedEvent } from '#/agent/pluginCommand/pluginCommand';
 import type { PromptAbortedEvent, PromptCompletedEvent, PromptSteeredEvent, PromptSubmittedEvent } from '#/agent/prompt/promptEvents';
 import type { EnvironmentStatusChangedEvent } from '#/agent/environmentBinding/environmentEvents';
-import type { BackgroundTaskStartedEvent, BackgroundTaskTerminatedEvent, TaskStartedEvent, TaskTerminatedEvent } from '#/agent/task/types';
+import type {
+  BackgroundTaskOutputEvent,
+  BackgroundTaskStartedEvent,
+  BackgroundTaskTerminatedEvent,
+  TaskStartedEvent,
+  TaskTerminatedEvent,
+} from '#/agent/task/types';
 import type { McpServerStatusEvent, ShellCompletedEvent, ShellOutputEvent, ShellStartedEvent, ToolCallDeltaEvent, ToolCallStartedEvent, ToolListUpdatedEvent, ToolProgressEvent } from '#/agent/toolExecutor/toolExecutorEvents';
 import type { ToolResultEventPayload } from '#/agent/toolExecutor/toolExecutorEvents';
 import type { AgentStatusUpdatedEvent } from '#/agent/usage/usageEvents';
@@ -76,6 +82,7 @@ export type AgentEvent =
   | SkillActivatedEvent
   | PluginCommandActivatedEvent
   | EnvironmentStatusChangedEvent
+  | TodoUpdatedEvent
   | TurnStartedEvent
   | TurnEndedEvent
   | TurnStepStartedEvent
@@ -108,6 +115,7 @@ export type AgentEvent =
   | TaskTerminatedEvent
   | BackgroundTaskStartedEvent
   | BackgroundTaskTerminatedEvent
+  | BackgroundTaskOutputEvent
   | CronFiredEvent
   | PromptSubmittedEvent
   | PromptCompletedEvent
