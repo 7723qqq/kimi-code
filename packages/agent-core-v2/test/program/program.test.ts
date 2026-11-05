@@ -545,7 +545,7 @@ async function localityFixture(options: { readonly remoteCwd?: string } = {}): P
   let controller: { dispose(): void } | undefined;
   const workdir = async (cwd: string): Promise<ProgramWorkdir> => {
     controller ??= program.createSessionController();
-    const created = await controllerInputs[0]!.acquireWorkdir('remote', cwd);
+    const created = await controllerInputs[0]!.acquireWorkdir('remote', slashedPath(cwd));
     workdirs.push(created);
     return created;
   };
@@ -656,7 +656,7 @@ describe('Program local generation and remote workdirs', () => {
         slashedPath(join(fixture.remoteRoot, 'targetextra')),
       ]);
       expect(remoteProfiles).toEqual([]);
-      expect(remote.contextKey).toBe(environmentBindingId('remote', fixture.remoteRoot));
+      expect(remote.contextKey).toBe(environmentBindingId('remote', slashedPath(fixture.remoteRoot)));
       expect(fixture.profileRegistry.entries().some((entry) => entry.contextKey === remote.contextKey)).toBe(false);
 
       const listed = await remote.fs.list({ path: '.', depth: 1, limit: 100, show_hidden: false, follow_gitignore: false, sort: 'name_asc', include_git_status: false });
