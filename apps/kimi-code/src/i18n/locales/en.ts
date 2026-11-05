@@ -2063,7 +2063,7 @@ export default {
       // commands/reload.ts
       reloadTuiConfigReloaded: 'TUI config reloaded.',
       reloadSession: 'Session reloaded.',
-      reloadNoActiveSession: 'Runtime and TUI config reloaded; no active session.',
+      reloadNoActiveSession: 'Environment and TUI config reloaded; no active session.',
       // tui/commands/undo.ts
       undoCannotWhileStreaming: 'Cannot undo while streaming — press Esc or Ctrl-C first.',
       undoUsage: 'Usage: /undo [count], where count is a positive integer.',

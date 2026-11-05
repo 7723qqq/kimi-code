@@ -14,13 +14,15 @@ import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { createProgram } from '#/cli/commands';
 import { isExecServerArgv } from '#/cli/exec-server';
 
 const appRoot = resolve(import.meta.dirname, '..', '..');
 const srcRoot = resolve(appRoot, 'src');
+const HOST_OS_KIND =
+  process.platform === 'win32' ? 'Windows' : process.platform === 'darwin' ? 'macOS' : 'Linux';
 const hostPackage = JSON.parse(readFileSync(resolve(appRoot, 'package.json'), 'utf-8')) as {
   version: string;
 };
@@ -75,7 +77,7 @@ describe('light entry import graph', () => {
     }
     if (specifier.startsWith('.')) {
       const base = resolve(dirname(fromFile), specifier);
-      return base.endsWith('.ts') ? base : `${base}.ts`;
+      return /\.[cm]?[jt]sx?$/.test(base) ? base : `${base}.ts`;
     }
     return undefined;
   }
@@ -109,10 +111,10 @@ describe('light entry import graph', () => {
       '@moonshot-ai/kimi-code-sdk/ssh-askpass',
     ]);
     expect(externals).not.toContain('@moonshot-ai/kimi-code-sdk');
-    expect([...files].map((file) => file.slice(srcRoot.length + 1)).toSorted()).toEqual([
+    expect([...files].map((file) => file.slice(srcRoot.length + 1).replaceAll('\\', '/')).toSorted()).toEqual([
       'cli/build-info.ts',
       'cli/exec-server.ts',
-      'cli/version.ts',
+      'cli/version-info.ts',
       'main.ts',
     ]);
   });
@@ -218,8 +220,7 @@ describe('exec-server stdio handshake (source entry)', () => {
     'answers initialize with the host version and a posix environment, then exits 0 on stdin EOF',
     { timeout: 60_000 },
     async () => {
-      const tsxBin = resolve(appRoot, 'node_modules/.bin/tsx');
-      const result = await runExecServerHandshake(tsxBin, ['src/main.ts', 'exec-server']);
+      const result = await runExecServerHandshake(process.execPath, ['src/main.ts', 'exec-server']);
 
       expect(result.initialize['id']).toBe(1);
       const initializeResult = result.initialize['result'] as {
@@ -227,7 +228,7 @@ describe('exec-server stdio handshake (source entry)', () => {
         environment: { osKind: string; cwd: string };
       };
       expect(initializeResult.executorVersion).toBe(hostPackage.version);
-      expect(initializeResult.environment.osKind).not.toBe('windows');
+      expect(initializeResult.environment.osKind).toBe(HOST_OS_KIND);
       expect(initializeResult.environment.cwd).toBe(appRoot);
 
       expect(result.status['id']).toBe(2);

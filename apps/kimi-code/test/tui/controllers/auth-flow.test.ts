@@ -32,7 +32,7 @@ function makeHost(
         }
       : undefined;
   const host = {
-    state: { appState },
+    state: { appState, transcriptEntries: [] },
     session,
     harness: {
       createSession: jest.fn(async () => ({ id: 'ses-new', summary: { title: null } })),

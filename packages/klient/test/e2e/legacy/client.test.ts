@@ -13,7 +13,7 @@
  *   4. `waitForFrame` times out cleanly (no zombie waiters).
  *   5. Created session is observable via `getSession`.
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import type { FileMeta } from '@moonshot-ai/agent-core-v2/app/file/fileService';
 import type {

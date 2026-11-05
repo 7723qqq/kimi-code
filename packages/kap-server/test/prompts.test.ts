@@ -120,6 +120,7 @@ const PROMPT_TOML_KIMI_VISION_DEFAULT = PROMPT_TOML_KIMI_VISION.replace(
 );
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const HOST_PATH_CLASS = process.platform === 'win32' ? 'win32' : 'posix';
 const CRC32_TABLE = makeCrc32Table();
 
 function makeCrc32Table(): Uint32Array {
@@ -1752,7 +1753,7 @@ describe('server-v2 /api/v1 prompts', () => {
       const instance = server!.core.accessor.get(IWorkspaceInstanceManager).get(workspaceId);
       const fake = new FakeEnvironment(
         { environmentId: 'fake-remote', generation: 'fake-generation' },
-        { capabilities: ['fs'] },
+        { capabilities: ['fs'], pathClass: HOST_PATH_CLASS },
       );
       server!.core.accessor.get(IEnvironmentService).register(Object.assign(fake, {
         fs: new HostFileSystem(),
@@ -1790,7 +1791,7 @@ describe('server-v2 /api/v1 prompts', () => {
       attach: async (host) => {
         const fake = new FakeEnvironment(
           { environmentId: 'remote-test', generation: 'remote-generation' },
-          { capabilities: ['fs', 'process'] },
+          { capabilities: ['fs', 'process'], pathClass: HOST_PATH_CLASS },
         );
         const environment = Object.assign(fake, {
           fs: new HostFileSystem(),

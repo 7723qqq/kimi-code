@@ -660,7 +660,9 @@ describe('acp-server session lifecycle', () => {
       try {
         const dirs = lease.instance.program.dirs;
         await dirs.ready;
-        expect(dirs.additionalDirs).toContain(extraDir);
+        expect(dirs.additionalDirs.map((dir) => dir.replaceAll('\\', '/'))).toContain(
+          extraDir.replaceAll('\\', '/'),
+        );
       } finally {
         lease.dispose();
       }

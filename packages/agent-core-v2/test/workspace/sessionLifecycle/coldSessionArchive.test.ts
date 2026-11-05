@@ -1,7 +1,7 @@
 import { EnvironmentRegistry } from '#/environment/environmentRegistry';
 import { IEnvironmentService } from '#/app/environment/environment';
 
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiation';
 import type { ISessionScopeHandle } from '#/_base/di/scope';

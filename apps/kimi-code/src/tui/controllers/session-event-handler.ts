@@ -370,6 +370,9 @@ export class SessionEventHandler {
       case 'turn.ended':
         this.handleTurnEnd(event, sendQueued);
         break;
+      case 'prompt.completed':
+        this.handlePromptCompleted(event);
+        break;
       case 'turn.step.started':
         this.handleStepBegin(event);
         break;
@@ -562,6 +565,15 @@ export class SessionEventHandler {
     }
     this.pluginMcpToolsUsedInTurn.clear();
     this.scheduleQueuedGoalPromotion();
+  }
+
+  private handlePromptCompleted(event: Extract<Event, { type: 'prompt.completed' }>): void {
+    // A steer the engine rejected before consuming it never reaches turn.steer
+    // or turn.started, so its entry would stay faded for the rest of the
+    // session without this release.
+    if (event.reason === 'blocked' || event.reason === 'failed') {
+      this.host.releaseSteerDelivery?.(event.promptId);
+    }
   }
 
   private handleStepBegin(event: TurnStepStartedEvent): void {

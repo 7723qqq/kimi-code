@@ -4,16 +4,15 @@ import { homedir, tmpdir } from 'node:os';
 import { dirname, join, parse } from 'node:path';
 
 import { IModelCatalog, IWorkspaceInstanceManager, IWorkspaceService } from '@moonshot-ai/agent-core-v2';
-import { HostFileSystem } from '@moonshot-ai/agent-core-v2';
-import type { IHostFileSystem } from '@moonshot-ai/agent-core-v2/os/interface/hostFileSystem';
 import { FakeEnvironment } from '@moonshot-ai/agent-core-v2/environment/fakeEnvironment';
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it } from 'bun:test';
 
 import { type RunningServer, startServer } from '../src/start';
 import { authHeaders } from './helpers/auth';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
-import { removeTempHome } from './helpers/tempHome';
 import { fakeModelCatalog } from './helpers/fakeModelCatalog';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { mappingHostFs } from './helpers/mappingHostFs';
+import { removeTempHome } from './helpers/tempHome';
 
 interface Envelope<T> {
   code: number;
@@ -442,33 +441,6 @@ describe('server-v2 /api/v1 fs:content', () => {
     expect(res.status).toBe(404);
   });
 });
-
-function mappingHostFs(remoteRoot: string): IHostFileSystem {
-  const inner = new HostFileSystem();
-  const map = (path: string): string => join(remoteRoot, path);
-  const unmap = (path: string): string =>
-    path === remoteRoot
-      ? '/'
-      : path.startsWith(`${remoteRoot}/`)
-        ? path.slice(remoteRoot.length)
-        : path;
-  return {
-    _serviceBrand: undefined,
-    readText: (path, options) => inner.readText(map(path), options),
-    writeText: (path, data) => inner.writeText(map(path), data),
-    appendText: (path, data) => inner.appendText(map(path), data),
-    readBytes: (path, n, offset) => inner.readBytes(map(path), n, offset),
-    writeBytes: (path, data) => inner.writeBytes(map(path), data),
-    readLines: (path, options) => inner.readLines(map(path), options),
-    createExclusive: (path, data) => inner.createExclusive(map(path), data),
-    stat: (path) => inner.stat(map(path)),
-    lstat: (path) => inner.lstat(map(path)),
-    readdir: (path) => inner.readdir(map(path)),
-    mkdir: (path, options) => inner.mkdir(map(path), options),
-    remove: (path) => inner.remove(map(path)),
-    realpath: async (path) => unmap(await inner.realpath(map(path))),
-  };
-}
 
 describe('server-v2 /api/v1 fs:content and fs:mkdir with environment_id', () => {
   let server: RunningServer | undefined;

@@ -7,9 +7,9 @@ import { createKimiHarness, ErrorCodes, type Event, type KimiError } from '#/ind
 import { makeTempDir, removeTempDirs } from './session-runtime-helpers';
 import { TEST_IDENTITY } from './test-identity';
 
-// node-sdk/agent-core normalize paths to forward slashes (pathe). Mirror that
-// in path assertions so they hold on Windows, where node:path produces
-// backslashes.
+// pathe-joined paths come out with forward slashes, but the plan file path is
+// built from the host path class, so on Windows it carries backslashes.
+// Normalizing both sides keeps these assertions separator-agnostic.
 const toPosix = (p: string): string => p.replaceAll('\\', '/');
 
 const tempDirs: string[] = [];
@@ -172,10 +172,9 @@ describe('Session plan, compact, usage, and resume APIs', () => {
         model: 'test-model',
         planMode: true,
       });
-      await expect(resumed.getPlan()).resolves.toMatchObject({
-        content: '',
-        path: expect.stringContaining('/plans/'),
-      });
+      const resumedPlan = await resumed.getPlan();
+      expect(resumedPlan).toMatchObject({ content: '' });
+      expect(toPosix(resumedPlan?.path ?? '')).toContain('/plans/');
       expect(harness.getSession(created.id)).toBe(resumed);
     } finally {
       await harness.close();
@@ -278,13 +277,11 @@ describe('Session plan, compact, usage, and resume APIs', () => {
       const forkSummary = fork.summary;
       expect(forkSummary).toBeDefined();
       const forkPlan = await fork.getPlan();
-      expect(forkPlan).toEqual({
-        id: sourcePlan.id,
-        content: 'source plan',
-        path: toPosix(
-          join(forkSummary!.sessionDir, 'agents', 'main', 'plans', `${sourcePlan.id}.md`),
-        ),
-      });
+      expect(forkPlan?.id).toBe(sourcePlan.id);
+      expect(forkPlan?.content).toBe('source plan');
+      expect(toPosix(forkPlan?.path ?? '')).toBe(
+        toPosix(join(forkSummary!.sessionDir, 'agents', 'main', 'plans', `${sourcePlan.id}.md`)),
+      );
       expect(forkPlan?.path).not.toBe(sourcePlan.path);
       const forkWire = await readFile(
         join(forkSummary!.sessionDir, 'agents', 'main', 'wire.jsonl'),

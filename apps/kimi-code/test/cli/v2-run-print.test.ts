@@ -24,6 +24,12 @@ import {
   IConfigService,
   IEventBus,
   IEventDispatcher,
+  IEnvironmentService,
+  IEventService,
+  IModelService,
+  IProviderService,
+  IMcpOAuthService,
+  ISessionIndexMirror,
   IFileSystemStorageService,
   IHostFileSystem,
   IOAuthToolkit,
@@ -272,6 +278,17 @@ function makeFakeHarness() {
 
   const appServices = new Map<unknown, unknown>([
     [
+      IEnvironmentService,
+      {
+        addProvider: jest.fn(async () => ({ dispose: jest.fn(async () => {}) })),
+      },
+    ],
+    [IModelService, { ready: Promise.resolve() }],
+    [IProviderService, { ready: Promise.resolve() }],
+    [IEventService, { subscribe: jest.fn(() => ({ dispose: jest.fn() })) }],
+    [ISessionIndexMirror, { drain: jest.fn(async () => {}) }],
+    [IMcpOAuthService, { shutdown: jest.fn(async () => {}) }],
+    [
       IConfigService,
       {
         ready: Promise.resolve(),
@@ -311,7 +328,7 @@ function makeFakeHarness() {
       { get: jest.fn(async () => undefined), listRecent: jest.fn(async () => ({ items: [] })) },
     ],
     [ISessionLockService, new InMemorySessionLockService()],
-    [IAppendLogStore, { externallyModified: jest.fn(() => false) }],
+    [IAppendLogStore, { externallyModified: jest.fn(() => false), drainRetirements: jest.fn(async () => {}) }],
     [
       IBootstrapService,
       {

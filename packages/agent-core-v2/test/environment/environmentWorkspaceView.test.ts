@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import { EnvironmentWorkspaceView } from '#/environment/environmentWorkspaceView';

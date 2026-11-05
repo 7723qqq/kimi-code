@@ -181,18 +181,19 @@ export class Session {
     });
   }
 
-  promptWithSkills(
+  async promptWithSkills(
     input: string | PromptInput,
     skills: readonly PromptSkillActivation[],
     options?: { readonly steerIfActive?: boolean },
   ): Promise<PromptSubmissionResult> {
     this.ensureOpen();
-    return this.rpc.promptWithSkills({
+    const submitted = await this.rpc.promptWithSkills({
       sessionId: this.id,
       input: normalizePromptInput(input),
       skills,
       steerIfActive: options?.steerIfActive,
     });
+    return submitted;
   }
 
   /** Execute a user-initiated `!` shell command (silent — does not prompt the
@@ -216,12 +217,13 @@ export class Session {
     return this.rpc.cancelShellCommand({ sessionId: this.id, commandId });
   }
 
-  steer(input: string | PromptInput): Promise<PromptSubmissionResult> {
+  async steer(input: string | PromptInput): Promise<PromptSubmissionResult> {
     this.ensureOpen();
-    return this.rpc.steer({
+    const submitted = await this.rpc.steer({
       sessionId: this.id,
       input: normalizePromptInput(input),
     });
+    return submitted;
   }
 
   async swarm(input: string | PromptInput): Promise<void> {

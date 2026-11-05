@@ -614,22 +614,6 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     ) {
       throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${sourceId} does not exist`);
     }
-    if (sourceHandle !== undefined) {
-      const sourceAgents = sourceHandle.accessor.get(IAgentLifecycleService);
-      for (const agent of sourceAgents.list()) {
-        const agentHandle = sourceAgents.handleOf(agent.agentId);
-        if (agentHandle === undefined) continue;
-        if (agentHandle.accessor.get(IAgentLoopService).snapshot().state === 'running') {
-          throw new Error2(
-            ErrorCodes.SESSION_FORK_ACTIVE_TURN,
-            `Session "${sourceId}" cannot be forked while a turn is running`,
-            { details: { sessionId: sourceId } },
-          );
-        }
-        await agentHandle.accessor.get(IEventDispatcher).flush();
-      }
-      await this.appendLogStore.flush();
-    }
     assertForkTurnIndex(opts.turnIndex);
 
     let targetId: string | undefined;
@@ -674,6 +658,10 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
           }
           if (activeTurnId !== undefined) activeTurnIds.set(agentHandle.id, activeTurnId);
         }
+        for (const agentHandle of sourceAgentHandles) {
+          await agentHandle.accessor.get(IEventDispatcher).flush();
+        }
+        await this.appendLogStore.flush();
       }
       await drainSessionMetadataWrites();
       if (sourceHandle !== undefined) {

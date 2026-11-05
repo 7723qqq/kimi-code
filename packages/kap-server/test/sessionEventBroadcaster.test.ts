@@ -1753,7 +1753,7 @@ describe('SessionEventBroadcaster', () => {
         response: { answers: { q_0: 'opt_0_0' }, method: 'enter' },
       },
     ]);
-    expect(interactionMessages[0]!.event_created_at).toBeTypeOf('string');
+    expect(typeof interactionMessages[0]!.event_created_at).toBe('string');
     expect(interactionMessages[1]!.ended_at).toBe(interactionMessages[1]!.event_created_at);
   });
 

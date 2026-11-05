@@ -301,6 +301,11 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     ].join('\n');
   }
 
+  // A declared `[environments.*]` entry requires an absolute POSIX cwd, while the
+  // fake remote below stands in for one with the local filesystem, so its cwd has
+  // to be a real host directory. Both cannot hold on Windows.
+  const posixHostIt = process.platform === 'win32' ? it.skip : it;
+
   async function makeEnvironmentHarness(options: { readonly defaultCwd?: string } = {}): Promise<{ harness: KimiHarness; client: SDKRpcClientV2; homeDir: string }> {
     setEnv('KIMI_CODE_EXPERIMENTAL_FLAG', 'false');
     const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-'));
@@ -383,7 +388,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     }
   });
 
-  it('resolves creation defaults without creating a session', async () => {
+  posixHostIt('resolves creation defaults without creating a session', async () => {
     const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-default-work-'));
     const remoteDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-default-target-'));
     tempDirs.push(workDir, remoteDir);
@@ -404,7 +409,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     }
   });
 
-  it('resolves relative additional directories against the same remote cwd on cold resume', async () => {
+  posixHostIt('resolves relative additional directories against the same remote cwd on cold resume', async () => {
     const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-resume-local-'));
     const target = await mkdtemp(join(tmpdir(), 'kimi-sdk-resume-target-'));
     const remoteDir = join(target, 'project');
@@ -426,7 +431,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     }
   });
 
-  it('keeps remote AGENTS.md change notifications on the session workdir across reloads', async () => {
+  posixHostIt('keeps remote AGENTS.md change notifications on the session workdir across reloads', async () => {
     const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-agents-local-'));
     const remoteDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-agents-remote-'));
     const remoteHome = await mkdtemp(join(tmpdir(), 'kimi-sdk-agents-home-'));
@@ -470,7 +475,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     }
   });
 
-  it('keeps launch-directory project agents out of remote sessions, which read only user agents', async () => {
+  posixHostIt('keeps launch-directory project agents out of remote sessions, which read only user agents', async () => {
     const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-profiles-local-'));
     const remoteDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-profiles-remote-'));
     tempDirs.push(workDir, remoteDir);
@@ -500,7 +505,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     }
   });
 
-  it('persists the creation binding in session meta and fails resume loudly when the environment cannot connect', async () => {
+  posixHostIt('persists the creation binding in session meta and fails resume loudly when the environment cannot connect', async () => {
     const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-meta-work-'));
     const remoteDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-meta-remote-'));
     tempDirs.push(workDir, remoteDir);
@@ -546,7 +551,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     }
   });
 
-  it('keeps attached originals readable in remote sessions, forks and cold resumes without staging files', async () => {
+  posixHostIt('keeps attached originals readable in remote sessions, forks and cold resumes without staging files', async () => {
     const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-attachment-work-'));
     const remoteDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-attachment-target-'));
     tempDirs.push(workDir, remoteDir);
@@ -604,7 +609,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     return { release, restore: () => spy.mockRestore() };
   }
 
-  it('waits for the remote environment provider attach before resuming a remote-bound session', async () => {
+  posixHostIt('waits for the remote environment provider attach before resuming a remote-bound session', async () => {
     const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-race-work-'));
     const remoteDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-race-remote-'));
     tempDirs.push(workDir, remoteDir);
@@ -1656,7 +1661,7 @@ key = "${titleOAuthRef.key}"
     }
   });
 
-  it('serves suggestFiles from a live remote session working directory', async () => {
+  posixHostIt('serves suggestFiles from a live remote session working directory', async () => {
     const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-work-'));
     const remoteDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-remote-'));
     tempDirs.push(workDir, remoteDir);

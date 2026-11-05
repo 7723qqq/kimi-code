@@ -16,7 +16,7 @@
  * (usage errors, startup failures, executor logs) goes to stderr.
  */
 
-import { getVersion } from './version';
+import { getVersion } from './version-info';
 
 export const EXEC_SERVER_COMMAND = 'exec-server';
 

@@ -260,9 +260,14 @@ describe('FooterComponent status_line command', () => {
     const dir = join(tmpdir(), `sl-remote-cwd-${process.pid}-${Math.random().toString(36).slice(2)}`);
     mkdirSync(dir, { recursive: true });
     const captured = join(dir, 'payload.json');
+    const scriptFile = join(dir, 'remote-cwd.mjs');
+    writeFileSync(
+      scriptFile,
+      `import { writeFileSync } from 'node:fs';\nlet d='';\nprocess.stdin.setEncoding('utf-8');\nprocess.stdin.on('data',(c)=>{d+=c});\nprocess.stdin.on('end',()=>{writeFileSync(process.argv[2],d);process.stdout.write('remote-cwd\\n')});\n`,
+    );
     const footer = new FooterComponent({
       ...baseState,
-      statusLine: { items: null, command: `tee ${captured} >/dev/null; printf remote-cwd` },
+      statusLine: { items: null, command: nodeCommand(`${scriptFile} ${captured}`) },
       environment: {
         environmentId: 'dev-box',
         type: 'ssh',
@@ -271,10 +276,12 @@ describe('FooterComponent status_line command', () => {
       },
     });
     try {
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      footer.render(120);
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      expect(plain(footer.render(120)[0]!)).toContain('remote-cwd');
+      await waitForAssertion(
+        () => {
+          expect(plain(footer.render(120)[0]!)).toContain('remote-cwd');
+        },
+        { timeout: 2_000, interval: 25 },
+      );
       expect(JSON.parse(readFileSync(captured, 'utf8'))).toMatchObject({
         cwd: '/remote/proj',
         gitBranch: null,

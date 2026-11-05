@@ -46,7 +46,7 @@ apps/kimi-code/src/cli/v2/run-v2-print.ts app/mcpConfig/configLoader
 apps/kimi-code/src/cli/v2/validate-config.ts app/config/deprecations
 apps/kimi-code/src/cli/v2/validate-config.ts app/config/toml
 apps/kimi-code/src/constant/app.ts app/plugin/marketplace
-apps/kimi-code/src/main.ts features/codeRuntime/codeShimSource
+apps/kimi-code/src/cli/main.ts features/codeRuntime/codeShimSource
 apps/kimi-code/src/utils/plugin-marketplace.ts app/plugin/marketplace
 apps/kimi-code/test/cli/v2-run-print.test.ts app/mcpConfig/configLoader
 apps/kimi-inspect/src/App.tsx app/sessionIndex/sessionIndex

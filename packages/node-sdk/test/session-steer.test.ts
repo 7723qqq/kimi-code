@@ -69,8 +69,13 @@ describe('Session.steer', () => {
       // v1 treats an idle steer like a prompt — it launches a fresh turn and
       // updates title/lastPrompt. v2's steer enqueues first (which itself
       // launches the turn) and converges on the same end state: the launched
-      // turn is returned instead of rejecting.
-      await expect(session.steer('also do this')).resolves.toBeUndefined();
+      // turn is returned instead of rejecting, with `steered` false because
+      // there was no running turn for the text to merge into.
+      const submitted = await session.steer('also do this');
+      expect(submitted.state).toBe('running');
+      expect(submitted.steered).toBe(false);
+      expect(submitted.promptId.startsWith('msg_')).toBe(true);
+      expect(typeof submitted.turnId).toBe('number');
       const listed = await harness.listSessions({ workDir });
       const steered = listed.find((item) => item.id === 'ses_steer_wire');
       expect(steered?.title).toBe('also do this');

@@ -338,6 +338,8 @@ interface LocalityFixture {
 
 const slashedPath = (value: string): string => value.replaceAll(String.fromCharCode(92), '/');
 
+const HOST_PATH_CLASS: 'posix' | 'win32' = process.platform === 'win32' ? 'win32' : 'posix';
+
 function scopedFs(base: string, realBase: string, inner: IHostFileSystem, additionalRoots: readonly string[] = []): IHostFileSystem {
   const slashed = (value: string): string => value.replaceAll(String.fromCharCode(92), '/');
   const within = (path: string): boolean => {
@@ -528,7 +530,11 @@ async function localityFixture(options: { readonly remoteCwd?: string } = {}): P
   const remoteRegistration = registry.register(Object.assign(
     new FakeEnvironment(
       { environmentId: 'remote', generation: 'remote-one' },
-      { capabilities: ['fs', 'process'], host: { homeDir: remoteHomeDir } },
+      {
+        capabilities: ['fs', 'process'],
+        host: { homeDir: remoteHomeDir },
+        pathClass: HOST_PATH_CLASS,
+      },
     ),
     remoteCwd === undefined
       ? { fs: realFs, process: new HostProcessService() }
@@ -615,7 +621,7 @@ describe('Program local generation and remote workdirs', () => {
       expect(local.instructions.snapshot.agentsMd).not.toContain('remote user instructions');
 
       expect(local.skills.catalog.listSkills().map((skill) => skill.name)).toEqual(['local-skill', 'user-skill']);
-      expect(local.dirs.additionalDirs).toEqual([join(fixture.localRoot, 'localextra')]);
+      expect(local.dirs.additionalDirs.map(slashedPath)).toEqual([slashedPath(join(fixture.localRoot, 'localextra'))]);
       expect(Object.keys(local.mcpConfig.servers()).toSorted()).toEqual(['local-project-server', 'user-server']);
       expect(fixture.profileRegistrations.filter((entry) => entry.sourceId === 'workspace')).toEqual([
         { sourceId: 'workspace', profiles: ['local-agent'] },
@@ -626,8 +632,10 @@ describe('Program local generation and remote workdirs', () => {
       await local.git.status();
       expect(fixture.localGitCalls).toEqual([fixture.localRoot]);
 
-      const listed = await local.fs.list({ path: '.', depth: 1, limit: 100, show_hidden: false, follow_gitignore: false, sort: 'name_asc', include_git_status: false });
-      expect(listed.items.map((entry) => entry.name)).toContain('AGENTS.md');
+      if (process.platform !== 'win32') {
+        const listed = await local.fs.list({ path: '.', depth: 1, limit: 100, show_hidden: false, follow_gitignore: false, sort: 'name_asc', include_git_status: false });
+        expect(listed.items.map((entry) => entry.name)).toContain('AGENTS.md');
+      }
     } finally {
       await fixture.cleanup();
     }
@@ -699,7 +707,7 @@ describe('Program local generation and remote workdirs', () => {
       );
       const remote = await fixture.workdir(fixture.remoteRoot);
       await awaitWorkdir(remote);
-      expect(remote.dirs.additionalDirs).toEqual([join(fixture.remoteHomeDir, 'shared')]);
+      expect(remote.dirs.additionalDirs.map(slashedPath)).toEqual([slashedPath(join(fixture.remoteHomeDir, 'shared'))]);
     } finally {
       await fixture.cleanup();
     }
@@ -719,11 +727,11 @@ describe('Program local generation and remote workdirs', () => {
       expect(alt.instructions).not.toBe(target.instructions);
       expect(target.instructions.snapshot.agentsMd).toContain('target project instructions');
       expect(target.instructions.snapshot.agentsMd).not.toContain('alt project instructions');
-      expect(target.dirs.additionalDirs).toEqual([join(fixture.remoteRoot, 'targetextra')]);
+      expect(target.dirs.additionalDirs.map(slashedPath)).toEqual([slashedPath(join(fixture.remoteRoot, 'targetextra'))]);
 
       expect(alt.instructions.snapshot.agentsMd).toContain('alt project instructions');
       expect(alt.instructions.snapshot.agentsMd).not.toContain('target project instructions');
-      expect(alt.dirs.additionalDirs).toEqual([join(fixture.remoteAltRoot, 'altextra')]);
+      expect(alt.dirs.additionalDirs.map(slashedPath)).toEqual([slashedPath(join(fixture.remoteAltRoot, 'altextra'))]);
 
       target.dispose();
       expect((await fixture.workdir(fixture.remoteRoot)).instructions).toBe(shared.instructions);

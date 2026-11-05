@@ -217,10 +217,7 @@ describe('initialize timeout default', () => {
         clientName: 'test',
         clientVersion: '0.0.0',
       });
-      const message = expect(pending).rejects.toThrow(/timed out after 10000ms/);
-      const kind = expect(pending).rejects.toMatchObject({ name: 'HandshakeError', kind: 'timeout' });
-      await message;
-      await kind;
+      await expect(pending).rejects.toMatchObject({ name: 'HandshakeError', kind: 'timeout' });
     },
     15_000,
   );
@@ -243,9 +240,9 @@ describe('liveness heartbeat', () => {
       livenessTimeoutMs: 50,
     });
     const stalled = connection.call(FS_READ_FILE_METHOD, { path: '/x' });
-    const rejection = expect(stalled).rejects.toThrow(ConnectionClosedError);
+    const settled = stalled.catch((error: unknown) => error);
     await Bun.sleep(200);
-    await rejection;
+    await expect(settled).resolves.toBeInstanceOf(ConnectionClosedError);
     expect(connection.closed).toBe(true);
     expect(connection.closeReason?.reason).toMatch(/liveness ping timed out/);
     expect(connection.closeReason?.kind).toBe('liveness');

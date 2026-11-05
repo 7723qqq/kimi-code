@@ -1102,7 +1102,7 @@ export class KimiError extends Error {
     this.code = code;
     this.details = options.details;
     this.cause = options.cause;
-    this.retryable = options.retryable ?? KIMI_ERROR_INFO[code].retryable;
+    this.retryable = options.retryable ?? KIMI_ERROR_INFO[code]?.retryable ?? false;
   }
 }
 

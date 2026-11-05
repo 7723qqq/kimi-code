@@ -4,17 +4,17 @@ import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 
 import { IModelCatalog, ISessionManager, IWorkspaceInstanceManager } from '@moonshot-ai/agent-core-v2';
-import { HostFileSystem } from '@moonshot-ai/agent-core-v2/os/backends/host/hostFsService';
 import { HostProcessService } from '@moonshot-ai/agent-core-v2';
 import { FakeEnvironment } from '@moonshot-ai/agent-core-v2/environment/fakeEnvironment';
 import type { EnvironmentCapability } from '@moonshot-ai/agent-core-v2/environment/environment';
 import { ErrorCode } from '../src/protocol/error-codes';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 
 import { type RunningServer, startServer } from '../src/start';
 import { authHeaders } from './helpers/auth';
 import { fakeModelCatalog } from './helpers/fakeModelCatalog';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { mappingHostFs } from './helpers/mappingHostFs';
 import { removeTempHome } from './helpers/tempHome';
 
 interface Envelope<T> {
@@ -161,7 +161,7 @@ describe('server-v2 /api/v1 fs routes', () => {
             { environmentId: 'remote-session', generation: 'remote-generation' },
             { capabilities: ['fs', 'process'] },
           ),
-          { fs: new HostFileSystem(), process: new HostProcessService() },
+          { fs: mappingHostFs(remote), process: new HostProcessService() },
         );
         const registration = host.registerEnvironment(environment);
         return { dispose: () => registration.remove() };
@@ -171,7 +171,7 @@ describe('server-v2 /api/v1 fs routes', () => {
       const created = await fetch(`${base}/api/v1/sessions`, {
         method: 'POST',
         headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
-        body: JSON.stringify({ metadata: { cwd: work as string }, environment_id: 'remote-session', environment_cwd: remote }),
+        body: JSON.stringify({ metadata: { cwd: work as string }, environment_id: 'remote-session', environment_cwd: '/' }),
       } as never);
       const session = (await created.json()) as Envelope<{ id: string }>;
       expect(session.code).toBe(0);

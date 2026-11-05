@@ -1975,7 +1975,7 @@ export default {
       // commands/reload.ts
       reloadTuiConfigReloaded: 'TUI 配置已重新加载。',
       reloadSession: '会话已重新加载。',
-      reloadNoActiveSession: '运行时和 TUI 配置已重新加载；无活动会话。',
+      reloadNoActiveSession: '环境和 TUI 配置已重新加载；无活动会话。',
       // tui/commands/undo.ts
       undoCannotWhileStreaming: '流式传输时无法撤销——请先按 Esc 或 Ctrl-C。',
       undoUsage: '用法：/undo [count]，count 为正整数。',

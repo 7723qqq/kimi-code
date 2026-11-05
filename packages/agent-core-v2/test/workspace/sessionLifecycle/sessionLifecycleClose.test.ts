@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import type { IEnvironmentService } from '#/app/environment/environment';
 import type { ISessionScopeHandle } from '#/_base/di/scope';

@@ -1,5 +1,5 @@
 import { IEnvironmentService } from '#/app/environment/environment';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { Emitter, Event } from '#/_base/event';
 import { createScopedTestHost } from '#/_base/di/test';

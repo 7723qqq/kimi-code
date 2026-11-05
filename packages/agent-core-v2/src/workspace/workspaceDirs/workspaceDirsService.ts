@@ -219,11 +219,11 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
 
   private async reloadFromRegistry(): Promise<void> {
     const registered = await this.workspaces.list();
-    const current = await this.workspaces.get(this.workspace.workspaceId);
-    const entries =
-      current === undefined
-        ? registered
-        : [current, ...registered.filter((entry) => entry.id !== current.id)];
+    const currentId = this.workspace.workspaceId;
+    const current = registered.some((entry) => entry.id === currentId)
+      ? undefined
+      : await this.workspaces.get(currentId);
+    const entries = current === undefined ? registered : [current, ...registered];
     const cwdKey = workspaceRootKey(this.workspace.cwd);
     const dirs: string[] = [];
     const primary: Record<string, string> = {};

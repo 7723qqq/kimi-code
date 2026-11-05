@@ -174,9 +174,12 @@ export function dedupeByRoot(byId: ReadonlyMap<string, Workspace>): Workspace[] 
       continue;
     }
     const canonicalId = encodeWorkDirKey(ws.root);
-    if (existing.id !== canonicalId && ws.id === canonicalId) {
-      byRoot.set(rootKey, ws);
-    }
+    const kept = existing.id !== canonicalId && ws.id === canonicalId ? ws : existing;
+    const other = kept === ws ? existing : ws;
+    byRoot.set(rootKey, {
+      ...kept,
+      additionalDirs: [...new Set([...kept.additionalDirs, ...other.additionalDirs])],
+    });
   }
   return [...byRoot.values()];
 }

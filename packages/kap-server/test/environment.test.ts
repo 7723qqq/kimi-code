@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 import { IWorkspaceInstanceManager } from '@moonshot-ai/agent-core-v2';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 
 import { type RunningServer, startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
@@ -41,24 +41,17 @@ interface SessionWire {
   workspace_id: string;
 }
 
-function resolveTsxCli(): string {
-  const packageJson = require.resolve('tsx/package.json');
-  return join(dirname(packageJson), 'dist', 'cli.mjs');
-}
-
 function resolveExecServerFixture(): string {
   const packageJson = require.resolve('@moonshot-ai/agent-core-v2/package.json');
   return join(dirname(packageJson), 'test', 'remote', 'fixtures', 'exec-server-child.ts');
 }
 
 function configToml(): string {
-  const node = process.execPath;
-  const tsx = resolveTsxCli();
   const fixture = resolveExecServerFixture();
   return [
     '[environments.loop]',
-    `command = ${JSON.stringify(node)}`,
-    `args = ${JSON.stringify([tsx, fixture])}`,
+    `command = ${JSON.stringify(process.execPath)}`,
+    `args = ${JSON.stringify([fixture])}`,
     'env = { EXEC_SERVER_VERSION = "9.9.9-test" }',
     'defaultCwd = "/tmp"',
     '',
@@ -66,7 +59,7 @@ function configToml(): string {
 }
 
 describe('server-v2 /api/v1 environment routes', () => {
-  describe('with a loopback command environment', () => {
+  describe.skipIf(process.platform === 'win32')('with a loopback command environment (POSIX hosts only)', () => {
     let server: RunningServer | undefined;
     let home: string | undefined;
     let base: string;

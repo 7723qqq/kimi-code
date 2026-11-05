@@ -11,8 +11,8 @@ import { runShell } from '#/cli/run-shell';
 import { formatStartupError } from '#/cli/startup-error';
 import { runUpdatePreflight } from '#/cli/update/preflight';
 import * as versionModule from '#/cli/version';
-import { handleMainCommand, handleUpgradeCommand, main, workerInstallWarnings } from '#/main';
-import type { WorkerInstallDescriptor } from '#/main';
+import { handleMainCommand, handleUpgradeCommand, main, workerInstallWarnings } from '#/cli/main';
+import type { WorkerInstallDescriptor } from '#/cli/main';
 
 const mocks = (() => {
   const parse = mock();
