@@ -115,9 +115,14 @@ export class AssociativeMemoryService
     @IAgentContextMemoryService private readonly contextMemory: IAgentContextMemoryService,
   ) {
     super();
-    this.reminders.register('associative_memory_signal', ({ isNewTurn }) =>
-      isNewTurn ? this.signalBlock(this.lastUserText()) : undefined,
-    );
+    this.reminders.register('associative_memory_signal', ({ isNewTurn }) => {
+      if (!isNewTurn) return undefined;
+      try {
+        return this.signalBlock(this.lastUserText());
+      } catch {
+        return undefined;
+      }
+    });
   }
 
   protected now(): number {
@@ -265,22 +270,27 @@ export class AssociativeMemoryService
     if (!this.enabled()) {
       return { atoms: 0, concepts: 0, procedures: 0, edges: 0, notes: 0, suppressed: 0, pinned: 0 };
     }
-    const scoped = await this.storesFor(scope);
-    const atoms = scoped.flatMap((store) => store.listAtoms());
-    const concepts = scoped.flatMap((store) => store.listConcepts());
-    return {
-      atoms: atoms.length,
-      concepts: concepts.length,
-      edges: scoped.reduce((sum, store) => sum + store.listEdges().length, 0),
-      notes: scoped.reduce((sum, store) => sum + store.listNotes().length, 0),
-      procedures: scoped.reduce((sum, store) => sum + store.listProcedures().length, 0),
-      suppressed:
-        atoms.filter((atom) => atom.suppressed).length +
-        concepts.filter((concept) => concept.suppressed).length,
-      pinned:
-        atoms.filter((atom) => atom.pinned).length +
-        concepts.filter((concept) => concept.pinned).length,
-    };
+    try {
+      const scoped = await this.storesFor(scope);
+      const atoms = scoped.flatMap((store) => store.listAtoms());
+      const concepts = scoped.flatMap((store) => store.listConcepts());
+      return {
+        atoms: atoms.length,
+        concepts: concepts.length,
+        edges: scoped.reduce((sum, store) => sum + store.listEdges().length, 0),
+        notes: scoped.reduce((sum, store) => sum + store.listNotes().length, 0),
+        procedures: scoped.reduce((sum, store) => sum + store.listProcedures().length, 0),
+        suppressed:
+          atoms.filter((atom) => atom.suppressed).length +
+          concepts.filter((concept) => concept.suppressed).length,
+        pinned:
+          atoms.filter((atom) => atom.pinned).length +
+          concepts.filter((concept) => concept.pinned).length,
+      };
+    } catch (error) {
+      this.log.warn('associative memory stats failed', { error });
+      return { atoms: 0, concepts: 0, procedures: 0, edges: 0, notes: 0, suppressed: 0, pinned: 0 };
+    }
   }
 
   async list(options: ListOptions): Promise<AssociativeMemoryList> {
@@ -534,8 +544,13 @@ export class AssociativeMemoryService
 
   async codeBlock(): Promise<string> {
     if (!this.enabled()) return '';
-    const code = await this.ensureCode();
-    return code.guidance;
+    try {
+      const code = await this.ensureCode();
+      return code.guidance;
+    } catch (error) {
+      this.log.warn('associative memory code block failed', { error });
+      return '';
+    }
   }
 
   async rebuild(scope: MemoryScopeSelector = 'all'): Promise<void> {

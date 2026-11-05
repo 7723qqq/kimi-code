@@ -1,3 +1,4 @@
+import { LockFile } from '@moonshot-ai/minidb';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { promises as fsp } from 'node:fs';
 import os from 'node:os';
@@ -292,6 +293,44 @@ describe('WorkspaceAliasesService (file-backed)', () => {
     );
   });
 
+  it('waits for another process holding the catalog lock instead of crashing', async () => {
+    const storage = new FileStorageService(homeDir);
+    const catalogLog = {
+      error: () => {},
+      warn: () => {},
+      info: () => {},
+      debug: () => {},
+    } as unknown as ILogService;
+    const other = new LockFile(join(homeDir, 'locks', 'workspace-catalog.lock'));
+    await fsp.mkdir(join(homeDir, 'locks'), { recursive: true });
+    expect(await other.acquire()).toBe(true);
+    setTimeout(() => {
+      void other.release();
+    }, 200);
+    const persistence = new FileWorkspacePersistence(
+      new JsonAtomicDocumentStore(storage),
+      stubBootstrap(homeDir),
+      storage,
+      catalogLog,
+    );
+    let savedCount = 0;
+    await persistence.update((catalog) => {
+      (catalog.workspaces as Workspace[]).push({
+        id: 'w1',
+        root: 'C:\\a',
+        name: 'a',
+        kind: 'implicit',
+        additionalDirs: [],
+        createdAt: 0,
+        lastOpenedAt: 0,
+      });
+      savedCount = catalog.workspaces.length;
+      return catalog;
+    });
+    expect(savedCount).toBe(1);
+    await other.release();
+  });
+
   it('resolveAliasIds retries a shared load that spanned a write', async () => {
     class GatedPersistence implements IWorkspacePersistence {
       declare readonly _serviceBrand: undefined;
@@ -328,11 +367,18 @@ describe('WorkspaceAliasesService (file-backed)', () => {
     const legacyId = 'wd_proj_deadbeef0002';
     await writeWorkspacesJson({ [typedId]: entry(typedRoot) });
     const storage = new FileStorageService(homeDir);
+    const catalogLog = {
+      error: () => {},
+      warn: () => {},
+      info: () => {},
+      debug: () => {},
+    } as unknown as ILogService;
     const persistence = new GatedPersistence(
       new FileWorkspacePersistence(
         new JsonAtomicDocumentStore(storage),
         stubBootstrap(homeDir),
         storage,
+        catalogLog,
       ),
     );
     const aliases = build(undefined, storage, persistence);

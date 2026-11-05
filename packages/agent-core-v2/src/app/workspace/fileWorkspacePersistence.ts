@@ -1,7 +1,11 @@
-import { join, normalize } from 'pathe';
+import { mkdir } from 'node:fs/promises';
+import { dirname, join, normalize } from 'pathe';
 
-import { Disposable } from '#/_base/di/lifecycle';
+import { LockFile } from '@moonshot-ai/minidb';
+
+import { Disposable, toDisposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { ILogService } from '#/_base/log/log';
 import { Emitter, type Event } from '#/_base/event';
 import { TimeoutTimer } from '#/_base/utils/timer';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
@@ -21,6 +25,9 @@ import {
 const WORKSPACE_CATALOG_VERSION = 1;
 const WORKSPACE_CATALOG_SCOPE = '';
 const WORKSPACE_CATALOG_KEY = 'workspaces.json';
+const WORKSPACE_CATALOG_LOCK_KEY = 'workspace-catalog.lock';
+const WORKSPACE_CATALOG_LOCK_WAIT_MS = 2_000;
+const WORKSPACE_CATALOG_LOCK_RETRY_MS = 100;
 const WATCH_DEBOUNCE_MS = 150;
 
 export class FileWorkspacePersistence extends Disposable implements IWorkspacePersistence {
@@ -29,14 +36,20 @@ export class FileWorkspacePersistence extends Disposable implements IWorkspacePe
   private readonly changeEmitter = this._register(new Emitter<void>());
   readonly onDidChange: Event<void> = this.changeEmitter.event;
   private readonly watchDebounce = this._register(new TimeoutTimer());
+  private readonly catalogLock: LockFile;
+  private readonly catalogLockPath: string;
 
   constructor(
     @IAtomicDocumentStore private readonly docs: IAtomicDocumentStore,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @IFileSystemStorageService private readonly storage: IFileSystemStorageService,
+    @ILogService private readonly log: ILogService,
   ) {
     super();
     const catalogFile = join(this.bootstrap.homeDir, WORKSPACE_CATALOG_KEY);
+    this.catalogLockPath = join(this.bootstrap.homeDir, 'locks', WORKSPACE_CATALOG_LOCK_KEY);
+    this.catalogLock = new LockFile(this.catalogLockPath);
+    this._register(toDisposable(() => this.catalogLock.releaseSync()));
     const handle = watchCandidates(this.bootstrap.homeDir, [catalogFile]);
     this._register(handle);
     this._register(
@@ -95,34 +108,62 @@ export class FileWorkspacePersistence extends Disposable implements IWorkspacePe
   }
 
   async save(catalog: WorkspaceCatalog): Promise<void> {
-    const record: Record<string, PersistedWorkspaceEntry> = {};
-    for (const ws of catalog.workspaces) {
-      record[ws.id] = {
-        root: ws.root,
-        name: ws.name,
-        kind: ws.kind,
-        additional_dirs: [...ws.additionalDirs],
-        created_at: new Date(ws.createdAt).toISOString(),
-        last_opened_at: new Date(ws.lastOpenedAt).toISOString(),
+    const release = await this.lockCatalog();
+    try {
+      const record: Record<string, PersistedWorkspaceEntry> = {};
+      for (const ws of catalog.workspaces) {
+        record[ws.id] = {
+          root: ws.root,
+          name: ws.name,
+          kind: ws.kind,
+          additional_dirs: [...ws.additionalDirs],
+          created_at: new Date(ws.createdAt).toISOString(),
+          last_opened_at: new Date(ws.lastOpenedAt).toISOString(),
+        };
+      }
+      const file: PersistedWorkspaceFile = {
+        version: WORKSPACE_CATALOG_VERSION,
+        workspaces: record,
+        deleted_workspace_ids: [...catalog.deletedIds],
+        ...(catalog.idempotencyKeys === undefined
+          ? {}
+          : { idempotency_keys: { ...catalog.idempotencyKeys } }),
       };
+      await this.docs.set(WORKSPACE_CATALOG_SCOPE, WORKSPACE_CATALOG_KEY, file);
+      this.changeEmitter.fire();
+    } finally {
+      await release();
     }
-    const file: PersistedWorkspaceFile = {
-      version: WORKSPACE_CATALOG_VERSION,
-      workspaces: record,
-      deleted_workspace_ids: [...catalog.deletedIds],
-      ...(catalog.idempotencyKeys === undefined
-        ? {}
-        : { idempotency_keys: { ...catalog.idempotencyKeys } }),
-    };
-    await this.docs.set(WORKSPACE_CATALOG_SCOPE, WORKSPACE_CATALOG_KEY, file);
-    this.changeEmitter.fire();
   }
 
   async update<T>(mutate: (catalog: WorkspaceCatalog) => T | Promise<T>): Promise<T> {
-    const current = (await this.load()) ?? { workspaces: [], deletedIds: [] };
-    const result = await mutate(current);
-    await this.save(result as unknown as WorkspaceCatalog);
-    return result;
+    const release = await this.lockCatalog();
+    try {
+      const current = (await this.load()) ?? { workspaces: [], deletedIds: [] };
+      const result = await mutate(current);
+      await this.save(result as unknown as WorkspaceCatalog);
+      return result;
+    } finally {
+      await release();
+    }
+  }
+
+  private async lockCatalog(): Promise<() => Promise<void>> {
+    await mkdir(dirname(this.catalogLockPath), { recursive: true });
+    const deadline = Date.now() + WORKSPACE_CATALOG_LOCK_WAIT_MS;
+    for (;;) {
+      if (await this.catalogLock.acquire()) {
+        return async () => {
+          await this.catalogLock.release();
+        };
+      }
+      if (Date.now() >= deadline) break;
+      await new Promise((resolve) => setTimeout(resolve, WORKSPACE_CATALOG_LOCK_RETRY_MS));
+    }
+    this.log.warn('workspace catalog lock unavailable; continuing without lock', {
+      path: this.catalogLockPath,
+    });
+    return () => Promise.resolve();
   }
 
   async stamp(): Promise<string | undefined> {

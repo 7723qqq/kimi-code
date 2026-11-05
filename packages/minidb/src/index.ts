@@ -13,7 +13,7 @@
 
 export * from './mini-db.js';
 export { UniqueViolationError } from './index-manager.js';
-export { LockError } from './lockfile.js';
+export { LockError, LockFile } from './lockfile.js';
 export { classifyStorageError } from './error-classification.js';
 export type { StorageErrorAction } from './error-classification.js';
 export { wipeStoreDir } from './wipe.js';
