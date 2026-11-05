@@ -249,3 +249,45 @@ describe.skipIf(process.platform === 'win32')('command program PATH resolution',
     ).toThrow(/refusing cwd match/);
   });
 });
+
+describe('windows ssh executor command', () => {
+  it.each([
+    [undefined, "($env:USERPROFILE + '/.kimi-code/bin/kimi.exe')"],
+    ['~/bin dir/kimi.exe', "($env:USERPROFILE + '/bin dir/kimi.exe')"],
+    [
+      String.raw`C:\Program Files\it's $env:PATH $(whoami) & Kimi\kimi.exe`,
+      String.raw`'C:\Program Files\it''s $env:PATH $(whoami) & Kimi\kimi.exe'`,
+    ],
+  ])(
+    'encodes the entire script with a literal executable: %s',
+    (remoteBin, executable) => {
+      const command = resolveLauncher({ type: 'ssh', host: 'example.test', remoteBin }, false, 'windows')
+        .args.at(-1)!;
+      expect(command).toMatch(
+        /^powershell -NoLogo -NoProfile -NonInteractive -EncodedCommand [A-Za-z0-9+/=]+$/,
+      );
+      const script = Buffer.from(command.split(' ').at(-1)!, 'base64').toString('utf16le');
+      expect(script).toBe(
+        `$ErrorActionPreference = 'Stop'; & ${executable} exec-server --listen stdio; exit $LASTEXITCODE`,
+      );
+    },
+  );
+
+  it('keeps a bare remote bin on the shell path even for a windows target', () => {
+    const command = resolveLauncher(
+      { type: 'ssh', host: 'example.test', remoteBin: 'kimi' },
+      false,
+      'windows',
+    ).args.at(-1)!;
+    expect(command).toBe('kimi exec-server --listen stdio');
+  });
+
+  it('keeps the posix command for a posix target', () => {
+    const command = resolveLauncher(
+      { type: 'ssh', host: 'example.test', remoteBin: '/opt/kimi/bin/kimi' },
+      false,
+      'posix',
+    ).args.at(-1)!;
+    expect(command).toBe("'/opt/kimi/bin/kimi' 'exec-server' '--listen' 'stdio'");
+  });
+});

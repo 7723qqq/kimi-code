@@ -122,7 +122,7 @@ Host dev-box
 
 The executor is a light build of Kimi Code itself, started as `kimi exec-server` on the target. It only serves filesystem and process requests — it never touches model APIs, credentials, or session state. stdio is the default and only supported transport, so the explicit `kimi exec-server --listen stdio` spelling is equivalent and keeps working.
 
-The fixed install path is `~/.kimi-code/bin/kimi` on the target (override it per entry with `remoteBin` when the executor lives elsewhere, for example a preinstalled container image).
+The fixed install path is `~/.kimi-code/bin/kimi` on the target (`~/.kimi-code/bin/kimi.exe` on a Windows target; override it per entry with `remoteBin` when the executor lives elsewhere, for example a preinstalled container image). Before launching an SSH executor whose `remoteBin` is a path rather than a bare name, the client probes the target — `uname -s` first, then a PowerShell probe — so a Windows target gets a PowerShell launch of the absolute path instead of a POSIX shell one. `remoteBin` may therefore be an absolute path with spaces or a `~/` path under the target account's home; a bare name such as `kimi` runs directly without the probe.
 
 ### Installing the executor
 

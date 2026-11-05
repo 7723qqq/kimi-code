@@ -692,7 +692,7 @@ The optional top-level `default` names the environment a session binds to when c
 | --- | --- | --- | --- |
 | `type` | `string` | Yes | `"ssh"` |
 | `host` | `string` | Yes | SSH host; spawned through the system `ssh`, so `~/.ssh/config` (user, port, key, `ProxyJump`, `ControlMaster`) applies |
-| `remoteBin` | `string` | No | Executor path on the target; defaults to `~/.kimi-code/bin/kimi` |
+| `remoteBin` | `string` | No | Executor path on the target; defaults to `~/.kimi-code/bin/kimi` on POSIX and `~/.kimi-code/bin/kimi.exe` on Windows. Supports absolute paths with spaces, `~/` paths under the target account's home, or bare names on the target's `PATH`, such as `kimi` |
 | `defaultCwd` | `string` | No | Working-directory prefill when binding a session; not validated locally |
 
 ### Docker entries

@@ -122,7 +122,7 @@ Host dev-box
 
 执行器是 Kimi Code 自身的轻量构建，在目标环境以 `kimi exec-server` 启动。它只响应文件系统、进程请求——不接触模型 API、凭据和会话状态。stdio 是默认且唯一支持的传输方式，显式写法 `kimi exec-server --listen stdio` 与之等价且依然可用。
 
-固定安装路径是目标环境上的 `~/.kimi-code/bin/kimi`（执行器位于其他位置时——例如预装的容器镜像——可用条目里的 `remoteBin` 覆盖）。
+固定安装路径是目标环境上的 `~/.kimi-code/bin/kimi`（Windows 目标是 `~/.kimi-code/bin/kimi.exe`；执行器位于其他位置时——例如预装的容器镜像——可用条目里的 `remoteBin` 覆盖）。当 SSH 条目的 `remoteBin` 是路径而不是裸名时，客户端会先探测目标平台（先 `uname -s`，再 PowerShell 探测），因此 Windows 目标会用 PowerShell 启动该绝对路径，而不是 POSIX shell 那一套。所以 `remoteBin` 可以带空格、可以是目标账号 home 下的 `~/` 路径；写成 `kimi` 这样的裸名则直接执行、跳过探测。
 
 ### 安装执行器
 
