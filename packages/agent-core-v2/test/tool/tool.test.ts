@@ -17,6 +17,7 @@ import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentProfileService, type ProfileData } from '#/agent/profile/profile';
 import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
+import { IAgentEnvironmentBindingService } from '#/agent/environmentBinding/environmentBinding';
 import { agentContextOf, IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
@@ -416,6 +417,14 @@ function createAgentLifecycleStub(options: AgentLifecycleStubOptions = {}): Agen
             inheritUserTools: () => {},
             register: () => {},
             unregister: () => {},
+          } as never;
+        }
+        if (serviceId === IAgentEnvironmentBindingService) {
+          return {
+            _serviceBrand: undefined,
+            onDidChange: Event.None,
+            current: { environmentId: 'local' },
+            bind: (environmentId: string, cwd?: string) => ({ environmentId, cwd }),
           } as never;
         }
         if (serviceId === IAgentReminderService) {

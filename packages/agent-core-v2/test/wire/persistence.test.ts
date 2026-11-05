@@ -11,6 +11,7 @@ import { TestInstantiationService } from '#/_base/di/test';
 import { noopTelemetryService } from '#/app/telemetry/telemetry';
 import {
   AppendLogStore,
+  WIRE_MIN_READER_VERSION,
   WIRE_PROTOCOL_VERSION,
   IFileSystemStorageService,
   IAppendLogStore,
@@ -488,7 +489,12 @@ describe('WireService corruption repair on disk', () => {
     await log.close();
 
     expect(yielded).toEqual([
-      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
+      {
+        type: 'metadata',
+        protocol_version: WIRE_PROTOCOL_VERSION,
+        min_protocol_version: WIRE_MIN_READER_VERSION,
+        created_at: 1,
+      },
       { type: 'wire.test.kept', time: 2 },
     ]);
     expect(await readFile(join(dir, SCOPE, KEY), 'utf8')).toBe(`${metadata}\n${kept}\n`);
@@ -511,7 +517,12 @@ describe('WireService corruption repair on disk', () => {
     await log.close();
 
     expect(yielded).toEqual([
-      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
+      {
+        type: 'metadata',
+        protocol_version: WIRE_PROTOCOL_VERSION,
+        min_protocol_version: WIRE_MIN_READER_VERSION,
+        created_at: 1,
+      },
       { type: 'wire.test.kept', time: 2 },
     ]);
     expect(await readFile(join(dir, SCOPE, KEY), 'utf8')).toBe(`${metadata}\n${kept}\n`);

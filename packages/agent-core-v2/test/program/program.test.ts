@@ -336,9 +336,17 @@ interface LocalityFixture {
   readonly cleanup: () => Promise<void>;
 }
 
+const slashedPath = (value: string): string => value.replaceAll(String.fromCharCode(92), '/');
+
 function scopedFs(base: string, realBase: string, inner: IHostFileSystem, additionalRoots: readonly string[] = []): IHostFileSystem {
-  const within = (path: string): boolean =>
-    [base, realBase, ...additionalRoots].some((root) => path === root || path.startsWith(`${root}/`));
+  const slashed = (value: string): string => value.replaceAll(String.fromCharCode(92), '/');
+  const within = (path: string): boolean => {
+    const target = slashed(path);
+    return [base, realBase, ...additionalRoots].some((root) => {
+      const normalized = slashed(root);
+      return target === normalized || target.startsWith(`${normalized}/`);
+    });
+  };
   const assert = (path: string): void => {
     if (!within(path)) throw new HostFsError(OsFsErrors.codes.OS_FS_NOT_FOUND, `not found: ${path}`);
   };
@@ -356,7 +364,7 @@ function scopedFs(base: string, realBase: string, inner: IHostFileSystem, additi
     readdir: (path) => { assert(path); return inner.readdir(path); },
     mkdir: (path, options) => { assert(path); return inner.mkdir(path, options); },
     remove: (path) => { assert(path); return inner.remove(path); },
-    realpath: inner.realpath.bind(inner),
+    realpath: (path) => inner.realpath(path).then(slashedPath),
   };
 }
 
@@ -639,12 +647,14 @@ describe('Program local generation and remote workdirs', () => {
       expect(agentsMd).toContain('user instructions');
       expect(agentsMd).not.toContain('local project instructions');
       expect(agentsMd).not.toContain('remote user instructions');
-      const instructionPaths = remote.instructions.snapshot.agentsMdPaths ?? [];
-      expect(instructionPaths).toContain(join(fixture.remoteRoot, 'AGENTS.md'));
-      expect(instructionPaths).not.toContain(join(fixture.localRoot, 'AGENTS.md'));
+      const instructionPaths = (remote.instructions.snapshot.agentsMdPaths ?? []).map(slashedPath);
+      expect(instructionPaths).toContain(slashedPath(join(fixture.remoteRoot, 'AGENTS.md')));
+      expect(instructionPaths).not.toContain(slashedPath(join(fixture.localRoot, 'AGENTS.md')));
 
       expect(remote.skills.catalog.listSkills().map((skill) => skill.name)).toEqual(['target-skill', 'user-skill']);
-      expect(remote.dirs.additionalDirs).toEqual([join(fixture.remoteRoot, 'targetextra')]);
+      expect(remote.dirs.additionalDirs.map(slashedPath)).toEqual([
+        slashedPath(join(fixture.remoteRoot, 'targetextra')),
+      ]);
       expect(remoteProfiles).toEqual([]);
       expect(remote.contextKey).toBe(environmentBindingId('remote', fixture.remoteRoot));
       expect(fixture.profileRegistry.entries().some((entry) => entry.contextKey === remote.contextKey)).toBe(false);
@@ -668,7 +678,9 @@ describe('Program local generation and remote workdirs', () => {
       expect(instructions.agentsMd).toContain('target project instructions');
       expect(instructions.agentsMd).toContain('user instructions');
       expect(instructions.agentsMd).not.toContain('local project instructions');
-      expect(instructions.agentsMdPaths).toContain(join(fixture.remoteRoot, 'AGENTS.md'));
+      expect((instructions.agentsMdPaths ?? []).map(slashedPath)).toContain(
+        slashedPath(join(fixture.remoteRoot, 'AGENTS.md')),
+      );
     } finally {
       await fixture.cleanup();
     }
