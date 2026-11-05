@@ -20,12 +20,14 @@ import type { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
 import type { IWorkspaceFsService } from '#/workspace/workspaceFs/fs';
 import type { IWorkspaceGitService } from '#/workspace/workspaceGit/workspaceGit';
 import { WorkspaceGitService } from '#/workspace/workspaceGit/workspaceGitService';
-import type { IEnvironmentResolver } from '#/workspace/workspaceInstance/workspaceInstanceManager';import type { IWorkspaceInstructionsService } from '#/workspace/workspaceInstructions/workspaceInstructions';
+import type { IWorkspaceInstructionsService } from '#/workspace/workspaceInstructions/workspaceInstructions';
 import type { IWorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcp';
 import { WorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcpService';
 import type { IWorkspaceMcpConfigService } from '#/workspace/workspaceMcpConfig/workspaceMcpConfig';
 import { WorkspaceMcpConfigService } from '#/workspace/workspaceMcpConfig/workspaceMcpConfigService';
 import type { IWorkspaceTrustDisclosure } from '#/workspace/workspaceTrust/trustDisclosure';
+import type { IWorkspaceTrust } from '#/workspace/workspaceTrust/workspaceTrust';
+import { WorkspaceTrustService } from '#/workspace/workspaceTrust/workspaceTrustService';
 import { WorkspaceTrustDisclosureService } from '#/workspace/workspaceTrust/trustDisclosureService';
 import { ExplicitFileSkillSource } from '#/features/skill/workspace/explicitFileSkillSource';
 import { ExtraFileSkillSource } from '#/features/skill/workspace/extraFileSkillSource';
@@ -296,7 +298,7 @@ export class Program {
       const mcpConfig = own(new WorkspaceMcpConfigService(this.context, this.dependencies.bootstrap, this.dependencies.plugins, this.dependencies.log, this.dependencies.config, hostFs, trust, this.dependencies.configStore));
       const mcp = new WorkspaceMcpService(this.context, this.environments, mcpConfig, this.dependencies.oauth, this.dependencies.log, this.dependencies.telemetry, this.dependencies.identity, this.dependencies.sessionManager);
       disposables.push({ dispose: () => mcp.disposeAsync() });
-      const trustDisclosure = new WorkspaceTrustDisclosureService(this.context, hostFs, this.dependencies.bootstrap, this.dependencies.config, root.localConfig, trust, root.skills, root.agentProfiles, this.dependencies.agentProfiles, root.instructions, this.dependencies.log);
+      const trustDisclosure = new WorkspaceTrustDisclosureService(this.context, hostFs, this.dependencies.bootstrap, this.dependencies.config, root.localConfig, root.dirs, trust, root.skills, root.agentProfiles, this.dependencies.agentProfiles, root.instructions, this.dependencies.log);
       own(workdirs);
       return {
         id: environment.identity.generation,
@@ -357,7 +359,6 @@ export class Program {
     generation.references -= 1;
     if (generation.references !== 0 || !generation.retired) return;
     this.cleanupGeneration(generation);
-    generation.lease.dispose();
   }
 
   private cleanupGeneration(generation: Pick<ProgramGeneration, 'disposables'>): void {

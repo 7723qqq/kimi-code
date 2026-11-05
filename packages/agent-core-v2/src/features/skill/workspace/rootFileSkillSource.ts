@@ -84,7 +84,7 @@ export class WorkspaceRootSkillSource extends Disposable implements IWorkspaceRo
     await this.dirs.ready;
     const discover = async () =>
       this.discovery.discover(
-        await projectRoots(this.workspace.cwd, { mergeAllAvailableSkills }, this.fs),
+        await projectRootsForDirs(this.workDirs, { mergeAllAvailableSkills }),
       );
     let contribution = await discover();
     while (await this.updateProjectSkillRootWatches(contribution.scannedDirectories)) {
@@ -101,6 +101,11 @@ export class WorkspaceRootSkillSource extends Disposable implements IWorkspaceRo
     if (signature === this.watchSignature) return false;
     const { projectRoot, candidates } = await projectSkillRootCandidates(this.workspace.cwd, this.fs);
     const resources = this.watchResources.add(new DisposableStore());
+    const watches = new Map<string, readonly string[]>();
+    for (const workDir of this.workDirs) {
+      const { projectRoot, candidates } = await projectSkillRootCandidates(workDir);
+      if (!watches.has(projectRoot)) watches.set(projectRoot, candidates);
+    }
     try {
       for (const [projectRoot, candidates] of watches) {
         const handle = watchCandidates(projectRoot, candidates, {

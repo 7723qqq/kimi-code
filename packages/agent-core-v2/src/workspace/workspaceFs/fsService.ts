@@ -883,7 +883,7 @@ export class WorkspaceFsService implements IWorkspaceFsService {
     onLine: (line: string, kill: () => void) => void,
   ): Promise<{ exitCode: number; killed: boolean }> {
     const lease = this.resolver.acquire(
-      { workspaceId: this.workspaceId, runtimeId: this.runtimeId },
+      { environmentId: this.environmentId },
       ['process'],
     );
     const proc = await lease.environment.process!.spawn(rgBinary, args, { cwd: this.workDir });

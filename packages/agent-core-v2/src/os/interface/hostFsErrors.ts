@@ -48,10 +48,6 @@ export const OsFsErrors = {
       retryable: true,
       public: true,
     },
-    'os.fs.directory_too_large': {
-      retryable: false,
-      public: true,
-    },
     'os.fs.unknown': {
       retryable: true,
       public: true,

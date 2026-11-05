@@ -78,6 +78,14 @@ export class HostFileSystem implements IHostFileSystem {
     }
   }
 
+  async rename(from: string, to: string): Promise<void> {
+    try {
+      await nodeRename(from, to);
+    } catch (error) {
+      throw toHostFsError(error, { path: from, op: 'rename' });
+    }
+  }
+
   async appendBytes(path: string, data: Uint8Array): Promise<void> {
     try {
       await appendFile(path, data);

@@ -1,4 +1,4 @@
-import { applyProfilePromptPrefix } from '#/agent/profile/context';
+import { applyProfilePromptPrefix } from '#/app/agentProfileCatalog/promptPrefix';
 import { type IAgentScopeHandle, ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { Emitter } from '#/_base/event';

@@ -33,7 +33,7 @@ export class FileProjectLocalConfigService implements IProjectLocalConfigService
   declare readonly _serviceBrand: undefined;
 
   constructor(
-    @IBootstrapService bootstrap: IBootstrapService,
+    @IBootstrapService private readonly bootstrap: IBootstrapService,
     @IHostFileSystem private readonly fs: IHostFileSystem,
     private readonly homeDir = bootstrap.osHomeDir,
   ) {}

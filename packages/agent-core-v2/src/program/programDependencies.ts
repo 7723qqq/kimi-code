@@ -42,7 +42,9 @@ export interface ProgramSessionControllerInput {
 
 export interface ProgramDependencies {
   readonly appState: IAppStateService;
+  readonly docs: IAtomicDocumentStore;
   readonly workspaces: IWorkspaceService;
+  readonly workspaceStore: IWorkspacePersistence;
   readonly bootstrap: IBootstrapService;
   readonly config: IConfigService;
   readonly git: LiveRef<IGitService>;

@@ -212,7 +212,7 @@ export class FsHandler {
     const from = requireAbsolutePath(params, 'from');
     const to = requireAbsolutePath(params, 'to');
     try {
-      await this.fs.rename(from, to);
+      await this.fs.rename!(from, to);
       return EMPTY;
     } catch (error) {
       throw fsDomainError(error, { path: from, op: 'rename' });
