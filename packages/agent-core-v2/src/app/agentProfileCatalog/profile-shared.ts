@@ -217,6 +217,10 @@ export function systemPromptVars(
           })
         : '',
     repo_memory: context.repoMemory ?? '',
+    memory_code: context.memoryCode ?? '',
+    memory_code_section: context.memoryCode
+      ? `\n\n# Memory code\n\n${context.memoryCode}\n\n`
+      : '',
     additional_dirs_info: additionalDirsInfo,
     additional_dirs_section:
       additionalDirsInfo.length > 0
@@ -247,6 +251,7 @@ const COMPOSED_VAR_SOURCES: Readonly<Record<string, readonly string[]>> = {
   additional_dirs_section: ['additional_dirs_info'],
   agents_section: ['agents_md'],
   skills_section: ['skills'],
+  memory_code_section: ['memory_code'],
 };
 
 function droppedVariables(

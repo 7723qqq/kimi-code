@@ -51,4 +51,4 @@ The directory listing of current working directory is:
 ${cwd_listing}
 ```
 ${additional_dirs_section}
-${agents_section}${skills_section}${plugin_sections}${model_adaptation_section}
+${agents_section}${memory_code_section}${skills_section}${plugin_sections}${model_adaptation_section}

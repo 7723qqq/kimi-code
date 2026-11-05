@@ -48,6 +48,19 @@ describe('systemPromptVars', () => {
     expect(vars['repo_memory']).toBe('<repo-memory>\nfix 12\n</repo-memory>');
   });
 
+  it('renders an empty memory code when none was provided', () => {
+    const vars = systemPromptVars({}, { skillActive: false });
+    expect(vars['memory_code']).toBe('');
+    expect(vars['memory_code_section']).toBe('');
+  });
+
+  it('renders the memory code section when guidance is provided', () => {
+    const vars = systemPromptVars({ memoryCode: 'Never store secrets.' }, { skillActive: false });
+    expect(vars['memory_code']).toBe('Never store secrets.');
+    expect(vars['memory_code_section']).toContain('# Memory code');
+    expect(vars['memory_code_section']).toContain('Never store secrets.');
+  });
+
   it('builds the full variable table from the context', () => {
     const vars = systemPromptVars(
       {

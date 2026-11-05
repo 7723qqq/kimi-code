@@ -23,6 +23,7 @@ export interface AgentProfileContext {
   readonly cwdListing?: string;
   readonly agentsMd?: string;
   readonly repoMemory?: string;
+  readonly memoryCode?: string;
   readonly additionalDirsInfo?: string;
   readonly osKind?: string;
   readonly shellName?: string;

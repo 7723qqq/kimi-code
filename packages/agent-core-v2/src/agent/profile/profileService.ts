@@ -39,6 +39,7 @@ import { LifecycleScope } from '#/app/scopes';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ErrorCodes, Error2 } from '#/errors';
 import { IGitMemoryService } from '#/features/gitMemory/gitMemoryService';
+import { IAssociativeMemoryService } from '#/features/associativeMemory/service';
 import { ISessionNotify } from '#/features/notify/sessionNotify';
 import { NOTIFY_USER_TOOL_NAME } from '#/features/notify/tools/notify-user/notify-user';
 import { EXIT_PLAN_MODE_TOOL_NAME } from '#/features/plan/tools/exit-plan-mode/exit-plan-mode';
@@ -187,6 +188,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     @IInstantiationService private readonly instantiation: IInstantiationService,
     @ILogService private readonly log: ILogger,
     @IGitMemoryService private readonly gitMemory: IGitMemoryService,
+    @IAssociativeMemoryService private readonly associativeMemory: IAssociativeMemoryService,
   ) {
     super();
     this.register();
@@ -965,6 +967,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     return {
       ...base,
       repoMemory: await this.gitMemory.repoBlock(),
+      memoryCode: await this.associativeMemory.codeBlock(),
       modelName,
       modelAdaptation: await this.resolveModelAdaptation(modelName),
       cwd: view.workDir,

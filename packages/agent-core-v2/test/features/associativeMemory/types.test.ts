@@ -33,6 +33,8 @@ describe('associative memory params', () => {
     expect(ASSOCIATIVE_MEMORY_PARAMS.baseK).toBe(5);
     expect(ASSOCIATIVE_MEMORY_PARAMS.computeBudget).toBe(500);
     expect(ASSOCIATIVE_MEMORY_PARAMS.seedTopM).toBe(50);
+    expect(ASSOCIATIVE_MEMORY_PARAMS.episodeTopN).toBe(3);
+    expect(ASSOCIATIVE_MEMORY_PARAMS.listLimit).toBe(50);
     expect(ASSOCIATIVE_MEMORY_PARAMS.topK).toBe(8);
     expect(ASSOCIATIVE_MEMORY_PARAMS.activationThreshold).toBe(0.1);
     expect(ASSOCIATIVE_MEMORY_PARAMS.vectorThreshold).toBe(0.3);

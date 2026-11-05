@@ -1,4 +1,4 @@
-import type { AssociativeMemoryParams, SystemClock } from './types';
+import type { AssociativeMemoryParams } from './types';
 
 export const ASSOCIATIVE_MEMORY_PARAMS: AssociativeMemoryParams = {
   maxAtomChars: 400,
@@ -8,16 +8,21 @@ export const ASSOCIATIVE_MEMORY_PARAMS: AssociativeMemoryParams = {
   maxEdgeWeight: 20,
   spreadHops: 3,
   spreadDecay: 0.5,
+  inhibitionFactor: 0.5,
   baseK: 5,
   kDecay: 1,
   computeBudget: 500,
   seedTopM: 50,
+  episodeTopN: 3,
+  listLimit: 50,
   topK: 8,
   activationThreshold: 0.1,
   vectorThreshold: 0.3,
   clusterCoocThreshold: 3,
   clusterMinSize: 3,
   clusterMaxSize: 20,
+  procedureMinSteps: 3,
+  procedureThreshold: 2,
   loadRef: 10,
   conceptFormationRate: 0.5,
   powerLawDays: 30,
@@ -25,9 +30,4 @@ export const ASSOCIATIVE_MEMORY_PARAMS: AssociativeMemoryParams = {
   pruneThreshold: 0.05,
   injectionMaxTokens: 600,
   supersedeThreshold: 0.9,
-};
-
-export const systemClock: SystemClock = {
-  brand: 'system',
-  now: () => Date.now(),
 };

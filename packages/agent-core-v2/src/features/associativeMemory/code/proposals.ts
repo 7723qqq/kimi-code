@@ -1,0 +1,61 @@
+import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'pathe';
+import { dump } from 'js-yaml';
+
+import { parseFrontmatter } from '#/_base/text/frontmatter';
+
+import { toHardRule } from './rules';
+import type { HardRule, MemoryCode } from '../types';
+
+export const proposalsFileName = 'proposals.md';
+
+export async function proposeRule(homeDir: string, storeRoot: string, rule: unknown): Promise<void> {
+  const dir = join(homeDir, storeRoot);
+  await mkdir(dir, { recursive: true });
+  await appendFile(join(dir, proposalsFileName), `- ${JSON.stringify(rule)}\n`, 'utf8');
+}
+
+export async function approveProposal(
+  homeDir: string,
+  storeRoot: string,
+  index: number,
+  defaults: MemoryCode,
+): Promise<HardRule> {
+  const dir = join(homeDir, storeRoot);
+  const proposalsPath = join(dir, proposalsFileName);
+  const lines = (await readFile(proposalsPath, 'utf8'))
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  const picked = lines[index];
+  if (picked === undefined) throw new Error(`proposal ${String(index)} not found`);
+  const rule = toHardRule(JSON.parse(picked.replace(/^-\s*/, '')));
+  if (rule === undefined) throw new Error(`proposal ${String(index)} is not a valid rule`);
+
+  const codePath = join(dir, 'code.md');
+  let content = '';
+  try {
+    content = await readFile(codePath, 'utf8');
+  } catch {
+    content = '';
+  }
+  const parsed = parseFrontmatter(content);
+  const existing = Array.isArray((parsed.data as { rules?: unknown }).rules)
+    ? ((parsed.data as { rules: unknown[] }).rules as HardRule[])
+    : [];
+  const rules = [...defaults.rules, ...existing, rule];
+  const body = parsed.body.trim().length > 0 ? `${parsed.body.trim()}\n` : '';
+  await writeFile(codePath, `---\n${dump({ rules })}---\n${body}`, 'utf8');
+
+  const remaining = [...lines.slice(0, index), ...lines.slice(index + 1)];
+  if (remaining.length === 0) {
+    await writeFile(proposalsPath, '', 'utf8');
+  } else {
+    await writeFile(proposalsPath, `${remaining.join('\n')}\n`, 'utf8');
+  }
+  return rule;
+}
+
+export function proposalsPath(homeDir: string, storeRoot: string): string {
+  return join(homeDir, storeRoot, proposalsFileName);
+}

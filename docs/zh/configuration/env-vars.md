@@ -179,6 +179,10 @@ kimi
 | `KIMI_CODE_EXPERIMENTAL_SUBAGENT_FORK` | 在 `Agent`/`AgentSwarm` 上启用实验性 `fork` 参数：以调用方对话历史快照而非空上下文启动 subagent | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_EXPERIMENTAL_TOOL_SELECT` | 启用实验性按需加载工具：标记 `deferred: true` 的 MCP server 工具不进入顶层工具列表，由模型经 `select_tools` 按需加载；还需模型声明 `dynamically_loaded_tools` 能力，详见 [MCP](../customization/mcp.md#按需加载工具) | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_EXPERIMENTAL_GIT_MEMORY` | 启用实验性 Git Memory，将本地 git 历史提炼为结构化事实并注入 Agent 上下文。本变量按进程生效，不跨窗口；在全局 `config.toml` 中设置 `[experimental] git_memory = true` 可持久化并跨窗口使用；`KIMI_CODE_EXPERIMENTAL_FLAG=1` 也可启用。仅在 git 仓库目录内可用，不可用时给出一次性警告 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
+| `KIMI_CODE_EXPERIMENTAL_ASSOCIATIVE_MEMORY` | 启用实验性关联记忆：你写入的内容会被编码为原子单元，系统学习它们之间的关联，并在每轮把相关记忆注入上下文。仅对当前进程生效；持久配置等价于在全局 `config.toml` 中设置 `[experimental] associative_memory = true`；`KIMI_CODE_EXPERIMENTAL_FLAG=1` 也能启用它。通过 `MemoryGraph` 工具读写 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
+| `KIMI_CODE_ASSOCIATIVE_MEMORY_EMBEDDINGS_URL` | 用于为关联记忆补充稠密向量的 OpenAI 兼容 embeddings 端点地址。需要下面的 API key；不设置时记忆只使用本地词项向量 | 端点地址，例如 `https://api.example.com/v1` |
+| `KIMI_CODE_ASSOCIATIVE_MEMORY_EMBEDDINGS_API_KEY` | 该 embeddings 端点的 API key | 任意非空字符串 |
+| `KIMI_CODE_ASSOCIATIVE_MEMORY_EMBEDDINGS_MODEL` | embeddings 模型名，默认 `text-embedding-3-small` | 模型名 |
 | `KIMI_CODE_EXPERIMENTAL_TOWER` | 启用实验性 [Tower 多 Agent 协作](../guides/tower.md) 和 `/tower` 命令，需在启动前设置。持久配置等价于在 `config.toml` 中设置 `[experimental] tower = true`；在运行中的 CLI 里修改该配置后，需要重启 Kimi Code。`KIMI_CODE_EXPERIMENTAL_FLAG=1` 仅在未显式配置 `[experimental] tower` 时启用 Tower；`tower = false` 会优先于总开关，而本变量可覆盖该配置 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_WATCH` | 是否挂文件系统 watch 以热更新配置和工作区文件，优先级高于 `[watch] enabled`（默认 `true`） | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_GLOBAL_SEARCH` | 是否构建全局全文搜索索引并提供 `POST /api/v1/search`，优先级高于 `[database] global_search`（默认 `false`） | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
