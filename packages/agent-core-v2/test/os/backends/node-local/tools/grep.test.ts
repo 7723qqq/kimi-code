@@ -39,7 +39,7 @@ import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-
 import { stubAgentEnvironment } from '../../../../environment/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../../../../app/telemetry/stubs';
 import { registerStateServices } from '../../../../state/stubs';
-import { type ExecutableTool } from '#/tool/toolContract';
+import { type ExecutableTool, type ExecutableToolContext } from '#/tool/toolContract';
 import { type ExecutableToolResult } from '#/tool/toolContract';
 import { type ToolExecution } from '#/tool/toolContract';
 

@@ -243,10 +243,10 @@ describe('AgentEnvironmentBindingService', () => {
     registry.register(environment('offline', 'offline-one', 'disconnected'));
 
     expect(() => binding.bind('missing')).toThrowError(
-      expect.objectContaining<Partial<EnvironmentError>>({ code: 'environment.not_found' }),
+      expect.objectContaining({ code: 'environment.not_found' }),
     );
     expect(() => binding.bind('offline')).toThrowError(
-      expect.objectContaining<Partial<EnvironmentError>>({ code: 'environment.unavailable' }),
+      expect.objectContaining({ code: 'environment.unavailable' }),
     );
     expect(binding.current).toEqual({ environmentId: 'local' });
   });

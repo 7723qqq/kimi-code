@@ -119,7 +119,6 @@ function managerStub(
     findContaining: () => undefined,
     list: () => [...instances.values()],
     snapshot: () => ({ workspaces: [] }),
-    addProvider: async () => ({ dispose: () => {} }),
   };
   const fire = (workspaceId: string, instance: WorkspaceInstance): void => {
     instances.set(workspaceId, instance);

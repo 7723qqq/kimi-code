@@ -152,7 +152,9 @@ describe('Plan service', () => {
   }
 
   async function expectActivePlanPath(): Promise<string> {
-    return (await expectActivePlan()).path;
+    const path = (await expectActivePlan()).path;
+    if (path === null) throw new Error('expected active plan file');
+    return path;
   }
 
   function expectedPlanPath(id: string): string {

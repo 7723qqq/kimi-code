@@ -93,6 +93,14 @@ import type {
   ToolsSetActiveTools,
 } from '@moonshot-ai/agent-core-v2/agent/profile/profileOps';
 import type { EnvironmentSetBinding } from '@moonshot-ai/agent-core-v2/agent/environmentBinding/environmentBindingOps';
+import type { TurnCancel, TurnEnded, TurnPrompt, TurnSteer } from '@moonshot-ai/agent-core-v2/contract';
+import type { TurnStepInterrupted, TurnStepRetrying } from '@moonshot-ai/agent-core-v2/contract';
+import type { UsageRecord } from '@moonshot-ai/agent-core-v2/contract';
+import type {
+  HelloWorldModeEnter,
+  HelloWorldModeExit,
+  HelloWorldRunUpdated,
+} from '@moonshot-ai/agent-core-v2/contract';
 import type { SwarmModeEnter, SwarmModeExit } from '@moonshot-ai/agent-core-v2/features/swarm/swarmOps';
 import type { TowerModeEnter, TowerModeExit } from '@moonshot-ai/agent-core-v2/features/tower/towerOps';
 import type { ToolsUpdateStore } from '@moonshot-ai/agent-core-v2/features/todo/todoOps';

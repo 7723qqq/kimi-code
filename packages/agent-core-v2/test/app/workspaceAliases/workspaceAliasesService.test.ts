@@ -310,6 +310,9 @@ describe('WorkspaceAliasesService (file-backed)', () => {
       save(catalog: WorkspaceCatalog): Promise<void> {
         return this.inner.save(catalog);
       }
+      update<T>(mutate: (catalog: WorkspaceCatalog) => T | Promise<T>): Promise<T> {
+        return this.inner.update(mutate);
+      }
       stamp(): ReturnType<IWorkspacePersistence['stamp']> {
         return this.inner.stamp();
       }

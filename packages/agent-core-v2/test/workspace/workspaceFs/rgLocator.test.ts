@@ -10,7 +10,7 @@ import { stubRgProbe } from '../../os/stubs';
 
 function probeWith(
   resolveExitCode: (args: readonly string[]) => number,
-): RgProbe & { exec: Mock<() => unknown> } {
+): RgProbe & { exec: ReturnType<typeof stubRgProbe>['exec'] } {
   return stubRgProbe(resolveExitCode);
 }
 

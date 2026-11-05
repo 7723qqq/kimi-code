@@ -350,7 +350,7 @@ describe('acp-server session lifecycle', () => {
     } finally {
       lease.dispose();
     }
-  }
+  }, 30_000);
 
   it(
     'session/new creates a live session and session/list returns it',

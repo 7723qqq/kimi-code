@@ -1056,6 +1056,7 @@ describe('parseToolCallArguments', () => {
 describe('truncation pipeline', () => {
   let homeDir: string;
   let readConfig: IConfigService;
+  let truncation: IAgentToolResultTruncationService;
   let globProcess: HostProcessService;
   let attachmentStore: SessionMediaStoreService;
   let mediaEnvironment: IAgentEnvironmentService;
@@ -1088,7 +1089,7 @@ describe('truncation pipeline', () => {
       IAgentToolResultTruncationService,
       new SyncDescriptor(ToolResultTruncationService),
     );
-    const truncation = truncationContainer.get(IAgentToolResultTruncationService);
+    truncation = truncationContainer.get(IAgentToolResultTruncationService);
     truncateForModel = (input) => truncation.truncateForModel(input);
     truncationContainer.stub(ILogService, stubLog());
     truncationContainer.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
@@ -1107,6 +1108,13 @@ describe('truncation pipeline', () => {
       binding,
       stubWorkspaceContext(homeDir),
       { catalog: { getSkillRoots: () => [] } } as unknown as ISessionSkillCatalog,
+      {
+        _serviceBrand: undefined,
+        getMediaReadContext: () => ({
+          capabilities: { image_in: true, video_in: true, audio_in: false, thinking: false, tool_use: true, max_context_tokens: 128_000 },
+          inlineVideoSupported: false,
+        }),
+      },
       truncation,
       readConfig,
       {
@@ -1399,9 +1407,26 @@ describe('truncation pipeline', () => {
     spyOn(environmentFs, 'readLines').mockImplementation(() => {
       throw new Error('client cannot access daemon storage');
     });
-    registry.register(new ReadMediaFileTool(mediaEnvironment, { workspaceDir: homeDir, additionalDirs: [] }, {
-      image_in: true, video_in: false, audio_in: false, thinking: false, tool_use: true,
-    }, undefined, undefined, undefined, undefined, attachmentStore));
+    registry.register(new ReadTool(
+      mediaEnvironment,
+      stubWorkspaceContext(homeDir),
+      { catalog: { getSkillRoots: () => [] } } as unknown as ISessionSkillCatalog,
+      {
+        _serviceBrand: undefined,
+        getMediaReadContext: () => ({
+          capabilities: { image_in: true, video_in: false, audio_in: false, thinking: false, tool_use: true, max_context_tokens: 128_000 },
+          inlineVideoSupported: false,
+        }),
+      },
+      truncation,
+      readConfig,
+      {
+        getModelCapabilities: () => ({ image_in: true, video_in: true }),
+      } as unknown as IAgentProfileService,
+      { isToolActive: () => true } as unknown as IAgentToolPolicyService,
+      { resolve: () => ({}) } as unknown as IAgentToolRegistryService,
+      attachmentStore,
+    ));
     const png = Buffer.from(await new Jimp({ width: 32, height: 32, color: 0x3366ccff }).getBuffer('image/png'));
     const bytes = [png, Buffer.from('%PDF-1.4\nexample\n%%EOF')];
     const client: MCPClient = {

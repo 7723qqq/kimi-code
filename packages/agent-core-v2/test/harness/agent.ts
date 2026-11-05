@@ -19,6 +19,8 @@ import type { ContextMessage } from '#/agent/contextMemory/types';
 import type { AgentContextData } from '#/agent/contextMemory/types';
 import type { PromptLaunchResult, PromptPayload, SteerPayload, SteerResult } from '#/agent/loop/loop';
 import { IAgentLoopService } from '#/agent/loop/loop';
+import type { AgentLLMRequestSource } from '#/agent/llmRequester/llmRequester';
+import { IEventService } from '#/app/event/event';
 import { IAgentPromptChannel } from '#/agent/loop/promptChannel';
 import type { PermissionData, PermissionMode } from '#/agent/permissionPolicy/types';
 import type { PermissionRule } from '#/agent/permissionRules/permissionRules';
@@ -226,7 +228,6 @@ import {
   type ProvidersSection,
 } from '#/llm-adapter/provider/provider';
 import type { IHostProcess } from '#/os/interface/hostProcess';
-import type { RuntimeLease } from '#/environment/environment';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { applyPromptMetadataUpdate } from '#/session/sessionMetadata/promptMetadata';
 import type { PathAccessOperation } from '#/session/workspaceContext/workspaceContext';
@@ -2363,7 +2364,6 @@ function createWorkspaceContextStub(
       }
       return target;
     },
-    setWorkDir: () => {},
   };
 }
 

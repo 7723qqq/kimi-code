@@ -23,7 +23,7 @@ import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { UNKNOWN_CAPABILITY } from '#/llm-adapter/contract/capability';
 import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
-import { type RuntimeLease } from '#/environment/environment';
+import { type EnvironmentLease } from '#/environment/environment';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { MAX_SUBAGENT_DEPTH } from '#/session/agentLifecycle/subagentMetadata';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
@@ -64,7 +64,7 @@ describe('SessionSubagentService planSpawn and spawn', () => {
   let callerUserTools: IAgentUserToolService;
   let createdUserTools: IAgentUserToolService;
   let createdReminder: { notify: ReturnType<typeof mock> };
-  let lease: RuntimeLease;
+  let lease: EnvironmentLease;
   let sessionAgents: Record<string, AgentMeta>;
 
   function userToolsStub(): IAgentUserToolService {
@@ -135,7 +135,7 @@ describe('SessionSubagentService planSpawn and spawn', () => {
     createdUserTools = userToolsStub();
     createdReminder = { notify: mock() };
     lease = {
-      runtime: new FakeEnvironment({ workspaceId: 'w1', runtimeId: 'acp:s1', generation: 'g1' }),
+      environment: new FakeEnvironment({ environmentId: 'acp:s1', generation: 'g1' }),
       track: (resource) => resource,
       dispose: mock(),
     };
@@ -600,7 +600,7 @@ describe('SessionSubagentService planSpawn and spawn', () => {
 
     await spawnNonForkChild(svc);
 
-    expect(createAgent).toHaveBeenCalledWith(expect.objectContaining({ runtimeId: 'acp:s1' }));
+    expect(createAgent).toHaveBeenCalledWith(expect.objectContaining({ environmentId: 'acp:s1' }));
   });
 
   it('inherits the caller permission mode and user tools', async () => {

@@ -967,7 +967,6 @@ function workspaceStub(initialWorkDir: string): {
     resolve: (path) => path,
     isWithin: () => true,
     assertAllowed: (path) => path,
-    setWorkDir: () => {},
   };
   return {
     stub,

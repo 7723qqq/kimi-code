@@ -50,7 +50,7 @@ import type {
 } from '#/environment/environment';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionUsageService } from '#/session/usage/sessionUsage';
-import { inputTotal } from '#human/llm-requester/usage';
+import { inputTotal } from '#/human/llm/usage';
 import { SUBAGENT_FORK_FLAG_ID } from '#/session/subagent/flag';
 import { FORK_CONTEXT_NOTICE } from '#/session/subagent/spawn';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';

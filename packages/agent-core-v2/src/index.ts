@@ -47,6 +47,7 @@ export * from '#/workspace/workspaceInstance/workspaceInstanceManager';
 export * from '#/workspace/workspaceInstance/workspaceInstanceManagerService';
 export * from '#/app/workspaceLifecycle/workspaceLifecycle';
 export * from '#/app/workspaceLifecycle/workspaceLifecycleService';
+export * from '#/agent/environmentBinding/environmentBinding';
 export * from '#/agent/environmentBinding/environmentBindingService';
 export * from '#/agent/environmentBinding/agentEnvironment';
 export * from '#/app/sessionManager/sessionManager';
@@ -78,11 +79,47 @@ export * from '#/os/interface/hostClock';
 export * from '#/os/interface/hostEnvironment';
 export * from '#/os/interface/hostFileSystem';
 export * from '#/os/interface/hostProcess';
+export * from '#/os/interface/hostTimers';
 export * from '#/os/backends/host/hostClockService';
 export * from '#/os/backends/host/hostEnvironmentService';
 export * from '#/os/backends/host/hostFsService';
 export * from '#/os/backends/host/hostProcessService';
+export * from '#/os/backends/host/hostTimersService';
 import '#/os/backends/host/hostServices';
+export {
+  ProbeShellNotFoundError,
+  probeHostEnvironmentFromNode,
+} from '#/_base/execEnv/environmentProbe';
+export {
+  SHELL_PAYLOAD_MANIFEST,
+  ShellPayloadStatusCorruptError,
+  type ShellPayloadArchive,
+  type ShellPayloadKind,
+  type ShellPayloadPin,
+  type ShellPayloadStatus,
+  type ShellPayloadVerifyResult,
+  findShellPayloadPin,
+  readShellPayloadStatus,
+  resolveShellPayloadHome,
+  shellPayloadExePath,
+  shellPayloadInstallDir,
+  shellPayloadPinOf,
+  shellPayloadStatusPath,
+  shellPayloadsDir,
+  verifyShellPayload,
+} from '#/_base/execEnv/shellPayload';
+export {
+  ShellPayloadExtractError,
+  ShellPayloadIntegrityError,
+  type ShellPayloadArchiveDownload,
+  type ShellProvisionDeps,
+  type ShellProvisionResult,
+  applyDownloadMirror,
+  createWindowsShellProvisionDeps,
+  downloadShellPayloadArchive,
+  provisionShellPayload,
+  resolveDownloadCandidates,
+} from '#/_base/execEnv/shellProvision';
 export * from '#/agent/tools/os/bash/bash';
 import '#/agent/tools/os/bash/bashTool';
 export * from '#/agent/tools/os/glob/glob';

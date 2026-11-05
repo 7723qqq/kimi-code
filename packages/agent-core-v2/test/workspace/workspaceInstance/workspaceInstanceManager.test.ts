@@ -71,7 +71,6 @@ function manager(
     touch: mock(async (id: string) => byId.get(id)),
     update: async () => undefined,
     setPrimary: async () => undefined,
-    readProjectConfigDirs: async () => [],
     delete: async () => {},
   };
   const args: unknown[] = [

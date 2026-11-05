@@ -1,4 +1,4 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it, jest, mock } from 'bun:test';
 
 import { PathSecurityError } from '#/tool/path-access';
 import { MEDIA_SNIFF_BYTES } from '#/agent/media/file-type';
@@ -98,7 +98,20 @@ function createReadTool(
     { host: env, fs },
   );
   const resolver = stubAgentEnvironment(environment);
-  return new ReadTool(resolver, workspace, skillCatalog, truncation, stubConfigService(), profile, toolPolicy, toolRegistry);
+  return new ReadTool(
+    resolver,
+    workspace,
+    skillCatalog,
+    {
+      _serviceBrand: undefined,
+      getMediaReadContext: () => undefined,
+    },
+    truncation,
+    stubConfigService(),
+    profile,
+    toolPolicy,
+    toolRegistry,
+  );
 }
 
 function createSpiedFs(content: string) {
@@ -130,7 +143,7 @@ function createSpiedMapFs(files: Record<string, FakeFile>) {
     const data = lookup(path)?.bytes ?? Buffer.alloc(0);
     return n === undefined ? data : data.subarray(0, n);
   });
-  const readLines = vi
+  const readLines = jest
     .fn()
     .mockImplementation((path: string, options?: { errors?: 'strict' | 'replace' | 'ignore' }) => {
       const file = lookup(path);
@@ -211,6 +224,7 @@ function createRegistryBackedTool(environmentValue: FakeEnvironment) {
     environment,
     stubWorkspaceContext('/workspace'),
     { catalog: { getSkillRoots: () => [] } } as unknown as ISessionSkillCatalog,
+    { _serviceBrand: undefined, getMediaReadContext: () => undefined },
     stubToolResultTruncationService(),
     stubConfigService(),
     stubProfileService({ image_in: true, video_in: true }),

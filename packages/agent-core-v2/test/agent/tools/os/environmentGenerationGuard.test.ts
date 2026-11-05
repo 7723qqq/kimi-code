@@ -11,7 +11,7 @@ import {
 } from '#/environment/environmentRegistry';
 import type { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import type { ModelCapability } from '#/human/llm/capability';
+import type { ModelCapability } from '#/llm-adapter/contract/capability';
 import type { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import type { IAgentProfileService } from '#/agent/profile/profile';
 import type { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
@@ -25,7 +25,6 @@ import { GlobTool } from '#/agent/tools/os/glob/globTool';
 import { GrepTool } from '#/agent/tools/os/grep/grepTool';
 import { ReadTool } from '#/agent/tools/os/read/readTool';
 import { WriteTool } from '#/agent/tools/os/write/writeTool';
-import { ReadMediaFileTool } from '#/agent/tools/read-media-file/readMediaFileTool';
 import { createFakeHostFs } from '../../../tools/fixtures/fake-exec';
 import { stubConfigService } from '../../../app/config/stubs';
 import { stubToolResultTruncationService } from '../../toolResultTruncation/stubs';
@@ -57,6 +56,7 @@ function modelCapabilities(): ModelCapability {
     audio_in: false,
     thinking: false,
     tool_use: true,
+    max_context_tokens: 128_000,
   };
 }
 
@@ -195,6 +195,10 @@ function toolCases(): readonly ToolCase[] {
           service,
           workspace,
           skillCatalog,
+          {
+            _serviceBrand: undefined,
+            getMediaReadContext: () => undefined,
+          },
           stubToolResultTruncationService(),
           stubConfigService(),
           profile,
@@ -249,12 +253,26 @@ function toolCases(): readonly ToolCase[] {
       },
     },
     {
-      name: 'ReadMediaFile',
+      name: 'ReadImage',
       fs: pngFs(),
       resolve: (service) =>
-        new ReadMediaFileTool(service, WORKSPACE, modelCapabilities(), undefined, noopTelemetryService).resolveExecution({
-          path: '/workspace/a.png',
-        }),
+        new ReadTool(
+          service,
+          workspace,
+          skillCatalog,
+          {
+            _serviceBrand: undefined,
+            getMediaReadContext: () => ({
+              capabilities: modelCapabilities(),
+              inlineVideoSupported: false,
+            }),
+          },
+          stubToolResultTruncationService(),
+          stubConfigService(),
+          profile,
+          toolPolicy,
+          toolRegistry,
+        ).resolveExecution({ path: '/workspace/a.png' }),
       expectOutcome: () => {},
     },
   ];

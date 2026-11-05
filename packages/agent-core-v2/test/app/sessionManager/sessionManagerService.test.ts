@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, jest, mock, type Mock } from 'bun:test';
 import { IEnvironmentService } from '#/app/environment/environment';
 
 import { Emitter, Event } from '#/_base/event';
@@ -661,10 +661,10 @@ describe('SessionManager closeIfIdle', () => {
     const fake = setup();
     expect(await fake.manager.closeIfIdle('session-1', 0)).toBe(false);
     await create(fake);
-    vi.setSystemTime(Date.now() + 999);
+    jest.setSystemTime(Date.now() + 999);
     expect(await fake.manager.closeIfIdle('session-1', 1000)).toBe(false);
     await fake.manager.resume('session-1');
-    vi.setSystemTime(Date.now() + 1);
+    jest.setSystemTime(Date.now() + 1);
     expect(await fake.manager.closeIfIdle('session-1', 1000)).toBe(true);
     expect(fake.manager.get('session-1')).toBeUndefined();
     await fake.manager.resume('session-1');
@@ -751,7 +751,6 @@ describe('SessionManager controller retirement', () => {
           id: 'workspace',
           name: 'workspace',
           root: '/workspace',
-          kind: 'implicit',
           createdAt: 0,
           lastOpenedAt: 0,
         },
@@ -1089,7 +1088,7 @@ describe('reloadOnStale', () => {
 
   it('reloads the session and retries once after a stale rejection', async () => {
     const { accessor, order, reloaded } = staleAccessor();
-    const run = vi
+    const run = jest
       .fn<() => Promise<string>>()
       .mockRejectedValueOnce(new Error2(ErrorCodes.SESSION_STALE, 'stale'))
       .mockResolvedValue('done');

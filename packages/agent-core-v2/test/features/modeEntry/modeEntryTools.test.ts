@@ -78,6 +78,7 @@ function planService(status: PlanData): IAgentPlanService {
     exit: mock(),
     recordRevision: mock(async () => {}),
     status: mock(async () => status),
+    resolveFile: mock(async () => undefined),
   };
 }
 

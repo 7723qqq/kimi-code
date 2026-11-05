@@ -20,6 +20,7 @@ import { LifecycleScope } from '#/app/scopes';
 import { IAppStateService } from '#/app/state/appState';
 import { AppStateService } from '#/app/state/appStateService';
 import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
+import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import {
   BuiltinSkillSource,
   IBuiltinSkillSource,
@@ -633,6 +634,8 @@ describe('WorkspaceSkillCatalogService', () => {
       configStub(),
       stubBootstrap('/home'),
       dirs,
+      new HostFileSystem(),
+      false,
     );
 
     try {

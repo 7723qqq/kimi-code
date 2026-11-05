@@ -178,17 +178,19 @@ function createRuntime(
 ): IAgentEnvironmentService {
   const runtime = Object.assign(
     new FakeEnvironment(
-      { workspaceId: 'workspace', runtimeId: 'local', generation: 'test' },
+      { environmentId: 'local', generation: 'test' },
       { capabilities: ['fs', 'process'], pathClass: environment.pathClass },
     ),
-    { fs, environment, process },
+    { fs, host: environment, process },
   );
   return {
     _serviceBrand: undefined,
     onDidChange: () => ({ dispose: () => {} }),
     isAvailable: () => true,
     inspect: () => runtime,
-    acquire: () => ({ runtime, track: (resource) => resource, dispose: () => {} }),
+    acquire: () => ({ environment: runtime, track: (resource) => resource, dispose: () => {} }),
+    acquireWhenReady: async () => ({ environment: runtime, track: (resource) => resource, dispose: () => {} }),
+    workspaceRoots: () => ({ workDir: '/workspace', additionalDirs: [] }),
   };
 }
 

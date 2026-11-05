@@ -8,6 +8,8 @@ import { HOOKS_SECTION } from '#/features/externalHooks/configSection';
 import type { HookDef } from '#/features/externalHooks/internal/types';
 import { HostProcessService } from '#/os/backends/host/hostProcessService';
 
+import { stubLog } from '../../_base/log/stubs';
+
 export function makeHookRunner(
   hooks: readonly HookDef[],
   options: {
@@ -40,6 +42,7 @@ export function makeHookRunner(
       clientIdentity: { productName: 'test', version: '0.0.0-test', platform: 'test_platform' },
     } as unknown as IBootstrapService,
     new HostProcessService(),
+    stubLog(),
     options.telemetry ?? noopTelemetryService,
     { onTriggered: options.onTriggered, onResolved: options.onResolved },
   );

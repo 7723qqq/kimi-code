@@ -29,7 +29,7 @@ import type { IModelCatalog } from '#/llm-adapter/model/catalog';
 import type { ModelRequester } from '#/llm-adapter/model/model-requester';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import type { Runtime } from '#/environment/environment';
+import type { Environment } from '#/environment/environment';
 import type { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import type { WorkspaceConfig } from '#/tool/path-access';
 import {
@@ -183,9 +183,9 @@ function runtimeFor(
   env: IHostEnvironment = createTestEnv(),
 ): IAgentEnvironmentService {
   const runtime = {
-    identity: { workspaceId: 'workspace', runtimeId: 'local', generation: 'test' },
+    identity: { environmentId: 'local', generation: 'test' },
     capabilities: new Set(['fs'] as const),
-    environment: env,
+    host: env,
     path: posixPath,
     workspace: {
       mapRoots: (roots: { workDir: string; additionalDirs?: readonly string[] }) => roots,
@@ -194,7 +194,7 @@ function runtimeFor(
     status: 'ready',
     onDidChangeStatus: () => ({ dispose: () => {} }),
     dispose: () => {},
-  } as unknown as Runtime;
+  } as unknown as Environment;
   return {
     _serviceBrand: undefined,
     onDidChange: () => ({ dispose: () => {} }),
@@ -202,10 +202,16 @@ function runtimeFor(
       required.every((capability) => runtime.capabilities.has(capability)),
     inspect: () => runtime,
     acquire: () => ({
-      runtime,
+      environment: runtime,
       track: (resource) => resource,
       dispose: () => {},
     }),
+    acquireWhenReady: async () => ({
+      environment: runtime,
+      track: (resource) => resource,
+      dispose: () => {},
+    }),
+    workspaceRoots: () => ({ workDir: '/workspace', additionalDirs: [] }),
   };
 }
 
@@ -992,6 +998,8 @@ describe('MediaReadContextService', () => {
         (options?.runtimeAvailable ?? true) && baseRuntime.isAvailable(required),
       inspect: () => baseRuntime.inspect(),
       acquire: (required = []) => baseRuntime.acquire(required),
+      acquireWhenReady: (required = []) => baseRuntime.acquireWhenReady(required),
+      workspaceRoots: () => baseRuntime.workspaceRoots(),
     };
     return new MediaReadContextService(
       profile,

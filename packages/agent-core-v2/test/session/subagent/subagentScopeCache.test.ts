@@ -105,7 +105,7 @@ import type { AgentEventStore } from '#human/agent/slices';
 
 import { stubAgentContext } from '../../agent/agentContext/stubs';
 import { stubProviderDiscovery } from '../../stubs';
-import { setEnv } from '#test/helpers/env';
+import { restoreEnvs, setEnv } from '#test/helpers/stubs';
 import { waitForAssertion } from '#test/helpers/waitFor';
 
 const noopLog = {

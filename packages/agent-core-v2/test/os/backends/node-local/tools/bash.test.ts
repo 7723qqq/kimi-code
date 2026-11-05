@@ -974,7 +974,7 @@ describe('BashTool', () => {
   it('keeps an explicit GIT_TERMINAL_PROMPT and defaults an unset one to 0', async () => {
     const { runner, exec } = createTestRunner(processWithOutput({ stdout: 'ok\n' }));
     const tool = bashTool(runner);
-    setEnvValue(GIT_TERMINAL_PROMPT, '1');
+    setEnvValue('GIT_TERMINAL_PROMPT', '1');
     try {
       await executeTool(tool, context({ command: 'git status', timeout: 60 }));
       expect(exec.mock.calls[0]?.[2]?.env).toMatchObject({ GIT_TERMINAL_PROMPT: '1' });

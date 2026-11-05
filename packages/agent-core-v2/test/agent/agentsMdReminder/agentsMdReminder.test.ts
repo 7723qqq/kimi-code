@@ -58,6 +58,7 @@ import { stubToolExecutorEvents, type ToolExecutorEventStubs } from '../toolExec
 import { runWillBeginStepHooks, stubLoopWithHooks, type StubLoop } from '../loop/stubs';
 import { stubContextMemory, type StubContextMemory } from '../contextMemory/stubs';
 import { stubLog } from '../../_base/log/stubs';
+import { SYMLINKS } from '../../_support/symlinkSupport';
 import { stubAgentContext } from '../agentContext/stubs';
 import { type WatchChange } from '#/human/utils/watch';
 import { type ToolCall } from '#/human/llm/message';

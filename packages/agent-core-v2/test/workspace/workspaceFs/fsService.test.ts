@@ -26,7 +26,7 @@ import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
 import { IWorkspaceGitService } from '#/workspace/workspaceGit/workspaceGit';
-import { IEnvironmentResolver } from '#/workspace/workspaceInstance/workspaceInstanceManager';
+
 
 const WORK_DIR = '/repo';
 
@@ -174,7 +174,7 @@ function fakeFs(
     writeText: async () => {},
     appendText: async () => {},
     readBytes: async (p, n, offset = 0) => {
-      const c = fileMap.get(resolveSymlinks(p));
+      const c = fileMap.get(rewritePrefix(p));
       if (c === undefined) throw enoent(p);
       const buf = Buffer.isBuffer(c) ? c : Buffer.from(c);
       return buf.subarray(offset, n === undefined ? buf.length : offset + n);

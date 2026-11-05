@@ -52,7 +52,7 @@ import {
   stdioFixture,
 } from '../../mcpCore/stubs';
 import { stubAgentIdentity } from '../agentIdentity/stubs';
-import { setEnv } from '#test/helpers/env';
+import { restoreEnvs, setEnv } from '#test/helpers/stubs';
 
 function stdioServer(name: string, command = 'npx'): GlobalMcpServerConfig {
   return { name, transport: 'stdio', command };

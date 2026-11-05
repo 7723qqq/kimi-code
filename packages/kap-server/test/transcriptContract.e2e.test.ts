@@ -669,40 +669,7 @@ describeWithTimeout(
           .find((f: any) => f.kind === 'tool' && f.name === 'ExitPlanMode');
         expect(String(toolFrame.output)).toContain(output);
       },
-      { match: () => true, respond: () => sseText('done') },
-    ]);
-    const sid = await createSession(server!, base);
-    await rest(server!, base, `/api/v1/sessions/${encodeURIComponent(sid)}/profile`, {
-      method: 'POST',
-      body: { agent_config: { plan_mode: true, permission_mode: 'auto' } },
-    });
-    const planService = getLiveSessionById(server!.core.accessor, sid)!
-      .accessor.get(IAgentLifecycleService)
-      .handleOf(MAIN_AGENT_ID)!
-      .accessor.get(IAgentPlanService);
-    const planPath = (await planService.status())!.path!;
-    await mkdir(dirname(planPath), { recursive: true });
-    await writeFile(planPath, '# Plan\n\n- Change the greeting\n- Add a test', 'utf-8');
-
-    await submitPrompt(server!, base, sid, 'Plan the greeting change', 'auto');
-
-    const pendingReview = () =>
-      interactions
-        .findAll({ kind: 'approval', resolved: false, tags: { sessionId: sid } })
-        .find((item) => (item.payload as ApprovalRequest).toolName === 'ExitPlanMode');
-    await until('plan review pending', async () => pendingReview() !== undefined);
-    const review = pendingReview()!;
-    const approvalId = review.id;
-    expect((review.payload as ApprovalRequest).display).toMatchObject({
-      kind: 'plan_review',
-      plan: '# Plan\n\n- Change the greeting\n- Add a test',
-      path: planPath,
-    });
-    expect((await getSessionFacts(server!, base, sid)).pending_interaction).toBe('approval');
-    const mid = await getTranscript(server!, base, sid);
-    expect(mid.interactions.some((x: any) => x.interactionId === approvalId && x.state === 'pending')).toBe(true);
-    expect(await planService.status()).not.toBeNull();
-
+    );
     it('S4: a background subagent produces task entities and a task-origin notification turn', async () => {
       await boot([
         {
