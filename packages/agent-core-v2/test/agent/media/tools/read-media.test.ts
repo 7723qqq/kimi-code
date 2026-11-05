@@ -14,7 +14,7 @@ import {
   MediaReadContextService,
 } from '#/agent/media/mediaReadContext';
 import type { IAgentProfileService } from '#/agent/profile/profile';
-import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import type { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import type { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import type { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { ReadInputSchema, type ReadInput } from '#/agent/tools/os/read/read';
@@ -29,7 +29,7 @@ import type { IModelCatalog } from '#/llm-adapter/model/catalog';
 import type { ModelRequester } from '#/llm-adapter/model/model-requester';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import type { Runtime } from '#/runtime/runtime';
+import type { Runtime } from '#/environment/environment';
 import type { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import type { WorkspaceConfig } from '#/tool/path-access';
 import {
@@ -181,7 +181,7 @@ function createTestEnv(): IHostEnvironment {
 function runtimeFor(
   fs: IHostFileSystem,
   env: IHostEnvironment = createTestEnv(),
-): IAgentRuntimeService {
+): IAgentEnvironmentService {
   const runtime = {
     identity: { workspaceId: 'workspace', runtimeId: 'local', generation: 'test' },
     capabilities: new Set(['fs'] as const),
@@ -985,7 +985,7 @@ describe('MediaReadContextService', () => {
       },
     } as unknown as IModelCatalog;
     const baseRuntime = runtimeFor(createTestFs({}));
-    const runtime: IAgentRuntimeService = {
+    const runtime: IAgentEnvironmentService = {
       _serviceBrand: undefined,
       onDidChange: () => ({ dispose: () => {} }),
       isAvailable: (required = []) =>

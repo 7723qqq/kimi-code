@@ -33,8 +33,8 @@ import { type StoredMcpOAuthTokens } from '#/mcpCore/oauth/provider';
 import { McpOAuthService } from '#/mcpCore/oauth/service';
 import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import { HostProcessError, HostProcessErrorCode } from '#/os/interface/hostProcess';
-import { FakeRuntime } from '#/runtime/fakeRuntime';
-import { RuntimeError } from '#/runtime/runtimeRegistry';
+import { FakeEnvironment } from '#/environment/fakeEnvironment';
+import { RuntimeError } from '#/environment/environmentRegistry';
 
 import { recordingTelemetry, type TelemetryRecord } from '../app/telemetry/stubs';
 import {
@@ -99,7 +99,7 @@ function createManager(
   options: ConstructorParameters<typeof McpConnectionManager>[0] = {},
 ): McpConnectionManager {
   const runtime = Object.assign(
-    new FakeRuntime(
+    new FakeEnvironment(
       { workspaceId: 'workspace', runtimeId: 'local', generation: 'test' },
       {
         capabilities: ['process'],
@@ -1400,7 +1400,7 @@ describe('McpConnectionManager', () => {
       }),
     );
     const spawnRuntime = Object.assign(
-      new FakeRuntime(
+      new FakeEnvironment(
         { workspaceId: 'workspace', runtimeId: 'local', generation: 'test' },
         {
           capabilities: ['process'],

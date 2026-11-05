@@ -24,7 +24,7 @@ import { event2FromRecord } from '#/app/event/event2';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
 import type { SkillCatalog } from '#/features/skill/catalog/types';
 import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
-import type { RuntimeLease } from '#/runtime/runtime';
+import type { RuntimeLease } from '#/environment/environment';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';

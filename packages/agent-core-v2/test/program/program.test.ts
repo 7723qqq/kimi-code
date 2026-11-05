@@ -2,18 +2,18 @@ import { describe, expect, it, mock } from 'bun:test';
 
 import { Program } from '#/program/program';
 import type { ProgramSessionControllerInput } from '#/program/programDependencies';
-import { FakeRuntime } from '#/runtime/fakeRuntime';
-import type { RuntimeStatus } from '#/runtime/runtime';
-import { RuntimeRegistry } from '#/runtime/runtimeRegistry';
+import { FakeEnvironment } from '#/environment/fakeEnvironment';
+import type { RuntimeStatus } from '#/environment/environment';
+import { RuntimeRegistry } from '#/environment/environmentRegistry';
 
-function runtime(generation: string, status: RuntimeStatus = 'ready'): FakeRuntime {
+function runtime(generation: string, status: RuntimeStatus = 'ready'): FakeEnvironment {
   return Object.assign(
-    new FakeRuntime(
+    new FakeEnvironment(
       { workspaceId: 'workspace', runtimeId: 'local', generation },
       { status, capabilities: ['fs', 'process'] },
     ),
     { fs: {}, process: {} },
-  ) as FakeRuntime;
+  ) as FakeEnvironment;
 }
 
 function deferred(): {

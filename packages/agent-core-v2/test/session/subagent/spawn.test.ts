@@ -8,7 +8,7 @@ import { Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentProfileService, type ProfileData } from '#/agent/profile/profile';
-import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentUserToolService } from '#/agent/userTool/userTool';
 import {
@@ -22,8 +22,8 @@ import { Error2, ErrorCodes, isError2 } from '#/errors';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { UNKNOWN_CAPABILITY } from '#/llm-adapter/contract/capability';
 import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
-import { FakeRuntime } from '#/runtime/fakeRuntime';
-import { type RuntimeLease } from '#/runtime/runtime';
+import { FakeEnvironment } from '#/environment/fakeEnvironment';
+import { type RuntimeLease } from '#/environment/environment';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { MAX_SUBAGENT_DEPTH } from '#/session/agentLifecycle/subagentMetadata';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
@@ -135,7 +135,7 @@ describe('SessionSubagentService planSpawn and spawn', () => {
     createdUserTools = userToolsStub();
     createdReminder = { notify: mock() };
     lease = {
-      runtime: new FakeRuntime({ workspaceId: 'w1', runtimeId: 'acp:s1', generation: 'g1' }),
+      runtime: new FakeEnvironment({ workspaceId: 'w1', runtimeId: 'acp:s1', generation: 'g1' }),
       track: (resource) => resource,
       dispose: mock(),
     };
@@ -148,7 +148,7 @@ describe('SessionSubagentService planSpawn and spawn', () => {
           if (serviceId === IAgentProfileService) return profileServiceStub(callerData);
           if (serviceId === IAgentPermissionModeService) return callerPermissionMode;
           if (serviceId === IAgentUserToolService) return callerUserTools;
-          if (serviceId === IAgentRuntimeService) {
+          if (serviceId === IAgentEnvironmentService) {
             return {
               _serviceBrand: undefined,
               acquire: acquireRuntime,

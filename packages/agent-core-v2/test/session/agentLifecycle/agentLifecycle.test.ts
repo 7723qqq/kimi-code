@@ -39,8 +39,8 @@ import {
 import { IAgentPluginService } from '#/agent/plugin/agentPlugin';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { ProfileBind } from '#/agent/profile/profileOps';
-import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
-import { IAgentRuntimeBindingService } from '#/agent/runtimeBinding/runtimeBinding';
+import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
+import { IAgentEnvironmentBindingService } from '#/agent/environmentBinding/environmentBinding';
 import { agentContextOf, IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
@@ -93,7 +93,7 @@ import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStor
 import { IBlobStore } from '#/persistence/interface/blobStore';
 import { ISessionLockService } from '#/persistence/interface/sessionLock';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { FakeRuntime } from '#/runtime/fakeRuntime';
+import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { AgentLifecycleService } from '#/session/agentLifecycle/agentLifecycleService';
 import { getOrRestoreAgent } from '#/session/agentLifecycle/getOrRestoreAgent';
@@ -116,7 +116,7 @@ import { createWireMetadataRecord, type WireRecord } from '#/wire/record';
 import '#/agent/toolActivation/toolActivationService';
 import { IWireService } from '#/wire/wire';
 import {
-  IRuntimeResolver,
+  EnvironmentResolver,
   IWorkspaceInstanceManager,
 } from '#/workspace/workspaceInstance/workspaceInstanceManager';
 import type { AgentEventStore } from '#human/agent/slices';
@@ -301,11 +301,11 @@ describe('AgentLifecycleService', () => {
           ? 'sessions/ws_test/sess_test'
           : `sessions/ws_test/sess_test/${subKey}`,
     } as unknown as ISessionContext);
-    ix.stub(IRuntimeResolver, {
+    ix.stub(EnvironmentResolver, {
       _serviceBrand: undefined,
-      inspect: (binding) => new FakeRuntime({ ...binding, generation: `${binding.runtimeId}-one` }),
+      inspect: (binding) => new FakeEnvironment({ ...binding, generation: `${binding.runtimeId}-one` }),
       acquire: (binding) => ({
-        runtime: new FakeRuntime({ ...binding, generation: `${binding.runtimeId}-one` }),
+        runtime: new FakeEnvironment({ ...binding, generation: `${binding.runtimeId}-one` }),
         track: (resource) => resource,
         dispose: () => {},
       }),
@@ -1074,11 +1074,11 @@ describe('AgentLifecycleService', () => {
     await svc.create({ agentId: 'main' });
     const agent = svc.handleOf('main')!;
 
-    expect(agent.accessor.get(IAgentRuntimeBindingService).current).toEqual({
+    expect(agent.accessor.get(IAgentEnvironmentBindingService).current).toEqual({
       workspaceId: 'ws_test',
       runtimeId: 'remote',
     });
-    expect(agent.accessor.get(IAgentRuntimeService).inspect().identity.generation).toBe(
+    expect(agent.accessor.get(IAgentEnvironmentService).inspect().identity.generation).toBe(
       'remote-one',
     );
   });
@@ -1507,11 +1507,11 @@ describe('AgentLifecycleService', () => {
   it('fork snapshots the source runtime and remains independent', async () => {
     const svc = ix.get(IAgentLifecycleService);
     const source = await svc.create({ agentId: 'main' });
-    const sourceRuntime = svc.handleOf('main')!.accessor.get(IAgentRuntimeBindingService);
+    const sourceRuntime = svc.handleOf('main')!.accessor.get(IAgentEnvironmentBindingService);
     sourceRuntime.switch('remote');
 
     const child = await svc.fork(source, { agentId: 'forked-runtime' });
-    const childRuntime = svc.handleOf(child.agentId)!.accessor.get(IAgentRuntimeBindingService);
+    const childRuntime = svc.handleOf(child.agentId)!.accessor.get(IAgentEnvironmentBindingService);
     expect(childRuntime.current.runtimeId).toBe('remote');
 
     sourceRuntime.switch('local');

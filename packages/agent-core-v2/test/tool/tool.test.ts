@@ -16,7 +16,7 @@ import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory'
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentProfileService, type ProfileData } from '#/agent/profile/profile';
-import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { agentContextOf, IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
@@ -575,7 +575,7 @@ function wireRealSubagentService(ctx: TestAgentContext, lifecycle: AgentLifecycl
     'agent',
     new Map<unknown, unknown>([
       [IAgentProfileService, ctx.get(IAgentProfileService)],
-      [IAgentRuntimeService, ctx.get(IAgentRuntimeService)],
+      [IAgentEnvironmentService, ctx.get(IAgentEnvironmentService)],
     ]),
     ctx.get(IAgentScopeContext).agentContext,
   );
@@ -1162,7 +1162,7 @@ describe('Agent tool description', () => {
 
   it('filters descriptions by the inherited runtime capabilities without churning the registry', async () => {
     ctx = createTestAgent();
-    const runtime = ctx.get(IAgentRuntimeService);
+    const runtime = ctx.get(IAgentEnvironmentService);
     const isAvailable = spyOn(runtime, 'isAvailable');
     isAvailable.mockImplementation((required = []) => !required.includes('fs'));
 
@@ -1676,7 +1676,7 @@ describe('Agent tool execution contract', () => {
   it('does not create a subagent when process disappears after tool activation', async () => {
     const lifecycle = createAgentLifecycleStub();
     const context = createAgentToolContext(lifecycle);
-    spyOn(context.get(IAgentRuntimeService), 'acquire').mockImplementation(() => {
+    spyOn(context.get(IAgentEnvironmentService), 'acquire').mockImplementation(() => {
       throw new Error('process capability is no longer available');
     });
 

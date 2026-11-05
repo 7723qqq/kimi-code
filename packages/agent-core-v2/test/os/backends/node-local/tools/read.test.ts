@@ -4,7 +4,7 @@ import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender
 import { MEDIA_SNIFF_BYTES } from '#/agent/media/file-type';
 import type { IMediaReadContext } from '#/agent/media/mediaReadContext';
 import type { IAgentProfileService } from '#/agent/profile/profile';
-import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import type { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import type { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import type { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import type { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
@@ -16,8 +16,8 @@ import type { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog
 import { estimateTokens } from '#/llm-adapter/contract/tokens';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { FakeRuntime } from '#/runtime/fakeRuntime';
-import { RuntimeRegistry } from '#/runtime/runtimeRegistry';
+import { FakeEnvironment } from '#/environment/fakeEnvironment';
+import { RuntimeRegistry } from '#/environment/environmentRegistry';
 import { PathSecurityError } from '#/tool/path-access';
 import type {
   ExecutableToolContext,
@@ -101,13 +101,13 @@ function createReadTool(
   config: IConfigService = stubConfigService(),
 ): ReadTool {
   const runtime = Object.assign(
-    new FakeRuntime(
+    new FakeEnvironment(
       { workspaceId: 'workspace', runtimeId: 'local', generation: 'test' },
       { capabilities: ['fs'], pathClass: env.pathClass },
     ),
     { environment: env, fs },
   );
-  const resolver: IAgentRuntimeService = {
+  const resolver: IAgentEnvironmentService = {
     _serviceBrand: undefined,
     onDidChange: () => ({ dispose: () => {} }),
     isAvailable: () => true,
@@ -1725,7 +1725,7 @@ describe('ReadTool', () => {
   it('rechecks runtime availability when execution starts after the tool was shown', async () => {
     const env = createTestEnv();
     const fs = createSpiedFs('visible').fs;
-    const runtimeValue = new FakeRuntime(
+    const runtimeValue = new FakeEnvironment(
       { workspaceId: 'workspace', runtimeId: 'local', generation: 'test' },
       { capabilities: ['fs'] },
     );
@@ -1733,7 +1733,7 @@ describe('ReadTool', () => {
     const registry = new RuntimeRegistry('workspace');
     registry.register(runtimeValue);
     const binding = { workspaceId: 'workspace', runtimeId: 'local' } as const;
-    const runtime: IAgentRuntimeService = {
+    const runtime: IAgentEnvironmentService = {
       _serviceBrand: undefined,
       onDidChange: (listener) => registry.onDidChange(() => listener()),
       isAvailable: (required = []) => {

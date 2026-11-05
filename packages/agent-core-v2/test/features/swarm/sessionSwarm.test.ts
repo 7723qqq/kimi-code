@@ -12,7 +12,7 @@ import type { AgentContext } from '#/agent/agentContext/agentContext';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentProfileService, type ProfileData } from '#/agent/profile/profile';
-import { IAgentRuntimeBindingService } from '#/agent/runtimeBinding/runtimeBinding';
+import { IAgentEnvironmentBindingService } from '#/agent/environmentBinding/environmentBinding';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentUserToolService } from '#/agent/userTool/userTool';
 import type { Event2 } from '#/app/event/event2';
@@ -2193,13 +2193,13 @@ function agentHandle(
         const service = services.get(serviceId);
         if (service !== undefined) return service;
         if (serviceId === IAgentProfileService) return profile;
-        if (serviceId === IAgentRuntimeBindingService) {
+        if (serviceId === IAgentEnvironmentBindingService) {
           return {
             _serviceBrand: undefined,
             current: { workspaceId: 'w1', runtimeId: 'local' },
             switch: () => {},
             onDidChange: Event.None,
-          } as unknown as IAgentRuntimeBindingService;
+          } as unknown as IAgentEnvironmentBindingService;
         }
         if (serviceId === IAgentPermissionModeService) return permissionMode;
         if (serviceId === IAgentLoopService) {

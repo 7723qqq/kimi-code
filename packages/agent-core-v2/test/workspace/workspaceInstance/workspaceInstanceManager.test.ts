@@ -4,17 +4,17 @@ import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import type { Workspace, IWorkspaceService } from '#/app/workspace/workspace';
 import { WorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycleService';
 import { ErrorCodes } from '#/errors';
-import { FakeRuntime } from '#/runtime/fakeRuntime';
-import type { Runtime } from '#/runtime/runtime';
-import type { RuntimeProviderFactory } from '#/runtime/runtimeProvider';
-import type { RuntimeRegistry } from '#/runtime/runtimeRegistry';
+import { FakeEnvironment } from '#/environment/fakeEnvironment';
+import type { Runtime } from '#/environment/environment';
+import type { RuntimeProviderFactory } from '#/environment/environmentProvider';
+import type { RuntimeRegistry } from '#/environment/environmentRegistry';
 import type {
   RuntimeProviderHost,
   RuntimeProviderRuntimeHandle,
   RuntimeUnitHandle,
   RuntimeUnitHost,
   RuntimeUnitHostFactory,
-} from '#/runtime/runtimeUnitHost';
+} from '#/environment/environmentUnitHost';
 import { WorkspaceInstanceManager } from '#/workspace/workspaceInstance/workspaceInstanceManagerService';
 
 const imports = { root: [], imports: [], local: [] } as const;
@@ -43,8 +43,8 @@ function runtime(
   workspaceId: string,
   runtimeId: string,
   status: Runtime['status'] = 'connecting',
-): FakeRuntime {
-  return new FakeRuntime({ workspaceId, runtimeId, generation: `${runtimeId}-one` }, { status });
+): FakeEnvironment {
+  return new FakeEnvironment({ workspaceId, runtimeId, generation: `${runtimeId}-one` }, { status });
 }
 
 class TestRuntimeUnitHost implements RuntimeUnitHost {

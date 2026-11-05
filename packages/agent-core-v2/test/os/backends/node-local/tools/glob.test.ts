@@ -5,7 +5,7 @@ import path from 'node:path';
 import { Readable, type Writable } from 'node:stream';
 
 import { probeHostEnvironmentFromNode } from '#/_base/execEnv/environmentProbe';
-import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import type { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import {
   type GlobInput,
   GlobInputSchema,
@@ -24,7 +24,7 @@ import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
 import type { IHostTimerHandle, IHostTimers } from '#/os/interface/hostTimers';
-import { FakeRuntime } from '#/runtime/fakeRuntime';
+import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import type { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { PathSecurityError, type PathClass } from '#/tool/path-access';
 import type {
@@ -175,9 +175,9 @@ function createRuntime(
   fs: IHostFileSystem,
   environment: IHostEnvironment,
   process: IHostProcessService,
-): IAgentRuntimeService {
+): IAgentEnvironmentService {
   const runtime = Object.assign(
-    new FakeRuntime(
+    new FakeEnvironment(
       { workspaceId: 'workspace', runtimeId: 'local', generation: 'test' },
       { capabilities: ['fs', 'process'], pathClass: environment.pathClass },
     ),

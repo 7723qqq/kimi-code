@@ -226,7 +226,7 @@ import {
   type ProvidersSection,
 } from '#/llm-adapter/provider/provider';
 import type { IHostProcess } from '#/os/interface/hostProcess';
-import type { RuntimeLease } from '#/runtime/runtime';
+import type { RuntimeLease } from '#/environment/environment';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { applyPromptMetadataUpdate } from '#/session/sessionMetadata/promptMetadata';
 import type { PathAccessOperation } from '#/session/workspaceContext/workspaceContext';

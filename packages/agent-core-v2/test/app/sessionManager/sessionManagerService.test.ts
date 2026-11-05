@@ -13,8 +13,8 @@ import { IAgentCronService } from '#/features/cron/cronService';
 import { InMemorySessionLockService } from '#/persistence/backends/memory/sessionLockService';
 import { Program } from '#/program/program';
 import type { ProgramSessionControllerInput } from '#/program/programDependencies';
-import { FakeRuntime } from '#/runtime/fakeRuntime';
-import { RuntimeRegistry } from '#/runtime/runtimeRegistry';
+import { FakeEnvironment } from '#/environment/fakeEnvironment';
+import { RuntimeRegistry } from '#/environment/environmentRegistry';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionActivityView } from '#/session/sessionActivity/sessionActivity';
 import type {
@@ -851,14 +851,14 @@ describe('SessionManager closeIfIdle', () => {
 });
 
 describe('SessionManager controller retirement', () => {
-  function runtime(generation: string): FakeRuntime {
+  function runtime(generation: string): FakeEnvironment {
     return Object.assign(
-      new FakeRuntime(
+      new FakeEnvironment(
         { workspaceId: 'workspace', runtimeId: 'local', generation },
         { capabilities: ['fs', 'process'] },
       ),
       { fs: {}, process: {} },
-    ) as FakeRuntime;
+    ) as FakeEnvironment;
   }
 
   function liveProgram(drainTimeoutMs: number): {
