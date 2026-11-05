@@ -1,5 +1,5 @@
 const MAX_WORKDIR_SLUG_LENGTH = 40;
-const WORKDIR_KEY_PREFIX = 'wd_';
+export const WORKDIR_KEY_PREFIX = 'wd_';
 const HASH_LENGTH = 12;
 
 export function slugifyWorkDirName(name: string): string {
@@ -30,4 +30,8 @@ export function workspaceRootKey(root: string): string {
   const shaped = WIN_SHAPED.test(slashed);
   const normalized = slashed.replace(/\/+$/, '');
   return shaped ? normalized.toLowerCase() : normalized;
+}
+
+export function isWorkDirKey(id: string): boolean {
+  return id.startsWith(WORKDIR_KEY_PREFIX);
 }

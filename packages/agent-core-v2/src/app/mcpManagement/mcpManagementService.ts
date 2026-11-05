@@ -66,6 +66,7 @@ export class McpManagementService extends Disposable implements IMcpManagementSe
     @IAgentIdentity private readonly identity: IAgentIdentity,
     @IEnvironmentService private readonly environmentResolver: EnvironmentResolver,
     @ILogService private readonly log: ILogService,
+    @IHostTimers private readonly timers: IHostTimers,
   ) {
     super();
   }

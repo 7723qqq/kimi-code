@@ -45,6 +45,7 @@ export interface HookResult {
   readonly errored?: boolean;
   readonly structuredOutput?: boolean;
   readonly error?: string;
+  readonly outputTruncated?: boolean;
 }
 
 export interface HookBlockDecision {

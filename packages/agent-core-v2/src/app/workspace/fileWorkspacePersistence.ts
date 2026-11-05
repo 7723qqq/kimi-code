@@ -118,6 +118,13 @@ export class FileWorkspacePersistence extends Disposable implements IWorkspacePe
     this.changeEmitter.fire();
   }
 
+  async update<T>(mutate: (catalog: WorkspaceCatalog) => T | Promise<T>): Promise<T> {
+    const current = (await this.load()) ?? { workspaces: [], deletedIds: [] };
+    const result = await mutate(current);
+    await this.save(result as unknown as WorkspaceCatalog);
+    return result;
+  }
+
   async stamp(): Promise<string | undefined> {
     const [size, mtime] = await Promise.all([
       this.storage.size(WORKSPACE_CATALOG_SCOPE, WORKSPACE_CATALOG_KEY),

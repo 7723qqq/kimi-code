@@ -32,6 +32,7 @@ export interface IWorkspacePersistence {
 
   load(): Promise<WorkspaceCatalog | undefined>;
   save(catalog: WorkspaceCatalog): Promise<void>;
+  update<T>(mutate: (catalog: WorkspaceCatalog) => T | Promise<T>): Promise<T>;
   stamp(): Promise<string | undefined>;
 }
 

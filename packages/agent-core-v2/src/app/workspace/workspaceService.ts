@@ -254,64 +254,6 @@ export class WorkspaceService implements IWorkspaceService {
     return kept;
   }
 
-  createOrTouch(root: string, name?: string): Promise<Workspace> {    return this.runExclusive(async () => {
-      let stat;
-      try {
-        stat = await this.hostFs.stat(root);
-      } catch (error) {
-        const code = (unwrapErrorCause(error) as NodeJS.ErrnoException | undefined)?.code;
-        if (code === 'ENOENT' || code === 'ENOTDIR') {
-          throw new Error2(ErrorCodes.FS_PATH_NOT_FOUND, `workspace root ${root} does not exist`);
-        }
-        throw error;
-      }
-      if (!stat.isDirectory) {
-        try {
-          stat = await this.hostFs.stat(await this.hostFs.realpath(root));
-        } catch {}
-      }
-      if (!stat.isDirectory) {
-        throw new Error2(ErrorCodes.FS_PATH_NOT_FOUND, `workspace root ${root} is not a directory`);
-      }
-      await this.ensureMerged();
-      const catalog = await this.loadCatalog();
-      const byId = new Map(catalog.workspaces.map((ws) => [ws.id, ws]));
-      const deletedIds = new Set(catalog.deletedIds);
-      const id = encodeWorkDirKey(root);
-      let existing = byId.get(id);
-      if (existing === undefined) {
-        const rootKey = workspaceRootKey(root);
-        for (const entry of byId.values()) {
-          if (workspaceRootKey(entry.root) === rootKey) {
-            existing = entry;
-            break;
-          }
-        }
-      }
-      const now = Date.now();
-      const ws: Workspace =
-        existing !== undefined
-          ? { ...existing, lastOpenedAt: now }
-          : {
-              id,
-              root,
-              name: name ?? basename(root),
-              kind: 'implicit',
-              additionalDirs: [],
-              createdAt: now,
-              lastOpenedAt: now,
-            };
-      byId.set(ws.id, ws);
-      deletedIds.delete(ws.id);
-      await this.store.save({ workspaces: [...byId.values()], deletedIds: [...deletedIds] });
-      this.event.publish(
-        existing === undefined
-          ? new WorkspaceCreated({ payload: { workspace: ws } })
-          : new WorkspaceUpdated({ payload: { workspace: ws } }),
-      );
-      return ws;
-    });
-  }
 
   update(id: string, patch: WorkspaceUpdate): Promise<Workspace | undefined> {
     return this.runExclusive(async () => {

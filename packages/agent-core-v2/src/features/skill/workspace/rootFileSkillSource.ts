@@ -53,6 +53,7 @@ export class WorkspaceRootSkillSource extends Disposable implements IWorkspaceRo
     @IWorkspaceContext private readonly workspace: IWorkspaceContext,
     @IConfigService private readonly config: IConfigService,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
+    @IWorkspaceDirs private readonly dirs: IWorkspaceDirs,
     private readonly fs: IHostFileSystem,
     private readonly watchEnabled = true,
   ) {
