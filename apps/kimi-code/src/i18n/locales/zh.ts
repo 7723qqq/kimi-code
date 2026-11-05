@@ -1278,6 +1278,11 @@ export default {
         lockedBy: '被 {{env}} 锁定',
         lockedByMasterEnv: '被 KIMI_CODE_EXPERIMENTAL_FLAG 锁定',
         features: {
+          associative_memory: {
+            title: '关联记忆',
+            description:
+              '把你写下的内容编码为原子记忆单元，学习它们之间的关联，并在每轮对话中注入相关的记忆。通过 MemoryGraph 工具读写。',
+          },
           git_memory: {
             title: 'Git 记忆',
             description:

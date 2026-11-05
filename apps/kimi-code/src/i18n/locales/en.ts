@@ -1311,6 +1311,11 @@ export default {
         lockedBy: 'locked by {{env}}',
         lockedByMasterEnv: 'locked by KIMI_CODE_EXPERIMENTAL_FLAG',
         features: {
+          associative_memory: {
+            title: 'Associative memory',
+            description:
+              'Encode what you write into atomic memory units, learn associations between them, and inject related memories into the context on each turn. Read and write it through the MemoryGraph tool.',
+          },
           git_memory: {
             title: 'Git memory',
             description:
