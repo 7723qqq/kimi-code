@@ -43,6 +43,7 @@ import {
   type KimiHostIdentity,
 } from '@moonshot-ai/kimi-code-oauth';
 import { RemoteEnvironmentProviderFactory } from '@moonshot-ai/agent-core-v2/remote';
+import { createRemoteControlManager, RemoteControlDeviceClient } from '@moonshot-ai/remote-control';
 import { createAsyncApiDocument } from './protocol/asyncapi';
 import Fastify, { type FastifyInstance } from 'fastify';
 
@@ -229,7 +230,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     configuredOAuthKey: () => readManagedOAuth()?.key,
     configuredOAuthHost: () => readManagedOAuth()?.oauthHost,
     stderr: {
-      write: (text) => {
+      write: (text: unknown) => {
         logger.warn(String(text).trimEnd());
         return true;
       },

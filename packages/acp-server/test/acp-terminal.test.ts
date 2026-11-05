@@ -11,7 +11,11 @@ import type {
 
 import type { IAcpConnection, IAcpTerminalHandle } from '../src/acp-fs/acpConnection';
 import { AcpHostFileSystem } from '../src/acp-fs/acpFsService';
-import { AcpEnvironmentProviderFactory } from '../src/acp-terminal/acpTerminalRunner';
+import {
+  AcpEnvironmentProviderFactory,
+  type AcpTerminalTimerHandle,
+  type AcpTerminalTimers,
+} from '../src/acp-terminal/acpTerminalRunner';
 
 function makeConnection(
   options: { terminalEnabled?: boolean; createTerminal?: () => IAcpTerminalHandle } = {},
@@ -66,7 +70,7 @@ function makeEnvironment(overrides: Partial<IHostEnvironment> = {}): IHostEnviro
 
 async function bindEnvironment(
   environment: IHostEnvironment,
-  options: { connection?: IAcpConnection; local?: IHostProcessService } = {},
+  options: { connection?: IAcpConnection; local?: IHostProcessService; timers?: AcpTerminalTimers } = {},
 ): Promise<Environment> {
   const environments: Environment[] = [];
   const host = {
@@ -86,6 +90,56 @@ async function bindEnvironment(
   const backend = environments[0];
   if (backend === undefined) throw new Error('environment was not registered');
   return backend;
+}
+
+interface FakeInterval {
+  due: number;
+  readonly intervalMs: number;
+  readonly callback: () => void;
+  cancelled: boolean;
+  unref(): void;
+}
+
+function createFakeTimers(): {
+  timers: AcpTerminalTimers;
+  advance(byMs: number): Promise<void>;
+} {
+  let nowMs = 0;
+  const intervals: FakeInterval[] = [];
+  return {
+    timers: {
+      setInterval: (callback, intervalMs) => {
+        const interval: FakeInterval = {
+          due: nowMs + intervalMs,
+          intervalMs,
+          callback,
+          cancelled: false,
+          unref: () => {},
+        };
+        intervals.push(interval);
+        return interval;
+      },
+      clearInterval: (handle: AcpTerminalTimerHandle): void => {
+        (handle as FakeInterval).cancelled = true;
+      },
+    },
+    advance: async (byMs) => {
+      const limit = nowMs + byMs;
+      for (;;) {
+        let next: FakeInterval | undefined;
+        for (const interval of intervals) {
+          if (interval.cancelled || interval.due > limit) continue;
+          if (next === undefined || interval.due < next.due) next = interval;
+        }
+        if (next === undefined) break;
+        nowMs = next.due;
+        next.due += next.intervalMs;
+        next.callback();
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      nowMs = limit;
+    },
+  };
 }
 
 describe('AcpSessionEnvironment', () => {
@@ -239,7 +293,7 @@ describe('AcpTerminalProcess truncated output', () => {
       { output: `${'b'.repeat(FOUR_MIB)}${tail}`, truncated: false },
     ]);
     const connection = makeConnection({ terminalEnabled: true, createTerminal: () => handle });
-    const runtime = await bindRuntime(makeEnvironment(), { connection, timers });
+    const runtime = await bindEnvironment(makeEnvironment(), { connection, timers });
 
     const proc = await runtime.process!.spawn('/bin/bash', ['-c', 'echo hi'], {
       env: bashEnv,

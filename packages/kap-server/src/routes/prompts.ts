@@ -36,6 +36,7 @@ import {
   type ISessionScopeHandle,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
+import { IAgentSwarmService } from '@moonshot-ai/agent-core-v2/features/swarm/agent/swarm';
 import { isUserPromptSubmitHookPart } from '@moonshot-ai/agent-core-v2/agent/contextMemory/hookParts';
 import {
   annotateBundledSkillParts,
@@ -44,6 +45,7 @@ import {
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
+import type { TranscriptService } from '../services/transcript/transcriptService';
 import {
   sendMappedError as sendSessionMappedError,
   sessionConflictErrors,

@@ -63,8 +63,8 @@ import {
 import { ISessionMediaStore } from '@moonshot-ai/agent-core-v2/agent/media/sessionMediaStore';
 import { ISessionAgentProfileCatalog } from '@moonshot-ai/agent-core-v2/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { attachmentFileSource } from '@moonshot-ai/agent-core-v2/agent/tools/fileReadSource';
-import { HostFileSystem } from '@moonshot-ai/agent-core-v2/os/backends/node-local/hostFsService';
-import { HostProcessService } from '@moonshot-ai/agent-core-v2/os/backends/node-local/hostProcessService';
+import { HostFileSystem } from '@moonshot-ai/agent-core-v2/os/backends/host/hostFsService';
+import { HostProcessService } from '@moonshot-ai/agent-core-v2/os/backends/host/hostProcessService';
 import { FakeEnvironment } from '@moonshot-ai/agent-core-v2/environment/fakeEnvironment';
 import { RemoteEnvironmentProviderFactory } from '@moonshot-ai/agent-core-v2/remote';
 
@@ -302,7 +302,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
   }
 
   async function makeEnvironmentHarness(options: { readonly defaultCwd?: string } = {}): Promise<{ harness: KimiHarness; client: SDKRpcClientV2; homeDir: string }> {
-    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', 'false');
+    setEnv('KIMI_CODE_EXPERIMENTAL_FLAG', 'false');
     const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-'));
     tempDirs.push(homeDir);
     await writeFile(join(homeDir, 'config.toml'), runtimeConfigToml(options.defaultCwd ?? '/remote/work'), 'utf-8');
@@ -358,7 +358,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       config: '[environments\n',
     },
   ])('rejects implicit local creation with $name and allows explicit local', async ({ config }) => {
-    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', 'false');
+    setEnv('KIMI_CODE_EXPERIMENTAL_FLAG', 'false');
     const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-invalid-env-work-'));
     const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-invalid-env-home-'));
     tempDirs.push(workDir, homeDir);
@@ -379,7 +379,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       expect(local.id).not.toBe('');
     } finally {
       await harness.close();
-      vi.unstubAllEnvs();
+      restoreEnvs();
     }
   });
 
@@ -400,7 +400,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       })).toEqual({ environmentId: 'local', cwd: workDir });
       expect(client.engineAccessor.get(ISessionManager).list()).toHaveLength(0);
     } finally {
-      await provider.dispose(); await harness.close(); vi.unstubAllEnvs();
+      await provider.dispose(); await harness.close(); restoreEnvs();
     }
   });
 
@@ -422,7 +422,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       expect(await restored.getEnvironment()).toMatchObject({ environmentId: 'fake-box', cwd: remoteDir });
       expect(getLiveSessionById(client.engineAccessor, session.id)!.accessor.get(ISessionContext).cwd).toBe(workDir);
     } finally {
-      await provider.dispose(); await harness.close(); vi.unstubAllEnvs();
+      await provider.dispose(); await harness.close(); restoreEnvs();
     }
   });
 
@@ -466,7 +466,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       expect(message).not.toContain(join(workDir, 'AGENTS.md'));
       expect(message).not.toContain(remotePersonalAgentsMd);
     } finally {
-      await provider.dispose(); await harness.close(); vi.unstubAllEnvs();
+      await provider.dispose(); await harness.close(); restoreEnvs();
     }
   });
 
@@ -496,7 +496,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       expect(profileNames(remote.id)).not.toContain('launch-project');
       expect(profileNames(remote.id)).not.toContain('remote-project');
     } finally {
-      await provider.dispose(); await harness.close(); vi.unstubAllEnvs();
+      await provider.dispose(); await harness.close(); restoreEnvs();
     }
   });
 
@@ -523,7 +523,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       });
       expect(getLiveSessionById(client.engineAccessor, session.id)).toBeUndefined();
     } finally {
-      await provider.dispose(); await harness.close(); vi.unstubAllEnvs();
+      await provider.dispose(); await harness.close(); restoreEnvs();
     }
   });
 
@@ -577,7 +577,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       const restoredFork = await harness.resumeSession({ id: fork.id });
       expect(getLiveSessionById(client.engineAccessor, restoredFork.id)!.accessor.get(ISessionContext).cwd).toBe(workDir);
     } finally {
-      await provider.dispose(); await harness.close(); vi.unstubAllEnvs();
+      await provider.dispose(); await harness.close(); restoreEnvs();
     }
   });
 
@@ -586,7 +586,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const spy = vi
+    const spy = jest
       .spyOn(RemoteEnvironmentProviderFactory.prototype, 'attach')
       .mockImplementation(async (host) => {
         await gate;
@@ -645,7 +645,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     } finally {
       gated.restore();
       await freshClient.close();
-      vi.unstubAllEnvs();
+      restoreEnvs();
     }
   });
 
@@ -1686,7 +1686,7 @@ key = "${titleOAuthRef.key}"
     } finally {
       await provider.dispose();
       await harness.close();
-      vi.unstubAllEnvs();
+      restoreEnvs();
     }
   });
 
@@ -1720,7 +1720,7 @@ key = "${titleOAuthRef.key}"
       expect(reread.environments?.['fake-box']).toMatchObject({ type: 'ssh', host: 'fake-box' });
     } finally {
       await harness.close();
-      vi.unstubAllEnvs();
+      restoreEnvs();
     }
   });
 

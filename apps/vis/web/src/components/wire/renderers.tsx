@@ -1694,19 +1694,6 @@ export const WIRE_RENDERERS: RendererMap = {
     }),
   },
 
-  'environment.set_binding': {
-    tone: 'meta',
-    label: 'environment',
-    headline: (r) => ({
-      main: (
-        <span className="flex items-center gap-2 min-w-0">
-          <Mono>{r.environmentId}</Mono>
-          {r.cwd === undefined ? null : <Dim className="truncate">{r.cwd}</Dim>}
-        </span>
-      ),
-    }),
-  },
-
   'staleGuard.recorded': {
     tone: 'meta',
     label: 'stale',

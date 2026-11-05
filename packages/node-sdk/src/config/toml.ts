@@ -13,6 +13,11 @@ import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, open } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+
 import { isRecord } from '@moonshot-ai/runtime-shared';
 import { parse as parseToml, stringify as stringifyToml, TomlError } from 'smol-toml';
 

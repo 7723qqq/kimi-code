@@ -23,15 +23,12 @@ import { IGitService } from '@moonshot-ai/agent-core-v2/app/git/git';
 import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
 import {
   fsDiffRequestSchema,
-  fsGitStatusBatchRequestSchema,
   fsGitStatusRequestSchema,
   fsGrepRequestSchema,
   fsListManyRequestSchema,
   fsListRequestSchema,
   fsListResponseSchema,
   fsMkdirRequestSchema,
-  fsPullRequestBatchRequestSchema,
-  fsPullRequestRequestSchema,
   fsReadRequestSchema,
   fsSearchRequestSchema,
   fsSearchResponseSchema,
@@ -53,7 +50,6 @@ import {
 import { parseRangeHeader, pickHeader } from '../lib/httpRange';
 import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
-import { detailsSchema } from '../protocol/common';
 import { ErrorCode } from '../protocol/error-codes';
 import {
   fsOpenInRequestSchema,
@@ -97,7 +93,8 @@ const fsDownloadQuerySchema = z.object({
   allow_external_symlinks: z.enum(['true', 'false']).optional(),
 });
 
-const workspaceFsSearchBodySchema = fsSearchRequestSchema
+const workspaceFsListBodySchema = fsListRequestSchema
+  .omit({ include_git_status: true })
   .extend({
     workspace: z.string().min(1),
   });
@@ -114,12 +111,7 @@ const rootFsSuggestBodySchema = fsSuggestRequestSchema.extend({
   roots: z.array(z.string().min(1)).min(1).max(32),
 });
 
-const rootFsSuggestBodySchema = fsSuggestRequestSchema
-  .extend({
-    roots: z.array(z.string().min(1)).min(1).max(32),
-    runtime_id: z.string().min(1).optional(),
-  })
-  .strict();
+const detailsSchema = z.array(z.object({ path: z.string(), message: z.string() }));
 
 const FS_ACTIONS = [
   'list',
@@ -131,9 +123,6 @@ const FS_ACTIONS = [
   'search',
   'grep',
   'git_status',
-  'git_status:batch',
-  'pull_request',
-  'pull_request:batch',
   'diff',
   'open',
   'open-in',
@@ -176,133 +165,7 @@ function acquireLocalRootedFs(
   }
 }
 
-async function acquireWorkspaceFs(
-  core: Scope,
-  workspaceId: string,
-  roots: { readonly workDir: string; readonly additionalDirs?: readonly string[] },
-  runtimeId: string,
-  required: readonly RuntimeCapability[],
-): Promise<RuntimeFsScope> {
-  const workspaceLease = await core.accessor.get(IWorkspaceInstanceManager).acquire({
-    workspaceId,
-    root: roots.workDir,
-  });
-  try {
-    return { ...createRuntimeFs(core, workspaceId, roots, runtimeId, required), workspaceLease };
-  } catch (error) {
-    workspaceLease.dispose();
-    throw error;
-  }
-}
-
-function createLocalRuntimeFs(
-  core: Scope,
-  roots: { readonly workDir: string; readonly additionalDirs?: readonly string[] },
-): RuntimeFsScope {
-  const workspaceId = encodeWorkDirKey(roots.workDir);
-  const runtime = core.accessor.get(IStandaloneRuntimeFactory).createLocalRuntime(workspaceId);
-  const lease: RuntimeLease = {
-    runtime,
-    track: (resource) => resource,
-    dispose: () => {
-      void runtime.dispose();
-    },
-  };
-  try {
-    return buildRuntimeFsScope(core, workspaceId, roots, 'local', lease);
-  } catch (error) {
-    lease.dispose();
-    throw error;
-  }
-}
-
-function buildRuntimeFsScope(
-  core: Scope,
-  workspaceId: string,
-  roots: { readonly workDir: string; readonly additionalDirs?: readonly string[] },
-  runtimeId: string,
-  lease: RuntimeLease,
-): RuntimeFsScope {
-  const mapped = lease.runtime.workspace.mapRoots(roots);
-  const workspace = {
-    _serviceBrand: undefined,
-    workspaceId,
-    cwd: mapped.workDir,
-    source: 'local',
-    meta: {
-      id: workspaceId,
-      root: mapped.workDir,
-      name: workspaceId,
-      createdAt: 0,
-      lastOpenedAt: 0,
-    },
-    persistenceScope: `sessions/${workspaceId}`,
-  } satisfies IWorkspaceContext;
-  const dirs = {
-    _serviceBrand: undefined,
-    ready: Promise.resolve(),
-    additionalDirs: mapped.additionalDirs ?? [],
-    onDidChange: () => ({ dispose: () => {} }),
-    addDir: async () => {
-      throw new Error('runtime fs directories are immutable');
-    },
-    mergeAdditionalDirs: async () => {
-      throw new Error('runtime fs directories are immutable');
-    },
-    sessionInfo: () => ({ workDir: mapped.workDir, additionalDirs: mapped.additionalDirs ?? [] }),
-  } as unknown as IWorkspaceDirs;
-  const resolver: IRuntimeResolver = {
-    _serviceBrand: undefined,
-    inspect: () => lease.runtime,
-    acquire: (_binding, capabilities = []) => {
-      const missing = capabilities.filter(
-        (capability) => !lease.runtime.capabilities.has(capability),
-      );
-      if (missing.length > 0)
-        throw new Error(`runtime ${runtimeId} missing capabilities: ${missing.join(', ')}`);
-      return {
-        runtime: lease.runtime,
-        track: (resource) => lease.track(resource),
-        dispose: () => {},
-      };
-    },
-  };
-  const instances = {
-    findByRoot: (root: string) => (root === mapped.workDir ? { id: workspaceId } : undefined),
-  } as unknown as IWorkspaceInstanceManager;
-  const git = new WorkspaceGitService(workspace, {
-    current: new GitService(resolver, instances, lease.runtime.fs!),
-    onDidChange: () => ({ dispose: () => {} }),
-  });
-  return {
-    fs: new WorkspaceFsService(
-      workspace,
-      dirs,
-      lease.runtime.fs!,
-      resolver,
-      core.accessor.get(ITelemetryService),
-      git,
-      runtimeId,
-    ),
-    hostFs: lease.runtime.fs!,
-    lease,
-    roots: { workDir: mapped.workDir, additionalDirs: mapped.additionalDirs ?? [] },
-  };
-}
-
-async function acquireSessionFs(
-  core: Scope,
-  sessionId: string,
-  runtimeId: string,
-  required: readonly RuntimeCapability[],
-): Promise<RuntimeFsScope> {
-  const session = getLiveSessionById(core.accessor, sessionId);
-  if (session === undefined)
-    throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${sessionId} does not exist`);
-  const context = session.accessor.get(ISessionContext);
-  const workspace = session.accessor.get(ISessionWorkspaceContext);
-  return acquireWorkspaceFs(core, context.workspaceId, workspace, runtimeId, required);
-}async function resolveWorkspaceFs(
+async function resolveWorkspaceFs(
   core: Scope,
   ref: string,
   required: readonly EnvironmentCapability[],
@@ -350,13 +213,17 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
       const { session_id, tail } = req.params as { session_id: string; tail: string };
 
       if (!tail.startsWith(FS_TAIL_PREFIX)) {
-        reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, `unsupported action: ${tail}`, req.id));
+        reply.send(
+          errEnvelope(ErrorCode.VALIDATION_FAILED, `unsupported action: ${tail}`, req.id),
+        );
         return;
       }
 
       const action = tail.slice(FS_TAIL_PREFIX.length);
       if (!(FS_ACTIONS as readonly string[]).includes(action)) {
-        reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, `unsupported action: ${tail}`, req.id));
+        reply.send(
+          errEnvelope(ErrorCode.VALIDATION_FAILED, `unsupported action: ${tail}`, req.id),
+        );
         return;
       }
       const fsAction = action as FsAction;
@@ -375,11 +242,7 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
             : acquireSessionFs(core, session_id, required);
         if (environmentFs === undefined) {
           reply.send(
-            errEnvelope(
-              ErrorCode.SESSION_NOT_FOUND,
-              `session ${session_id} does not exist`,
-              req.id,
-            ),
+            errEnvelope(ErrorCode.SESSION_NOT_FOUND, `session ${session_id} does not exist`, req.id),
           );
           return;
         }
@@ -414,15 +277,6 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
           case 'git_status':
             await handleGitStatus(environmentFs.fs, req, reply);
             return;
-          case 'git_status:batch':
-            await handleGitStatusBatch(runtimeFs.fs, req, reply);
-            return;
-          case 'pull_request':
-            await handlePullRequest(runtimeFs.fs, req, reply);
-            return;
-          case 'pull_request:batch':
-            await handlePullRequestBatch(runtimeFs.fs, req, reply);
-            return;
           case 'diff':
             await handleDiff(environmentFs.fs, req, reply);
             return;
@@ -436,8 +290,8 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
             await handleReveal(environmentFs.fs, req, reply);
             return;
         }
-      } catch (err) {
-        sendMappedError(reply, req, err);
+      } catch (error) {
+        sendMappedError(reply, req, error);
       } finally {
         environmentFs?.lease.dispose();
       }
@@ -534,8 +388,8 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
         }
         const data = await environmentFs.fs.search(searchRequest);
         reply.send(okEnvelope(data, req.id));
-      } catch (err) {
-        sendMappedError(reply, req, err);
+      } catch (error) {
+        sendMappedError(reply, req, error);
       } finally {
         environmentFs?.lease.dispose();
       }
@@ -581,8 +435,8 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
         }
         const data = await environmentFs.fs.suggest(suggestRequest);
         reply.send(okEnvelope(data, req.id));
-      } catch (err) {
-        sendMappedError(reply, req, err);
+      } catch (error) {
+        sendMappedError(reply, req, error);
       } finally {
         environmentFs?.lease.dispose();
       }
@@ -616,11 +470,7 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
       for (const root of roots) {
         if (!isAbsolute(root)) {
           reply.send(
-            errEnvelope(
-              ErrorCode.VALIDATION_FAILED,
-              `root must be an absolute path: ${root}`,
-              req.id,
-            ),
+            errEnvelope(ErrorCode.VALIDATION_FAILED, `root must be an absolute path: ${root}`, req.id),
           );
           return;
         }
@@ -750,7 +600,8 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
           );
           try {
             stream.destroy();
-          } catch {}
+          } catch {
+          }
         });
         return r.send(stream) as unknown as void;
       }
@@ -764,7 +615,8 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
         );
         try {
           stream.destroy();
-        } catch {}
+        } catch {
+        }
       });
       return r.send(stream) as unknown as void;
     },
@@ -905,40 +757,6 @@ async function handleGitStatus(fs: IWorkspaceFsService, req: Req, reply: Reply):
   reply.send(okEnvelope(data, req.id));
 }
 
-async function handleGitStatusBatch(fs: IWorkspaceFsService, req: Req, reply: Reply): Promise<void> {
-  const parsed = fsGitStatusBatchRequestSchema.safeParse(req.body ?? {});
-  if (!parsed.success) {
-    reply.send(buildValidationEnvelope(parsed.error.issues, req.id));
-    return;
-  }
-  const data = await fs.gitStatusBatch(parsed.data);
-  reply.send(okEnvelope(data, req.id));
-}
-
-async function handlePullRequestBatch(
-  fs: IWorkspaceFsService,
-  req: Req,
-  reply: Reply,
-): Promise<void> {
-  const parsed = fsPullRequestBatchRequestSchema.safeParse(req.body ?? {});
-  if (!parsed.success) {
-    reply.send(buildValidationEnvelope(parsed.error.issues, req.id));
-    return;
-  }
-  const data = await fs.pullRequestBatch(parsed.data);
-  reply.send(okEnvelope(data, req.id));
-}
-
-async function handlePullRequest(fs: IWorkspaceFsService, req: Req, reply: Reply): Promise<void> {
-  const parsed = fsPullRequestRequestSchema.safeParse(req.body ?? {});
-  if (!parsed.success) {
-    reply.send(buildValidationEnvelope(parsed.error.issues, req.id));
-    return;
-  }
-  const data = await fs.pullRequest(parsed.data);
-  reply.send(okEnvelope(data, req.id));
-}
-
 async function handleDiff(fs: IWorkspaceFsService, req: Req, reply: Reply): Promise<void> {
   const parsed = fsDiffRequestSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
@@ -971,12 +789,7 @@ async function handleReveal(fs: IWorkspaceFsService, req: Req, reply: Reply): Pr
   reply.send(okEnvelope({ revealed: true as const }, req.id));
 }
 
-async function handleOpenIn(
-  fs: IWorkspaceFsService,
-  sessionId: string,
-  req: Req,
-  reply: Reply,
-): Promise<void> {
+async function handleOpenIn(fs: IWorkspaceFsService, sessionId: string, req: Req, reply: Reply): Promise<void> {
   const parsed = fsOpenInRequestSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
     reply.send(buildValidationEnvelope(parsed.error.issues, req.id));
@@ -991,7 +804,7 @@ async function handleOpenIn(
         isDirectory: resolved.isDirectory,
       }),
     );
-  } catch (err) {
+  } catch (error) {
     requestLog(req)?.warn(
       { session_id: sessionId, app_id: body.app_id, error },
       'fs open-in launch failed',
@@ -999,7 +812,7 @@ async function handleOpenIn(
     reply.send(
       errEnvelope(
         ErrorCode.INTERNAL_ERROR,
-        `failed to open in ${body.app_id}: ${err instanceof Error ? err.message : String(err)}`,
+        `failed to open in ${body.app_id}: ${error instanceof Error ? error.message : String(error)}`,
         req.id,
       ),
     );
@@ -1015,9 +828,7 @@ function sendMappedError(reply: Reply, req: { id: string }, err: unknown): void 
   if (isError2(err)) {
     switch (err.code) {
       case ErrorCodes.FS_PATH_ESCAPES:
-        reply.send(
-          errEnvelope(ErrorCode.FS_PATH_ESCAPES_SESSION, err.message, requestId, err.stack),
-        );
+        reply.send(errEnvelope(ErrorCode.FS_PATH_ESCAPES_SESSION, err.message, requestId, err.stack));
         return;
       case ErrorCodes.FS_PATH_NOT_FOUND:
         reply.send(errEnvelope(ErrorCode.FS_PATH_NOT_FOUND, err.message, requestId, err.stack));
@@ -1104,6 +915,6 @@ function buildValidationEnvelope(
 
 function sanitizeFilename(rel: string): string {
   const segs = rel.split('/');
-  const base = segs[segs.length - 1] ?? rel;
-  return base.replace(/"/g, '\\"');
+  const base = segs.at(-1) ?? rel;
+  return base.replaceAll('"', '\\"');
 }

@@ -14,6 +14,30 @@ import { parsePattern } from '@moonshot-ai/agent-core-v2/agent/permissionRules/m
 import { EnvironmentsSectionSchema } from '@moonshot-ai/agent-core-v2/remote/declaration/remoteEnvironmentDeclaration';
 import { z } from 'zod';
 
+const HOOK_EVENT_TYPES = [
+  'PreToolUse',
+  'PostToolUse',
+  'PostToolUseFailure',
+  'PermissionRequest',
+  'PermissionResult',
+  'UserPromptSubmit',
+  'UserPromptQueued',
+  'TurnStarted',
+  'Stop',
+  'StopFailure',
+  'Interrupt',
+  'SessionStart',
+  'SessionEnd',
+  'SessionHeartbeat',
+  'SubagentStart',
+  'SubagentStop',
+  'TaskStarted',
+  'PreCompact',
+  'PostCompact',
+  'Notification',
+] as const;
+
+
 import { ErrorCodes, KimiError } from '#/errors';
 
 export const ProviderTypeSchema = z.enum([

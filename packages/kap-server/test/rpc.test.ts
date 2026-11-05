@@ -31,8 +31,8 @@ import type {
   WorkspaceInstanceSnapshot,
 } from '@moonshot-ai/agent-core-v2';
 import { FakeEnvironment } from '@moonshot-ai/agent-core-v2/environment/fakeEnvironment';
-import { HostFileSystem } from '@moonshot-ai/agent-core-v2/os/backends/node-local/hostFsService';
-import { HostProcessService } from '@moonshot-ai/agent-core-v2/os/backends/node-local/hostProcessService';
+import { HostFileSystem } from '@moonshot-ai/agent-core-v2/os/backends/host/hostFsService';
+import { HostProcessService } from '@moonshot-ai/agent-core-v2/os/backends/host/hostProcessService';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';

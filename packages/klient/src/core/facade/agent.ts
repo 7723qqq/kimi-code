@@ -18,11 +18,11 @@ import type { IAgentProfileService } from '@moonshot-ai/agent-core-v2/agent/prof
 import type { IAgentShellCommandService } from '@moonshot-ai/agent-core-v2/agent/shellCommand/shellCommand';
 import type { IAgentSkillService } from '@moonshot-ai/agent-core-v2/features/skill/skillService';
 import type { IAgentTaskService } from '@moonshot-ai/agent-core-v2/agent/task/task';
+import type { IAgentContextMemoryService } from '@moonshot-ai/agent-core-v2/agent/contextMemory/contextMemory';
 import type { ISessionUsageService } from '@moonshot-ai/agent-core-v2/session/usage/sessionUsage';
 import {
-  fromCoreMessage,
   type ContentPart,
-} from '@moonshot-ai/agent-core-v2/human/message';
+} from '@moonshot-ai/agent-core-v2/human/llm/message';
 import {
   fromLlmMessage,
   type Message as LegacyMessage,
@@ -33,7 +33,7 @@ import type {
   PromptOrigin,
 } from '@moonshot-ai/agent-core-v2/agent/contextMemory/types';
 import type { ToolInputDisplay } from '@moonshot-ai/agent-core-v2/tool/toolInputDisplay';
-import type { TokenUsage } from '@moonshot-ai/agent-core-v2/human/llm-requester/usage';
+import type { TokenUsage } from '@moonshot-ai/agent-core-v2/human/llm/usage';
 import type { PermissionMode } from '@moonshot-ai/agent-core-v2/agent/permissionPolicy/types';
 
 import type { ScopeRef } from '../channel.js';

@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 
 import { IModelCatalog, ISessionManager, IWorkspaceInstanceManager } from '@moonshot-ai/agent-core-v2';
-import { HostFileSystem } from '@moonshot-ai/agent-core-v2/os/backends/node-local/hostFsService';
-import { HostProcessService } from '@moonshot-ai/agent-core-v2/os/backends/node-local/hostProcessService';
+import { HostFileSystem } from '@moonshot-ai/agent-core-v2/os/backends/host/hostFsService';
+import { HostProcessService } from '@moonshot-ai/agent-core-v2/os/backends/host/hostProcessService';
 import { FakeEnvironment } from '@moonshot-ai/agent-core-v2/environment/fakeEnvironment';
 import type { EnvironmentCapability } from '@moonshot-ai/agent-core-v2/environment/environment';
 import { ErrorCode } from '../src/protocol/error-codes';
@@ -29,6 +29,7 @@ interface FsEntryWire {
   path: string;
   name: string;
   kind: string;
+  is_directory?: boolean;
   size?: number;
   modified_at: string;
   etag?: string;
@@ -1120,32 +1121,19 @@ describe('server-v2 /api/v1 fs routes', () => {
     expect(body.code).toBe(ErrorCode.VALIDATION_FAILED);
   });
 
-  it('fs:suggest maps an unknown runtime to RUNTIME_NOT_FOUND', async () => {
+  it('fs:suggest maps an unknown runtime to ENVIRONMENT_NOT_FOUND', async () => {
     const body = await postRootSuggest<null>({
       roots: [work],
       query: 'x',
       runtime_id: 'no-such-runtime',
     });
-    expect(body.code).toBe(ErrorCode.RUNTIME_NOT_FOUND);
+    expect(body.code).toBe(ErrorCode.ENVIRONMENT_NOT_FOUND);
   });
 
   interface RegisteredWorkspaceWire {
     id: string;
     root: string;
     additional_dirs: string[];
-  }
-
-  async function createRegisteredWorkspace(
-    additionalDirs: readonly string[] = [],
-  ): Promise<RegisteredWorkspaceWire> {
-    const res = await fetch(`${base}/api/v1/workspaces`, {
-      method: 'POST',
-      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
-      body: JSON.stringify({ root: work, additional_dirs: [...additionalDirs] }),
-    } as never);
-    const body = (await res.json()) as Envelope<RegisteredWorkspaceWire>;
-    expect(body.code).toBe(0);
-    return body.data;
   }
 
   function rootSpecific(path: string): string {
@@ -1212,14 +1200,6 @@ describe('server-v2 /api/v1 fs routes', () => {
     }
   });
 
-  async function postWorkspaceList<T>(body: unknown): Promise<Envelope<T>> {
-    const res = await fetch(`${base}/api/v1/workspace/fs:list`, {
-      method: 'POST',
-      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
-      body: JSON.stringify({ runtime_id: 'local', ...(body as object) }),
-    } as never);
-    return (await res.json()) as Envelope<T>;
-  }
 
   it('workspace fs:list respects registered source folder boundaries', async () => {
     const extra = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-extra-'));

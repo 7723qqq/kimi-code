@@ -640,6 +640,21 @@ export const workspaceDeletedEventSchema = z.object({
   root: z.string().min(1),
 });
 
+const legacySessionStatusSchema = z.enum([
+  'idle',
+  'running',
+  'awaiting_approval',
+  'awaiting_question',
+  'aborted',
+]);
+
+export const sessionStatusChangedEventSchema = z.object({
+  type: z.literal('event.session.status_changed'),
+  status: legacySessionStatusSchema,
+  previous_status: legacySessionStatusSchema,
+  current_prompt_id: z.string().min(1).optional(),
+});
+
 export const sessionWorkChangedEventSchema = z.object({
   type: z.literal('event.session.work_changed'),
   busy: z.boolean(),

@@ -18,6 +18,7 @@ import {
   MAX_IMAGE_DECODE_BYTES,
   normalizeImageMime,
   persistOriginalImage,
+  type ContentPart,
   resolveEffectiveImageMime,
   unsupportedImageMimeFromUrl,
   type EnvironmentBinding,

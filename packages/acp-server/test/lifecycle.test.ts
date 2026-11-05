@@ -85,6 +85,21 @@ async function removeTempHome(home: string | undefined): Promise<void> {
   }
 }
 
+async function pollFor(
+  probe: () => Promise<boolean>,
+  expected: boolean,
+  timeoutMs = 10_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if ((await probe()) === expected) return;
+    if (Date.now() > deadline) {
+      throw new Error(`pollFor timed out waiting for ${String(expected)}`);
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 25));
+  }
+}
+
 describe('acp-server session lifecycle', () => {
   let homeDir: string | undefined;
   let client: TestClient | undefined;
@@ -689,12 +704,10 @@ describe('acp-server session lifecycle', () => {
 
       // Provider hydration from config.toml is async (kosongConfig initialize
       // → providerService.loadAll); wait until summarize sees the fake token.
-      await expect
-        .poll(
-          async () => (await c.server.klient.global.auth.summarize()).some((s) => s.loggedIn),
-          { timeout: 10_000 },
-        )
-        .toBe(true);
+      await pollFor(
+        async () => (await c.server.klient.global.auth.summarize()).some((s) => s.loggedIn),
+        true,
+      );
 
       // Logged in (fake token present): the gate lets session/new through.
       const created = (await c.send('session/new', { cwd: homeDir, mcpServers: [] })) as {
@@ -706,12 +719,10 @@ describe('acp-server session lifecycle', () => {
       expect(toolkit.hasToken()).toBe(false);
 
       // Logged out: the summarize-driven gate rejects with auth_required.
-      await expect
-        .poll(
-          async () => (await c.server.klient.global.auth.summarize()).some((s) => s.loggedIn),
-          { timeout: 10_000 },
-        )
-        .toBe(false);
+      await pollFor(
+        async () => (await c.server.klient.global.auth.summarize()).some((s) => s.loggedIn),
+        false,
+      );
       await expect(c.send('session/new', { cwd: homeDir, mcpServers: [] })).rejects.toThrow(
         /[Aa]uthentication required/,
       );

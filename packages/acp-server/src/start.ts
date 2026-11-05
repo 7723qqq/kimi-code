@@ -146,7 +146,7 @@ export async function runAcpServerWithStream(
   acpConnection.bind(client);
   const acpEnvironmentProvider = new AcpEnvironmentProviderFactory(acpConnection, core.accessor.get(IHostEnvironment), core.accessor.get(IHostProcessService));
   const acpProviderRegistration = await core.accessor.get(IEnvironmentService).addProvider(acpEnvironmentProvider);
-  server = new AcpServer(client, klient, acpConnection, {
+  const server = new AcpServer(client, klient, acpConnection, {
     agentInfo: opts.agentInfo,
     disableAuth: opts.disableAuth,
     terminalAuthEnv: opts.terminalAuthEnv,

@@ -278,7 +278,7 @@ class AcpSessionEnvironmentAttachment implements EnvironmentProviderAttachment {
     const environmentId = AcpEnvironmentProviderFactory.environmentId(sessionId);
     if (this.sessions.has(sessionId)) return environmentId;
     const registration = this.host.registerEnvironment(
-      new AcpSessionEnvironment(sessionId, cwd, this.connection, this.environment, this.local),
+      new AcpSessionEnvironment(sessionId, cwd, this.connection, this.environment, this.local, this.timers),
     );
     this.sessions.set(sessionId, registration);
     return environmentId;
@@ -314,7 +314,7 @@ export class AcpEnvironmentProviderFactory implements EnvironmentProviderFactory
   }
 
   async attach(host: EnvironmentProviderHost): Promise<EnvironmentProviderAttachment> {
-    const attachment = new AcpSessionEnvironmentAttachment(host, this.connection, this.environment, this.local);
+    const attachment = new AcpSessionEnvironmentAttachment(host, this.connection, this.environment, this.local, this.timers);
     this.attachment = attachment;
     return { dispose: async () => {
       if (this.attachment !== attachment) return;

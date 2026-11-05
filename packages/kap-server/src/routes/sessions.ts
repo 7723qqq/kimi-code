@@ -93,7 +93,6 @@ import {
   sessionConflictErrors,
 } from './sessionErrors';
 import { applySessionAgentConfig } from './sessionAgentConfig';
-import { sendMappedError, sessionConflictErrors } from './sessionErrors';
 import { updateSessionProfile } from './sessionProfile';
 
 interface SessionRouteHost {
