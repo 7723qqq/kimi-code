@@ -179,9 +179,7 @@ describe('TranscriptDocument', () => {
           { interactionId: 'a2', interactionKind: 'question', state: 'answered' },
         ],
         attachments: [],
-        todos: [],
         prompts: [],
-        meta: {},
         hasMoreOlder: true,
       },
     });
@@ -197,9 +195,7 @@ describe('TranscriptDocument', () => {
         tasks: [],
         interactions: [],
         attachments: [],
-        todos: [],
         prompts: [],
-        meta: {},
       },
     });
     expect(unflagged.hasMoreOlder).toBe(false);
@@ -352,28 +348,18 @@ describe('AgentTranscript', () => {
     expect(tx.listPendingInteractions()).toEqual([]);
   });
 
-  it('upserts attachment and todo entities idempotently', () => {
+  it('upserts attachment entities idempotently', () => {
     const tx = new AgentTranscript('main');
     const attachment = {
       attachmentId: 'att_1',
       mediaType: 'image/png',
       source: { kind: 'url' as const, url: 'https://example.com/a.png' },
     };
-    const todo = { todoId: 'todo', items: [{ title: 'x', status: 'pending' as const }] };
-    const first = tx.apply([
-      { op: 'attachment.upsert', attachment },
-      { op: 'todo.upsert', todo },
-    ]);
-    expect(first.accepted).toHaveLength(2);
-    const second = tx.apply([
-      { op: 'attachment.upsert', attachment },
-      { op: 'todo.upsert', todo },
-    ]);
+    const first = tx.apply([{ op: 'attachment.upsert', attachment }]);
+    expect(first.accepted).toHaveLength(1);
+    const second = tx.apply([{ op: 'attachment.upsert', attachment }]);
     expect(second.accepted).toHaveLength(0);
     expect(tx.getAttachment('att_1')?.mediaType).toBe('image/png');
-    expect(tx.getTodo('todo')?.items).toHaveLength(1);
-    tx.apply([{ op: 'todo.upsert', todo: { ...todo, items: [] } }]);
-    expect(tx.getTodo('todo')?.items).toHaveLength(0);
   });
 
   it('upserts prompt queue entities by id, idempotently', () => {
@@ -700,85 +686,6 @@ describe('AgentTranscript', () => {
     const task = tx.getTask('task1');
     expect(task?.detached).toBe(true);
     expect(task?.outputTail).toBe('line1\n');
-  });
-
-  it('meta.merge merges goal/modes shallowly', () => {
-    const tx = new AgentTranscript('main');
-    tx.apply([
-      { op: 'meta.merge', meta: { goal: { objective: 'ship it', status: 'active' } } },
-      { op: 'meta.merge', meta: { modes: { plan: { reviewPath: '/p' } } } },
-    ]);
-    expect(tx.getMeta().goal?.status).toBe('active');
-    expect(tx.getMeta().modes?.plan?.reviewPath).toBe('/p');
-  });
-
-  it('meta.merge keeps modes.spec and clears it on null without touching plan', () => {
-    const tx = new AgentTranscript('main');
-    const entered = tx.apply([
-      { op: 'meta.merge', meta: { modes: { plan: { version: 3 }, spec: { dir: '/d' } } } },
-    ]);
-    expect(entered.accepted).toHaveLength(1);
-    expect(tx.getMeta().modes?.spec?.dir).toBe('/d');
-
-    const left = tx.apply([{ op: 'meta.merge', meta: { modes: { spec: null } } }]);
-    expect(left.accepted).toHaveLength(1);
-    expect(tx.getMeta().modes?.spec).toBeUndefined();
-    expect(tx.getMeta().modes?.plan?.version).toBe(3);
-
-    tx.apply([{ op: 'meta.merge', meta: { modes: { plan: null } } }]);
-    expect(tx.getMeta().modes).toBeUndefined();
-  });
-
-  it('meta.merge clears a mode badge on null and keeps absent keys', () => {
-    const tx = new AgentTranscript('main');
-    tx.apply([{ op: 'meta.merge', meta: { modes: { plan: {}, swarm: {}, tower: {} } } }]);
-    tx.apply([{ op: 'meta.merge', meta: { modes: { plan: null } } }]);
-    expect(tx.getMeta().modes).toEqual({ swarm: {}, tower: {} });
-    tx.apply([{ op: 'meta.merge', meta: { modes: { swarm: null } } }]);
-    expect(tx.getMeta().modes).toEqual({ tower: {} });
-    tx.apply([{ op: 'meta.merge', meta: { modes: { tower: null } } }]);
-    expect(tx.getMeta().modes).toBeUndefined();
-  });
-
-  it('meta.merge shallow-merges the agent status key one level deep', () => {
-    const tx = new AgentTranscript('main');
-    tx.apply([
-      { op: 'meta.merge', meta: { agent: { model: 'k2', permission: 'auto' } } },
-      { op: 'meta.merge', meta: { agent: { contextTokens: 1234 } } },
-    ]);
-    expect(tx.getMeta().agent).toEqual({ model: 'k2', permission: 'auto', contextTokens: 1234 });
-
-    tx.apply([{ op: 'meta.merge', meta: { agent: { model: 'k3', phase: { kind: 'idle' } } } }]);
-    expect(tx.getMeta().agent).toEqual({
-      model: 'k3',
-      permission: 'auto',
-      contextTokens: 1234,
-      phase: { kind: 'idle' },
-    });
-
-    tx.apply([{ op: 'meta.merge', meta: { activity: 'turn' } }]);
-    expect(tx.getMeta().agent?.model).toBe('k3');
-    expect(tx.getMeta().activity).toBe('turn');
-  });
-
-  it('meta.merge is a no-op when re-sent with equal content and fresh references', () => {
-    const merge = (): TranscriptOperation => ({
-      op: 'meta.merge',
-      meta: {
-        goal: { objective: 'ship it', status: 'active' },
-        modes: { plan: {}, swarm: {} },
-        agent: { model: 'k2', permission: 'auto', phase: { kind: 'idle' } },
-      },
-    });
-    const tx = new AgentTranscript('main');
-    tx.apply([merge()]);
-    const before = tx.getMeta();
-    tx.apply([merge()]);
-    expect(tx.getMeta()).toBe(before);
-
-    tx.apply([{ op: 'meta.merge', meta: { goal: null } }]);
-    expect(tx.getMeta().goal).toBeUndefined();
-    expect(tx.getMeta().agent?.model).toBe('k2');
   });
 
   it('snapshot immutability: later applies do not mutate earlier reads', () => {

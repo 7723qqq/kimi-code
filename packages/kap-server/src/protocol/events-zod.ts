@@ -577,60 +577,6 @@ export const turnEndReasonSchema = z.enum([
   'blocked',
 ]) satisfies z.ZodType<TurnEndReason>;
 
-export const agentPhaseSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('idle') }),
-  z.object({
-    kind: z.literal('running'),
-    turnId: z.number(),
-    step: z.number(),
-    stepId: z.string(),
-    since: z.number(),
-  }),
-  z.object({
-    kind: z.literal('tool_call'),
-    turnId: z.number(),
-    step: z.number(),
-    toolCallId: z.string(),
-    name: z.string(),
-    since: z.number(),
-  }),
-  z.object({
-    kind: z.literal('retrying'),
-    turnId: z.number(),
-    step: z.number(),
-    stepId: z.string(),
-    failedAttempt: z.number(),
-    nextAttempt: z.number(),
-    maxAttempts: z.number(),
-    delayMs: z.number(),
-    errorName: z.string().optional(),
-    statusCode: z.number().optional(),
-    since: z.number(),
-  }),
-  z.object({
-    kind: z.literal('awaiting_approval'),
-    turnId: z.number(),
-    step: z.number().optional(),
-    approval: z.unknown().optional(),
-    since: z.number(),
-  }),
-  z.object({
-    kind: z.literal('interrupted'),
-    turnId: z.number(),
-    step: z.number().optional(),
-    reason: z.enum(['aborted', 'max_steps', 'error']),
-    message: z.string().optional(),
-    at: z.number(),
-  }),
-  z.object({
-    kind: z.literal('ended'),
-    turnId: z.number(),
-    reason: turnEndReasonSchema,
-    durationMs: z.number().optional(),
-    at: z.number(),
-  }),
-]);
-
 export const agentStatusUpdatedEventSchema = z.object({
   type: z.literal('agent.status.updated'),
   agentId: z.string(),
@@ -647,7 +593,6 @@ export const agentStatusUpdatedEventSchema = z.object({
   towerMode: z.boolean().optional(),
   permission: permissionModeSchema.optional(),
   usage: usageStatusSchema.optional(),
-  phase: agentPhaseSchema.optional(),
 });
 
 export const sessionMetaUpdatedEventSchema = z.object({

@@ -12,7 +12,6 @@ import {
   type CronFired,
   type GoalUpdated,
 } from '@moonshot-ai/agent-core-v2';
-import type { AgentActivitySnapshot } from '@moonshot-ai/agent-core-v2';
 import type { PluginCommandActivated } from '@moonshot-ai/agent-core-v2';
 import type {
   PromptAborted,
@@ -74,7 +73,6 @@ import {
   projectTranscriptUserOrigin,
   subagentAgentRef,
   subagentRunTaskState,
-  type AgentUsageMeta,
   type StepHeader,
   type StepUsage,
   type TextFrame,
@@ -87,7 +85,6 @@ import {
   type TranscriptOperation,
   type TranscriptPrompt,
   type TranscriptTask,
-  type TranscriptTodo,
   turnId as exportTurnKey,
   turnOrdinal,
   type TranscriptUsage,
@@ -97,8 +94,6 @@ import {
 
 import { interactionOutcome } from '../../protocol/interaction-wire';
 import { toWireQuestion } from '../../protocol/question-wire';
-import { LegacyActivityTracker, phaseFromDomainEvent } from '../legacyStatus/legacyActivity';
-import { toLegacyPhase, type LegacyActivityApproval } from '../legacyStatus/legacyStatus';
 import { projectPromptContentParts } from '../messages/messageProjection';
 
 export interface ProjectorInteraction {
@@ -219,8 +214,6 @@ export interface ProjectorLookups {
   readonly maxOrdinal?: ProjectorMaxOrdinalLookup;
   readonly prompt?: ProjectorPromptLookup;
   readonly resolvePlanRevisionKey?: ProjectorPlanRevisionKey;
-  readonly activitySnapshot?: () => AgentActivitySnapshot;
-  readonly pendingApprovals?: () => readonly LegacyActivityApproval[];
 }
 
 interface OpenTextFrame {
@@ -258,7 +251,6 @@ export class AgentTranscriptProjector {
   private readonly tasks = new Map<string, TranscriptTask>();
   private readonly shellTasks = new Map<string, string>();
   private readonly subagentTaskIds = new Map<string, string>();
-  private activityTracker: LegacyActivityTracker | undefined;
 
   seedSubagentTask(info: {
     readonly taskId: string;
@@ -367,7 +359,6 @@ export class AgentTranscriptProjector {
   private readonly prompts = new Map<string, TranscriptPrompt>();
   private readonly stepUsageByTurn = new Map<string, StepUsage[]>();
   private markerSeq = 0;
-  private planModeActive = false;
 
   constructor(
     readonly agentId: string,
@@ -376,35 +367,7 @@ export class AgentTranscriptProjector {
   ) {}
 
   map(event: ProjectorBusEvent): TranscriptOperation[] {
-    const ops = this.mapEvent(event);
-    const phase = this.phaseFor(event);
-    if (phase === undefined) return ops;
-    return [...ops, { op: 'meta.merge', meta: { agent: { phase } } }];
-  }
-
-  seedPhase(): TranscriptOperation[] {
-    const phase = this.tracker()?.recompute();
-    return phase === undefined ? [] : [{ op: 'meta.merge', meta: { agent: { phase } } }];
-  }
-
-  private tracker(): LegacyActivityTracker | undefined {
-    if (
-      this.lookups?.activitySnapshot === undefined ||
-      this.lookups.pendingApprovals === undefined
-    ) {
-      return undefined;
-    }
-    this.activityTracker ??= new LegacyActivityTracker(
-      this.lookups.activitySnapshot,
-      this.lookups.pendingApprovals,
-    );
-    return this.activityTracker;
-  }
-
-  private phaseFor(event: ProjectorBusEvent): ReturnType<typeof toLegacyPhase> {
-    const tracker = this.tracker();
-    if (tracker === undefined) return undefined;
-    return phaseFromDomainEvent(tracker, event);
+    return this.mapEvent(event);
   }
 
   private mapEvent(event: ProjectorBusEvent): TranscriptOperation[] {
@@ -462,7 +425,7 @@ export class AgentTranscriptProjector {
       case 'goal.updated':
         return this.onGoalUpdated(event);
       case 'agent.status.updated':
-        return this.onAgentStatusUpdated(event);
+        return [];
       case 'prompt.queued':
         return this.onPromptQueued(event);
       case 'prompt.submitted':
@@ -597,7 +560,6 @@ export class AgentTranscriptProjector {
     this.openText = undefined;
     this.openThinking = undefined;
     ops.push({ op: 'turn.upsert', turn: this.currentTurn });
-    ops.push({ op: 'meta.merge', meta: { activity: 'turn' } });
     return ops;
   }
 
@@ -720,7 +682,6 @@ export class AgentTranscriptProjector {
       usage: this.takeTurnUsage(turnId),
     };
     ops.push({ op: 'turn.upsert', turn: this.currentTurn });
-    ops.push({ op: 'meta.merge', meta: { activity: 'idle' } });
     this.currentStep = undefined;
     this.pendingTaskNotifications = [];
     if (event.reason === 'cancelled' && event.interruptReason === 'user_cancelled') {
@@ -1088,10 +1049,6 @@ export class AgentTranscriptProjector {
       input,
       inputText: this.toolFrames.get(event.toolCallId)?.frame.inputText,
       display: event.display,
-      todoId:
-        event.name === TODO_LIST_TOOL_NAME && todoWriteItems(input) !== undefined
-          ? TODO_ENTITY_ID
-          : undefined,
     };
     this.toolFrames.set(event.toolCallId, { turnId, stepId: step.stepId, frame });
     ops.push({ op: 'frame.upsert', turnId, stepId: step.stepId, frame });
@@ -1113,17 +1070,7 @@ export class AgentTranscriptProjector {
       error: isError && typeof event.output === 'string' ? event.output : undefined,
     };
     this.toolFrames.set(event.toolCallId, { ...hit, frame });
-    const ops: TranscriptOperation[] = [
-      { op: 'frame.upsert', turnId: hit.turnId, stepId: hit.stepId, frame },
-    ];
-    if (!isError && frame.name === TODO_LIST_TOOL_NAME) {
-      const items = todoWriteItems(frame.input);
-      if (items !== undefined) {
-        const todo: TranscriptTodo = { todoId: TODO_ENTITY_ID, items, updatedAt: nowIso() };
-        ops.push({ op: 'todo.upsert', todo });
-      }
-    }
-    return ops;
+    return [{ op: 'frame.upsert', turnId: hit.turnId, stepId: hit.stepId, frame }];
   }
 
   private adoptToolFrame(toolCallId: string): ToolFrameRecord | undefined {
@@ -1409,148 +1356,15 @@ export class AgentTranscriptProjector {
     return ops;
   }
 
-  private onGoalUpdated(event: {
-    readonly type: string;
-    snapshot: {
-      objective: string;
-      status: 'active' | 'paused' | 'blocked' | 'complete' | 'budget_limited' | 'usage_limited';
-      completionCriterion?: string;
-      tokensUsed: number;
-      budget: { tokenBudget: number | null };
-    } | null;
-  }): TranscriptOperation[] {
-    const ops: TranscriptOperation[] = [];
-    const snapshot = event.snapshot;
-    if (snapshot === null) {
-      ops.push({ op: 'meta.merge', meta: { goal: null } });
-    } else {
-      const status =
-        snapshot.status === 'budget_limited' || snapshot.status === 'usage_limited'
-          ? 'paused'
-          : snapshot.status;
-      ops.push({
-        op: 'meta.merge',
-        meta: {
-          goal: {
-            objective: snapshot.objective,
-            status,
-            completionCriterion: snapshot.completionCriterion,
-            budgetUsed: snapshot.tokensUsed,
-            budgetLimit: snapshot.budget.tokenBudget ?? undefined,
-          },
-        },
-      });
-    }
-    ops.push(this.markerOp('goal', restOf(event)));
-    return ops;
-  }
-
-  private onAgentStatusUpdated(event: {
-    planMode?: boolean;
-    specMode?: boolean;
-    swarmMode?: boolean;
-    helloWorldMode?: boolean;
-    helloWorldStage?: string;
-    towerMode?: boolean;
-    model?: string;
-    thinkingEffort?: string;
-    usage?: AgentUsageMeta;
-    contextTokens?: number;
-    maxContextTokens?: number;
-    contextUsage?: number;
-    permission?: 'manual' | 'yolo' | 'auto';
-  }): TranscriptOperation[] {
-    const ops: TranscriptOperation[] = [];
-    const modes: {
-      plan?: Record<string, never> | null;
-      spec?: Record<string, never> | null;
-      swarm?: Record<string, never> | null;
-      'hello-world'?: { stage?: string } | null;
-      tower?: Record<string, never> | null;
-    } = {};
-    if (event.planMode === true) {
-      modes.plan = {};
-      this.planModeActive = true;
-    } else if (event.planMode === false) {
-      modes.plan = null;
-      this.planModeActive = false;
-    }
-    if (event.specMode === true) modes.spec = {};
-    else if (event.specMode === false) modes.spec = null;
-    if (event.swarmMode === true) modes.swarm = {};
-    else if (event.swarmMode === false) modes.swarm = null;
-    if (event.helloWorldMode === true) modes['hello-world'] = { stage: event.helloWorldStage };
-    else if (event.helloWorldMode === false) modes['hello-world'] = null;
-    else if (event.helloWorldStage !== undefined) {
-      modes['hello-world'] = { stage: event.helloWorldStage };
-    }
-    if (event.towerMode === true) modes.tower = {};
-    else if (event.towerMode === false) modes.tower = null;
-    if (
-      modes.plan !== undefined ||
-      modes.spec !== undefined ||
-      modes.swarm !== undefined ||
-      modes['hello-world'] !== undefined ||
-      modes.tower !== undefined
-    ) {
-      ops.push({ op: 'meta.merge', meta: { modes } });
-    }
-    const agent: {
-      model?: string;
-      thinkingEffort?: string;
-      usage?: AgentUsageMeta;
-      contextTokens?: number;
-      maxContextTokens?: number;
-      contextUsage?: number;
-      permission?: 'manual' | 'yolo' | 'auto';
-    } = {};
-    let hasStatusSlice = false;
-    if (event.model !== undefined) {
-      agent.model = event.model;
-      hasStatusSlice = true;
-    }
-    if (event.thinkingEffort !== undefined) {
-      agent.thinkingEffort = event.thinkingEffort;
-      hasStatusSlice = true;
-    }
-    if (event.usage !== undefined) {
-      agent.usage = event.usage;
-      hasStatusSlice = true;
-    }
-    if (event.contextTokens !== undefined) {
-      agent.contextTokens = event.contextTokens;
-      hasStatusSlice = true;
-    }
-    if (event.maxContextTokens !== undefined) {
-      agent.maxContextTokens = event.maxContextTokens;
-      hasStatusSlice = true;
-    }
-    if (event.contextUsage !== undefined) {
-      agent.contextUsage = event.contextUsage;
-      hasStatusSlice = true;
-    }
-    if (event.permission !== undefined) {
-      agent.permission = event.permission;
-      hasStatusSlice = true;
-    }
-    if (hasStatusSlice) {
-      ops.push({ op: 'meta.merge', meta: { agent } });
-    }
-    return ops;
+  private onGoalUpdated(event: { readonly type: string }): TranscriptOperation[] {
+    return [this.markerOp('goal', restOf(event))];
   }
 
   private onPlanRevision(event: PlanRevisionEvent): TranscriptOperation[] {
     const path = this.lookups?.resolvePlanRevisionKey?.(event.key) ?? event.key;
     const { key: _key, ...rest } = restOf(event);
     const payload = { ...rest, path };
-    const ops: TranscriptOperation[] = [this.markerOp('plan.revision', payload)];
-    if (this.planModeActive) {
-      ops.push({
-        op: 'meta.merge',
-        meta: { modes: { plan: { reviewPath: path, version: event.version } } },
-      });
-    }
-    return ops;
+    return [this.markerOp('plan.revision', payload)];
   }
 
   private markerOp(marker: string, payload: unknown): TranscriptOperation {
@@ -1827,23 +1641,6 @@ function epochMsToIso(value: number): string {
 function restOf(event: { readonly type: string; readonly time?: number }): Record<string, unknown> {
   const { type: _type, time: _time, ...rest } = event;
   return rest;
-}
-
-const TODO_LIST_TOOL_NAME = 'TodoList';
-const TODO_ENTITY_ID = 'todo';
-
-function todoWriteItems(input: unknown): TranscriptTodo['items'] | undefined {
-  const todos = (input as { todos?: unknown } | undefined)?.todos;
-  if (!Array.isArray(todos)) return undefined;
-  const items: { title: string; status: 'pending' | 'in_progress' | 'done' }[] = [];
-  for (const entry of todos) {
-    const title = (entry as { title?: unknown } | undefined)?.title;
-    const status = (entry as { status?: unknown } | undefined)?.status;
-    if (typeof title !== 'string') return undefined;
-    if (status !== 'pending' && status !== 'in_progress' && status !== 'done') return undefined;
-    items.push({ title, status });
-  }
-  return items;
 }
 
 function parseToolArgs(args: unknown): unknown {

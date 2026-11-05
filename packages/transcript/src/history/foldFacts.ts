@@ -12,9 +12,7 @@ import type { AgentRef } from '../model/frame';
 import { turnId as exportTurnKey } from '../model/ids';
 import type { TranscriptInteraction } from '../model/interaction';
 import type { TranscriptItem, TranscriptMarker, TranscriptTaskRef } from '../model/item';
-import type { GoalMeta, GoalStatus, TranscriptMeta } from '../model/meta';
 import type { TranscriptTask } from '../model/task';
-import type { TodoItem, TranscriptTodo } from '../model/todo';
 import type { StepUsage, TranscriptStep, TranscriptTurn } from '../model/turn';
 import type { AgentTranscriptSnapshot } from '../ops/operation';
 
@@ -22,19 +20,6 @@ export interface HistoryWireRecord {
   readonly type: string;
   readonly time?: number;
   readonly [key: string]: unknown;
-}
-
-interface UpdateStorePayload {
-  readonly key?: unknown;
-  readonly value?: unknown;
-}
-
-interface GoalPayload {
-  readonly objective?: unknown;
-  readonly completionCriterion?: unknown;
-  readonly status?: unknown;
-  readonly tokensUsed?: unknown;
-  readonly budgetLimits?: { readonly tokenBudget?: unknown };
 }
 
 interface TaskInfoPayload {
@@ -113,8 +98,6 @@ const TASK_STATES = new Set<TranscriptTask['state']>([
   'lost',
 ]);
 
-const GOAL_STATUSES = new Set<GoalStatus>(['active', 'paused', 'blocked', 'complete']);
-
 function readTurnErrorMessage(error: unknown): string | undefined {
   if (error === null || typeof error !== 'object') return undefined;
   const message = (error as { message?: unknown }).message;
@@ -159,19 +142,6 @@ function epochMsToIso(value: unknown): string | undefined {
 function payloadOf(record: HistoryWireRecord): Record<string, unknown> {
   const { type: _type, time: _time, ...payload } = record;
   return payload;
-}
-
-function readTodoItems(raw: unknown): TodoItem[] {
-  if (!Array.isArray(raw)) return [];
-  const items: TodoItem[] = [];
-  for (const entry of raw) {
-    const title = (entry as { title?: unknown } | undefined)?.title;
-    const status = (entry as { status?: unknown } | undefined)?.status;
-    if (typeof title !== 'string') continue;
-    if (status !== 'pending' && status !== 'in_progress' && status !== 'done') continue;
-    items.push({ title, status });
-  }
-  return items;
 }
 
 export interface WireRecordFactsProjector {
@@ -221,15 +191,6 @@ export function createWireRecordFactsProjector(
       nextTurnId += 1;
     }
   };
-  let todo: TranscriptTodo | undefined;
-  let goal: GoalMeta | undefined;
-  let goalTouched = false;
-  let planActive: boolean | undefined;
-  let planRevision: { readonly reviewPath?: string; readonly version?: number } | undefined;
-  let swarmActive: boolean | undefined;
-  let helloWorldActive: boolean | undefined;
-  let helloWorldStage: string | undefined;
-  let towerActive: boolean | undefined;
 
   const appended: TranscriptItem[] = [];
   const activeCancelTurnIds = new Set<number>();
@@ -374,65 +335,17 @@ export function createWireRecordFactsProjector(
         if (taskId !== agentId) terminalise(agentId);
         break;
       }
-      case 'tools.update_store': {
-        const payload = record as UpdateStorePayload;
-        if (payload.key !== 'todo') break;
-        todo = {
-          todoId: 'todo',
-          items: readTodoItems(payload.value),
-          updatedAt: recordTimeIso(record),
-        };
-        break;
-      }
-      case 'goal.create': {
-        const payload = record as GoalPayload;
-        goalTouched = true;
-        goal = {
-          objective: typeof payload.objective === 'string' ? payload.objective : '',
-          status: 'active',
-          completionCriterion:
-            typeof payload.completionCriterion === 'string'
-              ? payload.completionCriterion
-              : undefined,
-          budgetUsed: 0,
-        };
-        pushMarker('goal', record);
-        break;
-      }
+      case 'goal.create':
       case 'goal.update': {
-        const payload = record as GoalPayload;
-        goalTouched = true;
-        if (goal !== undefined) {
-          const tokenBudget = payload.budgetLimits?.tokenBudget;
-          goal = {
-            ...goal,
-            status:
-              typeof payload.status === 'string' && GOAL_STATUSES.has(payload.status as GoalStatus)
-                ? (payload.status as GoalStatus)
-                : goal.status,
-            budgetUsed:
-              typeof payload.tokensUsed === 'number' ? payload.tokensUsed : goal.budgetUsed,
-            budgetLimit: typeof tokenBudget === 'number' ? tokenBudget : goal.budgetLimit,
-          };
-        }
         pushMarker('goal', record);
-        break;
-      }
-      case 'goal.clear': {
-        goalTouched = true;
-        goal = undefined;
         break;
       }
       case 'plan_mode.enter': {
-        planActive = true;
-        planRevision = undefined;
         pushMarker('plan.enter', record);
         break;
       }
       case 'plan_mode.exit':
       case 'plan_mode.cancel': {
-        planActive = false;
-        planRevision = undefined;
         pushMarker('plan.exit', record);
         break;
       }
@@ -444,11 +357,6 @@ export function createWireRecordFactsProjector(
             : typeof payload.path === 'string'
               ? payload.path
               : undefined;
-        planActive = true;
-        planRevision = {
-          reviewPath: path,
-          version: typeof payload.version === 'number' ? payload.version : undefined,
-        };
         if (path === undefined) {
           pushMarker('plan.revision', record);
         } else {
@@ -458,40 +366,25 @@ export function createWireRecordFactsProjector(
         break;
       }
       case 'swarm_mode.enter': {
-        if (record['trigger'] !== 'tool') swarmActive = true;
         pushMarker('swarm.enter', record);
         break;
       }
       case 'swarm_mode.exit': {
-        swarmActive = false;
         pushMarker('swarm.exit', record);
         break;
       }
       case 'hello_world_mode.enter': {
-        helloWorldActive = true;
-        helloWorldStage = 'requirements';
         pushMarker('hello-world.enter', record);
         break;
       }
       case 'hello_world_mode.exit': {
-        helloWorldActive = false;
-        helloWorldStage = undefined;
         pushMarker('hello-world.exit', record);
         break;
       }
       case 'hello_world_run.updated': {
         const stage = record['stage'];
-        if (typeof stage !== 'string' || stage === helloWorldStage) break;
-        helloWorldStage = stage;
+        if (typeof stage !== 'string') break;
         pushMarker('hello-world.stage', record);
-        break;
-      }
-      case 'tower_mode.enter': {
-        towerActive = true;
-        break;
-      }
-      case 'tower_mode.exit': {
-        towerActive = false;
         break;
       }
       case 'task.started':
@@ -876,41 +769,6 @@ export function createWireRecordFactsProjector(
             });
           })();
 
-    const modesTouched =
-      planActive !== undefined ||
-      swarmActive !== undefined ||
-      helloWorldActive !== undefined ||
-      helloWorldStage !== undefined ||
-      towerActive !== undefined;
-    const meta: TranscriptMeta = {
-      ...base.meta,
-      goal: goalTouched ? goal : base.meta.goal,
-      modes: modesTouched
-        ? {
-            ...base.meta.modes,
-            plan:
-              planActive === undefined
-                ? base.meta.modes?.plan
-                : planActive
-                  ? (planRevision ?? {})
-                  : undefined,
-            swarm:
-              swarmActive === undefined ? base.meta.modes?.swarm : swarmActive ? {} : undefined,
-            'hello-world':
-              helloWorldActive === false
-                ? undefined
-                : helloWorldActive === undefined && helloWorldStage === undefined
-                  ? base.meta.modes?.['hello-world']
-                  : {
-                      trigger: base.meta.modes?.['hello-world']?.trigger,
-                      stage: helloWorldStage,
-                    },
-            tower:
-              towerActive === undefined ? base.meta.modes?.tower : towerActive ? {} : undefined,
-          }
-        : base.meta.modes,
-    };
-
     let restoredItems = appended.length > 0 ? [...realignedItems, ...appended] : realignedItems;
     if (subagentRefs.size > 0) {
       restoredItems = restoredItems.map((item) => {
@@ -940,8 +798,6 @@ export function createWireRecordFactsProjector(
       items: restoredItems,
       tasks: [...tasks.values()],
       interactions: [...projectedInteractions.values()],
-      todos: todo !== undefined ? [todo] : base.todos,
-      meta,
     };
   };
 

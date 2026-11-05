@@ -572,9 +572,7 @@ export function createHistoryMessageProjector(): HistoryMessageProjector {
     tasks: [],
     interactions: [],
     attachments: [...attachments],
-    todos: [],
     prompts: [],
-    meta: {},
   });
 
   const result = (): AgentTranscriptSnapshot => {

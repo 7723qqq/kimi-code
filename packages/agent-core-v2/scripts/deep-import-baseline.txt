@@ -125,6 +125,7 @@ packages/kap-server/src/protocol/events-zod.ts _base/utils/isoDateTime
 packages/kap-server/src/protocol/interaction.ts _base/utils/isoDateTime
 packages/kap-server/src/protocol/rest-snapshot.ts _base/utils/isoDateTime
 packages/kap-server/src/protocol/ws-task.ts _base/utils/isoDateTime
+packages/kap-server/src/protocol/ws-agent.ts _base/utils/isoDateTime
 packages/kap-server/src/transport/ws/v1/taskState.ts agent/task/types
 packages/kap-server/src/protocol/message.ts _base/utils/isoDateTime
 packages/kap-server/src/protocol/question.ts _base/utils/isoDateTime

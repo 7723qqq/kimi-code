@@ -3,10 +3,8 @@ import type { TranscriptFrame } from '../model/frame';
 import type { AgentId, FrameId, StepId, TaskId, TurnId } from '../model/ids';
 import type { TranscriptInteraction } from '../model/interaction';
 import type { TranscriptItem, TranscriptMarker, TranscriptTaskRef } from '../model/item';
-import type { TranscriptMeta, TranscriptMetaMerge } from '../model/meta';
 import type { TranscriptPrompt } from '../model/prompt';
 import type { TranscriptTask } from '../model/task';
-import type { TranscriptTodo } from '../model/todo';
 import type { TranscriptStep, TranscriptTurn } from '../model/turn';
 
 export type TurnHeader = Omit<TranscriptTurn, 'steps'>;
@@ -79,19 +77,9 @@ export interface AttachmentUpsertOp {
   readonly attachment: TranscriptAttachment;
 }
 
-export interface TodoUpsertOp {
-  readonly op: 'todo.upsert';
-  readonly todo: TranscriptTodo;
-}
-
 export interface PromptUpsertOp {
   readonly op: 'prompt.upsert';
   readonly prompt: TranscriptPrompt;
-}
-
-export interface MetaMergeOp {
-  readonly op: 'meta.merge';
-  readonly meta: TranscriptMetaMerge;
 }
 
 export interface ItemsRemoveOp {
@@ -110,9 +98,7 @@ export type TranscriptOperation =
   | TaskUpsertOp
   | InteractionUpsertOp
   | AttachmentUpsertOp
-  | TodoUpsertOp
   | PromptUpsertOp
-  | MetaMergeOp
   | ItemsRemoveOp;
 
 export interface TranscriptOpBatch {
@@ -125,9 +111,7 @@ export interface AgentTranscriptSnapshot {
   readonly tasks: readonly TranscriptTask[];
   readonly interactions: readonly TranscriptInteraction[];
   readonly attachments: readonly TranscriptAttachment[];
-  readonly todos: readonly TranscriptTodo[];
   readonly prompts: readonly TranscriptPrompt[];
-  readonly meta: TranscriptMeta;
   readonly hasMoreOlder?: boolean;
 }
 

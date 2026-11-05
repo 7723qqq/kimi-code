@@ -6,31 +6,22 @@ import type { UserPromptOrigin } from '@moonshot-ai/agent-core-v2';
 import {
   IAgentLifecycleService,
   IAgentContextMemoryService,
-  IFlagService,
   IWireService,
   ISessionIndex,
-  ISessionManager,
   ISessionMetadata,
   IAgentLoopService,
-  TOWER_FLAG_ID,
   followSessionLifecycles,
   getLiveSessionById,
-  isTowerFeatureAssembled,
   type IDisposable,
   type Scope,
   type SessionMeta,
 } from '@moonshot-ai/agent-core-v2';
-import {
-  TowerStore,
-  resolveTowerRepoRoot,
-} from '@moonshot-ai/agent-core-v2/features/tower/protocol/index';
 import {
   TranscriptStore,
   groupMessagesIntoSnapshot,
   isPlainAgentId,
   turnId as exportTurnKey,
   type AgentDescriptor,
-  type ActivityMeta,
   type AgentTranscript,
   type AgentTranscriptSnapshot,
   type TranscriptChangeEvent,
@@ -208,8 +199,7 @@ export class TranscriptService {
         (op) => op.op !== 'attachment.upsert' || !superseded.has(op.attachment.attachmentId),
       );
       const overlay = this.liveTurnOverlay(sessionId, agentId, transcript, snapshot);
-      if (overlay !== undefined)
-        ops.push(overlay, { op: 'meta.merge', meta: { activity: 'turn' } });
+      if (overlay !== undefined) ops.push(overlay);
       ops.push(...this.livePromptBackfill(sessionId, agentId));
       const result = transcript.apply(ops);
       if (result.gap !== undefined) {
@@ -581,32 +571,16 @@ export class TranscriptService {
       throw error;
     }
     const status = liveAgents?.handleOf(agentId)?.accessor.get(IAgentLoopService).snapshot();
-    const activity: ActivityMeta = status?.state === 'running' ? 'turn' : 'idle';
-    const snapshot = {
+    return {
       ...folded,
       tasks: markLostSubagentTasks(
         folded,
-        activity,
+        status?.state === 'running',
         (memberId) =>
           liveAgents?.handleOf(memberId)?.accessor.get(IAgentLoopService).snapshot().state ===
           'running',
       ),
-      meta: { ...folded.meta, activity },
     };
-    if (snapshot.meta.modes?.tower === undefined) return snapshot;
-    const flags = this.deps.core.accessor.get(IFlagService);
-    if (
-      agentId === MAIN_AGENT_ID &&
-      flags.enabled(TOWER_FLAG_ID) &&
-      isTowerFeatureAssembled(flags) &&
-      (await this.coldTowerOwnedHere(sessionId, summary.cwd))
-    ) {
-      return snapshot;
-    }
-    const modes = { ...snapshot.meta.modes, tower: undefined };
-    const cleared =
-      modes.plan === undefined && modes.swarm === undefined && modes.tower === undefined;
-    return { ...snapshot, meta: { ...snapshot.meta, modes: cleared ? undefined : modes } };
   }
 
   private async drainLiveWire(
@@ -624,16 +598,6 @@ export class TranscriptService {
         'transcript: draining the live wire before a cold read failed',
       );
     }
-  }
-
-  private async coldTowerOwnedHere(sessionId: string, cwd: string | undefined): Promise<boolean> {
-    if (cwd === undefined) return true;
-    const owner = await new TowerStore(resolveTowerRepoRoot(cwd)).load().then(
-      (state) => state.sessionId,
-      () => undefined,
-    );
-    if (owner === undefined || owner === sessionId) return true;
-    return this.deps.core.accessor.get(ISessionManager).get(owner) === undefined;
   }
 
   dropSession(sessionId: string): void {
@@ -685,7 +649,6 @@ export function snapshotToOps(
   for (const task of snapshot.tasks) {
     ops.push({ op: 'task.upsert', task });
   }
-  ops.push({ op: 'meta.merge', meta: snapshot.meta });
   return ops;
 }
 
@@ -736,7 +699,7 @@ function latestTurnOrdinal(snapshot: AgentTranscriptSnapshot): number | undefine
 
 function markLostSubagentTasks(
   snapshot: AgentTranscriptSnapshot,
-  activity: ActivityMeta,
+  ownerTurnRunning: boolean,
   isMemberRunning: (memberId: string) => boolean,
 ): readonly TranscriptTask[] {
   const ordinals = memberTurnOrdinals(snapshot);
@@ -744,7 +707,7 @@ function markLostSubagentTasks(
   const interrupted = (task: TranscriptTask): boolean => {
     if (task.kind !== 'subagent' || task.detached || task.state !== 'running') return false;
     if (task.agentId !== undefined && isMemberRunning(task.agentId)) return false;
-    if (activity !== 'turn') return true;
+    if (!ownerTurnRunning) return true;
     const owner = task.agentId === undefined ? undefined : ordinals.get(task.agentId);
     return owner !== undefined && owner !== latest;
   };

@@ -5,8 +5,6 @@ import { projectTranscriptUserOrigin } from '#/contract/origin';
 import {
   agentTranscriptSnapshotSchema,
   isPlainAgentId,
-  modesMetaMergeSchema,
-  modesMetaSchema,
   transcriptOperationSchema,
   transcriptOpsCatchupResponseSchema,
   transcriptPlanResponseSchema,
@@ -23,7 +21,6 @@ import { foldWireRecordFacts, type HistoryWireRecord } from '#/history/foldFacts
 import { groupMessagesIntoSnapshot, type HistoryContentPart } from '#/history/groupTurns';
 import { compareTurnIds, frameId, stepId, turnId, turnOrdinal } from '#/model/ids';
 import type { TranscriptItem } from '#/model/item';
-import type { ModesMeta, ModesMetaMerge } from '#/model/meta';
 import type { AgentTranscriptSnapshot, TranscriptOperation } from '#/ops/operation';
 import { paginateTurns } from '#/pagination/paginate';
 import { ViewRegistry } from '#/view/registry';
@@ -188,7 +185,6 @@ describe('granularity', () => {
     frameOp,
     appendOp,
     promptOp,
-    { op: 'meta.merge', meta: { activity: 'turn' } },
   ];
 
   it('off admits nothing', () => {
@@ -199,7 +195,6 @@ describe('granularity', () => {
     expect(filterOpsForGrade('turn', ops).map((op) => op.op)).toEqual([
       'turn.upsert',
       'prompt.upsert',
-      'meta.merge',
     ]);
   });
 
@@ -209,7 +204,6 @@ describe('granularity', () => {
       'step.upsert',
       'frame.upsert',
       'prompt.upsert',
-      'meta.merge',
     ]);
   });
 
@@ -291,18 +285,13 @@ describe('granularity', () => {
           source: { kind: 'url' as const, url: 'https://example.com/a.png' },
         },
       ],
-      todos: [
-        { todoId: 'todo', items: [{ title: 'write tests', status: 'in_progress' as const }] },
-      ],
       prompts: [
         { promptId: 'p1', status: 'running' as const, createdAt: '2026-07-22T00:00:00.000Z' },
       ],
-      meta: {},
     };
     const turnGrade = redactSnapshotForGrade('turn', snapshot);
     expect(turnGrade.interactions).toHaveLength(1);
     expect(turnGrade.attachments).toHaveLength(1);
-    expect(turnGrade.todos).toHaveLength(1);
     expect(turnGrade.prompts).toHaveLength(1);
     const turn = turnGrade.items[0];
     expect(turn?.kind === 'turn' && turn.steps).toEqual([]);
@@ -485,39 +474,6 @@ describe('ViewRegistry', () => {
 });
 
 describe('contract schemas', () => {
-  it('modes schemas carry every key the model declares', () => {
-    const modelKeys: Record<keyof ModesMeta, true> = {
-      plan: true,
-      spec: true,
-      swarm: true,
-      'hello-world': true,
-      tower: true,
-    };
-    const mergeKeys: Record<keyof ModesMetaMerge, true> = {
-      plan: true,
-      spec: true,
-      swarm: true,
-      'hello-world': true,
-      tower: true,
-    };
-    expect(Object.keys(modesMetaSchema.shape).toSorted()).toEqual(
-      Object.keys(modelKeys).toSorted(),
-    );
-    expect(Object.keys(modesMetaMergeSchema.shape).toSorted()).toEqual(
-      Object.keys(mergeKeys).toSorted(),
-    );
-    const modes = {
-      plan: {},
-      spec: { dir: '/d' },
-      swarm: {},
-      'hello-world': { trigger: 'task', stage: 'design' },
-      tower: {},
-    };
-    expect(modesMetaSchema.parse(modes)).toEqual(modes);
-    expect(modesMetaMergeSchema.parse(modes)).toEqual(modes);
-    expect(modesMetaMergeSchema.parse({ 'hello-world': null })).toEqual({ 'hello-world': null });
-  });
-
   it('roundtrips every op kind', () => {
     const ops: TranscriptOperation[] = [
       {
@@ -528,9 +484,7 @@ describe('contract schemas', () => {
           tasks: [],
           interactions: [],
           attachments: [],
-          todos: [],
           prompts: [],
-          meta: {},
           hasMoreOlder: true,
         },
       },
@@ -561,9 +515,7 @@ describe('contract schemas', () => {
           source: { kind: 'file', fileId: 'f1' },
         },
       },
-      { op: 'todo.upsert', todo: { todoId: 'todo', items: [{ title: 'x', status: 'done' }] } },
       promptOp,
-      { op: 'meta.merge', meta: { goal: { objective: 'x', status: 'active' } } },
       { op: 'items.remove', ids: ['t1'] },
     ];
     for (const op of ops) {
@@ -582,7 +534,6 @@ describe('contract schemas', () => {
           tasks: [],
           interactions: [],
           attachments: [],
-          todos: [],
           prompts: [
             {
               promptId: 'p1',
@@ -594,28 +545,6 @@ describe('contract schemas', () => {
               steeredAt: '2026-07-22T00:00:30.000Z',
             },
           ],
-          meta: {
-            agent: {
-              model: 'k2',
-              thinkingEffort: 'high',
-              usage: { byModel: { k2: usage }, currentTurn: usage, total: usage },
-              contextTokens: 1234,
-              maxContextTokens: 128000,
-              contextUsage: 0.01,
-              permission: 'auto',
-              phase: {
-                kind: 'retrying',
-                turnId: 1,
-                step: 1,
-                stepId: 't1.1',
-                failedAttempt: 1,
-                nextAttempt: 2,
-                maxAttempts: 3,
-                delayMs: 500,
-                since: 1000,
-              },
-            },
-          },
         },
       },
       {
@@ -699,15 +628,6 @@ describe('contract schemas', () => {
           usage,
         },
       },
-      {
-        op: 'meta.merge',
-        meta: {
-          agent: {
-            model: 'k2',
-            phase: { kind: 'ended', turnId: 1, reason: 'completed', durationMs: 1500, at: 2000 },
-          },
-        },
-      },
     ];
     for (const op of ops) {
       expect(transcriptOperationSchema.parse(op)).toEqual(
@@ -772,8 +692,6 @@ describe('contract schemas', () => {
       tasks: [],
       interactions: [],
       attachments: [],
-      todos: [],
-      meta: {},
       agents: [{ agentId: 'main', type: 'main' }],
       pending_interactions: [],
     });
@@ -815,10 +733,9 @@ describe('contract schemas', () => {
   });
 
   it('snapshot schema defaults late-added entity channels for older servers', () => {
-    const parsed = agentTranscriptSnapshotSchema.parse({ items: [], tasks: [], meta: {} });
+    const parsed = agentTranscriptSnapshotSchema.parse({ items: [], tasks: [] });
     expect(parsed.interactions).toEqual([]);
     expect(parsed.attachments).toEqual([]);
-    expect(parsed.todos).toEqual([]);
     expect(parsed.prompts).toEqual([]);
     expect(parsed.hasMoreOlder).toBeUndefined();
   });
@@ -936,46 +853,10 @@ describe('contract schemas', () => {
     ).toBe(false);
   });
 
-  it('roundtrips todo items carrying hierarchy and progress (all new fields optional)', () => {
-    const todo: Extract<
-      ReturnType<typeof transcriptOperationSchema.parse>,
-      { op: 'todo.upsert' }
-    >['todo'] = {
-      todoId: 'todo',
-      items: [
-        { id: 'T1', parentId: null, kind: 'milestone', title: 'M1', status: 'pending' },
-        {
-          id: 'T1.1',
-          parentId: 'T1',
-          kind: 'task',
-          title: 'leaf',
-          status: 'in_progress',
-          progress: 40,
-        },
-        { title: 'legacy', status: 'done' },
-      ],
-      updatedAt: '2026-08-20T00:00:00.000Z',
-    };
-    const rich = transcriptOperationSchema.parse({ op: 'todo.upsert', todo });
-    expect(rich).toEqual({ op: 'todo.upsert', todo });
-
-    expect(
-      transcriptOperationSchema.safeParse({
-        op: 'todo.upsert',
-        todo: { todoId: 'todo', items: [{ title: 'x', status: 'done', kind: 'bogus' }] },
-      }).success,
-    ).toBe(false);
-    expect(
-      transcriptOperationSchema.safeParse({
-        op: 'todo.upsert',
-        todo: { todoId: 'todo', items: [{ title: 'x', status: 'done', progress: 101 }] },
-      }).success,
-    ).toBe(false);
-  });
 });
 
 describe('transcript WS events', () => {
-  const snapshot = { items: [], tasks: [], meta: {} };
+  const snapshot = { items: [], tasks: [] };
 
   it('parses reset and ops events; seq stays optional for legacy peers', () => {
     expect(
@@ -2533,49 +2414,7 @@ describe('foldWireRecordFacts (cold facts)', () => {
     expect(folded.items).toBe(base.items);
   });
 
-  it('folds todo records into the global todo document, last write wins', () => {
-    const base = baseWithMarker();
-    const folded = foldWireRecordFacts(
-      [
-        {
-          type: 'tools.update_store',
-          key: 'todo',
-          value: [{ title: 'old', status: 'pending' }],
-          time: 1000,
-        },
-        {
-          type: 'tools.update_store',
-          key: 'other',
-          value: [{ title: 'ignored', status: 'done' }],
-          time: 2000,
-        },
-        {
-          type: 'tools.update_store',
-          key: 'todo',
-          value: [
-            { title: 'write tests', status: 'in_progress' },
-            { title: 'ship', status: 'pending' },
-            { title: 'malformed' },
-          ],
-          time: 3000,
-        },
-      ],
-      base,
-    );
-    expect(folded.todos).toEqual([
-      {
-        todoId: 'todo',
-        items: [
-          { title: 'write tests', status: 'in_progress' },
-          { title: 'ship', status: 'pending' },
-        ],
-        updatedAt: new Date(3000).toISOString(),
-      },
-    ]);
-    expect(folded.items).toBe(base.items);
-  });
-
-  it('folds goal create/update/clear into meta.goal with markers, last write wins', () => {
+  it('adds a marker for every goal create and update record', () => {
     const base = baseWithMarker();
     expect(base.items.some((item) => item.kind === 'marker' && item.markerId === 'm1')).toBe(true);
 
@@ -2593,13 +2432,6 @@ describe('foldWireRecordFacts (cold facts)', () => {
       ],
       base,
     );
-    expect(folded.meta.goal).toEqual({
-      objective: 'fix the bug',
-      status: 'blocked',
-      completionCriterion: 'tests pass',
-      budgetUsed: 1200,
-      budgetLimit: 50000,
-    });
     const goalMarkers = folded.items.filter(
       (item) => item.kind === 'marker' && item.marker === 'goal',
     );
@@ -2610,15 +2442,6 @@ describe('foldWireRecordFacts (cold facts)', () => {
     ]);
     expect(goalMarkers[0]).toMatchObject({ at: new Date(1000).toISOString() });
     expect(folded.items.slice(0, base.items.length)).toEqual(base.items as TranscriptItem[]);
-
-    const cleared = foldWireRecordFacts(
-      [
-        { type: 'goal.create', goalId: 'g1', objective: 'fix the bug', time: 1000 },
-        { type: 'goal.clear', time: 2000 },
-      ],
-      base,
-    );
-    expect(cleared.meta.goal).toBeUndefined();
   });
 
   it('marks user-cancelled turns with interruption markers, skipping unattributable cancels', () => {
@@ -2648,7 +2471,7 @@ describe('foldWireRecordFacts (cold facts)', () => {
     ]);
   });
 
-  it('folds plan/swarm mode records into meta.modes with enter/exit markers', () => {
+  it('adds plan/swarm enter and exit markers', () => {
     const base = baseWithMarker();
     const folded = foldWireRecordFacts(
       [
@@ -2658,71 +2481,10 @@ describe('foldWireRecordFacts (cold facts)', () => {
       ],
       base,
     );
-    expect(folded.meta.modes).toEqual({ swarm: {} });
     const markers = folded.items
       .filter((item) => item.kind === 'marker')
       .map((item) => item.kind === 'marker' && item.marker);
     expect(markers).toEqual(['compaction', 'plan.enter', 'swarm.enter', 'plan.exit']);
-
-    const cancelled = foldWireRecordFacts(
-      [
-        { type: 'plan_mode.enter', id: 'plan-1', time: 1000 },
-        { type: 'plan_mode.cancel', time: 2000 },
-        { type: 'swarm_mode.enter', trigger: { kind: 'tool' }, time: 3000 },
-        { type: 'swarm_mode.exit', time: 4000 },
-      ],
-      base,
-    );
-    expect(cancelled.meta.modes).toEqual({});
-
-    const stillPlanning = foldWireRecordFacts(
-      [{ type: 'plan_mode.enter', id: 'plan-1', time: 1000 }],
-      base,
-    );
-    expect(stillPlanning.meta.modes).toEqual({ plan: {} });
-  });
-
-  it('keeps a model-started swarm that an older version never closed out of meta.modes', () => {
-    const base = baseWithMarker();
-    const markersOf = (snapshot: AgentTranscriptSnapshot) =>
-      snapshot.items
-        .filter((item) => item.kind === 'marker')
-        .map((item) => item.kind === 'marker' && item.marker);
-
-    const modelStarted = foldWireRecordFacts(
-      [{ type: 'swarm_mode.enter', agentId: 'main', trigger: 'tool', time: 1000 }],
-      base,
-    );
-    expect(modelStarted.meta.modes?.swarm).toBeUndefined();
-    expect(markersOf(modelStarted)).toEqual(['compaction', 'swarm.enter']);
-
-    const userStarted = foldWireRecordFacts(
-      [{ type: 'swarm_mode.enter', agentId: 'main', trigger: 'manual', time: 1000 }],
-      base,
-    );
-    expect(userStarted.meta.modes).toEqual({ swarm: {} });
-  });
-
-  it('folds tower mode records into meta.modes without markers', () => {
-    const base = baseWithMarker();
-    const folded = foldWireRecordFacts(
-      [
-        { type: 'tower_mode.enter', time: 1000 },
-        { type: 'tower_mode.exit', time: 2000 },
-        { type: 'tower_mode.enter', time: 3000 },
-      ],
-      base,
-    );
-    expect(folded.meta.modes).toEqual({ tower: {} });
-
-    const exited = foldWireRecordFacts(
-      [
-        { type: 'tower_mode.enter', time: 1000 },
-        { type: 'tower_mode.exit', time: 2000 },
-      ],
-      base,
-    );
-    expect(exited.meta.modes).toEqual({});
   });
 
   it('folds hello_world_run.updated into the hello-world stage with hello-world.stage markers', () => {
@@ -2750,11 +2512,16 @@ describe('foldWireRecordFacts (cold facts)', () => {
       ],
       base,
     );
-    expect(folded.meta.modes).toEqual({ 'hello-world': { stage: 'design' } });
-    expect(markerNames(folded)).toEqual(['compaction', 'hello-world.enter', 'hello-world.stage']);
+    expect(markerNames(folded)).toEqual([
+      'compaction',
+      'hello-world.enter',
+      'hello-world.stage',
+      'hello-world.stage',
+      'hello-world.stage',
+    ]);
     expect(
       folded.items.find((item) => item.kind === 'marker' && item.marker === 'hello-world.stage'),
-    ).toMatchObject({ marker: 'hello-world.stage', payload: { stage: 'design' } });
+    ).toMatchObject({ marker: 'hello-world.stage', payload: { stage: 'requirements' } });
 
     const exited = foldWireRecordFacts(
       [
@@ -2764,7 +2531,6 @@ describe('foldWireRecordFacts (cold facts)', () => {
       ],
       base,
     );
-    expect(exited.meta.modes).toEqual({});
     expect(markerNames(exited)).toEqual([
       'compaction',
       'hello-world.enter',
@@ -2781,7 +2547,6 @@ describe('foldWireRecordFacts (cold facts)', () => {
       ],
       base,
     );
-    expect(reentered.meta.modes).toEqual({ 'hello-world': { stage: 'requirements' } });
     expect(markerNames(reentered)).toEqual([
       'compaction',
       'hello-world.enter',
@@ -2790,21 +2555,9 @@ describe('foldWireRecordFacts (cold facts)', () => {
       'hello-world.enter',
     ]);
 
-    const withTrigger: AgentTranscriptSnapshot = {
-      ...base,
-      meta: { ...base.meta, modes: { 'hello-world': { trigger: 'task' } } },
-    };
-    const kept = foldWireRecordFacts(
-      [
-        { type: 'hello_world_mode.enter', agentId: 'main', trigger: 'task', time: 1000 },
-        runUpdate('implement', 2000),
-      ],
-      withTrigger,
-    );
-    expect(kept.meta.modes).toEqual({ 'hello-world': { trigger: 'task', stage: 'implement' } });
   });
 
-  it('folds plan.revision records into the plan badge and a timeline marker', () => {
+  it('folds plan.revision records into a timeline marker with the resolved path', () => {
     const base = baseWithMarker();
     const revision = {
       type: 'plan.revision',
@@ -2820,9 +2573,6 @@ describe('foldWireRecordFacts (cold facts)', () => {
       base,
       { resolvePlanRevisionKey: (key) => `sessions/w/s/agents/main/${key}` },
     );
-    expect(folded.meta.modes).toEqual({
-      plan: { reviewPath: 'sessions/w/s/agents/main/plan/plan-1/v2.md', version: 2 },
-    });
     const revisionMarkers = folded.items.filter(
       (item) => item.kind === 'marker' && item.marker === 'plan.revision',
     );
@@ -2841,30 +2591,6 @@ describe('foldWireRecordFacts (cold facts)', () => {
         at: new Date(2000).toISOString(),
       },
     ]);
-
-    const exited = foldWireRecordFacts(
-      [
-        { type: 'plan_mode.enter', id: 'plan-1', time: 1000 },
-        revision,
-        { type: 'plan_mode.exit', id: 'plan-1', time: 3000 },
-      ],
-      base,
-    );
-    expect(exited.meta.modes?.plan).toBeUndefined();
-    expect(
-      exited.items.filter((item) => item.kind === 'marker' && item.marker === 'plan.revision'),
-    ).toHaveLength(1);
-
-    const reentered = foldWireRecordFacts(
-      [
-        { type: 'plan_mode.enter', id: 'plan-1', time: 1000 },
-        revision,
-        { type: 'plan_mode.exit', id: 'plan-1', time: 3000 },
-        { type: 'plan_mode.enter', id: 'plan-2', time: 4000 },
-      ],
-      base,
-    );
-    expect(reentered.meta.modes).toEqual({ plan: {} });
   });
 
   it('folds legacy plan.revision path records without a key', () => {
@@ -2882,9 +2608,6 @@ describe('foldWireRecordFacts (cold facts)', () => {
       [{ type: 'plan_mode.enter', id: 'plan-1', time: 1000 }, legacy],
       base,
     );
-    expect(folded.meta.modes).toEqual({
-      plan: { reviewPath: 'sessions/w/s/agents/main/plan/plan-1/v1.md', version: 1 },
-    });
     const revisionMarkers = folded.items.filter(
       (item) => item.kind === 'marker' && item.marker === 'plan.revision',
     );

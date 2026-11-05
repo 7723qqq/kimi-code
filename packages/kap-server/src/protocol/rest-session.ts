@@ -1,5 +1,4 @@
 import {
-  sessionStatusResponseSchema,
   sessionWarningSchema,
   sessionWarningsResponseSchema,
   updateSessionProfileRequestSchema,
@@ -19,13 +18,11 @@ import {
 } from './session';
 
 export {
-  sessionStatusResponseSchema,
   sessionWarningSchema,
   sessionWarningsResponseSchema,
   updateSessionProfileRequestSchema,
 };
 export type {
-  SessionStatusResponse,
   SessionWarning,
   SessionWarningsResponse,
   UpdateSessionProfileRequest,
@@ -170,7 +167,6 @@ export type UndoSessionRequest = z.infer<typeof undoSessionRequestSchema>;
 
 export const undoSessionResponseSchema = z.object({
   messages: pageResponseSchema(messageSchema),
-  status: sessionStatusResponseSchema,
 });
 export type UndoSessionResponse = z.infer<typeof undoSessionResponseSchema>;
 

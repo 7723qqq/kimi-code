@@ -23,7 +23,6 @@ import type {
   TranscriptStore,
 } from '@moonshot-ai/transcript';
 
-import { legacyApprovalsOf } from '../legacyStatus/legacyActivity';
 import {
   AgentTranscriptProjector,
   type ProjectorBusEvent,
@@ -107,12 +106,6 @@ export function bindSessionTranscript(
           const turn = agentHandle.accessor.get(IAgentLoopService)?.snapshot().turn;
           return turn === undefined || `t${turn.turnId}` !== turnId ? undefined : turn.step;
         },
-        activitySnapshot: () =>
-          agents.handleOf(agentId)?.accessor.get(IAgentLoopService)?.snapshot() ?? {},
-        pendingApprovals: () => {
-          const agentHandle = agents.handleOf(agentId);
-          return agentHandle === undefined ? [] : legacyApprovalsOf(agentHandle);
-        },
         turn: (turnId) => store.getAgent(agentId)?.getTurn(turnId),
         maxOrdinal: () => {
           let max = -1;
@@ -166,7 +159,6 @@ export function bindSessionTranscript(
     if (loopStatus?.state === 'running' && loopStatus.activeTurnId !== undefined) {
       const promptId = loopStatus.activePromptId;
       projector.seedActiveTurn({ turnId: loopStatus.activeTurnId, promptId });
-      applyOps(handle.id, projector.seedPhase());
     }
     const list = agentDisposables.get(handle.id) ?? [];
     list.push(busD);

@@ -5,29 +5,15 @@ import {
   ScopeActivation,
   registerScopedService,
 } from '#/_base/di/scope';
-import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import { IAgentProfileService } from '#/agent/profile/profile';
-import { agentContextOf } from '#/agent/scopeContext/scopeContext';
-import { IAgentTaskService } from '#/agent/task/task';
 import { LifecycleScope } from '#/app/scopes';
-import { getLiveSessionById, resumeSessionById } from '#/app/sessionManager/sessionLookup';
+import { resumeSessionById } from '#/app/sessionManager/sessionLookup';
 import { ErrorCodes, Error2 } from '#/errors';
 import { IAgentGoalService } from '#/features/goal/goalService';
 import type { GoalSnapshot } from '#/features/goal/types';
-import { IAgentHelloWorldService } from '#/features/helloWorld/agent/helloWorld';
-import { IAgentPlanService } from '#/features/plan/plan';
-import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
-import { IAgentTowerService } from '#/features/tower/tower';
-import { IModelCatalog } from '#/llm-adapter/model/catalog';
-import { IModelService } from '#/llm-adapter/model/model';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ensureMainAgent } from '#/session/agentLifecycle/mainAgent';
-import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 
 import { ISessionLegacyService } from './sessionLegacy';
-import type { SessionStatusResponse } from './sessionProtocol';
 
 export class SessionLegacyService implements ISessionLegacyService {
   declare readonly _serviceBrand: undefined;
@@ -57,77 +43,9 @@ export class SessionLegacyService implements ISessionLegacyService {
     return handle;
   }
 
-  async status(sessionId: string): Promise<SessionStatusResponse> {
-    const agent = await this.resolveMainAgent(sessionId);
-    return this.assembleStatus(sessionId, agent);
-  }
-
-  private async assembleStatus(
-    sessionId: string,
-    agent: IAgentScopeHandle,
-  ): Promise<SessionStatusResponse> {
-    const profile = agent.accessor.get(IAgentProfileService);
-    const tokenCounting = agent.accessor.get(ISessionTokenCountingService);
-    const permission = agent.accessor.get(IAgentPermissionModeService);
-    const plan = agent.accessor.get(IAgentPlanService);
-    const swarm = agent.accessor.get(IAgentSwarmService);
-    const helloWorld = agent.accessor.get(IAgentHelloWorldService);
-    const tower = agent.accessor.get(IAgentTowerService);
-
-    const model = profile.getModel();
-    const capabilities = profile.getModelCapabilities();
-    let maxTokens = capabilities.max_input_tokens ?? capabilities.max_context_tokens;
-    if (maxTokens === 0 && model === '') {
-      maxTokens = resolveDefaultModelContextTokens(agent) ?? 0;
-    }
-    const tokens = tokenCounting.statusSize(agentContextOf(agent));
-    const planData = await plan.status();
-
-    return {
-      busy: this.readBusy(sessionId),
-      model: model === '' ? undefined : model,
-      thinking_level: model === '' ? '' : profile.getEffectiveThinkingLevel(),
-      permission: permission.mode,
-      plan_mode: planData !== null,
-      swarm_mode: swarm.isActive,
-      hello_world_mode: helloWorld.isActive,
-      hello_world_stage: helloWorld.run?.stage,
-      tower_mode: tower.isActive,
-      context_tokens: tokens,
-      max_context_tokens: maxTokens > 0 ? maxTokens : undefined,
-      context_usage: maxTokens > 0 ? Math.min(1, tokens / maxTokens) : undefined,
-    };
-  }
-
-  private readBusy(sessionId: string): boolean {
-    const handle = getLiveSessionById(this.services, sessionId);
-    if (handle === undefined) return false;
-    const agents = handle.accessor.get(IAgentLifecycleService);
-    for (const agent of agents.list()) {
-      const agentHandle = agents.handleOf(agent.agentId);
-      if (agentHandle === undefined) continue;
-      if (agentHandle.accessor.get(IAgentLoopService).snapshot().state === 'running') return true;
-      const tasks = agentHandle.accessor.get(IAgentTaskService);
-      if (tasks.list(true).length > 0) return true;
-      if (agentHandle.accessor.get(IAgentFullCompactionService).compacting !== null) return true;
-    }
-    return false;
-  }
-
   async goal(sessionId: string): Promise<GoalSnapshot | null> {
     const agent = await this.resolveMainAgent(sessionId);
     return agent.accessor.get(IAgentGoalService).getGoal().goal;
-  }
-}
-
-function resolveDefaultModelContextTokens(agent: IAgentScopeHandle): number | undefined {
-  const defaultModel = agent.accessor.get(IModelService).getDefaultModel();
-  if (defaultModel === undefined || defaultModel.length === 0) return undefined;
-  try {
-    const capabilities = agent.accessor.get(IModelCatalog).get(defaultModel).capabilities;
-    return capabilities.max_input_tokens ?? capabilities.max_context_tokens;
-  } catch {
-    return undefined;
   }
 }
 

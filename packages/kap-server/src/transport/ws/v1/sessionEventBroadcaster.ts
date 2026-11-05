@@ -17,7 +17,6 @@ import type {
 } from '@moonshot-ai/agent-core-v2';
 import {
   IAgentLifecycleService,
-  IAgentLoopService,
   IEventBus,
   IEventService,
   INTERACTION_TAG_SESSION_ID,
@@ -25,7 +24,6 @@ import {
   ISessionActivityView,
   ISessionIndex,
   ISessionManager,
-  MAIN_AGENT_ID,
   followSessionLifecycles,
   getLiveSessionById,
   resumeSessionById,
@@ -64,12 +62,6 @@ import {
 } from '../../../protocol/interaction-wire';
 import { toWireWorkspace } from '../../../routes/workspaces';
 import { ensureMainAgent } from '../../mainAgent';
-import {
-  legacyApprovalsOf,
-  LegacyActivityTracker,
-  phaseFromDomainEvent,
-} from '../../../services/legacyStatus/legacyActivity';
-import { readLegacyStatus } from '../../../services/legacyStatus/legacyStatus';
 import { projectPromptContentParts } from '../../../services/messages/messageProjection';
 import type { TranscriptService } from '../../../services/transcript/transcriptService';
 import type {
@@ -176,7 +168,6 @@ export class SessionEventBroadcaster {
   private readonly diEventTargets = new Set<BroadcastTarget>();
   private readonly pendingStates = new Map<string, Promise<SessionState | undefined>>();
   private readonly evictions = new Map<string, Promise<void>>();
-  private readonly activityTrackers = new Map<string, LegacyActivityTracker>();
   private readonly maxBufferSize: number;
   private readonly coreEventSubscription: IDisposable;
   private readonly deletionSubscription: IDisposable | undefined;
@@ -614,7 +605,6 @@ export class SessionEventBroadcaster {
     const disposals: Promise<void>[] = [];
     for (const [sessionId, state] of this.sessions) {
       disposals.push(disposeSessionState(state));
-      this.dropActivityTrackers(sessionId);
       this.opts.transcriptService?.dropSession(sessionId);
     }
     this.sessions.clear();
@@ -625,12 +615,6 @@ export class SessionEventBroadcaster {
       [...this.evictions.values()].map((eviction) => eviction.catch(() => undefined)),
     );
     await Promise.all(disposals);
-  }
-
-  private dropActivityTrackers(sessionId: string): void {
-    for (const key of this.activityTrackers.keys()) {
-      if (key.startsWith(`${sessionId}:`)) this.activityTrackers.delete(key);
-    }
   }
 
   private async purgeSession(sessionId: string): Promise<void> {
@@ -676,7 +660,6 @@ export class SessionEventBroadcaster {
       state.targets.clear();
       await state.queue.catch(() => undefined);
       await disposeSessionState(state);
-      this.dropActivityTrackers(sessionId);
     }
     this.opts.transcriptService?.dropSession(sessionId);
   }
@@ -696,7 +679,6 @@ export class SessionEventBroadcaster {
     state.transcriptSeeded.clear();
     state.deferredTranscriptSeeds.clear();
     state.transcriptStream = undefined;
-    this.dropActivityTrackers(sessionId);
     this.opts.transcriptService?.dropSession(sessionId);
     this.evictDetachedSession(sessionId);
   }
@@ -788,7 +770,6 @@ export class SessionEventBroadcaster {
     } catch (error) {
       this.sessions.delete(sessionId);
       await disposeSessionState(state);
-      this.dropActivityTrackers(sessionId);
       if (isInstantiationServiceDisposedError(error)) return undefined;
       throw error;
     }
@@ -1081,7 +1062,6 @@ export class SessionEventBroadcaster {
         if (d !== undefined) {
           d.dispose();
           state.agentDisposables.delete(agentId);
-          this.activityTrackers.delete(`${sessionId}:${agentId}`);
           this.enqueueDurable(state, {
             type: 'agent.disposed',
             agentId,
@@ -1094,39 +1074,9 @@ export class SessionEventBroadcaster {
 
   private attachAgent(sessionId: string, handle: IAgentScopeHandle): IDisposable {
     const eventBus = handle.accessor.get(IEventBus);
-    this.activityTrackers.set(
-      `${sessionId}:${handle.id}`,
-      new LegacyActivityTracker(
-        () => handle.accessor.get(IAgentLoopService).snapshot(),
-        () => legacyApprovalsOf(handle),
-      ),
-    );
-    let lastLegacyStatus: string | undefined;
-    const emitLegacyStatus = (): void => {
-      const snapshot = readLegacyStatus(handle);
-      if (snapshot === undefined) return;
-      const key = JSON.stringify(snapshot);
-      if (key === lastLegacyStatus) return;
-      lastLegacyStatus = key;
-      this.onAgentEvent(sessionId, MAIN_AGENT_ID, {
-        type: 'agent.status.updated',
-        ...snapshot,
-      } as unknown as Event2<any>);
-    };
     const disposables: IDisposable[] = [
       eventBus.subscribe((event) => {
-        let projected: Event2<any> = event;
-        if (event.type === 'agent.status.updated') {
-          const snapshot = readLegacyStatus(handle);
-          if (snapshot !== undefined) {
-            lastLegacyStatus = JSON.stringify(snapshot);
-            projected = Object.assign({}, event, snapshot) as unknown as Event2<any>;
-          }
-        }
-        if (handle.id === MAIN_AGENT_ID && event.type === 'context.spliced') {
-          emitLegacyStatus();
-        }
-        this.onAgentEvent(sessionId, handle.id, projected);
+        this.onAgentEvent(sessionId, handle.id, event);
       }),
     ];
 
@@ -1136,13 +1086,6 @@ export class SessionEventBroadcaster {
   private onAgentEvent(sessionId: string, agentId: string, event: Event2<any>): void {
     const state = this.sessions.get(sessionId);
     if (state === undefined) return;
-
-    if (
-      event.type === 'agent.status.updated' &&
-      (event as { phase?: unknown }).phase !== undefined
-    ) {
-      return;
-    }
 
     let wireEvent: Event;
     if (event.type === 'turn.started') {
@@ -1180,23 +1123,6 @@ export class SessionEventBroadcaster {
       state.queue = state.queue
         .then(() => this.dispatch(state, legacy, volatile))
         .catch((error: unknown) => this.logDispatchDropped(state.sessionId, legacy.type, error));
-    }
-    const tracker = this.activityTrackers.get(`${sessionId}:${agentId}`);
-    if (tracker !== undefined) {
-      const phase = phaseFromDomainEvent(tracker, event);
-      if (phase !== undefined) {
-        const phaseEvent = {
-          type: 'agent.status.updated',
-          phase,
-          agentId,
-          sessionId,
-        } as unknown as Event;
-        state.queue = state.queue
-          .then(() => this.dispatch(state, phaseEvent, true))
-          .catch((error: unknown) =>
-            this.logDispatchDropped(state.sessionId, phaseEvent.type, error),
-          );
-      }
     }
   }
 

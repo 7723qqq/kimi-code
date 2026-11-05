@@ -262,10 +262,6 @@ exports[`API surface snapshot matches the documented v2 route table and meta end
     ],
     [
       "GET",
-      "/api/v1/sessions/{session_id}/status",
-    ],
-    [
-      "GET",
       "/api/v1/sessions/{session_id}/transcript",
     ],
     [

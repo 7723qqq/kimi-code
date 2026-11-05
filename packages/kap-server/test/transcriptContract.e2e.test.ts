@@ -5,13 +5,16 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 import {
+  INTERACTION_TAG_SESSION_ID,
   IAgentLifecycleService,
   IAgentPlanService,
   IConfigService,
   closeSessionById,
+  interactions,
   MAIN_AGENT_ID,
   getLiveSessionById,
   resumeSessionById,
+  type ApprovalRequest,
 } from '@moonshot-ai/agent-core-v2';
 import { WebSocket, type RawData } from 'ws';
 
@@ -163,9 +166,7 @@ interface TxSnapshot {
   tasks: any[];
   interactions: any[];
   attachments: any[];
-  todos: any[];
   prompts: { promptId: string; status: string }[];
-  meta: { activity?: string; agent?: unknown; goal?: unknown; modes?: unknown };
 }
 
 const getTranscript = (server: RunningServer, base: string, sid: string): Promise<TxSnapshot> =>
@@ -225,6 +226,9 @@ async function until(
 interface TranscriptChannel {
   readonly frames: any[];
   readonly ops: any[];
+  readonly tasks: any[];
+  readonly agents: any[];
+  readonly todos: any[];
   reset(): any;
   close(): void;
 }
@@ -242,6 +246,9 @@ async function subscribeTranscript(server: RunningServer, sid: string): Promise<
   ]);
   const frames: any[] = [];
   const ops: any[] = [];
+  const tasks: any[] = [];
+  const agents: any[] = [];
+  const todos: any[] = [];
   let resetFrame: any;
   ws.on('message', (data) => {
     let frame: any;
@@ -261,6 +268,9 @@ async function subscribeTranscript(server: RunningServer, sid: string): Promise<
     }
     if (frame.type === 'transcript.ops' && payload?.agent_id === 'main')
       ops.push(...(payload.ops ?? []));
+    if (frame.type === 'task') tasks.push(frame);
+    if (frame.type === 'agent' && frame.agent_id === 'main') agents.push(frame);
+    if (frame.type === 'todo' && frame.agent_id === 'main') todos.push(frame);
   });
   await new Promise<void>((resolve, reject) => {
     ws.once('open', () => {
@@ -279,6 +289,9 @@ async function subscribeTranscript(server: RunningServer, sid: string): Promise<
   return {
     frames,
     ops,
+    tasks,
+    agents,
+    todos,
     reset: () => resetFrame?.payload,
     close: () => ws.close(),
   };
@@ -349,7 +362,7 @@ describeWithTimeout(
       const markers = hits
         .map((hit) => /"content":"([^"]{0,60})/.exec(hit)?.[1] ?? hit.slice(0, 60))
         .slice(0, 8);
-      return `${JSON.stringify({ meta: tx.meta, prompts: tx.prompts, turns, interactions: tx.interactions })}\nllm hits (${hits.length}): ${JSON.stringify(markers)}`;
+      return `${JSON.stringify({ prompts: tx.prompts, turns, interactions: tx.interactions })}\nllm hits (${hits.length}): ${JSON.stringify(markers)}`;
     }
 
     const idleOrDump = async (server: RunningServer, base: string, sid: string): Promise<void> => {
@@ -364,7 +377,7 @@ describeWithTimeout(
       }
     };
 
-    it('S1: turn lifecycle produces activity, prompts and turn frames on both channels', async () => {
+    it('S1: turn lifecycle produces prompts and turn frames on both channels', async () => {
       await boot([{ match: () => true, respond: () => sseText('hello world'), delayMs: 3000 }]);
       const sid = await createSession(server!, base);
       await submitPrompt(server!, base, sid, 'say hello');
@@ -373,20 +386,19 @@ describeWithTimeout(
       await until('turn running + prompt tracked', async () => {
         const tx = await getTranscript(server!, base, sid);
         return (
-          tx.meta.activity === 'turn' &&
           tx.prompts.some((p) => p.status === 'running') &&
           tx.items.some((i) => i.kind === 'turn' && i.state === 'running')
         );
       });
       const mid = await getTranscript(server!, base, sid);
-      expect(mid.meta.activity).toBe('turn');
       expect(mid.prompts.length).toBeGreaterThan(0);
       expect(mid.prompts[0]!.promptId.length).toBeGreaterThan(0);
 
       await idle(server!, base, sid);
 
       const end = await getTranscript(server!, base, sid);
-      expect(end.meta.activity).toBe('idle');
+      expect(end).not.toHaveProperty('meta');
+      expect(end).not.toHaveProperty('todos');
       const turn = end.items.find((i) => i.kind === 'turn');
       expect(turn).toMatchObject({ state: 'completed' });
       expect(typeof turn.endedAt).toBe('string');
@@ -395,17 +407,32 @@ describeWithTimeout(
       const promptStatuses = end.prompts.map((p) => p.status);
       expect(promptStatuses.every((s) => s === 'completed')).toBe(true);
 
-      const reset = channel.reset();
-      expect(reset.snapshot.meta.activity).toBe('turn');
+      expect(channel.agents[0]).toMatchObject({
+        type: 'agent',
+        session_id: sid,
+        status: 'running',
+        model: 'stub',
+      });
+      await until('agent idle frame', () => channel.agents.at(-1)?.status === 'idle');
+      const turnEndedAt = channel.frames.findIndex(
+        (frame) =>
+          frame.type === 'transcript.ops' &&
+          frame.payload?.agent_id === 'main' &&
+          (frame.payload.ops ?? []).some(
+            (op: any) => op.op === 'turn.upsert' && op.turn?.state === 'completed',
+          ),
+      );
+      const idleAt = channel.frames.findIndex(
+        (frame) => frame.type === 'agent' && frame.agent_id === 'main' && frame.status === 'idle',
+      );
+      expect(turnEndedAt).toBeGreaterThanOrEqual(0);
+      expect(idleAt).toBeGreaterThan(turnEndedAt);
       const opTypes = new Set(channel.ops.map((o: any) => o.op));
       expect(opTypes.has('turn.upsert')).toBe(true);
       expect(opTypes.has('step.upsert')).toBe(true);
       expect(opTypes.has('frame.upsert') || opTypes.has('append')).toBe(true);
       expect(opTypes.has('prompt.upsert')).toBe(true);
-      const activityMerges = channel.ops.filter(
-        (o: any) => o.op === 'meta.merge' && o.meta?.activity !== undefined,
-      );
-      expect(activityMerges.map((o: any) => o.meta.activity)).toContain('idle');
+      expect(opTypes.has('meta.merge')).toBe(false);
       channel.close();
     });
 
@@ -542,22 +569,20 @@ describeWithTimeout(
       expect(approval).toBeDefined();
       expect(approval.toolCallId).toBe('call_1');
       expect((approval.request as any)?.toolName).toBe('Bash');
-      expect(mid.meta.agent).toBeDefined();
 
       await rest(
         server!,
         base,
-        `/api/v1/sessions/${encodeURIComponent(sid)}/approvals/${encodeURIComponent(approval.interactionId)}`,
+        `/api/v1/sessions/${encodeURIComponent(sid)}/interactions/${encodeURIComponent(approval.interactionId)}`,
         {
           method: 'POST',
-          body: { decision: 'approved' },
+          body: { kind: 'approval', decision: 'approved' },
         },
       );
       await idle(server!, base, sid);
 
       const end = await getTranscript(server!, base, sid);
       expect(end.interactions.every((x: any) => x.state !== 'pending')).toBe(true);
-      expect(end.meta.activity).toBe('idle');
       const toolFrame = end.items
         .filter((i) => i.kind === 'turn')
         .flatMap((t: any) => t.steps)
@@ -602,25 +627,14 @@ describeWithTimeout(
 
         await submitPrompt(server!, base, sid, 'Plan the greeting change', 'auto');
 
-        let approvalId = '';
-        await until('plan review pending', async () => {
-          const { items } = await rest<{ items: any[] }>(
-            server!,
-            base,
-            `/api/v1/sessions/${encodeURIComponent(sid)}/approvals?status=pending`,
-          );
-          const review = items.find((item) => item.tool_name === 'ExitPlanMode');
-          approvalId = review?.approval_id ?? '';
-          return review !== undefined;
-        });
-        const { items } = await rest<{ items: any[] }>(
-          server!,
-          base,
-          `/api/v1/sessions/${encodeURIComponent(sid)}/approvals?status=pending`,
-        );
-        expect(
-          items.find((item) => item.approval_id === approvalId)?.tool_input_display,
-        ).toMatchObject({
+        const pendingReview = () =>
+          interactions
+            .findAll({ kind: 'approval', resolved: false, tags: { sessionId: sid } })
+            .find((item) => (item.payload as ApprovalRequest).toolName === 'ExitPlanMode');
+        await until('plan review pending', async () => pendingReview() !== undefined);
+        const review = pendingReview()!;
+        const approvalId = review.id;
+        expect((review.payload as ApprovalRequest).display).toMatchObject({
           kind: 'plan_review',
           plan: '# Plan\n\n- Change the greeting\n- Add a test',
           path: planPath,
@@ -637,10 +651,10 @@ describeWithTimeout(
         await rest(
           server!,
           base,
-          `/api/v1/sessions/${encodeURIComponent(sid)}/approvals/${encodeURIComponent(approvalId)}`,
+          `/api/v1/sessions/${encodeURIComponent(sid)}/interactions/${encodeURIComponent(approvalId)}`,
           {
             method: 'POST',
-            body: response,
+            body: { kind: 'approval', ...response },
           },
         );
         await idleOrDump(server!, base, sid);
@@ -725,7 +739,6 @@ describeWithTimeout(
       expect(taskTurn).toBeDefined();
       expect(JSON.stringify(taskTurn)).toContain('notification');
       await idleOrDump(server!, base, sid);
-      expect((await getTranscript(server!, base, sid)).meta.activity).toBe('idle');
     });
 
     it('S5: late attach backfills liveness and the prompt queue from the live loop', async () => {
@@ -734,14 +747,13 @@ describeWithTimeout(
       await submitPrompt(server!, base, sid, 'take your time');
 
       const tx = await getTranscript(server!, base, sid);
-      expect(tx.meta.activity).toBe('turn');
       expect(tx.items.some((i: any) => i.kind === 'turn' && i.state === 'running')).toBe(true);
       expect(tx.prompts.some((p) => p.status === 'running')).toBe(true);
 
       const channel = await subscribeTranscript(server!, sid);
-      expect(channel.reset().snapshot.meta.activity).toBe('turn');
+      expect(channel.agents[0]).toMatchObject({ status: 'running' });
       await idle(server!, base, sid);
-      expect((await getTranscript(server!, base, sid)).meta.activity).toBe('idle');
+      await until('agent idle frame', () => channel.agents.at(-1)?.status === 'idle');
       channel.close();
     });
 
@@ -761,7 +773,8 @@ describeWithTimeout(
       const channel = await subscribeTranscript(server!, sid);
       const reset = channel.reset().snapshot;
 
-      expect(reset.meta).toEqual(snapshot.meta);
+      expect(reset).not.toHaveProperty('meta');
+      expect(reset).not.toHaveProperty('todos');
       const byId = (xs: any[], key: string): Record<string, unknown> =>
         Object.fromEntries(xs.map((x) => [x[key], x]));
       expect(Object.keys(byId(reset.tasks ?? [], 'taskId')).toSorted()).toEqual(
@@ -773,9 +786,31 @@ describeWithTimeout(
       expect(Object.keys(byId(reset.prompts ?? [], 'promptId')).toSorted()).toEqual(
         Object.keys(byId(snapshot.prompts, 'promptId')).toSorted(),
       );
-      expect(Object.keys(byId(reset.todos ?? [], 'todoId')).toSorted()).toEqual(
-        Object.keys(byId(snapshot.todos, 'todoId')).toSorted(),
-      );
+      channel.close();
+    });
+
+    it('S10: a fresh session sends main agent frames on subscribe and a TodoList write reaches subscribers as a todo frame', async () => {
+      const todos =
+        '{"todos":[{"title":"write tests","status":"in_progress"},{"title":"ship","status":"pending"}]}';
+      await boot([
+        {
+          match: (body) => !body.includes('call_todo'),
+          respond: () => sseToolCall('call_todo', 'TodoList', todos),
+        },
+        { match: () => true, respond: () => sseText('planned') },
+      ]);
+      const sid = await createSession(server!, base);
+      const channel = await subscribeTranscript(server!, sid);
+      await until('main agent frames', () => channel.agents.length > 0 && channel.todos.length > 0);
+      expect(channel.agents[0]).toMatchObject({ type: 'agent', session_id: sid, status: 'idle' });
+      expect(channel.todos[0]).toMatchObject({ type: 'todo', session_id: sid, items: [] });
+      await submitPrompt(server!, base, sid, 'plan the work');
+      await idleOrDump(server!, base, sid);
+      await until('todo frame', () => (channel.todos.at(-1)?.items.length ?? 0) > 0);
+      expect(channel.todos.at(-1)!.items).toEqual([
+        { title: 'write tests', status: 'in_progress' },
+        { title: 'ship', status: 'pending' },
+      ]);
       channel.close();
     });
 

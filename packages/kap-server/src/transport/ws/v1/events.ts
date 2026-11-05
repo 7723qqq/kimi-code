@@ -7,7 +7,6 @@ import type { MessageContent } from '../../../protocol/message';
 import type { ConfigResponse } from '../../../protocol/rest-config';
 import type { Session, SessionPendingInteraction } from '../../../protocol/session';
 import type { Workspace } from '../../../protocol/workspace';
-import type { AgentPhase } from '../../../services/legacyStatus/legacyStatus';
 
 export interface AgentStatusUpdatedEvent {
   readonly type: 'agent.status.updated';
@@ -24,7 +23,6 @@ export interface AgentStatusUpdatedEvent {
   readonly towerMode?: boolean;
   readonly permission?: PermissionMode;
   readonly usage?: UsageStatus;
-  readonly phase?: AgentPhase;
 }
 
 export interface AgentCreatedEvent {

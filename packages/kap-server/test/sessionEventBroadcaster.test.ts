@@ -17,8 +17,11 @@ import {
   IAgentLifecycleService,
   IAgentConversationUndoParticipantRegistry,
   IAgentLoopService,
+  IAgentGoalService,
+  IAgentPermissionModeService,
   IAgentProfileService,
   IAgentScopeContext,
+  IAgentTodoService,
   IEventBus,
   IEventService,
   IModelCatalog,
@@ -35,7 +38,6 @@ import {
   interactions,
   makeAgentScopeContext,
 } from '@moonshot-ai/agent-core-v2';
-import type { AgentActivitySnapshot } from '@moonshot-ai/agent-core-v2/agent/loop/loop';
 import { TurnStarted } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
 import { Event2 } from '@moonshot-ai/agent-core-v2/app/event/event2';
 import {
@@ -177,7 +179,7 @@ class FakeAgentHandle {
   readonly bus = new FakeAgentBus();
   readonly accessor;
   readonly context: AgentContext;
-  activity: AgentActivitySnapshot = {};
+  activity: { turn?: { turnId?: number } } = {};
   private readonly services = new Map<unknown, unknown>();
   constructor(readonly id: string) {
     const scope = makeAgentScopeContext({
@@ -230,6 +232,9 @@ class FakeLifecycle {
   handleOf(agentId: string): FakeAgentHandle | undefined {
     return this.handles.find((h) => h.id === agentId);
   }
+  async create(options: { agentId: string }): Promise<AgentContext> {
+    return (this.handleOf(options.agentId) ?? this.addAgent(options.agentId)).context;
+  }
   onDidCreate(h: (context: AgentContext) => void) {
     this.createHandlers.push(h);
     return { dispose: () => {} };
@@ -242,16 +247,7 @@ class FakeLifecycle {
     const handle = new FakeAgentHandle(id);
     const onTurnStarted = handle.bus.subscribe((e) => {
       if (e.type !== 'turn.started') return;
-      handle.activity = {
-        turn: {
-          turnId: (e as { turnId?: number }).turnId ?? 0,
-          phase: 'running',
-          step: 1,
-          ending: false,
-          activeToolCalls: [],
-          since: 0,
-        },
-      };
+      handle.activity = { turn: { turnId: (e as { turnId?: number }).turnId ?? 0 } };
     });
     const onTurnEnded = handle.bus.subscribe((e) => {
       if (e.type !== 'turn.ended') return;
@@ -685,211 +681,118 @@ describe('SessionEventBroadcaster', () => {
     expect((await bc.getCursor('s1')).seq).toBe(2);
   });
 
-  it('projects main-agent status and context changes into complete v1 status events', async () => {
+  type StateFrame = { type: string; agent_id: string } & Record<string, unknown>;
+  const STATE_FRAME_TYPES = new Set(['agent', 'usage', 'goal', 'todo']);
+  const stateFramesOf = (view: ReturnType<typeof collectingTarget>): StateFrame[] =>
+    view.taskMessages.filter((frame) => STATE_FRAME_TYPES.has(frame.type)) as unknown as StateFrame[];
+  const settle = (ms = 0): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+  function withAgentState(handle: FakeAgentHandle) {
+    let permission = 'manual';
+    let todos: { title: string; status: string }[] = [];
+    let goal: unknown = null;
+    let contextTokens = 0;
+    let statusReads = 0;
+    const todoListeners = new Set<() => void>();
+    handle.set(IAgentPermissionModeService, { get mode() { return permission; } });
+    handle.set(IAgentTodoService, {
+      get: () => todos,
+      onDidChange: (listener: () => void) => {
+        todoListeners.add(listener);
+        return { dispose: () => todoListeners.delete(listener) };
+      },
+    });
+    handle.set(IAgentGoalService, { getGoal: () => ({ goal }) });
+    handle.set(IAgentProfileService, {
+      getModel: () => 'k2',
+      getEffectiveThinkingLevel: () => 'high',
+      getModelCapabilities: () => ({ max_context_tokens: 1000 }),
+    });
+    handle.set(ISessionUsageService, { status: () => undefined });
+    handle.set(ISessionTokenCountingService, {
+      statusSize: () => {
+        statusReads += 1;
+        return contextTokens;
+      },
+    });
+    return {
+      statusReads: (): number => statusReads,
+      setPermission(mode: string): void {
+        permission = mode;
+        handle.bus.emit(agentEvent('agent.status.updated', { permission: mode }));
+      },
+      setTodos(next: { title: string; status: string }[]): void {
+        todos = next;
+        for (const listener of todoListeners) listener();
+      },
+      setGoal(next: unknown): void {
+        goal = next;
+        handle.bus.emit(agentEvent('goal.updated', {}));
+      },
+      setContextTokens(tokens: number): void {
+        contextTokens = tokens;
+        handle.bus.emit(agentEvent('agent.status.updated', { contextTokens: tokens }));
+      },
+    };
+  }
+
+  it('sends the agent, usage and todo state of each subscribed agent on subscribe', async () => {
     const lc = new FakeLifecycle();
     const main = lc.addAgent('main');
-    let contextSize = 10;
-    const usage = {
-      total: { inputOther: 1, output: 2, inputCacheRead: 0, inputCacheCreation: 0 },
-    };
-    main.set(ISessionTokenCountingService, {
-      statusSize: () => contextSize,
-    });
-    main.set(IAgentProfileService, {
-      getModel: () => 'example-model',
-      getEffectiveThinkingLevel: () => 'high',
-      getModelCapabilities: () => ({ max_context_tokens: 128_000 }),
-    });
-    main.set(ISessionUsageService, { status: () => usage });
+    const state = withAgentState(main);
+    state.setTodos([{ title: 'write tests', status: 'in_progress' }]);
     sessions.set('s1', lc);
-    const { target, envelopes } = collectingTarget();
-    await bc.subscribe('s1', target);
+    bc = new SessionEventBroadcaster({ eventsDir: dir, core: makeCore(sessions, eventBus), maxBufferSize: 3 });
 
-    main.bus.emit(agentEvent('agent.status.updated', { usage }));
-    contextSize = 20;
-    main.bus.emit(agentEvent('context.spliced', { start: 0, deleteCount: 0, messages: [] }));
-    main.bus.emit(agentEvent('context.spliced', { start: 0, deleteCount: 0, messages: [] }));
-    await bc.getCursor('s1');
+    const view = collectingTarget();
+    const offView = collectingTarget();
+    await bc.subscribe('s1', view.target, undefined, { '*': 'turn' });
+    await bc.subscribe('s1', offView.target, undefined, { '*': 'off' });
 
-    const statuses = envelopes.filter((envelope) => envelope.type === 'agent.status.updated');
-    expect(statuses).toHaveLength(2);
-    expect(statuses.map((envelope) => envelope.payload)).toMatchObject([
-      {
-        type: 'agent.status.updated',
-        usage,
-        contextTokens: 10,
-        maxContextTokens: 128_000,
-        model: 'example-model',
-      },
-      {
-        type: 'agent.status.updated',
-        usage,
-        contextTokens: 20,
-        maxContextTokens: 128_000,
-        model: 'example-model',
-      },
+    const frames = stateFramesOf(view);
+    expect(frames).toEqual([
+      expect.objectContaining({
+        type: 'agent',
+        agent_id: 'main',
+        status: 'idle',
+        model: 'k2',
+        thinking: 'high',
+        permission_mode: 'manual',
+        plan_mode: false,
+        swarm_mode: false,
+        tower_mode: false,
+      }),
+      expect.objectContaining({ type: 'usage', agent_id: 'main', context_tokens: 0, max_context_tokens: 1000 }),
+      expect.objectContaining({ type: 'goal', agent_id: 'main' }),
+      expect.objectContaining({
+        type: 'todo',
+        agent_id: 'main',
+        items: [{ title: 'write tests', status: 'in_progress' }],
+      }),
     ]);
+    expect(stateFramesOf(offView)).toEqual([]);
   });
 
-  it('folds the legacy status snapshot into subagent status events too', async () => {
-    const lc = new FakeLifecycle();
-    lc.addAgent('main');
-    const sub = lc.addAgent('agent-1');
-    const usage = {
-      total: { inputOther: 1, output: 2, inputCacheRead: 0, inputCacheCreation: 0 },
-    };
-    sub.set(ISessionTokenCountingService, { statusSize: () => 10 });
-    sub.set(IAgentProfileService, {
-      getModel: () => 'sub-model',
-      getEffectiveThinkingLevel: () => 'high',
-      getModelCapabilities: () => ({ max_context_tokens: 128_000 }),
-    });
-    sub.set(ISessionUsageService, { status: () => usage });
-    sessions.set('s1', lc);
-    const { target, envelopes } = collectingTarget();
-    await bc.subscribe('s1', target);
-
-    sub.bus.emit(agentEvent('agent.status.updated', { usage }));
-    await bc.getCursor('s1');
-
-    const statuses = envelopes.filter((envelope) => envelope.type === 'agent.status.updated');
-    expect(statuses).toHaveLength(1);
-    expect(statuses[0]!.payload).toMatchObject({
-      type: 'agent.status.updated',
-      agentId: 'agent-1',
-      usage,
-      contextTokens: 10,
-      maxContextTokens: 128_000,
-      model: 'sub-model',
-    });
-  });
-
-  it('publishes the input cap as the status context limit when declared', async () => {
+  it('pins the usage frame context limit rules', async () => {
     const lc = new FakeLifecycle();
     const main = lc.addAgent('main');
-    const usage = {
-      byModel: {
-        'example-model': { inputOther: 1, output: 2, inputCacheRead: 0, inputCacheCreation: 0 },
-      },
-      total: { inputOther: 1, output: 2, inputCacheRead: 0, inputCacheCreation: 0 },
-    };
-    main.set(ISessionTokenCountingService, { statusSize: () => 10 });
-    main.set(IAgentProfileService, {
-      getModel: () => 'example-model',
-      getEffectiveThinkingLevel: () => 'high',
-      getModelCapabilities: () => ({ max_context_tokens: 128_000, max_input_tokens: 64_000 }),
-    });
-    main.set(ISessionUsageService, { status: () => usage });
-    sessions.set('s1', lc);
-    const { target, envelopes } = collectingTarget();
-    await bc.subscribe('s1', target);
-
-    main.bus.emit(agentEvent('agent.status.updated', { usage }));
-    await bc.getCursor('s1');
-
-    const statuses = envelopes.filter((envelope) => envelope.type === 'agent.status.updated');
-    expect(statuses.map((envelope) => envelope.payload)).toMatchObject([
-      { type: 'agent.status.updated', maxContextTokens: 64_000 },
-    ]);
-  });
-
-  it('omits maxContextTokens instead of pushing 0 when the context limit is unknown', async () => {
-    const lc = new FakeLifecycle();
-    const main = lc.addAgent('main');
-    main.set(ISessionTokenCountingService, { statusSize: () => 10 });
-    main.set(IAgentProfileService, {
-      getModel: () => 'ghost-model',
-      getEffectiveThinkingLevel: () => 'high',
-      getModelCapabilities: () => ({ max_context_tokens: 0 }),
-    });
-    main.set(ISessionUsageService, { status: () => ({}) });
-    sessions.set('s1', lc);
-    const { target, envelopes } = collectingTarget();
-    await bc.subscribe('s1', target);
-
-    main.bus.emit(agentEvent('agent.status.updated', {}));
-    await bc.getCursor('s1');
-
-    const statuses = envelopes.filter((envelope) => envelope.type === 'agent.status.updated');
-    expect(statuses).toHaveLength(1);
-    const payload = statuses[0]!.payload as Record<string, unknown>;
-    expect(payload['maxContextTokens']).toBeUndefined();
-    expect(JSON.stringify(payload)).not.toContain('maxContextTokens');
-  });
-
-  it('falls back to the default model limit when no model is bound', async () => {
-    const lc = new FakeLifecycle();
-    const main = lc.addAgent('main');
-    main.set(ISessionTokenCountingService, { statusSize: () => 10 });
+    withAgentState(main);
     main.set(IAgentProfileService, {
       getModel: () => '',
       getEffectiveThinkingLevel: () => 'high',
       getModelCapabilities: () => ({ max_context_tokens: 0 }),
     });
-    main.set(ISessionUsageService, { status: () => ({}) });
-    main.set(IModelService, { getDefaultModel: () => 'default-model' });
-    main.set(IModelCatalog, {
-      get: (id: string) => {
-        expect(id).toBe('default-model');
-        return { capabilities: { max_context_tokens: 200_000 } };
-      },
-    });
+    main.set(IModelService, { getDefaultModel: () => 'k3' });
+    main.set(IModelCatalog, { get: () => ({ capabilities: { max_input_tokens: 800 } }) });
     sessions.set('s1', lc);
-    const { target, envelopes } = collectingTarget();
-    await bc.subscribe('s1', target);
+    bc = new SessionEventBroadcaster({ eventsDir: dir, core: makeCore(sessions, eventBus), maxBufferSize: 3 });
 
-    main.bus.emit(agentEvent('agent.status.updated', {}));
-    await bc.getCursor('s1');
+    const view = collectingTarget();
+    await bc.subscribe('s1', view.target, undefined, { '*': 'turn' });
 
-    const statuses = envelopes.filter((envelope) => envelope.type === 'agent.status.updated');
-    expect(statuses).toHaveLength(1);
-    expect(statuses[0]!.payload).toMatchObject({ maxContextTokens: 200_000, model: '' });
-  });
-
-  it('omits maxContextTokens when no model is bound and no default model resolves', async () => {
-    const lc = new FakeLifecycle();
-    const main = lc.addAgent('main');
-    main.set(ISessionTokenCountingService, { statusSize: () => 10 });
-    main.set(IAgentProfileService, {
-      getModel: () => '',
-      getEffectiveThinkingLevel: () => 'high',
-      getModelCapabilities: () => ({ max_context_tokens: 0 }),
+    expect(stateFramesOf(view).find((frame) => frame.type === 'usage')).toMatchObject({
+      max_context_tokens: 800,
     });
-    main.set(ISessionUsageService, { status: () => ({}) });
-    main.set(IModelService, { getDefaultModel: () => 'removed-model' });
-    main.set(IModelCatalog, {
-      get: () => {
-        throw new Error('unknown model');
-      },
-    });
-    sessions.set('s1', lc);
-    const { target, envelopes } = collectingTarget();
-    await bc.subscribe('s1', target);
-
-    main.bus.emit(agentEvent('agent.status.updated', {}));
-    await bc.getCursor('s1');
-
-    const statuses = envelopes.filter((envelope) => envelope.type === 'agent.status.updated');
-    expect(statuses).toHaveLength(1);
-    expect(JSON.stringify(statuses[0]!.payload)).not.toContain('maxContextTokens');
-  });
-
-  it('projects agent activity state into legacy running and ended phases', async () => {
-    const lc = new FakeLifecycle();
-    const main = lc.addAgent('main');
-    sessions.set('s1', lc);
-    const { target, envelopes } = collectingTarget();
-    await bc.subscribe('s1', target);
-
-    main.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
-    main.bus.emit(agentEvent('turn.ended', { turnId: 1, reason: 'completed' }));
-    await bc.getCursor('s1');
-
-    const statuses = envelopes.filter((envelope) => envelope.type === 'agent.status.updated');
-    expect(statuses.map((envelope) => envelope.payload)).toMatchObject([
-      { phase: { kind: 'running', turnId: 1, step: 1 } },
-      { phase: { kind: 'ended', turnId: 1, reason: 'completed' } },
-    ]);
   });
 
   it('replays durable events since a cursor from the journal', async () => {
@@ -1062,18 +965,19 @@ describe('SessionEventBroadcaster', () => {
 
   it('subscribes to agents created after activation (onDidCreate)', async () => {
     const lc = new FakeLifecycle();
+    lc.addAgent('main');
     sessions.set('s1', lc);
     const { target, envelopes } = collectingTarget();
     await bc.subscribe('s1', target);
 
-    const late = lc.addAgent('main');
+    const late = lc.addAgent('agent-0');
     await bc.getCursor('s1');
     late.bus.emit(agentEvent('turn.started', { turnId: 7 }));
     await bc.getCursor('s1');
 
     expect(envelopes.filter((e) => e.volatile !== true).map((e) => e.seq)).toEqual([1, 2, 3]);
     expect(envelopes[0]).toMatchObject({ type: 'agent.created' });
-    expect((envelopes[0]!.payload as { agentId: string }).agentId).toBe('main');
+    expect((envelopes[0]!.payload as { agentId: string }).agentId).toBe('agent-0');
   });
 
   it('delivers each agent exactly its own events through the real sharded session bus', async () => {
@@ -2687,7 +2591,7 @@ describe('SessionEventBroadcaster', () => {
           expect(ops.volatile).toBe(true);
         }
         expect(batches.map((ops) => (ops.payload as OpsPayload).ops.map((o) => o.op))).toEqual([
-          ['turn.upsert', 'meta.merge', 'meta.merge'],
+          ['turn.upsert'],
         ]);
       }
       expect(transcriptEnvelopes(plainView.envelopes)).toHaveLength(0);
@@ -2761,7 +2665,7 @@ describe('SessionEventBroadcaster', () => {
       expect((ops.payload as OpsPayload).agent_id).toBe('agent-0');
     });
 
-    it('streams for a client subscribed before any agent exists', async () => {
+    it('creates the main agent when a client subscribes before any agent exists', async () => {
       const lc = new FakeLifecycle();
       sessions.set('s1', lc);
       bc = makeBroadcasterWithTranscript();
@@ -2769,8 +2673,12 @@ describe('SessionEventBroadcaster', () => {
       const view = collectingTarget();
       await bc.subscribe('s1', view.target, undefined, { '*': 'delta' });
 
-      const main = lc.addAgent('main');
-      main.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
+      const main = lc.handleOf('main');
+      expect(main).toBeDefined();
+      expect(view.taskMessages.map((e) => e.type)).toEqual(
+        expect.arrayContaining(['agent', 'todo', 'goal']),
+      );
+      main?.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
 
       const types = transcriptEnvelopes(view.envelopes).map((e) => e.type);
       expect(types).toContain('transcript.reset');
@@ -3014,8 +2922,6 @@ describe('SessionEventBroadcaster', () => {
           tasks: unknown[];
           interactions: unknown[];
           attachments: unknown[];
-          todos: unknown[];
-          meta: unknown;
         };
         has_more_older: boolean;
         seq?: number;
@@ -3027,7 +2933,6 @@ describe('SessionEventBroadcaster', () => {
         tasks: [],
         interactions: [],
         attachments: [],
-        todos: [],
       });
       expect(JSON.stringify(payload.snapshot)).not.toContain('secret body');
     });

@@ -5,15 +5,12 @@ import type {
   InteractionId,
   PromptId,
   TaskId,
-  TodoId,
   TurnId,
 } from '../model/ids';
 import type { TranscriptInteraction } from '../model/interaction';
 import type { TranscriptItem } from '../model/item';
-import type { TranscriptMeta } from '../model/meta';
 import type { TranscriptPrompt } from '../model/prompt';
 import type { TranscriptTask } from '../model/task';
-import type { TranscriptTodo } from '../model/todo';
 import type { TranscriptTurn } from '../model/turn';
 import { TranscriptDocument } from '../ops/apply';
 import type {
@@ -96,24 +93,12 @@ export class AgentTranscript {
     return this.#doc.attachments.get(attachmentId);
   }
 
-  getTodos(): ReadonlyMap<TodoId, TranscriptTodo> {
-    return this.#doc.todos;
-  }
-
-  getTodo(todoId: TodoId): TranscriptTodo | undefined {
-    return this.#doc.todos.get(todoId);
-  }
-
   getPrompts(): ReadonlyMap<PromptId, TranscriptPrompt> {
     return this.#doc.prompts;
   }
 
   getPrompt(promptId: PromptId): TranscriptPrompt | undefined {
     return this.#doc.prompts.get(promptId);
-  }
-
-  getMeta(): TranscriptMeta {
-    return this.#doc.meta;
   }
 
   listPendingInteractions(): readonly InteractionId[] {

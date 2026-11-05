@@ -1,14 +1,12 @@
 import type { TranscriptAttachment } from '../model/attachment';
 import type { TranscriptFrame } from '../model/frame';
-import type { AttachmentId, InteractionId, PromptId, TaskId, TodoId, TurnId } from '../model/ids';
+import type { AttachmentId, InteractionId, PromptId, TaskId, TurnId } from '../model/ids';
 import { turnOrdinal } from '../model/ids';
 import type { TranscriptInteraction } from '../model/interaction';
 import { itemId } from '../model/item';
 import type { TranscriptItem } from '../model/item';
-import type { TranscriptMeta, TranscriptMetaMerge } from '../model/meta';
 import type { TranscriptPrompt } from '../model/prompt';
 import type { TranscriptTask } from '../model/task';
-import type { TranscriptTodo } from '../model/todo';
 import type { TranscriptStep, TranscriptTurn } from '../model/turn';
 import type {
   AgentTranscriptSnapshot,
@@ -23,9 +21,7 @@ export interface AgentState {
   readonly tasks: ReadonlyMap<TaskId, TranscriptTask>;
   readonly interactions: ReadonlyMap<InteractionId, TranscriptInteraction>;
   readonly attachments: ReadonlyMap<AttachmentId, TranscriptAttachment>;
-  readonly todos: ReadonlyMap<TodoId, TranscriptTodo>;
   readonly prompts: ReadonlyMap<PromptId, TranscriptPrompt>;
-  readonly meta: TranscriptMeta;
   readonly pendingInteractions: ReadonlySet<InteractionId>;
   readonly hasMoreOlder: boolean;
 }
@@ -35,9 +31,7 @@ export const EMPTY_AGENT_STATE: AgentState = {
   tasks: new Map(),
   interactions: new Map(),
   attachments: new Map(),
-  todos: new Map(),
   prompts: new Map(),
-  meta: {},
   pendingInteractions: new Set(),
   hasMoreOlder: false,
 };
@@ -52,9 +46,7 @@ export interface TranscriptDocumentInit {
   readonly tasks: readonly TranscriptTask[];
   readonly interactions: readonly TranscriptInteraction[];
   readonly attachments: readonly TranscriptAttachment[];
-  readonly todos: readonly TranscriptTodo[];
   readonly prompts?: readonly TranscriptPrompt[];
-  readonly meta: TranscriptMeta;
   readonly pendingInteractions?: readonly InteractionId[];
   readonly hasMoreOlder?: boolean;
 }
@@ -65,9 +57,7 @@ export class TranscriptDocument {
   #tasks = new Map<TaskId, TranscriptTask>();
   #interactions = new Map<InteractionId, TranscriptInteraction>();
   #attachments = new Map<AttachmentId, TranscriptAttachment>();
-  #todos = new Map<TodoId, TranscriptTodo>();
   #prompts = new Map<PromptId, TranscriptPrompt>();
-  #meta: TranscriptMeta = {};
   #pendingInteractions = new Set<InteractionId>();
   #hasMoreOlder = false;
   #itemsCache: readonly TranscriptItem[] | undefined;
@@ -84,9 +74,7 @@ export class TranscriptDocument {
     this.#attachments = new Map(
       init.attachments.map((attachment) => [attachment.attachmentId, attachment]),
     );
-    this.#todos = new Map(init.todos.map((todo) => [todo.todoId, todo]));
     this.#prompts = new Map((init.prompts ?? []).map((prompt) => [prompt.promptId, prompt]));
-    this.#meta = init.meta;
     this.#pendingInteractions = new Set(init.pendingInteractions ?? []);
     this.#hasMoreOlder = init.hasMoreOlder ?? false;
   }
@@ -114,16 +102,8 @@ export class TranscriptDocument {
     return this.#attachments;
   }
 
-  get todos(): ReadonlyMap<TodoId, TranscriptTodo> {
-    return this.#todos;
-  }
-
   get prompts(): ReadonlyMap<PromptId, TranscriptPrompt> {
     return this.#prompts;
-  }
-
-  get meta(): TranscriptMeta {
-    return this.#meta;
   }
 
   get pendingInteractions(): ReadonlySet<InteractionId> {
@@ -146,9 +126,7 @@ export class TranscriptDocument {
         tasks: this.#tasks,
         interactions: this.#interactions,
         attachments: this.#attachments,
-        todos: this.#todos,
         prompts: this.#prompts,
-        meta: this.#meta,
         pendingInteractions: this.#pendingInteractions,
         hasMoreOlder: this.#hasMoreOlder,
       };
@@ -183,9 +161,7 @@ export class TranscriptDocument {
       tasks: [...this.#tasks.values()],
       interactions: [...this.#interactions.values()],
       attachments: [...this.#attachments.values()],
-      todos: [...this.#todos.values()],
       prompts: [...this.#prompts.values()],
-      meta: this.#meta,
       hasMoreOlder,
     };
   }
@@ -227,12 +203,8 @@ export class TranscriptDocument {
         return this.#applyInteractionUpsert(op.interaction);
       case 'attachment.upsert':
         return this.#applyAttachmentUpsert(op.attachment);
-      case 'todo.upsert':
-        return this.#applyTodoUpsert(op.todo);
       case 'prompt.upsert':
         return this.#applyPromptUpsert(op.prompt);
-      case 'meta.merge':
-        return this.#applyMetaMerge(op.meta);
       case 'items.remove':
         return this.#applyItemsRemove(op.ids);
     }
@@ -298,9 +270,7 @@ export class TranscriptDocument {
     this.#attachments = new Map(
       op.snapshot.attachments.map((attachment) => [attachment.attachmentId, attachment]),
     );
-    this.#todos = new Map(op.snapshot.todos.map((todo) => [todo.todoId, todo]));
     this.#prompts = new Map(op.snapshot.prompts.map((prompt) => [prompt.promptId, prompt]));
-    this.#meta = op.snapshot.meta;
     this.#pendingInteractions = pending;
     this.#hasMoreOlder = op.snapshot.hasMoreOlder ?? false;
     this.#touchItems();
@@ -502,79 +472,12 @@ export class TranscriptDocument {
     return { changed: true };
   }
 
-  #applyTodoUpsert(todo: TranscriptTodo): ApplyOpResult {
-    const current = this.#todos.get(todo.todoId);
-    if (current && todoEquals(current, todo)) return { changed: false };
-    const todos = new Map(this.#todos);
-    todos.set(todo.todoId, todo);
-    this.#todos = todos;
-    this.#touchView();
-    return { changed: true };
-  }
-
   #applyPromptUpsert(prompt: TranscriptPrompt): ApplyOpResult {
     const current = this.#prompts.get(prompt.promptId);
     if (current && promptEquals(current, prompt)) return { changed: false };
     const prompts = new Map(this.#prompts);
     prompts.set(prompt.promptId, prompt);
     this.#prompts = prompts;
-    this.#touchView();
-    return { changed: true };
-  }
-
-  #applyMetaMerge(meta: TranscriptMetaMerge): ApplyOpResult {
-    const modes =
-      meta.modes !== undefined
-        ? {
-            plan: meta.modes.plan === null ? undefined : (meta.modes.plan ?? this.#meta.modes?.plan),
-            spec: meta.modes.spec === null ? undefined : (meta.modes.spec ?? this.#meta.modes?.spec),
-            swarm:
-              meta.modes.swarm === null
-                ? undefined
-                : (meta.modes.swarm ?? this.#meta.modes?.swarm),
-            'hello-world':
-              meta.modes['hello-world'] === null
-                ? undefined
-                : meta.modes['hello-world'] === undefined
-                  ? this.#meta.modes?.['hello-world']
-                  : {
-                      trigger:
-                        meta.modes['hello-world'].trigger ??
-                        this.#meta.modes?.['hello-world']?.trigger,
-                      stage:
-                        meta.modes['hello-world'].stage ?? this.#meta.modes?.['hello-world']?.stage,
-                    },
-            tower:
-              meta.modes.tower === null
-                ? undefined
-                : (meta.modes.tower ?? this.#meta.modes?.tower),
-          }
-        : this.#meta.modes;
-    const agent =
-      meta.agent !== undefined ? { ...this.#meta.agent, ...meta.agent } : this.#meta.agent;
-    const next: TranscriptMeta = {
-      goal: meta.goal === null ? undefined : (meta.goal ?? this.#meta.goal),
-      activity: meta.activity ?? this.#meta.activity,
-      modes:
-        modes !== undefined &&
-        modes.plan === undefined &&
-        modes.spec === undefined &&
-        modes.swarm === undefined &&
-        modes['hello-world'] === undefined &&
-        modes.tower === undefined
-          ? undefined
-          : modes,
-      agent,
-    };
-    if (
-      contentEqual(next.goal, this.#meta.goal) &&
-      next.activity === this.#meta.activity &&
-      contentEqual(next.modes, this.#meta.modes) &&
-      contentEqual(next.agent, this.#meta.agent)
-    ) {
-      return { changed: false };
-    }
-    this.#meta = next;
     this.#touchView();
     return { changed: true };
   }
@@ -658,7 +561,6 @@ function frameEquals(a: TranscriptFrame, b: TranscriptFrame): boolean {
       a.progress === b.progress &&
       a.taskId === b.taskId &&
       a.approvalId === b.approvalId &&
-      a.todoId === b.todoId &&
       a.agentRefs === b.agentRefs
     );
   }
@@ -707,10 +609,6 @@ function attachmentEquals(a: TranscriptAttachment, b: TranscriptAttachment): boo
   );
 }
 
-function todoEquals(a: TranscriptTodo, b: TranscriptTodo): boolean {
-  return a.items === b.items && a.updatedAt === b.updatedAt;
-}
-
 function promptEquals(a: TranscriptPrompt, b: TranscriptPrompt): boolean {
   return (
     a.status === b.status &&
@@ -739,15 +637,4 @@ function taskEquals(a: TranscriptTask, b: TranscriptTask): boolean {
     a.model === b.model &&
     a.thinkingEffort === b.thinkingEffort
   );
-}
-
-function contentEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (typeof a !== 'object' || a === null || typeof b !== 'object' || b === null) return false;
-  const keysA = Object.keys(a);
-  const keysB = Object.keys(b);
-  if (keysA.length !== keysB.length) return false;
-  const recordA = a as Record<string, unknown>;
-  const recordB = b as Record<string, unknown>;
-  return keysA.every((key) => contentEqual(recordA[key], recordB[key]));
 }

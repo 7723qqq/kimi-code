@@ -138,7 +138,6 @@ export const toolCallFrameSchema = z.object({
   progress: toolFrameProgressSchema.optional(),
   taskId: taskIdSchema.optional(),
   approvalId: z.string().optional(),
-  todoId: z.string().optional(),
   agentRefs: z.array(agentRefSchema).optional(),
 });
 
@@ -241,121 +240,6 @@ export const transcriptTaskSchema = z.object({
   thinkingEffort: z.string().optional(),
 });
 
-export const goalMetaSchema = z.object({
-  objective: z.string(),
-  status: z.enum(['active', 'paused', 'blocked', 'complete', 'budget_limited', 'usage_limited']),
-  completionCriterion: z.string().optional(),
-  budgetUsed: z.number().optional(),
-  budgetLimit: z.number().optional(),
-});
-
-export const modesMetaSchema = z.object({
-  plan: z.object({ reviewPath: z.string().optional(), version: z.number().optional() }).optional(),
-  spec: z.object({ dir: z.string().optional() }).optional(),
-  swarm: z.object({ trigger: z.string().optional() }).optional(),
-  'hello-world': z
-    .object({ trigger: z.string().optional(), stage: z.string().optional() })
-    .optional(),
-  tower: z.object({}).optional(),
-});
-
-export const modesMetaMergeSchema = z.object({
-  plan: z
-    .object({ reviewPath: z.string().optional(), version: z.number().optional() })
-    .nullable()
-    .optional(),
-  spec: z.object({ dir: z.string().optional() }).nullable().optional(),
-  swarm: z.object({ trigger: z.string().optional() }).nullable().optional(),
-  'hello-world': z
-    .object({ trigger: z.string().optional(), stage: z.string().optional() })
-    .nullable()
-    .optional(),
-  tower: z.object({}).nullable().optional(),
-});
-
-export const agentPhaseMetaSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('idle') }),
-  z.object({
-    kind: z.literal('running'),
-    turnId: z.number(),
-    step: z.number(),
-    stepId: z.string(),
-    since: z.number(),
-  }),
-  z.object({
-    kind: z.literal('tool_call'),
-    turnId: z.number(),
-    step: z.number(),
-    toolCallId: z.string(),
-    name: z.string(),
-    since: z.number(),
-  }),
-  z.object({
-    kind: z.literal('retrying'),
-    turnId: z.number(),
-    step: z.number(),
-    stepId: z.string(),
-    failedAttempt: z.number(),
-    nextAttempt: z.number(),
-    maxAttempts: z.number(),
-    delayMs: z.number(),
-    errorName: z.string().optional(),
-    statusCode: z.number().optional(),
-    since: z.number(),
-  }),
-  z.object({
-    kind: z.literal('awaiting_approval'),
-    turnId: z.number(),
-    step: z.number().optional(),
-    approval: z.unknown().optional(),
-    since: z.number(),
-  }),
-  z.object({
-    kind: z.literal('interrupted'),
-    turnId: z.number(),
-    step: z.number().optional(),
-    reason: z.enum(['aborted', 'max_steps', 'error']),
-    message: z.string().optional(),
-    at: z.number(),
-  }),
-  z.object({
-    kind: z.literal('ended'),
-    turnId: z.number(),
-    reason: z.enum(['completed', 'cancelled', 'failed', 'blocked']),
-    durationMs: z.number().optional(),
-    at: z.number(),
-  }),
-]);
-
-export const agentUsageMetaSchema = z.object({
-  byModel: z.record(z.string(), stepUsageSchema).optional(),
-  currentTurn: stepUsageSchema.optional(),
-  total: stepUsageSchema.optional(),
-});
-
-export const agentStatusMetaSchema = z.object({
-  model: z.string().optional(),
-  thinkingEffort: z.string().optional(),
-  usage: agentUsageMetaSchema.optional(),
-  contextTokens: z.number().optional(),
-  maxContextTokens: z.number().optional(),
-  contextUsage: z.number().optional(),
-  permission: z.enum(['manual', 'yolo', 'auto']).optional(),
-  phase: agentPhaseMetaSchema.optional(),
-});
-
-export const transcriptMetaSchema = z.object({
-  goal: goalMetaSchema.optional(),
-  modes: modesMetaSchema.optional(),
-  activity: z.enum(['idle', 'turn', 'disposing', 'unknown']).optional(),
-  agent: agentStatusMetaSchema.optional(),
-});
-
-export const transcriptMetaMergeSchema = transcriptMetaSchema.extend({
-  goal: goalMetaSchema.nullable().optional(),
-  modes: modesMetaMergeSchema.optional(),
-});
-
 export const attachmentSchema = z.object({
   attachmentId: z.string(),
   mediaType: z.string(),
@@ -369,21 +253,6 @@ export const attachmentSchema = z.object({
     ])
     .optional(),
   placeholder: z.string().optional(),
-});
-
-export const todoItemSchema = z.object({
-  id: z.string().optional(),
-  parentId: z.string().nullable().optional(),
-  kind: z.enum(['milestone', 'task']).optional(),
-  title: z.string(),
-  status: z.enum(['pending', 'in_progress', 'done']),
-  progress: z.number().min(0).max(100).optional(),
-});
-
-export const todoSchema = z.object({
-  todoId: z.string(),
-  items: z.array(todoItemSchema),
-  updatedAt: z.string().optional(),
 });
 
 export const transcriptPromptSchema = z.object({
@@ -402,9 +271,7 @@ export const agentTranscriptSnapshotSchema = z.object({
   tasks: z.array(transcriptTaskSchema),
   interactions: z.array(interactionSchema).default([]),
   attachments: z.array(attachmentSchema).default([]),
-  todos: z.array(todoSchema).default([]),
   prompts: z.array(transcriptPromptSchema).default([]),
-  meta: transcriptMetaSchema,
   hasMoreOlder: z.boolean().optional(),
 });
 
@@ -454,9 +321,7 @@ export const transcriptOperationSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('task.upsert'), task: transcriptTaskSchema }),
   z.object({ op: z.literal('interaction.upsert'), interaction: interactionSchema }),
   z.object({ op: z.literal('attachment.upsert'), attachment: attachmentSchema }),
-  z.object({ op: z.literal('todo.upsert'), todo: todoSchema }),
   z.object({ op: z.literal('prompt.upsert'), prompt: transcriptPromptSchema }),
-  z.object({ op: z.literal('meta.merge'), meta: transcriptMetaMergeSchema }),
   z.object({ op: z.literal('items.remove'), ids: z.array(z.string()) }),
 ]);
 
@@ -519,9 +384,7 @@ export const transcriptResponseSchema = z.object({
   tasks: z.array(transcriptTaskSchema),
   interactions: z.array(interactionSchema).default([]),
   attachments: z.array(attachmentSchema).default([]),
-  todos: z.array(todoSchema).default([]),
   prompts: z.array(transcriptPromptSchema).default([]),
-  meta: transcriptMetaSchema,
   agents: z.array(agentDescriptorSchema),
   pending_interactions: z.array(z.string()),
   seq: transcriptSeqSchema.optional(),
