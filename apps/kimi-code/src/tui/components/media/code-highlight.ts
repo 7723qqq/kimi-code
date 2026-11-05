@@ -160,7 +160,7 @@ export function highlightLines(code: string, lang: string | undefined): string[]
   return lines;
 }
 
-/** Drop cached full-document renderings (theme switches, tests). */
+/** Drop cached full-document renderings. Called from tests only. */
 export function clearHighlightCache(): void {
   fullFileCache.clear();
   cachedChars = 0;

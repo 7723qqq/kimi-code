@@ -12,6 +12,7 @@
 #
 # Regenerate with:
 #   ./tools/review/zig-out/bin/review --check=orphan-exports --json
+
 __resetRootLoggerForTest  packages/node-sdk/src/logging/logger.ts
 _clearAgentToolContributionsForTests  packages/agent-core-v2/src/agent/toolRegistry/toolContribution.ts
 _clearFeatureRecipesForTests  packages/agent-core-v2/src/features/featureRegistry.ts
@@ -19,8 +20,10 @@ _clearScopedRegistryForTests  packages/agent-core-v2/src/_base/di/scope.ts
 _setTowerFeatureAssembledForTests  packages/agent-core-v2/src/features/tower/towerFeature.ts
 applyContextCompactionRecord  packages/agent-core-v2/src/agent/contextMemory/contextOps.ts
 buildHookSpawnOptions  packages/agent-core-v2/src/features/externalHooks/internal/runHook.ts
+clearHighlightCache  apps/kimi-code/src/tui/components/media/code-highlight.ts
 connectPlugins  packages/agent-core-v2/src/human/plugin.ts
 containsUsableMessage  packages/migration-legacy/src/sessions/translator.ts
+createHttpTokenCounter  packages/agent-core-v2/src/agent/tokenCounting/tokenCounter.ts
 createKimiOAuthCredentialProvider  packages/agent-core-v2/src/human/credentials/kimi-oauth.ts
 createMediaDegradeRecovery  packages/agent-core-v2/src/human/llm/media/degrade.ts
 createMediaRefResolver  packages/agent-core-v2/src/human/llm/media/resolver.ts
@@ -30,8 +33,10 @@ createMemoryProviderCatalogStore  packages/agent-core-v2/src/human/llm/provider-
 createNode  packages/tree-sitter-bash/src/node.ts
 createProviderCatalog  packages/agent-core-v2/src/human/llm/provider-catalog.ts
 createScopedTestHost  packages/agent-core-v2/src/_base/di/test.ts
+createSidecarTokenCounter  packages/agent-core-v2/src/agent/tokenCounting/tokenCounter.ts
 createTimingPlugin  packages/agent-core-v2/src/human/timing/plugin.ts
 createTodoPlugin  packages/agent-core-v2/src/human/todo/plugin.ts
+createTokenCounter  packages/agent-core-v2/src/agent/tokenCounting/tokenCounter.ts
 createToolSelectMessageResolver  packages/agent-core-v2/src/human/tool-select/resolver.ts
 createToolSelectPlugin  packages/agent-core-v2/src/human/tool-select/plugin.ts
 createToolSelectState  packages/agent-core-v2/src/human/tool-select/state.ts
@@ -41,9 +46,9 @@ deferTool  packages/agent-core-v2/src/human/tool-select/tool.ts
 deleteImported  apps/vis/server/src/lib/import-store.ts
 descendantsOfType  packages/tree-sitter-bash/src/node.ts
 dispatchTools  packages/agent-core-v2/src/human/agent/machine.ts
+editorBorderHighlighted  apps/kimi-code/src/tui/kimi-tui.ts
 extendWorkspaceWithSkillRoots  packages/agent-core-v2/src/tool/path-access.ts
 extractFromWireLine  packages/kap-server/src/search/wireExtract.ts
-fetchWorkspaceSnapshot  apps/kimi-inspect/src/snapshots/api.ts
 findAltScreenSearchMatches  packages/pi-tui/src/alt-screen-search.ts
 flushTelemetrySync  packages/telemetry/src/index.ts
 foldWireRecordFacts  packages/transcript/src/history/foldFacts.ts
@@ -82,24 +87,19 @@ resetCacheHintConfigCache  apps/kimi-code/src/utils/cache-hint-config.ts
 resetDefaultTelemetryClientForTests  packages/telemetry/src/client.ts
 resetExtensionRegionCache  apps/vscode/src/utils/region.ts
 resetH3States  packages/agent-core-v2/src/app/auth/webSearch/engines/http3.ts
+resetKimiRegionCache  apps/kimi-code/src/utils/region.ts
+resetModelSwitchConfirmConfigCache  apps/kimi-code/src/utils/model-switch-confirm-config.ts
 resetModelsDevUpstreamForTest  packages/agent-core-v2/src/app/kosongConfig/modelsDevUpstream.ts
 resetRecommendedEffortConfigCache  apps/kimi-code/src/utils/recommended-effort-config.ts
 resetSurveyPopupConfigCache  apps/kimi-code/src/utils/survey-popup-config.ts
 resetTextBuildWorkerRuntime  packages/minidb/src/worker-runtime.ts
+resetUnexpectedErrorHandler  packages/agent-core-v2/src/_base/errors/unexpectedError.ts
 runCommandAsync  apps/kimi-code/src/utils/clipboard/clipboard-common.ts
 sandboxWriteGuard  packages/agent-core-v2/src/workspace/sandbox/sandbox.ts
-selectPassiveUpdateTarget  apps/kimi-code/src/cli/update/rollout.ts
 setModelsDevUpstreamForTest  packages/agent-core-v2/src/app/kosongConfig/modelsDevUpstream.ts
 setRenderCacheEnabled  apps/kimi-code/src/tui/utils/render-cache.ts
+setSearchStatOverride  packages/kap-server/src/search/indexCore.ts
 stagedExeFileName  apps/kimi-code/src/cli/update/native-stage.ts
 stubPair  packages/agent-core-v2/src/_base/di/test.ts
 usesTraitDrivenThinking  packages/agent-core-v2/src/llm-adapter/model/thinking.ts
 verifyFileIntegritySync  packages/minidb/src/gen-codec.ts
-editorBorderHighlighted  apps/kimi-code/src/tui/kimi-tui.ts
-resetModelSwitchConfirmConfigCache  apps/kimi-code/src/utils/model-switch-confirm-config.ts
-createTokenCounter  packages/agent-core-v2/src/agent/tokenCounting/tokenCounter.ts
-createSidecarTokenCounter  packages/agent-core-v2/src/agent/tokenCounting/tokenCounter.ts
-createHttpTokenCounter  packages/agent-core-v2/src/agent/tokenCounting/tokenCounter.ts
-setSearchStatOverride  packages/kap-server/src/search/indexCore.ts
-resetKimiRegionCache  apps/kimi-code/src/utils/region.ts
-resetUnexpectedErrorHandler  packages/agent-core-v2/src/_base/errors/unexpectedError.ts

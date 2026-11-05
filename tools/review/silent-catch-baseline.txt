@@ -8,7 +8,7 @@
 # Regenerate with:
 #   ./tools/review/zig-out/bin/review --check=silent-catch --json
 
-
+apps/kimi-code/src/cli/main.ts  2
 apps/kimi-code/src/cli/run-shell.ts  6
 apps/kimi-code/src/cli/sub/login-flow.ts  2
 apps/kimi-code/src/cli/sub/upgrade.ts  3
@@ -19,7 +19,6 @@ apps/kimi-code/src/cli/update/preflight.ts  3
 apps/kimi-code/src/cli/update/rollout.ts  1
 apps/kimi-code/src/cli/v2/run-v2-print.ts  1
 apps/kimi-code/src/feedback/feedback-attachments.ts  1
-apps/kimi-code/src/main.ts  2
 apps/kimi-code/src/tui/commands/plugins.ts  1
 apps/kimi-code/src/tui/components/editor/file-mention-provider.ts  1
 apps/kimi-code/src/tui/components/messages/shell-run.ts  2
@@ -71,6 +70,7 @@ packages/agent-core-v2/src/app/auth/webSearch/engines/bing/parser.ts  1
 packages/agent-core-v2/src/app/auth/webSearch/engines/duckduckgo/parser.ts  1
 packages/agent-core-v2/src/app/mcpConfig/oauthStore.ts  2
 packages/agent-core-v2/src/app/sessionExport/sessionExportService.ts  1
+packages/agent-core-v2/src/app/sessionManager/sessionManagerService.ts  1
 packages/agent-core-v2/src/app/telemetry/coreVersion.ts  1
 packages/agent-core-v2/src/app/web/providers/local-fetch-url.ts  1
 packages/agent-core-v2/src/app/web/providers/moonshot-fetch-url.ts  1
@@ -82,8 +82,8 @@ packages/agent-core-v2/src/app/workspace/workspaceService.ts  1
 packages/agent-core-v2/src/features/cron/internal/clock.ts  1
 packages/agent-core-v2/src/features/cron/tools/cron-list/cronListTool.ts  1
 packages/agent-core-v2/src/features/externalHooks/agent/agentExternalHooksService.ts  1
-packages/agent-core-v2/src/features/externalHooks/app/externalHooksRunnerService.ts  2
-packages/agent-core-v2/src/features/externalHooks/internal/matchHooks.ts  2
+packages/agent-core-v2/src/features/externalHooks/app/externalHooksRunnerService.ts  3
+packages/agent-core-v2/src/features/externalHooks/internal/matchHooks.ts  3
 packages/agent-core-v2/src/features/externalHooks/session/sessionExternalHooksService.ts  2
 packages/agent-core-v2/src/features/goal/goalService.ts  1
 packages/agent-core-v2/src/features/lsp/lspInstance.ts  3
@@ -100,6 +100,9 @@ packages/agent-core-v2/src/mcpCore/connection-manager.ts  2
 packages/agent-core-v2/src/mcpCore/oauth/service.ts  1
 packages/agent-core-v2/src/os/backends/host/hostProcessService.ts  2
 packages/agent-core-v2/src/os/backends/host/tools/runRg.ts  4
+packages/agent-core-v2/src/remote/client/connection.ts  2
+packages/agent-core-v2/src/remote/client/execBridge.ts  3
+packages/agent-core-v2/src/remote/server/processManager.ts  1
 packages/agent-core-v2/src/session/agentLifecycle/agentLifecycleService.ts  2
 packages/agent-core-v2/src/session/agentLifecycle/profile/gitContext.ts  3
 packages/agent-core-v2/src/session/subagent/backend/acpBackend.ts  1
@@ -161,7 +164,7 @@ packages/oauth/src/storage.ts  2
 packages/pi-tui/src/autocomplete.ts  1
 packages/pi-tui/src/native-module-path.ts  1
 packages/pi-tui/src/native-platform.ts  1
-packages/pi-tui/src/terminal.ts  5
+packages/pi-tui/src/terminal.ts  4
 packages/pi-tui/src/tui-alt-screen.ts  2
 packages/product/src/client-configs/node/client-configs.ts  1
 packages/product/src/session-rating/node/engine.ts  1

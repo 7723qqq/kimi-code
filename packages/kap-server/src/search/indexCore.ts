@@ -40,28 +40,35 @@ const TRI_INDEX_NAME = 'tri';
 const WIRE_FILENAME = 'wire.jsonl';
 const TEXT_BUILD_TMP_SUFFIX = '.tmpbuild';
 const SEARCH_WIRE_PROTOCOL_VERSION = '1.5';
+const MALFORMED_WIRE_META_CODE = 'wire.metadata_malformed';
+
+function malformedWireMetaError(): TypeError {
+  const error = new TypeError('Agent wire metadata is malformed') as TypeError & { code?: string };
+  error.code = MALFORMED_WIRE_META_CODE;
+  return error;
+}
 
 function assertSearchWireReaderVersion(line: string): void {
   let record: Record<string, unknown>;
   try {
     const parsed = JSON.parse(line) as unknown;
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      throw new TypeError('Agent wire metadata is malformed');
+      throw malformedWireMetaError();
     }
     record = parsed as Record<string, unknown>;
   } catch {
-    throw new TypeError('Agent wire metadata is malformed');
+    throw malformedWireMetaError();
   }
   if (record['type'] !== 'metadata') return;
   const protocolVersion = record['protocol_version'];
   const createdAt = record['created_at'];
   const minReaderVersion = record['min_protocol_version'];
   if (typeof protocolVersion !== 'string' || typeof createdAt !== 'number') {
-    throw new TypeError('Agent wire metadata is malformed');
+    throw malformedWireMetaError();
   }
   if (minReaderVersion === undefined) return;
   if (typeof minReaderVersion !== 'string' || !/^\d+(\.\d+)*$/.test(minReaderVersion)) {
-    throw new TypeError('Agent wire metadata is malformed');
+    throw malformedWireMetaError();
   }
   const current = SEARCH_WIRE_PROTOCOL_VERSION.split('.');
   const required = minReaderVersion.split('.');
@@ -79,15 +86,9 @@ function assertSearchWireReaderVersion(line: string): void {
 }
 
 function isSearchWireCompatibilityError(error: unknown): boolean {
-  if (error instanceof TypeError && error.message === 'Agent wire metadata is malformed') {
-    return true;
-  }
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as { code?: unknown }).code === 'wire.version_too_low'
-  );
+  if (typeof error !== 'object' || error === null || !('code' in error)) return false;
+  const code = (error as { code?: unknown }).code;
+  return code === MALFORMED_WIRE_META_CODE || code === 'wire.version_too_low';
 }
 
 const FILE_META_PREFIX = '\0meta\\file\\';
