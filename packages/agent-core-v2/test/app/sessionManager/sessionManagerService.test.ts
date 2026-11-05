@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { IEnvironmentService } from '#/app/environment/environment';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Emitter, Event } from '#/_base/event';
 import type { ISessionScopeHandle } from '#/_base/di/scope';

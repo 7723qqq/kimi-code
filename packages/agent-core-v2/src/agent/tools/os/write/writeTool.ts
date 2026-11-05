@@ -6,7 +6,6 @@ import { acquireOrWhenReady, IAgentEnvironmentService, pinnedGeneration } from '
 import { IAgentPlanService } from '#/features/plan/plan';
 import { EnvironmentWorkspaceView } from '#/environment/environmentWorkspaceView';
 import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
-import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import {

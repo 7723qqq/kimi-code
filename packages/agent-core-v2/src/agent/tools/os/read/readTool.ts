@@ -25,7 +25,6 @@ import {
   type TokenCharCounts,
 } from '#/llm-adapter/contract/tokens';
 import type { HostEnvironmentInfo } from '#/os/interface/hostEnvironment';
-import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { resolvePathAccessPath, type WorkspaceConfig } from '#/tool/path-access';
@@ -51,8 +50,8 @@ import {
   type ReadInput,
 } from './read';
 import readDescriptionTemplate from './read.md?raw';
-import { UtfTextEncoding } from '#/_base/text/encoding';
-import { LineEndingStyle } from '#/_base/text/line-endings';
+import { type UtfTextEncoding } from '#/_base/text/encoding';
+import { type LineEndingStyle } from '#/_base/text/line-endings';
 import { makeCarriageReturnsVisible } from '#/_base/text/line-endings';
 import { renderPrompt } from '#/_base/utils/render-prompt';
 import { IMediaReadContext } from '#/agent/media/mediaReadContext';

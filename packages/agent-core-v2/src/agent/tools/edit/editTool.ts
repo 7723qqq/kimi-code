@@ -1,4 +1,4 @@
-import { IAgentRuntimeService, inspectAgentRuntime } from '#/agent/runtimeBinding/agentRuntime';
+import { IAgentEnvironmentService, inspectAgentRuntime } from '#/agent/environmentBinding/agentEnvironment';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { withFileMemory } from '#/agent/tools/fileMemory';
 import { IFileEditService } from '#/app/edit/fileEdit';
@@ -7,7 +7,6 @@ import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { EnvironmentWorkspaceView } from '#/environment/environmentWorkspaceView';
 import { IAgentPlanService } from '#/features/plan/plan';
-import { acquireOrWhenReady, IAgentEnvironmentService, pinnedGeneration } from '#/agent/environmentBinding/agentEnvironment';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import {

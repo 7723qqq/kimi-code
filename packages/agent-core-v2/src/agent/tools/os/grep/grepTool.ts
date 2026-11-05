@@ -1,7 +1,7 @@
 import { normalize } from 'pathe';
 
 import { unwrapErrorCause } from '#/_base/errors/errors';
-import { IAgentRuntimeService, inspectAgentRuntime } from '#/agent/runtimeBinding/agentRuntime';
+import { IAgentEnvironmentService, inspectAgentRuntime } from '#/agent/environmentBinding/agentEnvironment';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { IOAuthService } from '#/app/auth/auth';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
@@ -22,7 +22,6 @@ import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { isHostFsNotFound } from '#/os/interface/hostFsErrors';
 import type { IHostProcessService } from '#/os/interface/hostProcess';
-import { acquireOrWhenReady, IAgentEnvironmentService, pinnedGeneration } from '#/agent/environmentBinding/agentEnvironment';
 import type { Environment } from '#/environment/environment';
 import { EnvironmentWorkspaceView } from '#/environment/environmentWorkspaceView';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';

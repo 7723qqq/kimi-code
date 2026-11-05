@@ -12,7 +12,7 @@ import {
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentTaskService, type RegisterAgentTaskOptions } from '#/agent/task/task';
 import type { AgentTaskInfo } from '#/agent/task/types';
@@ -25,7 +25,6 @@ import {
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { TOOL_SELECT_FLAG_ID } from '#/agent/toolSelect/flag';
 import { SELECT_TOOLS_TOOL_NAME } from '#/agent/toolSelect/toolSelect';
-import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import {
   ToolAccesses,
   isMcpToolName,
@@ -82,14 +81,7 @@ import {
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { matchesGlobRuleSubject } from '#/tool/rule-match';
-import {
-  ToolAccesses,
-  ToolSideEffects,
-  isMcpToolName,
-  type ExecutableToolContext,
-  type ExecutableToolResult,
-  type ToolExecution,
-} from '#/tool/toolContract';
+import { ToolSideEffects } from '#/tool/toolContract';
 
 import {
   BACKGROUND_AGENT_UNAVAILABLE,
@@ -109,9 +101,9 @@ import AGENT_DESCRIPTION_BASE from './agent.md?raw';
 import { NO_PARTIAL_OUTPUT, SubagentTask, type SubagentHandle } from './subagent-task';
 import { exposesSubagentBackends } from '#/session/subagent/backend/configSection';
 import { ISubagentBackendService } from '#/session/subagent/backend/subagentBackend';
-import { SubagentBackendName } from '#/session/subagent/backend/subagentBackend';
+import { type SubagentBackendName } from '#/session/subagent/backend/subagentBackend';
 import { backendIncompatibility } from '#/session/subagent/backend/backendCompat';
-import { SubagentBackendResult } from '#/session/subagent/backend/subagentBackend';
+import { type SubagentBackendResult } from '#/session/subagent/backend/subagentBackend';
 
 const SUBAGENT_TOOL_PARAMETERS = toInputJsonSchema(SubagentToolInputSchema);
 const SUBAGENT_TOOL_PARAMETERS_NO_MODEL = stripSubagentModelParameter(SUBAGENT_TOOL_PARAMETERS);

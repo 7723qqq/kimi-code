@@ -8,7 +8,6 @@ import { type WriteInput, WriteInputSchema } from '#/agent/tools/os/write/write'
 import { WriteTool } from '#/agent/tools/os/write/writeTool';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { FakeRuntime } from '#/runtime/fakeRuntime';
 import type {
   ExecutableToolContext,
   ExecutableToolResult,

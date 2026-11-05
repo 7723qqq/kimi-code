@@ -20,7 +20,7 @@ import type { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
 import type { IWorkspaceFsService } from '#/workspace/workspaceFs/fs';
 import type { IWorkspaceGitService } from '#/workspace/workspaceGit/workspaceGit';
 import { WorkspaceGitService } from '#/workspace/workspaceGit/workspaceGitService';
-import type { IRuntimeResolver } from '#/workspace/workspaceInstance/workspaceInstanceManager';import type { IWorkspaceInstructionsService } from '#/workspace/workspaceInstructions/workspaceInstructions';
+import type { IEnvironmentResolver } from '#/workspace/workspaceInstance/workspaceInstanceManager';import type { IWorkspaceInstructionsService } from '#/workspace/workspaceInstructions/workspaceInstructions';
 import type { IWorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcp';
 import { WorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcpService';
 import type { IWorkspaceMcpConfigService } from '#/workspace/workspaceMcpConfig/workspaceMcpConfig';

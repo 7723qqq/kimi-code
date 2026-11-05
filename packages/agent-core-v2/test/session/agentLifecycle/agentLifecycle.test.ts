@@ -89,7 +89,7 @@ import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStor
 import { IBlobStore } from '#/persistence/interface/blobStore';
 import { ISessionLockService } from '#/persistence/interface/sessionLock';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { FakeRuntime } from '#/runtime/fakeRuntime';
+import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { AgentLifecycleService } from '#/session/agentLifecycle/agentLifecycleService';
 import { getOrRestoreAgent } from '#/session/agentLifecycle/getOrRestoreAgent';
@@ -107,7 +107,6 @@ import { ISessionSubagentService } from '#/session/subagent/subagent';
 import { SessionSubagentService } from '#/session/subagent/subagentService';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import type { EnvironmentBinding } from '#/environment/environment';
 import { EnvironmentError } from '#/environment/environmentRegistry';
 import { IWorkspaceInstanceManager } from '#/workspace/workspaceInstance/workspaceInstanceManager';
@@ -115,8 +114,8 @@ import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import { stubAgentContext } from '../../agent/agentContext/stubs';
 import { stubProviderDiscovery } from '../../stubs';
-import { AgentEventStore } from '#/human/agent/slices';
-import { WireRecord } from '#/wire/record';
+import { type AgentEventStore } from '#/human/agent/slices';
+import { type WireRecord } from '#/wire/record';
 import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { IWireService } from '#/wire/wire';
@@ -125,7 +124,7 @@ import { createWireMetadataRecord } from '#/wire/record';
 import { waitForAssertion } from '#test/helpers/waitFor';
 import { ProfileBind } from '#/agent/profile/profileOps';
 import { agentContextOf } from '#/agent/scopeContext/scopeContext';
-import { ToolCall } from '#/human/llm/message';
+import { type ToolCall } from '#/human/llm/message';
 
 const noopLog = {
   _serviceBrand: undefined,

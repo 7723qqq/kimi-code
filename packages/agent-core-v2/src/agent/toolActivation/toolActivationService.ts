@@ -4,7 +4,7 @@ import { type IDisposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { isToolActive } from '#/agent/toolPolicy/evaluate';
 import { AgentToolContribution } from '#/agent/toolRegistry/toolContribution';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
@@ -13,7 +13,6 @@ import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
 import { IEventBus } from '#/app/event/eventBus';
 import { LifecycleScope } from '#/app/scopes';
 import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
-import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 
 import { IAgentToolActivationService } from './toolActivation';
 import { isToolAvailable } from './toolAvailability';

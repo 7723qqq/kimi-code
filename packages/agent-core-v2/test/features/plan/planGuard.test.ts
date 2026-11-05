@@ -1,4 +1,4 @@
-import { Mock, afterEach, beforeEach, describe, expect, it, jest, mock } from 'bun:test';
+import { type Mock, afterEach, beforeEach, describe, expect, it, jest, mock } from 'bun:test';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';

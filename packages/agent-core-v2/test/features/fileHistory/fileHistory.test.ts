@@ -12,7 +12,7 @@ import { TestInstantiationService } from '#/_base/di/test';
 import { USER_PROMPT_ORIGIN } from '#/agent/contextMemory/types';
 import { TurnStarted } from '#/agent/loop/turnEvents';
 import { TurnEnded } from '#/agent/loop/turnOps';
-import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import type { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IEventBus, type ISessionEventBus } from '#/app/event/eventBus';
@@ -31,7 +31,6 @@ import {
 import type { FoldContext } from '#/state/state';
 import type { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import type { ToolCall } from '#human/llm/message';
-import type { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { HostFsError } from '#/os/interface/hostFsErrors';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';

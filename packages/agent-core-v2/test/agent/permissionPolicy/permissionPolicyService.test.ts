@@ -46,7 +46,7 @@ import type { ToolCall } from '#human/llm/message';
 
 import { recordingTelemetry } from '../../app/telemetry/stubs';
 import { stubPermissionModeService } from '../permissionMode/stubs';
-import { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
+import { type ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 
 const signal = new AbortController().signal;
 

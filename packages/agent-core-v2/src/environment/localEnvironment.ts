@@ -8,10 +8,10 @@ import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IHostProcessService } from '#/os/interface/hostProcess';
 
 import type { Environment, EnvironmentCapability, EnvironmentPath, EnvironmentStatus } from './environment';
-import { RuntimeProviderContext } from '#/runtime/runtimeProvider';
-import { RuntimeProviderHost } from '#/runtime/runtimeUnitHost';
-import { RuntimeProviderAttachment } from '#/runtime/runtimeProvider';
-import { LocalRuntime } from '#/runtime/localRuntime';
+import { EnvironmentProviderContext } from '#/environment/environmentProvider';
+import { type EnvironmentProviderHost } from '#/environment/environmentProvider';
+import { type EnvironmentProviderAttachment } from '#/environment/environmentProvider';
+import { LocalEnvironment } from '#/environment/localEnvironment';
 
 let nextGeneration = 1;
 
@@ -86,7 +86,7 @@ export class LocalEnvironment implements Environment {
   }
 }
 
-export class LocalRuntimeProviderFactory implements RuntimeProviderFactory {
+export class LocalEnvironmentProviderFactory implements EnvironmentProviderFactory {
   readonly id = 'local';
   readonly imports = {
     root: [IHostEnvironment, IHostFileSystem, IHostProcessService],
@@ -95,11 +95,11 @@ export class LocalRuntimeProviderFactory implements RuntimeProviderFactory {
   };
 
   async attach(
-    context: RuntimeProviderContext,
-    host: RuntimeProviderHost,
-  ): Promise<RuntimeProviderAttachment> {
+    context: EnvironmentProviderContext,
+    host: EnvironmentProviderHost,
+  ): Promise<EnvironmentProviderAttachment> {
     const handle = host.registerRuntime(
-      new LocalRuntime(
+      new LocalEnvironment(
         context.id,
         host.get(IHostEnvironment),
         host.get(IHostFileSystem),

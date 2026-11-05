@@ -33,15 +33,14 @@ async function viWaitFor(fn: () => void | Promise<void>, opts?: { timeout?: numb
 }
 
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Event } from '#/_base/event';
 import { InstantiationService } from '#/_base/di/instantiationService';
 import { ServiceCollection } from '#/_base/di/serviceCollection';
 import { AgentProfileRegistryService } from '#/app/agentProfileCatalog/agentProfileRegistryService';
 import { noopTelemetryService } from '#/app/telemetry/telemetry';
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
-import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
+import { HostFileSystem } from '#/os/backends/host/hostFsService';
+import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { IEnvironmentService } from '#/app/environment/environment';

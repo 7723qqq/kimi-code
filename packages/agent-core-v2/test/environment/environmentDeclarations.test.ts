@@ -1,5 +1,4 @@
 import { describe, expect, it, mock } from 'bun:test';
-import { describe, expect, it, vi } from 'vitest';
 
 import type { IConfigService } from '#/app/config/config';
 import { EnvironmentDeclarationService } from '#/app/environmentDeclaration/environmentDeclarationService';

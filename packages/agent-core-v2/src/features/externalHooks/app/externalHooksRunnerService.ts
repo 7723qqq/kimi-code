@@ -16,8 +16,6 @@ import {
 import { blockDecision, indexHooks, runMatchedHooks } from '../internal/matchHooks';
 import type { HookRunCallbacks } from '../internal/matchHooks';
 import type { HookBlockDecision, HookDef, HookResult } from '../internal/types';
-import type { IExternalHooksRunnerService } from './externalHooksRunner';
-import { type ExternalHooksRunnerTriggerArgs } from './externalHooksRunner';
 
 export class ExternalHooksRunnerService extends Disposable implements IExternalHooksRunnerService {
   declare readonly _serviceBrand: undefined;

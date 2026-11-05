@@ -1,5 +1,4 @@
 import { describe, expect, it, mock } from 'bun:test';
-import { describe, expect, it, vi } from 'vitest';
 
 import type { IFileEditService } from '#/app/edit/fileEdit';
 import { noopTelemetryService } from '#/app/telemetry/telemetry';
@@ -19,7 +18,7 @@ import type { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import type { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import type { WorkspaceConfig } from '#/tool/path-access';
 import { ToolAccesses, type ExecutableToolContext, type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
-import { ensureRgPath } from '#/os/backends/node-local/tools/rgLocator';
+import { ensureRgPath } from '#/os/backends/host/tools/rgLocator';
 import { EditTool } from '#/agent/tools/edit/editTool';
 import { BashTool } from '#/agent/tools/os/bash/bashTool';
 import { GlobTool } from '#/agent/tools/os/glob/globTool';
@@ -33,8 +32,8 @@ import { stubToolResultTruncationService } from '../../toolResultTruncation/stub
 import { makeSessionContext } from '#/session/sessionContext/sessionContext';
 import { stubWorkspaceContext } from '../../../session/workspaceContext/stub-workspace-context';
 
-vi.mock('#/os/backends/node-local/tools/rgLocator', async (importOriginal) => {
-  const original = await importOriginal<typeof import('#/os/backends/node-local/tools/rgLocator')>();
+vi.mock('#/os/backends/host/tools/rgLocator', async (importOriginal) => {
+  const original = await importOriginal<typeof import('#/os/backends/host/tools/rgLocator')>();
   return { ...original, ensureRgPath: mock() };
 });
 

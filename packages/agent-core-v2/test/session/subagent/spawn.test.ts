@@ -14,14 +14,13 @@ import { IFlagService } from '#/app/flag/flag';
 import { ILogService } from '#/_base/log/log';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentProfileService, type ProfileData } from '#/agent/profile/profile';
-import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentUserToolService } from '#/agent/userTool/userTool';
 import {
   normalizeAgentProfile,
   type AgentProfile,
 } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { IAgentEnvironmentBindingService } from '#/agent/environmentBinding/environmentBinding';
 import { Error2, ErrorCodes, isError2 } from '#/errors';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
@@ -55,7 +54,6 @@ import { stubLog } from '../../_base/log/stubs';
 import { stubAgentContext } from '../../agent/agentContext/stubs';
 import { stubFlag } from '../../app/flag/stubs';
 import { StubConfigService } from '../../stubs';
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 const CALLER_ID = 'main';
 

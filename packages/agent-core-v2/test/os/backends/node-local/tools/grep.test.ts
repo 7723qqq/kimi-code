@@ -7,7 +7,7 @@ import { createServices } from '#/_base/di/test';
 import { Event } from '#/_base/event';
 import { type PathClass } from '#/_base/execEnv/environmentProbe';
 import { IAgentProfileService, type ProfileData } from '#/agent/profile/profile';
-import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { IAgentToolActivationService } from '#/agent/toolActivation/toolActivation';
 import { AgentToolActivationService } from '#/agent/toolActivation/toolActivationService';
 import {
@@ -30,21 +30,18 @@ import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem, type HostFileStat } from '#/os/interface/hostFileSystem';
 import { IHostProcessService, type IHostProcess } from '#/os/interface/hostProcess';
 import type { IHostTimerHandle, IHostTimers } from '#/os/interface/hostTimers';
-import { FakeRuntime } from '#/runtime/fakeRuntime';
+import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { SENSITIVE_DOT_VARIANT_SUFFIXES } from '#/tool/path-access';
 import { PathSecurityError, type WorkspaceConfig } from '#/tool/path-access';
-import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
-import { FakeEnvironment } from '#/environment/fakeEnvironment';
-import { ensureRgPath } from '#/os/backends/node-local/tools/rgLocator';
 import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
 import { stubAgentEnvironment } from '../../../../environment/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../../../../app/telemetry/stubs';
 import { registerStateServices } from '../../../../state/stubs';
-import { ExecutableTool } from '#/tool/toolContract';
-import { ExecutableToolResult } from '#/tool/toolContract';
-import { ToolExecution } from '#/tool/toolContract';
+import { type ExecutableTool } from '#/tool/toolContract';
+import { type ExecutableToolResult } from '#/tool/toolContract';
+import { type ToolExecution } from '#/tool/toolContract';
 
 void mock.module('#/os/backends/host/tools/rgLocator', () => ({
   ensureRgPath: mock(async () => ({ path: '/mock/rg', source: 'system-path' })),

@@ -69,7 +69,7 @@ import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
 import { IWorkspaceGitService } from '#/workspace/workspaceGit/workspaceGit';
-import { IRuntimeResolver } from '#/workspace/workspaceInstance/workspaceInstanceManager';
+import { IEnvironmentResolver } from '#/workspace/workspaceInstance/workspaceInstanceManager';
 
 import { type FsDownloadResolved, type FsPathResolved, IWorkspaceFsService } from './fs';
 import { readStream, runCommand } from './internal/fsProcess';
@@ -887,7 +887,7 @@ export class WorkspaceFsService implements IWorkspaceFsService {
       { workspaceId: this.workspaceId, runtimeId: this.runtimeId },
       ['process'],
     );
-    const proc = await lease.runtime.process!.spawn(rgBinary, args, { cwd: this.workDir });
+    const proc = await lease.environment.process!.spawn(rgBinary, args, { cwd: this.workDir });
     let killed = false;
     const kill = (): void => {
       if (killed) return;

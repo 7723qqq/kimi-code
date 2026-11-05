@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'bun:test';
-import { describe, expect, it, vi } from 'vitest';
 
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import {

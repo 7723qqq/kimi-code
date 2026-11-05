@@ -35,10 +35,10 @@ import {
   type TestAgentOptions,
   type TestAgentServiceOverride,
 } from '../../harness';
-import { ResolvedAgentProfile } from '#/agent/profile/profile';
+import { type ResolvedAgentProfile } from '#/agent/profile/profile';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
-import { SkillCatalog } from '#/features/skill/catalog/types';
+import { type SkillCatalog } from '#/features/skill/catalog/types';
 import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 
 const profile: ResolvedAgentProfile = normalizeAgentProfile({

@@ -32,10 +32,10 @@ import {
 import { type StoredMcpOAuthTokens } from '#/mcpCore/oauth/provider';
 import { McpOAuthService } from '#/mcpCore/oauth/service';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
-import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
+import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import type { EnvironmentBinding } from '#/environment/environment';
 import { HostProcessError, HostProcessErrorCode } from '#/os/interface/hostProcess';
-import { RuntimeError } from '#/runtime/runtimeRegistry';
+import { RuntimeError } from '#/environment/environmentRegistry';
 
 const testEnvironmentBinding: EnvironmentBinding = { environmentId: 'local' };
 const testProcess = new HostProcessService();
@@ -132,7 +132,7 @@ function createManager(
   options: ConstructorParameters<typeof McpConnectionManager>[0] = {},
 ): McpConnectionManager {
   const runtime = Object.assign(
-    new FakeRuntime(
+    new FakeEnvironment(
       { workspaceId: 'workspace', runtimeId: 'local', generation: 'test' },
       {
         capabilities: ['process'],
@@ -1434,7 +1434,7 @@ describe('McpConnectionManager', () => {
       }),
     );
     const spawnRuntime = Object.assign(
-      new FakeRuntime(
+      new FakeEnvironment(
         { workspaceId: 'workspace', runtimeId: 'local', generation: 'test' },
         {
           capabilities: ['process'],

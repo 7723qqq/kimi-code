@@ -32,13 +32,11 @@ import {
   MediaReadContextService,
 } from '#/agent/media/mediaReadContext';
 import type { IAgentProfileService } from '#/agent/profile/profile';
-import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import type { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import type { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { ReadInputSchema, type ReadInput } from '#/agent/tools/os/read/read';
 import { ReadTool } from '#/agent/tools/os/read/readTool';
 import type { MediaReadContext } from '#/agent/tools/read-media-file/execute-media-read';
-import { type VideoUploader } from '#/agent/tools/read-media-file/read-media-file';
 import type { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import { UNKNOWN_CAPABILITY, type ModelCapability } from '#/llm-adapter/contract/capability';
 import { VideoUploadUnsupportedError } from '#/llm-adapter/contract/errors';
@@ -57,7 +55,7 @@ import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { stubConfigService } from '../../../app/config/stubs';
 import { stubToolResultTruncationService } from '../../toolResultTruncation/stubs';
-import { ToolExecution } from '#/tool/toolContract';
+import { type ToolExecution } from '#/tool/toolContract';
 import { sniffImageDimensions } from '#/agent/media/file-type';
 import { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
 import { EventBusService } from '#/app/event/eventBusService';

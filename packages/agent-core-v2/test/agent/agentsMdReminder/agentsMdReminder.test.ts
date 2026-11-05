@@ -59,8 +59,8 @@ import { runWillBeginStepHooks, stubLoopWithHooks, type StubLoop } from '../loop
 import { stubContextMemory, type StubContextMemory } from '../contextMemory/stubs';
 import { stubLog } from '../../_base/log/stubs';
 import { stubAgentContext } from '../agentContext/stubs';
-import { WatchChange } from '#/human/utils/watch';
-import { ToolCall } from '#/human/llm/message';
+import { type WatchChange } from '#/human/utils/watch';
+import { type ToolCall } from '#/human/llm/message';
 
 let disposables: DisposableStore;
 let homeDir: string;

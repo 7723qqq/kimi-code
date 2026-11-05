@@ -6,7 +6,7 @@ import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMd
 import { IAgentChangeNotifierService } from '#/agent/changeNotifier/changeNotifier';
 import type { LoopControl } from '#/agent/loop/configSection';
 import type { ResolvedAgentProfile, SystemPromptContext } from '#/agent/profile/profile';
-import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { TOOLS_SECTION, type ToolsConfig } from '#/agent/toolPolicy/configSection';
@@ -58,7 +58,6 @@ import {
   requiresStrictThinkingValidation,
   type ThinkingConfig,
 } from '#/llm-adapter/model/thinking';
-import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { EnvironmentWorkspaceView } from '#/environment/environmentWorkspaceView';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';

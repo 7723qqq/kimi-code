@@ -24,7 +24,7 @@ import {
   rgUnavailableMessage,
   verifyArchiveChecksum,
   type RgProbe,
-} from '#/os/backends/node-local/tools/rgLocator';
+} from '#/os/backends/host/tools/rgLocator';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import type { Environment } from '#/environment/environment';
 import { stubRgProbe } from '../../../stubs';

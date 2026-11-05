@@ -1,5 +1,4 @@
 import { describe, expect, it, mock } from 'bun:test';
-import { describe, expect, it, vi } from 'vitest';
 
 import type { ISessionEventBus } from '#/app/event/eventBus';
 import type { IBootstrapService } from '#/app/bootstrap/bootstrap';

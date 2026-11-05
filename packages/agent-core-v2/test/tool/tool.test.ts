@@ -137,7 +137,7 @@ import { StubConfigService } from '../stubs';
 import { executeTool } from '../tools/fixtures/execute-tool';
 import { createFakeProcessRunner } from '../tools/fixtures/fake-exec';
 import { IAgentProfileService } from '#/agent/profile/profile';
-import { ProfileData } from '#/agent/profile/profile';
+import { type ProfileData } from '#/agent/profile/profile';
 
 const signal = new AbortController().signal;
 
@@ -1215,7 +1215,7 @@ describe('Agent tool description', () => {
 
   it('filters descriptions by the inherited runtime capabilities without churning the registry', async () => {
     ctx = createTestAgent();
-    const runtime = ctx.get(IAgentRuntimeService);
+    const runtime = ctx.get(IAgentEnvironmentService);
     const isAvailable = spyOn(runtime, 'isAvailable');
     isAvailable.mockImplementation((required = []) => !required.includes('fs'));
 

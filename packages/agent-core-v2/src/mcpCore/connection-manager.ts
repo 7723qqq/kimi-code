@@ -6,7 +6,7 @@ import type { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ErrorCodes, Error2 } from '#/errors';
 import type { McpOAuthService } from '#/mcpCore/oauth/service';
 import { HostProcessError, HostProcessErrorCode } from '#/os/interface/hostProcess';
-import { RuntimeError } from '#/runtime/runtimeRegistry';
+import { RuntimeError } from '#/environment/environmentRegistry';
 import type { ToolDescription as Tool } from '#human/llm/message';
 
 import { HttpMcpClient } from './client-http';

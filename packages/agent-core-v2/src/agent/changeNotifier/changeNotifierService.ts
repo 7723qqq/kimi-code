@@ -34,9 +34,9 @@ import {
 import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
-import { LoadedAgentsMd } from '#/agent/profile/context';
+import { type LoadedAgentsMd } from '#/agent/profile/context';
 import { isToolActiveComposed } from '#/agent/toolPolicy/evaluate';
-import { ToolsConfig } from '#/agent/toolPolicy/configSection';
+import { type ToolsConfig } from '#/agent/toolPolicy/configSection';
 import { TOOLS_SECTION } from '#/agent/toolPolicy/configSection';
 import { DEFAULT_AGENT_PROFILE_NAME } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import { splitAgentsMdFiles } from '#/agent/profile/context';

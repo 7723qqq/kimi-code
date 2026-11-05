@@ -93,14 +93,14 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
   ) {
     super();
     this._register(
-      this.runtime.onChanged((event) => {
+      this.environment.onChanged((event) => {
         this.invalidate(event.providers);
       }),
     );
   }
 
   notifyConfigChanged(): void {
-    this.runtime.resync();
+    this.environment.resync();
   }
 
   private invalidate(providerIds: readonly string[]): void {
@@ -123,8 +123,8 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
 
   findByName(name: string): readonly string[] {
     const out: string[] = [];
-    for (const alias of this.runtime.aliases()) {
-      const definition = this.runtime.lookup(alias);
+    for (const alias of this.environment.aliases()) {
+      const definition = this.environment.lookup(alias);
       if (definition === undefined) continue;
       const record = rawRecordOf(definition);
       if (record.name === name || record.model === name || (record.aliases ?? []).includes(name)) {
@@ -135,7 +135,7 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
   }
 
   private entry(id: string): CatalogEntry {
-    this.runtime.sync();
+    this.environment.sync();
     const cached = this.cache.get(id);
     if (cached !== undefined) return cached;
     const model = this.buildModel(id);
@@ -207,8 +207,8 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
 
   async listModels(): Promise<readonly ModelCatalogItem[]> {
     const out: ModelCatalogItem[] = [];
-    for (const modelId of this.runtime.aliases()) {
-      const definition = this.runtime.lookup(modelId);
+    for (const modelId of this.environment.aliases()) {
+      const definition = this.environment.lookup(modelId);
       if (definition === undefined) continue;
       const record = rawRecordOf(definition);
       const providerType = this.providerTypeOf(record);
@@ -225,8 +225,8 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
     const records = this.allRecords();
     const globalDefaultModel = this.models.getDefaultModel();
     const out: ProviderCatalogItem[] = [];
-    for (const providerId of this.runtime.providerIds()) {
-      const provider = this.runtime.providerInfo(providerId);
+    for (const providerId of this.environment.providerIds()) {
+      const provider = this.environment.providerInfo(providerId);
       if (provider === undefined) continue;
       out.push(await this.toCatalogProvider(providerId, provider, records, globalDefaultModel));
     }
@@ -234,7 +234,7 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
   }
 
   async getProvider(providerId: string): Promise<ProviderCatalogItem> {
-    const provider = this.runtime.providerInfo(providerId);
+    const provider = this.environment.providerInfo(providerId);
     if (provider === undefined) {
       throw new Error2(
         ModelCatalogErrors.codes.PROVIDER_NOT_FOUND,
@@ -250,7 +250,7 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
   }
 
   async setDefaultModel(modelId: string): Promise<SetDefaultModelResponse> {
-    const definition = this.runtime.lookup(modelId);
+    const definition = this.environment.lookup(modelId);
     if (definition === undefined) {
       throw new Error2(ModelCatalogErrors.codes.MODEL_NOT_FOUND, `model ${modelId} does not exist`);
     }
@@ -272,8 +272,8 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
 
   private allRecords(): Readonly<Record<string, ModelRecord>> {
     const out: Record<string, ModelRecord> = {};
-    for (const alias of this.runtime.aliases()) {
-      const definition = this.runtime.lookup(alias);
+    for (const alias of this.environment.aliases()) {
+      const definition = this.environment.lookup(alias);
       if (definition !== undefined) out[alias] = rawRecordOf(definition);
     }
     return out;
@@ -311,11 +311,11 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
 
   private providerTypeOf(record: ModelRecord): string | undefined {
     const providerId = record.providerId ?? record.provider ?? this.providers.getDefaultProvider();
-    return this.runtime.providerInfo(providerId ?? '')?.type ?? record.protocol;
+    return this.environment.providerInfo(providerId ?? '')?.type ?? record.protocol;
   }
 
   private buildModel(id: string): Model {
-    const definition = this.runtime.lookup(id);
+    const definition = this.environment.lookup(id);
     if (definition === undefined) {
       throw new Error2(
         CONFIG_INVALID_ERROR_CODE,
@@ -422,7 +422,7 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
   } {
     const providerId = model.providerId ?? model.provider ?? this.providers.getDefaultProvider();
     if (providerId !== undefined) {
-      const providerConfig = this.runtime.providerInfo(providerId);
+      const providerConfig = this.environment.providerInfo(providerId);
       if (providerConfig === undefined) {
         throw new Error2(
           CONFIG_INVALID_ERROR_CODE,

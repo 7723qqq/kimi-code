@@ -10,7 +10,6 @@ import { ScopeActivation, registerScopedService, type ISessionScopeHandle } from
 import { LifecycleScope } from '#/app/scopes';
 import { Error2, ErrorCodes, isError2, SessionErrors, unwrapErrorCause } from '#/errors';
 import { ISessionIndex, type SessionSummary } from '#/app/sessionIndex/sessionIndex';
-import { Error2, ErrorCodes, isError2, SessionErrors } from '#/errors';
 import { IAgentCronService } from '#/features/cron/cronService';
 import { ISessionLockService, type SessionLockLease } from '#/persistence/interface/sessionLock';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';

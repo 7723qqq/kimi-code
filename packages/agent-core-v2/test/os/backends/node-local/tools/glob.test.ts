@@ -4,9 +4,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable, type Writable } from 'node:stream';
 
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { vi } from 'vitest';
 
-import { ensureRgPath, type RgProbe } from '#/os/backends/node-local/tools/rgLocator';
+import { ensureRgPath, type RgProbe } from '#/os/backends/host/tools/rgLocator';
 import { PathSecurityError, type PathClass } from '#/tool/path-access';
 import { noopTelemetryService } from '#/app/telemetry/telemetry';
 import type { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
@@ -22,7 +22,7 @@ import { GlobTool, splitCompletePaths } from '#/agent/tools/os/glob/globTool';
 import type { ITelemetryService, TelemetryProperties } from '#/app/telemetry/telemetry';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { HostProcessService } from '#/os/backends/host/hostProcessService';
-import { type RgProbe, type RgResolution } from '#/os/backends/host/tools/rgLocator';
+import { type RgResolution } from '#/os/backends/host/tools/rgLocator';
 import * as rgLocator from '#/os/backends/host/tools/rgLocator';
 import type { RgHostProcessService } from '#/os/backends/host/tools/runRg';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
@@ -30,14 +30,12 @@ import type { HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSyste
 import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
 import type { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
-import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
 import { probeHostEnvironmentFromNode } from '#/_base/execEnv/environmentProbe';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
-import { IHostTimerHandle } from '#/os/interface/hostTimers';
+import { type IHostTimerHandle } from '#/os/interface/hostTimers';
 import { IHostTimers } from '#/os/interface/hostTimers';
 
-vi.mock('#/os/backends/node-local/tools/rgLocator', () => ({
+vi.mock('#/os/backends/host/tools/rgLocator', () => ({
   ensureRgPath: mock(async (): Promise<{ path: string; source: string }> => ({
     path: 'rg',
     source: 'system-path',
@@ -761,8 +759,8 @@ describe('GlobTool', () => {
   });
 
   it('spawns the rg probe and the rg run in the session workspace cwd', async () => {
-    const actual = await vi.importActual<typeof import('#/os/backends/node-local/tools/rgLocator')>(
-      '#/os/backends/node-local/tools/rgLocator',
+    const actual = await vi.importActual<typeof import('#/os/backends/host/tools/rgLocator')>(
+      '#/os/backends/host/tools/rgLocator',
     );
     ensureRgPath.mockImplementationOnce(actual.ensureRgPath);
     const exec = mock(async (_command: string, args: readonly string[] = [], _options?: { cwd?: string }) =>

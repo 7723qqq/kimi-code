@@ -225,10 +225,10 @@ import type { RemoteEnvironmentEntry } from '#/remote/declaration/remoteEnvironm
 
   it('lets the remote executor reuse only the DI-free node-local fs and process backends', () => {
     const violations = checkSource(
-      `import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
-import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
-import '#/os/backends/node-local/hostServices';
-import { HostEnvironmentService } from '#/os/backends/node-local/hostEnvironmentService';`,
+      `import { HostFileSystem } from '#/os/backends/host/hostFsService';
+import { HostProcessService } from '#/os/backends/host/hostProcessService';
+import '#/os/backends/host/hostServices';
+import { HostEnvironmentService } from '#/os/backends/host/hostEnvironmentService';`,
       at('remote/server', 'stdioHost.ts'),
     );
     expect(violations).toHaveLength(2);

@@ -2,7 +2,7 @@ import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiatio
 import { registerScopedService, ScopeActivation } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import type { MediaReadContext } from '#/agent/tools/read-media-file/execute-media-read';
 import type { VideoUploader } from '#/agent/tools/read-media-file/read-media-file';
 import { LifecycleScope } from '#/app/scopes';
@@ -67,14 +67,14 @@ export class MediaReadContextService extends Service implements IMediaReadContex
   constructor(
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @IModelCatalog private readonly modelCatalog: IModelCatalog,
-    @IAgentRuntimeService private readonly runtime: IAgentRuntimeService,
+    @IAgentEnvironmentService private readonly runtime: IAgentEnvironmentService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {
     super();
   }
 
   getMediaReadContext(): MediaReadContext | undefined {
-    if (!this.runtime.isAvailable(['fs'])) return undefined;
+    if (!this.environment.isAvailable(['fs'])) return undefined;
     const modelAlias = this.profile.getModel();
     let videoUploader: VideoUploader | undefined;
     let model: Model | undefined;

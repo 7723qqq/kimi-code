@@ -2,14 +2,14 @@ import { access } from 'node:fs/promises';
 import { homedir } from 'node:os';
 
 import { renderPrompt } from '#/_base/utils/render-prompt';
-import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { resolveAgentTaskConfig } from '#/agent/task/configSection';
 import { IAgentTaskService } from '#/agent/task/task';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { IConfigService } from '#/app/config/config';
 import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
-import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
+import { EnvironmentWorkspaceView } from '#/environment/environmentWorkspaceView';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
@@ -83,7 +83,7 @@ export class PowerShellTool implements IPowerShellTool {
   readonly parameters: Record<string, unknown> = toInputJsonSchema(PowerShellInputSchema);
 
   constructor(
-    @IAgentRuntimeService private readonly runtime: IAgentRuntimeService,
+    @IAgentEnvironmentService private readonly runtime: IAgentEnvironmentService,
     @ISessionContext private readonly ctx: ISessionContext,
     @ISessionWorkspaceContext private readonly workspaceCtx: ISessionWorkspaceContext,
     @IAgentTaskService private readonly tasks: IAgentTaskService,
@@ -188,8 +188,8 @@ export class PowerShellTool implements IPowerShellTool {
 
     const startsInBackground = args.run_in_background === true;
     const foregroundTimeoutMs = normalizeTimeoutMs(args.timeout, false);
-    const lease = this.runtime.acquire(['process']);
-    const view = new RuntimeWorkspaceView(lease.runtime, this.workspaceCtx);
+    const lease = this.environment.acquire(['process']);
+    const view = new EnvironmentWorkspaceView(lease.environment, this.workspaceCtx);
     const effectiveCwd = view.resolve(args.cwd ?? view.workDir);
     const description = startsInBackground
       ? args.description!.trim()
@@ -205,7 +205,7 @@ export class PowerShellTool implements IPowerShellTool {
     let exe: PowerShellExecutable;
     try {
       exe = await this.resolveExecutable();
-      proc = lease.track(await this.spawn(lease.runtime.process!, effectiveCwd, args.command, exe));
+      proc = lease.track(await this.spawn(lease.environment.process!, effectiveCwd, args.command, exe));
     } catch (error) {
       lease.dispose();
       return {

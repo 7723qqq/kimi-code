@@ -1,6 +1,6 @@
 import { normalize, resolve } from 'pathe';
 
-import { ensureRgPath, rgUnavailableMessage, type RgProbe } from '#/os/backends/node-local/tools/rgLocator';
+import { ensureRgPath, rgUnavailableMessage, type RgProbe } from '#/os/backends/host/tools/rgLocator';
 import type { Environment } from '#/environment/environment';
 import {
   DEFAULT_TIMEOUT_MS,

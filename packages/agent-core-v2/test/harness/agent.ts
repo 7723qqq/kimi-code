@@ -64,16 +64,16 @@ import type { ToolInfo } from '#/tool/toolContract';
 import { WorkspaceStateService } from '#/workspace/state/workspaceStateService';
 
 import { BUILTIN_REPLAYABLE_STATE_KEYS } from '../state/builtinReplayableKeys';
-import { EnvironmentDisclosureSnapshot } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import { LogContext } from '#/_base/log/log';
+import { type EnvironmentDisclosureSnapshot } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import { type LogContext } from '#/_base/log/log';
 import { ILogOptions } from '#/_base/log/logConfig';
-import { AgentModelInstanceOf } from '#/agent/agentContext/agentSpace';
-import { ApprovalRequest } from '#/agent/interaction/approval';
-import { ApprovalResponse } from '#/agent/interaction/approval';
-import { QuestionResult } from '#/agent/interaction/question';
-import { QuestionRequest } from '#/agent/interaction/question';
+import { type AgentModelInstanceOf } from '#/agent/agentContext/agentSpace';
+import { type ApprovalRequest } from '#/agent/interaction/approval';
+import { type ApprovalResponse } from '#/agent/interaction/approval';
+import { type QuestionResult } from '#/agent/interaction/question';
+import { type QuestionRequest } from '#/agent/interaction/question';
 import { TurnPrompt } from '#/agent/loop/turnOps';
-import { LogLevel } from '#/_base/log/log';
+import { type LogLevel } from '#/_base/log/log';
 import { promptMetadataTextFromContentParts } from '#/agent/prompt/promptMetadataText';
 
 type EmptyPayload = {};
@@ -226,7 +226,6 @@ import {
   type ProvidersSection,
 } from '#/llm-adapter/provider/provider';
 import type { IHostProcess } from '#/os/interface/hostProcess';
-import { LocalRuntime } from '#/runtime/localRuntime';
 import type { RuntimeLease } from '#/runtime/runtime';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { applyPromptMetadataUpdate } from '#/session/sessionMetadata/promptMetadata';

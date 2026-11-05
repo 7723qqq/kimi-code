@@ -5,7 +5,7 @@ import { ILogService } from '#/_base/log/log';
 import type { AgentContext } from '#/agent/agentContext/agentContext';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { agentContextOf } from '#/agent/scopeContext/scopeContext';
 import { IAgentUserToolService } from '#/agent/userTool/userTool';
 import {
@@ -14,7 +14,6 @@ import {
   withoutDelegatingTargets,
 } from '#/app/agentProfileCatalog/profile-shared';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
-import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { IAgentEnvironmentBindingService } from '#/agent/environmentBinding/environmentBinding';
 import type { Environment } from '#/environment/environment';
 import { IConfigService } from '#/app/config/config';

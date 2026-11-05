@@ -27,7 +27,6 @@ import {
   loadAgentsMdDetailed,
 } from '#/agent/profile/context';
 import { profileKey } from '#/agent/profile/profileOps';
-import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';

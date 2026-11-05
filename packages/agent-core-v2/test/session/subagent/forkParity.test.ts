@@ -14,7 +14,7 @@ import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentRuntimeBindingSeed } from '#/agent/runtimeBinding/runtimeBinding';
+import { IAgentEnvironmentBindingSeed } from '#/agent/environmentBinding/environmentBinding';
 import { IAgentTaskService } from '#/agent/task/task';
 import { SUBAGENT_BACKGROUND_TASK_NOTICE } from '#/agent/task/taskService';
 import { IAgentToolActivationService } from '#/agent/toolActivation/toolActivation';

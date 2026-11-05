@@ -13,12 +13,12 @@ import { createMcpTool } from '#/agent/mcp/tools/mcp';
 import { sniffImageDimensions } from '#/agent/media/file-type';
 import { ITelemetryService, type TelemetryProperties } from '#/app/telemetry/telemetry';
 import { StdioMcpClient } from '#/mcpCore/client-stdio';
-import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { HostProcessService } from '#/os/backends/host/hostProcessService';
+import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import type { MCPClient, MCPContentBlock, MCPToolResult } from '#/mcpCore/types';
 import type { ToolExecution } from '#/tool/toolContract';
-import { ContentPart } from '#/human/llm/message';
+import { type ContentPart } from '#/human/llm/message';
 
 function modelText(result: Awaited<ReturnType<typeof mcpResultToExecutableOutput>>): string {
   return renderToolResultForModel(result)

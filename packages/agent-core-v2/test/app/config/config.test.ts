@@ -108,22 +108,20 @@ import {
   type SubagentConfig,
   wrapSubagentModelError,
 } from '#/session/subagent/configSection';
-import type { ToolCall } from '#human/llm/message';
 
 import { stubLog } from '../../_base/log/stubs';
-import { createTestAgent, type TestAgentContext } from '../../harness';
-import { DEFAULT_TEST_SYSTEM_PROMPT, renderSnapshot } from '../../harness/snapshots';
+import { renderSnapshot } from '../../harness/snapshots';
 import { stubBootstrap } from '../bootstrap/stubs';
-import { CronConfig } from '#/features/cron/configSection';
+import { type CronConfig } from '#/features/cron/configSection';
 import { mock } from 'bun:test';
 import { BUILTIN_PRODUCT_SKILLS_SECTION } from '#/features/skill/catalog/configSection';
-import { ThinkingConfig } from '#/llm-adapter/model/thinking';
+import { type ThinkingConfig } from '#/llm-adapter/model/thinking';
 import { EXTRA_SKILL_DIRS_SECTION } from '#/features/skill/catalog/configSection';
 import { MERGE_ALL_AVAILABLE_SKILLS_SECTION } from '#/features/skill/catalog/configSection';
 import { resolveSwarmTimeoutMs } from '#/features/swarm/configSection';
 import { SWARM_TIMEOUT_ENV } from '#/features/swarm/configSection';
 import { SWARM_SECTION } from '#/features/swarm/configSection';
-import { SwarmConfig } from '#/features/swarm/configSection';
+import { type SwarmConfig } from '#/features/swarm/configSection';
 import { spyOn } from 'bun:test';
 import { CRON_SECTION } from '#/features/cron/configSection';
 import { DEFAULT_CRON_CONFIG } from '#/features/cron/configSection';

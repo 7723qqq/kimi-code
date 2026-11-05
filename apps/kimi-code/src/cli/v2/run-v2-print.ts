@@ -131,7 +131,6 @@ import {
   writeExperimentalVersion,
   writeResumeHint,
 } from '../prompt-render';
-import { createKimiCodeHostIdentity } from '../version';
 
 const PROMPT_UI_MODE = 'print';
 /** Re-check `goalActive` at least this often while waiting for goal turns. */

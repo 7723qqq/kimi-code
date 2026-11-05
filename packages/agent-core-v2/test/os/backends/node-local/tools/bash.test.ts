@@ -16,7 +16,7 @@ function restoreEnvs(): void {
 
 
 import { userCancellationReason } from '#/_base/utils/abort';
-import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import type { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import type { IAgentTaskService } from '#/agent/task/task';
 import {
   type AgentTask,
@@ -37,7 +37,6 @@ import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
 import { stubAgentEnvironment } from '../../../../environment/stubs';
-import type { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { type ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
 import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
 import { AgentWorkspaceContextService } from '#/session/workspaceContext/agentWorkspaceContextService';
@@ -47,7 +46,7 @@ import {
   workspaceContextWorkDirKey,
 } from '#/session/workspaceContext/workspaceContextService';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
-import { IHostTimerHandle } from '#/os/interface/hostTimers';
+import { type IHostTimerHandle } from '#/os/interface/hostTimers';
 import { IHostTimers } from '#/os/interface/hostTimers';
 import { waitForAssertion } from '#test/helpers/waitFor';
 

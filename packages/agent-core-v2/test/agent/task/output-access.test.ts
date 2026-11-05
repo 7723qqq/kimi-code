@@ -6,7 +6,6 @@ import type { Writable } from 'node:stream';
 
 import { join } from 'pathe';
 import type { IHostProcess } from '#/os/interface/hostProcess';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { IReadTool } from '#/agent/tools/os/read/read';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
@@ -14,7 +13,6 @@ import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { createMapFs, stubPlanEnvironment } from '../../features/plan/stubs';
 import { IAgentTaskService } from '#/agent/task/task';
 import { IAgentLoopService } from '#/agent/loop/loop';
-import { AgentTaskPersistence, IAgentTaskService } from '#/agent/task/task';
 import { TERMINAL_STATUSES } from '#/agent/task/types';
 import { ProcessTask } from '#/agent/tools/os/bash/process-task';
 import { createAgentTaskPersistence, type TaskServiceTestManager } from './stubs';
@@ -23,7 +21,7 @@ import { executeTool, type TestExecutableToolContext } from '../../tools/fixture
 import { waitForAssertion } from '#test/helpers/waitFor';
 import { TaskOutputTool } from '#/agent/tools/task/task-output/taskOutputTool';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
-import { StorageReadRange } from '#/persistence/interface/storage';
+import { type StorageReadRange } from '#/persistence/interface/storage';
 import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 
 interface TaskServiceFixture {

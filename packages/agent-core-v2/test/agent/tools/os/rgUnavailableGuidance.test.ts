@@ -1,22 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
 import type { IHostFileSystem, HostFileStat } from '#/os/interface/hostFileSystem';
 import type { IHostProcessService } from '#/os/interface/hostProcess';
 import { noopTelemetryService } from '#/app/telemetry/telemetry';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
-import { ensureRgPath } from '#/os/backends/node-local/tools/rgLocator';
+import { ensureRgPath } from '#/os/backends/host/tools/rgLocator';
 import { GlobTool } from '#/agent/tools/os/glob/globTool';
 import { GrepTool } from '#/agent/tools/os/grep/grepTool';
 import { stubWorkspaceContext } from '../../../session/workspaceContext/stub-workspace-context';
 import { stubAgentEnvironment } from '../../../environment/stubs';
 
-vi.mock('#/os/backends/node-local/tools/rgLocator', async (importOriginal) => {
+vi.mock('#/os/backends/host/tools/rgLocator', async (importOriginal) => {
   const original =
-    await importOriginal<typeof import('#/os/backends/node-local/tools/rgLocator')>();
+    await importOriginal<typeof import('#/os/backends/host/tools/rgLocator')>();
   return { ...original, ensureRgPath: mock() };
 });
 

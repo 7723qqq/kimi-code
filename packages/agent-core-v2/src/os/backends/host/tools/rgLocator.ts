@@ -13,7 +13,6 @@ import {
 import { basename, join } from 'pathe';
 import { extract as extractTar } from 'tar';
 import { type Entry, fromBuffer as yauzlFromBuffer } from 'yauzl';
-import { basename, dirname, join } from 'pathe';
 
 import { abortable } from '#/_base/utils/abort';
 import { ErrorCodes, Error2 } from '#/errors';

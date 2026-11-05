@@ -2,12 +2,12 @@ import picomatch from 'picomatch';
 
 import type { TowerMission, TowerReviewInfo, TowerState } from './types';
 
-export type TowerWorkerRuntimeStatus = 'idle' | 'busy' | 'unknown';
+export type TowerWorkerEnvironmentStatus = 'idle' | 'busy' | 'unknown';
 
 export interface TowerMissionWorkerRuntime {
   readonly agentId: string;
   readonly name: string;
-  readonly status: TowerWorkerRuntimeStatus;
+  readonly status: TowerWorkerEnvironmentStatus;
 }
 
 export interface TowerMissionBranchObservation {

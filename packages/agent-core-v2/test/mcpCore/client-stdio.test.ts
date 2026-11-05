@@ -14,7 +14,7 @@ import {
   type StdioMcpClientOptions,
 } from '#/mcpCore/client-stdio';
 import type { McpServerStdioConfig } from '#/mcpCore/config-schema';
-import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
+import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import type { IHostProcessService } from '#/os/interface/hostProcess';
 import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment/environment';
 

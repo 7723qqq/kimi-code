@@ -1,7 +1,7 @@
 import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { getShellPathBridge } from '#/_base/execEnv/shellPathBridge';
 import { renderPrompt } from '#/_base/utils/render-prompt';
-import { IAgentRuntimeService, inspectAgentRuntime } from '#/agent/runtimeBinding/agentRuntime';
+import { IAgentEnvironmentService, inspectAgentRuntime } from '#/agent/environmentBinding/agentEnvironment';
 import { resolveAgentTaskConfig } from '#/agent/task/configSection';
 import { IAgentTaskService } from '#/agent/task/task';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
@@ -9,11 +9,10 @@ import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution'
 import { IConfigService } from '#/app/config/config';
 import type { HostEnvironmentInfo } from '#/os/interface/hostEnvironment';
 import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
-import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
+import { EnvironmentWorkspaceView } from '#/environment/environmentWorkspaceView';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { acquireOrWhenReady, pinnedGeneration, IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
-import { EnvironmentWorkspaceView } from '#/environment/environmentWorkspaceView';
+import { acquireOrWhenReady, pinnedGeneration } from '#/agent/environmentBinding/agentEnvironment';
 import {
   DEFAULT_TOOL_RESULT_MAX_CHARS,
   ToolSideEffects,

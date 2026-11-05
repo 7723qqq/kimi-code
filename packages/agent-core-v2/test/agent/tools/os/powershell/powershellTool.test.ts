@@ -2,7 +2,7 @@ import { describe, expect, it, mock } from 'bun:test';
 import { Readable, type Writable } from 'node:stream';
 
 import { shellPayloadExePath, shellPayloadPinOf } from '#/_base/execEnv/shellPayload';
-import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import type { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import type { IAgentTaskService, RegisterAgentTaskOptions } from '#/agent/task/task';
 import type { AgentTask, AgentTaskInfo, AgentTaskSettlement } from '#/agent/task/types';
 import type { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
@@ -20,7 +20,7 @@ import { PowerShellTool } from '#/agent/tools/os/powershell/powershellTool';
 import type { IConfigService } from '#/app/config/config';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
-import { FakeRuntime } from '#/runtime/fakeRuntime';
+import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import { type ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
 import type { ExecutableToolResult, ExecutableToolContext } from '#/tool/toolContract';
 import { stubWorkspaceContext } from '#test/session/workspaceContext/stub-workspace-context';
@@ -139,13 +139,13 @@ function powerShellTool(
   } as unknown as IHostProcessService;
   const ctx = createTestCtx();
   const backend = Object.assign(
-    new FakeRuntime(
+    new FakeEnvironment(
       { workspaceId: ctx.workspaceId, runtimeId: 'local', generation: 'test' },
       { capabilities: ['process'], pathClass: 'win32' },
     ),
     { environment: windowsEnv, process: processService },
   );
-  const runtime: IAgentRuntimeService = {
+  const runtime: IAgentEnvironmentService = {
     _serviceBrand: undefined,
     onDidChange: () => ({ dispose: () => {} }),
     isAvailable: () => true,
@@ -155,7 +155,7 @@ function powerShellTool(
       track: (resource: unknown) => resource,
       dispose: () => {},
     }),
-  } as unknown as IAgentRuntimeService;
+  } as unknown as IAgentEnvironmentService;
   const toolPolicy = {
     _serviceBrand: undefined,
     isToolActive: () => true,

@@ -4,14 +4,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as posixPath from 'node:path/posix';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { PathSecurityError } from '#/tool/path-access';
 import { stubWorkspaceContext } from '../../../session/workspaceContext/stub-workspace-context';
 import { stubAgentEnvironment } from '../../../environment/stubs';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
-import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import type { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { type EditInput, EditInputSchema } from '#/agent/tools/edit/edit';
 import { EditTool } from '#/agent/tools/edit/editTool';
 import { IFileEditService } from '#/app/edit/fileEdit';

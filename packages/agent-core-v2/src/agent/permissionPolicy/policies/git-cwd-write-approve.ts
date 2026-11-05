@@ -1,9 +1,8 @@
 import type { PermissionPolicy, PermissionPolicyResult } from '#/agent/permissionPolicy/types';
-import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 import { isWithinWorkspace } from '#/tool/path-access';
 import { findGitWorkTree } from '#/app/git/workTree';
-import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import type { ISessionWorkspaceContext as WorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { acquireEnvironmentLease } from './environment-lease';

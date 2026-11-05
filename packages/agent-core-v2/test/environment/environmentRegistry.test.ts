@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { EnvironmentError, EnvironmentRegistry } from '#/environment/environmentRegistry';
 import { fakeEnvironment } from './stubs';

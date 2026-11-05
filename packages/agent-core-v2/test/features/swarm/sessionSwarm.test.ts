@@ -12,7 +12,7 @@ import type { AgentContext } from '#/agent/agentContext/agentContext';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentProfileService, type ProfileData } from '#/agent/profile/profile';
-import { IAgentRuntimeBindingService } from '#/agent/runtimeBinding/runtimeBinding';
+import { IAgentEnvironmentBindingService } from '#/agent/environmentBinding/environmentBinding';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentUserToolService } from '#/agent/userTool/userTool';
 import type { Event2 } from '#/app/event/event2';
@@ -40,7 +40,6 @@ import {
   type SessionMetadataChangedEvent,
 } from '#/session/sessionMetadata/sessionMetadata';
 import { IEventDispatcher } from '#/state/eventDispatcher';
-import { IAgentEnvironmentBindingService } from '#/agent/environmentBinding/environmentBinding';
 import {
   AgentRunBatch,
   resolveSwarmMaxConcurrency,

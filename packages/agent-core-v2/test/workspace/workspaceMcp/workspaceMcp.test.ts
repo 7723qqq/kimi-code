@@ -35,7 +35,7 @@ import {
   type McpServerStatus,
 } from '#/mcpCore/connection-manager';
 import { McpOAuthService, type McpOAuthEvent } from '#/mcpCore/oauth/service';
-import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
+import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import { ISessionEphemeralMcpServers } from '#/session/mcp/ephemeralMcpServers';
 import { MergedMcpConnectionView } from '#/session/mcp/mergedConnectionView';

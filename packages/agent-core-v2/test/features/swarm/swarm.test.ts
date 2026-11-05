@@ -70,7 +70,6 @@ import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStor
 import type { ToolCall } from '#human/message';
 import type { ExecutableToolContext } from '#/tool/toolContract';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
-import type { ToolCall } from '#human/llm/message';
 
 import SWARM_MODE_ENTER_REMINDER from '../../../src/features/swarm/agent/enter-reminder.md?raw';
 import { stubLog } from '../../_base/log/stubs';

@@ -17,7 +17,6 @@ async function viWaitFor(fn: () => void | Promise<void>, opts?: { timeout?: numb
 
 
 import { dirname, join } from 'pathe';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
@@ -26,7 +25,7 @@ import { FileSkillDiscovery } from '#/features/skill/catalog/fileSkillDiscovery'
 import { ISkillDiscovery } from '#/features/skill/catalog/skillDiscovery';
 import type { SkillRoot } from '#/features/skill/catalog/types';
 import { EnvironmentSkillDiscovery } from '#/features/skill/workspace/environmentSkillDiscovery';
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { HostFileSystem } from '#/os/backends/host/hostFsService';
 
 import { stubLog } from '../../../_base/log/stubs';
 

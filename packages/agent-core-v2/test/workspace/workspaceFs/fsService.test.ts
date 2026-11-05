@@ -26,7 +26,7 @@ import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
 import { IWorkspaceGitService } from '#/workspace/workspaceGit/workspaceGit';
-import { IRuntimeResolver } from '#/workspace/workspaceInstance/workspaceInstanceManager';
+import { IEnvironmentResolver } from '#/workspace/workspaceInstance/workspaceInstanceManager';
 
 const WORK_DIR = '/repo';
 

@@ -138,10 +138,7 @@ import { ActivityPaneController } from './controllers/activity-pane';
 import { AuthFlowController } from './controllers/auth-flow';
 import { BackgroundTasksMiniController } from './controllers/background-tasks-mini';
 import { BtwPanelController } from './controllers/btw-panel';
-import {
-  CacheHintController,
-  type StepCacheBreak,
-} from './controllers/cache-hint-controller';
+import { StepCacheBreak } from './controllers/cache-hint-controller';
 import { ClipboardImageHintController } from './controllers/clipboard-image-hint';
 import { DialogHostController } from './controllers/dialog-host';
 import { type ActiveExclusiveMode, type ReviewCycleMode } from './controllers/editor-keyboard';

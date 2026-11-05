@@ -4,7 +4,6 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import { dirname, join } from 'pathe';
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentLoopService } from '#/agent/loop/loop';
@@ -26,8 +25,8 @@ import {
   renderSnapshot,
   type TestAgentContext,
 } from '../../harness';
-import { PlanData } from '#/features/plan/plan';
-import { ToolCall } from '#/human/llm/message';
+import { type PlanData } from '#/features/plan/plan';
+import { type ToolCall } from '#/human/llm/message';
 
 interface PlanFakes {
   readonly fs: IHostFileSystem;

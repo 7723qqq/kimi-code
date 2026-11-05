@@ -39,7 +39,7 @@ import { IWorkspaceTrustStore } from '#/workspace/workspaceTrust/workspaceTrustS
 
 import { WorkspaceInstance } from './workspaceInstance';
 import { IWorkspaceInstanceManager, type WorkspaceInstanceLease, type WorkspaceInstanceRef } from './workspaceInstanceManager';
-import { RuntimeProviderFactory } from '#/runtime/runtimeProvider';
+import { type EnvironmentProviderFactory } from '#/environment/environmentProvider';
 
 export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
   declare readonly _serviceBrand: undefined;
@@ -219,7 +219,7 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
     return pending;
   }
 
-  async addProvider(factory: RuntimeProviderFactory): Promise<{ dispose(): Promise<void> }> {
+  async addProvider(factory: EnvironmentProviderFactory): Promise<{ dispose(): Promise<void> }> {
     if (this.providers.has(factory.id))
       throw new Error(`runtime provider ${factory.id} already exists`);
     this.providers.set(factory.id, factory);

@@ -39,7 +39,6 @@ import {
   type PlanFileTarget,
 } from './plan';
 import { ExitPlanModeReview } from './exitPlanModeReview';
-import { IAgentPlanService, type PlanData, type PlanFilePath } from './plan';
 import { PlanModeCancel, PlanModeEnter, PlanModeExit, planKey, PlanRevision } from './planOps';
 import { tryConvertPlanToTodos } from './planToTodoConverter';
 

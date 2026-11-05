@@ -44,7 +44,7 @@ import {
   type McpServerTestResult,
   type McpServerTestTarget,
 } from './mcpManagement';
-import { IHostTimerHandle } from '#/os/interface/hostTimers';
+import { type IHostTimerHandle } from '#/os/interface/hostTimers';
 
 const DEFAULT_AUTH_TIMEOUT_MS = 15 * 60_000;
 const AUTH_FLOW_IDLE_TIMEOUT_MS = 15 * 60_000;
