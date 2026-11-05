@@ -140,6 +140,9 @@ if [ "$provided" != "$EXPECTED_SSH_PASSWORD" ]; then
   printf 'Permission denied (publickey,password)\\n' >&2
   exit 255
 fi
+case "$*" in
+  *"uname -s"*) printf 'Linux\n'; exit 0 ;;
+esac
 exec "$TEST_NODE" "$TEST_SERVER"
 `);
     await chmod(fakeSsh, 0o700);
