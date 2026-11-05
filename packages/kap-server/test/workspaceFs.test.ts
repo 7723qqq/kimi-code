@@ -546,7 +546,7 @@ describe('server-v2 /api/v1 fs:content and fs:mkdir with environment_id', () => 
   // mapped onto it by dropping the drive/leading separator instead of joining
   // the two, which on Windows would produce 'remoteC:...'.
   function remoteMirror(requestPath: string): string {
-    return join(remoteRoot as string, requestPath.replace(/^[A-Za-z]:/, '').replace(/^[\/]+/, ''));
+    return join(remoteRoot as string, requestPath.replace(/^[A-Za-z]:/, '').replace(/^[/\\]+/, ''));
   }
 
   async function postMkdir(body: unknown): Promise<Envelope<{ path: string } | null>> {
