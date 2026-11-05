@@ -506,7 +506,7 @@ GitHub Actions (`ci.yml`) runs on every PR and push to `main`. Every job install
 
 One more job runs outside `ci.yml`. **native bundle** is built by `_native-build.yml` (a `workflow_call` workflow invoked from `release.yml` and `manual-native-bundle.yml`) on a 6-target matrix (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64, win32-arm64): Bun single-file packaging (`build:native:bun`) followed by a native smoke test. **codeql** (`codeql.yml`) scans js/ts on pushes to `main` and on a weekly schedule; a branch ruleset requires CodeQL results (plus blocks force pushes and branch deletion) for merges into `main`.
 
-Additional workflows: `_native-build.yml`, `codeql.yml`, `docs-deploy.yml`, `manual-native-bundle.yml`, `nix-build.yml`, `pkg-pr-new.yml`, `pr-title-checker.yml`, `release-native.yml`, `release.yml`, `vscode-publish.yml`.
+Additional workflows: `_native-build.yml`, `canary-release.yml`, `codeql.yml`, `docs-deploy.yml`, `manual-native-bundle.yml`, `nix-build.yml`, `pkg-pr-new.yml`, `pr-title-checker.yml`, `release-native.yml`, `release.yml`, `vscode-publish.yml`. `canary-release.yml` is `workflow_dispatch` only and, like `release.yml`, gated on `github.repository_owner == 'MoonshotAI'`, so it never runs on this fork; it builds the native artifacts through `_native-build.yml` and publishes them as a GitHub prerelease plus an npm `canary` dist-tag.
 
 ### Release flow (fork)
 
