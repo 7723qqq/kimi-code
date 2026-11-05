@@ -41,6 +41,8 @@ export * from '#/runtime/runtimeProvider';
 export * from '#/runtime/runtimeUnitHost';
 export * from '#/runtime/localRuntime';
 export * from '#/runtime/standaloneRuntime';
+export * from '#/remote/declaration/remoteEnvironmentDeclaration';
+import '#/remote/declaration/configSection';
 export * from '#/program/program';
 export * from '#/workspace/workspaceInstance/workspaceInstance';
 export * from '#/workspace/workspaceInstance/workspaceInstanceManager';
@@ -50,6 +52,9 @@ export * from '#/app/workspaceLifecycle/workspaceLifecycleService';
 export * from '#/agent/runtimeBinding/runtimeBinding';
 export * from '#/agent/runtimeBinding/runtimeBindingService';
 export * from '#/agent/runtimeBinding/agentRuntime';
+export * from '#/agent/environmentBinding/environmentBinding';
+export * from '#/agent/environmentBinding/environmentBindingService';
+export * from '#/agent/environmentBinding/agentEnvironment';
 export * from '#/app/sessionManager/sessionManager';
 export * from '#/app/sessionManager/sessionManagerService';
 
