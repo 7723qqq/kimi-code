@@ -35,20 +35,16 @@ import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionT
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { SENSITIVE_DOT_VARIANT_SUFFIXES } from '#/tool/path-access';
 import { PathSecurityError, type WorkspaceConfig } from '#/tool/path-access';
-import {
-  type GrepInput,
-  GrepInputSchema,
-  IGrepTool,
-} from '#/agent/tools/os/grep/grep';
-import { GrepTool as ProductionGrepTool } from '#/agent/tools/os/grep/grepTool';
 import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import { ensureRgPath } from '#/os/backends/node-local/tools/rgLocator';
 import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
 import { stubAgentEnvironment } from '../../../../environment/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../../../../app/telemetry/stubs';
-import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
 import { registerStateServices } from '../../../../state/stubs';
+import { ExecutableTool } from '#/tool/toolContract';
+import { ExecutableToolResult } from '#/tool/toolContract';
+import { ToolExecution } from '#/tool/toolContract';
 
 void mock.module('#/os/backends/host/tools/rgLocator', () => ({
   ensureRgPath: mock(async () => ({ path: '/mock/rg', source: 'system-path' })),

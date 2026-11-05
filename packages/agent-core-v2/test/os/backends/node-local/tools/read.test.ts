@@ -13,7 +13,6 @@ import {
 } from '#/agent/tools/os/read/read';
 import { ReadTool } from '#/agent/tools/os/read/readTool';
 import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender';
-import { MEDIA_SNIFF_BYTES } from '#/agent/media/file-type';
 import type { IMediaReadContext } from '#/agent/media/mediaReadContext';
 import type { IAgentProfileService } from '#/agent/profile/profile';
 import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
@@ -24,6 +23,10 @@ import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import { EnvironmentRegistry } from '#/environment/environmentRegistry';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
+import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
+import { IConfigService } from '#/app/config/config';
+import { READ_SECTION } from '#/agent/tools/os/read/configSection';
+import { estimateTokens } from '#/human/llm/tokens';
 
 const signal = new AbortController().signal;
 const PERMISSIVE_WORKSPACE = stubWorkspaceContext('/');

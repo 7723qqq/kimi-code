@@ -23,12 +23,9 @@ import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
 import { stubAgentEnvironment } from '../../../../environment/stubs';
-import type { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import type { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { type ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
 import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
-import { type BashInput, BashInputSchema } from '#/agent/tools/os/bash/bash';
-import { BashTool } from '#/agent/tools/os/bash/bashTool';
 import { AgentWorkspaceContextService } from '#/session/workspaceContext/agentWorkspaceContextService';
 import { SessionStateService } from '#/session/state/sessionStateService';
 import {
@@ -36,6 +33,9 @@ import {
   workspaceContextWorkDirKey,
 } from '#/session/workspaceContext/workspaceContextService';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
+import { IHostTimerHandle } from '#/os/interface/hostTimers';
+import { IHostTimers } from '#/os/interface/hostTimers';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 const posixEnv: IHostEnvironment = {
   _serviceBrand: undefined,

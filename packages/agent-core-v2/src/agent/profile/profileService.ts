@@ -58,15 +58,7 @@ import {
   requiresStrictThinkingValidation,
   type ThinkingConfig,
 } from '#/llm-adapter/model/thinking';
-import { THINKING_SECTION } from '#/app/kosongConfig/configSection';
-import { IProviderDiscoveryService } from '#/app/kosongConfig/discovery';
-import { DEFAULT_AGENT_PROFILE_NAME } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import { IBuiltinAgentProfileLoader } from '#/app/agentProfileCatalog/builtinAgentProfileLoader';
 import { ErrorCodes, Error2 } from "#/errors";
-import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { IConfigService } from '#/app/config/config';
-import type { LoopControl } from '#/agent/loop/configSection';
 import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { EnvironmentWorkspaceView } from '#/environment/environmentWorkspaceView';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
@@ -108,6 +100,9 @@ import {
   type ConfigUpdatePayload,
   type ProfileModelState,
 } from './profileOps';
+import { IProtocolAdapterRegistry } from '#/llm-adapter/protocol/protocol';
+import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
+import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 
 export type { WarningEvent } from '#/errors';
 

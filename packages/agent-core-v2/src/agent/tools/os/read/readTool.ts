@@ -25,7 +25,6 @@ import {
   type TokenCharCounts,
 } from '#/llm-adapter/contract/tokens';
 import type { HostEnvironmentInfo } from '#/os/interface/hostEnvironment';
-import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
@@ -52,6 +51,17 @@ import {
   type ReadInput,
 } from './read';
 import readDescriptionTemplate from './read.md?raw';
+import { UtfTextEncoding } from '#/_base/text/encoding';
+import { LineEndingStyle } from '#/_base/text/line-endings';
+import { makeCarriageReturnsVisible } from '#/_base/text/line-endings';
+import { renderPrompt } from '#/_base/utils/render-prompt';
+import { IMediaReadContext } from '#/agent/media/mediaReadContext';
+import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
+import { IConfigService } from '#/app/config/config';
+import { MEDIA_SNIFF_BYTES } from '#/agent/media/file-type';
+import { detectFileType } from '#/agent/media/file-type';
+import { splitLinesKeepingTerminator } from '#/_base/text/line-endings';
+import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender';
 
 interface LineEndingFlags {
   hasCrLf: boolean;

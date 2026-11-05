@@ -20,7 +20,11 @@ import { ProcessTask } from '#/agent/tools/os/bash/process-task';
 import { createAgentTaskPersistence, type TaskServiceTestManager } from './stubs';
 import { agentService, taskServices, createTestAgent, homeDirServices, type TestAgentContext } from '../../harness';
 import { executeTool, type TestExecutableToolContext } from '../../tools/fixtures/execute-tool';
-import { createAgentTaskPersistence, type TaskServiceTestManager } from './stubs';
+import { waitForAssertion } from '#test/helpers/waitFor';
+import { TaskOutputTool } from '#/agent/tools/task/task-output/taskOutputTool';
+import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
+import { StorageReadRange } from '#/persistence/interface/storage';
+import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 
 interface TaskServiceFixture {
   readonly ctx: TestAgentContext;

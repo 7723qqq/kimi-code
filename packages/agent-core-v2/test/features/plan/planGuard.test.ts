@@ -28,7 +28,6 @@ import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ToolAccesses } from '#/tool/toolContract';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
-import type { ToolCall } from '#human/llm/message';
 
 import { stubPermissionModeService } from '../../agent/permissionMode/stubs';
 import {
@@ -38,9 +37,10 @@ import {
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import { createFakeHostFs } from '../../tools/fixtures/fake-exec';
 import { registerTestAgentWireServices } from '../../wire/stubs';
-import { stubPermissionModeService } from '../../agent/permissionMode/stubs';
-import { stubToolExecutorEvents, type ToolExecutorEventStubs } from '../../agent/toolExecutor/stubs';
 import { stubPlanEnvironment } from './stubs';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
+import { IAgentPlanService } from '#/features/plan/plan';
+import { AgentPlanService } from '#/features/plan/planService';
 
 const signal = new AbortController().signal;
 const TEMP_DIR = '/var/folders/x/T';

@@ -5,13 +5,8 @@ import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/tool
 import { IConfigService } from '#/app/config/config';
 import { findGitWorkTree } from '#/app/git/workTree';
 import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
-import { isDangerousCommandGuardEnabled } from '#/agent/permissionRules/configSection';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import type { ISessionWorkspaceContext as WorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import type {
-  PermissionPolicy,
-  PermissionPolicyResult,
-} from '#/agent/permissionPolicy/types';
 import {
   fileAccesses,
   hasGitPathComponent,

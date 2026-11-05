@@ -110,14 +110,22 @@ import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceCo
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import type { EnvironmentBinding } from '#/environment/environment';
 import { EnvironmentError } from '#/environment/environmentRegistry';
-import { ScopeUnits, type Fiber } from '#/_base/di/fiber';
 import { IWorkspaceInstanceManager } from '#/workspace/workspaceInstance/workspaceInstanceManager';
 import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment/environment';
-import type { OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import { stubAgentContext } from '../../agent/agentContext/stubs';
-import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import { stubProviderDiscovery } from '../../stubs';
+import { AgentEventStore } from '#/human/agent/slices';
+import { WireRecord } from '#/wire/record';
+import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
+import { IEventDispatcher } from '#/state/eventDispatcher';
+import { IWireService } from '#/wire/wire';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { createWireMetadataRecord } from '#/wire/record';
+import { waitForAssertion } from '#test/helpers/waitFor';
+import { ProfileBind } from '#/agent/profile/profileOps';
+import { agentContextOf } from '#/agent/scopeContext/scopeContext';
+import { ToolCall } from '#/human/llm/message';
 
 const noopLog = {
   _serviceBrand: undefined,

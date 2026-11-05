@@ -31,11 +31,11 @@ import {
 } from '#/mcpCore/connection-manager';
 import { type StoredMcpOAuthTokens } from '#/mcpCore/oauth/provider';
 import { McpOAuthService } from '#/mcpCore/oauth/service';
-import type { StoredMcpOAuthTokens } from '#/mcpCore/oauth/provider';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
 import type { EnvironmentBinding } from '#/environment/environment';
 import { HostProcessError, HostProcessErrorCode } from '#/os/interface/hostProcess';
+import { RuntimeError } from '#/runtime/runtimeRegistry';
 
 const testEnvironmentBinding: EnvironmentBinding = { environmentId: 'local' };
 const testProcess = new HostProcessService();

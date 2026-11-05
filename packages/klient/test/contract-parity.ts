@@ -140,8 +140,6 @@ import type {
 import type { TurnEndedEvent } from '@moonshot-ai/agent-core-v2/contract';
 import type { TaskInfo } from '@moonshot-ai/agent-core-v2/contract';
 import type { McpServerConfigView } from '@moonshot-ai/agent-core-v2/mcpCore/configView';
-import type { McpServerEntry } from '@moonshot-ai/agent-core-v2/mcpCore/connection-manager';
-import type { z } from 'zod';
 
 import {
   assistantDeltaEventSchema,

@@ -54,7 +54,6 @@ import { createOriginHook, isOriginAllowed, parseCorsOrigins } from './middlewar
 import { createAuthFailureLimiter } from './middleware/rateLimit';
 import { createSecurityHeadersHook } from './middleware/securityHeaders';
 import { transformOpenApiDocument } from './openapi/transforms';
-import { createAsyncApiDocument } from './protocol/asyncapi';
 import { resolveRequestId } from './request-id';
 import { registerRequestLogging } from './requestLogging';
 import { registerApiV1Routes } from './routes/registerApiV1Routes';

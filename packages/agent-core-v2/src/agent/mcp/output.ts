@@ -15,6 +15,10 @@ import { buildDaemonFileUrl, mediaExtensionForMime } from '#/agent/media/mediaRe
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { MCPContentBlock, MCPToolResult } from '#/mcpCore/types';
 import type { EnvironmentPath } from '#/environment/environment';
+import { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { ContentPart } from '#/human/llm/message';
+import { ExecutableToolResult } from '#/tool/toolContract';
 
 export interface McpOriginalsTarget {
   readonly fs: IHostFileSystem;

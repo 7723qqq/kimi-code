@@ -16,7 +16,6 @@ import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { IHostProcessService } from '#/os/interface/hostProcess';
 import { IBlobStore } from '#/persistence/interface/blobStore';
-import type { IHostProcessService } from '#/os/interface/hostProcess';
 import { createFakeHostFs, createFakeProcessRunner } from '../../tools/fixtures/fake-exec';
 import { createMapFs, stubPlanEnvironment } from './stubs';
 import {
@@ -27,7 +26,8 @@ import {
   renderSnapshot,
   type TestAgentContext,
 } from '../../harness';
-import { createFakeHostFs, createFakeProcessRunner } from '../../tools/fixtures/fake-exec';
+import { PlanData } from '#/features/plan/plan';
+import { ToolCall } from '#/human/llm/message';
 
 interface PlanFakes {
   readonly fs: IHostFileSystem;

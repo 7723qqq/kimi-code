@@ -23,11 +23,9 @@ import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/
 import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { EnvironmentError } from '#/environment/environmentRegistry';
 import { IConfigService } from '#/app/config/config';
-import { PERMISSION_SECTION } from '#/agent/permissionRules/configSection';
 import { IBashParserService } from '#/app/bashParser/bashParser';
 import { BashParserService } from '#/app/bashParser/bashParserService';
 import { IBootstrapService, type HostArgs } from '#/app/bootstrap/bootstrap';
-import { IConfigService } from '#/app/config/config';
 import { IGitService } from '#/app/git/git';
 import { findGitWorkTree } from '#/app/git/workTree';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
@@ -48,6 +46,7 @@ import type { ToolCall } from '#human/llm/message';
 
 import { recordingTelemetry } from '../../app/telemetry/stubs';
 import { stubPermissionModeService } from '../permissionMode/stubs';
+import { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 
 const signal = new AbortController().signal;
 

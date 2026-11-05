@@ -6,6 +6,9 @@ import type { HookDef } from '#/features/externalHooks/internal/types';
 import { HostProcessService } from '#/os/backends/host/hostProcessService';
 
 import { stubLog } from '../../_base/log/stubs';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { noopTelemetryService } from '#/app/telemetry/telemetry';
 
 export function makeHookRunner(
   hooks: readonly HookDef[],

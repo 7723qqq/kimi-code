@@ -5,7 +5,6 @@ import { defineState } from '#/state/state';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionStateService } from '#/session/state/sessionState';
 import { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
-import { defineState } from '#/state/state';
 
 import { ISessionWorkspaceContext, type PathAccessOperation } from './workspaceContext';
 import {

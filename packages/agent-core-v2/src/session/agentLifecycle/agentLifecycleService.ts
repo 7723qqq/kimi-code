@@ -3,36 +3,24 @@ import { join } from 'pathe';
 import { IInstantiationService } from '#/_base/di/instantiation';
 import type { InstantiationService } from '#/_base/di/instantiationService';
 import { Disposable, toDisposable } from '#/_base/di/lifecycle';
+import { Emitter } from '#/_base/event';
+import { onUnexpectedError } from '#/_base/errors/unexpectedError';
+import { ILogService } from '#/_base/log/log';
+import { setRootActorErrorReporter } from '#/human/xstate2';
+import { Error2, ErrorCodes } from '#/errors';
+import { LifecycleScope } from '#/app/scopes';
 import {
   createScopedChildHandle,
   type IAgentScopeHandle,
   ScopeActivation,
   registerScopedService,
 } from '#/_base/di/scope';
-import { onUnexpectedError } from '#/_base/errors/unexpectedError';
-import { Emitter } from '#/_base/event';
-import { ILogService } from '#/_base/log/log';
-import { abortError } from '#/_base/utils/abort';
-import type { AgentContext } from '#/agent/agentContext/agentContext';
-import { IAgentBlobService } from '#/agent/blob/agentBlobService';
-import { AgentBlobServiceImpl } from '#/agent/blob/agentBlobServiceImpl';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import { closeTrailingOpenToolExchange } from '#/agent/contextMemory/openToolExchange';
-import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
-import {
-  attachInteractionAgent,
-  cancelInteractionsForTurn,
-  detachInteractionAgent,
-} from '#/agent/interaction/interactionWiring';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import { MACHINE_LOOP_MODEL, type MachineEngineAttachRef } from '#/agent/loop/machine/engine';
-import { TurnEnded } from '#/agent/loop/turnOps';
-import { IAgentMcpService } from '#/agent/mcp/mcp';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IConfigService } from '#/app/config/config';
+import { ISessionEventBus } from '#/app/event/eventBus';
 import { DEFAULT_PERMISSION_MODE_SECTION } from '#/agent/permissionMode/configSection';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { permissionModeConfiguredKey } from '#/agent/permissionMode/permissionModeOps';
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
-import { IAgentProfileService } from '#/agent/profile/profile';
 import { profileKey } from '#/agent/profile/profileOps';
 import { hasPinnedPermissionMode } from '#/features/tower/tower';
 import { IAgentTaskService } from '#/agent/task/task';
@@ -46,6 +34,7 @@ import {
   makeAgentScopeContext,
 } from '#/agent/scopeContext/scopeContext';
 import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentMcpService } from '#/agent/mcp/mcp';
 import {
   MACHINE_LOOP_MODEL,
   type MachineEngineAttachRef,
@@ -68,35 +57,32 @@ import { EnvironmentSetBinding } from '#/agent/environmentBinding/environmentBin
 import { LOCAL_ENVIRONMENT_ID } from '#/environment/environment';
 import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
 import { IAgentToolActivationService } from '#/agent/toolActivation/toolActivation';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { IConfigService } from '#/app/config/config';
-import { ISessionEventBus } from '#/app/event/eventBus';
-import { LifecycleScope } from '#/app/scopes';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import '#/agent/runtimeBinding/runtimeBindingService';
-import { bindTelemetryScope } from '#/app/telemetry/telemetryService';
-import { Error2, ErrorCodes } from '#/errors';
-import { hasPinnedPermissionMode } from '#/features/tower/tower';
-import { interactions } from '#/human/interaction/facade';
-import { setRootActorErrorReporter } from '#/human/xstate2';
-import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
-import { IBlobStore } from '#/persistence/interface/blobStore';
-import { ISessionLockService } from '#/persistence/interface/sessionLock';
-import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { withSubagentProfile } from '#/session/agentLifecycle/subagentMetadata';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { ISessionMetadata, type AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
-import { IEventDispatcher } from '#/state/eventDispatcher';
 import { IWireService } from '#/wire/wire';
 import { WireService } from '#/wire/wireService';
+import { IAgentBlobService } from '#/agent/blob/agentBlobService';
+import { AgentBlobServiceImpl } from '#/agent/blob/agentBlobServiceImpl';
+import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
+import { ISessionLockService } from '#/persistence/interface/sessionLock';
+import { IBlobStore } from '#/persistence/interface/blobStore';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { IAgentStateService } from '#/agent/state/agentState';
+import { IEventDispatcher } from '#/state/eventDispatcher';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { bindTelemetryScope } from '#/app/telemetry/telemetryService';
+import type { AgentContext } from '#/agent/agentContext/agentContext';
+import { createActor, waitFor } from '#human/xstate2';
 import {
   createAgentMachine,
   type AgentMachineSelf,
   type ScopeFactoryOutput,
 } from '#human/agent/machine';
-import { createSessionMachine, type AgentActorRef, type AgentEntry } from '#human/session/machine';
-import { createActor, waitFor } from '#human/xstate2';
+import {
+  createSessionMachine,
+  type AgentActorRef,
+  type AgentEntry,
+} from '#human/session/machine';
 
+import { ManagedAgent } from './managedAgent';
 import {
   type AgentListFilter,
   type AgentScopeCreatedEvent,
@@ -104,7 +90,6 @@ import {
   type ForkAgentOptions,
   IAgentLifecycleService,
 } from './agentLifecycle';
-import { ManagedAgent } from './managedAgent';
 
 let nextAgentId = 0;
 
@@ -252,9 +237,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       subscription.unsubscribe();
     }
     if (failure !== undefined) {
-      throw failure instanceof Error
-        ? failure
-        : new Error('Agent linking failed', { cause: failure });
+      throw failure instanceof Error ? failure : new Error('Agent linking failed', { cause: failure });
     }
     const managed = this.roster.get(agentId);
     if (managed === undefined) {
@@ -279,8 +262,8 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       generation,
     });
     const agent = scopeContext.agentContext;
-    const eventBus = this.instantiation.invokeFunction(
-      (accessor) => accessor.get(ISessionEventBus) as ISessionEventBus | undefined,
+    const eventBus = this.instantiation.invokeFunction((accessor) =>
+      accessor.get(ISessionEventBus) as ISessionEventBus | undefined,
     );
     eventBus?.activateAgent(agent);
     let managed: ManagedAgent | undefined;
@@ -324,29 +307,24 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
             [IAgentBlobService, blobView],
             [IWireService, wire],
           ],
-          [IAgentBlobService, blobView],
-          [IWireService, wire],
-        ],
-        configureContainer: (container) => {
-          container.anchorKernelEntry(() => telemetryBinding.dispose(), 'telemetry:agent-context');
-          container.anchorKernelEntry(() => {
-            wire.dispose();
-          }, 'wire-view-dispose');
-          container.anchorKernelFinalizer(() => {
-            eventBus?.deactivateAgent(agent);
-          }, 'agent-event-bus-deactivate');
-          finalizerArmed = true;
-          containerRef = container;
+          configureContainer: (container) => {
+            container.anchorKernelEntry(
+              () => telemetryBinding.dispose(),
+              'telemetry:agent-context',
+            );
+            container.anchorKernelEntry(() => {
+              wire.dispose();
+            }, 'wire-view-dispose');
+            container.anchorKernelFinalizer(() => {
+              eventBus?.deactivateAgent(agent);
+            }, 'agent-event-bus-deactivate');
+            finalizerArmed = true;
+            containerRef = container;
+          },
         },
-      }) as IAgentScopeHandle;
+      ) as IAgentScopeHandle;
       createdHandle = handle;
-      signal.addEventListener(
-        'abort',
-        () => {
-          void handle.dispose();
-        },
-        { once: true },
-      );
+      signal.addEventListener('abort', () => { void handle.dispose(); }, { once: true });
       const container = containerRef!;
       const scopeHandle: IAgentScopeHandle = {
         id: agentId,
@@ -418,12 +396,12 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
         managed.killSpace();
         try {
           await managed.handle.dispose();
-        } catch {}
+        } catch { }
       } else {
         if (createdHandle !== undefined) {
           try {
             await createdHandle.dispose();
-          } catch {}
+          } catch { }
         }
         wireView?.dispose();
         telemetryBinding.dispose();
@@ -434,9 +412,13 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     }
   }
 
-  private async bindBootstrap(handle: IAgentScopeHandle, opts: CreateAgentOptions): Promise<void> {
+  private async bindBootstrap(
+    handle: IAgentScopeHandle,
+    opts: CreateAgentOptions,
+  ): Promise<void> {
     if (opts.binding !== undefined) {
       await handle.accessor.get(IAgentProfileService).bind(opts.binding);
+      handle.accessor.get(IAgentMcpService).register();
     }
     const permissionMode = this.config.get<PermissionMode>(DEFAULT_PERMISSION_MODE_SECTION);
     const hasRestoredPermissionMode = handle.accessor
@@ -515,9 +497,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     for (const managed of this.roster.values()) {
       if (managed.closing || !managed.active) continue;
       const handle = managed.handle;
-      if (
-        hasPinnedPermissionMode(handle.accessor.get(IAgentStateService).get(profileKey).profileName)
-      ) {
+      if (hasPinnedPermissionMode(handle.accessor.get(IAgentStateService).get(profileKey).profileName)) {
         continue;
       }
       handle.accessor.get(IAgentPermissionModeService).setMode(mode);
@@ -565,24 +545,14 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     try {
       this.rosterAdopt(handle);
       const managed = this.roster.get(agent.agentId);
-      signal.addEventListener(
-        'abort',
-        () => {
-          void handle.dispose();
-        },
-        { once: true },
-      );
+      signal.addEventListener('abort', () => { void handle.dispose(); }, { once: true });
       const loop = handle.accessor.get(IAgentLoopService);
       const bundle = loop.buildAttachBundle();
       loop.attachEngine(self as unknown as MachineEngineAttachRef, bundle);
       if (managed !== undefined) managed.bundle = bundle;
       this.onDidCreateEmitter.fire(agent);
       this.onDidCreateScopeEmitter.fire({ context: agent, handle });
-      attachInteractionAgent(
-        agent.agentId,
-        this.ctx.sessionId,
-        handle.accessor.get(IEventDispatcher),
-      );
+      attachInteractionAgent(agent.agentId, this.ctx.sessionId, handle.accessor.get(IEventDispatcher));
       return Promise.resolve({
         handle: { disposeAsync: () => Promise.resolve(handle.dispose()) },
         store: bundle.store,

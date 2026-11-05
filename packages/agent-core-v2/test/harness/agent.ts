@@ -64,6 +64,17 @@ import type { ToolInfo } from '#/tool/toolContract';
 import { WorkspaceStateService } from '#/workspace/state/workspaceStateService';
 
 import { BUILTIN_REPLAYABLE_STATE_KEYS } from '../state/builtinReplayableKeys';
+import { EnvironmentDisclosureSnapshot } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import { LogContext } from '#/_base/log/log';
+import { ILogOptions } from '#/_base/log/logConfig';
+import { AgentModelInstanceOf } from '#/agent/agentContext/agentSpace';
+import { ApprovalRequest } from '#/agent/interaction/approval';
+import { ApprovalResponse } from '#/agent/interaction/approval';
+import { QuestionResult } from '#/agent/interaction/question';
+import { QuestionRequest } from '#/agent/interaction/question';
+import { TurnPrompt } from '#/agent/loop/turnOps';
+import { LogLevel } from '#/_base/log/log';
+import { promptMetadataTextFromContentParts } from '#/agent/prompt/promptMetadataText';
 
 type EmptyPayload = {};
 type CreateGoalPayload = CreateGoalInput;
@@ -118,12 +129,6 @@ import {
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { summarizeSkill, type SkillCatalog } from '#/features/skill/catalog/types';
 import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
-import {
-  type PromptWithSkillsInput,
-  type PromptWithSkillsResult,
-  type SkillActivationInput,
-} from '#/features/skill/skill';
-import { IAgentSkillService } from '#/features/skill/skillService';
 import { ISessionSwarmService } from '#/features/swarm/session/sessionSwarm';
 import { type TodoItem } from '#/features/todo/todoItem';
 import { IAgentTodoService } from '#/features/todo/todoService';
@@ -225,14 +230,8 @@ import { LocalRuntime } from '#/runtime/localRuntime';
 import type { RuntimeLease } from '#/runtime/runtime';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { applyPromptMetadataUpdate } from '#/session/sessionMetadata/promptMetadata';
-import { ISessionStateService } from '#/session/state/sessionState';
 import type { PathAccessOperation } from '#/session/workspaceContext/workspaceContext';
 import { type AgentModelDefinition } from '#/state/agentModel';
-import { IEventDispatcher } from '#/state/eventDispatcher';
-import { EventDispatcherService } from '#/state/eventDispatcherService';
-import type { StateKey } from '#/state/state';
-import type { ExecutableToolOutput as ToolOutput, ExecutableToolResult } from '#/tool/toolContract';
-import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
 import { IWireService } from '#/wire/wire';
 import { WireService } from '#/wire/wireService';
 import {

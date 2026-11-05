@@ -19,7 +19,6 @@ import { ISessionInstructionsProvider } from '#/session/sessionInstructions/inst
 import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
 import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
 import { resolveSubagentModelPool, type SubagentModelPool } from '#/session/subagent/configSection';
-import { IEventDispatcher } from '#/state/eventDispatcher';
 
 import {
   IAgentChangeNotifierService,
@@ -32,6 +31,17 @@ import {
   changeNotifierSnapshotKey,
   type ChangeNotifierSnapshotState,
 } from './changeNotifierOps';
+import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
+import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
+import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
+import { LoadedAgentsMd } from '#/agent/profile/context';
+import { isToolActiveComposed } from '#/agent/toolPolicy/evaluate';
+import { ToolsConfig } from '#/agent/toolPolicy/configSection';
+import { TOOLS_SECTION } from '#/agent/toolPolicy/configSection';
+import { DEFAULT_AGENT_PROFILE_NAME } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import { splitAgentsMdFiles } from '#/agent/profile/context';
+import { workspaceRootKey } from '#/_base/utils/workdir-slug';
+import { LifecycleScope } from '#/app/scopes';
 
 const AGENTS_MD_CHANGE_VARIANT = 'agents_md_change';
 const SKILLS_CHANGE_VARIANT = 'skills_change';

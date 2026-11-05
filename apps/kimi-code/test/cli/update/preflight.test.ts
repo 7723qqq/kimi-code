@@ -16,12 +16,9 @@ import {
 import { installCommandFor, runUpdatePreflight } from '#/cli/update/preflight';
 import * as actualPrompt from '#/cli/update/prompt';
 import { promptForInstallChoice } from '#/cli/update/prompt';
-import type * as PromptModule from '#/cli/update/prompt';
 import * as actualRefresh from '#/cli/update/refresh';
 import { refreshUpdateCache } from '#/cli/update/refresh';
-import type * as RefreshModule from '#/cli/update/refresh';
 import * as actualRollout from '#/cli/update/rollout';
-import type * as RolloutModule from '#/cli/update/rollout';
 import { detectInstallSource } from '#/cli/update/source';
 import {
   emptyUpdateCache,

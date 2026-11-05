@@ -8,16 +8,13 @@ import { type WriteInput, WriteInputSchema } from '#/agent/tools/os/write/write'
 import { WriteTool } from '#/agent/tools/os/write/writeTool';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import type { HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
-import { PathSecurityError } from '#/tool/path-access';
 import type {
   ExecutableToolContext,
   ExecutableToolResult,
   ToolExecution,
 } from '#/tool/toolContract';
 
-import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
 
 const signal = new AbortController().signal;
 const PERMISSIVE_WORKSPACE = stubWorkspaceContext('/');

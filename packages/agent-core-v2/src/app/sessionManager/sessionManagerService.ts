@@ -7,7 +7,6 @@ import { LOCAL_ENVIRONMENT_ID } from '#/environment/environment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { Emitter, type Event, type IWaitUntil } from '#/_base/event';
 import { ScopeActivation, registerScopedService, type ISessionScopeHandle } from '#/_base/di/scope';
-import { Emitter, type Event, type IWaitUntil } from '#/_base/event';
 import { LifecycleScope } from '#/app/scopes';
 import { Error2, ErrorCodes, isError2, SessionErrors, unwrapErrorCause } from '#/errors';
 import { ISessionIndex, type SessionSummary } from '#/app/sessionIndex/sessionIndex';

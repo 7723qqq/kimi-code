@@ -39,14 +39,11 @@ import { ReadInputSchema, type ReadInput } from '#/agent/tools/os/read/read';
 import { ReadTool } from '#/agent/tools/os/read/readTool';
 import type { MediaReadContext } from '#/agent/tools/read-media-file/execute-media-read';
 import { type VideoUploader } from '#/agent/tools/read-media-file/read-media-file';
-import type { ITelemetryService, TelemetryProperties } from '#/app/telemetry/telemetry';
 import type { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import { UNKNOWN_CAPABILITY, type ModelCapability } from '#/llm-adapter/contract/capability';
 import { VideoUploadUnsupportedError } from '#/llm-adapter/contract/errors';
 import type { IModelCatalog } from '#/llm-adapter/model/catalog';
 import type { ModelRequester } from '#/llm-adapter/model/model-requester';
-import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { Runtime } from '#/runtime/runtime';
 import type { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import type { WorkspaceConfig } from '#/tool/path-access';
@@ -60,6 +57,16 @@ import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { stubConfigService } from '../../../app/config/stubs';
 import { stubToolResultTruncationService } from '../../toolResultTruncation/stubs';
+import { ToolExecution } from '#/tool/toolContract';
+import { sniffImageDimensions } from '#/agent/media/file-type';
+import { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
+import { EventBusService } from '#/app/event/eventBusService';
+import { AgentStateService } from '#/agent/state/agentStateService';
+import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { SessionMediaStoreService } from '#/agent/media/sessionMediaStoreService';
+import { makeSessionContext } from '#/session/sessionContext/sessionContext';
+import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 
 const WORKSPACE: WorkspaceConfig = { workspaceDir: '/workspace', additionalDirs: [] };
 

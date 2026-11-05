@@ -59,27 +59,9 @@ import {
   type SessionSwarmTask,
 } from '#/features/swarm/session/sessionSwarm';
 import { SessionSwarmService } from '#/features/swarm/session/sessionSwarmService';
-import { createHooks } from '#/hooks';
 import { APIProviderRateLimitError } from '#/llm-adapter/contract/errors';
 import { IHostClock } from '#/os/interface/hostClock';
 import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
-import {
-  IAgentLifecycleService,
-  type CreateAgentOptions,
-} from '#/session/agentLifecycle/agentLifecycle';
-import { labelsFromAgentMeta } from '#/session/agentLifecycle/subagentMetadata';
-import {
-  ISessionMetadata,
-  type AgentMeta,
-  type SessionMetadataChangedEvent,
-} from '#/session/sessionMetadata/sessionMetadata';
-import { type SpawnSubagentOptions, type SubagentSpawnPlanInput } from '#/session/subagent/spawn';
-import {
-  type AgentRunHandle,
-  type AgentTaskHooks,
-  ISessionSubagentService,
-} from '#/session/subagent/subagent';
-import { IEventDispatcher } from '#/state/eventDispatcher';
 
 import { stubAgentContext } from '../../agent/agentContext/stubs';
 

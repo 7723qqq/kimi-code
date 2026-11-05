@@ -19,14 +19,12 @@ import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnviro
 import { IAgentEnvironmentBindingService } from '#/agent/environmentBinding/environmentBinding';
 import { ToolAccesses, type ExecutableTool } from '#/tool/toolContract';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { IAgentLoopService } from '#/agent/loop/loop';
 import { agentContextOf, IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
 import { IAgentTaskService } from '#/agent/task/task';
 import { type AgentTaskSettlement } from '#/agent/task/types';
 import { IAgentToolActivationService } from '#/agent/toolActivation/toolActivation';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { SubagentToolInputSchema, type SubagentToolInput } from '#/agent/tools/agent/agent';
 import {
   NO_PARTIAL_OUTPUT,
@@ -108,7 +106,6 @@ import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTok
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import { ToolAccesses, type ExecutableTool } from '#/tool/toolContract';
 import { IWireService } from '#/wire/wire';
 import { createAgentMachine } from '#human/agent/machine';
 import { type ToolCall } from '#human/llm/message';
@@ -139,6 +136,8 @@ import { renderSnapshot } from '../harness/snapshots';
 import { StubConfigService } from '../stubs';
 import { executeTool } from '../tools/fixtures/execute-tool';
 import { createFakeProcessRunner } from '../tools/fixtures/fake-exec';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { ProfileData } from '#/agent/profile/profile';
 
 const signal = new AbortController().signal;
 

@@ -8,6 +8,10 @@ import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IHostProcessService } from '#/os/interface/hostProcess';
 
 import type { Environment, EnvironmentCapability, EnvironmentPath, EnvironmentStatus } from './environment';
+import { RuntimeProviderContext } from '#/runtime/runtimeProvider';
+import { RuntimeProviderHost } from '#/runtime/runtimeUnitHost';
+import { RuntimeProviderAttachment } from '#/runtime/runtimeProvider';
+import { LocalRuntime } from '#/runtime/localRuntime';
 
 let nextGeneration = 1;
 

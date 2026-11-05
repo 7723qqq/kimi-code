@@ -42,6 +42,9 @@ import {
   WINDOWS_PATH_HINT,
 } from './glob';
 import globDescription from './glob.md?raw';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { IOAuthService } from '#/app/auth/auth';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 
 const VCS_DIRECTORIES_TO_EXCLUDE = ['.git', '.svn', '.hg', '.bzr', '.jj', '.sl'] as const;
 const RG_MAX_THREADS = 4;

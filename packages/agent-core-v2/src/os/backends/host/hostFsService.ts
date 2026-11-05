@@ -15,11 +15,6 @@ import {
 import { decodeTextWithErrors, readUtf8Lines, type TextDecodeErrors } from '#/_base/execEnv/decodeText';
 
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import {
-  decodeTextWithErrors,
-  readUtf8Lines,
-  type TextDecodeErrors,
-} from '#/_base/execEnv/decodeText';
 import { LifecycleScope } from '#/app/scopes';
 import {
   type HostDirEntry,

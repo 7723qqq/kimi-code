@@ -25,10 +25,7 @@ import {
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { TOOL_SELECT_FLAG_ID } from '#/agent/toolSelect/flag';
 import { SELECT_TOOLS_TOOL_NAME } from '#/agent/toolSelect/toolSelect';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import {
   ToolAccesses,
   isMcpToolName,
@@ -41,8 +38,6 @@ import {
   registerAgentToolService,
 } from '#/agent/toolRegistry/toolContribution';
 import { IAgentToolRegistryService, type ToolReference } from '#/agent/toolRegistry/toolRegistry';
-import { TOOL_SELECT_FLAG_ID } from '#/agent/toolSelect/flag';
-import { SELECT_TOOLS_TOOL_NAME } from '#/agent/toolSelect/toolSelect';
 import { type AgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import {
   subagentAllowlistFor,
@@ -84,16 +79,7 @@ import {
   stripSubagentModelParameter,
   type SubagentModelSource,
 } from '#/session/subagent/configSection';
-import { SUBAGENT_FORK_FLAG_ID } from '#/session/subagent/flag';
-import {
-  emitAgentRunSpawned,
-  mirrorAgentRun,
-  SubagentStarted,
-} from '#/session/subagent/mirrorAgentRun';
-import { FORK_EXPERIMENTAL_UNAVAILABLE, forkIncompatibility } from '#/session/subagent/spawn';
-import { ISessionSubagentService } from '#/session/subagent/subagent';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { IEventDispatcher } from '#/state/eventDispatcher';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { matchesGlobRuleSubject } from '#/tool/rule-match';
 import {
@@ -121,6 +107,11 @@ import AGENT_BACKGROUND_DESCRIPTION from './agent-background-enabled.md?raw';
 import AGENT_FORK_DESCRIPTION from './agent-fork.md?raw';
 import AGENT_DESCRIPTION_BASE from './agent.md?raw';
 import { NO_PARTIAL_OUTPUT, SubagentTask, type SubagentHandle } from './subagent-task';
+import { exposesSubagentBackends } from '#/session/subagent/backend/configSection';
+import { ISubagentBackendService } from '#/session/subagent/backend/subagentBackend';
+import { SubagentBackendName } from '#/session/subagent/backend/subagentBackend';
+import { backendIncompatibility } from '#/session/subagent/backend/backendCompat';
+import { SubagentBackendResult } from '#/session/subagent/backend/subagentBackend';
 
 const SUBAGENT_TOOL_PARAMETERS = toInputJsonSchema(SubagentToolInputSchema);
 const SUBAGENT_TOOL_PARAMETERS_NO_MODEL = stripSubagentModelParameter(SUBAGENT_TOOL_PARAMETERS);

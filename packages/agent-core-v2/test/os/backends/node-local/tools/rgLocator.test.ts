@@ -28,6 +28,8 @@ import {
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import type { Environment } from '#/environment/environment';
 import { stubRgProbe } from '../../../stubs';
+import { asGlobalFetch } from '#test/helpers/fetch';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 void mock.module('tar', () => ({ extract: mock() }));
 

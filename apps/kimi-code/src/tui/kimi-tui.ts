@@ -56,7 +56,6 @@ import { appendInputHistory, loadInputHistory } from '#/utils/history/input-hist
 import { refreshModelSwitchConfirmConfig } from '#/utils/model-switch-confirm-config';
 import { openUrl } from '#/utils/open-url';
 import { getInputHistoryFile } from '#/utils/paths';
-import { refreshModelSwitchConfirmConfig } from '#/utils/model-switch-confirm-config';
 import { applyRecommendedEffort } from '#/utils/recommended-effort';
 import { getRecommendedEffortConfig } from '#/utils/recommended-effort-config';
 import { quoteShellArg } from '#/utils/shell-quote';

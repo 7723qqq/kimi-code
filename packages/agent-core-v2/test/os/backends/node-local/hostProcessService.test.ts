@@ -16,6 +16,8 @@ import {
 } from '#/os/interface/hostProcess';
 import type { IHostTimerHandle, IHostTimers } from '#/os/interface/hostTimers';
 import { expectRejection } from '#test/helpers/assertions';
+import { mock } from 'bun:test';
+import { spyOn } from 'bun:test';
 
 interface FakeTimerHandle extends IHostTimerHandle {
   readonly id: number;

@@ -33,7 +33,6 @@ import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/
 import { ToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncationService';
 import { GlobTool } from '#/agent/tools/os/glob/globTool';
 import { ReadInputSchema, type ReadInput } from '#/agent/tools/os/read/read';
-import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender';
 import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
 import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
@@ -43,10 +42,8 @@ import { stubWorkspaceContext } from '../../session/workspaceContext/stub-worksp
 import { stubAgentEnvironment } from '../../environment/stubs';
 import { ConfigRegistry, ConfigService } from '#/app/config/configService';
 import { IConfigRegistry, IConfigService } from '#/app/config/config';
-import { ConfigRegistry, ConfigService } from '#/app/config/configService';
 import { IEventBus } from '#/app/event/eventBus';
 import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
-import type { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
 import type { MCPClient } from '#/mcpCore/types';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
@@ -75,9 +72,10 @@ import type { ToolCall } from '#human/llm/message';
 import { registerLogServices, stubLog } from '../../_base/log/stubs';
 import { stubBootstrap } from '../../app/bootstrap/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
-import { stubWorkspaceContext } from '../../session/workspaceContext/stub-workspace-context';
 import { registerStateServices } from '../../state/stubs';
 import { registerTestAgentWireServices } from '../../wire/stubs';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { ReadTool } from '#/agent/tools/os/read/readTool';
 
 type ToolExecutorEvent = {
   readonly type: 'tool.result';

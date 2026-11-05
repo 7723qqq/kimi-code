@@ -19,9 +19,7 @@ import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IHostProcessService } from '#/os/interface/hostProcess';
 import { IWorkspaceInstanceManager, type WorkspaceInstanceChange } from '#/workspace/workspaceInstance/workspaceInstanceManager';
 import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment/environment';
-import { Event } from '#/_base/event';
 import type { Environment } from '#/environment/environment';
-import { normalize } from 'pathe';
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', args, {

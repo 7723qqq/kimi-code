@@ -24,6 +24,8 @@ import {
   stderrThenExitFixture,
   stdioFixture,
 } from './stubs';
+import { StdioFrameBuffer } from '#/mcpCore/client-stdio';
+import { BoundedTail } from '#/mcpCore/client-stdio';
 
 function createClient(
   config: McpServerStdioConfig,

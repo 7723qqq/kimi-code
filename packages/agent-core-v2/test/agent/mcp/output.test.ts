@@ -18,7 +18,7 @@ import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import type { MCPClient, MCPContentBlock, MCPToolResult } from '#/mcpCore/types';
 import type { ToolExecution } from '#/tool/toolContract';
-import { sniffImageDimensions } from '#/agent/media/file-type';
+import { ContentPart } from '#/human/llm/message';
 
 function modelText(result: Awaited<ReturnType<typeof mcpResultToExecutableOutput>>): string {
   return renderToolResultForModel(result)

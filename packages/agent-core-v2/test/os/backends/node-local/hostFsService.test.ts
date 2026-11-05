@@ -5,6 +5,8 @@ import { join } from 'pathe';
 
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { supportsSymlinks } from '#test/helpers/symlinks';
+import { afterEach } from 'bun:test';
+import { expect } from 'bun:test';
 
 let dir: string;
 let fs: HostFileSystem;

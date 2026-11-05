@@ -19,7 +19,6 @@ import {
   WINDOWS_PATH_HINT,
 } from '#/agent/tools/os/glob/glob';
 import { GlobTool, splitCompletePaths } from '#/agent/tools/os/glob/globTool';
-import { noopTelemetryService } from '#/app/telemetry/telemetry';
 import type { ITelemetryService, TelemetryProperties } from '#/app/telemetry/telemetry';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { HostProcessService } from '#/os/backends/host/hostProcessService';
@@ -34,8 +33,9 @@ import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
 import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
 import { probeHostEnvironmentFromNode } from '#/_base/execEnv/environmentProbe';
-import type { ITelemetryService, TelemetryProperties } from '#/app/telemetry/telemetry';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
+import { IHostTimerHandle } from '#/os/interface/hostTimers';
+import { IHostTimers } from '#/os/interface/hostTimers';
 
 vi.mock('#/os/backends/node-local/tools/rgLocator', () => ({
   ensureRgPath: vi.fn(async (): Promise<{ path: string; source: string }> => ({

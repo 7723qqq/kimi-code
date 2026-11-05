@@ -50,7 +50,6 @@ import {
   renderUserPromptHookBlockResult,
   renderUserPromptHookResult,
 } from '../internal/userPrompt';
-import { IAgentExternalHooksService } from './agentExternalHooks';
 
 export interface HookResultPayload {
   readonly agentId: string;

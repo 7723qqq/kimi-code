@@ -16,14 +16,21 @@ import { unwrapErrorCause } from '#/_base/errors/errors';
 import { AsyncEmitter, Emitter, type Event, type IWaitUntil } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
 import { drainLogCloses } from '#/_base/log/logService';
+import { DEFAULT_PLAN_MODE_SECTION } from '#/features/plan/configSection';
+import { IAgentFileHistoryService } from '#/features/fileHistory/fileHistory';
+import { FILE_HISTORY_BLOB_PREFIX } from '#/features/fileHistory/fileHistoryService';
+import {
+  dropFileHistorySession,
+  touchForkedFileHistory,
+} from '#/features/fileHistory/fileHistoryRetention';
 import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentPlanService } from '#/features/plan/plan';
+import { LifecycleScope } from '#/app/scopes';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { IEventService } from '#/app/event/event';
 import { IFlagService } from '#/app/flag/flag';
-import { LifecycleScope } from '#/app/scopes';
-import {
-  CHILD_SESSION_KIND,
+import { CHILD_SESSION_KIND,
   CHILD_SESSION_KIND_KEY,
   ISessionIndex,
   ISessionIndexMirror,
@@ -34,33 +41,23 @@ import type { SessionEndedEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { bindTelemetryScope } from '#/app/telemetry/telemetryService';
 import { ErrorCodes, Error2, isError2 } from '#/errors';
-import { IAgentFileHistoryService } from '#/features/fileHistory/fileHistory';
-import {
-  dropFileHistorySession,
-  touchForkedFileHistory,
-} from '#/features/fileHistory/fileHistoryRetention';
-import { FILE_HISTORY_BLOB_PREFIX } from '#/features/fileHistory/fileHistoryService';
-import { ISessionNotify } from '#/features/notify/sessionNotify';
-import { DEFAULT_PLAN_MODE_SECTION } from '#/features/plan/configSection';
-import { IAgentPlanService } from '#/features/plan/plan';
-import { PLUGIN_SKILL_SOURCE_ID } from '#/features/skill/catalog/skillSource';
-import { ISessionSkillCatalogData } from '#/features/skill/session/skillCatalogData';
-import { IWorkspaceSkillCatalog } from '#/features/skill/workspace/workspaceSkillCatalog';
-import { IModelService } from '#/llm-adapter/model/model';
-import { IProviderService } from '#/llm-adapter/provider/provider';
 import { IHostFileSystem, type HostDirEntry } from '#/os/interface/hostFileSystem';
-import { type AppendLogTruncation, IAppendLogStore } from '#/persistence/interface/appendLogStore';
-import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import {
+  type AppendLogTruncation,
+  IAppendLogStore,
+} from '#/persistence/interface/appendLogStore';
 import { ISessionLockService } from '#/persistence/interface/sessionLock';
+import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
+import {
+  IAgentLifecycleService,
+  MAIN_AGENT_ID,
+} from '#/session/agentLifecycle/agentLifecycle';
 import { ensureMainAgent } from '#/session/agentLifecycle/mainAgent';
 import { labelsFromAgentMeta } from '#/session/agentLifecycle/subagentMetadata';
-import { sessionEphemeralMcpServersSeed } from '#/session/mcp/ephemeralMcpServers';
-import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
-import { sessionAgentProfileCatalogSeed } from '#/session/sessionAgentProfileCatalog/agentProfileCatalogSeed';
 import { ISessionContext, sessionContextSeed } from '#/session/sessionContext/sessionContext';
-import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
+import { sessionEphemeralMcpServersSeed } from '#/session/mcp/ephemeralMcpServers';
+import { sessionAgentProfileCatalogSeed } from '#/session/sessionAgentProfileCatalog/agentProfileCatalogSeed';
 import {
   ISessionMetadata,
   SESSION_META_VERSION,
@@ -78,13 +75,19 @@ import {
   toEpochMs,
 } from '#/session/sessionMetadata/sessionMetadataService';
 import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
-import { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
+import { ISessionNotify } from '#/features/notify/sessionNotify';
 import { IEventDispatcher } from '#/state/eventDispatcher';
-import { AGENT_WIRE_RECORD_KEY, createWireMetadataRecord, type WireRecord } from '#/wire/record';
+import {
+  AGENT_WIRE_RECORD_KEY,
+  createWireMetadataRecord,
+  type WireRecord,
+} from '#/wire/record';
 import { repairWireJournal } from '#/wire/repair';
 import { flattenChain } from '#/wire/tree/index';
-import { IExplicitAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/explicitAgentProfileLoader';
-import { IExtraAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoader';
+import { IModelService } from '#/llm-adapter/model/model';
+import { IProviderService } from '#/llm-adapter/provider/provider';
+import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
+import { IUserAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoader';
 import { IPluginAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/pluginAgentProfileLoader';
 import {
   IExplicitAgentProfileLoader,
@@ -93,12 +96,14 @@ import {
   IExtraAgentProfileLoader,
 } from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoader';
 import { IWorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcp';
+import { PLUGIN_SKILL_SOURCE_ID } from '#/features/skill/catalog/skillSource';
 
 import { agentScopeOf, sessionDirOf, sessionScopeOf } from './internal/addressing';
+import { SessionArchived, SessionDeleted } from './sessionLifecycleEvents';
 import {
   assertForkTurnIndex,
-  sliceMainRecordsForRunningFork,
   sliceMainRecordsAtTurn,
+  sliceMainRecordsForRunningFork,
   sliceRecordsBeforePendingWork,
   sliceSubagentRecordsAtTime,
 } from './internal/forkTurnSlice';
@@ -117,7 +122,6 @@ import {
   type SessionWillCreateEvent,
   ISessionLifecycleService,
 } from './sessionLifecycle';
-import { SessionArchived, SessionDeleted } from './sessionLifecycleEvents';
 
 type MaterializeSessionOptions = Omit<CreateSessionOptions, 'sessionId'> & {
   readonly sessionId: string;
@@ -148,8 +152,11 @@ const SESSION_CREATE_RELOAD_SKILL_SOURCES: readonly string[] = [
 export class SessionLifecycleService extends Disposable implements ISessionLifecycleService {
   declare readonly _serviceBrand: undefined;
   private readonly sessions = new Map<string, ISessionScopeHandle>();
-  private readonly _onWillCreateSession = this._register(new Emitter<SessionWillCreateEvent>());
-  readonly onWillCreateSession: Event<SessionWillCreateEvent> = this._onWillCreateSession.event;
+  private readonly _onWillCreateSession = this._register(
+    new Emitter<SessionWillCreateEvent>(),
+  );
+  readonly onWillCreateSession: Event<SessionWillCreateEvent> =
+    this._onWillCreateSession.event;
   private readonly _onDidCreateSession = this._register(
     new AsyncEmitter<SessionCreatedEvent & IWaitUntil>(),
   );
@@ -193,10 +200,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     private readonly userAgentProfileLoader: IUserAgentProfileLoader,
     @IPluginAgentProfileLoader
     private readonly pluginAgentProfileLoader: IPluginAgentProfileLoader,
-    @IWorkspaceDirs private readonly workspaceDirs: IWorkspaceDirs,
-    @IWorkspaceSkillCatalog private readonly workspaceSkillCatalog: IWorkspaceSkillCatalog,
-    @IWorkspaceInstructionsService
-    private readonly workspaceInstructions: IWorkspaceInstructionsService,    @IWorkspaceMcpService private readonly workspaceMcp: IWorkspaceMcpService,
+    @IWorkspaceMcpService private readonly workspaceMcp: IWorkspaceMcpService,
     @IModelService private readonly models: IModelService,
     @IProviderService private readonly providers: IProviderService,
     private readonly environments: IEnvironmentService,
@@ -345,7 +349,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
             });
           },
         },
-      }) as ISessionScopeHandle;
+      ) as ISessionScopeHandle;
       scopeCreated.fire(handle);
     } catch (error) {
       telemetryBinding.dispose();
@@ -439,13 +443,12 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     this.resumeFailures.delete(sessionId);
     const promise = this.doResume(sessionId, source, opts)
       .catch((error: unknown) => {
-        this.telemetry.withContext({ session_id: sessionId }).track2('session_load_failed', {
-          reason: isError2(error) ? error.code : error instanceof Error ? error.name : 'unknown',
-        });
-        this.resumeFailures.set(
-          sessionId,
-          error instanceof Error ? error : new Error('session resume failed'),
-        );
+        this.telemetry
+          .withContext({ session_id: sessionId })
+          .track2('session_load_failed', {
+            reason: isError2(error) ? error.code : error instanceof Error ? error.name : 'unknown',
+          });
+        this.resumeFailures.set(sessionId, error instanceof Error ? error : new Error('session resume failed'));
         throw error;
       })
       .finally(() => this.resuming.delete(sessionId));
@@ -503,10 +506,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     return ready;
   }
 
-  async close(
-    sessionId: string,
-    reason: Exclude<SessionCloseReason, 'archive'> = 'exit',
-  ): Promise<void> {
+  async close(sessionId: string, reason: Exclude<SessionCloseReason, 'archive'> = 'exit'): Promise<void> {
     const handle = this.sessions.get(sessionId);
     if (handle === undefined) return;
     await this.announceWillClose({ sessionId, handle, reason });
@@ -545,9 +545,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
       await this.environments.drainSession(sessionId);
       await drainLogCloses();
       this._onDidArchiveSession.fire({ sessionId });
-      this.telemetry
-        .withContext({ session_id: sessionId })
-        .track2('session_ended', { reason: 'archive' });
+      this.telemetry.withContext({ session_id: sessionId }).track2('session_ended', { reason: 'archive' });
     } finally {
       lease.release();
     }
@@ -616,6 +614,22 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     ) {
       throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${sourceId} does not exist`);
     }
+    if (sourceHandle !== undefined) {
+      const sourceAgents = sourceHandle.accessor.get(IAgentLifecycleService);
+      for (const agent of sourceAgents.list()) {
+        const agentHandle = sourceAgents.handleOf(agent.agentId);
+        if (agentHandle === undefined) continue;
+        if (agentHandle.accessor.get(IAgentLoopService).snapshot().state === 'running') {
+          throw new Error2(
+            ErrorCodes.SESSION_FORK_ACTIVE_TURN,
+            `Session "${sourceId}" cannot be forked while a turn is running`,
+            { details: { sessionId: sourceId } },
+          );
+        }
+        await agentHandle.accessor.get(IEventDispatcher).flush();
+      }
+      await this.appendLogStore.flush();
+    }
     assertForkTurnIndex(opts.turnIndex);
 
     let targetId: string | undefined;
@@ -660,10 +674,6 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
           }
           if (activeTurnId !== undefined) activeTurnIds.set(agentHandle.id, activeTurnId);
         }
-        for (const agentHandle of sourceAgentHandles) {
-          await agentHandle.accessor.get(IEventDispatcher).flush();
-        }
-        await this.appendLogStore.flush();
       }
       await drainSessionMetadataWrites();
       if (sourceHandle !== undefined) {
@@ -681,7 +691,10 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
 
       targetId = opts.newSessionId ?? createSessionId();
       if (this.sessions.has(targetId) || (await this.index.get(targetId)) !== undefined) {
-        throw new Error2(ErrorCodes.SESSION_ALREADY_EXISTS, `Session "${targetId}" already exists`);
+        throw new Error2(
+          ErrorCodes.SESSION_ALREADY_EXISTS,
+          `Session "${targetId}" already exists`,
+        );
       }
 
       const runningFork = historySnapshotAgentIds.size > 0;
@@ -792,8 +805,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
         environmentCwd: sourceMeta?.environmentCwd,
         custom: forkCustomMetadata(sourceMeta?.custom, opts.metadata),
         lastPrompt: turnSlice === undefined ? sourceMeta?.lastPrompt : turnSlice.lastPrompt,
-        lastTurnReason:
-          turnSlice === undefined ? sourceMeta?.lastTurnReason : turnSlice.lastTurnReason,
+        lastTurnReason: sourceMeta?.lastTurnReason,
       };
       await this.docs.set(
         sessionScopeOf(this.handlerScope, targetId),
@@ -917,7 +929,9 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     agentId: string,
   ): Promise<WireRecord[]> {
     if (sourceHandle !== undefined) {
-      const agentHandle = sourceHandle.accessor.get(IAgentLifecycleService).handleOf(agentId);
+      const agentHandle = sourceHandle.accessor
+        .get(IAgentLifecycleService)
+        .handleOf(agentId);
       if (agentHandle !== undefined) {
         await agentHandle.accessor.get(IEventDispatcher).flush();
       }

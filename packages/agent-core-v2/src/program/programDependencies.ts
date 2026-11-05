@@ -24,6 +24,10 @@ import type { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
 import type { IWorkspaceInstructionsService } from '#/workspace/workspaceInstructions/workspaceInstructions';import type { IWorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcp';
 import type { IWorkspaceTrustStore } from '#/workspace/workspaceTrust/workspaceTrustStore';
 import type { ProgramWorkdir } from './programWorkdirs';
+import { McpOAuthService } from '#/mcpCore/oauth/service';
+import { IBuiltinSkillSource } from '#/features/skill/catalog/builtinSkillSource';
+import { IUserFileSkillSource } from '#/features/skill/catalog/userFileSkillSource';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 
 export interface ProgramSessionControllerInput {
   readonly context: IWorkspaceContext;

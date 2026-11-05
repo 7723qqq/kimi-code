@@ -31,7 +31,6 @@ import {
 } from '#/agent/loop/configSection';
 import { IMAGE_SECTION, type ImageConfig } from '#/agent/media/configSection';
 import { DEFAULT_PERMISSION_MODE_SECTION } from '#/agent/permissionMode/configSection';
-import { IAgentProfileService, type ResolvedAgentProfile } from '#/agent/profile/profile';
 import {
   BASH_TASK_TIMEOUT_S_ENV,
   KEEP_ALIVE_ON_EXIT_ENV,
@@ -50,7 +49,6 @@ import {
   type TokenCountingConfig,
 } from '#/agent/tokenCounting/configSection';
 import { READ_SECTION } from '#/agent/tools/os/read/configSection';
-import { normalizeAgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import { IOAuthService } from '#/app/auth/auth';
 import {
   SERVICES_SECTION,
@@ -90,7 +88,6 @@ import {
   McpSectionSchema,
   type McpSection,
 } from '#/app/mcpConfig/configSection';
-import { ILogService } from '#/_base/log/log';
 import { IHostClock } from '#/os/interface/hostClock';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { TomlAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
@@ -111,13 +108,25 @@ import {
   type SubagentConfig,
   wrapSubagentModelError,
 } from '#/session/subagent/configSection';
-import { WIRE_PROTOCOL_VERSION } from '#/wire/migration/migration';
 import type { ToolCall } from '#human/llm/message';
 
 import { stubLog } from '../../_base/log/stubs';
 import { createTestAgent, type TestAgentContext } from '../../harness';
 import { DEFAULT_TEST_SYSTEM_PROMPT, renderSnapshot } from '../../harness/snapshots';
 import { stubBootstrap } from '../bootstrap/stubs';
+import { CronConfig } from '#/features/cron/configSection';
+import { mock } from 'bun:test';
+import { BUILTIN_PRODUCT_SKILLS_SECTION } from '#/features/skill/catalog/configSection';
+import { ThinkingConfig } from '#/llm-adapter/model/thinking';
+import { EXTRA_SKILL_DIRS_SECTION } from '#/features/skill/catalog/configSection';
+import { MERGE_ALL_AVAILABLE_SKILLS_SECTION } from '#/features/skill/catalog/configSection';
+import { resolveSwarmTimeoutMs } from '#/features/swarm/configSection';
+import { SWARM_TIMEOUT_ENV } from '#/features/swarm/configSection';
+import { SWARM_SECTION } from '#/features/swarm/configSection';
+import { SwarmConfig } from '#/features/swarm/configSection';
+import { spyOn } from 'bun:test';
+import { CRON_SECTION } from '#/features/cron/configSection';
+import { DEFAULT_CRON_CONFIG } from '#/features/cron/configSection';
 
 const TEST_OS_ENV = {
   osKind: 'Linux',

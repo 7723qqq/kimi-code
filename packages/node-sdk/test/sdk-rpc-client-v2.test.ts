@@ -76,8 +76,6 @@ import {
   resetModelsDevUpstreamForTest,
   setModelsDevUpstreamForTest,
 } from '@moonshot-ai/agent-core-v2/app/kosongConfig/modelsDevUpstream';
-import { TowerStore } from '@moonshot-ai/agent-core-v2/features/tower/protocol/store';
-import { McpOAuthService as McpOAuthServiceV2 } from '@moonshot-ai/agent-core-v2/mcpCore/oauth/service';
 import {
   FileTokenStorage,
   resolveKimiCodeOAuthRef,
@@ -104,7 +102,6 @@ import { foldAgentWireReplay } from '#/v2/resume-replay';
 import { setEnv, restoreEnvs, setGlobal, restoreGlobals } from './helpers/stubs';
 import { waitForAssertion, waitUntil } from './helpers/waitFor';
 import { recordingTelemetry, type TelemetryRecord } from './telemetry';
-import { TEST_IDENTITY } from './test-identity';
 import { APIProviderRateLimitError, APIStatusError } from '@moonshot-ai/kosong';
 
 function rejectingHostEnvironment(): IHostEnvironment {

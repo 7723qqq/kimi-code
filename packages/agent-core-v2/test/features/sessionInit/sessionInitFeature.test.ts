@@ -11,14 +11,9 @@ import { IFeatureAssemblyService } from '#/features/featureAssembly';
 import { FeatureAssemblyService } from '#/features/featureAssemblyService';
 import { _clearFeatureRecipesForTests, registerFeature } from '#/features/featureRegistry';
 import { ISessionInitService } from '#/features/sessionInit/sessionInit';
-import { IFeatureAssemblyService } from '#/features/featureAssembly';
-import { FeatureAssemblyService } from '#/features/featureAssemblyService';
-import {
-  _clearFeatureRecipesForTests,
-  registerFeature,
-} from '#/features/featureRegistry';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
+import { SessionInitFeature } from '#/features/sessionInit/sessionInitFeature';
 
 describe('SessionInitFeature', () => {
   beforeEach(() => {

@@ -39,7 +39,6 @@ import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IExternalHooksRunnerService } from '#/features/externalHooks/app/externalHooksRunner';
 import { ExternalHooksRunnerService } from '#/features/externalHooks/app/externalHooksRunnerService';
 import { makeHookRunner } from './runner-stub';
-import type { AgentTaskInfo } from '#/agent/task/task';
 import type { FullCompactionTask } from '#/agent/fullCompaction/fullCompaction';
 import type { CompactionResult } from '#/agent/fullCompaction/types';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
@@ -51,8 +50,6 @@ import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentExternalHooksService } from '#/features/externalHooks/agent/agentExternalHooks';
 import { AgentExternalHooksService } from '#/features/externalHooks/agent/agentExternalHooksService';
-import { IExternalHooksRunnerService } from '#/features/externalHooks/app/externalHooksRunner';
-import { ExternalHooksRunnerService } from '#/features/externalHooks/app/externalHooksRunnerService';
 import {
   HookDefSchema,
   HOOKS_SECTION,
@@ -86,10 +83,8 @@ import { emptyUsage } from '#human/llm/usage';
 import { stubBootstrap } from '../../app/bootstrap/stubs';
 import { registerLogServices } from '../../_base/log/stubs';
 import { stubLoopWithHooks, stubToolExecutor } from '../../agent/loop/stubs';
-import { stubBootstrap } from '../../app/bootstrap/stubs';
 import { registerStateServices } from '../../state/stubs';
 import { registerTestAgentWireServices } from '../../wire/stubs';
-import { makeHookRunner } from './runner-stub';
 
 const HOOK_BIN = process.execPath;
 const quotedPath = (value: string): string => (/\s/.test(value) ? `"${value}"` : value);

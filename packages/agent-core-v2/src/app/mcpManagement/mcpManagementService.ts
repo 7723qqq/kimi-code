@@ -27,16 +27,6 @@ import {
   type McpOAuthTokenState,
 } from '#/mcpCore/oauth/service';
 import { canonicalMcpOAuthResource } from '#/mcpCore/oauth/store';
-import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
-import { IConfigService } from '#/app/config/config';
-import { MCP_SECTION, type McpSection } from '#/app/mcpConfig/configSection';
-import { IMcpConfigStore, normalizeServerName } from '#/app/mcpConfig/configStore';
-import { IMcpOAuthService } from '#/app/mcpConfig/oauthService';
-import {
-  IMcpRegistryService,
-  type McpRegistryEntry,
-  type McpRegistryQuery,
-} from '#/app/mcpRegistry/mcpRegistry';
 import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment/environment';
 
 import {
@@ -54,6 +44,7 @@ import {
   type McpServerTestResult,
   type McpServerTestTarget,
 } from './mcpManagement';
+import { IHostTimerHandle } from '#/os/interface/hostTimers';
 
 const DEFAULT_AUTH_TIMEOUT_MS = 15 * 60_000;
 const AUTH_FLOW_IDLE_TIMEOUT_MS = 15 * 60_000;

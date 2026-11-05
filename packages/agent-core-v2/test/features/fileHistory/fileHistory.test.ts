@@ -36,21 +36,17 @@ import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { HostFsError } from '#/os/interface/hostFsErrors';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
-import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 import { BlobStoreService } from '#/persistence/backends/node-fs/blobStoreService';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IBlobStore } from '#/persistence/interface/blobStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import type { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import type { ISessionContext } from '#/session/sessionContext/sessionContext';
 import type { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { resolveWorkspacePath } from '#/session/workspaceContext/workspacePaths';
 import { IEventDispatcher } from '#/state/eventDispatcher';
-import type { FoldContext } from '#/state/state';
 import type { RunnableToolExecution } from '#/tool/toolContract';
-import type { ToolCall } from '#human/llm/message';
 
 import {
   stubToolExecutorEvents,
@@ -63,6 +59,7 @@ import {
   registerTestEventDispatcher,
   testWireScope,
 } from '../../wire/stubs';
+import { countLineDiff } from '#/features/fileHistory/fileHistoryService';
 
 const SCOPE = 'wire';
 const KEY = 'file-history-test';

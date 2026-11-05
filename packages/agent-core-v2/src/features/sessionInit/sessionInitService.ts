@@ -10,13 +10,11 @@ import { EnvironmentError } from '#/environment/environmentRegistry';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { ErrorCodes, Error2 } from '#/errors';
-import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
-import { IEventDispatcher } from '#/state/eventDispatcher';
 
 import { DEFAULT_INIT_PROMPT, initCompletionReminder } from './profile/init';
 import { ISessionInitService } from './sessionInit';

@@ -43,6 +43,8 @@ import {
   fileHistoryKey,
 } from './fileHistoryOps';
 import { touchFileHistorySession } from './fileHistoryRetention';
+import { TurnStarted } from '#/agent/loop/turnEvents';
+import { TurnEnded } from '#/agent/loop/turnOps';
 
 export const FILE_HISTORY_MAX_FILE_BYTES = 4 * 1024 * 1024;
 

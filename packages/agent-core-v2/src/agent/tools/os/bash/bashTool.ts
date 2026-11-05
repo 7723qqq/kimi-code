@@ -14,8 +14,6 @@ import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { acquireOrWhenReady, pinnedGeneration, IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { EnvironmentWorkspaceView } from '#/environment/environmentWorkspaceView';
-import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
-import { getShellPathBridge } from '#/_base/execEnv/shellPathBridge';
 import {
   DEFAULT_TOOL_RESULT_MAX_CHARS,
   ToolSideEffects,
@@ -34,6 +32,10 @@ import {
 import { type BashInput, BashInputSchema, DEFAULT_BACKGROUND_TIMEOUT_S, IBashTool } from './bash';
 import bashDescriptionTemplate from './bash.md?raw';
 import { ProcessTask } from './process-task';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import { literalRulePattern } from '#/tool/rule-match';
+import { matchesGlobRuleSubject } from '#/tool/rule-match';
+import { ToolOutputAccumulator } from '#/tool/output-accumulator';
 
 const BACKGROUND_GUIDANCE =
   'For long-running builds, tests, watchers, or servers that the conversation should not wait on, set `run_in_background=true` with a short `description`; the call returns a task ID. Set `disable_timeout=true` only when the task should run without a timeout. You are notified automatically when the task completes, so return control to the user instead of waiting on it. Use `TaskOutput` only for a non-blocking snapshot, and `TaskStop` only to cancel.';

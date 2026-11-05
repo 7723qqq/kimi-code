@@ -21,14 +21,14 @@ import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { Environment } from '#/environment/environment';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { PathSecurityError } from '#/tool/path-access';
 import type {
   ExecutableToolContext,
   ExecutableToolResult,
   ToolExecution,
 } from '#/tool/toolContract';
+import { HostFsError } from '#/os/interface/hostFsErrors';
+import { OsFsErrors } from '#/os/interface/hostFsErrors';
 
-import { stubWorkspaceContext } from '../../../session/workspaceContext/stub-workspace-context';
 
 const signal = new AbortController().signal;
 const PERMISSIVE_WORKSPACE = stubWorkspaceContext('/');

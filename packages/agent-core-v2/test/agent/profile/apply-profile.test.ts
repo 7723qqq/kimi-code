@@ -20,7 +20,6 @@ import {
   PLUGIN_SKILL_SOURCE_ID,
 } from '#/features/skill/catalog/skillSource';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
-import { DEFAULT_PRODUCT_NAME } from '#/app/agentProfileCatalog/profile-shared';
 import { IWorkspaceInstanceManager } from '#/workspace/workspaceInstance/workspaceInstanceManager';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 
@@ -36,6 +35,11 @@ import {
   type TestAgentOptions,
   type TestAgentServiceOverride,
 } from '../../harness';
+import { ResolvedAgentProfile } from '#/agent/profile/profile';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { HostFileSystem } from '#/os/backends/host/hostFsService';
+import { SkillCatalog } from '#/features/skill/catalog/types';
+import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 
 const profile: ResolvedAgentProfile = normalizeAgentProfile({
   name: 'agents-profile',

@@ -13,25 +13,20 @@ import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IEventBus } from '#/app/event/eventBus';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IHostFileSystem, type HostFileStat } from '#/os/interface/hostFileSystem';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminder';
 import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import type { Environment } from '#/environment/environment';
 import { stubAgentEnvironment } from '../../environment/stubs';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { ErrorCodes, Error2 } from '#/errors';
-import type { AgentContext } from '#/agent/agentContext/agentContext';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionInitService } from '#/features/sessionInit/sessionInit';
 import { SessionInitService } from '#/features/sessionInit/sessionInitService';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
-import { IEventDispatcher } from '#/state/eventDispatcher';
 import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { stubAgentContext } from '../../agent/agentContext/stubs';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 
 const WORK_DIR = '/project';
 const AGENTS_MD = 'latest project instructions';

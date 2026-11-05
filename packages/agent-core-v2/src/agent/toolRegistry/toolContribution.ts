@@ -7,6 +7,7 @@ import type {
   ToolSource,
 } from '#/tool/toolContract';
 import type { EnvironmentCapability } from '#/environment/environment';
+import { LifecycleScope } from '#/app/scopes';
 
 export type AnyAgentTool = AgentTool<any>;
 

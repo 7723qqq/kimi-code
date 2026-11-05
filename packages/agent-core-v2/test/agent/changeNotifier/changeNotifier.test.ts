@@ -20,16 +20,11 @@ import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
 import type { AgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { IConfigService } from '#/app/config/config';
 import { event2FromRecord } from '#/app/event/event2';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
 import type { SkillCatalog } from '#/features/skill/catalog/types';
 import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
-import { OrderedHookSlot } from '#/hooks';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
-import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { RuntimeLease } from '#/runtime/runtime';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
@@ -38,13 +33,18 @@ import { ISessionInstructionsProvider } from '#/session/sessionInstructions/inst
 import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
 import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
 import type { SecondaryModelConfig } from '#/session/subagent/configSection';
-import { IEventDispatcher } from '#/state/eventDispatcher';
 import type { WatchChange } from '#human/utils/watch';
 import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
 
 import { registerLogServices } from '../../_base/log/stubs';
 import { createReminderStub } from '../../features/reminder/stubs';
 import { stubAgentContext } from '../agentContext/stubs';
+import { IAgentChangeNotifierService } from '#/agent/changeNotifier/changeNotifier';
+import { ProfileData } from '#/agent/profile/profile';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { ChangeNotifierSnapshotEvent } from '#/agent/changeNotifier/changeNotifierOps';
+import { changeNotifierSnapshotKey } from '#/agent/changeNotifier/changeNotifierOps';
+import { AgentChangeNotifierService } from '#/agent/changeNotifier/changeNotifierService';
 
 let disposables: DisposableStore;
 let homeDir: string;

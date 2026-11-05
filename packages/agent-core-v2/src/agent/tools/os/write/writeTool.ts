@@ -6,7 +6,6 @@ import { acquireOrWhenReady, IAgentEnvironmentService, pinnedGeneration } from '
 import { IAgentPlanService } from '#/features/plan/plan';
 import { EnvironmentWorkspaceView } from '#/environment/environmentWorkspaceView';
 import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
-import type { HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
@@ -27,6 +26,7 @@ import {
 
 import { IWriteTool, WriteInputSchema, type WriteInput } from './write';
 import WRITE_DESCRIPTION from './write.md?raw';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 
 export class WriteTool implements IWriteTool {
   declare readonly _serviceBrand: undefined;

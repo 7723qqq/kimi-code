@@ -24,7 +24,6 @@ import {
 } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authedFetch } from './helpers/auth';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { removeTempHome } from './helpers/tempHome';
 
 describe('server-v2 boot', () => {

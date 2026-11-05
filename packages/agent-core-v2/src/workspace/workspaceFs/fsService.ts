@@ -33,6 +33,7 @@ import {
   type FsSuggestRequest,
   type FsSuggestResponse,
 } from './fs';
+import { EnvironmentError } from '#/environment/environmentRegistry';
 
 const FsWireErrorCode = {
   VALIDATION_FAILED: 40001,

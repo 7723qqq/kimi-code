@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Emitter, Event } from '#/_base/event';
 import type { ISessionScopeHandle } from '#/_base/di/scope';
 import type { ServicesAccessor } from '#/_base/di/instantiation';
-import type { ISessionScopeHandle } from '#/_base/di/scope';
 import { Error2 } from '#/_base/errors/errors';
 import type { ILogService } from '#/_base/log/log';
 import type { IConfigService } from '#/app/config/config';
@@ -12,7 +11,6 @@ import { EnvironmentDeclarationService } from '#/app/environmentDeclaration/envi
 import type { ISessionIndex } from '#/app/sessionIndex/sessionIndex';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { reloadOnStale } from '#/app/sessionManager/sessionLookup';
-import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { SessionManager } from '#/app/sessionManager/sessionManagerService';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import { EnvironmentRegistry } from '#/environment/environmentRegistry';

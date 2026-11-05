@@ -131,13 +131,6 @@ import {
   writeExperimentalVersion,
   writeResumeHint,
 } from '../prompt-render';
-import {
-  type PromptRunIO,
-  configuredModel,
-  installPromptTerminationCleanup,
-  raceWithTimeout,
-  requireConfiguredModel,
-} from '../run-prompt';
 import { createKimiCodeHostIdentity } from '../version';
 
 const PROMPT_UI_MODE = 'print';
