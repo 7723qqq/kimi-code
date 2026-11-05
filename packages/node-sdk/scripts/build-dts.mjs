@@ -127,7 +127,7 @@ async function rewriteWorkspaceSpecifiers() {
           `import { GoogleGenAI as GenAIClient } from '${providerClientSpecifier}';`,
         );
       const updated = providerClientText.replaceAll(
-        /(["'])(#(?:human)?\/[^"']+|@moonshot-ai\/(?:agent-core-v2|kimi-code-oauth|klient|kosong)(?:\/[^"']+)?)\1/g,
+        workspaceSpecifierRe,
         (_match, quote, specifier) => {
           const resolved = resolveSpecifier({
             currentFile: file,

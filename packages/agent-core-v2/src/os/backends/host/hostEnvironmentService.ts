@@ -1,10 +1,9 @@
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';import { BugIndicatingError } from '#/_base/errors/errors';
+import {  } from '#/_base/di/scope';import { BugIndicatingError } from '#/_base/errors/errors';
 import {
   probeHostEnvironmentFromNode,
   ProbeShellNotFoundError,
 } from '#/_base/execEnv/environmentProbe';
 import { applyLoginShellPathFromNode } from '#/_base/execEnv/loginShellPath';
-import { LifecycleScope } from '#/app/scopes';
 import {
   type HostEnvironmentInfo,
   IHostEnvironment,

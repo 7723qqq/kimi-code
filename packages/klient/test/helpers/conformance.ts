@@ -20,8 +20,8 @@ import {
 } from '@moonshot-ai/agent-core-v2/app/kosongConfig/modelsDevUpstream';
 import { getLiveSessionById } from '@moonshot-ai/agent-core-v2/app/sessionManager/sessionLookup';
 import { IAgentLifecycleService } from '@moonshot-ai/agent-core-v2/session/agentLifecycle/agentLifecycle';
-import { IEventBus } from '@moonshot-ai/agent-core-v2/app/event/eventBus';
-import { ToolResultEvent } from '@moonshot-ai/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
+import { IEventBus } from '@moonshot-ai/agent-core-v2';
+import { ToolResultEvent } from '@moonshot-ai/agent-core-v2';
 import { IWireService } from '@moonshot-ai/agent-core-v2/wire/wire';
 
 import type { Klient } from '../../src/index.js';

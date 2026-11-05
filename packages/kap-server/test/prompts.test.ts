@@ -29,8 +29,8 @@ import {
   closeSessionById,
   getLiveSessionById,
 } from '@moonshot-ai/agent-core-v2';
-import { HostFileSystem } from '@moonshot-ai/agent-core-v2/os/backends/host/hostFsService';
-import { HostProcessService } from '@moonshot-ai/agent-core-v2/os/backends/host/hostProcessService';
+import { HostFileSystem } from '@moonshot-ai/agent-core-v2';
+import { HostProcessService } from '@moonshot-ai/agent-core-v2';
 import { FakeEnvironment } from '@moonshot-ai/agent-core-v2/environment/fakeEnvironment';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 

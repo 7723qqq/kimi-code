@@ -20,20 +20,7 @@ import type { IAgentSkillService } from '@moonshot-ai/agent-core-v2/features/ski
 import type { IAgentTaskService } from '@moonshot-ai/agent-core-v2/agent/task/task';
 import type { IAgentContextMemoryService } from '@moonshot-ai/agent-core-v2/agent/contextMemory/contextMemory';
 import type { ISessionUsageService } from '@moonshot-ai/agent-core-v2/session/usage/sessionUsage';
-import {
-  type ContentPart,
-} from '@moonshot-ai/agent-core-v2/human/llm/message';
-import {
-  fromLlmMessage,
-  type Message as LegacyMessage,
-} from '@moonshot-ai/agent-core-v2/llm-adapter/contract/message';
-import type {
-  ContextMessage as CoreContextMessage,
-  ContextMessageTiming,
-  PromptOrigin,
-} from '@moonshot-ai/agent-core-v2/agent/contextMemory/types';
-import type { ToolInputDisplay } from '@moonshot-ai/agent-core-v2/tool/toolInputDisplay';
-import type { TokenUsage } from '@moonshot-ai/agent-core-v2/human/llm/usage';
+import type { ContentPart } from '@moonshot-ai/agent-core-v2';
 import type { PermissionMode } from '@moonshot-ai/agent-core-v2/agent/permissionPolicy/types';
 
 import type { ScopeRef } from '../channel.js';

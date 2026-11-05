@@ -1,6 +1,5 @@
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { LifecycleScope } from '#/app/scopes';
-import { resolveProgramPath } from '#/environment/programPath';
 import { ErrorCodes, Error2 } from '#/errors';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { LOCAL_ENVIRONMENT_ID } from '#/environment/environment';
@@ -270,13 +269,6 @@ interface RunOptions {
   readonly env?: Record<string, string>;
 }
 
-function localProgramPath(cmd: string, cwd: string): string | undefined {
-  try {
-    return resolveProgramPath(cmd, { cwd });
-  } catch {
-    return undefined;
-  }
-}
 
 async function collect(stream: AsyncIterable<Uint8Array | string>): Promise<string> {
   const decoder = new TextDecoder();

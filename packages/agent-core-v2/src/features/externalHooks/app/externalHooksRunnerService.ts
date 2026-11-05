@@ -135,6 +135,7 @@ export class ExternalHooksRunnerService extends Disposable implements IExternalH
           this.reportFailure(failedEvent, hook, message, args.sessionId);
         },
       },
+      failClosed,
     );
     if (results.length > 0) {
       this.telemetry.track2('external_hook_resolved', {

@@ -79,17 +79,6 @@ export async function handleFeedbackCommand(host: SlashCommandHost): Promise<voi
   }
 
   // Stage 2: ask whether to attach diagnostics (logs / codebase).
-  // The codebase scanner reads the local filesystem, so a remote-bound
-  // session cannot package its codebase — drop the option with a hint
-  // instead of scanning the wrong machine.
-  const remoteSession =
-    host.state.appState.environment !== undefined &&
-    host.state.appState.environment.environmentId !== 'local';
-  if (remoteSession) {
-    host.showStatus(
-      'Codebase attachment is not supported for remote sessions — the scanner only reads the local filesystem.',
-    );
-  }
   const level = await promptFeedbackAttachment(host);
   if (level === undefined) {
     host.showStatus(getFeedbackStatusCancelled());

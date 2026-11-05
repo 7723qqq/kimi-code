@@ -1,6 +1,5 @@
 import { dirname } from 'pathe';
 
-import { unwrapErrorCause } from '#/_base/errors/errors';
 import {
   acquireOrWhenReady,
   IAgentEnvironmentService,

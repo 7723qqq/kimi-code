@@ -99,17 +99,17 @@ export function validateOptions(
     throw new OptionConflictError(t('cli.errors.agentEmpty'));
   }
   if (opts.environment !== undefined && opts.environment.trim().length === 0) {
-    throw new OptionConflictError('Environment cannot be empty.');
+    throw new OptionConflictError(t('cli.errors.environmentEmpty'));
   }
   if (opts.environmentCwd !== undefined && opts.environmentCwd.trim().length === 0) {
-    throw new OptionConflictError('Environment cwd cannot be empty.');
+    throw new OptionConflictError(t('cli.errors.environmentCwdEmpty'));
   }
   if (opts.environmentCwd !== undefined && opts.environment === undefined) {
-    throw new OptionConflictError('--environment-cwd requires --environment.');
+    throw new OptionConflictError(t('cli.errors.environmentCwdRequiresEnvironment'));
   }
   if (opts.environment !== undefined && (opts.session !== undefined || opts.continue)) {
     throw new OptionConflictError(
-      'Cannot combine --environment with --session/--continue: the environment is bound at session creation and the bound environment is restored automatically on resume.',
+      t('cli.errors.cannotCombineEnvironmentAndSession'),
     );
   }
   if (opts.agentFiles.length > 1) {

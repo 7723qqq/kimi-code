@@ -40,11 +40,6 @@ const SOURCES = [
   // walk, so a `t('key')` there could name a key neither tree defines and
   // nothing reported it. They are scanned against their own `en` tree.
   {
-    name: 'kimi-inspect',
-    localeFile: 'apps/kimi-inspect/src/i18n/locales/en.ts',
-    sourceDirs: ['apps/kimi-inspect/src'],
-  },
-  {
     name: 'vis-web',
     localeFile: 'apps/vis/web/src/i18n/locales/en.ts',
     sourceDirs: ['apps/vis/web/src'],

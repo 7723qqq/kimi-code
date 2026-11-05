@@ -288,6 +288,7 @@ export default {
     osFsIsDirectory: '路径是目录',
     osFsNotDirectory: '路径不是目录',
     osFsAlreadyExists: '路径已存在',
+    osFsDirectoryTooLarge: '目录条目过多，无法一次返回',
     osFsPermissionDenied: '权限被拒绝',
     osFsPermissionDeniedAction: '请检查目标路径的文件权限。',
     osFsNotEmpty: '目录不为空',
@@ -567,6 +568,11 @@ export default {
       cannotCombineAgentAndAgentFile: '--agent 不能与 --agent-file 同时使用。',
       cannotCombineAgentAndSession:
         '--agent/--agent-file 不能与 --session/--continue 同时使用：智能体在创建会话时绑定，恢复会话时会自动还原所绑定的智能体。',
+      environmentEmpty: '环境不能为空。',
+      environmentCwdEmpty: '环境工作目录不能为空。',
+      environmentCwdRequiresEnvironment: '--environment-cwd 需要同时指定 --environment。',
+      cannotCombineEnvironmentAndSession:
+        '--environment 不能与 --session/--continue 同时使用：环境在创建会话时绑定，恢复会话时会自动还原所绑定的环境。',
     },
   },
   startup: {

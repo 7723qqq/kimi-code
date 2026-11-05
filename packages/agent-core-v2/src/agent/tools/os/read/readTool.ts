@@ -379,7 +379,7 @@ export class ReadTool implements IReadTool {
         if (planFile && (await this.planService?.resolveFile(path, 'read'))?.path !== path) {
           return { isError: true, output: 'The active plan changed before execution. Retry the tool call.' };
         }
-        return await withFileMemory(
+        return withFileMemory(
           { ...await this.execution(environmentFileSource(target.fs, path), args, undefined, false), spillExempt: true as const },
           args.path,
           this.gitMemory,

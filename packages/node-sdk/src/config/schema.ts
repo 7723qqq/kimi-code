@@ -11,7 +11,7 @@
  * permission-rule matcher.
  */
 import { parsePattern } from '@moonshot-ai/agent-core-v2/agent/permissionRules/matchesRule';
-import { EnvironmentsSectionSchema } from '@moonshot-ai/agent-core-v2/remote/declaration/remoteEnvironmentDeclaration';
+import { EnvironmentsSectionSchema } from '@moonshot-ai/agent-core-v2';
 import { z } from 'zod';
 
 const HOOK_EVENT_TYPES = [

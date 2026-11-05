@@ -25,7 +25,6 @@ import {
 } from '#/tui/utils/mouse';
 import { printableChar } from '#/tui/utils/printable-key';
 import { SearchableList } from '#/tui/utils/searchable-list';
-import { SpinnerTicker } from '#/tui/utils/spinner-ticker';
 
 export interface SessionRow {
   readonly id: string;
@@ -96,7 +95,6 @@ export class SessionPickerComponent extends Container implements Focusable {
   private onSelect: (session: SessionRow) => void | Promise<void>;
   private onCancel: () => void;
   private onToggleScope?: (selectedSessionId: string) => void;
-  private requestRender?: () => void;
   private maxVisibleSessions: number;
   private pageSize: number;
   private visibleCount: number;
@@ -108,10 +106,6 @@ export class SessionPickerComponent extends Container implements Focusable {
   private readonly mouse: ListMouseRouter<SessionRow>;
   private deleteState?: { session: SessionRow; phase: 'confirm' | 'deleting' };
   private selectInFlight = false;
-  private readonly spinner = new SpinnerTicker(() => {
-    this.invalidate();
-    this.requestRender?.();
-  });
 
   focused = false;
 
@@ -127,7 +121,6 @@ export class SessionPickerComponent extends Container implements Focusable {
     onCtrlC?: () => void;
     onCtrlD?: () => void;
     onToggleScope?: (selectedSessionId: string) => void;
-    requestRender?: () => void;
     maxVisibleSessions?: number;
     /** More pages exist on the backend (keyset paging). */
     hasMore?: boolean;
@@ -151,7 +144,6 @@ export class SessionPickerComponent extends Container implements Focusable {
     this.onSelect = opts.onSelect;
     this.onCancel = opts.onCancel;
     this.onToggleScope = opts.onToggleScope;
-    this.requestRender = opts.requestRender;
     this.maxVisibleSessions = opts.maxVisibleSessions ?? 4;
     this.pageSize = Math.max(1, opts.pageSize ?? 50);
     this.hasMore = opts.hasMore ?? false;
@@ -284,22 +276,7 @@ export class SessionPickerComponent extends Container implements Focusable {
     }
     if (matchesKey(data, Key.enter)) {
       const session = this.list.selected();
-      if (session) {
-        const selection = this.onSelect(session);
-        if (selection !== undefined) {
-          this.selectInFlight = true;
-          this.spinner.start();
-          this.invalidate();
-          this.requestRender?.();
-          const clear = (): void => {
-            this.selectInFlight = false;
-            this.spinner.stop();
-            this.invalidate();
-            this.requestRender?.();
-          };
-          void selection.then(clear, clear);
-        }
-      }
+      if (session) this.selectSession(session);
       return;
     }
 
@@ -380,10 +357,6 @@ export class SessionPickerComponent extends Container implements Focusable {
     return truncateToWidth(styled, width, ELLIPSIS);
   }
 
-  dispose(): void {
-    this.spinner.dispose();
-  }
-
   override render(width: number): string[] {
     return this.renderLines(width).map((line) => truncateToWidth(line, width, ELLIPSIS));
   }
@@ -454,9 +427,6 @@ export class SessionPickerComponent extends Container implements Focusable {
 
     lines.push(currentTheme.boldFg('primary', title) + titleSuffix);
     lines.push(currentTheme.fg('textMuted', hintParts.join(' · ')));
-    if (this.selectInFlight) {
-      lines.push(currentTheme.fg('textMuted', `${this.spinner.current} Resuming session…`));
-    }
     lines.push('');
 
     if (view.query.length > 0) {

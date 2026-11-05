@@ -298,6 +298,7 @@ export default {
     osFsIsDirectory: 'Path is a directory',
     osFsNotDirectory: 'Path is not a directory',
     osFsAlreadyExists: 'Path already exists',
+    osFsDirectoryTooLarge: 'Directory has too many entries to list in one response',
     osFsPermissionDenied: 'Permission denied',
     osFsPermissionDeniedAction: 'Check the file permissions of the target path.',
     osFsNotEmpty: 'Directory not empty',
@@ -588,6 +589,11 @@ export default {
       cannotCombineAgentAndAgentFile: 'Cannot combine --agent with --agent-file.',
       cannotCombineAgentAndSession:
         'Cannot combine --agent/--agent-file with --session/--continue: the agent is bound at session creation and the bound agent is restored automatically on resume.',
+      environmentEmpty: 'Environment cannot be empty.',
+      environmentCwdEmpty: 'Environment cwd cannot be empty.',
+      environmentCwdRequiresEnvironment: '--environment-cwd requires --environment.',
+      cannotCombineEnvironmentAndSession:
+        'Cannot combine --environment with --session/--continue: the environment is bound at session creation and the bound environment is restored automatically on resume.',
     },
   },
   startup: {
@@ -1558,7 +1564,7 @@ export default {
         mcpEnable: 'Enter/Space enable',
         mcpDisable: 'Enter/Space disable',
         webBridgeDescription:
-          'Control your real browser from Kimi Code — navigate, click, type, and screenshot',
+          'Control your real browser from Kimi Code — navigate, click, and screenshot',
         statusEnabled: 'enabled',
         statusDisabled: 'disabled',
         panelTitle: 'Plugins',

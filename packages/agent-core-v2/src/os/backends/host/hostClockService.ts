@@ -1,5 +1,4 @@
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { LifecycleScope } from '#/app/scopes';import { IHostClock } from '#/os/interface/hostClock';
+import {  } from '#/app/scopes';import { IHostClock } from '#/os/interface/hostClock';
 
 export class HostClockService implements IHostClock {
   declare readonly _serviceBrand: undefined;

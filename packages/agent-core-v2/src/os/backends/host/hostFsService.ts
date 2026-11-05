@@ -14,8 +14,6 @@ import {
 } from 'node:fs/promises';
 import { decodeTextWithErrors, readUtf8Lines, type TextDecodeErrors } from '#/_base/execEnv/decodeText';
 
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { LifecycleScope } from '#/app/scopes';
 import {
   type HostDirEntry,
   type HostFileStat,

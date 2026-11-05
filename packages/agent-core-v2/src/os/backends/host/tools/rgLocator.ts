@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { createWriteStream, existsSync } from 'node:fs';
 import { chmod, copyFile, mkdir, mkdtemp, rename, rm, stat, readFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';

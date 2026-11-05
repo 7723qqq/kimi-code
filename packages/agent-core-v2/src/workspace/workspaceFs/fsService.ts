@@ -954,12 +954,6 @@ export class WorkspaceFsService implements IWorkspaceFsService {
       for (const root of roots) args.push(root.dir);
     }
 
-    const lease = this.resolver.acquire(
-      { environmentId: this.environmentId },
-      ['process'],
-    );
-    const proc = await lease.environment.process!.spawn(rgBinary, args, { cwd: this.workDir });
-
     const top = new SuggestTopHeap(cap);
     const seenDirs = new Set<string>();
     const seenPaths = new Set<string>();
@@ -1242,9 +1236,6 @@ export class WorkspaceFsService implements IWorkspaceFsService {
     args.push(req.pattern);
     const roots = await this.suggestRoots();
     args.push('.', ...roots.filter((root) => !root.primary).map((root) => root.dir));
-
-    const lease = this.resolver.acquire({ environmentId: this.environmentId }, ['process']);
-    const proc = await lease.environment.process!.spawn(rgPath, args, { cwd: this.workDir });
 
     const acc = new RgJsonAccumulator(req);
     await this.runRg(args, rgPath, signal, (line, kill) => {

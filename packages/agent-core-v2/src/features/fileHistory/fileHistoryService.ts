@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 
 import { Service } from '#/_base/di/service';
 import { onUnexpectedError } from '#/_base/errors/unexpectedError';
@@ -484,6 +483,23 @@ export class AgentFileHistoryService extends Service implements IAgentFileHistor
   }
 
   private async readCurrent(
+    pathKey: string,
+  ): Promise<
+    Uint8Array | 'missing' | 'unreadable' | { oversizeBytes: number; mtimeMs?: number }
+  > {
+    let result = await this.readCurrentOnce(pathKey);
+    for (
+      let attempt = 1;
+      attempt < FILE_HISTORY_READ_ATTEMPTS && result === 'unreadable';
+      attempt += 1
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      result = await this.readCurrentOnce(pathKey);
+    }
+    return result;
+  }
+
+  private async readCurrentOnce(
     pathKey: string,
   ): Promise<
     Uint8Array | 'missing' | 'unreadable' | { oversizeBytes: number; mtimeMs?: number }

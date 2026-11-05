@@ -60,11 +60,11 @@ import {
   OsProcessErrors,
 } from '@moonshot-ai/agent-core-v2';
 
-import { ISessionMediaStore } from '@moonshot-ai/agent-core-v2/agent/media/sessionMediaStore';
-import { ISessionAgentProfileCatalog } from '@moonshot-ai/agent-core-v2/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
+import { ISessionMediaStore } from '@moonshot-ai/agent-core-v2';
+import { ISessionAgentProfileCatalog } from '@moonshot-ai/agent-core-v2';
 import { attachmentFileSource } from '@moonshot-ai/agent-core-v2/agent/tools/fileReadSource';
-import { HostFileSystem } from '@moonshot-ai/agent-core-v2/os/backends/host/hostFsService';
-import { HostProcessService } from '@moonshot-ai/agent-core-v2/os/backends/host/hostProcessService';
+import { HostFileSystem } from '@moonshot-ai/agent-core-v2';
+import { HostProcessService } from '@moonshot-ai/agent-core-v2';
 import { FakeEnvironment } from '@moonshot-ai/agent-core-v2/environment/fakeEnvironment';
 import { RemoteEnvironmentProviderFactory } from '@moonshot-ai/agent-core-v2/remote';
 

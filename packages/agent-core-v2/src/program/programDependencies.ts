@@ -18,10 +18,10 @@ import type { IExplicitAgentProfileLoader } from '#/workspace/workspaceAgentProf
 import type { IExtraAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoader';
 import type { IPluginAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/pluginAgentProfileLoader';
 import type { IUserAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoader';
-import type { IWorkspaceAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/workspaceAgentProfileLoader';
+import type {  } from '#/workspace/workspaceAgentProfileLoader/workspaceAgentProfileLoader';
 import type { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
-import type { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
-import type { IWorkspaceInstructionsService } from '#/workspace/workspaceInstructions/workspaceInstructions';import type { IWorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcp';
+import type {  } from '#/workspace/workspaceDirs/workspaceDirs';
+import type {  } from '#/workspace/workspaceInstructions/workspaceInstructions';import type { IWorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcp';
 import type { IWorkspaceTrustStore } from '#/workspace/workspaceTrust/workspaceTrustStore';
 import type { ProgramWorkdir } from './programWorkdirs';
 import { McpOAuthService } from '#/mcpCore/oauth/service';

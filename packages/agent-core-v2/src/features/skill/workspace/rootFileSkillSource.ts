@@ -97,15 +97,17 @@ export class WorkspaceRootSkillSource extends Disposable implements IWorkspaceRo
     scannedDirectories: readonly string[],
   ): Promise<boolean> {
     if (!this.watchEnabled) return false;
-    const signature = [...scannedDirectories].toSorted().join('\0');
-    if (signature === this.watchSignature) return false;
-    const { projectRoot, candidates } = await projectSkillRootCandidates(this.workspace.cwd, this.fs);
-    const resources = this.watchResources.add(new DisposableStore());
     const watches = new Map<string, readonly string[]>();
     for (const workDir of this.workDirs) {
       const { projectRoot, candidates } = await projectSkillRootCandidates(workDir);
       if (!watches.has(projectRoot)) watches.set(projectRoot, candidates);
     }
+    const signature = JSON.stringify({
+      watches: [...watches],
+      scannedDirectories: [...scannedDirectories].toSorted(),
+    });
+    if (signature === this.watchSignature) return false;
+    const resources = this.watchResources.add(new DisposableStore());
     try {
       for (const [projectRoot, candidates] of watches) {
         const handle = watchCandidates(projectRoot, candidates, {

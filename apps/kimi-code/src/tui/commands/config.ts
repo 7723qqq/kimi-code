@@ -166,7 +166,7 @@ async function applyPlanMode(
       const plan = await session.getPlan().catch(() => null);
       host.showNotice(
         t('tui.statusMessages.planModeOn'),
-        plan?.path != null
+        plan?.path !== undefined && plan?.path !== null
           ? t('tui.messages.configPlanPath', { path: plan.path })
           : undefined,
       );

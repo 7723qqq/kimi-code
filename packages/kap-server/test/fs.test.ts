@@ -5,7 +5,7 @@ import { join, sep } from 'node:path';
 
 import { IModelCatalog, ISessionManager, IWorkspaceInstanceManager } from '@moonshot-ai/agent-core-v2';
 import { HostFileSystem } from '@moonshot-ai/agent-core-v2/os/backends/host/hostFsService';
-import { HostProcessService } from '@moonshot-ai/agent-core-v2/os/backends/host/hostProcessService';
+import { HostProcessService } from '@moonshot-ai/agent-core-v2';
 import { FakeEnvironment } from '@moonshot-ai/agent-core-v2/environment/fakeEnvironment';
 import type { EnvironmentCapability } from '@moonshot-ai/agent-core-v2/environment/environment';
 import { ErrorCode } from '../src/protocol/error-codes';

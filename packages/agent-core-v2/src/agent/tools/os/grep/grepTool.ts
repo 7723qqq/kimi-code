@@ -1,6 +1,5 @@
 import { normalize } from 'pathe';
 
-import { unwrapErrorCause } from '#/_base/errors/errors';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { IOAuthService } from '#/app/auth/auth';
 import { ITelemetryService } from '#/app/telemetry/telemetry';

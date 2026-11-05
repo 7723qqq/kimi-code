@@ -42,22 +42,11 @@
 # narrow import adds nothing to the CLI startup graph, while going through the
 # engine root would pull the whole graph into every CLI invocation.
 apps/kimi-code/src/cli/commands.ts features/codeRuntime/codeShimSource
-apps/kimi-code/src/main.ts features/codeRuntime/codeShimSource
-
-# packages/node-sdk/src/runtime.ts is the SDK's narrow runtime surface: it
-# re-exports exactly the three engine internals hosts need at launch
-# (home resolution, the __plugin_run_node subcommand name, proxy detection)
-# so that SDK consumers never import the engine root, whose module graph is
-# not loadable in every consumer (klient cannot load `?raw` assets). Same
-# deliberate shape as the constant/ startup entries above.
-packages/node-sdk/src/runtime.ts app/bootstrap/home
-packages/node-sdk/src/runtime.ts app/plugin/nodeFallback
-packages/node-sdk/src/runtime.ts _base/utils/proxyEnv
-
 apps/kimi-code/src/cli/v2/run-v2-print.ts app/mcpConfig/configLoader
 apps/kimi-code/src/cli/v2/validate-config.ts app/config/deprecations
 apps/kimi-code/src/cli/v2/validate-config.ts app/config/toml
 apps/kimi-code/src/constant/app.ts app/plugin/marketplace
+apps/kimi-code/src/main.ts features/codeRuntime/codeShimSource
 apps/kimi-code/src/utils/plugin-marketplace.ts app/plugin/marketplace
 apps/kimi-code/test/cli/v2-run-print.test.ts app/mcpConfig/configLoader
 apps/kimi-inspect/src/App.tsx app/sessionIndex/sessionIndex
@@ -123,10 +112,6 @@ packages/kap-server/src/openapi/transforms.ts workspace/workspaceFs/fs
 packages/kap-server/src/protocol/approval.ts _base/utils/isoDateTime
 packages/kap-server/src/protocol/events-zod.ts _base/utils/isoDateTime
 packages/kap-server/src/protocol/interaction.ts _base/utils/isoDateTime
-packages/kap-server/src/protocol/rest-snapshot.ts _base/utils/isoDateTime
-packages/kap-server/src/protocol/ws-task.ts _base/utils/isoDateTime
-packages/kap-server/src/protocol/ws-agent.ts _base/utils/isoDateTime
-packages/kap-server/src/transport/ws/v1/taskState.ts agent/task/types
 packages/kap-server/src/protocol/message.ts _base/utils/isoDateTime
 packages/kap-server/src/protocol/question.ts _base/utils/isoDateTime
 packages/kap-server/src/protocol/rest-connection.ts _base/utils/isoDateTime
@@ -136,14 +121,19 @@ packages/kap-server/src/protocol/rest-modelCatalog.ts llm-adapter/model/catalog
 packages/kap-server/src/protocol/rest-prompt.ts _base/utils/isoDateTime
 packages/kap-server/src/protocol/rest-prompt.ts app/sessionLegacy/sessionProtocol
 packages/kap-server/src/protocol/rest-session.ts app/sessionLegacy/sessionProtocol
+packages/kap-server/src/protocol/rest-snapshot.ts _base/utils/isoDateTime
 packages/kap-server/src/protocol/rest-terminal.ts os/interface/terminal
 packages/kap-server/src/protocol/session.ts _base/utils/isoDateTime
 packages/kap-server/src/protocol/session.ts app/sessionLegacy/sessionProtocol
 packages/kap-server/src/protocol/task.ts _base/utils/isoDateTime
 packages/kap-server/src/protocol/workspace.ts _base/utils/isoDateTime
+packages/kap-server/src/protocol/ws-agent.ts _base/utils/isoDateTime
 packages/kap-server/src/protocol/ws-control.ts _base/utils/isoDateTime
+packages/kap-server/src/protocol/ws-task.ts _base/utils/isoDateTime
 packages/kap-server/src/routes/auth.ts app/authLegacy/authLegacy
 packages/kap-server/src/routes/cron.ts features/cron/internal/cron-expr
+packages/kap-server/src/routes/environment.ts remote
+packages/kap-server/src/routes/fs.ts _base/event
 packages/kap-server/src/routes/fs.ts _base/utils/workdir-slug
 packages/kap-server/src/routes/fs.ts app/git/gitService
 packages/kap-server/src/routes/fs.ts runtime/runtimeRegistry
@@ -172,14 +162,21 @@ packages/kap-server/src/search/wireExtract.ts agent/media/mediaRef
 packages/kap-server/src/services/transcript/coreEventMap.ts agent/contextMemory/hookParts
 packages/kap-server/src/services/transcript/coreEventMap.ts human/agent/origin
 packages/kap-server/src/services/transcript/transcriptService.ts features/tower/protocol/index
+packages/kap-server/src/start.ts remote
 packages/kap-server/src/transport/ws/debug/wsConnectionDebug.ts human/xstateInspection
+packages/kap-server/src/transport/ws/v1/taskState.ts agent/task/types
 packages/kap-server/test/auth.test.ts app/authLegacy/authLegacy
+packages/kap-server/test/environment.test.ts package
+packages/kap-server/test/fs.test.ts environment/fakeEnvironment
 packages/kap-server/test/fs.test.ts os/backends/host/hostFsService
 packages/kap-server/test/fs.test.ts runtime/fakeRuntime
 packages/kap-server/test/meta.test.ts app/feature/featureManager
 packages/kap-server/test/meta.test.ts features/featureRegistry
 packages/kap-server/test/modelCatalogCatalog.test.ts app/kosongConfig/modelsDevUpstream
 packages/kap-server/test/oauthUsage.test.ts app/auth/oauthProtocol
+packages/kap-server/test/prompts.test.ts agent/environmentBinding/environmentBindingOps
+packages/kap-server/test/prompts.test.ts environment/fakeEnvironment
+packages/kap-server/test/rpc.test.ts environment/fakeEnvironment
 packages/kap-server/test/rpc.test.ts runtime/fakeRuntime
 packages/kap-server/test/services/transcript.test.ts features/tower/protocol/index
 packages/kap-server/test/sessionEventBroadcaster.test.ts agent/loop/turnEvents
@@ -195,6 +192,7 @@ packages/kap-server/test/sessions.test.ts agent/tools/os/read/read
 packages/kap-server/test/sessions.test.ts app/sessionLegacy/sessionProtocol
 packages/kap-server/test/sessions.test.ts session/sessionMetadata/sessionMetaEvents
 packages/kap-server/test/v2Sessions.test.ts app/git/git
+packages/kap-server/test/workspaceFs.test.ts environment/fakeEnvironment
 packages/kap-server/test/workspaces.test.ts _base/utils/workdir-slug
 packages/kap-server/test/wsUpgradeAuth.test.ts human/xstate2
 packages/klient/examples/kimi-select-tools.ts agent/toolSelect/dynamicTools
@@ -215,6 +213,8 @@ packages/klient/examples/model-requester-boundary.ts llm-adapter/contract/errors
 packages/klient/examples/model-requester-boundary.ts llm-adapter/model/catalog
 packages/klient/examples/model-requester-boundary.ts llm-adapter/model/model-requester-impl
 packages/klient/examples/model-requester-boundary.ts llm-adapter/protocol/protocolAdapterRegistry
+packages/klient/src/core/facade/agent.ts human/llm/message
+packages/klient/src/core/facade/agent.ts llm-adapter/contract/message
 packages/klient/src/transports/memory/dispatcher.ts agent/loop/loop
 packages/klient/src/transports/memory/dispatcher.ts agent/scopeContext/scopeContext
 packages/klient/src/transports/memory/dispatcher.ts app/event/eventBus
@@ -303,8 +303,9 @@ packages/migration-legacy/test/v2-session-scan.ts persistence/backends/node-fs/a
 packages/migration-legacy/test/v2-session-scan.ts persistence/backends/node-fs/fileStorageService
 packages/node-sdk/src/config/schema.ts agent/permissionRules/matchesRule
 packages/node-sdk/src/events.ts tool/toolContract
-packages/node-sdk/src/index.ts agent/media/mediaRef
+packages/node-sdk/src/exec-server.ts remote/server
 packages/node-sdk/src/index.ts agent/contextMemory/hookParts
+packages/node-sdk/src/index.ts agent/media/mediaRef
 packages/node-sdk/src/index.ts human/agent/origin
 packages/node-sdk/src/index.ts session/subagent/configSection
 packages/node-sdk/src/proxy.ts _base/utils/proxy
@@ -316,14 +317,19 @@ packages/node-sdk/src/sdk-rpc-client-v2.ts app/mcpConfig/configLoader
 packages/node-sdk/src/sdk-rpc-client-v2.ts features/tower/tools/status/statusReader
 packages/node-sdk/src/sdk-rpc-client-v2.ts mcpCore/connection-manager
 packages/node-sdk/src/sdk-rpc-client-v2.ts persistence/interface/appendLogStore
+packages/node-sdk/src/sdk-rpc-client-v2.ts remote
 packages/node-sdk/src/sdk-rpc-client-v2.ts workspace/workspaceFs/fs
+packages/node-sdk/src/ssh-askpass.ts remote/askpass
 packages/node-sdk/src/v2/global-mcp.ts mcpCore/config-schema
 packages/node-sdk/src/v2/import-context.ts llm-adapter/contract/tokens
 packages/node-sdk/test/export-session.test.ts app/sessionExport/sessionExportService
 packages/node-sdk/test/export-session.test.ts wire/migration/migration
 packages/node-sdk/test/mcp-config.test.ts mcpCore/oauth/store
 packages/node-sdk/test/sdk-rpc-client-v2.test.ts _base/execEnv/environmentProbe
+packages/node-sdk/test/sdk-rpc-client-v2.test.ts agent/tools/fileReadSource
 packages/node-sdk/test/sdk-rpc-client-v2.test.ts app/kosongConfig/modelsDevUpstream
+packages/node-sdk/test/sdk-rpc-client-v2.test.ts environment/fakeEnvironment
 packages/node-sdk/test/sdk-rpc-client-v2.test.ts features/tower/protocol/store
 packages/node-sdk/test/sdk-rpc-client-v2.test.ts mcpCore/oauth/service
+packages/node-sdk/test/sdk-rpc-client-v2.test.ts remote
 packages/remote-control/src/manager.ts human/xstate2

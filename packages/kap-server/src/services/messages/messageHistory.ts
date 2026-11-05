@@ -61,7 +61,6 @@ export async function listMessages(
   projections: WireProjectionService,
 ): Promise<PageResponse<Message>> {
   const all = await loadMessages(core, sessionId, projections);
-  const desc = [...all].toReversed();
   const descendingIndex = (id: string): number => {
     for (let index = all.length - 1, descending = 0; index >= 0; index--, descending++) {
       if (all[index]!.id === id) return descending;
