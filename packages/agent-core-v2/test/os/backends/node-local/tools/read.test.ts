@@ -121,8 +121,12 @@ function createSpiedFs(content: string) {
   );
   const readLines = mock().mockImplementation(() => generateLines(content));
   const readText = mock(async () => content);
-  const stat = mock(async () => ({ isFile: true, isDirectory: false, size: bytes.length }));
-  const fs = { cwd: '/', readBytes, readLines, readText, stat } as unknown as IHostFileSystem;
+  const stat = mock(async (_path: string) => ({ isFile: true, isDirectory: false, size: bytes.length }));
+  const readFileHead = async (path: string, maxBytes: number) => {
+    const fileStat = await stat(path);
+    return { stat: fileStat, bytes: fileStat.isFile ? await readBytes(path, maxBytes) : new Uint8Array() };
+  };
+  const fs = { cwd: '/', readBytes, readFileHead, readLines, readText, stat } as unknown as IHostFileSystem;
   return { fs, readBytes, readLines, readText, stat };
 }
 
@@ -164,7 +168,11 @@ function createSpiedMapFs(files: Record<string, FakeFile>) {
       size: file.size ?? file.bytes.length,
     };
   });
-  const fs = { cwd: '/', readBytes, readLines, readText, stat } as unknown as IHostFileSystem;
+  const readFileHead = async (path: string, maxBytes: number) => {
+    const fileStat = await stat(path);
+    return { stat: fileStat, bytes: fileStat.isFile ? await readBytes(path, maxBytes) : new Uint8Array() };
+  };
+  const fs = { cwd: '/', readBytes, readFileHead, readLines, readText, stat } as unknown as IHostFileSystem;
   return { fs, readBytes, readLines, readText, stat };
 }
 
@@ -1160,8 +1168,9 @@ describe('ReadTool', () => {
     const readBytes = mock(async (_path: string, n?: number) =>
       n === undefined ? bytes : bytes.subarray(0, n),
     );
-    const stat = mock(async () => ({ isFile: true, isDirectory: false, size: bytes.length }));
-    const fs = { cwd: '/', readBytes, readLines, readText, stat } as unknown as IHostFileSystem;
+    const stat = { isFile: true, isDirectory: false, size: bytes.length };
+    const readFileHead = async (path: string, maxBytes: number) => ({ stat, bytes: await readBytes(path, maxBytes) });
+    const fs = { cwd: '/', readBytes, readFileHead, readLines, readText } as unknown as IHostFileSystem;
     const tool = createReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
 
     const result = await execute(tool, { path: '/tmp/large.txt' });

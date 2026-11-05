@@ -110,7 +110,9 @@ export async function runRgOnce(
   try {
     const isTerminating = (): boolean => timedOut || aborted || killed;
     const [stdoutResult, stderrResult, code] = await Promise.all([
-      readStreamWithCap(proc.stdout, MAX_OUTPUT_BYTES, isTerminating),
+      readStreamWithCap(proc.stdout, MAX_OUTPUT_BYTES, isTerminating, () => {
+        void killProc();
+      }),
       readStreamWithCap(proc.stderr, MAX_OUTPUT_BYTES, isTerminating),
       proc.wait(),
     ]);
@@ -172,6 +174,7 @@ async function readStreamWithCap(
   stream: Readable,
   maxBytes: number,
   suppressPrematureClose?: () => boolean,
+  onLimit?: () => void,
 ): Promise<CappedStreamResult> {
   const chunks: Buffer[] = [];
   let total = 0;
@@ -186,6 +189,7 @@ async function readStreamWithCap(
         if (remaining > 0) chunks.push(buf.subarray(0, remaining));
         total = maxBytes;
         truncated = true;
+        onLimit?.();
         continue;
       }
       chunks.push(buf);

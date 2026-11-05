@@ -17,6 +17,7 @@ import { ErrorCodes, Error2 } from '#/errors';
 import { EnvironmentError } from '#/environment/environmentRegistry';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { type HostDirEntry, IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { walkDirectoryTree } from '#/os/backends/host/hostFsService';
 import { HostFsError } from '#/os/interface/hostFsErrors';
 import { IHostProcessService, type IHostProcess } from '#/os/interface/hostProcess';
 import { IWorkspaceFsService } from '#/workspace/workspaceFs/fs';
@@ -180,6 +181,19 @@ function fakeFs(
       return buf.subarray(offset, n === undefined ? buf.length : offset + n);
     },
     readLines: async function* (): AsyncGenerator<string> {},
+    readFileHead: async () => ({
+      stat: { isFile: true, isDirectory: false, size: 0 },
+      bytes: new Uint8Array(),
+    }),
+    async walk(path, options, visit) {
+      const self = this as unknown as IHostFileSystem;
+      return walkDirectoryTree(
+        { readdir: (p) => self.readdir(p.split(String.fromCharCode(92)).join('/')) },
+        path,
+        options,
+        visit,
+      );
+    },
     writeBytes: async () => {},
     createExclusive: async () => false,
     lstat: lstatImpl,

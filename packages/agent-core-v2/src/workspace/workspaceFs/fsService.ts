@@ -98,7 +98,6 @@ const PROBE_MAX_ENTRIES = 500;
 const GREP_TIMEOUT_MS = 30_000;
 const SUGGEST_TIMEOUT_MS = 10_000;
 const SUGGEST_WALK_ABORTED = new Error('suggest walk aborted');
-const WALK_MAX_DEPTH = 64;
 
 interface SuggestRoot {
   readonly dir: string;
@@ -1337,39 +1336,19 @@ export class WorkspaceFsService implements IWorkspaceFsService {
 
   private async walk(
     baseAbs: string,
-    rootRel: string,
+    _rootRel: string,
     matcher: Ignore | undefined,
     visit: (relPath: string, name: string, kind: 'file' | 'directory' | 'symlink') => Promise<void>,
-    depth = 0,
+    _depth = 0,
   ): Promise<void> {
-    if (depth > WALK_MAX_DEPTH) return;
-    let entries: readonly HostDirEntry[];
     try {
-      entries = await this.hostFs.readdir(rootRel === '' ? baseAbs : this.path.join(baseAbs, rootRel));
+      await this.hostFs.walk(
+        baseAbs,
+        { matcher: matcher === undefined ? undefined : { ignores: (path) => matcher.ignores(path) } },
+        (entry) => visit(entry.path, this.path.basename(entry.path), entry.kind),
+      );
     } catch (error) {
-      if (error instanceof Error2 && error.code === ErrorCodes.OS_FS_DIRECTORY_TOO_LARGE) {
-        throw mapFsError(error, rootRel);
-      }
-      return;
-    }
-    for (const entry of entries) {
-      const { name } = entry;
-      if (name === '.git') continue;
-      const childRel = rootRel === '' ? name : `${rootRel}/${name}`;
-      const isDir = entry.isDirectory && entry.isSymbolicLink !== true;
-      if (matcher) {
-        const probe = isDir ? `${childRel}/` : childRel;
-        if (matcher.ignores(probe)) continue;
-      }
-      const kind: 'file' | 'directory' | 'symlink' = entry.isSymbolicLink
-        ? 'symlink'
-        : isDir
-          ? 'directory'
-          : 'file';
-      await visit(childRel, name, kind);
-      if (isDir) {
-        await this.walk(baseAbs, childRel, matcher, visit, depth + 1);
-      }
+      throw mapFsError(error, _rootRel);
     }
   }
 
@@ -1735,8 +1714,13 @@ function isInsideOrEqual(path: EnvironmentPath, child: string, parent: string): 
 }
 
 function mapFsError(err: unknown, inputPath: string): Error {
-  if (err instanceof Error2 && err.code === ErrorCodes.OS_FS_DIRECTORY_TOO_LARGE) {
-    return new Error2(ErrorCodes.FS_TOO_MANY_RESULTS, err.message, { details: err.details, cause: err });
+  const coded = err as { code?: unknown; message?: unknown; details?: unknown } | null;
+  if (coded?.code === ErrorCodes.OS_FS_DIRECTORY_TOO_LARGE) {
+    const message = typeof coded.message === 'string' ? coded.message : '';
+    return new Error2(ErrorCodes.FS_TOO_MANY_RESULTS, message, {
+      details: coded.details as Record<string, unknown> | undefined,
+      cause: err,
+    });
   }
   if (isHostFsNotFound(err) || isHostFsNotDirectory(err)) {
     return new Error2(ErrorCodes.FS_PATH_NOT_FOUND, `path not found: ${inputPath}`, {

@@ -144,7 +144,11 @@ interface FakeFile {
 
 function createTestFs(files: Record<string, FakeFile>): IHostFileSystem {
   const lookup = (path: string): FakeFile | undefined => files[path];
-  return {
+  const fs: IHostFileSystem = {
+    readFileHead: mock(async (path: string, maxBytes: number) => ({
+      stat: await fs.stat(path),
+      bytes: await fs.readBytes(path, maxBytes),
+    })),
     readBytes: mock(async (path: string, n?: number) => {
       const data = lookup(path)?.data ?? Buffer.alloc(0);
       return n === undefined ? data : data.subarray(0, n);
@@ -162,6 +166,7 @@ function createTestFs(files: Record<string, FakeFile>): IHostFileSystem {
       };
     }),
   } as unknown as IHostFileSystem;
+  return fs;
 }
 
 function createTestEnv(): IHostEnvironment {

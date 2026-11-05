@@ -48,7 +48,7 @@ import {
 import type { HostEnvironmentInfo } from '#/os/interface/hostEnvironment';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { isHostFsNotDirectory, isHostFsNotFound } from '#/os/interface/hostFsErrors';
-import { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { type HostFileHead, IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
@@ -424,20 +424,20 @@ export class ReadTool implements IReadTool {
   ): Promise<ExecutableToolResult> {
     try {
       signal?.throwIfAborted();
-      let stat: Awaited<ReturnType<IHostFileSystem['stat']>>;
+      let head: HostFileHead;
       try {
-        stat = await source.stat();
+        head = await source.readHead(MEDIA_SNIFF_BYTES);
       } catch (error) {
         if (isHostFsNotFound(error) || isHostFsNotDirectory(error)) {
           return { isError: true, output: `"${args.path}" does not exist.` };
         }
         throw error;
       }
+      const { stat, bytes: header } = head;
       if (!stat.isFile) {
         return { isError: true, output: `"${args.path}" is not a file.` };
       }
 
-      const header = await source.readBytes(MEDIA_SNIFF_BYTES);
       const fileType = detectFileType(source.name, header);
       if (fileType.kind === 'image' || fileType.kind === 'video' || fileType.kind === 'document') {
         if (args.line_offset !== undefined || args.n_lines !== undefined) {

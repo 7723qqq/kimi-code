@@ -101,7 +101,9 @@ apps/vis/server/src/lib/wire-reader.ts wire/migration/migration
 apps/vis/server/test/lib/context-projector.test.ts agent/contextMemory/compactionHandoff
 apps/vis/server/test/lib/context-projector.test.ts llm-adapter/contract/tokens
 apps/vis/server/test/routes/context.test.ts agent/contextMemory/compactionHandoff
+packages/acp-server/src/acp-fs/acpFsService.ts os/interface/hostFsErrors
 packages/acp-server/test/_helpers/scriptedProvider.ts llm-adapter/contract/message
+packages/acp-server/test/acp-fs.test.ts os/interface/hostFsErrors
 packages/acp-server/test/e2e-turn.test.ts agent/toolExecutor/toolExecutorEvents
 packages/agent-core-v2/test/lint/import-boundaries.test.ts human/llm/requester/bases/openai/requester
 packages/kap-server/src/lib/promptMedia.ts agent/media/file-type

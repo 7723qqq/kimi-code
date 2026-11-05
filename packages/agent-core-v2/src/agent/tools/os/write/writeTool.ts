@@ -10,7 +10,7 @@ import { withFileMemory } from '#/agent/tools/fileMemory';
 import { EnvironmentWorkspaceView } from '#/environment/environmentWorkspaceView';
 import { IGitMemoryService } from '#/features/gitMemory/gitMemoryService';
 import { IAgentPlanService } from '#/features/plan/plan';
-import { isHostFsNotFound } from '#/os/interface/hostFsErrors';
+import { isHostFsNotDirectory, isHostFsNotFound } from '#/os/interface/hostFsErrors';
 import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import type { HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
@@ -137,17 +137,19 @@ export class WriteTool implements IWriteTool {
       if (error instanceof PathSecurityError) return { isError: true, output: error.message };
       throw error;
     }
-    const parentError = await this.ensureParentDirectory(fs, safePath);
-    if (parentError !== undefined) {
-      return { isError: true, output: parentError };
-    }
-
+    const mode = args.mode ?? 'overwrite';
+    const write = () =>
+      mode === 'append' ? fs.appendText(safePath, args.content) : fs.writeText(safePath, args.content);
     try {
-      const mode = args.mode ?? 'overwrite';
-      if (mode === 'append') {
-        await fs.appendText(safePath, args.content);
-      } else {
-        await fs.writeText(safePath, args.content);
+      try {
+        await write();
+      } catch (error) {
+        if (!isHostFsNotFound(error) && !isHostFsNotDirectory(error)) throw error;
+        const parentError = await this.ensureParentDirectory(fs, safePath);
+        if (parentError !== undefined) {
+          return { isError: true, output: parentError };
+        }
+        await write();
       }
       const bytesWritten = Buffer.byteLength(args.content, 'utf8');
       return await withFileMemory(
