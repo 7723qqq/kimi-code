@@ -152,7 +152,11 @@ describe('AgentProfileRegistryService (collection fold)', () => {
 
   it('fires onDidChange with the decoded { sourceId, workspaceKey } payload', () => {
     const { container, registry } = makeFold();
-    const seen: { readonly sourceId: string; readonly workspaceKey?: string }[] = [];
+    const seen: {
+      readonly sourceId: string;
+      readonly workspaceKey?: string;
+      readonly contextKey?: string;
+    }[] = [];
     const subscription = registry.onDidChange((change) => seen.push(change));
 
     contribute(container, record('user', 'global'));
@@ -160,9 +164,9 @@ describe('AgentProfileRegistryService (collection fold)', () => {
     wdA.dispose();
 
     expect(seen).toStrictEqual([
-      { sourceId: 'user', workspaceKey: undefined },
-      { sourceId: 'workspace', workspaceKey: 'wd_a' },
-      { sourceId: 'workspace', workspaceKey: 'wd_a' },
+      { sourceId: 'user', workspaceKey: undefined, contextKey: undefined },
+      { sourceId: 'workspace', workspaceKey: 'wd_a', contextKey: undefined },
+      { sourceId: 'workspace', workspaceKey: 'wd_a', contextKey: undefined },
     ]);
     subscription.dispose();
     container.dispose();
@@ -172,13 +176,19 @@ describe('AgentProfileRegistryService (collection fold)', () => {
     const { container, registry } = makeFold();
     const stale = contribute(container, record('user', 'v1'));
 
-    const seen: { readonly sourceId: string; readonly workspaceKey?: string }[] = [];
+    const seen: {
+      readonly sourceId: string;
+      readonly workspaceKey?: string;
+      readonly contextKey?: string;
+    }[] = [];
     const subscription = registry.onDidChange((change) => seen.push(change));
     contribute(container, record('user', 'v2'));
     stale.dispose();
 
     expect(registry.entries()[0]?.contribution.profiles[0]?.name).toBe('v2');
-    expect(seen).toStrictEqual([{ sourceId: 'user', workspaceKey: undefined }]);
+    expect(seen).toStrictEqual([
+      { sourceId: 'user', workspaceKey: undefined, contextKey: undefined },
+    ]);
     subscription.dispose();
     container.dispose();
   });

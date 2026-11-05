@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { join } from 'node:path';
 
 
@@ -7,14 +7,14 @@ import type { IHostFileSystem, HostFileStat } from '#/os/interface/hostFileSyste
 import type { IHostProcessService } from '#/os/interface/hostProcess';
 import { noopTelemetryService } from '#/app/telemetry/telemetry';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
-import { ensureRgPath } from '#/os/backends/host/tools/rgLocator';
+import * as rgLocator from '#/os/backends/host/tools/rgLocator';
 import { GlobTool } from '#/agent/tools/os/glob/globTool';
 import { GrepTool } from '#/agent/tools/os/grep/grepTool';
 import { stubWorkspaceContext } from '../../../session/workspaceContext/stub-workspace-context';
 import { stubAgentEnvironment } from '../../../environment/stubs';
 
 
-const ensureRgPathMock = ensureRgPath as unknown as Mock<typeof ensureRgPath>;
+const ensureRgPathMock = spyOn(rgLocator, 'ensureRgPath');
 
 const LOCAL_SHARE_BIN_RG = join(
   '/kimi-home-test',

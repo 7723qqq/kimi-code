@@ -69,6 +69,9 @@ import {
   ISessionSubagentService,
 } from '#/session/subagent/subagent';
 import { IEventDispatcher } from '#/state/eventDispatcher';
+import { ILogService } from '#/_base/log/log';
+
+import { stubLog } from '../../_base/log/stubs';
 import {
   type SessionCloseReason,
   type SessionCreatedEvent,
@@ -232,6 +235,7 @@ function stubHookRunner(partial: unknown): IExternalHooksRunnerService {
     _serviceBrand: undefined,
     ready: Promise.resolve(),
     onDidReload: Event.None,
+    onDidHookError: Event.None,
     hasHooksFor: () => false,
     ...p,
   } as IExternalHooksRunnerService;
@@ -761,6 +765,7 @@ describe('IExternalHooksRunnerService integration', () => {
       });
       activateAgentEventBus(ix);
       ix.stub(ITelemetryService, { track2: () => {} });
+      ix.stub(ILogService, stubLog());
       ix.set(IExternalHooksRunnerService, new SyncDescriptor(ExternalHooksRunnerService));
       ix.set(IAgentExternalHooksService, new SyncDescriptor(AgentExternalHooksService));
       ix.get(IAgentExternalHooksService);
@@ -1051,6 +1056,7 @@ describe('IExternalHooksRunnerService integration', () => {
         },
       });
       ix.stub(ITelemetryService, { track2: () => {} });
+      ix.stub(ILogService, stubLog());
       ix.set(IExternalHooksRunnerService, new SyncDescriptor(ExternalHooksRunnerService));
       ix.set(ISessionExternalHooksService, new SyncDescriptor(SessionExternalHooksService));
       ix.get(ISessionExternalHooksService);
@@ -1251,6 +1257,7 @@ describe('IExternalHooksRunnerService integration', () => {
         },
       });
       ix.stub(ITelemetryService, { track2: () => {} });
+      ix.stub(ILogService, stubLog());
       ix.set(IExternalHooksRunnerService, new SyncDescriptor(ExternalHooksRunnerService));
       ix.set(ISessionExternalHooksService, new SyncDescriptor(SessionExternalHooksService));
       ix.get(ISessionExternalHooksService);

@@ -5,6 +5,9 @@ import { ScopeUnits } from '#/_base/di/fiber';
 import { ScopeActivation } from '#/_base/di/instantiation';
 import { type InstantiationService } from '#/_base/di/instantiationService';
 import { _clearScopedRegistryForTests, registerScopedService, type Scope } from '#/_base/di/scope';
+import { ILogService } from '#/_base/log/log';
+
+import { stubLog } from '../../_base/log/stubs';
 import { createScopedTestHost } from '#/_base/di/test';
 import { Event } from '#/_base/event';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
@@ -62,6 +65,7 @@ describe('ExternalHooksFeature — assembly (src/features/externalHooks)', () =>
       ],
       [IHostProcessService, { _serviceBrand: undefined }],
       [ITelemetryService, noopTelemetryService],
+      [ILogService, stubLog()],
     ]);
     const manager = host.app.accessor.get(IFeatureManager);
     expect(manager.units().map((unit) => unit.name)).toContain('externalHooks');

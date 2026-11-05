@@ -285,6 +285,9 @@ export class ReadTool implements IReadTool {
   }
 
   async resolveExecution(args: ReadInput): Promise<ToolExecution> {
+    if (!args.path) {
+      return { isError: true, output: 'File path cannot be empty.' };
+    }
     if (args.column_offset !== undefined && (args.line_offset ?? 1) < 0) {
       return {
         isError: true,
@@ -716,10 +719,8 @@ export class ReadTool implements IReadTool {
         firstColumn === 0 &&
         startLine === 1 &&
         endLine === page.totalLines;
-      const note =
-        wholeFile && notices.length === 0
-          ? undefined
-          : `<system>${[...summary, ...notices].join(' ')}</system>`;
+      const note = `<system>${[...summary, ...notices].join(' ')}</system>`;
+      void wholeFile;
       const renderedChars =
         count === 0
           ? renderToolResultForModel({ output: '', note }).reduce(

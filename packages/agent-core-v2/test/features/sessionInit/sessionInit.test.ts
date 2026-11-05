@@ -6,6 +6,7 @@ import { TestInstantiationService } from '#/_base/di/test';
 import { UserCancellationError } from '#/_base/utils/abort';
 import type { AgentContext } from '#/agent/agentContext/agentContext';
 import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminder';
+import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
@@ -91,6 +92,20 @@ describe('SessionInitService', () => {
           }
           if (id === IAgentProfileService) return profile;
           if (id === IAgentPermissionModeService) return permissionMode;
+          if (id === IAgentEnvironmentService) {
+            return {
+              workspaceRoots: () => ({ workDir: WORK_DIR, additionalDirs: [] }),
+              inspect: () => ({ identity: { environmentId: 'local', generation: 'test' } }),
+              acquire: () => ({
+                environment: {
+                  fs: ix.get(IHostFileSystem),
+                  host: { homeDir: '/home' },
+                },
+                track: (resource: unknown) => resource,
+                dispose: () => {},
+              }),
+            };
+          }
           if (id === IAgentAgentsMdReminderService) return { seedInjected };
           if (id === IAgentReminderService) return { notify: appendReminder };
           if (id === IEventDispatcher) {

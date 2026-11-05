@@ -23,7 +23,10 @@ import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentPlanService } from '#/features/plan/plan';
 import { AgentPlanService } from '#/features/plan/planService';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
+import { IAgentTodoService } from '#/features/todo/todoService';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { IBlobStore } from '#/persistence/interface/blobStore';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ToolAccesses } from '#/tool/toolContract';
@@ -194,6 +197,33 @@ describe('AgentPlanService plan-guard listener', () => {
         );
         reg.defineInstance(ITelemetryService, recordingTelemetry(records));
         reg.defineInstance(IAgentStateService, new AgentStateService());
+        reg.defineInstance(IAgentTodoService, {
+          _serviceBrand: undefined,
+          onDidChange: () => ({ dispose: () => {} }),
+          get: () => [],
+          replace: async () => {},
+          clear: async () => {},
+        } as unknown as IAgentTodoService);
+        reg.defineInstance(IBlobStore, {
+          _serviceBrand: undefined,
+          put: async () => {},
+          putStream: async () => {},
+          get: async () => undefined,
+          getStream: async function* () {},
+          has: async () => false,
+          delete: async () => {},
+          list: async () => [],
+        } as unknown as IBlobStore);
+        reg.defineInstance(IHostEnvironment, {
+          _serviceBrand: undefined,
+          osKind: 'linux',
+          osArch: 'x64',
+          osVersion: 'test',
+          shellName: 'bash',
+          shellPath: '/bin/bash',
+          pathClass: 'posix',
+          homeDir: '/home/test',
+        } as unknown as IHostEnvironment);
         reg.define(IAgentPlanService, AgentPlanService);
       },
     });

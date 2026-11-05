@@ -168,7 +168,10 @@ export class AgentTaskPersistence {
     if (chunk.length === 0) return;
     await this.serializeOutput(taskId, async () => {
       const scope = this.taskOutputScope(taskId);
-      const previousSize = this.outputSizes.get(taskId) ?? (await this.bytes.read(scope, OUTPUT_LOG_KEY))?.byteLength ?? 0;
+      const previousSize =
+        this.outputSizes.get(taskId) ??
+        (await this.bytes.size(scope, OUTPUT_LOG_KEY)) ??
+        0;
       const data = textEncoder.encode(chunk);
       await this.bytes.append(scope, OUTPUT_LOG_KEY, data);
       const size = previousSize + data.byteLength;
@@ -239,20 +242,35 @@ export class AgentTaskPersistence {
     taskId: string,
     maxPreviewBytes: number,
   ): Promise<AgentTaskStoredOutputSnapshot | undefined> {
-    return this.serializeOutput(taskId, async () => {
-      const output = await this.readTaskOutputData(taskId);
-      if (output === undefined) return undefined;
-      const previewLimit = Math.max(0, Math.trunc(maxPreviewBytes));
-      const previewBytes = Math.min(previewLimit, output.data.byteLength);
-      const previewOffset = output.data.byteLength - previewBytes;
+    const location = await this.locateTaskOutput(taskId);
+    if (location === undefined) return undefined;
+    const previewLimit = Math.max(0, Math.trunc(maxPreviewBytes));
+    const previewBytes = Math.min(previewLimit, location.totalBytes);
+    if (previewBytes === 0 || location.totalBytes === 0) {
       return {
-        outputPath: await this.outputPathFor(taskId, output),
-        outputSizeBytes: output.data.byteLength,
+        outputPath: this.taskOutputFileAt(taskId, location.root),
+        outputSizeBytes: location.totalBytes,
         previewBytes,
-        truncated: previewOffset > 0,
-        preview: textDecoder.decode(output.data.subarray(previewOffset)),
+        truncated: previewBytes < location.totalBytes,
+        preview: '',
       };
-    });
+    }
+    const from = location.totalBytes - previewBytes;
+    const start = Math.max(0, from - OUTPUT_TAIL_ALIGN_BYTES);
+    const window = await this.readOutputRange(
+      taskId,
+      location.root,
+      start,
+      location.totalBytes - 1,
+    );
+    const offset = alignToCharacterStart(window, from - start);
+    return {
+      outputPath: this.taskOutputFileAt(taskId, location.root),
+      outputSizeBytes: location.totalBytes,
+      previewBytes,
+      truncated: previewBytes < location.totalBytes,
+      preview: textDecoder.decode(window.subarray(offset)),
+    };
   }
 
   private async locateTaskOutput(taskId: string): Promise<TaskOutputLocation | undefined> {

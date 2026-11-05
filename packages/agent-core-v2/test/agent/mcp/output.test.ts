@@ -1116,7 +1116,10 @@ describe('mcpResultToExecutableOutput over a real stdio server', () => {
     const environment = Object.assign(
       new FakeEnvironment(
         { environmentId: 'local', generation: 'test' },
-        { capabilities: ['process'] },
+        {
+          capabilities: ['process'],
+          pathClass: process.platform === 'win32' ? 'win32' : 'posix',
+        },
       ),
       { process: new HostProcessService() },
     );

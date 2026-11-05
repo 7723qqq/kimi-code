@@ -1098,10 +1098,16 @@ describe('truncation pipeline', () => {
     readConfig = truncationContainer.get(IConfigService);
     await readConfig.ready;
     globProcess = new HostProcessService();
-    const environment = Object.assign(new FakeEnvironment(
-      { environmentId: 'local', generation: 'test' },
-      { capabilities: ['fs', 'process'] },
-    ), { fs: new HostFileSystem(), process: globProcess });
+    const environment = Object.assign(
+      new FakeEnvironment(
+        { environmentId: 'local', generation: 'test' },
+        {
+          capabilities: ['fs', 'process'],
+          pathClass: process.platform === 'win32' ? 'win32' : 'posix',
+        },
+      ),
+      { fs: new HostFileSystem(), process: globProcess },
+    );
     const binding = stubAgentEnvironment(environment);
     mediaEnvironment = binding;
     registry.register(new ReadTool(
@@ -1704,7 +1710,7 @@ describe('truncation pipeline', () => {
     expect(result.output.length).toBeGreaterThan(50_000);
     expect(result.output.replaceAll(/^\d+\t/gm, '')).toBe(content.trimEnd());
     expect(result.truncated).toBeUndefined();
-    expect(result.note).toBeUndefined();
+    expect(result.note).toContain('<system>650 lines read from file starting from line 1.');
     expect(result.output).not.toContain('output_path:');
   });
 

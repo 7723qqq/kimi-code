@@ -559,11 +559,16 @@ export class AgentFileHistoryService extends Service implements IAgentFileHistor
         raw = relativePath;
       }
     }
-    const key = caseInsensitive ? raw.toLowerCase() : raw;
+    const key = this.comparisonKey(raw, caseInsensitive);
     const existing = this.history().tracked.find(
-      (tracked) => (caseInsensitive ? tracked.toLowerCase() : tracked) === key,
+      (tracked) => this.comparisonKey(tracked, caseInsensitive) === key,
     );
     return existing ?? raw;
+  }
+
+  private comparisonKey(pathKey: string, caseInsensitive: boolean): string {
+    if (!caseInsensitive && !isWindowsPath(pathKey)) return pathKey;
+    return pathKey.replaceAll('\\', '/').toLowerCase();
   }
 
   private pathSemantics(): {

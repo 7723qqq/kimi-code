@@ -106,7 +106,7 @@ describe('AgentFileHistoryService', () => {
   function stubRuntime(): IAgentEnvironmentService {
     return {
       acquire: () => ({
-        runtime: {
+        environment: {
           fs: hostFs(),
           path: posix,
           workspace: { mapRoots: (roots: unknown) => roots },

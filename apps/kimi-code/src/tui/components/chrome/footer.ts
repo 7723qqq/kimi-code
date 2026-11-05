@@ -27,9 +27,10 @@ import {
 } from '#/tui/easter-eggs/dance';
 import { currentTheme } from '#/tui/theme';
 import type { ColorPalette } from '#/tui/theme/colors';
-import type { AppState } from '#/tui/types';
+import type { AppState, EnvironmentSlotState } from '#/tui/types';
 import { permissionModeDisplayName } from '#/tui/utils/permission-mode';
 import { formatContextStatus } from '#/tui/utils/session-stats';
+import { SpinnerTicker } from '#/tui/utils/spinner-ticker';
 import { StatusLineCommandRunner, type StatusLinePayload } from '#/tui/utils/status-line-command';
 import { createLocaleKeyedTipRotation, TIP_ROTATE_INTERVAL_MS } from '#/tui/utils/tip-rotation';
 import {
@@ -48,9 +49,10 @@ import {
 /** What the footer's fixed ctrl+o hint offers: expand collapsed tool output, or collapse it again. */
 export type ToolOutputExpandHint = 'expand' | 'collapse';
 
-const DEFAULT_STATUS_LINE_ITEMS = ['mode', 'goal', 'model', 'tasks', 'cwd', 'git'] as const;
+const DEFAULT_STATUS_LINE_ITEMS = ['mode', 'goal', 'model', 'tasks', 'environment', 'cwd', 'git'] as const;
 
 const MAX_CWD_SEGMENTS = 3;
+const MAX_ENVIRONMENT_REASON_WIDTH = 40;
 const GOAL_TIMER_INTERVAL_MS = 1_000;
 /**
  * Thinking-suffix breathing ramp. The visible cycle is the contract, not the
@@ -178,6 +180,10 @@ function thinkingSuffixLabel(state: AppState): string {
     : t('tui.chrome.footer.thinking');
 }
 
+function isRemoteEnvironment(environment: AppState['environment']): environment is EnvironmentSlotState {
+  return environment !== undefined && environment.environmentId !== 'local';
+}
+
 function shortenCwd(path: string): string {
   if (!path) return path;
   // Windows processes launched from cmd/PowerShell often have no HOME; use
@@ -252,6 +258,9 @@ export class FooterComponent implements Component {
    * repaint rather than trust a comparison it never established.
    */
   private lastPulseOutput: string | null = null;
+  private readonly environmentSpinner = new SpinnerTicker(() => {
+    this.onRefresh();
+  });
   private statusLineRunner: StatusLineCommandRunner | null = null;
   /**
    * Non-terminal background-task counts split by kind so the footer can
@@ -284,6 +293,7 @@ export class FooterComponent implements Component {
     });
     this.syncGoalClock(state.goal);
     this.syncGoalTimer(state.goal);
+    this.syncEnvironmentSpinner(state.environment);
     this.syncStatusLineRunner(state);
   }
 
@@ -298,6 +308,7 @@ export class FooterComponent implements Component {
     this.syncGoalClock(state.goal);
     this.syncGoalTimer(state.goal);
     this.syncPulseTimer(state.thinkingEffort !== 'off' && state.streamingPhase !== 'idle');
+    this.syncEnvironmentSpinner(state.environment);
     this.syncStatusLineRunner(state);
     this.state = state;
   }
@@ -558,6 +569,7 @@ export class FooterComponent implements Component {
       goal: [],
       model: [],
       tasks: [],
+      environment: [],
       cwd: [],
       git: [],
       tips: [],
@@ -639,10 +651,53 @@ export class FooterComponent implements Component {
     }
     slots['tasks'] = taskBadges;
 
-    const cwd = shortenCwd(state.workDir);
+    // Environment slot: the local environment renders nothing; a remote binding
+    // shows its bare environment id ahead of the cwd — error-colored while
+    // disconnected, with the first connect-error line appended so the failure
+    // reason is visible at a glance. A pending environment (never connected or
+    // deliberately reaped while idle) is not a failure and renders dim like a
+    // ready one. While connecting, a braille spinner ticks ahead of the id (see
+    // syncEnvironmentSpinner for the bounded timer).
+    const environment = state.environment;
+    const remote = isRemoteEnvironment(environment);
+    if (remote) {
+      const tone =
+        environment.status === 'disconnected'
+          ? colors.error
+          : environment.status === 'ready' || environment.status === 'pending'
+            ? colors.textDim
+            : colors.warning;
+      const label = environment.environmentId;
+      const reason =
+        environment.status === 'disconnected' && environment.connectError !== undefined
+          ? environment.connectError.split('\n', 1)[0]
+          : undefined;
+      const spinner =
+        environment.status === 'connecting' ? `${this.environmentSpinner.current} ` : '';
+      slots['environment'] = [
+        chalk.hex(tone)(
+          reason === undefined
+            ? `${spinner}${label}`
+            : `${spinner}${label} (${truncateToWidth(reason, MAX_ENVIRONMENT_REASON_WIDTH, '…')})`,
+        ),
+      ];
+    }
+
+    // A remote-bound session works on the target host, so the slot shows the
+    // binding cwd rather than the frozen local workDir. The environment-info
+    // surface (getEnvironment/listEnvironments) does not carry the remote home dir,
+    // so the remote path shortens by segments only and never claims ~ — a
+    // wrong ~ would be worse than a full path.
+    const bindingCwd = remote ? environment.cwd : undefined;
+    const cwd =
+      bindingCwd !== undefined
+        ? shortenCwd(bindingCwd)
+        : shortenCwd(state.workDir);
     if (cwd) slots['cwd'] = [chalk.hex(colors.textDim)(cwd)];
 
-    const git = this.gitCache.getStatus();
+    // The git badge reads the local filesystem; a remote-bound session's
+    // repository state lives on the target host, so the slot stays hidden.
+    const git = remote ? null : this.gitCache.getStatus();
     if (git !== null) slots['git'] = [formatFooterGitBadge(git, colors)];
 
     return slots;
@@ -652,8 +707,10 @@ export class FooterComponent implements Component {
     const state = this.state;
     return {
       model: modelDisplayName(state),
-      cwd: state.workDir,
-      gitBranch: this.gitCache.getStatus()?.branch ?? null,
+      cwd: isRemoteEnvironment(state.environment) && state.environment.cwd !== undefined
+        ? state.environment.cwd
+        : state.workDir,
+      gitBranch: isRemoteEnvironment(state.environment) ? null : (this.gitCache.getStatus()?.branch ?? null),
       permissionMode: state.permissionMode,
       planMode: state.planMode,
       specMode: state.specMode,
@@ -761,6 +818,25 @@ export class FooterComponent implements Component {
     return chalk.hex(pulseSuffixColor(this.pulsePhase, currentTheme.palette))(label);
   }
 
+  /**
+   * The connecting spinner ticks on the shared braille ticker — the slot state
+   * itself only changes with the environment status. The ticker is strictly
+   * bounded to the connecting status: it starts when the slot enters
+   * connecting and stops the moment the status moves on, so no always-on
+   * ticker exists. Each frame repaints through onRefresh.
+   */
+  private syncEnvironmentSpinner(environment: AppState['environment']): void {
+    const connecting =
+      environment !== undefined &&
+      environment.environmentId !== 'local' &&
+      environment.status === 'connecting';
+    if (connecting) {
+      this.environmentSpinner.start();
+    } else {
+      this.environmentSpinner.stop();
+    }
+  }
+
   dispose(): void {
     this.gitCache.dispose();
     if (this.goalTimer !== null) {
@@ -785,6 +861,7 @@ export class FooterComponent implements Component {
     const handle = this.clock.setInterval(callback, intervalMs);
     if (this.clock === SYSTEM_RENDER_CLOCK) handle.unref?.();
     return handle;
+    this.environmentSpinner.dispose();
   }
 
   private goalWallClockMs(goal: AppState['goal']): number | undefined {

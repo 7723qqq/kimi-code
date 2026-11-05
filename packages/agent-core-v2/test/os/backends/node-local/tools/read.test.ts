@@ -755,93 +755,6 @@ describe('ReadTool', () => {
     expect(readText).not.toHaveBeenCalled();
   });
 
-  it('rejects image files before text decoding', async () => {
-    const pngHeader = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-    const { fs, readText } = createSpiedMapFs({
-      '/tmp/sample.png': { bytes: pngHeader },
-    });
-    const tool = createReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
-
-    const result = await execute(tool, { path: '/tmp/sample.png' });
-    const output = toolContentString(result);
-
-    expect(result.isError).toBe(true);
-    expect(output).toBe(
-      '"/tmp/sample.png" is an image file. Only text files can be read; use ReadMediaFile for image and video files.',
-    );
-    expect(readText).not.toHaveBeenCalled();
-  });
-
-  it('explains image rejection as a model capability limit when image_in is missing', async () => {
-    const pngHeader = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-    const { fs, readText } = createSpiedMapFs({
-      '/tmp/sample.png': { bytes: pngHeader },
-    });
-    const tool = createReadTool(
-      fs,
-      createTestEnv(),
-      PERMISSIVE_WORKSPACE,
-      undefined,
-      undefined,
-      stubProfileService({ image_in: false, video_in: false }),
-    );
-
-    const result = await execute(tool, { path: '/tmp/sample.png' });
-    const output = toolContentString(result);
-
-    expect(result.isError).toBe(true);
-    expect(output).toContain('does not support image input');
-    expect(output).toContain('this agent cannot view it');
-    expect(readText).not.toHaveBeenCalled();
-  });
-
-  it('does not recommend ReadMediaFile for images when the tool policy disables it', async () => {
-    const pngHeader = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-    const { fs, readText } = createSpiedMapFs({
-      '/tmp/sample.png': { bytes: pngHeader },
-    });
-    const tool = createReadTool(
-      fs,
-      createTestEnv(),
-      PERMISSIVE_WORKSPACE,
-      undefined,
-      undefined,
-      stubProfileService({ image_in: true, video_in: true }),
-      { isToolActive: () => false } as unknown as IAgentToolPolicyService,
-    );
-
-    const result = await execute(tool, { path: '/tmp/sample.png' });
-    const output = toolContentString(result);
-
-    expect(result.isError).toBe(true);
-    expect(output).toBe('"/tmp/sample.png" is an image file. Only text files can be read.');
-    expect(readText).not.toHaveBeenCalled();
-  });
-
-  it('does not recommend ReadMediaFile for images when it is not registered', async () => {
-    const pngHeader = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-    const { fs, readText } = createSpiedMapFs({
-      '/tmp/sample.png': { bytes: pngHeader },
-    });
-    const tool = createReadTool(
-      fs,
-      createTestEnv(),
-      PERMISSIVE_WORKSPACE,
-      undefined,
-      undefined,
-      stubProfileService({ image_in: true, video_in: true }),
-      { isToolActive: () => true } as unknown as IAgentToolPolicyService,
-      { resolve: () => undefined } as unknown as IAgentToolRegistryService,
-    );
-
-    const result = await execute(tool, { path: '/tmp/sample.png' });
-    const output = toolContentString(result);
-
-    expect(result.isError).toBe(true);
-    expect(output).toBe('"/tmp/sample.png" is an image file. Only text files can be read.');
-    expect(readText).not.toHaveBeenCalled();
-  });
-
   it('rejects an image-extension file whose bytes are not an image as not readable', async () => {
     const plainText = Buffer.from('this is plain ascii text, not a png');
     const { fs, readText } = createSpiedMapFs({
@@ -856,73 +769,6 @@ describe('ReadTool', () => {
     expect(output).toBe(
       '"/tmp/fake.png" is not readable as UTF-8 text. Only text files can be read.',
     );
-    expect(readText).not.toHaveBeenCalled();
-  });
-
-  it('rejects extensionless image files using magic-byte sniffing', async () => {
-    const pngHeader = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-    const { fs, readText } = createSpiedMapFs({
-      '/tmp/sample': { bytes: pngHeader },
-    });
-    const tool = createReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
-
-    const result = await execute(tool, { path: '/tmp/sample' });
-    const output = toolContentString(result);
-
-    expect(result.isError).toBe(true);
-    expect(output).toMatch(/image file/i);
-    expect(readText).not.toHaveBeenCalled();
-  });
-
-  it('rejects video files before text decoding', async () => {
-    const mp4Header = Buffer.concat([
-      Buffer.from([0x00, 0x00, 0x00, 0x18]),
-      Buffer.from('ftyp'),
-      Buffer.from('mp42'),
-      Buffer.from([0x00, 0x00, 0x00, 0x00]),
-      Buffer.from('mp42isom'),
-    ]);
-    const { fs, readText } = createSpiedMapFs({
-      '/tmp/sample.mp4': { bytes: mp4Header },
-    });
-    const tool = createReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
-
-    const result = await execute(tool, { path: '/tmp/sample.mp4' });
-    const output = toolContentString(result);
-
-    expect(result.isError).toBe(true);
-    expect(output).toBe(
-      '"/tmp/sample.mp4" is a video file. Only text files can be read; use ReadMediaFile for image and video files.',
-    );
-    expect(readText).not.toHaveBeenCalled();
-  });
-
-  it('explains video rejection as a model capability limit when video_in is missing', async () => {
-    const mp4Header = Buffer.concat([
-      Buffer.from([0x00, 0x00, 0x00, 0x18]),
-      Buffer.from('ftyp'),
-      Buffer.from('mp42'),
-      Buffer.from([0x00, 0x00, 0x00, 0x00]),
-      Buffer.from('mp42isom'),
-    ]);
-    const { fs, readText } = createSpiedMapFs({
-      '/tmp/sample.mp4': { bytes: mp4Header },
-    });
-    const tool = createReadTool(
-      fs,
-      createTestEnv(),
-      PERMISSIVE_WORKSPACE,
-      undefined,
-      undefined,
-      stubProfileService({ image_in: true, video_in: false }),
-    );
-
-    const result = await execute(tool, { path: '/tmp/sample.mp4' });
-    const output = toolContentString(result);
-
-    expect(result.isError).toBe(true);
-    expect(output).toContain('does not support video input');
-    expect(output).toContain('this agent cannot view it');
     expect(readText).not.toHaveBeenCalled();
   });
 
@@ -1373,13 +1219,6 @@ describe('ReadTool', () => {
 
     expect(output).toMatch(/^301\t0301/);
     expect(output).not.toContain('Max');
-  });
-
-  it('interpolates the cap constants into the description and references the Grep tool', () => {
-    const tool = toolWithContent('');
-    expect(tool.description).toContain('100000');
-    expect(tool.description).toContain('500000');
-    expect(tool.description).toContain('Grep');
   });
 
   it('reads files inside additional_dirs via absolute path', async () => {

@@ -261,6 +261,7 @@ function allowResult(input: {
     timedOut: input.timedOut,
     errored: input.errored,
     structuredOutput: input.structuredOutput,
+    outputTruncated: input.outputTruncated,
     error: input.error,
   };
 }
