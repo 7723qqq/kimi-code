@@ -1,4 +1,7 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { resolveCredentials } from '../src/llm-caller';
 
@@ -14,6 +17,31 @@ import { resolveCredentials } from '../src/llm-caller';
  */
 const savedFetch = globalThis.fetch;
 const savedKey = process.env['KIMI_API_KEY'];
+const savedHome = process.env['KIMI_CODE_HOME'];
+let tempHome: string | undefined;
+
+beforeAll(() => {
+  tempHome = mkdtempSync(join(tmpdir(), 'anthropic-shapes-'));
+  writeFileSync(
+    join(tempHome, 'config.toml'),
+    [
+      '[providers."MiniMax Token Plan"]',
+      'base_url = "https://example.invalid/anthropic"',
+      'api_key = "test-key"',
+      'type = "anthropic"',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+  process.env['KIMI_CODE_HOME'] = tempHome;
+});
+
+afterAll(() => {
+  if (savedHome === undefined) delete process.env['KIMI_CODE_HOME'];
+  else process.env['KIMI_CODE_HOME'] = savedHome;
+  if (tempHome !== undefined) rmSync(tempHome, { recursive: true, force: true });
+  tempHome = undefined;
+});
 
 afterEach(() => {
   globalThis.fetch = savedFetch;

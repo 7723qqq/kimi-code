@@ -30,7 +30,7 @@ function loopbackLauncher() {
   return {
     type: 'command' as const,
     program: process.execPath,
-    args: [process.execPath, join(here, 'fixtures', 'exec-server-child.ts')],
+    args: [join(here, 'fixtures', 'exec-server-child.ts')],
     env: { EXEC_SERVER_VERSION: TEST_VERSION },
   };
 }
