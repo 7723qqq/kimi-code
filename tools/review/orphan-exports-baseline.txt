@@ -47,12 +47,14 @@ deleteImported  apps/vis/server/src/lib/import-store.ts
 descendantsOfType  packages/tree-sitter-bash/src/node.ts
 dispatchTools  packages/agent-core-v2/src/human/agent/machine.ts
 editorBorderHighlighted  apps/kimi-code/src/tui/kimi-tui.ts
+evaluateRecall  packages/agent-core-v2/src/features/associativeMemory/eval.ts
 extendWorkspaceWithSkillRoots  packages/agent-core-v2/src/tool/path-access.ts
 extractFromWireLine  packages/kap-server/src/search/wireExtract.ts
 findAltScreenSearchMatches  packages/pi-tui/src/alt-screen-search.ts
 flushTelemetrySync  packages/telemetry/src/index.ts
 foldWireRecordFacts  packages/transcript/src/history/foldFacts.ts
 followWorkspaceHandlers  packages/agent-core-v2/src/app/sessionManager/sessionLookup.ts
+formatEvaluation  packages/agent-core-v2/src/features/associativeMemory/eval.ts
 formatGitBadge  apps/kimi-code/src/utils/git/git-status.ts
 fromLlmMessage  packages/agent-core-v2/src/llm-adapter/contract/message.ts
 getRainbowDanceView  apps/kimi-code/src/tui/easter-eggs/dance.ts
@@ -103,3 +105,4 @@ stagedExeFileName  apps/kimi-code/src/cli/update/native-stage.ts
 stubPair  packages/agent-core-v2/src/_base/di/test.ts
 usesTraitDrivenThinking  packages/agent-core-v2/src/llm-adapter/model/thinking.ts
 verifyFileIntegritySync  packages/minidb/src/gen-codec.ts
+writeAudit  packages/agent-core-v2/src/features/associativeMemory/audit.ts

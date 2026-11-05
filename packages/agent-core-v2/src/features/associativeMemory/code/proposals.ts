@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'pathe';
 import { dump } from 'js-yaml';
 
@@ -23,7 +23,7 @@ export async function approveProposal(
 ): Promise<HardRule> {
   const dir = join(homeDir, storeRoot);
   const proposalsPath = join(dir, proposalsFileName);
-  const lines = (await readFile(proposalsPath, 'utf8'))
+  const lines = (await Bun.file(proposalsPath).text())
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
@@ -35,7 +35,7 @@ export async function approveProposal(
   const codePath = join(dir, 'code.md');
   let content = '';
   try {
-    content = await readFile(codePath, 'utf8');
+    content = await Bun.file(codePath).text();
   } catch {
     content = '';
   }

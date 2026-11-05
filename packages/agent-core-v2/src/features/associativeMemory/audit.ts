@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'pathe';
 
 export type AuditKind =
@@ -35,7 +35,7 @@ export async function appendAudit(path: string, entry: AuditEntry): Promise<void
 export async function readAudit(path: string, limit: number): Promise<readonly AuditEntry[]> {
   let content: string;
   try {
-    content = await readFile(path, 'utf8');
+    content = await Bun.file(path).text();
   } catch {
     return [];
   }
