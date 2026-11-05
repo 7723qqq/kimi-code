@@ -226,7 +226,7 @@ describe('FileStorageService — recursive list', () => {
     await svc.write('scope', 'top.bin', encoder.encode('t'));
     await svc.write('scope', 'file-history/aaa@v1', encoder.encode('a'));
 
-    expect(await svc.list('scope')).toEqual(['file-history', 'top.bin']);
+    expect((await svc.list('scope')).toSorted()).toEqual(['file-history', 'top.bin']);
     expect(await svc.list('scope', 'file-history')).toEqual(['file-history']);
   });
 

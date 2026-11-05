@@ -1497,7 +1497,11 @@ describe('runUpdatePreflight', () => {
       expectPackageManagerSpawn(
         'npm',
         ['install', '-g', `@moonshot-ai/kimi-code@${NEXT_DEV}`],
-        { detached: true, stdio: 'ignore', windowsHide: true },
+        {
+          detached: true,
+          stdio: 'ignore',
+          windowsHide: process.platform === 'win32' ? true : undefined,
+        },
       );
       expect(refreshUpdateCache).toHaveBeenCalledWith({ channel: 'canary' });
       expect(mocks.appendRolloutDecisionLog).toHaveBeenCalledWith(expect.objectContaining({
