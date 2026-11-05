@@ -3,10 +3,12 @@ import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import { EnvironmentError, EnvironmentRegistry } from '#/environment/environmentRegistry';
 import { fakeEnvironment } from './stubs';
 
+const DRAIN_TIMEOUT_MS = 25;
+
 describe('EnvironmentRegistry', () => {
   let registry: EnvironmentRegistry;
   beforeEach(() => {
-    registry = new EnvironmentRegistry();
+    registry = new EnvironmentRegistry({ drainTimeoutMs: DRAIN_TIMEOUT_MS });
   });
 
   it('rejects conflicts', () => {
@@ -14,17 +16,22 @@ describe('EnvironmentRegistry', () => {
     expect(() => registry.register(fakeEnvironment('local', 'two'))).toThrow(EnvironmentError);
   });
 
-  it('removes the current environment without waiting on held leases', async () => {
+  it('unregisters a removed environment at once and retires it once its leases drain', async () => {
     const first = fakeEnvironment('local', 'one');
     const second = fakeEnvironment('local', 'two');
     const registration = registry.register(first);
     const lease = registry.acquire({ environmentId: 'local' }, ['fs']);
-    await registration.remove();
+
+    const removal = registration.remove();
+    expect(registry.current('local')).toBeUndefined();
     registry.register(second);
-    expect(lease.environment).toBe(first);
-    expect(first.disposed).toBe(true);
     expect(registry.acquire({ environmentId: 'local' }).environment).toBe(second);
+    expect(lease.environment).toBe(first);
+    expect(first.disposed).toBe(false);
+
     lease.dispose();
+    await removal;
+    expect(first.disposed).toBe(true);
   });
 
   it('drains a removed environment after its lease is released', async () => {
@@ -44,21 +51,12 @@ describe('EnvironmentRegistry', () => {
   });
 
   it('disposes a removed environment after the drain timeout', async () => {
-    ;
-    try {
-      const first = fakeEnvironment('local', 'one');
-      const registration = registry.register(first);
-      const lease = registry.acquire({ environmentId: 'local' });
-      const removal = registration.remove();
-
-      await Bun.sleep(5000);
-      await removal;
-
-      expect(first.disposed).toBe(true);
-      lease.dispose();
-    } finally {
-      ;
-    }
+    const first = fakeEnvironment('local', 'one');
+    const registration = registry.register(first);
+    const lease = registry.acquire({ environmentId: 'local' });
+    await registration.remove();
+    expect(first.disposed).toBe(true);
+    lease.dispose();
   });
 
   it('does not fallback when a environment is missing', () => {

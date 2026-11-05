@@ -44,7 +44,11 @@ interface Entry {
   closed: boolean;
 }
 
-const ENVIRONMENT_DRAIN_TIMEOUT_MS = 5000;
+export interface EnvironmentRegistryOptions {
+  readonly drainTimeoutMs?: number;
+}
+
+const DEFAULT_ENVIRONMENT_DRAIN_TIMEOUT_MS = 5000;
 
 export interface EnvironmentRegistryChange {
   readonly environmentId: string;
@@ -74,6 +78,12 @@ export class EnvironmentRegistry {
   private readonly changeEmitter = new Emitter<EnvironmentRegistryChange>();
   readonly onDidChange: Event<EnvironmentRegistryChange> = this.changeEmitter.event;
   private disposing = false;
+
+  private readonly drainTimeoutMs: number;
+
+  constructor(options: EnvironmentRegistryOptions = {}) {
+    this.drainTimeoutMs = options.drainTimeoutMs ?? DEFAULT_ENVIRONMENT_DRAIN_TIMEOUT_MS;
+  }
 
   private list(): readonly Environment[] {
     return [...this.entries.values()].map((entry) => entry.environment);
@@ -319,7 +329,7 @@ export class EnvironmentRegistry {
         entry.drainResolvers.add(resolve);
       }),
       new Promise<void>((resolve) => {
-        timeout = setTimeout(resolve, ENVIRONMENT_DRAIN_TIMEOUT_MS);
+        timeout = setTimeout(resolve, this.drainTimeoutMs);
       }),
     ]);
     if (timeout !== undefined) clearTimeout(timeout);
