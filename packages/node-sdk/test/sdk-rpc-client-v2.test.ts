@@ -60,9 +60,9 @@ import {
   OsProcessErrors,
 } from '@moonshot-ai/agent-core-v2';
 
+import { CapabilityService } from '@moonshot-ai/agent-core-v2';
 import { ISessionMediaStore } from '@moonshot-ai/agent-core-v2';
 import { ISessionAgentProfileCatalog } from '@moonshot-ai/agent-core-v2';
-import { CapabilityService } from '@moonshot-ai/agent-core-v2/app/capability/capabilityService';
 import { attachmentFileSource } from '@moonshot-ai/agent-core-v2/agent/tools/fileReadSource';
 import { HostFileSystem } from '@moonshot-ai/agent-core-v2';
 import { HostProcessService } from '@moonshot-ai/agent-core-v2';

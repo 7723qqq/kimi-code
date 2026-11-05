@@ -460,6 +460,6 @@ describe('Bash environment generation guard', () => {
 
     expect(result.isError).toBe(true);
     expect(outputText(result)).toContain('cannot be resolved on the target');
-    expect(release).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledTimes(1);
   });
 });

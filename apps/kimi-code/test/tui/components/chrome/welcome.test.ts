@@ -103,7 +103,12 @@ describe('WelcomeComponent', () => {
   it('shows the remote binding cwd instead of the local work dir', () => {
     const remote: AppState = {
       ...appState,
-      environment: { environmentId: 'dev-box', status: 'ready', cwd: '/remote/project' },
+      environment: {
+        environmentId: 'dev-box',
+        type: 'ssh',
+        status: 'ready',
+        cwd: '/remote/project',
+      },
     };
 
     const lines = new WelcomeComponent(remote).render(80).join('\n');

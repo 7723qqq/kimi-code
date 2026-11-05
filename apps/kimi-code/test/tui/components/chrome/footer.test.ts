@@ -130,7 +130,7 @@ describe('FooterComponent', () => {
     }));
     const remoteState: AppState = {
       ...appState,
-      environment: { environmentId: 'dev-box', status: 'ready', cwd: '/remote/proj' },
+      environment: { environmentId: 'dev-box', type: 'ssh', status: 'ready', cwd: '/remote/proj' },
     };
     const footer = new FooterComponent(remoteState);
     footer.setGitBinding((state) => ({
@@ -143,7 +143,12 @@ describe('FooterComponent', () => {
 
     footer.setState({
       ...remoteState,
-      environment: { environmentId: 'dev-box', status: 'connecting', cwd: '/remote/proj' },
+      environment: {
+        environmentId: 'dev-box',
+        type: 'ssh',
+        status: 'connecting',
+        cwd: '/remote/proj',
+      },
     });
     expect(gitStatusMocks.createGitStatusCache).toHaveBeenCalledTimes(1);
     expect(footer.render(120).join('\n')).toContain('feat/remote-badge');
