@@ -44,6 +44,7 @@ import {
 
 import { type GrepInput, GrepInputSchema, IGrepTool } from './grep';
 import GREP_DESCRIPTION from './grep.md?raw';
+import { pinnedGeneration } from '#/agent/environmentBinding/agentEnvironment';
 
 const RG_MAX_COLUMNS = 500;
 const RG_MAX_THREADS = 4;

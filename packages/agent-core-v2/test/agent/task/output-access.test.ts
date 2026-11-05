@@ -23,6 +23,7 @@ import { TaskOutputTool } from '#/agent/tools/task/task-output/taskOutputTool';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { type StorageReadRange } from '#/persistence/interface/storage';
 import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
+import { AgentTaskPersistence } from '#/agent/task/persist';
 
 interface TaskServiceFixture {
   readonly ctx: TestAgentContext;

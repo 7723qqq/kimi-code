@@ -26,6 +26,7 @@ import {
 
 import { EditInputSchema, IEditTool, type EditInput } from './edit';
 import editDescriptionTemplate from './edit.md?raw';
+import { pinnedGeneration } from '#/agent/environmentBinding/agentEnvironment';
 
 export class EditTool implements IEditTool {
   declare readonly _serviceBrand: undefined;
