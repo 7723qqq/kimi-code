@@ -184,12 +184,14 @@ packages/kap-server/test/sessionEventBroadcaster.test.ts app/event/event2
 packages/kap-server/test/sessionEventBroadcaster.test.ts app/event/eventBusService
 packages/kap-server/test/sessions.test.ts _base/utils/workdir-slug
 packages/kap-server/test/sessions.test.ts agent/contextMemory/toolResultRender
+packages/kap-server/test/sessions.test.ts agent/environmentBinding/environmentBindingOps
 packages/kap-server/test/sessions.test.ts agent/loop/turnEvents
 packages/kap-server/test/sessions.test.ts agent/loop/turnOps
 packages/kap-server/test/sessions.test.ts agent/mcp/output
 packages/kap-server/test/sessions.test.ts agent/media/sessionMediaStore
 packages/kap-server/test/sessions.test.ts agent/tools/os/read/read
 packages/kap-server/test/sessions.test.ts app/sessionLegacy/sessionProtocol
+packages/kap-server/test/sessions.test.ts environment/fakeEnvironment
 packages/kap-server/test/sessions.test.ts session/sessionMetadata/sessionMetaEvents
 packages/kap-server/test/v2Sessions.test.ts app/git/git
 packages/kap-server/test/workspaceFs.test.ts environment/fakeEnvironment
