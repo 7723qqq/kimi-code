@@ -32,6 +32,7 @@ import { createFileIfAbsent } from '#/utils/persistence';
 
 import { isAutoUpdateDisabledByEnv, shouldAutoInstallUpdates } from './auto-install';
 import type { StagedNativeUpdate } from './native-stage';
+import { decideUpdate } from './select';
 
 // The staged-update readers pull zod schema modules; they load only once a
 // staged update actually exists, which is the rare path on startup.
@@ -511,11 +512,17 @@ export async function maybeRelaunchWithStagedNativeUpdate(deps: NativeSwapDeps):
     return false;
   };
 
-  // Downgrade guard: the staged version must be newer than what is running.
-  // (The user may have installed a newer build manually after we staged.)
-  const { gt } = await import('semver');
-  if (!gt(staged.version, deps.currentVersion)) {
-    logSwap('discarding staged update (not newer)', {
+  const plan = decideUpdate(deps.currentVersion, {
+    channel: staged.channel,
+    latest: staged.version,
+  });
+  const allowed =
+    plan.kind === 'upgrade' ||
+    (plan.kind === 'switch-channel' &&
+      staged.manual === true &&
+      staged.intent === 'switch-channel');
+  if (!allowed) {
+    logSwap('discarding staged update (not an allowed update)', {
       staged: staged.version,
       current: deps.currentVersion,
     });

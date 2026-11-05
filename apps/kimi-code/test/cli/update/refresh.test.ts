@@ -1,7 +1,7 @@
 import { describe, expect, it, mock } from 'bun:test';
 
 import { refreshUpdateCache } from '#/cli/update/refresh';
-import type { UpdateManifest } from '#/cli/update/types';
+import type { UpdateCache, UpdateManifest } from '#/cli/update/types';
 import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
 import { setGlobal, restoreGlobals } from '#test/helpers/stubs';
 
@@ -30,41 +30,68 @@ describe('refreshUpdateCache', () => {
   it('writes a fresh cache carrying the manifest on successful fetch', async () => {
     const writeCache = mock(async () => {});
     const result = await refreshUpdateCache({
+      channel: 'stable',
       fetchLatest: async () => ({ latest: '0.5.0', manifest: MANIFEST }),
       writeCache,
       now: () => new Date('2026-05-20T12:34:56.000Z'),
     });
 
-    expect(result).toEqual({
+    const written: UpdateCache = {
       source: 'cdn',
+      channel: 'stable',
       checkedAt: '2026-05-20T12:34:56.000Z',
       latest: '0.5.0',
       manifest: MANIFEST,
+    };
+    expect(result).toEqual(written);
+    expect(writeCache).toHaveBeenCalledWith(written);
+  });
+
+  it('tags the cache with the requested channel', async () => {
+    const writeCache = mock(async () => {});
+    const result = await refreshUpdateCache({
+      channel: 'canary',
+      fetchLatest: async () => ({ latest: '0.5.0', manifest: MANIFEST }),
+      writeCache,
+      now: () => new Date('2026-05-20T12:34:56.000Z'),
     });
-    expect(writeCache).toHaveBeenCalledWith(result);
+
+    const written: UpdateCache = {
+      source: 'cdn',
+      channel: 'canary',
+      checkedAt: '2026-05-20T12:34:56.000Z',
+      latest: '0.5.0',
+      manifest: MANIFEST,
+    };
+    expect(result).toEqual(written);
+    expect(writeCache).toHaveBeenCalledWith(written);
   });
 
   it('writes a null manifest when the fetch fell back to plain text', async () => {
     const writeCache = mock(async () => {});
     const result = await refreshUpdateCache({
+      channel: 'stable',
       fetchLatest: async () => ({ latest: '0.5.0', manifest: null }),
       writeCache,
       now: () => new Date('2026-05-20T12:34:56.000Z'),
     });
 
-    expect(result).toEqual({
+    const written: UpdateCache = {
       source: 'cdn',
+      channel: 'stable',
       checkedAt: '2026-05-20T12:34:56.000Z',
       latest: '0.5.0',
       manifest: null,
-    });
-    expect(writeCache).toHaveBeenCalledWith(result);
+    };
+    expect(result).toEqual(written);
+    expect(writeCache).toHaveBeenCalledWith(written);
   });
 
   it('propagates fetch errors and skips writeCache so the cache is preserved', async () => {
     const writeCache = mock(async () => {});
     await expect(
       refreshUpdateCache({
+        channel: 'stable',
         fetchLatest: async () => {
           throw new Error('network down');
         },
@@ -94,6 +121,7 @@ describe('refreshUpdateCache', () => {
     );
     try {
       const result = refreshUpdateCache({
+        channel: 'stable',
         timeoutMs: 10_000,
         clock,
         writeCache: async () => {},

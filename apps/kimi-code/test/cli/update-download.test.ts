@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:te
 import * as sdkModule from '@moonshot-ai/kimi-code-sdk';
 
 import { createDownloadProgress, runUpdateDownloadCommand } from '#/cli/sub/update-download';
+import * as nativeStageModule from '#/cli/update/native-stage';
 import type { NativeInstallDetection } from '#/cli/update/source';
 import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
 
@@ -41,6 +42,7 @@ void mock.module('#/cli/update/install-lock', () => ({
 }));
 
 void mock.module('#/cli/update/native-stage', () => ({
+  ...nativeStageModule,
   stageNativeUpdate: mocks.stageNativeUpdate,
   readStagedNativeUpdate: mocks.readStagedNativeUpdate,
   promoteStagedUpdateToManual: mocks.promoteStagedUpdateToManual,
@@ -132,6 +134,7 @@ describe('runUpdateDownloadCommand', () => {
 
   const stagedRecord = (overrides: Record<string, unknown> = {}) => ({
     version: '0.7.0',
+    channel: 'stable',
     target: 'win32-x64',
     exeFileName: 'kimi-0.7.0.4242.1700000000000.0.exe',
     sha256: STAGED_HASH,
@@ -148,11 +151,47 @@ describe('runUpdateDownloadCommand', () => {
     expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('native build'));
   });
 
+  it('passes the selected dev channel to the native stage', async () => {
+    await expect(runUpdateDownloadCommand('0.0.0-canary.42', true, 'switch-channel', 'canary')).resolves.toBe(0);
+
+    expect(mocks.stageNativeUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      version: '0.0.0-canary.42',
+      channel: 'canary',
+      manual: true,
+      intent: 'switch-channel',
+    }));
+  });
+
+  it('does not adopt a same-version stage from a different channel', async () => {
+    const release = mock(async () => {});
+    mocks.tryAcquireUpdateInstallLock
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue({ filePath: '/tmp/install.lock', release });
+    mocks.readUpdateInstallLockVersion.mockResolvedValue('0.0.0-canary.42');
+    mocks.readStagedNativeUpdate.mockResolvedValue({
+      version: '0.0.0-canary.42',
+      channel: 'stable',
+      sha256: STAGED_HASH,
+    });
+
+    await expect(runUpdateDownloadCommand('0.0.0-canary.42', false, 'upgrade', 'canary')).resolves.toBe(0);
+
+    expect(mocks.stageNativeUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      version: '0.0.0-canary.42',
+      channel: 'canary',
+    }));
+    expect(mocks.promoteStagedUpdateToManual).not.toHaveBeenCalled();
+  });
+
   it('waits for and adopts the result when another instance downloads the same version', async () => {
     mocks.tryAcquireUpdateInstallLock.mockResolvedValue(null);
     mocks.readUpdateInstallLockVersion.mockResolvedValue('0.7.0');
     // The other worker's staged update is verified on disk on the first poll.
-    mocks.readStagedNativeUpdate.mockResolvedValue({ version: '0.7.0', sha256: STAGED_HASH });
+    mocks.readStagedNativeUpdate.mockResolvedValue({
+      version: '0.7.0',
+      channel: 'stable',
+      sha256: STAGED_HASH,
+    });
     const stdoutSpy = spyOn(process.stdout, 'write').mockImplementation(() => true);
     await expect(runUpdateDownloadCommand('0.7.0')).resolves.toBe(0);
     expect(mocks.stageNativeUpdate).not.toHaveBeenCalled();
@@ -164,7 +203,11 @@ describe('runUpdateDownloadCommand', () => {
   it('promotes the adopted stage to manual when an explicit upgrade waited for it', async () => {
     mocks.tryAcquireUpdateInstallLock.mockResolvedValue(null);
     mocks.readUpdateInstallLockVersion.mockResolvedValue('0.7.0');
-    mocks.readStagedNativeUpdate.mockResolvedValue({ version: '0.7.0', sha256: STAGED_HASH });
+    mocks.readStagedNativeUpdate.mockResolvedValue({
+      version: '0.7.0',
+      channel: 'stable',
+      sha256: STAGED_HASH,
+    });
     spyOn(process.stdout, 'write').mockImplementation(() => true);
     await expect(runUpdateDownloadCommand('0.7.0', true)).resolves.toBe(0);
     expect(mocks.stageNativeUpdate).not.toHaveBeenCalled();
@@ -177,8 +220,14 @@ describe('runUpdateDownloadCommand', () => {
     // marker is confirmed.
     mocks.tryAcquireUpdateInstallLock.mockResolvedValue(null);
     mocks.readUpdateInstallLockVersion.mockResolvedValue('0.7.0');
-    mocks.readStagedNativeUpdate.mockResolvedValue({ version: '0.7.0', sha256: STAGED_HASH });
-    mocks.promoteStagedUpdateToManual.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    mocks.readStagedNativeUpdate.mockResolvedValue({
+      version: '0.7.0',
+      channel: 'stable',
+      sha256: STAGED_HASH,
+    });
+    mocks.promoteStagedUpdateToManual
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
     spyOn(process.stdout, 'write').mockImplementation(() => true);
     await expect(runUpdateDownloadCommand('0.7.0', true)).resolves.toBe(0);
     expect(mocks.stageNativeUpdate).not.toHaveBeenCalled();
@@ -188,7 +237,11 @@ describe('runUpdateDownloadCommand', () => {
   it('waits instead of adopting when the recorded payload fails the checksum', async () => {
     mocks.tryAcquireUpdateInstallLock.mockResolvedValue(null);
     mocks.readUpdateInstallLockVersion.mockResolvedValue('0.7.0');
-    mocks.readStagedNativeUpdate.mockResolvedValue({ version: '0.7.0', sha256: STAGED_HASH });
+    mocks.readStagedNativeUpdate.mockResolvedValue({
+      version: '0.7.0',
+      channel: 'stable',
+      sha256: STAGED_HASH,
+    });
     // First poll: the recorded payload is corrupt (the holder is re-staging
     // it — its metadata is only replaced when the repaired generation
     // publishes); second poll: the repaired generation verifies.
@@ -205,7 +258,11 @@ describe('runUpdateDownloadCommand', () => {
       .mockResolvedValueOnce(null) // initial acquire: held
       .mockResolvedValue({ filePath: '/tmp/install.lock', release }); // in-loop takeover
     mocks.readUpdateInstallLockVersion.mockResolvedValueOnce('0.7.0');
-    mocks.readStagedNativeUpdate.mockResolvedValue({ version: '0.7.0', sha256: STAGED_HASH });
+    mocks.readStagedNativeUpdate.mockResolvedValue({
+      version: '0.7.0',
+      channel: 'stable',
+      sha256: STAGED_HASH,
+    });
     // The recorded payload never verifies: the lock poll takes over and
     // stageNativeUpdate's own adoption check re-stages it.
     mocks.hashFileSha256.mockResolvedValue('corrupt');
@@ -244,7 +301,7 @@ describe('runUpdateDownloadCommand', () => {
     mocks.promoteStagedUpdateToManual.mockResolvedValue(false);
     const stderrSpy = spyOn(process.stderr, 'write').mockImplementation(() => true);
     spyOn(process.stdout, 'write').mockImplementation(() => true);
-    const pending = runUpdateDownloadCommand('0.7.0', true, { clock });
+    const pending = runUpdateDownloadCommand('0.7.0', true, 'upgrade', 'stable', { clock });
     // Each poll arms the next one only after it settles, so advance window by window.
     for (let poll = 0; poll < 6; poll += 1) {
       await advanceAsync(clock, 2_000);
@@ -273,7 +330,7 @@ describe('runUpdateDownloadCommand', () => {
     mocks.readStagedNativeUpdate.mockResolvedValue(null);
     const stderrSpy = spyOn(process.stderr, 'write').mockImplementation(() => true);
     spyOn(process.stdout, 'write').mockImplementation(() => true);
-    const pending = runUpdateDownloadCommand('0.7.0', undefined, { clock });
+    const pending = runUpdateDownloadCommand('0.7.0', undefined, 'upgrade', 'stable', { clock });
     await advanceAsync(clock, 7 * 60 * 60 * 1000);
     await expect(pending).resolves.toBe(1);
     expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('already downloading'));

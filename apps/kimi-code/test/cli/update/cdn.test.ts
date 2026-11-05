@@ -1,7 +1,15 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it, jest, mock } from 'bun:test';
 
-import { fetchLatestFromCdn, fetchLatestVersionFromCdn } from '#/cli/update/cdn';
-import { kimiCodeCdnLatestJsonUrl, kimiCodeCdnLatestUrl } from '#/constant/region-urls';
+import {
+  fetchChannelFeed,
+  fetchLatestFromCdn,
+  fetchLatestVersionFromCdn,
+} from '#/cli/update/cdn';
+import {
+  kimiCodeCdnCanaryChannelUrl,
+  kimiCodeCdnLatestJsonUrl,
+  kimiCodeCdnLatestUrl,
+} from '#/constant/region-urls';
 import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
 
 /** Let the promise chains behind a settled clock tick run. */
@@ -290,5 +298,77 @@ describe('fetchLatestFromCdn', () => {
     // assertion only happens once the faked clock has produced the rejection.
     await expect(result).rejects.toThrow(/aborted/);
     expect(rejected).toBe(true);
+  });
+});
+
+function pointerBody(version: string): string {
+  return JSON.stringify({
+    schemaVersion: 1,
+    version,
+    publishedAt: '2026-10-26T01:00:00.000Z',
+    rollout: [],
+  });
+}
+
+describe('fetchChannelFeed', () => {
+  it('reads only the stable feed on the stable channel', async () => {
+    const fetchImpl = mockRoutedFetch({
+      [kimiCodeCdnLatestJsonUrl()]: { body: MANIFEST_BODY },
+      [kimiCodeCdnCanaryChannelUrl()]: { body: pointerBody('0.0.0-canary.42') },
+    });
+
+    await expect(fetchChannelFeed('stable', fetchImpl)).resolves.toMatchObject({
+      channel: 'stable',
+      latest: '2.0.0',
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl).toHaveBeenCalledWith(kimiCodeCdnLatestJsonUrl(), expect.anything());
+  });
+
+  it('reads only canary even when stable has a higher version', async () => {
+    const fetchImpl = mockRoutedFetch({
+      [kimiCodeCdnLatestJsonUrl()]: { body: MANIFEST_BODY },
+      [kimiCodeCdnCanaryChannelUrl()]: { body: pointerBody('0.0.0-canary.42') },
+    });
+
+    await expect(fetchChannelFeed('canary', fetchImpl)).resolves.toEqual({
+      channel: 'canary',
+      latest: '0.0.0-canary.42',
+      manifest: {
+        version: '0.0.0-canary.42',
+        publishedAt: '2026-10-26T01:00:00.000Z',
+        rollout: [],
+      },
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl).toHaveBeenCalledWith(kimiCodeCdnCanaryChannelUrl(), expect.anything());
+  });
+
+  it('aborts a canary response whose body stalls after headers arrive', async () => {
+    const clock = createFakeClock();
+    const fetchImpl = mock(async () => ({
+      ok: true,
+      status: 200,
+      text: async () => new Promise<string>(() => {}),
+    })) as unknown as typeof fetch;
+    const outcome = fetchChannelFeed('canary', fetchImpl, 10, clock).then(
+      () => 'resolved' as const,
+      () => 'rejected' as const,
+    );
+
+    await advanceAsync(clock, 10);
+
+    await expect(outcome).resolves.toBe('rejected');
+  });
+
+  it('fails without requesting stable when the canary pointer is unavailable', async () => {
+    const fetchImpl = mockRoutedFetch({
+      [kimiCodeCdnLatestJsonUrl()]: { body: MANIFEST_BODY },
+      [kimiCodeCdnCanaryChannelUrl()]: { status: 503 },
+    });
+
+    await expect(fetchChannelFeed('canary', fetchImpl)).rejects.toThrow(/HTTP 503/);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl).toHaveBeenCalledWith(kimiCodeCdnCanaryChannelUrl(), expect.anything());
   });
 });

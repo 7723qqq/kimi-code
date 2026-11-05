@@ -521,6 +521,8 @@ export default {
       providerClearBetaApi: '删除已保存的 beta API 标记。',
       providerClearAdaptiveThinking: '删除已保存的自适应思考声明。',
       providerClearOverrides: '删除已保存的模型 overrides。',
+      updateDownloadSwitchChannel: '该阶段会切换所选的更新通道。',
+      updateDownloadChannel: '所选的更新通道。',
       upgradeYes: '跳过确认提示，直接安装更新。',
       updateDownloadManual: '该阶段用于响应用户主动发起的升级',
       acpRegion: '与 --login 搭配使用的登录区域："mainland-cn"（kimi.com）或 "global"（kimi.ai）。',
@@ -549,6 +551,11 @@ export default {
       downloadStart: '正在下载 {{kind}} {{version}}（优先镜像，回退官方）…',
       downloadDone: '{{file}} — {{size}} 字节，sha256 {{sha256}}',
       downloadFailed: '下载 {{kind}} 失败：{{error}}',
+    },
+    updates: {
+      switchStageMustBeManual: 'switch-channel 阶段必须标记为手动',
+      switchStageRequiresManual: '切换通道的暂存需要用户手动确认',
+      channelIgnored: '警告：忽略 {{name}}={{raw}}；应为 "stable" 或 "canary"。改用 {{channel}}。',
     },
     errors: {
       unknownCommand: "未知命令 '{{command}}'。参见 '{{cliName}} --help'。",
@@ -2186,9 +2193,13 @@ export default {
       updateManualNewerAvailable: '{{package}} 有新版本可用（{{current}} -> {{target}}）。',
       updateManualDetectedSource: '检测到的安装来源：{{source}}',
       updateManualRunCommand: '如需手动更新，请运行：{{command}}',
+      updateManualSwitchRequested:
+        '已请求切换 Kimi Code 发布通道（{{current}} -> {{version}}）。',
+      updateManualSwitchChannel: '发布通道：{{from}} -> {{to}}',
       updateManualThirdPartyNote:
         '注意：第三方来源可能滞后于官方发布。\n如需获取最新版本，请使用官方安装方式：{{url}}',
       updateInstallSuccess: '已将 {{package}} 更新到 {{version}}。重启 CLI 即可使用新版本。',
+      updateInstallSwitched: '已将 {{package}} 切换到 {{channel}} {{version}}。重启 CLI 即可使用。',
       updateBackgroundSuccessNotice: 'Kimi Code 已更新到 {{version}}\n更新日志：{{url}}',
       updateInstallFailedWarning: '警告：安装 {{package}}@{{version}} 失败：{{error}}',
       // update/prompt.ts
@@ -2202,8 +2213,14 @@ export default {
       updatePromptSource: '来源 ',
       updatePromptCommand: '命令',
       updatePromptNavHint: '↑↓ 选择 · Enter 确认 · Esc 继续',
+      updatePromptSwitchTitle: '切换 Kimi Code 发布通道',
+      updatePromptSwitchNewer: '从所选发布通道安装当前版本。',
+      updatePromptChannel: '通道',
+      updatePromptSwitchTo: '立即切换到 {{channel}}（{{version}}）',
+      updatePromptStayOn: '继续留在 {{channel}}',
       // sub/update-download.ts
       updateDownloadNativeOnly: '错误：更新下载仅在原生构建中可用',
+      updateDownloadInvalidChannel: '错误：无效的更新通道 {{channel}}',
       updateDownloadInProgress: 'Kimi Code {{version}} 的下载已在进行中；正在等待其完成…',
       updateDownloadStaged: 'Kimi Code {{version}} 已下载完成；将在下次启动时应用。',
       updateDownloadAlreadyStaged: 'Kimi Code {{version}} 已经下载完成；将在下次启动时应用。',

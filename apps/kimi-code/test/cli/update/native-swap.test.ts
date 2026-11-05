@@ -21,6 +21,7 @@ import { readStagedNativeUpdate, stagedExeFileName } from '#/cli/update/native-s
 import { maybeRelaunchWithStagedNativeUpdate, type NativeSwapDeps } from '#/cli/update/native-swap';
 import { KIMI_CODE_UPDATE_REEXEC_ENV } from '#/constant/app';
 import { getNativeStagedStateFile, getNativeStagingDir } from '#/utils/paths';
+import type { InstallIntent, UpdateChannel } from '#/cli/update/types';
 import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 import { waitForAssertion } from '#test/helpers/waitFor';
 
@@ -142,7 +143,11 @@ function createSpawnMock(routes: {
 async function seedStagedUpdate(
   exePath: string,
   version: string,
-  options?: { readonly manual?: boolean },
+  options?: {
+    readonly channel?: UpdateChannel;
+    readonly manual?: boolean;
+    readonly intent?: 'switch-channel';
+  },
 ): Promise<void> {
   const stagingDir = getNativeStagingDir(exePath);
   await mkdir(stagingDir, { recursive: true });
@@ -150,21 +155,19 @@ async function seedStagedUpdate(
   await writeFile(join(stagingDir, stagedExeFileName(version, 'linux')), exeBytes);
   await writeFile(
     getNativeStagedStateFile(exePath),
-    `${JSON.stringify(
-      {
-        version,
-        target: 'linux-x64',
-        exeFileName: stagedExeFileName(version, 'linux'),
-        // The swap re-verifies the staged bytes against this checksum, so the
-        // seed must record the payload's real sha256.
-        sha256: createHash('sha256').update(exeBytes).digest('hex'),
-        exeSize: STAGED_EXE_SIZE,
-        stagedAt: new Date().toISOString(),
-        manual: options?.manual === true ? true : undefined,
-      },
-      null,
-      2,
-    )}\n`,
+    `${JSON.stringify({
+      version,
+      target: 'linux-x64',
+      exeFileName: stagedExeFileName(version, 'linux'),
+      // The swap re-verifies the staged bytes against this checksum, so the
+      // seed must record the payload's real sha256.
+      sha256: createHash('sha256').update(exeBytes).digest('hex'),
+      exeSize: STAGED_EXE_SIZE,
+      stagedAt: new Date().toISOString(),
+      channel: options?.channel ?? 'stable',
+      manual: options?.manual === true ? true : undefined,
+      intent: options?.intent,
+    }, null, 2)}\n`,
     'utf-8',
   );
 }
@@ -253,6 +256,79 @@ describe('maybeRelaunchWithStagedNativeUpdate', () => {
     await expect(
       stat(join(getNativeStagingDir(exePath), stagedExeFileName(CURRENT_VERSION, 'linux'))),
     ).resolves.toBeDefined();
+  });
+
+  describe('channel switch', () => {
+    const DEV_VERSION = '0.0.0-canary.42';
+    const STABLE_VERSION = '0.5.0';
+
+    it('swaps stable over canary only when the stage carries confirmed switch intent', async () => {
+      await seedStagedUpdate(exePath, STABLE_VERSION, { manual: true, intent: 'switch-channel' });
+      const { calls, spawnImpl } = createSpawnMock({ smokeStdout: `${STABLE_VERSION}\n` });
+      const relaunched = await maybeRelaunchWithStagedNativeUpdate(
+        makeDeps(exePath, { spawnImpl, currentVersion: DEV_VERSION }),
+      );
+
+      expect(relaunched).toBe(true);
+      expect(calls[0]?.args).toEqual(['--version']);
+      expect((await readFile(exePath)).equals(Buffer.alloc(STAGED_EXE_SIZE, 1))).toBe(true);
+    });
+
+    it('discards a newer cross-channel stage without switch intent', async () => {
+      await seedStagedUpdate(exePath, STABLE_VERSION, { manual: true });
+      const { calls, spawnImpl } = createSpawnMock({ smokeStdout: `${STABLE_VERSION}\n` });
+      const relaunched = await maybeRelaunchWithStagedNativeUpdate(
+        makeDeps(exePath, { spawnImpl, currentVersion: DEV_VERSION }),
+      );
+
+      expect(relaunched).toBe(false);
+      expect(calls).toHaveLength(0);
+      expect(await readFile(exePath, 'utf-8')).toBe('old-binary');
+    });
+
+    it('swaps canary over stable when the switch was confirmed', async () => {
+      const target = '0.0.0-canary.43';
+      await seedStagedUpdate(exePath, target, {
+        channel: 'canary',
+        manual: true,
+        intent: 'switch-channel',
+      });
+      const { calls, spawnImpl } = createSpawnMock({ smokeStdout: `${target}\n` });
+      const relaunched = await maybeRelaunchWithStagedNativeUpdate(
+        makeDeps(exePath, { spawnImpl, currentVersion: STABLE_VERSION }),
+      );
+
+      expect(relaunched).toBe(true);
+      expect((await readFile(exePath)).equals(Buffer.alloc(STAGED_EXE_SIZE, 1))).toBe(true);
+    });
+
+    it('discards an older same-channel stage even when it carries switch intent', async () => {
+      await seedStagedUpdate(exePath, '0.0.0-canary.41', {
+        channel: 'canary',
+        manual: true,
+        intent: 'switch-channel',
+      });
+      const { calls, spawnImpl } = createSpawnMock({});
+      const relaunched = await maybeRelaunchWithStagedNativeUpdate(
+        makeDeps(exePath, { spawnImpl, currentVersion: DEV_VERSION }),
+      );
+
+      expect(relaunched).toBe(false);
+      expect(calls).toHaveLength(0);
+      expect(await readFile(exePath, 'utf-8')).toBe('old-binary');
+    });
+
+    it('re-evaluates the channel relationship from the version running at swap time', async () => {
+      await seedStagedUpdate(exePath, STABLE_VERSION, { manual: true, intent: 'switch-channel' });
+      const { calls, spawnImpl } = createSpawnMock({ smokeStdout: `${STABLE_VERSION}\n` });
+      const relaunched = await maybeRelaunchWithStagedNativeUpdate(
+        makeDeps(exePath, { spawnImpl, currentVersion: '0.6.0' }),
+      );
+
+      expect(relaunched).toBe(false);
+      expect(calls).toHaveLength(0);
+      expect(await readFile(exePath, 'utf-8')).toBe('old-binary');
+    });
   });
 
   it('discards staged metadata whose exe is missing', async () => {
@@ -764,6 +840,7 @@ describe('maybeRelaunchWithStagedNativeUpdate', () => {
             sha256: 'b'.repeat(64),
             exeSize: Buffer.byteLength('newer-binary'),
             stagedAt: new Date().toISOString(),
+            channel: 'stable',
           })}\n`,
         );
         return fakeChild({ code: 0, stdout: `${STAGED_VERSION}\n` }).child;

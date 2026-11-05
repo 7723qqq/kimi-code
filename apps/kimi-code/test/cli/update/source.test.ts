@@ -6,6 +6,7 @@ import {
   detectInstallSource,
   detectNativeInstall,
   type BunRuntimeView,
+  type DetectInstallSourceDeps,
 } from '#/cli/update/source';
 import { resolveCommandPath } from '#/utils/process/resolve-command';
 
@@ -129,6 +130,21 @@ describe('detectInstallSource', () => {
         platform: 'darwin',
       }),
     ).resolves.toBe('homebrew');
+  });
+
+  it('skips the global prefix lookup when it is not needed for channel selection', async () => {
+    const getGlobalPrefix = mock(async () => '/usr/local');
+
+    const deps: Partial<DetectInstallSourceDeps> = {
+      getPackageRoot: () => '/usr/local/lib/node_modules/@moonshot-ai/kimi-code',
+      getGlobalPrefix,
+      detectNative: () => ({ native: false, kind: 'sea' }),
+      platform: 'darwin',
+      allowGlobalPrefix: false,
+    };
+    await expect(detectInstallSource(deps)).resolves.toBeNull();
+
+    expect(getGlobalPrefix).not.toHaveBeenCalled();
   });
 
   it('returns native when detectNative reports a packaged SEA-era install (highest priority)', async () => {

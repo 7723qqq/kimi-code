@@ -15,12 +15,14 @@ import {
 } from '#/cli/update/install-lock';
 import {
   hashFileSha256,
+  matchesStagedUpdateRequest,
   promoteStagedUpdateToManual,
   readStagedNativeUpdate,
   stagedExePath,
   stageNativeUpdate,
 } from '#/cli/update/native-stage';
 import { detectNativeInstall } from '#/cli/update/source';
+import type { InstallIntent, UpdateChannel } from '#/cli/update/types';
 import { t } from '#/i18n';
 import { SYSTEM_RENDER_CLOCK, type RenderClock } from '#/utils/render-clock';
 
@@ -68,11 +70,16 @@ type StagedUpdateWait =
  * marker landed on the stage — a concurrent startup swap may be claiming and
  * restoring the metadata right now, and reporting adoption for a promotion
  * that never persisted would strand the update under the env opt-out.
+ *
+ * A channel switch adopts only a stage carrying the same version, channel and
+ * confirmed switch intent as the request.
  */
 async function waitForStagedUpdate(
   version: string,
   exePath: string,
   manual: boolean,
+  intent: InstallIntent,
+  channel: UpdateChannel,
   clock: RenderClock,
 ): Promise<StagedUpdateWait> {
   const deadline = clock.now() + STAGE_WAIT_MAX_MS;
@@ -87,8 +94,10 @@ async function waitForStagedUpdate(
   let hashedGeneration: StagedGeneration | null = null;
   for (;;) {
     const staged = await readStagedNativeUpdate(exePath);
+    const requestMatches =
+      staged !== null && matchesStagedUpdateRequest(staged, { version, channel, manual, intent });
     let verified = false;
-    if (staged !== null && staged.version === version) {
+    if (staged !== null && requestMatches) {
       const identity: StagedGeneration = {
         exeFileName: staged.exeFileName,
         sha256: staged.sha256,
@@ -106,7 +115,7 @@ async function waitForStagedUpdate(
         hashedGeneration = verified ? identity : null;
       }
     }
-    if (staged !== null && verified) {
+    if (staged !== null && requestMatches && verified) {
       if (!manual || (await promoteStagedUpdateToManual(exePath, staged))) {
         return { status: 'staged' };
       }
@@ -143,12 +152,21 @@ export interface UpdateDownloadDeps {
 export async function runUpdateDownloadCommand(
   version: string,
   manual: boolean = false,
+  intent: InstallIntent = 'upgrade',
+  channel: UpdateChannel = 'stable',
   deps: UpdateDownloadDeps = {},
 ): Promise<number> {
   const clock = deps.clock ?? SYSTEM_RENDER_CLOCK;
   const install = detectNativeInstall();
   if (!install.native) {
     process.stderr.write(t('tui.statusMessages.updateDownloadNativeOnly') + '\n');
+    return 1;
+  }
+  if (channel !== 'stable' && channel !== 'canary') {
+    process.stderr.write(
+      t('tui.statusMessages.updateDownloadInvalidChannel', { channel: JSON.stringify(channel) }) +
+        '\n',
+    );
     return 1;
   }
   const out = process.stdout;
@@ -159,7 +177,14 @@ export async function runUpdateDownloadCommand(
       // Another worker is already downloading this exact version: wait for it
       // and adopt its verified result instead of exiting on a maybe.
       out.write(t('tui.statusMessages.updateDownloadInProgress', { version }) + '\n');
-      const wait = await waitForStagedUpdate(version, process.execPath, manual, clock);
+      const wait = await waitForStagedUpdate(
+        version,
+        process.execPath,
+        manual,
+        intent,
+        channel,
+        clock,
+      );
       if (wait.status === 'staged') {
         out.write(t('tui.statusMessages.updateDownloadStaged', { version }) + '\n');
         return 0;
@@ -190,10 +215,12 @@ export async function runUpdateDownloadCommand(
   try {
     const result = await stageNativeUpdate({
       version,
+      channel,
       exePath: process.execPath,
       engine: install.kind,
       onProgress,
       manual,
+      intent,
     });
     if (out.isTTY) out.write('\n');
     if (result.status === 'already-staged') {

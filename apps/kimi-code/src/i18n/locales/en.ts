@@ -541,6 +541,8 @@ export default {
       providerClearBetaApi: 'Drop the stored beta API flag.',
       providerClearAdaptiveThinking: 'Drop the stored adaptive-thinking declaration.',
       providerClearOverrides: 'Drop the stored per-model overrides.',
+      updateDownloadSwitchChannel: 'The stage changes the selected update channel.',
+      updateDownloadChannel: 'The selected update channel.',
       upgradeYes: 'Skip the confirmation prompt and install the update directly.',
       updateDownloadManual: 'the stage answers an explicit user-initiated upgrade',
       acpRegion:
@@ -570,6 +572,12 @@ export default {
       downloadStart: 'Downloading {{kind}} {{version}} (mirror first, official fallback)…',
       downloadDone: '{{file}} — {{size}} bytes, sha256 {{sha256}}',
       downloadFailed: 'Downloading {{kind}} failed: {{error}}',
+    },
+    updates: {
+      switchStageMustBeManual: 'switch-channel stages must be manual',
+      switchStageRequiresManual: 'channel switch staging requires manual confirmation',
+      channelIgnored:
+        'warning: ignoring {{name}}={{raw}}; expected "stable" or "canary". Using {{channel}}.',
     },
     errors: {
       unknownCommand: "unknown command '{{command}}'. See '{{cliName}} --help'.",
@@ -2273,10 +2281,15 @@ export default {
         'A newer version of {{package}} is available ({{current}} -> {{target}}).',
       updateManualDetectedSource: 'Detected install source: {{source}}',
       updateManualRunCommand: 'To update manually, run: {{command}}',
+      updateManualSwitchRequested:
+        'Kimi Code release channel switch requested ({{current}} -> {{version}}).',
+      updateManualSwitchChannel: 'Release channel: {{from}} -> {{to}}',
       updateManualThirdPartyNote:
         'Note: Third-party sources may lag behind the official release.\nFor the latest updates, use the official installer: {{url}}',
       updateInstallSuccess:
         'Updated {{package}} to {{version}}. Restart the CLI to use the new version.',
+      updateInstallSwitched:
+        'Switched {{package}} to {{channel}} {{version}}. Restart the CLI to use it.',
       updateBackgroundSuccessNotice: 'Kimi Code updated to {{version}}\nChangelog: {{url}}',
       updateInstallFailedWarning: 'warning: failed to install {{package}}@{{version}}: {{error}}',
       // update/prompt.ts
@@ -2290,8 +2303,14 @@ export default {
       updatePromptSource: 'Source ',
       updatePromptCommand: 'Command',
       updatePromptNavHint: '↑↓ choose · Enter confirm · Esc continue',
+      updatePromptSwitchTitle: 'Switch Kimi Code Release Channel',
+      updatePromptSwitchNewer: 'Install the current version from the selected release channel.',
+      updatePromptChannel: 'Channel',
+      updatePromptSwitchTo: 'Switch to {{channel}} now ({{version}})',
+      updatePromptStayOn: 'Stay on {{channel}}',
       // sub/update-download.ts
       updateDownloadNativeOnly: 'error: update download is only available in the native build',
+      updateDownloadInvalidChannel: 'error: invalid update channel {{channel}}',
       updateDownloadInProgress:
         'A download of Kimi Code {{version}} is already in progress; waiting for it to finish…',
       updateDownloadStaged: 'Kimi Code {{version}} is downloaded; it applies on the next start.',

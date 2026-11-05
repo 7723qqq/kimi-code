@@ -1,10 +1,14 @@
 import { valid } from 'semver';
 import { z } from 'zod';
 
-import { kimiCodeCdnLatestJsonUrl, kimiCodeCdnLatestUrl } from '#/constant/region-urls';
+import {
+  kimiCodeCdnCanaryChannelUrl,
+  kimiCodeCdnLatestJsonUrl,
+  kimiCodeCdnLatestUrl,
+} from '#/constant/region-urls';
 import { SYSTEM_RENDER_CLOCK, type RenderClock } from '#/utils/render-clock';
 
-import type { UpdateManifest } from './types';
+import type { UpdateChannel, UpdateManifest } from './types';
 
 const CDN_FETCH_TIMEOUT_MS = 3_000;
 
@@ -34,18 +38,28 @@ export interface FetchLatestResult {
   readonly manifest: UpdateManifest | null;
 }
 
-async function fetchWithTimeout(
+async function fetchWithTimeout<T>(
   fetchImpl: typeof fetch,
   input: string,
   timeoutMs: number,
   clock: RenderClock,
-): Promise<Response> {
+  read: (response: Response) => Promise<T>,
+): Promise<T> {
   const controller = new AbortController();
   const timeout = clock.setTimeout(() => {
     controller.abort();
   }, timeoutMs);
+  const operation = (async () => {
+    const response = await fetchImpl(input, { signal: controller.signal });
+    return read(response);
+  })();
+  const aborted = new Promise<never>((_resolve, reject) => {
+    controller.signal.addEventListener('abort', () => {
+      reject(new Error('aborted'));
+    });
+  });
   try {
-    return await fetchImpl(input, { signal: controller.signal });
+    return await Promise.race([operation, aborted]);
   } finally {
     clock.clearTimeout(timeout);
   }
@@ -67,27 +81,30 @@ export async function fetchLatestVersionFromCdn(
   timeoutMs: number = CDN_FETCH_TIMEOUT_MS,
   clock: RenderClock = SYSTEM_RENDER_CLOCK,
 ): Promise<string> {
-  const response = await fetchWithTimeout(fetchImpl, kimiCodeCdnLatestUrl(), timeoutMs, clock);
-  if (!response.ok) {
-    throw new Error(`CDN /latest returned HTTP ${response.status}`);
-  }
-  const raw = (await response.text()).trim();
-  if (valid(raw) === null) {
-    throw new Error(`CDN /latest returned invalid semver: ${JSON.stringify(raw)}`);
-  }
-  return raw;
+  return fetchWithTimeout(fetchImpl, kimiCodeCdnLatestUrl(), timeoutMs, clock, async (response) => {
+    if (!response.ok) {
+      throw new Error(`CDN /latest returned HTTP ${response.status}`);
+    }
+    const raw = (await response.text()).trim();
+    if (valid(raw) === null) {
+      throw new Error(`CDN /latest returned invalid semver: ${JSON.stringify(raw)}`);
+    }
+    return raw;
+  });
 }
 
-async function fetchUpdateManifestFromCdn(
+async function fetchManifestFromCdn(
   fetchImpl: typeof fetch,
+  url: string,
   timeoutMs: number,
   clock: RenderClock,
 ): Promise<UpdateManifest> {
-  const response = await fetchWithTimeout(fetchImpl, kimiCodeCdnLatestJsonUrl(), timeoutMs, clock);
-  if (!response.ok) {
-    throw new Error(`CDN /latest.json returned HTTP ${response.status}`);
-  }
-  return UpdateManifestSchema.parse(JSON.parse(await response.text()));
+  return fetchWithTimeout(fetchImpl, url, timeoutMs, clock, async (response) => {
+    if (!response.ok) {
+      throw new Error(`CDN ${url} returned HTTP ${response.status}`);
+    }
+    return UpdateManifestSchema.parse(JSON.parse(await response.text()));
+  });
 }
 
 /**
@@ -103,10 +120,38 @@ export async function fetchLatestFromCdn(
   timeoutMs: number = CDN_FETCH_TIMEOUT_MS,
   clock: RenderClock = SYSTEM_RENDER_CLOCK,
 ): Promise<FetchLatestResult> {
-  const manifest = await fetchUpdateManifestFromCdn(fetchImpl, timeoutMs, clock).catch(() => null);
+  const manifest = await fetchManifestFromCdn(
+    fetchImpl,
+    kimiCodeCdnLatestJsonUrl(),
+    timeoutMs,
+    clock,
+  ).catch(() => null);
   if (manifest !== null) {
     return { latest: manifest.version, manifest };
   }
   const latest = await fetchLatestVersionFromCdn(fetchImpl, timeoutMs, clock);
   return { latest, manifest: null };
+}
+
+export interface ChannelFeed extends FetchLatestResult {
+  readonly channel: UpdateChannel;
+}
+
+/** Canary failures stay failures because stable is a different release line. */
+export async function fetchChannelFeed(
+  channel: UpdateChannel,
+  fetchImpl: typeof fetch = fetch,
+  timeoutMs: number = CDN_FETCH_TIMEOUT_MS,
+  clock: RenderClock = SYSTEM_RENDER_CLOCK,
+): Promise<ChannelFeed> {
+  if (channel === 'stable') {
+    return { channel, ...(await fetchLatestFromCdn(fetchImpl, timeoutMs, clock)) };
+  }
+  const manifest = await fetchManifestFromCdn(
+    fetchImpl,
+    kimiCodeCdnCanaryChannelUrl(),
+    timeoutMs,
+    clock,
+  );
+  return { channel, latest: manifest.version, manifest };
 }

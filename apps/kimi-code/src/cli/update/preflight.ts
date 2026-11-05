@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import { log } from '@moonshot-ai/kimi-code-sdk/logging';
 import type { TelemetryProperties } from '@moonshot-ai/kimi-telemetry';
 
+import { CLI_COMMAND_NAME } from '#/constant/app';
 import {
   kimiCodeOfficialInstallUrl,
   nativeInstallCommandUnix,
@@ -33,22 +34,29 @@ import {
 import { refreshUpdateCache } from './refresh';
 import {
   appendRolloutDecisionLog,
-  decidePassiveUpdateTarget,
+  decidePassiveUpdate,
   isRolloutBypassedByExperimentalEnv,
   resolveUpdateDeviceId,
   rolloutBucket,
   rolloutDelayForBucket,
   type PassiveUpdateDecision,
 } from './rollout';
+import { formatUpdateChannelWarning, resolveUpdateChannel, updateChannelForVersion } from './select';
 import { detectInstallSource } from './source';
 import {
   NPM_PACKAGE_NAME,
+  type ActionableUpdatePlan,
+  type ChannelSelection,
   type InstallSource,
-  type UpdateDecision,
+  type UpdateChannel,
+  type UpdateFeed,
   type UpdateInstallState,
   type UpdateManifest,
+  type UpdatePlan,
   type UpdatePreflightResult,
+  type UpdatePromptAction,
   type UpdateTarget,
+  type UpgradePlan,
 } from './types';
 
 export type { UpdatePreflightResult } from './types';
@@ -89,7 +97,13 @@ export function installCommandFor(
   source: InstallSource,
   version: string,
   platform: NodeJS.Platform,
+  channel: UpdateChannel = 'stable',
 ): string {
+  if (source === 'native' && channel === 'canary') {
+    return platform === 'win32'
+      ? `$env:KIMI_CODE_UPDATE_CHANNEL='canary'; ${CLI_COMMAND_NAME} update --yes`
+      : `KIMI_CODE_UPDATE_CHANNEL=canary ${CLI_COMMAND_NAME} update --yes`;
+  }
   switch (source) {
     case 'npm-global':
       return `npm install -g ${NPM_PACKAGE_NAME}@${version}`;
@@ -187,24 +201,28 @@ function resolveSpawnCommand(cmd: string, platform: NodeJS.Platform): string | u
  * verbatim — already absolute — and never goes through a shell. Returns the
  * shell flag alongside, since Windows package-manager shims (.cmd) still
  * need one.
+ *
+ * The native downloader is told which channel and intent the install has, so
+ * a canary stage is never adopted by a stable client and a channel switch is
+ * only ever applied after the user chose it.
  */
 function resolveInstallSpawn(
   source: InstallSource,
-  version: string,
+  plan: ActionableUpdatePlan,
   platform: NodeJS.Platform,
   options?: { readonly manual?: boolean },
 ):
   | { readonly resolvedCmd: string; readonly args: readonly string[]; readonly shell: boolean }
   | undefined {
-  const { cmd, args } = spawnForSource(source, version, platform);
+  const { cmd, args } = spawnForSource(source, plan.target.version, platform);
   if (source === 'native') {
     // A user-confirmed install marks the stage as manual so the startup swap
     // applies it even when automatic updates are opted out via env.
-    return {
-      resolvedCmd: cmd,
-      args: options?.manual === true ? [...args, '--manual'] : args,
-      shell: false,
-    };
+    const nativeArgs = [...args];
+    if (plan.target.channel === 'canary') nativeArgs.push('--channel', 'canary');
+    if (options?.manual === true) nativeArgs.push('--manual');
+    if (plan.kind === 'switch-channel') nativeArgs.push('--switch-channel');
+    return { resolvedCmd: cmd, args: nativeArgs, shell: false };
   }
   const resolvedCmd = resolveSpawnCommand(cmd, platform);
   if (resolvedCmd === undefined) return undefined;
@@ -222,7 +240,7 @@ function thirdPartySourceNote(): string {
 
 export function renderManualUpdateMessage(
   currentVersion: string,
-  target: UpdateTarget,
+  plan: ActionableUpdatePlan,
   source: InstallSource,
   installCommand: string,
 ): string {
@@ -243,6 +261,26 @@ export function renderManualUpdateMessage(
       sourceDesc = t('tui.statusMessages.updateUnsupportedManager');
       break;
   }
+  const target = plan.target;
+  if (plan.kind === 'switch-channel') {
+    return (
+      t('tui.statusMessages.updateManualSwitchRequested', {
+        current: currentVersion,
+        version: target.version,
+      }) +
+      '\n' +
+      t('tui.statusMessages.updateManualSwitchChannel', {
+        from: plan.sourceChannel,
+        to: target.channel,
+      }) +
+      '\n' +
+      t('tui.statusMessages.updateManualDetectedSource', { source: sourceDesc }) +
+      '\n' +
+      t('tui.statusMessages.updateManualRunCommand', { command: installCommand }) +
+      '\n' +
+      (source === 'homebrew' ? thirdPartySourceNote() : '')
+    );
+  }
   return (
     t('tui.statusMessages.updateManualNewerAvailable', {
       package: NPM_PACKAGE_NAME,
@@ -258,11 +296,20 @@ export function renderManualUpdateMessage(
   );
 }
 
-export function renderInstallSuccessMessage(target: UpdateTarget): string {
+export function renderInstallSuccessMessage(plan: ActionableUpdatePlan): string {
+  if (plan.kind === 'switch-channel') {
+    return (
+      t('tui.statusMessages.updateInstallSwitched', {
+        package: NPM_PACKAGE_NAME,
+        channel: plan.target.channel,
+        version: plan.target.version,
+      }) + '\n'
+    );
+  }
   return (
     t('tui.statusMessages.updateInstallSuccess', {
       package: NPM_PACKAGE_NAME,
-      version: target.version,
+      version: plan.target.version,
     }) + '\n'
   );
 }
@@ -277,8 +324,14 @@ function renderBackgroundInstallSuccessNotice(version: string): string {
   );
 }
 
-function refreshInBackground(): void {
-  void refreshUpdateCache().catch(() => {});
+/** Resolved once per preflight: which feed to read and whether rollout gating applies. */
+interface UpdateCheckContext {
+  readonly selection: ChannelSelection;
+  readonly experimental: boolean;
+}
+
+function refreshInBackground(check: UpdateCheckContext): void {
+  void refreshUpdateCache({ channel: check.selection.channel }).catch(() => {});
 }
 
 /** Telemetry properties describing where this device sits in the rollout. */
@@ -291,17 +344,19 @@ interface RolloutTelemetry {
 
 function rolloutTelemetryFor(
   deviceId: string,
-  targetVersion: string,
+  plan: ActionableUpdatePlan,
   manifest: UpdateManifest | null,
-  bypassRollout: boolean,
+  experimental: boolean,
 ): RolloutTelemetry {
-  const bucket = rolloutBucket(deviceId, targetVersion);
+  const bucket = rolloutBucket(deviceId, plan.target.version);
   return {
     rollout_bucket: bucket,
     rollout_delay_seconds:
-      manifest === null || bypassRollout ? 0 : rolloutDelayForBucket(manifest.rollout, bucket),
+      manifest === null || experimental || plan.kind === 'switch-channel'
+        ? 0
+        : rolloutDelayForBucket(manifest.rollout, bucket),
     rollout_from_manifest: manifest !== null,
-    rollout_bypassed: bypassRollout,
+    rollout_bypassed: experimental,
   };
 }
 
@@ -310,20 +365,22 @@ type RolloutCheckPhase = 'startup-cache' | 'background-refresh' | 'prompt-refres
 /** Record which case a passive version check hit in `updates/rollout.log`. */
 function logRolloutDecision(
   phase: RolloutCheckPhase,
+  check: UpdateCheckContext,
   currentVersion: string,
-  latest: string | null,
-  manifest: UpdateManifest | null,
+  feed: UpdateFeed,
   decision: PassiveUpdateDecision,
 ): void {
   void appendRolloutDecisionLog({
     ts: nowIso(),
     phase,
+    channel: feed.channel,
+    invalidChannel: check.selection.origin === 'invalid' ? check.selection.raw : undefined,
     reason: decision.reason,
     current: currentVersion,
-    latest,
-    target: decision.target?.version ?? null,
-    manifestPresent: manifest !== null,
-    publishedAt: manifest?.publishedAt ?? null,
+    latest: feed.latest,
+    target: decision.plan.kind === 'none' ? null : decision.plan.target.version,
+    manifestPresent: feed.manifest !== null,
+    publishedAt: feed.manifest?.publishedAt ?? null,
     bucket: decision.bucket,
     delaySeconds: decision.delaySeconds,
     eligibleAt: decision.eligibleAt,
@@ -333,88 +390,72 @@ function logRolloutDecision(
 function refreshAndMaybeInstallInBackground(
   currentVersion: string,
   deviceId: string,
-  bypassRollout: boolean,
+  check: UpdateCheckContext,
   isInteractive: boolean,
   installState: UpdateInstallState,
+  sourceHint: InstallSource | null,
   platform: NodeJS.Platform,
   deps: PreflightDeps,
 ): void {
   void (async () => {
-    const refreshed = await refreshUpdateCache();
+    const refreshed = await refreshUpdateCache({ channel: check.selection.channel });
     if (!isInteractive) return;
-    const decision = decidePassiveUpdateTarget(
+    const decision = decidePassiveUpdate(
       currentVersion,
-      refreshed.latest,
-      refreshed.manifest,
+      refreshed,
       deviceId,
       new Date(),
-      bypassRollout,
+      check.experimental,
     );
-    logRolloutDecision(
-      'background-refresh',
-      currentVersion,
-      refreshed.latest,
-      refreshed.manifest,
-      decision,
-    );
-    const target = decision.target;
-    if (target === null) return;
-    const source = await detectInstallSource().catch(() => 'unsupported' as const);
+    logRolloutDecision('background-refresh', check, currentVersion, refreshed, decision);
+    const plan = decision.plan;
+    if (plan.kind !== 'upgrade') return;
+    const source = sourceHint ?? (await detectInstallSource().catch(() => 'unsupported' as const));
     await tryStartAutomaticBackgroundInstall(
       installState,
       currentVersion,
-      target,
+      plan,
       source,
       platform,
       deps,
-      rolloutTelemetryFor(deviceId, target.version, refreshed.manifest, bypassRollout),
+      rolloutTelemetryFor(deviceId, plan, refreshed.manifest, check.experimental),
     );
   })().catch(() => {});
 }
 
-interface UserVisibleUpdateTarget {
-  readonly target: UpdateTarget | null;
+interface UserVisibleUpdate {
+  readonly decision: PassiveUpdateDecision;
   readonly manifest: UpdateManifest | null;
 }
 
-async function refreshUserVisibleUpdateTarget(
+async function refreshUserVisibleUpdate(
   currentVersion: string,
   deviceId: string,
-  bypassRollout: boolean,
-  fallbackTarget: UpdateTarget,
+  check: UpdateCheckContext,
+  fallbackDecision: PassiveUpdateDecision,
   fallbackManifest: UpdateManifest | null,
   clock: RenderClock,
-): Promise<UserVisibleUpdateTarget> {
+): Promise<UserVisibleUpdate> {
   let timeout: ReturnType<RenderClock['setTimeout']> | undefined;
-  const fallback: UserVisibleUpdateTarget = {
-    target: fallbackTarget,
+  const fallback: UserVisibleUpdate = {
+    decision: fallbackDecision,
     manifest: fallbackManifest,
   };
   try {
-    const refresh = refreshUpdateCache()
+    const refresh = refreshUpdateCache({ channel: check.selection.channel })
       .then((refreshed) => {
-        const decision = decidePassiveUpdateTarget(
+        const decision = decidePassiveUpdate(
           currentVersion,
-          refreshed.latest,
-          refreshed.manifest,
+          refreshed,
           deviceId,
           new Date(),
-          bypassRollout,
+          check.experimental,
         );
-        logRolloutDecision(
-          'prompt-refresh',
-          currentVersion,
-          refreshed.latest,
-          refreshed.manifest,
-          decision,
-        );
-        return {
-          target: decision.target,
-          manifest: refreshed.manifest,
-        };
+        logRolloutDecision('prompt-refresh', check, currentVersion, refreshed, decision);
+        return { decision, manifest: refreshed.manifest };
       })
       .catch(() => fallback);
-    const timeoutFallback = new Promise<UserVisibleUpdateTarget>((resolve) => {
+    const timeoutFallback = new Promise<UserVisibleUpdate>((resolve) => {
       timeout = clock.setTimeout(() => {
         resolve(fallback);
       }, USER_VISIBLE_UPDATE_REFRESH_TIMEOUT_MS);
@@ -550,7 +591,7 @@ function trackUpdatePrompted(
   currentVersion: string,
   target: UpdateTarget,
   source: InstallSource,
-  decision: UpdateDecision,
+  decision: UpdatePromptAction,
   rolloutTelemetry: RolloutTelemetry,
 ): void {
   trackUpdateEvent(track, 'update_prompted', {
@@ -600,13 +641,13 @@ function logUpdateWarn(
 
 async function promptInstall(
   currentVersion: string,
-  target: UpdateTarget,
+  plan: ActionableUpdatePlan,
   source: InstallSource,
   installCommand: string,
 ): Promise<InstallPromptChoiceValue> {
   const options: InstallPromptOptions = {
     currentVersion,
-    target,
+    plan,
     installSource: source,
     installCommand,
   };
@@ -615,16 +656,16 @@ async function promptInstall(
 
 export async function installUpdate(
   source: InstallSource,
-  version: string,
+  plan: ActionableUpdatePlan,
   platform: NodeJS.Platform,
   spawnImpl: typeof spawn = spawn,
 ): Promise<void> {
   // installUpdate only runs after an explicit user choice (the `upgrade`
   // command or the interactive prompt) — mark the stage as manual.
-  const spawnTarget = resolveInstallSpawn(source, version, platform, { manual: true });
+  const spawnTarget = resolveInstallSpawn(source, plan, platform, { manual: true });
   if (spawnTarget === undefined) {
     throw new Error(
-      `${spawnForSource(source, version, platform).cmd} was not found in PATH; cannot install the update`,
+      `${spawnForSource(source, plan.target.version, platform).cmd} was not found in PATH; cannot install the update`,
     );
   }
   await new Promise<void>((resolve, reject) => {
@@ -652,12 +693,13 @@ export async function installUpdate(
 async function startBackgroundInstall(
   state: UpdateInstallState,
   currentVersion: string,
-  target: UpdateTarget,
+  plan: UpgradePlan,
   source: InstallSource,
   platform: NodeJS.Platform,
   deps: PreflightDeps,
   rolloutTelemetry: RolloutTelemetry,
 ): Promise<void> {
+  const target = plan.target;
   // The native self-spawned downloader holds the install lock itself for the
   // whole download — taking it here too would race the child (it starts before
   // this function's finally releases) into a false success. Package-manager
@@ -698,7 +740,7 @@ async function startBackgroundInstall(
       source,
     });
 
-    const spawnTarget = resolveInstallSpawn(source, target.version, platform);
+    const spawnTarget = resolveInstallSpawn(source, plan, platform);
     let settled = false;
 
     const finish = (succeeded: boolean): void => {
@@ -781,12 +823,13 @@ async function startBackgroundInstall(
 async function tryStartAutomaticBackgroundInstall(
   installState: UpdateInstallState,
   currentVersion: string,
-  target: UpdateTarget,
+  plan: UpgradePlan,
   source: InstallSource,
   platform: NodeJS.Platform,
   deps: PreflightDeps,
   rolloutTelemetry: RolloutTelemetry,
 ): Promise<boolean> {
+  const target = plan.target;
   const sourceCanAutoInstall = canAutoInstall(source, platform);
   const autoInstallUpdates = sourceCanAutoInstall
     ? await shouldAutoInstallUpdates(deps.logger)
@@ -799,7 +842,7 @@ async function tryStartAutomaticBackgroundInstall(
     await startBackgroundInstall(
       installState,
       currentVersion,
-      target,
+      plan,
       source,
       platform,
       deps,
@@ -810,12 +853,12 @@ async function tryStartAutomaticBackgroundInstall(
 }
 
 export function decideUpdateAction(
-  target: UpdateTarget | null,
+  plan: UpdatePlan,
   isInteractive: boolean,
   source: InstallSource,
   platform: NodeJS.Platform,
-): UpdateDecision {
-  if (target === null || !isInteractive) return 'none';
+): UpdatePromptAction {
+  if (plan.kind === 'none' || !isInteractive) return 'none';
   return canAutoInstall(source, platform) ? 'prompt-install' : 'manual-command';
 }
 
@@ -842,7 +885,14 @@ export async function runUpdatePreflight(
   try {
     const isInteractive = options.isTTY ?? (process.stdin.isTTY && process.stdout.isTTY);
     const deviceId = resolveUpdateDeviceId();
-    const bypassRollout = isRolloutBypassedByExperimentalEnv();
+    const sourceHint = await detectInstallSource({ allowGlobalPrefix: false }).catch(() => null);
+    const selection = resolveUpdateChannel(currentVersion, sourceHint ?? 'unsupported');
+    const channelWarning = formatUpdateChannelWarning(selection);
+    if (channelWarning !== null) stderr.write(channelWarning);
+    const check: UpdateCheckContext = {
+      selection,
+      experimental: isRolloutBypassedByExperimentalEnv(),
+    };
     let installState = await readUpdateInstallState().catch(() => emptyUpdateInstallState());
     if (isInteractive) {
       installState = await showPendingBackgroundInstallNotice(
@@ -853,59 +903,82 @@ export async function runUpdatePreflight(
       );
     }
 
-    const cache = await readUpdateCache().catch(() => null);
-    const cachedManifest = cache?.manifest ?? null;
-    const cachedDecision = decidePassiveUpdateTarget(
+    // A cache written for another channel describes a different release line:
+    // its `latest` must never be compared against this channel's versions.
+    const storedCache = await readUpdateCache().catch(() => null);
+    const cache = storedCache?.channel === selection.channel ? storedCache : null;
+    const cachedFeed: UpdateFeed = cache ?? {
+      channel: selection.channel,
+      latest: null,
+      manifest: null,
+    };
+    let decision = decidePassiveUpdate(
       currentVersion,
-      cache?.latest ?? null,
-      cachedManifest,
+      cachedFeed,
       deviceId,
       new Date(),
-      bypassRollout,
+      check.experimental,
     );
-    logRolloutDecision(
-      'startup-cache',
-      currentVersion,
-      cache?.latest ?? null,
-      cachedManifest,
-      cachedDecision,
-    );
-    const target = cachedDecision.target;
-    if (target === null) {
-      refreshAndMaybeInstallInBackground(
+    let manifest = cachedFeed.manifest;
+    logRolloutDecision('startup-cache', check, currentVersion, cachedFeed, decision);
+    let plan = decision.plan;
+
+    if (plan.kind === 'none') {
+      // Nothing usable is cached for the selected channel. On an interactive
+      // startup that only happens when the channel differs from the installed
+      // one (an explicitly requested switch, or an env override), so refresh
+      // once within the user-visible budget instead of waiting for the next
+      // background cycle.
+      if (!isInteractive || selection.channel === updateChannelForVersion(currentVersion)) {
+        refreshAndMaybeInstallInBackground(
+          currentVersion,
+          deviceId,
+          check,
+          isInteractive,
+          installState,
+          sourceHint,
+          platform,
+          deps,
+        );
+        return 'continue';
+      }
+      const refreshed = await refreshUserVisibleUpdate(
         currentVersion,
         deviceId,
-        bypassRollout,
-        isInteractive,
-        installState,
-        platform,
-        deps,
+        check,
+        decision,
+        manifest,
+        deps.clock,
       );
-      return 'continue';
+      decision = refreshed.decision;
+      manifest = refreshed.manifest;
+      plan = decision.plan;
+      if (plan.kind === 'none') return 'continue';
     }
 
     const source: InstallSource = !isInteractive
       ? 'unsupported'
-      : await detectInstallSource().catch(() => 'unsupported' as const);
+      : (sourceHint ?? (await detectInstallSource().catch(() => 'unsupported' as const)));
 
-    const decision = decideUpdateAction(target, isInteractive, source, platform);
-    if (decision === 'none') {
-      refreshInBackground();
+    const promptAction = decideUpdateAction(plan, isInteractive, source, platform);
+    if (promptAction === 'none') {
+      refreshInBackground(check);
       return 'continue';
     }
 
     if (
-      await tryStartAutomaticBackgroundInstall(
+      plan.kind === 'upgrade' &&
+      (await tryStartAutomaticBackgroundInstall(
         installState,
         currentVersion,
-        target,
+        plan,
         source,
         platform,
         deps,
-        rolloutTelemetryFor(deviceId, target.version, cachedManifest, bypassRollout),
-      )
+        rolloutTelemetryFor(deviceId, plan, manifest, check.experimental),
+      ))
     ) {
-      refreshInBackground();
+      refreshInBackground(check);
       return 'continue';
     }
 
@@ -916,62 +989,57 @@ export async function runUpdatePreflight(
     // user accepts — before anything is installed — so a withdrawn or
     // superseded target still never gets installed, and a declined prompt costs
     // no network wait at all.
-    const cachedRollout = rolloutTelemetryFor(
-      deviceId,
-      target.version,
-      cachedManifest,
-      bypassRollout,
+    const cachedRollout = rolloutTelemetryFor(deviceId, plan, manifest, check.experimental);
+    const installCommand = installCommandFor(
+      source,
+      plan.target.version,
+      platform,
+      plan.target.channel,
     );
-    const installCommand = installCommandFor(source, target.version, platform);
-    trackUpdatePrompted(deps.track, currentVersion, target, source, decision, cachedRollout);
+    trackUpdatePrompted(deps.track, currentVersion, plan.target, source, promptAction, cachedRollout);
 
-    if (decision === 'manual-command') {
-      stdout.write(renderManualUpdateMessage(currentVersion, target, source, installCommand));
+    if (promptAction === 'manual-command') {
+      stdout.write(renderManualUpdateMessage(currentVersion, plan, source, installCommand));
       return 'continue';
     }
 
-    const choice = await promptInstall(currentVersion, target, source, installCommand);
+    const choice = await promptInstall(currentVersion, plan, source, installCommand);
     if (choice === 'skip') return 'continue';
 
-    const revalidated = await refreshUserVisibleUpdateTarget(
+    const revalidated = await refreshUserVisibleUpdate(
       currentVersion,
       deviceId,
-      bypassRollout,
-      target,
-      cachedManifest,
+      check,
+      decision,
+      manifest,
       deps.clock,
     );
-    const installTarget = revalidated.target;
-    if (installTarget === null) return 'continue';
-    const installRollout = rolloutTelemetryFor(
-      deviceId,
-      installTarget.version,
-      revalidated.manifest,
-      bypassRollout,
-    );
+    const installPlan = revalidated.decision.plan;
+    if (installPlan.kind === 'none') return 'continue';
     if (
-      await tryStartAutomaticBackgroundInstall(
+      installPlan.kind === 'upgrade' &&
+      (await tryStartAutomaticBackgroundInstall(
         installState,
         currentVersion,
-        installTarget,
+        installPlan,
         source,
         platform,
         deps,
-        installRollout,
-      )
+        rolloutTelemetryFor(deviceId, installPlan, revalidated.manifest, check.experimental),
+      ))
     ) {
       return 'continue';
     }
 
     try {
-      await installUpdate(source, installTarget.version, platform, deps.spawn);
-      stdout.write(renderInstallSuccessMessage(installTarget));
+      await installUpdate(source, installPlan, platform, deps.spawn);
+      stdout.write(renderInstallSuccessMessage(installPlan));
       return 'exit';
     } catch (error) {
       stderr.write(
         t('tui.statusMessages.updateInstallFailedWarning', {
           package: NPM_PACKAGE_NAME,
-          version: installTarget.version,
+          version: installPlan.target.version,
           error: formatErrorMessage(error),
         }) + '\n',
       );

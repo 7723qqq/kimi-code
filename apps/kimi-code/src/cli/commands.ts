@@ -8,6 +8,7 @@ import { registerMigrateCommand, type MigrateCommandOptions } from '#/migration/
 import { registerImportSessionsCommand } from '#/session-import/command';
 
 import type { CLIOptions } from './options';
+import type { InstallIntent, UpdateChannel } from './update/types';
 import { registerAcpCommand } from './sub/acp';
 import { registerAppCommand } from './sub/app';
 import { registerDoctorCommand } from './sub/doctor';
@@ -26,7 +27,12 @@ export type MainCommandHandler = (opts: CLIOptions) => void;
 export type MigrateCommandHandler = (options: MigrateCommandOptions) => void;
 export type PluginNodeRunnerHandler = (entry: string, args: readonly string[]) => void;
 export type UpgradeCommandHandler = (yes: boolean) => void | Promise<void>;
-export type UpdateDownloadHandler = (version: string, manual: boolean) => void;
+export type UpdateDownloadHandler = (
+  version: string,
+  manual: boolean,
+  intent: InstallIntent,
+  channel: UpdateChannel,
+) => void;
 export type CodeShimHandler = () => void;
 export type ExecServerCommandHandler = (listen: string) => void;
 
@@ -144,14 +150,20 @@ export function createProgram(
     });
 
   // Self-spawned worker for native staged updates (detached background
-  // download, or foreground from `kimi upgrade` — `--manual` marks the
-  // latter's stage as user-requested). Hidden: not user-facing.
+  // download, or foreground from `kimi upgrade`. Hidden: not user-facing.
   program
     .command('__update_download', { hidden: true })
     .argument('<version>')
     .option('--manual', 'the stage answers an explicit user-initiated upgrade')
-    .action((targetVersion: string, options: { manual?: boolean }) => {
-      onUpdateDownload(targetVersion, options.manual === true);
+    .option('--switch-channel', t('cli.optionDescriptions.updateDownloadSwitchChannel'))
+    .option('--channel <channel>', t('cli.optionDescriptions.updateDownloadChannel'))
+    .action((targetVersion: string, options: { manual?: boolean; switchChannel?: boolean; channel?: UpdateChannel }) => {
+      onUpdateDownload(
+        targetVersion,
+        options.manual === true,
+        options.switchChannel === true ? 'switch-channel' : 'upgrade',
+        options.channel ?? 'stable',
+      );
     });
 
   program
