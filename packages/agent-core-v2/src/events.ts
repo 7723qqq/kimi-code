@@ -51,6 +51,7 @@ import type {
 } from '#/session/subagent/mirrorAgentRun';
 
 import type { ErrorEvent, WarningEvent } from './errors';
+import { BackgroundTaskOutputEvent } from './events';
 
 export interface ToolResultEvent extends Omit<ToolResultEventPayload, 'agentId'> {
   readonly type: 'tool.result';

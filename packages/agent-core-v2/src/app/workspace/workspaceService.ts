@@ -27,6 +27,7 @@ import {
 } from './workspaceAlias';
 import { WorkspaceCreated, WorkspaceDeleted, WorkspaceUpdated } from './workspaceEvents';
 import { IWorkspacePersistence, type WorkspaceCatalog } from './workspacePersistence';
+import { isWorkDirKey } from '#/_base/utils/workdir-slug';
 
 export class WorkspaceService implements IWorkspaceService {
   declare readonly _serviceBrand: undefined;

@@ -42,6 +42,7 @@ import { DEFAULT_AGENT_PROFILE_NAME } from '#/app/agentProfileCatalog/agentProfi
 import { splitAgentsMdFiles } from '#/agent/profile/context';
 import { workspaceRootKey } from '#/_base/utils/workdir-slug';
 import { LifecycleScope } from '#/app/scopes';
+import { loadAgentsMdForRoots } from '#/agent/profile/context';
 
 const AGENTS_MD_CHANGE_VARIANT = 'agents_md_change';
 const SKILLS_CHANGE_VARIANT = 'skills_change';

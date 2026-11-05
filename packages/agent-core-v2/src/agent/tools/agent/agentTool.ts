@@ -104,6 +104,9 @@ import { ISubagentBackendService } from '#/session/subagent/backend/subagentBack
 import { type SubagentBackendName } from '#/session/subagent/backend/subagentBackend';
 import { backendIncompatibility } from '#/session/subagent/backend/backendCompat';
 import { type SubagentBackendResult } from '#/session/subagent/backend/subagentBackend';
+import { stripSubagentBackendParameter } from '#/session/subagent/backend/configSection';
+import { buildSubagentBackendDescriptions } from '#/session/subagent/backend/configSection';
+import { BACKENDS_EXPERIMENTAL_UNAVAILABLE } from '#/session/subagent/backend/configSection';
 
 const SUBAGENT_TOOL_PARAMETERS = toInputJsonSchema(SubagentToolInputSchema);
 const SUBAGENT_TOOL_PARAMETERS_NO_MODEL = stripSubagentModelParameter(SUBAGENT_TOOL_PARAMETERS);

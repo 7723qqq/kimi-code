@@ -1,6 +1,7 @@
+import { join } from 'node:path';
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { stat } from 'node:fs/promises';
-import type { Readable, Writable } from 'node:stream';
+import { Readable, Writable } from 'node:stream';
 
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { BufferedReadable } from '#/_base/execEnv/bufferedReadable';
