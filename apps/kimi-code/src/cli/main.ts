@@ -374,9 +374,11 @@ async function bootstrap(): Promise<void> {
         process.exit(1);
       });
     },
-    (targetVersion, manual) => {
+    (targetVersion, manual, intent, channel) => {
       void import('./sub/update-download')
-        .then(({ runUpdateDownloadCommand }) => runUpdateDownloadCommand(targetVersion, manual))
+        .then(({ runUpdateDownloadCommand }) =>
+          runUpdateDownloadCommand(targetVersion, manual, intent, channel),
+        )
         .then(
           (code) => {
             process.exit(code);

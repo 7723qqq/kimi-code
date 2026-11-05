@@ -36,6 +36,7 @@ const mocks = (() => {
     })),
     initializeCliTelemetry: mock(),
     handleUpgrade: mock(),
+    runUpdateDownloadCommand: mock(async () => 0),
     flushDiagnosticLogs: mock(),
     finalizeHeadlessRun: mock(),
     log: {
@@ -95,6 +96,10 @@ void mock.module('#/cli/telemetry', () => ({
 
 void mock.module('#/cli/sub/upgrade', () => ({
   handleUpgrade: mocks.handleUpgrade,
+}));
+
+void mock.module('#/cli/sub/update-download', () => ({
+  runUpdateDownloadCommand: mocks.runUpdateDownloadCommand,
 }));
 
 void mock.module('#/cli/commands', () => ({
@@ -321,6 +326,33 @@ describe('main entry command handling', () => {
     // The exit code is resolved lazily so a goal turn that sets process.exitCode wins.
     const forceExitArgs = mocks.finalizeHeadlessRun.mock.calls[0] as unknown as unknown[];
     expect(typeof forceExitArgs[2]).toBe('function');
+  });
+
+  it('forwards the update-download intent and channel to the staged downloader', async () => {
+    const exitSpy = spyOn(process, 'exit').mockImplementation(() => undefined as never);
+    try {
+      main();
+      const programArgs = await waitForProgramCall();
+      const onUpdateDownload = programArgs[5] as (
+        version: string,
+        manual: boolean,
+        intent: 'switch-channel',
+        channel: 'canary',
+      ) => void;
+
+      onUpdateDownload('0.7.0-canary.1', true, 'switch-channel', 'canary');
+
+      await waitForAssertion(() => {
+        expect(mocks.runUpdateDownloadCommand).toHaveBeenCalledWith(
+          '0.7.0-canary.1',
+          true,
+          'switch-channel',
+          'canary',
+        );
+      });
+    } finally {
+      exitSpy.mockRestore();
+    }
   });
 
   it('sets the failure exit code before awaiting startup failure logging', async () => {
