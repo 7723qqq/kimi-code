@@ -29,18 +29,19 @@
  * it is up, and the editor refuses submissions until it resolves.
  */
 
-import type { TuiMouseEventResult } from '@moonshot-ai/pi-tui';
+import type { TuiMouseEvent, TuiMouseEventResult } from '@moonshot-ai/pi-tui';
 import { visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
 import { t } from '#/i18n';
 import type { ApprovalPanelComponent } from '#/tui/components/dialogs/approval-panel';
 import type { ApprovalPanelChoice, ApprovalPanelData } from '#/tui/reverse-rpc/types';
+import type { DialogMouse } from '#/tui/utils/mouse';
+import { translateMouse } from '#/tui/utils/mouse';
 
 import type {
   RegionId,
   RegionKey,
-  RegionMouseEvent,
   RegionPlacement,
   RegionRenderContext,
   StatusRegion,
@@ -118,6 +119,10 @@ export class ApprovalRegion implements StatusRegion {
     this.panel = panel;
     this.expanded = false;
     this.selectedIndex = 0;
+    this.optionRanges = [];
+    this.summaryRowCount = 0;
+    this.bodyRowsRendered = 0;
+    this.bodyBudgetGranted = 0;
     // One signal: the surface repaints and, because this region is
     // `autoFocus`, takes the keyboard — which is what makes the prompt
     // answerable the moment it appears.
@@ -158,7 +163,14 @@ export class ApprovalRegion implements StatusRegion {
     if (this.payload === undefined) return 0;
     const summaryRows = summaryRowCost(this.payload.choices.length);
     if (!this.expanded) return summaryRows;
-    return summaryRows + (this.panel?.render(width).length ?? 0);
+    // The last paint already measured the body. Rendering it again here would
+    // draw every display block twice per frame, which is what made a large
+    // approval freeze the whole window. The first expanded frame has no paint
+    // to read from, so measure once and keep the count for `hasHiddenContent`.
+    if (this.bodyRowsRendered === 0 && this.panel !== undefined) {
+      this.bodyRowsRendered = this.panel.render(width).length;
+    }
+    return summaryRows + this.bodyRowsRendered;
   }
 
   render(ctx: RegionRenderContext): string[] {
@@ -175,7 +187,9 @@ export class ApprovalRegion implements StatusRegion {
     // row that is not on screen must not answer a click.
     this.summaryRowCount = Math.min(summary.length, Math.max(0, ctx.budget));
     const bodyBudget = Math.max(0, ctx.budget - summary.length);
-    const body = this.panel?.render(ctx.width) ?? [];
+    // Folded, the summary is the entire region: the panel's body is off screen
+    // and must not be drawn.
+    const body = this.expanded ? (this.panel?.render(ctx.width) ?? []) : [];
     this.bodyRowsRendered = body.length;
     this.bodyBudgetGranted = bodyBudget;
     if (!this.expanded) return summary;
@@ -204,6 +218,10 @@ export class ApprovalRegion implements StatusRegion {
   hasHiddenContent(): boolean {
     if (this.payload === undefined) return false;
     if (!this.expanded) return true;
+    // Expanded but not painted yet (the fold was toggled between frames): a
+    // painted summary means the body is still hidden, so the fold must be able
+    // to close again. With no paint at all there is nothing to report on yet.
+    if (this.bodyRowsRendered === 0) return this.summaryRowCount > 0;
     return this.bodyRowsRendered > this.bodyBudgetGranted;
   }
 
@@ -300,8 +318,16 @@ export class ApprovalRegion implements StatusRegion {
    * geometry, so the click is handed down with the summary rows' offset
    * removed.
    */
-  handleMouse(event: RegionMouseEvent): TuiMouseEventResult | undefined {
+  handleMouse(event: TuiMouseEvent, mouse: DialogMouse): TuiMouseEventResult | undefined {
     if (this.payload === undefined) return undefined;
+
+    // Expanded, the wheel belongs to the panel's scrollable body. Folded, the
+    // surface's fallback still steps through the numbered options.
+    if (event.type === 'wheel' && this.expanded) {
+      const moved = this.panel?.scrollBody(event.wheelDelta ?? 0) ?? false;
+      return { handled: true, render: moved };
+    }
+
     if (event.type !== 'click' || event.button !== 'left') return undefined;
 
     if (event.y < this.summaryRowCount) {
@@ -311,6 +337,8 @@ export class ApprovalRegion implements StatusRegion {
       if (range !== undefined) {
         const choice = this.payload.choices[range.choice];
         if (choice === undefined) return undefined;
+        // Answering is irreversible; the surface-owned rule set owns the window.
+        if (mouse.settling(event)) return { handled: true };
         this.respond(choice);
         return { handled: true, render: true };
       }
@@ -319,7 +347,7 @@ export class ApprovalRegion implements StatusRegion {
     }
 
     if (!this.expanded) return undefined;
-    return this.panel?.handleMouse?.({ ...event.raw, y: event.y - this.summaryRowCount });
+    return this.panel?.handleMouse?.(translateMouse(event, 0, -this.summaryRowCount));
   }
 
   /** The approval owns the keyboard while it is up. */

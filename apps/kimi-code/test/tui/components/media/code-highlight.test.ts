@@ -4,7 +4,13 @@ import { dirname } from 'node:path';
 
 import chalk from 'chalk';
 
-import { highlightLines, langFromPath } from '#/tui/components/media/code-highlight';
+import {
+  clearHighlightCache,
+  codeLineCount,
+  highlightLines,
+  highlightLinesWindow,
+  langFromPath,
+} from '#/tui/components/media/code-highlight';
 import { codeHighlightTheme } from '#/tui/theme/highlight-theme';
 import { currentTheme } from '#/tui/theme/theme';
 
@@ -67,5 +73,44 @@ describe('code-highlight', () => {
     } finally {
       chalk.level = previousLevel;
     }
+  });
+
+  it('counts lines without running a grammar pass', () => {
+    expect(codeLineCount('a\nb\nc')).toBe(3);
+    expect(codeLineCount('')).toBe(1);
+    expect(codeLineCount('a\n')).toBe(2);
+  });
+
+  it('highlights only the requested window and reports the exact total', () => {
+    const code = Array.from({ length: 2000 }, (_, i) => `const v${i} = ${i};`).join('\n');
+    const head = highlightLinesWindow(code, 'typescript', 0, 10);
+    expect(head.lines).toHaveLength(10);
+    expect(head.totalLines).toBe(2000);
+
+    const tail = highlightLinesWindow(code, 'typescript', 1995, 10);
+    expect(tail.lines).toHaveLength(5);
+    expect(tail.totalLines).toBe(2000);
+
+    expect(highlightLinesWindow('a\nb\nc', undefined, 1, 1).lines).toEqual(['b']);
+    expect(highlightLinesWindow('a\nb\nc', undefined, 9, 2)).toEqual({
+      lines: [],
+      totalLines: 3,
+    });
+  });
+
+  it('reuses a bounded cache of full-document renderings', () => {
+    clearHighlightCache();
+    const first = highlightLines('const a = 1;', 'typescript');
+    expect(highlightLines('const a = 1;', 'typescript')).toBe(first);
+
+    // Six more documents push the first one out of the LRU.
+    for (let i = 0; i < 6; i += 1) {
+      highlightLines(`const v${i} = ${i};`, 'typescript');
+    }
+    expect(highlightLines('const a = 1;', 'typescript')).not.toBe(first);
+
+    clearHighlightCache();
+    const afterClear = highlightLines('const a = 1;', 'typescript');
+    expect(highlightLines('const a = 1;', 'typescript')).toBe(afterClear);
   });
 });

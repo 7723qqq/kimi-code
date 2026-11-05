@@ -362,15 +362,59 @@ type ActiveOverlayFocusRestoreState =
 type OverlayFocusRestoreState = { status: 'inactive' } | ActiveOverlayFocusRestoreState;
 type OverlayFocusRestorePolicy = 'clear' | 'preserve';
 
+/** One child's height as it was last measured. */
+export interface MouseChildLayout {
+  readonly component: Component;
+  readonly height: number;
+}
+
+export interface MouseLayoutHit {
+  readonly component: Component;
+  /** Row within the child, `0` at its top edge. */
+  readonly y: number;
+  readonly height: number;
+}
+
+/**
+ * One owner for pointer hit testing across every container-like component.
+ *
+ * A hit test normally reads the heights its last render painted. A pointer can
+ * also arrive at a width that was never painted, or before the first render;
+ * measuring that width is unavoidable there, but caching the measurement stops
+ * every motion event from re-rendering the whole subtree at that width.
+ */
+export class MouseLayoutCache {
+  private width: number | undefined;
+  private children: readonly MouseChildLayout[] = [];
+
+  /** Record the exact heights one render pass produced. */
+  record(width: number, children: readonly MouseChildLayout[]): void {
+    this.width = width;
+    this.children = children;
+  }
+
+  hit(y: number, width: number, components: readonly Component[]): MouseLayoutHit | undefined {
+    if (this.width !== width) {
+      this.record(
+        width,
+        components.map((component) => ({ component, height: component.render(width).length })),
+      );
+    }
+    let childY = 0;
+    for (const { component, height } of this.children) {
+      if (y >= childY && y < childY + height) return { component, y: y - childY, height };
+      childY += height;
+    }
+    return undefined;
+  }
+}
+
 /**
  * Container - a component that contains other components
  */
 export class Container implements Component {
   children: Component[] = [];
-  private mouseLayout?: {
-    width: number;
-    children: Array<{ component: Component; height: number }>;
-  };
+  private readonly mouseLayout = new MouseLayoutCache();
 
   addChild(component: Component): void {
     this.children.push(component);
@@ -395,28 +439,15 @@ export class Container implements Component {
 
   handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
     if (event.y < 0 || event.y >= event.height) return undefined;
-    const mouseChildren =
-      this.mouseLayout?.width === event.width
-        ? this.mouseLayout.children
-        : this.children.map((component) => ({
-            component,
-            height: component.render(event.width).length,
-          }));
-    let childY = 0;
-    for (const { component: child, height: childHeight } of mouseChildren) {
-      if (event.y >= childY && event.y < childY + childHeight) {
-        const result = dispatchMouseEvent(child, {
-          ...event,
-          y: event.y - childY,
-          height: childHeight,
-        });
-        if (result?.focus && (this as Component).handleInput)
-          return { ...result, focusTarget: this };
-        return result;
-      }
-      childY += childHeight;
-    }
-    return undefined;
+    const hit = this.mouseLayout.hit(event.y, event.width, this.children);
+    if (hit === undefined) return undefined;
+    const result = dispatchMouseEvent(hit.component, {
+      ...event,
+      y: hit.y,
+      height: hit.height,
+    });
+    if (result?.focus && (this as Component).handleInput) return { ...result, focusTarget: this };
+    return result;
   }
 
   render(width: number): string[] {
@@ -424,7 +455,7 @@ export class Container implements Component {
     // column counts; never propagate a width below 1 into components.
     width = Math.max(1, width);
     const lines: string[] = [];
-    const mouseChildren: Array<{ component: Component; height: number }> = [];
+    const mouseChildren: MouseChildLayout[] = [];
     for (const child of this.children) {
       const childLines = child.render(width);
       mouseChildren.push({ component: child, height: childLines.length });
@@ -432,7 +463,7 @@ export class Container implements Component {
         lines.push(line);
       }
     }
-    this.mouseLayout = { width, children: mouseChildren };
+    this.mouseLayout.record(width, mouseChildren);
     return lines;
   }
 }

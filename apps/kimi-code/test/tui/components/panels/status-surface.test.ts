@@ -28,6 +28,8 @@ interface FakeRegionOptions {
   readonly blocking?: boolean;
   readonly defaultFocusTarget?: boolean;
   readonly defaultKeyTarget?: boolean;
+  /** Answer wheel events inside the region instead of letting the surface step rows. */
+  readonly consumeWheel?: boolean;
 }
 
 class FakeRegion implements StatusRegion {
@@ -97,8 +99,9 @@ class FakeRegion implements StatusRegion {
     return false;
   }
 
-  handleMouse(event: { x: number; y: number }): { handled: boolean } | undefined {
+  handleMouse(event: TuiMouseEvent): { handled: boolean } | undefined {
     this.mouseLog.push(`${event.x},${event.y}`);
+    if (event.type === 'wheel' && this.options.consumeWheel === true) return { handled: true };
     return undefined;
   }
 
@@ -608,6 +611,37 @@ describe('StatusSurfaceComponent', () => {
       surface.handleMouse({ ...click(rect.col + 1, rect.from), type: 'wheel', wheelDelta: 2 });
 
       expect(todo.keyLog).toEqual(['down', 'down']);
+    });
+
+    it('returns dispatch metadata for region answers', () => {
+      const surface = new StatusSurfaceComponent({ terminalRows: () => 40 });
+      const todo = new FakeRegion('todo', { want: 3, hidden: true });
+      surface.setRegion(todo);
+      surface.render(80);
+
+      const rect = surface.regionRects().find((entry) => entry.id === 'todo')!;
+      const result = surface.handleMouse(click(5, rect.from));
+
+      expect(result?.handled).toBe(true);
+      expect(result?.target.component).toBe(surface);
+    });
+
+    it('lets a region consume the wheel instead of stepping its rows', () => {
+      const surface = new StatusSurfaceComponent({ terminalRows: () => 40 });
+      const todo = new FakeRegion('todo', { want: 3, consumeWheel: true });
+      surface.setRegion(todo);
+      surface.render(80);
+      todo.keyLog.length = 0;
+
+      const rect = surface.regionRects().find((entry) => entry.id === 'todo')!;
+      const result = surface.handleMouse({
+        ...click(rect.col + 1, rect.from),
+        type: 'wheel',
+        wheelDelta: 2,
+      });
+
+      expect(result?.handled).toBe(true);
+      expect(todo.keyLog).toEqual([]);
     });
   });
 

@@ -8,6 +8,7 @@ import {
   mouseDispatch,
   regionAt,
   ScrollMouseRouter,
+  translateMouse,
   type ListCursor,
   type ListRowRegion,
 } from '#/tui/utils/mouse';
@@ -188,6 +189,15 @@ describe('ScrollMouseRouter', () => {
 
   it('leaves an empty notch to whatever scrolls behind the panel', () => {
     expect(new ScrollMouseRouter(mock()).handleMouse(mouse('wheel', 0, 0))).toBeUndefined();
+  });
+});
+
+describe('translateMouse', () => {
+  it('shifts local coordinates and leaves the screen point alone', () => {
+    const event = mouse('click', 5, undefined, 9);
+    const local = translateMouse(event, -3, -2);
+    expect(local).toMatchObject({ x: 6, y: 3, screenX: 9, screenY: 5 });
+    expect(event).toMatchObject({ x: 9, y: 5 });
   });
 });
 

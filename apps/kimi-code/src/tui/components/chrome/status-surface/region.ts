@@ -23,6 +23,7 @@
 import type { TuiMouseEvent, TuiMouseEventResult } from '@moonshot-ai/pi-tui';
 
 import type { ColorPalette } from '#/tui/theme/colors';
+import type { DialogMouse } from '#/tui/utils/mouse';
 
 /**
  * A region's identity. Open on purpose: the container must be able to hold a
@@ -85,28 +86,6 @@ export interface RegionRenderContext {
   /** True while this region owns the keyboard. */
   readonly focused: boolean;
   readonly palette: ColorPalette;
-}
-
-/**
- * Mouse event in region-local coordinates. The surface translates the
- * terminal coordinates it received and keeps the original around, because a
- * region may want absolute rows (the Updates tab strip does) or may pass the
- * event further down to a nested component that expects the untranslated one.
- */
-export interface RegionMouseEvent {
-  readonly type: TuiMouseEvent['type'];
-  readonly button: TuiMouseEvent['button'];
-  /** Column within the region, `0` at its left edge. */
-  readonly x: number;
-  /** Row within the region, `0` at its top edge. */
-  readonly y: number;
-  readonly wheelDelta: number;
-  readonly clickCount: number;
-  readonly shift: boolean;
-  readonly alt: boolean;
-  readonly ctrl: boolean;
-  /** The event as the surface received it, for delegating to nested children. */
-  readonly raw: TuiMouseEvent;
 }
 
 export interface StatusRegion {
@@ -214,15 +193,19 @@ export interface StatusRegion {
    */
   handleRawInput?(data: string): boolean;
 
-  /** Mouse, in region-local coordinates. */
-  handleMouse?(event: RegionMouseEvent): TuiMouseEventResult | undefined;
+  /**
+   * Mouse, in region-local coordinates as a plain pi-tui event. `mouse` is the
+   * surface-owned rule set for this region: a region that commits an answer
+   * consults `mouse.settling()` instead of owning a second settling window.
+   */
+  handleMouse?(event: TuiMouseEvent, mouse: DialogMouse): TuiMouseEventResult | undefined;
 
   /**
    * Whether a click should move focus here. A region the user pages through
    * (the updates box) returns true; a read-only one (the stats column) answers
    * no keys, so it returns false and leaves the editor's focus alone.
    */
-  wantsFocus?(event: RegionMouseEvent): boolean;
+  wantsFocus?(event: TuiMouseEvent): boolean;
 
   /**
    * Take focus when the region appears without the user asking. Used by the

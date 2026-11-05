@@ -21,7 +21,7 @@ import {
 
 import { t } from '#/i18n';
 import { DockSection, type DockLayout, type DockPart } from '#/tui/components/chrome/dock-section';
-import { highlightLines, langFromPath } from '#/tui/components/media/code-highlight';
+import { highlightLinesWindow, langFromPath } from '#/tui/components/media/code-highlight';
 import { renderDiffLinesClustered } from '#/tui/components/media/diff-preview';
 import type {
   ApprovalPanelChoice,
@@ -135,13 +135,17 @@ function renderDisplayBlock(block: DisplayBlock, s: BlockStyles, contentWidth: n
       });
     case 'file_content': {
       const lang = block.language ?? langFromPath(block.path);
-      const allLines = highlightLines(block.content, lang);
-      const shown = allLines.slice(0, CONTENT_SUMMARY_MAX_LINES);
+      const { lines: shown, totalLines } = highlightLinesWindow(
+        block.content,
+        lang,
+        0,
+        CONTENT_SUMMARY_MAX_LINES,
+      );
       const lines = [s.strong(block.path)];
       for (const [i, line] of shown.entries()) {
         lines.push(s.gutter(String(i + 1).padStart(4) + '  ') + line);
       }
-      const remaining = allLines.length - shown.length;
+      const remaining = totalLines - shown.length;
       if (remaining > 0) {
         lines.push(
           s.dim(

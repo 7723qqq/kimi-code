@@ -1,4 +1,4 @@
-import { describe, expect, it, mock, type Mock } from 'bun:test';
+import { afterEach, describe, expect, it, mock, setSystemTime, spyOn, type Mock } from 'bun:test';
 
 import { Container, Text, VStack } from '@moonshot-ai/pi-tui';
 
@@ -475,11 +475,16 @@ describe('ApprovalRegion', () => {
   });
 
   describe('mouse', () => {
+    afterEach(() => setSystemTime());
+
     it('answers with a click on the printed option number', () => {
       // The defect this replaces: the surface consumed the click for focus and
       // returned, so an approval — which is auto-focused the moment it appears
       // — never received a click at all and could not be opened or answered.
       const { region, surface, onRespond } = makeRegionWithPanel();
+      // Answering now goes through the shared settling guard, so move past its
+      // window before clicking.
+      setSystemTime(new Date(Date.now() + 1000));
       const painted = surface.render(80);
       const box = surface.regionRects().find((entry) => entry.id === 'approval')!;
 
@@ -531,6 +536,113 @@ describe('ApprovalRegion', () => {
       });
       expect(region.isExpanded()).toBe(true);
       expect(onRespond).not.toHaveBeenCalled();
+    });
+
+    it('does not answer with a click inside the settling window', () => {
+      const { surface, onRespond } = makeRegionWithPanel();
+      const painted = surface.render(80);
+      const box = surface.regionRects().find((entry) => entry.id === 'approval')!;
+      const row = painted.findIndex((line) => strip(line).includes('2. Allow for session'));
+      const second = strip(painted[row]!).indexOf('2. Allow for session');
+
+      const result = surface.handleMouse({
+        type: 'click',
+        button: 'left',
+        x: box.col + second + 1,
+        y: row,
+        screenX: box.col + second + 1,
+        screenY: row,
+        width: 80,
+        height: 24,
+        shift: false,
+        alt: false,
+        ctrl: false,
+      });
+      expect(result?.handled).toBe(true);
+      expect(onRespond).not.toHaveBeenCalled();
+    });
+
+    it('does not draw the panel body while the approval is folded', () => {
+      const onRespond = mock();
+      const surface = new StatusSurfaceComponent({ terminalRows: () => 40 });
+      const region = new ApprovalRegion();
+      surface.setRegion(region);
+      const data = payload({
+        display: [{ type: 'file_content', path: 'big.ts', content: 'one\ntwo\nthree' }],
+      });
+      const panel = new ApprovalPanelComponent({ data }, onRespond);
+      region.show(data, panel);
+      const render = spyOn(panel, 'render');
+
+      surface.render(80);
+
+      expect(render).not.toHaveBeenCalled();
+    });
+
+    it('keeps one settling window for the whole prompt', () => {
+      const { region, surface, onRespond } = makeRegionWithPanel();
+      surface.render(80);
+      setSystemTime(new Date(Date.now() + 1000));
+      // A content refresh must not restart the guard the surface owns.
+      region.onChange?.();
+      const painted = surface.render(80);
+      const box = surface.regionRects().find((entry) => entry.id === 'approval')!;
+      const row = painted.findIndex((line) => strip(line).includes('2. Allow for session'));
+      const second = strip(painted[row]!).indexOf('2. Allow for session');
+
+      surface.handleMouse({
+        type: 'click',
+        button: 'left',
+        x: box.col + second + 1,
+        y: row,
+        screenX: box.col + second + 1,
+        screenY: row,
+        width: 80,
+        height: 24,
+        shift: false,
+        alt: false,
+        ctrl: false,
+      });
+
+      expect(onRespond).toHaveBeenCalledWith(
+        expect.objectContaining({ response: 'approved_for_session' }),
+      );
+    });
+
+    it('scrolls the expanded body with the wheel', () => {
+      const onRespond = mock();
+      const surface = new StatusSurfaceComponent({ terminalRows: () => 40 });
+      const region = new ApprovalRegion();
+      surface.setRegion(region);
+      const data = payload({
+        display: [{ type: 'file_content', path: 'big.ts', content: 'one\ntwo\nthree' }],
+      });
+      const panel = new ApprovalPanelComponent({ data }, onRespond, undefined, undefined, {
+        layout: { maxBodyRows: 5 },
+      });
+      region.show(data, panel);
+      region.setExpanded(true);
+      surface.render(80);
+      const box = surface.regionRects().find((entry) => entry.id === 'approval')!;
+      const scroll = spyOn(panel, 'scrollBody');
+
+      const result = surface.handleMouse({
+        type: 'wheel',
+        button: 'none',
+        x: box.col + 1,
+        y: box.from,
+        screenX: box.col + 1,
+        screenY: box.from,
+        width: 80,
+        height: 24,
+        shift: false,
+        alt: false,
+        ctrl: false,
+        wheelDelta: 2,
+      });
+
+      expect(scroll).toHaveBeenCalledWith(2);
+      expect(result?.handled).toBe(true);
     });
   });
 

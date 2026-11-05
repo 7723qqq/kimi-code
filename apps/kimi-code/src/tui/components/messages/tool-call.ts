@@ -21,7 +21,12 @@ import chalk from 'chalk';
 import { t } from '#/i18n';
 import { isExperimentalFlagEnabled } from '#/tui/commands/experimental-flags';
 import { Markdown } from '#/tui/components/markdown/markdown';
-import { highlightLines, langFromPath } from '#/tui/components/media/code-highlight';
+import {
+  codeLineCount,
+  highlightLines,
+  highlightLinesWindow,
+  langFromPath,
+} from '#/tui/components/media/code-highlight';
 import { renderDiffLinesClustered } from '#/tui/components/media/diff-preview';
 import {
   BRAILLE_SPINNER_FRAMES,
@@ -1120,8 +1125,7 @@ export class ToolCallComponent extends Container {
         // it), and the hint row replaces the hidden rows, so a single hidden
         // row would leave nothing for ctrl+o to gain.
         const content = str(args['content']);
-        const filePath = str(args['file_path'] ?? args['path']);
-        return highlightLines(content, langFromPath(filePath)).length > COMMAND_PREVIEW_LINES + 1;
+        return codeLineCount(content) > COMMAND_PREVIEW_LINES + 1;
       }
       default:
         return false;
@@ -2587,16 +2591,18 @@ export class ToolCallComponent extends Container {
       if (content.length === 0) return;
       const filePath = str(this.toolCall.args['file_path'] ?? this.toolCall.args['path']);
       const lang = langFromPath(filePath);
-      const allLines = highlightLines(content, lang);
       // Cap as soon as args finalize, not just when result lands. Otherwise the
       // brief render tick between finalized args and result draws the full file,
       // and the snap back to the collapsed cap triggers pi-tui's full-redraw
       // path which wipes the terminal scrollback (pre-TUI history). The cap
       // swaps the hidden rows for a one-line hint, so capping a single row
       // would render at the same height as the full preview.
-      const writeShouldCap = !this.expanded && allLines.length > COMMAND_PREVIEW_LINES + 1;
-      const shown = writeShouldCap ? allLines.slice(0, COMMAND_PREVIEW_LINES) : allLines;
-      const remaining = allLines.length - shown.length;
+      const totalLines = codeLineCount(content);
+      const writeShouldCap = !this.expanded && totalLines > COMMAND_PREVIEW_LINES + 1;
+      const shown = writeShouldCap
+        ? highlightLinesWindow(content, lang, 0, COMMAND_PREVIEW_LINES).lines
+        : highlightLines(content, lang);
+      const remaining = totalLines - shown.length;
       for (const [i, line] of shown.entries()) {
         const lineNum = currentTheme.dim(String(i + 1).padStart(4) + '  ');
         this.addChild(new Text(lineNum + line, 2, 0));
@@ -2607,7 +2613,7 @@ export class ToolCallComponent extends Container {
             currentTheme.dim(
               t('tui.messages.toolCall.moreLinesHint', {
                 remaining,
-                total: allLines.length,
+                total: totalLines,
               }),
             ),
             2,
@@ -2667,12 +2673,16 @@ export class ToolCallComponent extends Container {
         extractPartialStringField(previewText, 'path') ??
         '';
       const lang = langFromPath(filePath);
-      const allLines = highlightLines(content, lang);
       const maxLines = COMMAND_PREVIEW_LINES;
-      const scrollLines =
-        allLines.length > maxLines ? allLines.slice(allLines.length - maxLines) : allLines;
+      const totalLines = codeLineCount(content);
+      const { lines: scrollLines } = highlightLinesWindow(
+        content,
+        lang,
+        Math.max(0, totalLines - maxLines),
+        maxLines,
+      );
       for (const [i, line] of scrollLines.entries()) {
-        const originalLineNumber = allLines.length > maxLines ? allLines.length - maxLines + i : i;
+        const originalLineNumber = totalLines - scrollLines.length + i;
         const lineNum = currentTheme.dim(String(originalLineNumber + 1).padStart(4) + '  ');
         this.addChild(new Text(lineNum + line, 2, 0));
       }

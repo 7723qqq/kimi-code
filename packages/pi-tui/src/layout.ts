@@ -2,7 +2,7 @@ import type { ScrollView } from './components/scroll-view.ts';
 import { allocateStackSizes, visibleStackEntries } from './components/stack.ts';
 import { getLayoutNode } from './layout-node.ts';
 import { cropKittyImageLine, getKittyImageMetadata, isImageLine } from './terminal-image.ts';
-import { type Component, CURSOR_MARKER, compositeTuiLine } from './tui.ts';
+import { type Component, Container, CURSOR_MARKER, compositeTuiLine } from './tui.ts';
 import {
   extractAnsiCode,
   getActiveBackgroundAnsi,
@@ -43,6 +43,10 @@ export interface LayoutFrame {
   height: number;
   lines: string[];
   primaryScrollView?: ScrollView;
+  /** Components that can answer a pointer, layer/deepest first. Built once per frame. */
+  pointerBoxes: readonly LayoutBox[];
+  /** Boxes backed by a scroll view, deepest first. Built once per frame. */
+  scrollBoxes: readonly LayoutBox[];
 }
 
 export interface ScrollbarGeometry {
@@ -463,14 +467,48 @@ export function renderLayoutFrame(
   });
   const lines = Array.from({ length: safeHeight }, () => '');
   paintBox(rootBox, lines, safeWidth);
+  // Pointer targets and scroll views are collected once while the frame is
+  // built. A motion event then filters a short pre-sorted list instead of
+  // walking the whole component tree twice and sorting on every event.
+  const { pointerBoxes, scrollBoxes } = collectPointerIndex(rootBox);
   return {
     root: rootBox,
     width: safeWidth,
     height: safeHeight,
     lines,
+    pointerBoxes,
+    scrollBoxes,
     ...(context.primaryScrollView === undefined
       ? {}
       : { primaryScrollView: context.primaryScrollView }),
+  };
+}
+
+/** A box answers the pointer only when it owns a mouse handler. Containers
+ * using the default `Container.handleMouse` are pure pass-through and the
+ * dispatcher skips them, so they never enter the index. */
+export function isPointerTarget(component: Component): boolean {
+  if (component.handleMouse === undefined) return false;
+  return !(getLayoutNode(component) && component.handleMouse === Container.prototype.handleMouse);
+}
+
+function collectPointerIndex(root: LayoutBox): {
+  pointerBoxes: LayoutBox[];
+  scrollBoxes: LayoutBox[];
+} {
+  const pointers: Array<{ box: LayoutBox; depth: number }> = [];
+  const scrolls: Array<{ box: LayoutBox; depth: number }> = [];
+  const visit = (box: LayoutBox, depth: number): void => {
+    if (isPointerTarget(box.component)) pointers.push({ box, depth });
+    if (box.scrollView !== undefined) scrolls.push({ box, depth });
+    for (const child of box.children) visit(child, depth + 1);
+  };
+  visit(root, 0);
+  pointers.sort((a, b) => b.box.layer - a.box.layer || b.depth - a.depth);
+  scrolls.sort((a, b) => b.depth - a.depth);
+  return {
+    pointerBoxes: pointers.map(({ box }) => box),
+    scrollBoxes: scrolls.map(({ box }) => box),
   };
 }
 
@@ -478,43 +516,23 @@ function containsPoint(rect: LayoutRect, x: number, y: number): boolean {
   return x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height;
 }
 
-/** Return the visual hit path from the deepest component to the layout root. */
+/** Return the visual hit path from the deepest target to the layout root. */
 export function getLayoutBoxesAt(frame: LayoutFrame, x: number, y: number): LayoutBox[] {
-  const result: Array<{ box: LayoutBox; depth: number }> = [];
-  const visit = (box: LayoutBox, depth: number): void => {
-    if (!containsPoint(box.clip, x, y)) return;
-    result.push({ box, depth });
-    for (const child of box.children) visit(child, depth + 1);
-  };
-  visit(frame.root, 0);
-  result.sort((a, b) => b.box.layer - a.box.layer || b.depth - a.depth);
-  return result.map(({ box }) => box);
+  return frame.pointerBoxes.filter((box) => containsPoint(box.clip, x, y));
 }
 
 export function getScrollViewBox(
   frame: LayoutFrame,
   scrollView: ScrollView,
 ): LayoutBox | undefined {
-  const visit = (box: LayoutBox): LayoutBox | undefined => {
-    if (box.scrollView === scrollView) return box;
-    for (const child of box.children) {
-      const match = visit(child);
-      if (match) return match;
-    }
-    return undefined;
-  };
-  return visit(frame.root);
+  return frame.scrollBoxes.find((box) => box.scrollView === scrollView);
 }
 
 export function getScrollViewsAt(frame: LayoutFrame, x: number, y: number): ScrollView[] {
-  const result: Array<{ scrollView: ScrollView; depth: number }> = [];
-  const visit = (box: LayoutBox, depth: number): void => {
-    if (!containsPoint(box.clip, x, y)) return;
-    if (box.scrollView && containsPoint(box.rect, x, y))
-      result.push({ scrollView: box.scrollView, depth });
-    for (const child of box.children) visit(child, depth + 1);
-  };
-  visit(frame.root, 0);
-  result.sort((a, b) => b.depth - a.depth);
-  return result.map((entry) => entry.scrollView);
+  const result: ScrollView[] = [];
+  for (const box of frame.scrollBoxes) {
+    if (!containsPoint(box.clip, x, y) || !containsPoint(box.rect, x, y)) continue;
+    if (box.scrollView !== undefined) result.push(box.scrollView);
+  }
+  return result;
 }

@@ -30,6 +30,7 @@ import {
   type Component,
   compositeTuiLine,
   truncateToWidth,
+  type TuiMouseDispatchResult,
   type TuiMouseEvent,
   type TuiMouseEventResult,
 } from '@moonshot-ai/pi-tui';
@@ -46,6 +47,7 @@ import {
   PANEL_VERTICAL,
 } from '#/tui/constant/panel';
 import { currentTheme } from '#/tui/theme';
+import { DialogMouse, mouseDispatch, translateMouse } from '#/tui/utils/mouse';
 
 import { computeBudget, isSurfaceEmpty } from './budget';
 import {
@@ -54,7 +56,6 @@ import {
   sortRegions,
   type RegionId,
   type RegionKey,
-  type RegionMouseEvent,
   type RegionPlacement,
   type StatusRegion,
   type StatusSurfaceKey,
@@ -225,6 +226,9 @@ export class StatusSurfaceComponent implements Component {
   private focusedRegionId: RegionId | null = null;
   /** Boxes from the last layout; empty until the first `render`. */
   private rects: readonly RegionBox[] = [];
+  /** Pointer rules, owned per region and reset when a prompt appears. */
+  private readonly regionMice = new Map<RegionId, DialogMouse>();
+  private readonly appearedRegions = new Set<RegionId>();
 
   constructor(options: StatusSurfaceOptions = {}) {
     this.terminalRows = options.terminalRows ?? (() => 0);
@@ -250,6 +254,8 @@ export class StatusSurfaceComponent implements Component {
     // the focus re-evaluation that must accompany it.
     region.onChange = () => this.handleRegionChange(region.id);
     this.regions.set(region.id, region);
+    this.resetRegionMouse(region.id);
+    if (!region.isEmpty()) this.appearedRegions.add(region.id);
     if (region.autoFocus === true && !region.isEmpty()) {
       this.focusRegion(region.id);
       return;
@@ -260,6 +266,20 @@ export class StatusSurfaceComponent implements Component {
     ) {
       this.focusRegion(null);
     }
+  }
+
+  /** One rule set per region; `shownAt` starts when the region gets content. */
+  private resetRegionMouse(id: RegionId): void {
+    this.regionMice.set(id, new DialogMouse(() => this.focusedRegionId === id));
+  }
+
+  private mouseFor(id: RegionId): DialogMouse {
+    let mouse = this.regionMice.get(id);
+    if (mouse === undefined) {
+      mouse = new DialogMouse(() => this.focusedRegionId === id);
+      this.regionMice.set(id, mouse);
+    }
+    return mouse;
   }
 
   /** Regions in render order (highest priority first). */
@@ -303,8 +323,18 @@ export class StatusSurfaceComponent implements Component {
    */
   private handleRegionChange(id: RegionId): void {
     const region = this.regions.get(id);
-    if (region !== undefined && region.autoFocus === true && !region.isEmpty()) {
-      this.focusRegion(id);
+    if (region !== undefined) {
+      const hasContent = !region.isEmpty();
+      // A region is registered once at startup and gets content later. Its
+      // settling window starts when the prompt appears, not at registration;
+      // content updates while it stays visible must not restart it.
+      if (hasContent && !this.appearedRegions.has(id)) {
+        this.resetRegionMouse(id);
+        this.appearedRegions.add(id);
+      } else if (!hasContent) {
+        this.appearedRegions.delete(id);
+      }
+      if (region.autoFocus === true && hasContent) this.focusRegion(id);
     }
     this.onRequestRender();
   }
@@ -494,7 +524,7 @@ export class StatusSurfaceComponent implements Component {
     return false;
   }
 
-  handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+  handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
     if (this.rects.length === 0) return undefined;
     // Two regions can share a row, so the row alone does not identify one: the
     // column has to match too. When the split collapsed to a single column both
@@ -518,62 +548,47 @@ export class StatusSurfaceComponent implements Component {
     const region = this.regions.get(rect.id);
     if (region === undefined) return undefined;
 
-    const local: RegionMouseEvent = {
-      type: event.type,
-      button: event.button,
-      x: event.x - rect.col,
-      y: event.y - rect.from,
-      wheelDelta: event.wheelDelta ?? 0,
-      clickCount: event.clickCount ?? 0,
-      shift: event.shift,
-      alt: event.alt,
-      ctrl: event.ctrl,
-      raw: { ...event, x: event.x - rect.col, y: event.y - rect.from },
-    };
+    // One translation for every layer below this one, and one rule set owned
+    // here. Every answer leaves with dispatch metadata so press/drag/release
+    // capture and focus targets survive the trip back through pi-tui.
+    const local = translateMouse(event, -rect.col, -rect.from);
+    const mouse = this.mouseFor(rect.id);
+    const answer = (result: TuiMouseEventResult): TuiMouseDispatchResult | undefined =>
+      mouseDispatch(this, event, result);
 
-    const handled = region.handleMouse?.(local);
-    if (handled !== undefined && handled.handled !== false) {
-      return { ...handled, handled: true };
-    }
+    const handled = region.handleMouse?.(local, mouse);
+    if (handled !== undefined && handled.handled !== false) return answer(handled);
 
     if (event.type === 'click' && event.button === 'left') {
       // Focus is only a reason to consume the click when it actually moved.
-      //
-      // The old code returned `handled: true` as soon as `wantsFocus()` was
-      // true, without checking whether the focus had moved — so a region that
-      // already owned the keyboard (an approval, which is `autoFocus`) ate
-      // every click, changed nothing, and never reached the fold below. That
-      // is why the approval prompt could be seen but not answered: the one
-      // blocking interaction in the app was the one thing a click could not
-      // touch.
-      // Focus first, and stop there when it moved: the first click on a folded
-      // region takes the keyboard, the second one unfolds it. Doing both at once
-      // would make a click that only meant "give me the keys" also resize the
-      // strip under the pointer.
-      if (region.wantsFocus?.(local) === true && this.focusRegion(rect.id)) {
+      // A region that already owns the keyboard (an approval, `autoFocus`)
+      // must fall through to the fold instead of eating every click.
+      if (
+        region.wantsFocus?.(local) === true &&
+        mouse.handoff(local)?.focus === true &&
+        this.focusRegion(rect.id)
+      ) {
         this.onRequestRender();
-        return { handled: true, focus: true, render: true };
+        return answer({ handled: true, focus: true, render: true });
       }
-      // Focus did not move — either the region already had it or it does not
-      // want it — so the click falls through to folding. This is the branch the
-      // old code never reached while `wantsFocus` was true, which is why an
-      // already-focused approval swallowed every click and could not be opened.
       if (this.toggleFold(rect.id)) {
         this.onRequestRender();
-        return { handled: true, render: true };
+        return answer({ handled: true, render: true });
       }
     }
 
-    if (event.type === 'wheel' && local.wheelDelta !== 0) {
-      const key: RegionKey = local.wheelDelta < 0 ? 'up' : 'down';
-      const steps = Math.max(1, Math.abs(local.wheelDelta));
+    // A wheel notch the region did not consume steps through its rows. Regions
+    // with a scrollable body answer the wheel themselves and never reach here.
+    if (event.type === 'wheel' && (local.wheelDelta ?? 0) !== 0) {
+      const key: RegionKey = (local.wheelDelta ?? 0) < 0 ? 'up' : 'down';
+      const steps = Math.max(1, Math.abs(local.wheelDelta ?? 0));
       let moved = false;
       for (let step = 0; step < steps; step += 1) {
         if (region.handleKey?.(key) === true) moved = true;
       }
       if (moved) {
         this.onRequestRender();
-        return { handled: true, render: true };
+        return answer({ handled: true, render: true });
       }
     }
 

@@ -8,7 +8,6 @@ import { StatusSurfaceComponent } from '#/tui/components/chrome/status-surface/i
 import type {
   RegionId,
   RegionKey,
-  RegionMouseEvent,
   RegionPlacement,
   RegionRenderContext,
   StatusRegion,
@@ -77,7 +76,7 @@ class StandInRegion implements StatusRegion {
     return false;
   }
 
-  handleMouse(_event: RegionMouseEvent): undefined {
+  handleMouse(): undefined {
     return undefined;
   }
 

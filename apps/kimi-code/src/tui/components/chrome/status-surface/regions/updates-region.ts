@@ -11,13 +11,12 @@
  * arrow keys, so a click on the box focuses it rather than folding it.
  */
 
-import type { TuiMouseEventResult } from '@moonshot-ai/pi-tui';
+import type { TuiMouseEvent, TuiMouseEventResult } from '@moonshot-ai/pi-tui';
 
 import { MIN_BODY_ROWS, NotifyPanelComponent, PANEL_OVERHEAD_ROWS } from '../../notify-panel';
 import type {
   RegionId,
   RegionKey,
-  RegionMouseEvent,
   RegionPlacement,
   RegionRenderContext,
   StatusRegion,
@@ -135,8 +134,8 @@ export class UpdatesRegion implements StatusRegion {
     }
   }
 
-  handleMouse(event: RegionMouseEvent): TuiMouseEventResult | undefined {
-    return this.panel.handleMouse(event.raw);
+  handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    return this.panel.handleMouse(event);
   }
 
   /**

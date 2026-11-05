@@ -70,6 +70,15 @@ export function regionAt<T extends RowRegion>(
 }
 
 /**
+ * Move a pointer event into a child's frame. Absolute screen coordinates stay
+ * where they were; only the local x/y shift, so hit tests and dispatch targets
+ * keep referring to the same point on the terminal.
+ */
+export function translateMouse(event: TuiMouseEvent, dx: number, dy: number): TuiMouseEvent {
+  return { ...event, x: event.x + dx, y: event.y + dy };
+}
+
+/**
  * The three pointer rules every panel shares.
  *
  * Held by the panel for its lifetime so the settling window is measured from

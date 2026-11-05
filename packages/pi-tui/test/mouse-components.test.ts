@@ -1,5 +1,6 @@
 import { expect, describe, it } from "bun:test";
 import { AltScreenSearchComponent } from "../src/alt-screen-search.ts";
+import { Box } from "../src/components/box.ts";
 import { Editor, type EditorTheme } from "../src/components/editor.ts";
 import { Input } from "../src/components/input.ts";
 import { SelectList, type SelectListTheme } from "../src/components/select-list.ts";
@@ -334,5 +335,51 @@ describe("mouse-aware components", () => {
 		expect(copied).toStrictEqual(["hello"]);
 		expect(editor.getCursor()).toStrictEqual(cursorBefore);
 		tui.stop();
+	});
+});
+
+describe("mouse layout cache", () => {
+	function countingChild() {
+		let renders = 0;
+		return {
+			renders: () => renders,
+			component: {
+				render: () => {
+					renders += 1;
+					return ["row"];
+				},
+				invalidate: () => {},
+				handleMouse: () => ({ handled: true }),
+			},
+		};
+	}
+
+	it("measures an unseen pointer width once instead of on every event", () => {
+		const child = countingChild();
+		const container = new Container();
+		container.addChild(child.component);
+		container.render(20);
+		expect(child.renders()).toBe(1);
+
+		const event = { ...mouse("click", 1, 0), width: 40 };
+		expect(container.handleMouse(event)?.handled).toBe(true);
+		expect(child.renders()).toBe(2);
+		expect(container.handleMouse(event)?.handled).toBe(true);
+		expect(container.handleMouse(event)?.handled).toBe(true);
+		expect(child.renders()).toBe(2);
+	});
+
+	it("shares the same cached hit test with a padded box", () => {
+		const child = countingChild();
+		const box = new Box(1, 0);
+		box.addChild(child.component);
+		box.render(20);
+		expect(child.renders()).toBe(1);
+
+		const event = { ...mouse("click", 2, 0), width: 40 };
+		expect(box.handleMouse(event)?.handled).toBe(true);
+		expect(child.renders()).toBe(2);
+		expect(box.handleMouse(event)?.handled).toBe(true);
+		expect(child.renders()).toBe(2);
 	});
 });

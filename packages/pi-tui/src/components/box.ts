@@ -1,6 +1,8 @@
 import {
   type Component,
   dispatchMouseEvent,
+  type MouseChildLayout,
+  MouseLayoutCache,
   type TuiMouseDispatchResult,
   type TuiMouseEvent,
 } from '../tui.ts';
@@ -24,10 +26,7 @@ export class Box implements Component {
 
   // Cache for rendered output
   private cache?: RenderCache;
-  private mouseLayout?: {
-    width: number;
-    children: Array<{ component: Component; height: number }>;
-  };
+  private readonly mouseLayout = new MouseLayoutCache();
 
   constructor(paddingX = 1, paddingY = 1, bgFn?: (text: string) => string) {
     this.paddingX = paddingX;
@@ -86,31 +85,20 @@ export class Box implements Component {
     const contentX = event.x - this.paddingX;
     if (contentY < 0 || contentX < 0 || contentX >= contentWidth) return undefined;
 
-    const mouseChildren =
-      this.mouseLayout?.width === contentWidth
-        ? this.mouseLayout.children
-        : this.children.map((component) => ({
-            component,
-            height: component.render(contentWidth).length,
-          }));
-    let childY = 0;
-    for (const { component: child, height: childHeight } of mouseChildren) {
-      if (contentY >= childY && contentY < childY + childHeight) {
-        return dispatchMouseEvent(child, {
-          ...event,
-          x: contentX,
-          y: contentY - childY,
-          width: contentWidth,
-          height: childHeight,
-        });
-      }
-      childY += childHeight;
-    }
-    return undefined;
+    const hit = this.mouseLayout.hit(contentY, contentWidth, this.children);
+    if (hit === undefined) return undefined;
+    return dispatchMouseEvent(hit.component, {
+      ...event,
+      x: contentX,
+      y: hit.y,
+      width: contentWidth,
+      height: hit.height,
+    });
   }
 
   render(width: number): string[] {
     if (this.children.length === 0) {
+      this.mouseLayout.record(Math.max(1, width - this.paddingX * 2), []);
       return [];
     }
 
@@ -119,7 +107,7 @@ export class Box implements Component {
 
     // Render all children
     const childLines: string[] = [];
-    const mouseChildren: Array<{ component: Component; height: number }> = [];
+    const mouseChildren: MouseChildLayout[] = [];
     for (const child of this.children) {
       const lines = child.render(contentWidth);
       mouseChildren.push({ component: child, height: lines.length });
@@ -127,7 +115,7 @@ export class Box implements Component {
         childLines.push(leftPad + line);
       }
     }
-    this.mouseLayout = { width: contentWidth, children: mouseChildren };
+    this.mouseLayout.record(contentWidth, mouseChildren);
 
     if (childLines.length === 0) {
       return [];

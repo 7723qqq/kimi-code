@@ -8,7 +8,6 @@ import { AltScreenFlashContainer } from './components/alt-screen-flash.ts';
 import { ScrollView } from './components/scroll-view.ts';
 import { getKeybindings } from './keybindings.ts';
 import { isKeyRelease } from './keys.ts';
-import { getLayoutNode } from './layout-node.ts';
 import {
   getLayoutBoxesAt,
   getScrollbarGeometry,
@@ -32,7 +31,6 @@ import {
 import type { Terminal } from './terminal.ts';
 import {
   type Component,
-  Container,
   CURSOR_MARKER,
   compositeTuiLine,
   dispatchMouseEvent,
@@ -925,16 +923,10 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 
   private dispatchMouseToLayout(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
     if (!this.currentLayout) return undefined;
-    const visited = new Set<Component>();
+    // The frame already filtered out non-interactive containers and sorted the
+    // remaining boxes, so this is a straight hit walk.
     const boxes = getLayoutBoxesAt(this.currentLayout, event.screenX, event.screenY);
     for (const box of boxes) {
-      if (visited.has(box.component)) continue;
-      if (
-        getLayoutNode(box.component) &&
-        box.component.handleMouse === Container.prototype.handleMouse
-      )
-        continue;
-      visited.add(box.component);
       // lineOffset crops the top of an over-tall component so its cursor row
       // stays visible; local coordinates must use the uncropped frame.
       const result = dispatchMouseEvent(box.component, {

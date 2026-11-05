@@ -3,7 +3,7 @@ import { HStack } from "../src/components/h-stack.ts";
 import { ScrollView } from "../src/components/scroll-view.ts";
 import { Text } from "../src/components/text.ts";
 import { VStack } from "../src/components/v-stack.ts";
-import { renderLayoutFrame } from "../src/layout.ts";
+import { getLayoutBoxesAt, getScrollViewBox, getScrollViewsAt, renderLayoutFrame } from "../src/layout.ts";
 import { encodeKitty, registerKittyImageMetadata } from "../src/terminal-image.ts";
 import { stripTerminalSequences } from "../src/utils.ts";
 
@@ -392,5 +392,38 @@ describe("viewport layout", () => {
 		// The ceiling is read again, so the body grows past the value the first
 		// pass captured instead of staying clamped at 3.
 		expect(second.root.children.map((child) => child.rect.height)).toStrictEqual([1, 6]);
+	});
+});
+
+describe("pointer index", () => {
+	it("indexes only components that own a mouse handler", () => {
+		const interactive = {
+			render: () => ["clickable"],
+			invalidate: () => {},
+			handleMouse: () => ({ handled: true }),
+		};
+		const plain = new Text("plain", 0, 0);
+		const frame = renderLayoutFrame(new VStack([interactive, plain]), 20, 4, () => {});
+
+		expect(frame.pointerBoxes.map((box) => box.component)).toContain(interactive);
+		expect(frame.pointerBoxes.map((box) => box.component)).not.toContain(plain);
+		expect(getLayoutBoxesAt(frame, 1, 0).map((box) => box.component)).toContain(interactive);
+	});
+
+	it("keeps scroll views in the same per-frame index", () => {
+		const scrollView = new ScrollView({
+			render: () => ["one", "two"],
+			invalidate: () => {},
+		});
+		const frame = renderLayoutFrame(
+			new VStack([{ component: scrollView, basis: 0, grow: 1 }]),
+			10,
+			4,
+			() => {},
+		);
+
+		expect(frame.scrollBoxes.some((box) => box.scrollView === scrollView)).toBe(true);
+		expect(getScrollViewBox(frame, scrollView)).toBeDefined();
+		expect(getScrollViewsAt(frame, 1, 0)).toContain(scrollView);
 	});
 });
