@@ -6,6 +6,42 @@ outline: 2
 
 本页记录 Kimi Code CLI 每个版本的变更内容。
 
+## 2.4.1（2026-10-30）
+
+### 优化
+
+- Agent 单次读取文件最多返回 10 万字符或约 2.5 万 token（以先到者为准），不再返回最多 50 万字符；在 config.toml 中调高 [`read`](../configuration/config-files.md#read) 下的 `max_chars` 可恢复原有上限。
+- 做了若干细节优化和内部改进。更详细的变更记录见 [GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md)。
+
+## 2.4.0（2026-10-28）
+
+### 新功能
+
+- 流式输出时可用 `Ctrl-O` 展开思考内容。
+- Plan 模式现只在你主动开启时启动，且每份计划都等待你确认：Agent 无法再自行进入 Plan 模式，Never Ask 不再自动通过计划，`kimi -p` 会跳过 `default_plan_mode`，也无法确认已处于 Plan 模式会话的计划。
+- 新增 `/import-sessions` 与 `kimi import-sessions`，可导入最近 15 天或 30 天的 Claude Code 与 Codex 会话，运行后选择时间范围即可。
+- 工作区 MCP server 首次连接失败或连接中断后，会按退避策略自动重连，工具自行恢复；可用 `[mcp] reconnect_initial_delay_ms` 与 `reconnect_max_delay_ms` 调整间隔。
+- 新增 `/provider refresh [providerId]`，可在运行时重新拉取 provider 的模型列表。
+- 支持 OSC 7501 的终端现可显示主会话与子 Agent 的状态，包括待处理的交互和保留的结果。
+- 服务端的 `event.approval.*` 与 `event.question.*` WebSocket 事件合并为单条 `interaction` 帧，原先按类型区分的审批与提问接口改为 `POST /sessions/{id}/interactions/{id}`，旧事件与接口已移除。
+
+### 优化
+
+- 待办列表移入可展开的会话卡片，原有的输入区面板与 `Ctrl-T` 快捷键已移除。
+- provider 以图片过大或不支持为由拒绝后，不再每轮重发原图；后续轮次与压缩会沿用缩小后的图片，直到切换模型或重写会话历史。
+- 调整跨工具导入：不再导入独立的 `.claude/AGENTS.md`、项目内 `.codex/AGENTS.md`、`.codex/CLAUDE.md` 与零散的技能文件，如需要请手动复制。
+
+### 修复
+
+- 被中断的轮次现标记为已中断，而不再显示为已完成，重启应用后会话不会停在旧位置。
+- 修复了一些已知问题，并做了若干细节优化。更详细的变更记录见 [GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md)。
+
+## 2.3.3（2026-10-26）
+
+### 修复
+
+- 修复了一些已知问题，并做了若干细节优化。更详细的变更记录见 [GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md)。
+
 ## 2.3.2（2026-10-25）
 
 ### 修复

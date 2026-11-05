@@ -6,6 +6,42 @@ outline: 2
 
 This page documents the changes in each Kimi Code CLI release.
 
+## 2.4.1 (2026-10-30)
+
+### Polish
+
+- A single file read by the agent now returns at most 100,000 characters or about 25,000 tokens, whichever comes first, instead of up to 500,000; set `max_chars` under [`read`](../configuration/config-files.md#read) in config.toml to raise both limits again.
+- Make several refinements and internal improvements. See the [changelog on GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md) for more technical entries.
+
+## 2.4.0 (2026-10-28)
+
+### Features
+
+- Allow expanding thinking during streaming with `Ctrl-O`.
+- Plan mode now starts only when you turn it on, and every plan waits for your review: the agent can no longer enter Plan mode by itself, Never Ask no longer approves plans automatically, and `kimi -p` skips `default_plan_mode` and cannot approve the plan of a session that is already in Plan mode.
+- Add `/import-sessions` and `kimi import-sessions` to import Claude Code and Codex sessions from the last 15 or 30 days. Run either one and choose a time range.
+- Reconnect workspace MCP servers automatically with backoff when the initial connection fails or the connection drops, so their tools come back on their own; tune the interval with `[mcp] reconnect_initial_delay_ms` and `reconnect_max_delay_ms`.
+- Add `/provider refresh [providerId]` to re-fetch provider model lists at runtime.
+- Report main-session and subagent status to compatible terminals with OSC 7501, including pending interactions and retained results.
+- Replace the server's `event.approval.*` and `event.question.*` WebSocket events with a single flat `interaction` frame, and the per-kind approval and question endpoints with `POST /sessions/{id}/interactions/{id}`; the old events and endpoints are removed.
+
+### Polish
+
+- Move todo lists into expandable transcript cards and remove the old input-area panel and `Ctrl-T` shortcut.
+- Stop resending full-size images on every turn after the provider rejects them as too large or unsupported; later turns and compaction keep the reduced images until you switch models or the conversation history is rewritten.
+- Update cross-tool imports so standalone `.claude/AGENTS.md`, project `.codex/AGENTS.md`, `.codex/CLAUDE.md` and loose skill files are no longer imported; copy them manually if you need them.
+
+### Bug Fixes
+
+- Mark interrupted turns as interrupted instead of showing them as completed, so the conversation no longer freezes at an old point after restarting the app.
+- Fix several known issues and make various refinements. See the [changelog on GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md) for more technical entries.
+
+## 2.3.3 (2026-10-26)
+
+### Bug Fixes
+
+- Fix several known issues and make various refinements. See the [changelog on GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md) for more technical entries.
+
 ## 2.3.2 (2026-10-25)
 
 ### Bug Fixes
