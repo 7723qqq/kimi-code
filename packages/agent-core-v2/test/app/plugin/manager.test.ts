@@ -83,6 +83,84 @@ describe('PluginManager', () => {
     ]);
   });
 
+  it('matches a language-only client locale to a regional translation', async () => {
+    await writeFile(
+      join(root, 'kimi.plugin.json'),
+      JSON.stringify({
+        name: 'demo',
+        interface: {
+          defaultLocale: 'zh-CN',
+          locales: './locales/',
+          mcpOverrides: {
+            mac: { displayName: '中文 MCP', description: '中文 MCP 描述' },
+          },
+        },
+        mcpServers: {
+          mac: { command: 'sh', args: ['./bin/kimi-cu-mcp'] },
+        },
+      }),
+      'utf8',
+    );
+    await mkdir(join(root, 'locales'), { recursive: true });
+    await writeFile(
+      join(root, 'locales', 'en-US.json'),
+      JSON.stringify({
+        mcpOverrides: {
+          mac: { displayName: 'English MCP', description: 'English MCP description' },
+        },
+      }),
+      'utf8',
+    );
+    const manager = new PluginManager({ kimiHomeDir: home });
+    await manager.load();
+
+    for (const locale of ['en', 'en-US', 'en-GB']) {
+      expect(manager.info('demo', locale)?.mcpServers[0]).toMatchObject({
+        name: 'mac',
+        displayName: 'English MCP',
+        description: 'English MCP description',
+      });
+    }
+
+    for (const locale of [undefined, 'zh', 'zh-CN', 'zh-HK']) {
+      expect(manager.info('demo', locale)?.mcpServers[0]).toMatchObject({
+        name: 'mac',
+        displayName: '中文 MCP',
+        description: '中文 MCP 描述',
+      });
+    }
+  });
+
+  it('falls back to the first same-language variant when no exact or default locale matches', async () => {
+    await writeFile(
+      join(root, 'kimi.plugin.json'),
+      JSON.stringify({
+        name: 'demo',
+        interface: { locales: './locales/' },
+        mcpServers: {
+          mac: { command: 'sh', args: ['./bin/kimi-cu-mcp'] },
+        },
+      }),
+      'utf8',
+    );
+    await mkdir(join(root, 'locales'), { recursive: true });
+    await writeFile(
+      join(root, 'locales', 'zh-TW.json'),
+      JSON.stringify({ mcpOverrides: { mac: { displayName: '繁體 MCP' } } }),
+      'utf8',
+    );
+    await writeFile(
+      join(root, 'locales', 'zh_HK.json'),
+      JSON.stringify({ mcpOverrides: { mac: { displayName: '香港 MCP' } } }),
+      'utf8',
+    );
+    const manager = new PluginManager({ kimiHomeDir: home });
+    await manager.load();
+
+    expect(manager.info('demo', 'zh-CN')?.mcpServers[0]?.displayName).toBe('香港 MCP');
+    expect(manager.info('demo', 'de-DE')?.mcpServers[0]?.displayName).toBeUndefined();
+  });
+
   it('installs a local-path plugin into the managed root', async () => {
     const sourceRoot = await mkdtemp(join(tmpdir(), 'plugin-install-source-'));
     try {

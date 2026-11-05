@@ -39,6 +39,7 @@ export interface RemovePluginInput {
 
 export interface GetPluginInfoInput {
   readonly id: string;
+  readonly locale?: string;
 }
 
 export interface IPluginService {

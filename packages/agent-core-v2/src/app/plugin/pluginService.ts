@@ -220,7 +220,7 @@ export class PluginService extends Service implements IPluginService {
 
   getPluginInfo(input: GetPluginInfoInput): Promise<PluginInfo> {
     return this.runManagementRead(async () => {
-      const info = this.manager.info(input.id);
+      const info = this.manager.info(input.id, input.locale);
       if (info === undefined) {
         throw new Error2(
           PluginErrors.codes.PLUGIN_NOT_FOUND,

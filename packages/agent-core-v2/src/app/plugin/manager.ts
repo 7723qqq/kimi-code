@@ -27,6 +27,7 @@ import {
   type PluginCommandDef,
   type PluginGithubMetadata,
   type PluginInfo,
+  type PluginInterface,
   type PluginMcpServerEntry,
   type PluginMcpServerInfo,
   type PluginOrigin,
@@ -424,9 +425,9 @@ export class PluginManager {
     return this.list().map((record) => recordToSummary(record));
   }
 
-  info(id: string): PluginInfo | undefined {
+  info(id: string, locale?: string): PluginInfo | undefined {
     const record = this.get(id);
-    return record === undefined ? undefined : recordToInfo(record);
+    return record === undefined ? undefined : recordToInfo(record, locale);
   }
 
   private async persist(records: ReadonlyMap<string, PluginRecord>): Promise<void> {
@@ -717,7 +718,7 @@ function recordToSummary(record: PluginRecord): PluginSummary {
   };
 }
 
-function recordToInfo(record: PluginRecord): PluginInfo {
+function recordToInfo(record: PluginRecord, locale?: string): PluginInfo {
   return {
     ...recordToSummary(record),
     root: record.root,
@@ -726,7 +727,7 @@ function recordToInfo(record: PluginRecord): PluginInfo {
     manifestKind: record.manifestKind,
     manifestPath: record.manifestPath,
     manifest: record.manifest,
-    mcpServers: pluginMcpServersInfo(record),
+    mcpServers: pluginMcpServersInfo(record, locale),
     shadowedManifestPath: record.shadowedManifestPath,
     diagnostics: record.diagnostics,
   };
@@ -736,20 +737,63 @@ function isMcpServerEnabled(record: PluginRecord, name: string, config: McpServe
   return record.capabilities?.mcpServers?.[name]?.enabled ?? config.enabled !== false;
 }
 
-function pluginMcpServersInfo(record: PluginRecord): readonly PluginMcpServerInfo[] {
+function pluginMcpServersInfo(
+  record: PluginRecord,
+  locale?: string,
+): readonly PluginMcpServerInfo[] {
+  const localized = pluginInterfaceForLocale(record, locale);
   return Object.entries(record.manifest?.mcpServers ?? {})
-    .map(([name, config]) => pluginMcpServerInfo(record, name, config))
+    .map(([name, config]) => pluginMcpServerInfo(record, name, config, localized))
     .toSorted((a, b) => a.name.localeCompare(b.name));
+}
+
+function pluginInterfaceForLocale(
+  record: PluginRecord,
+  locale?: string,
+): PluginInterface | undefined {
+  if (locale === undefined) return undefined;
+  const entries = Object.entries(record.interfaceLocales ?? {}).map(
+    ([key, value]) => [normalizedLocale(key), value] as const,
+  );
+  const normalized = normalizedLocale(locale);
+  const base = normalized.split('-')[0];
+  const exact = entries.find(([key]) => key === normalized);
+  if (exact !== undefined) return exact[1];
+  if (base !== normalized) {
+    const baseEntry = entries.find(([key]) => key === base);
+    if (baseEntry !== undefined) return baseEntry[1];
+  }
+  const defaultLocale = record.manifest?.interface?.defaultLocale;
+  if (defaultLocale !== undefined && normalizedLocale(defaultLocale).split('-')[0] === base) {
+    const normalizedDefault = normalizedLocale(defaultLocale);
+    return entries.find(([key]) => key === normalizedDefault)?.[1];
+  }
+  return entries
+    .filter(([key]) => key.split('-')[0] === base)
+    .toSorted(([a], [b]) => a.localeCompare(b))[0]?.[1];
+}
+
+function normalizedLocale(value: string): string {
+  return value.replaceAll('_', '-').toLowerCase();
 }
 
 function pluginMcpServerInfo(
   record: PluginRecord,
   name: string,
   config: McpServerConfig,
+  localized?: PluginInterface,
 ): PluginMcpServerInfo {
+  const baseOverride = record.manifest?.interface?.mcpOverrides?.[name];
+  const override = localized?.mcpOverrides?.[name];
+  const presentation = {
+    displayName: override?.displayName ?? baseOverride?.displayName,
+    description: override?.description ?? baseOverride?.description,
+    iconUrl: override?.iconUrl ?? baseOverride?.iconUrl,
+  };
   if (config.transport === 'http' || config.transport === 'sse') {
     return {
       name,
+      ...presentation,
       runtimeName: pluginMcpRuntimeName(record.id, name),
       enabled: isMcpServerEnabled(record, name, config),
       transport: config.transport,
@@ -759,6 +803,7 @@ function pluginMcpServerInfo(
   }
   return {
     name,
+    ...presentation,
     runtimeName: pluginMcpRuntimeName(record.id, name),
     enabled: isMcpServerEnabled(record, name, config),
     transport: 'stdio',

@@ -86,6 +86,9 @@ export interface PluginCapabilityState {
 
 export interface PluginMcpServerInfo {
   readonly name: string;
+  readonly displayName?: string;
+  readonly description?: string;
+  readonly iconUrl?: string;
   readonly runtimeName: string;
   readonly enabled: boolean;
   readonly transport: 'stdio' | 'http' | 'sse';
