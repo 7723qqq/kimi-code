@@ -52,7 +52,7 @@ export interface SessionEnvironmentsInfo {
 
 export type { RemoteEnvironmentEntry };
 
-export type { CapabilityStatus } from '@moonshot-ai/agent-core-v2/app/capability/types';
+export type { CapabilityInstallOptions, CapabilityStatus } from '@moonshot-ai/agent-core-v2/app/capability/types';
 
 export type { AgentReplayRecord, ResumedAgentState } from '#/replay';
 export type {

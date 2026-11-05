@@ -303,6 +303,37 @@ export class PluginInstallTrustConfirmComponent extends ChoicePickerComponent {
   }
 }
 
+export class PluginStopProcessesConfirmComponent extends ChoicePickerComponent {
+  constructor(opts: { readonly label: string; readonly onDone: (confirmed: boolean) => void }) {
+    super({
+      title: t('tui.dialogs.pluginsSelector.stopProcessesTitle', { label: opts.label }),
+      hint: t('tui.dialogs.pluginsSelector.stopProcessesHint'),
+      formatHint: mutedHintLine,
+      notice: t('tui.dialogs.pluginsSelector.stopProcessesNotice'),
+      noticeTone: 'warning',
+      spaceSelect: false,
+      options: [
+        {
+          value: 'cancel',
+          label: t('tui.dialogs.pluginsSelector.stopProcessesCancel'),
+          description: t('tui.dialogs.pluginsSelector.stopProcessesCancelDesc'),
+        },
+        {
+          value: 'confirm',
+          label: t('tui.dialogs.pluginsSelector.stopProcessesConfirm'),
+          tone: 'danger',
+        },
+      ],
+      onSelect: (value) => {
+        opts.onDone(value === 'confirm');
+      },
+      onCancel: () => {
+        opts.onDone(false);
+      },
+    });
+  }
+}
+
 function overviewPluginDescription(plugin: PluginSummary): string {
   const state =
     plugin.state === 'ok'

@@ -8,6 +8,7 @@ import { withTelemetryContext } from '#/telemetry';
 import type {
   AuthenticateMcpServerOptions,
   AppMcpServerInspection,
+  CapabilityInstallOptions,
   CapabilityStatus,
   ConfigDiagnostics,
   CreateSessionOptions,
@@ -447,8 +448,8 @@ export class KimiHarness {
     return capabilityRpc(this.rpc).getCapability(id);
   }
 
-  async installCapability(id: string): Promise<CapabilityStatus> {
-    return capabilityRpc(this.rpc).installCapability(id);
+  async installCapability(id: string, options?: CapabilityInstallOptions): Promise<CapabilityStatus> {
+    return capabilityRpc(this.rpc).installCapability(id, options);
   }
 
   /**

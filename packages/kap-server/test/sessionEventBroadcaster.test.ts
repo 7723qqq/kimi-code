@@ -1242,6 +1242,24 @@ describe('SessionEventBroadcaster', () => {
       expect(globalView.envelopes[1]!.volatile).toBe(true);
     });
 
+    it('preserves process termination confirmation in capability events', async () => {
+      const globalView = collectingTarget();
+      bc.addGlobalTarget(globalView.target);
+      eventBus.emit({
+        type: 'event.capability.changed',
+        payload: {
+          capability_id: 'kimi-cu',
+          install: { running: false, confirmationRequired: 'stop-processes' },
+        },
+      });
+      await waitForAssertion(() => {
+        expect(globalView.envelopes).toHaveLength(1);
+      });
+      expect(globalView.envelopes[0]).toMatchObject({
+        payload: { install: { running: false, confirmationRequired: 'stop-processes' } },
+      });
+    });
+
     it('drops malformed event.capability.changed payloads', async () => {
       const globalView = collectingTarget();
       bc.addGlobalTarget(globalView.target);

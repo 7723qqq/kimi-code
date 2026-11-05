@@ -11,6 +11,7 @@ import { defineRoute } from '../middleware/defineRoute';
 import { ErrorCode } from '../protocol/error-codes';
 import {
   capabilityIdParamSchema,
+  capabilityInstallOptionsSchema,
   capabilityStatusSchema,
   listCapabilitiesResponseSchema,
 } from '../protocol/rest-capability';
@@ -96,6 +97,7 @@ export function registerCapabilitiesRoutes(app: CapabilitiesRouteHost, core: Sco
       method: 'POST',
       path: '/capabilities/{tail}',
       params: capabilityTailParamsSchema,
+      body: capabilityInstallOptionsSchema.optional(),
       success: { data: capabilityStatusSchema },
       errors: {
         [ErrorCode.VALIDATION_FAILED]: {},
@@ -120,7 +122,9 @@ export function registerCapabilitiesRoutes(app: CapabilitiesRouteHost, core: Sco
         return;
       }
       try {
-        const capability = await core.accessor.get(ICapabilityService).installCapability(parsed.id);
+        const capability = await core.accessor
+          .get(ICapabilityService)
+          .installCapability(parsed.id, req.body ?? {});
         reply.send(okEnvelope(capability, req.id));
       } catch (error) {
         reply.send(mapCapabilityError(error, req.id));

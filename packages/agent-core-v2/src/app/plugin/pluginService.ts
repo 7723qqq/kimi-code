@@ -70,6 +70,7 @@ export class PluginService extends Service implements IPluginService {
   private snapshotLoaded = false;
   private loadError: Error | undefined;
   private mutationQueue: Promise<void> = Promise.resolve();
+  private readonly mcpSuspensions = new Map<string, number>();
   private readonly onDidReloadEmitter = this._register(new AsyncEmitter<PluginReloadEvent>());
   private readonly onDidMutateEmitter = this._register(new Emitter<PluginMutationSummary>());
 
@@ -110,6 +111,28 @@ export class PluginService extends Service implements IPluginService {
       );
       return this.manager.summaries().filter((summary) => visible.has(summary.id));
     });
+  }
+
+  async withMcpServersSuspended<T>(id: string, task: () => Promise<T>): Promise<T> {
+    const key = normalizePluginId(id);
+    let suspended = false;
+    try {
+      await this.runNotifiedMutation(async () => {
+        this.mcpSuspensions.set(key, (this.mcpSuspensions.get(key) ?? 0) + 1);
+        suspended = true;
+        return { result: undefined, notification: await this.reloadAndNotify() };
+      });
+      return await task();
+    } finally {
+      if (suspended) {
+        await this.runNotifiedMutation(async () => {
+          const remaining = (this.mcpSuspensions.get(key) ?? 1) - 1;
+          if (remaining === 0) this.mcpSuspensions.delete(key);
+          else this.mcpSuspensions.set(key, remaining);
+          return { result: undefined, notification: await this.reloadAndNotify() };
+        });
+      }
+    }
   }
 
   installPlugin(input: InstallPluginInput): Promise<PluginSummary> {
@@ -259,6 +282,9 @@ export class PluginService extends Service implements IPluginService {
   enabledMcpServers(): Promise<Record<string, McpServerConfig>> {
     return this.runConsumptionRead({}, async () => {
       const pluginServers = this.manager.enabledMcpServers();
+      for (const entry of this.manager.mcpServerEntries()) {
+        if (this.mcpSuspensions.has(entry.pluginId)) delete pluginServers[entry.name];
+      }
       if (!Object.values(pluginServers).some((server) => server.transport === 'stdio')) {
         return pluginServers;
       }
@@ -269,7 +295,11 @@ export class PluginService extends Service implements IPluginService {
 
   mcpServerEntries(): Promise<readonly PluginMcpServerEntry[]> {
     return this.runManagementRead(async () => {
-      const entries = this.manager.mcpServerEntries();
+      const entries = this.manager.mcpServerEntries().map((entry) =>
+        this.mcpSuspensions.has(entry.pluginId)
+          ? { ...entry, config: { ...entry.config, enabled: false } }
+          : entry,
+      );
       if (!entries.some((entry) => entry.config.transport === 'stdio')) {
         return entries;
       }

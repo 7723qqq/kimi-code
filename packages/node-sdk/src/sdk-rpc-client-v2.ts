@@ -214,6 +214,7 @@ import type {
   AgentEnvironmentBinding,
   AppMcpServerInspection,
   BackgroundTaskInfo,
+  CapabilityInstallOptions,
   CapabilityStatus,
   CompactOptions,
   ConfigDiagnostics,
@@ -1017,8 +1018,8 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     return this.klient.global.capabilities.get(id);
   }
 
-  async installCapability(id: string): Promise<CapabilityStatus> {
-    return this.klient.global.capabilities.install(id);
+  async installCapability(id: string, options?: CapabilityInstallOptions): Promise<CapabilityStatus> {
+    return this.klient.global.capabilities.install(id, options);
   }
 
   /**

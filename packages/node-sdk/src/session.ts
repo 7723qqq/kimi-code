@@ -20,6 +20,7 @@ import type {
   AgentCommandInfo,
   AgentEnvironmentBinding,
   BackgroundTaskInfo,
+  CapabilityInstallOptions,
   CapabilityStatus,
   CompactOptions,
   CreateGoalInput,
@@ -76,7 +77,7 @@ export interface SessionOptions {
 interface CapabilityRpcSurface {
   listCapabilities(): Promise<readonly CapabilityStatus[]>;
   getCapability(id: string): Promise<CapabilityStatus>;
-  installCapability(id: string): Promise<CapabilityStatus>;
+  installCapability(id: string, options?: CapabilityInstallOptions): Promise<CapabilityStatus>;
 }
 
 export function capabilityRpc(rpc: SDKRpcClientBase): CapabilityRpcSurface {
@@ -759,9 +760,9 @@ export class Session {
    * Start an idempotent capability install (binary runtime + wiring) in the
    * background; poll `getCapability` for progress.
    */
-  async installCapability(id: string): Promise<CapabilityStatus> {
+  async installCapability(id: string, options?: CapabilityInstallOptions): Promise<CapabilityStatus> {
     this.ensureOpen();
-    return capabilityRpc(this.rpc).installCapability(id);
+    return capabilityRpc(this.rpc).installCapability(id, options);
   }
 
   async setPluginMcpServerEnabled(id: string, server: string, enabled: boolean): Promise<void> {

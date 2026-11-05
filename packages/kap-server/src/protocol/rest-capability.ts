@@ -14,7 +14,14 @@ export const capabilityInstallProgressSchema = z.object({
   percent: z.number().min(0).max(100).optional(),
   error: z.string().optional(),
   note: z.string().optional(),
+  confirmationRequired: z.literal('stop-processes').optional(),
 });
+
+export const capabilityInstallOptionsSchema = z
+  .object({
+    stopRunningProcesses: z.boolean().optional(),
+  })
+  .strict();
 export type CapabilityInstallProgressWire = z.infer<typeof capabilityInstallProgressSchema>;
 
 export const capabilityStatusSchema = z.object({

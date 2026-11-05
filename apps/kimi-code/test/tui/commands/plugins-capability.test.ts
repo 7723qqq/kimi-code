@@ -4,7 +4,9 @@ import { log } from '@moonshot-ai/kimi-code-sdk';
 import { resetCapabilitiesCache, setCapabilities, type Component } from '@moonshot-ai/pi-tui';
 
 import { __pluginsCommandInternals, type CapabilityPollOptions } from '#/tui/commands/plugins';
+import { PluginStopProcessesConfirmComponent } from '#/tui/components/dialogs/plugins-selector';
 import { NoticeMessageComponent } from '#/tui/components/messages/status-message';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 /** Capability polling needs no real delay: the loop is driven by the fake statuses. */
 const NO_WAIT: CapabilityPollOptions = { sleep: async () => {} };
@@ -21,14 +23,23 @@ function fakeHost(overrides: {
   capabilityStatus?: () => Promise<{
     state?: string;
     steps?: readonly unknown[];
-    install: { running: boolean; step?: string; percent?: number; error?: string };
+    install: {
+      running: boolean;
+      step?: string;
+      percent?: number;
+      error?: string;
+      confirmationRequired?: 'stop-processes';
+    };
   }>;
 }) {
   const statuses: string[] = [];
   const notices: { title: string; detail?: string }[] = [];
   const renders: number[] = [];
   const transcriptEntries: Component[] = [];
-  const installCapability = mock(() => Promise.resolve());
+  const installCapability = mock(
+    (_id: string, _options?: { readonly stopRunningProcesses?: boolean }) => Promise.resolve(),
+  );
+  const mounted: Component[] = [];
   const getCapability =
     overrides.capabilityStatus ??
     (() => Promise.resolve({ state: 'ready', steps: [], install: { running: false } }));
@@ -63,6 +74,9 @@ function fakeHost(overrides: {
       transcriptEntries.push(component);
     },
     restoreEditor: () => undefined,
+    mountEditorReplacement: (component: Component) => {
+      mounted.push(component);
+    },
     state: {
       ui: { requestRender: () => renders.push(1) },
       transcriptContainer: {
@@ -70,7 +84,15 @@ function fakeHost(overrides: {
       },
     },
   };
-  return { host: host as never, statuses, notices, renders, transcriptEntries, installCapability };
+  return {
+    host: host as never,
+    statuses,
+    notices,
+    renders,
+    transcriptEntries,
+    installCapability,
+    mounted,
+  };
 }
 
 function fakePanel() {
@@ -151,6 +173,64 @@ describe('plugins command capability surface', () => {
       step: 'download',
       percent: 40,
     });
+  });
+
+  it('asks before stopping running processes and installs again once confirmed', async () => {
+    const pending = fakeHost({
+      capabilityStatus: () =>
+        Promise.resolve({
+          state: 'ready',
+          steps: [],
+          install:
+            pending.installCapability.mock.calls.length < 2
+              ? { running: false, confirmationRequired: 'stop-processes' as const }
+              : { running: false },
+        }),
+    });
+    const panel = fakePanel();
+    const running = installCapabilityFromPanel(
+      pending.host,
+      panel.panel,
+      { id: 'kimi-cu-win', displayName: 'Kimi Computer Use', source: 'capability:kimi-cu' } as never,
+      NO_WAIT,
+    );
+
+    await waitForAssertion(() => expect(pending.mounted).toHaveLength(1));
+    const confirm = pending.mounted[0];
+    expect(confirm).toBeInstanceOf(PluginStopProcessesConfirmComponent);
+    (confirm as PluginStopProcessesConfirmComponent).handleInput('\u001B[B');
+    (confirm as PluginStopProcessesConfirmComponent).handleInput('\r');
+    await running;
+
+    expect(pending.installCapability.mock.calls).toEqual([
+      ['kimi-cu-win'],
+      ['kimi-cu-win', { stopRunningProcesses: true }],
+    ]);
+  });
+
+  it('leaves running processes alone when the confirmation is cancelled', async () => {
+    const pending = fakeHost({
+      capabilityStatus: () =>
+        Promise.resolve({
+          state: 'ready',
+          steps: [],
+          install: { running: false, confirmationRequired: 'stop-processes' as const },
+        }),
+    });
+    const panel = fakePanel();
+    const running = installCapabilityFromPanel(
+      pending.host,
+      panel.panel,
+      { id: 'kimi-cu-win', displayName: 'Kimi Computer Use', source: 'capability:kimi-cu' } as never,
+      NO_WAIT,
+    );
+
+    await waitForAssertion(() => expect(pending.mounted).toHaveLength(1));
+    (pending.mounted[0] as PluginStopProcessesConfirmComponent).handleInput('\u001B');
+    await running;
+
+    expect(pending.installCapability).toHaveBeenCalledTimes(1);
+    expect(pending.statuses.join(' ')).toContain('Install cancelled');
   });
 
   it('removePlugin notes that capability environments are left untouched', async () => {

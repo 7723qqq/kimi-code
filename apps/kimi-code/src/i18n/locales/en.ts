@@ -348,6 +348,10 @@ export default {
     capabilityInstallInProgress: 'Capability install already in progress',
     // capability.not_found
     capabilityNotFound: 'Capability not found',
+    capabilityProcessControlFailed:
+      "Failed to stop the running Kimi Computer Use processes, so the install was cancelled. Close them manually and try again.",
+    capabilityProcessesRunning:
+      'Kimi Computer Use is still running. Confirm stopping its processes before installing.',
     // capability.unsupported
     capabilityUnsupported: 'Capability not supported',
     // debug.scope_not_found
@@ -807,6 +811,8 @@ export default {
         mcpLoadFailed: 'Failed to load plugin MCP servers: {{error}}',
         mcpPanelFailed: '/plugins mcp failed: {{error}}',
         installFailedLabel: 'Failed to install {{label}}: {{error}}',
+        installProcessesStillRunning:
+          '{{label}} installation did not complete. Processes are still running; install again from /plugins.',
         installStillRunning: '{{label}} installation is still running in the background.',
         installFailedWithError: '{{label}} installation failed: {{error}}',
         fixErrorAndRetry: 'Fix the reported error, then install again from /plugins.',
@@ -1549,6 +1555,13 @@ export default {
         removeCancelDesc: 'Keep this plugin installed.',
         removeConfirmLabel: 'Remove plugin',
         removeConfirmDesc: 'Remove only the install record; plugin files are left in place.',
+        stopProcessesTitle: 'Stop running processes for {{label}}?',
+        stopProcessesHint: '↑↓ navigate · Enter select · Esc cancel',
+        stopProcessesNotice:
+          'Continuing will stop the running plugin processes and interrupt any computer operations in progress.',
+        stopProcessesCancel: 'Cancel',
+        stopProcessesCancelDesc: 'Leave running processes untouched.',
+        stopProcessesConfirm: 'Stop processes and continue',
         installTrustTitle: 'Install third-party plugin {{label}}?',
         installTrustExitLabel: 'Exit',
         installTrustExitDesc: 'Cancel the installation.',

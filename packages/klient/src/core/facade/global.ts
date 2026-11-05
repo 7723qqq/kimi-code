@@ -35,13 +35,16 @@ import type {
   McpServerTestTarget,
 } from '@moonshot-ai/agent-core-v2';
 import type {
+  CapabilityInstallOptions,
+  CapabilityStatus,
+} from '@moonshot-ai/agent-core-v2/app/capability/types';
+import type {
   PluginCommandDef,
   PluginInfo,
   PluginSummary,
   PluginUpdateStatus,
   ReloadSummary,
-} from '@moonshot-ai/agent-core-v2';
-import type { CapabilityStatus } from '@moonshot-ai/agent-core-v2/contract';
+} from '@moonshot-ai/agent-core-v2/app/plugin/types';
 
 import type { McpServerConfig } from '../../contract/mcp.js';
 import type { CallOptions } from '../channel.js';
@@ -216,7 +219,7 @@ export interface GlobalFlagsFacade {
 export interface GlobalCapabilitiesFacade {
   list(): Promise<readonly CapabilityStatus[]>;
   get(id: string): Promise<CapabilityStatus>;
-  install(id: string): Promise<CapabilityStatus>;
+  install(id: string, options?: CapabilityInstallOptions): Promise<CapabilityStatus>;
 }
 
 export interface GlobalPluginsFacade {
@@ -561,8 +564,8 @@ export function createGlobalFacade(
       list: () =>
         call('capabilityService', 'listCapabilities', []) as Promise<readonly CapabilityStatus[]>,
       get: (id) => call('capabilityService', 'getCapability', [id]) as Promise<CapabilityStatus>,
-      install: (id) =>
-        call('capabilityService', 'installCapability', [id]) as Promise<CapabilityStatus>,
+      install: (id, options) =>
+        call('capabilityService', 'installCapability', [id, options]) as Promise<CapabilityStatus>,
     },
 
     hostFs: {

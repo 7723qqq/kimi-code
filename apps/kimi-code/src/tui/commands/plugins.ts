@@ -26,6 +26,7 @@ import {
   PluginInstallTrustConfirmComponent,
   PluginMcpSelectorComponent,
   PluginRemoveConfirmComponent,
+  PluginStopProcessesConfirmComponent,
   PluginsPanelComponent,
   type PluginInstallTrustConfirmResult,
   type PluginMcpSelection,
@@ -594,6 +595,35 @@ async function installCapabilityFromPanel(
   let result: CapabilityStatus | undefined;
   try {
     result = await pollCapabilityInstall(host, entry.id, options);
+    if (result?.install.confirmationRequired === 'stop-processes') {
+      panel.clearInstalling();
+      const confirmed = await new Promise<boolean>((resolveConfirmed) => {
+        host.mountEditorReplacement(
+          new PluginStopProcessesConfirmComponent({ label, onDone: resolveConfirmed }),
+        );
+      });
+      if (!confirmed) {
+        host.restoreEditor();
+        host.showStatus(t('tui.commands.plugins.installCancelledLabel', { label }));
+        return;
+      }
+      panel.setInstalling(truncateForStatus(label));
+      host.mountEditorReplacement(panel);
+      try {
+        await api.installCapability(entry.id, { stopRunningProcesses: true });
+      } catch (error) {
+        panel.clearInstalling();
+        host.restoreEditor();
+        host.showError(
+          t('tui.commands.plugins.installFailedLabel', {
+            label,
+            error: formatErrorMessage(error),
+          }),
+        );
+        return;
+      }
+      result = await pollCapabilityInstall(host, entry.id, options);
+    }
   } catch (error) {
     log.warn('capability install polling failed', { capabilityId: entry.id, error });
     result = undefined;
@@ -607,6 +637,10 @@ async function installCapabilityFromPanel(
     return;
   }
   logCapabilityStatus(result);
+  if (result.install.confirmationRequired !== undefined) {
+    host.showError(t('tui.commands.plugins.installProcessesStillRunning', { label }));
+    return;
+  }
   if (result.install.error !== undefined) {
     host.showError(
       t('tui.commands.plugins.installFailedWithError', { label, error: result.install.error }),

@@ -335,6 +335,8 @@ export default {
     // capability.install_in_progress
     capabilityInstallInProgress: '该能力正在安装中',
     // capability.not_found
+    capabilityProcessControlFailed: '无法停止正在运行的 Kimi Computer Use 进程，安装已取消。请手动关闭后重试。',
+    capabilityProcessesRunning: 'Kimi Computer Use 仍在运行。安装前请确认停止其进程。',
     capabilityNotFound: '未找到该能力',
     // capability.unsupported
     capabilityUnsupported: '不支持该能力',
@@ -782,6 +784,7 @@ export default {
         panelFailed: '/plugins 失败：{{error}}',
         mcpLoadFailed: '插件 MCP server 加载失败：{{error}}',
         mcpPanelFailed: '/plugins mcp 失败：{{error}}',
+        installProcessesStillRunning: '{{label}} 安装未完成。仍有进程在运行；请从 /plugins 再次安装。',
         installFailedLabel: '安装 {{label}} 失败：{{error}}',
         installStillRunning: '{{label}} 的安装仍在后台进行。',
         installFailedWithError: '{{label}} 安装失败：{{error}}',
@@ -1499,6 +1502,12 @@ export default {
         removeCancelDesc: '保留此插件。',
         removeConfirmLabel: '删除插件',
         removeConfirmDesc: '仅删除安装记录；插件文件保留在原位。',
+        stopProcessesTitle: '停止 {{label}} 正在运行的进程？',
+        stopProcessesHint: '↑↓ 选择 · Enter 确认 · Esc 取消',
+        stopProcessesNotice: '继续将停止正在运行的插件进程，并中断进行中的电脑操作。',
+        stopProcessesCancel: '取消',
+        stopProcessesCancelDesc: '保留正在运行的进程。',
+        stopProcessesConfirm: '停止进程并继续',
         installTrustTitle: '安装第三方插件 {{label}}？',
         installTrustExitLabel: '退出',
         installTrustExitDesc: '取消安装。',

@@ -8,7 +8,7 @@ import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IPluginService } from '#/app/plugin/plugin';
 import { IRegionService } from '#/app/region/region';
 import { LifecycleScope } from '#/app/scopes';
-import { Error2 } from '#/errors';
+import { Error2, isError2 } from '#/errors';
 import { IHostProcessService } from '#/os/interface/hostProcess';
 
 import { ICapabilityService } from './capability';
@@ -21,6 +21,7 @@ import type {
   CapabilityDescriptor,
   CapabilityInstallChange,
   CapabilityInstallProgress,
+  CapabilityInstallOptions,
   CapabilityReadiness,
   CapabilityStatus,
 } from './types';
@@ -91,7 +92,7 @@ export class CapabilityService extends Disposable implements ICapabilityService 
     return this.statusOf(this.requireEntry(id));
   }
 
-  async installCapability(id: string): Promise<CapabilityStatus> {
+  async installCapability(id: string, options?: CapabilityInstallOptions): Promise<CapabilityStatus> {
     const entry = this.requireEntry(id);
     if (!entry.supported) {
       throw new Error2(
@@ -117,9 +118,13 @@ export class CapabilityService extends Disposable implements ICapabilityService 
             entry.id,
             percent === undefined ? { running: true, step } : { running: true, step, percent },
           );
-        });
+        }, options);
         this.setInstallProgress(entry.id, { running: false, note });
       } catch (error) {
+        if (isError2(error) && error.code === CapabilityErrors.codes.CAPABILITY_PROCESSES_RUNNING) {
+          this.setInstallProgress(entry.id, { running: false, confirmationRequired: 'stop-processes' });
+          return;
+        }
         const step = this.installProgress.get(entry.id)?.step;
         this.log.warn('capability install failed', {
           capabilityId: entry.id,
