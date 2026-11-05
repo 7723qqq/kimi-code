@@ -140,7 +140,7 @@ function powerShellTool(
   const ctx = createTestCtx();
   const backend = Object.assign(
     new FakeEnvironment(
-      { workspaceId: ctx.workspaceId, runtimeId: 'local', generation: 'test' },
+      { environmentId: 'local', generation: 'test' },
       { capabilities: ['process'], pathClass: 'win32' },
     ),
     { environment: windowsEnv, process: processService },
@@ -151,7 +151,7 @@ function powerShellTool(
     isAvailable: () => true,
     inspect: () => backend,
     acquire: () => ({
-      runtime: backend,
+      environment: backend,
       track: (resource: unknown) => resource,
       dispose: () => {},
     }),
@@ -311,7 +311,7 @@ describe('PowerShellTool', () => {
       (entry) => entry.options.name === 'PowerShell',
     );
     expect(contribution).toBeDefined();
-    expect(contribution?.options.requiredRuntimeCapabilities).toEqual(['process']);
+    expect(contribution?.options.requiredEnvironmentCapabilities).toEqual(['process']);
     expect(contribution?.options.when?.({} as never)).toBe(process.platform === 'win32');
   });
 

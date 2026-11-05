@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 
 async function viWaitFor(fn: () => void | Promise<void>, opts?: { timeout?: number }): Promise<void> {
   const deadline = Date.now() + (opts?.timeout ?? 1000);
@@ -7,12 +7,11 @@ async function viWaitFor(fn: () => void | Promise<void>, opts?: { timeout?: numb
       await fn();
       return;
     } catch {
-      if (Date.now() > deadline) throw new Error('vi.waitFor timed out');
+      if (Date.now() > deadline) throw new Error('waitFor timed out');
       await new Promise((r) => setTimeout(r, 10));
     }
   }
 }
-
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { Disposable, DisposableStore } from '#/_base/di/lifecycle';
@@ -50,7 +49,7 @@ import { agentContextOf, IAgentScopeContext } from '#/agent/scopeContext/scopeCo
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IBuiltinAgentProfileLoader } from '#/app/agentProfileCatalog/builtinAgentProfileLoader';
 import { IModelCatalog } from '#/llm-adapter/model/catalog';
-import type { ToolCall } from '#human/message';
+import type { ToolCall } from '#/human/llm/message';
 import { IProtocolAdapterRegistry } from '#/llm-adapter/protocol/protocol';
 import { IHostClock } from '#/os/interface/hostClock';
 import { ISessionStateService } from '#/session/state/sessionState';
@@ -130,7 +129,6 @@ import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionT
 import { _clearAgentToolContributionsForTests } from '#/agent/toolRegistry/toolContribution';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import '#/agent/toolActivation/toolActivationService';
-import { IAgentMediaToolsRegistrar } from '#/agent/media/mediaTools';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import type { EnvironmentBinding } from '#/environment/environment';
@@ -221,7 +219,6 @@ function stubAttachEngine(): MachineEngine {
     }),
     currentStep: () => 0,
     lastFinish: () => undefined,
-    toolExtras: new Map(),
     handleToolProgress: () => {},
   };
 }
@@ -280,15 +277,15 @@ function recordingAppendLog(initial: readonly WireRecord[] = []): {
 describe('AgentLifecycleService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
-  let registerAgent: ReturnType<typeof vi.fn<ISessionMetadata['registerAgent']>>;
+  let registerAgent: ReturnType<typeof jest.fn<ISessionMetadata['registerAgent']>>;
   let atomicDocs: Map<string, unknown>;
-  let permissionModeSetMode: ReturnType<typeof vi.fn>;
-  let stopAllOnExit: ReturnType<typeof vi.fn>;
-  let suppressAllTerminalNotifications: ReturnType<typeof vi.fn>;
+  let permissionModeSetMode: ReturnType<typeof jest.fn>;
+  let stopAllOnExit: ReturnType<typeof jest.fn>;
+  let suppressAllTerminalNotifications: ReturnType<typeof jest.fn>;
   let loopActiveTurnId: number | undefined;
   let loopPendingPromptIds: string[];
-  let loopCancel: ReturnType<typeof vi.fn<IAgentLoopService['cancel']>>;
-  let loopSettled: ReturnType<typeof vi.fn<IAgentLoopService['settled']>>;
+  let loopCancel: ReturnType<typeof jest.fn<IAgentLoopService['cancel']>>;
+  let loopSettled: ReturnType<typeof jest.fn<IAgentLoopService['settled']>>;
   let beforeExecuteListeners: number;
   let didExecuteHookIds: string[];
 
@@ -305,7 +302,7 @@ describe('AgentLifecycleService', () => {
     ix.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix.stub(IBlobStore, new BlobStoreService(new InMemoryStorageService()));
     ix.set(ISessionMediaStore, new SyncDescriptor(SessionMediaStoreService));
-    registerAgent = vi.fn<ISessionMetadata['registerAgent']>().mockResolvedValue(undefined);
+    registerAgent = jest.fn<ISessionMetadata['registerAgent']>().mockResolvedValue(undefined);
     atomicDocs = new Map();
     ix.stub(ISessionContext, {
       _serviceBrand: undefined,
@@ -400,9 +397,6 @@ describe('AgentLifecycleService', () => {
       resolve: () => undefined,
       list: () => [],
     } as unknown as IAgentToolRegistryService);
-    ix.stub(IAgentMediaToolsRegistrar, {
-      _serviceBrand: undefined,
-    } as IAgentMediaToolsRegistrar);
     beforeExecuteListeners = 0;
     didExecuteHookIds = [];
     ix.stub(IAgentToolExecutorService, {
@@ -423,7 +417,7 @@ describe('AgentLifecycleService', () => {
     } as unknown as IAgentToolExecutorService);
     loopActiveTurnId = undefined;
     loopPendingPromptIds = [];
-    loopCancel = vi.fn<IAgentLoopService['cancel']>((target) => {
+    loopCancel = jest.fn<IAgentLoopService['cancel']>((target) => {
       if (target?.promptId !== undefined) {
         loopPendingPromptIds = loopPendingPromptIds.filter((id) => id !== target.promptId);
         return true;
@@ -433,7 +427,7 @@ describe('AgentLifecycleService', () => {
       }
       return true;
     });
-    loopSettled = vi.fn<IAgentLoopService['settled']>(async () => {
+    loopSettled = jest.fn<IAgentLoopService['settled']>(async () => {
       if (loopActiveTurnId !== undefined || loopPendingPromptIds.length > 0) {
         throw new Error('Agent loop did not settle');
       }
@@ -461,7 +455,7 @@ describe('AgentLifecycleService', () => {
       }),
       cancel: loopCancel,
       settled: loopSettled,
-      tryAcquireQuiescence: mock(() => ({ dispose: mock() })),
+      tryAcquireQuiescence: jest.fn(() => ({ dispose: jest.fn() })),
       buildAttachBundle: () => stubAttachBundle(),
       attachEngine: () => stubAttachEngine(),
     } as unknown as IAgentLoopService);
@@ -525,7 +519,7 @@ describe('AgentLifecycleService', () => {
       disabledTools: [],
       onDidChange: Event.None as Event<void>,
     } satisfies ISessionToolPolicyGate);
-    permissionModeSetMode = mock();
+    permissionModeSetMode = jest.fn();
     ix.stub(IAgentPermissionModeService, {
       _serviceBrand: undefined,
       mode: 'manual',
@@ -553,8 +547,8 @@ describe('AgentLifecycleService', () => {
       }),
       isBaselineServer: () => true,
     } satisfies ISessionMcpHandle);
-    stopAllOnExit = mock(async () => []);
-    suppressAllTerminalNotifications = mock(async () => {});
+    stopAllOnExit = jest.fn(async () => []);
+    suppressAllTerminalNotifications = jest.fn(async () => {});
     ix.stub(IAgentTaskService, {
       _serviceBrand: undefined,
       stopAllOnExit,
@@ -580,7 +574,7 @@ describe('AgentLifecycleService', () => {
   });
   afterEach(() => {
     disposables.dispose();
-    mock.restore();
+    jest.restoreAllMocks();
   });
 
   function contributeTodoService(): void {
@@ -631,7 +625,7 @@ describe('AgentLifecycleService', () => {
     expect((dispatcher as unknown as { wire: IWireService }).wire).toBe(
       handle.accessor.get(IWireService),
     );
-    const flush = spyOn(dispatcher, 'flush');
+    const flush = jest.spyOn(dispatcher, 'flush');
     await svc.remove(svc.get('main')!);
     expect(flush).toHaveBeenCalled();
   });
@@ -1213,7 +1207,7 @@ describe('AgentLifecycleService', () => {
 
     expectCurrentBinding('agent-1', { environmentId: 'ghost', cwd: '/ghost/work' });
     expect(() => agent.accessor.get(IAgentEnvironmentService).acquire()).toThrowError(
-      expect.objectContaining<Partial<EnvironmentError>>({ code: 'environment.not_found' }),
+      expect.objectContaining({ code: 'environment.not_found' }),
     );
   });
 
@@ -1252,7 +1246,7 @@ describe('AgentLifecycleService', () => {
     const main = await svc.create({ agentId: 'main' });
 
     expect(svc.handleOf('main')!.accessor.get(IAgentTodoService).get()).toEqual([
-      { title: 'bridged', status: 'pending' },
+      { id: 'T1', parentId: null, kind: 'task', title: 'bridged', status: 'pending' },
     ]);
     expect(svc.handleOf('main')!.accessor.get(IAgentCronService).list()).toEqual([
       { id: 'cron-1', cron: '0 9 * * *', prompt: 'ping', recurring: true, createdAt: 1, lastFiredAt: undefined },
@@ -1430,8 +1424,8 @@ describe('AgentLifecycleService', () => {
 
   function stubPersistedAgents(
     agents: Record<string, AgentMeta>,
-  ): ReturnType<typeof vi.fn<ISessionMetadata['registerAgent']>> {
-    const tracked = vi.fn<ISessionMetadata['registerAgent']>(async (agentId, meta) => {
+  ): ReturnType<typeof jest.fn<ISessionMetadata['registerAgent']>> {
+    const tracked = jest.fn<ISessionMetadata['registerAgent']>(async (agentId, meta) => {
       agents[agentId] = meta;
     });
     ix.stub(ISessionMetadata, {
@@ -1517,6 +1511,7 @@ describe('AgentLifecycleService', () => {
     svc.handleOf(child.agentId)!.accessor.get(IAgentContextMemoryService).append({
       role: 'user',
       content: [{ type: 'text', text: 'persisted side question' }],
+      toolCalls: [],
     });
     await svc.remove(svc.get(child.agentId)!);
     expect(svc.handleOf(child.agentId)).toBeUndefined();
@@ -1635,7 +1630,7 @@ describe('AgentLifecycleService', () => {
       arguments: '{}',
     };
     const history: ContextMessage[] = [
-      { role: 'user', content: [{ type: 'text', text: 'analyze this repo' }] },
+      { role: 'user', content: [{ type: 'text', text: 'analyze this repo' }], toolCalls: [] },
       { role: 'assistant', content: [], toolCalls: [agentCall], partial: true },
     ];
     sourceHandle.accessor.get(IAgentContextMemoryService).append(...history);

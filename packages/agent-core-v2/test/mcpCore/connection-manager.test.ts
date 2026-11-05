@@ -1,4 +1,4 @@
-import { describe, expect, it, spyOn } from 'bun:test';
+import { describe, expect, it, mock, spyOn } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, realpathSync } from 'node:fs';
 import {
@@ -1509,8 +1509,7 @@ describe('McpConnectionManager', () => {
           resolve(true);
         };
       });
-      const invalidation = vi
-        .spyOn(oauthService, 'invalidateTokensIfCurrent')
+      const invalidation = spyOn(oauthService, 'invalidateTokensIfCurrent')
         .mockImplementation(async (serverName, serverUrl, expected) => {
           await invalidationGate;
           return invalidate(serverName, serverUrl, expected);
@@ -1532,7 +1531,9 @@ describe('McpConnectionManager', () => {
         await sleep(10);
       }
       expect(cm.get('hyper')?.status).toBe('needs-auth');
-      expect((await peek.mock.results[0]?.value)?.tokens).toBeDefined();
+      expect(
+        ((await peek.mock.results[0]?.value) as { tokens?: unknown } | undefined)?.tokens,
+      ).toBeDefined();
       expect(invalidation).toHaveBeenCalled();
       expect(firstSettled).toBe(false);
       expect(secondSettled).toBe(false);

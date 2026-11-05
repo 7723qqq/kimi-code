@@ -1,4 +1,4 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it, mock, type Mock } from 'bun:test';
 
 import type { IFileEditService } from '#/app/edit/fileEdit';
 import { noopTelemetryService } from '#/app/telemetry/telemetry';
@@ -11,14 +11,14 @@ import {
 } from '#/environment/environmentRegistry';
 import type { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import type { ModelCapability } from '#human/llm-requester/capability';
+import type { ModelCapability } from '#/human/llm/capability';
 import type { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import type { IAgentProfileService } from '#/agent/profile/profile';
 import type { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import type { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import type { WorkspaceConfig } from '#/tool/path-access';
 import { ToolAccesses, type ExecutableToolContext, type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
-import { ensureRgPath } from '#/os/backends/host/tools/rgLocator';
+import { ensureRgPath, rgUnavailableMessage } from '#/os/backends/host/tools/rgLocator';
 import { EditTool } from '#/agent/tools/edit/editTool';
 import { BashTool } from '#/agent/tools/os/bash/bashTool';
 import { GlobTool } from '#/agent/tools/os/glob/globTool';
@@ -32,12 +32,12 @@ import { stubToolResultTruncationService } from '../../toolResultTruncation/stub
 import { makeSessionContext } from '#/session/sessionContext/sessionContext';
 import { stubWorkspaceContext } from '../../../session/workspaceContext/stub-workspace-context';
 
-vi.mock('#/os/backends/host/tools/rgLocator', async (importOriginal) => {
-  const original = await importOriginal<typeof import('#/os/backends/host/tools/rgLocator')>();
-  return { ...original, ensureRgPath: mock() };
-});
+void mock.module('#/os/backends/host/tools/rgLocator', () => ({
+  ensureRgPath: mock(),
+  rgUnavailableMessage,
+}));
 
-const ensureRgPathMock = ensureRgPath;
+const ensureRgPathMock = ensureRgPath as unknown as Mock<typeof ensureRgPath>;
 
 const ENVIRONMENT_CHANGED_OUTPUT = 'Environment changed before execution. Retry the tool call.';
 const BINDING: EnvironmentBinding = { environmentId: 'remote' };

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
 import { IEnvironmentService } from '#/app/environment/environment';
 
 import { Emitter, Event } from '#/_base/event';
@@ -734,10 +734,10 @@ describe('SessionManager controller retirement', () => {
   function liveProgram(): {
     readonly registry: EnvironmentRegistry;
     readonly program: Program;
-    readonly controllers: { readonly service: SessionLifecycleService; readonly dispose: ReturnType<typeof vi.fn> }[];
+    readonly controllers: { readonly service: SessionLifecycleService; readonly dispose: Mock<() => unknown> }[];
   } {
     const registry = new EnvironmentRegistry();
-    const controllers: { readonly service: SessionLifecycleService; readonly dispose: ReturnType<typeof vi.fn> }[] = [];
+    const controllers: { readonly service: SessionLifecycleService; readonly dispose: Mock<() => unknown> }[] = [];
     let nextSession = 0;
     const program = new Program(
       'workspace',

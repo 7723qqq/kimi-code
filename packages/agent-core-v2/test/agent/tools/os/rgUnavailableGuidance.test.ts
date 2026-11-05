@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
 import { join } from 'node:path';
 
 
@@ -13,13 +13,8 @@ import { GrepTool } from '#/agent/tools/os/grep/grepTool';
 import { stubWorkspaceContext } from '../../../session/workspaceContext/stub-workspace-context';
 import { stubAgentEnvironment } from '../../../environment/stubs';
 
-vi.mock('#/os/backends/host/tools/rgLocator', async (importOriginal) => {
-  const original =
-    await importOriginal<typeof import('#/os/backends/host/tools/rgLocator')>();
-  return { ...original, ensureRgPath: mock() };
-});
 
-const ensureRgPathMock = ensureRgPath;
+const ensureRgPathMock = ensureRgPath as unknown as Mock<typeof ensureRgPath>;
 
 const LOCAL_SHARE_BIN_RG = join(
   '/kimi-home-test',
