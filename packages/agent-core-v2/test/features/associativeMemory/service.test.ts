@@ -106,6 +106,37 @@ describe('AssociativeMemoryService', () => {
     expect((await h.service.stats()).edges).toBe(0);
   });
 
+  it('runs the full loop: write, inject, recall, reconsolidate, audit, export', async () => {
+    const messages = [
+      { role: 'user', content: [{ type: 'text', text: 'cache ttl' }], toolCalls: [] },
+    ];
+    const h = build(true, messages);
+    await h.service.writeNote('the cache ttl is 30 seconds');
+    const provider = h.providers.get('associative_memory_signal');
+    expect(provider).toBeDefined();
+    const block = await provider!({ isNewTurn: true });
+    expect(typeof block === 'string' ? block : '').toContain('cache ttl');
+
+    const recalled = await h.service.recall({
+      cue: 'cache ttl',
+      limit: undefined,
+      maxTokens: undefined,
+      includeHistory: false,
+    });
+    expect(recalled.items.length).toBeGreaterThan(0);
+    await h.service.reconsolidate(recalled.items[0]!.id, 'the cache ttl is 60 seconds');
+
+    const entries = await h.service.audit(20);
+    expect(entries.some((entry) => entry.kind === 'reconsolidate')).toBe(true);
+
+    await fsp.mkdir(join(homeDir, 'project'), { recursive: true });
+    const exported = await h.service.export('project');
+    const payload = JSON.parse(await fsp.readFile(exported.path, 'utf8')) as {
+      audit?: { kind: string }[];
+    };
+    expect(payload.audit?.some((entry) => entry.kind === 'reconsolidate')).toBe(true);
+  });
+
   it('reconsolidates a recalled memory and supersedes the old atom', async () => {
     const h = build();
     const written = await h.service.writeNote('the cache ttl is 30 seconds');
