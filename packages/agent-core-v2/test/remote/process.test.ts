@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mock, spyOn } from 'bun:test';
+import { jest, mock, spyOn } from 'bun:test';
 import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -246,7 +246,7 @@ describe.skipIf(process.platform === 'win32')('process group over a subprocess l
   }, 15_000);
 });
 
-describe('process output backpressure', () => {
+describe.skipIf(process.platform === 'win32')('process output backpressure', () => {
   it('bounds an unread flood and resumes losslessly once the consumer catches up', async () => {
     const { connection, loopback } = await connectInProcess();
     const processes = new RemoteProcessService(connection, '/tmp', '/bin/bash');
@@ -573,5 +573,60 @@ describe.skipIf(process.platform === 'win32')('finished process-group ownership'
       await Bun.sleep(5_000);
       expect(internals.exitedGroups.size).toBe(0);
     } finally { manager.dispose(); kill.mockRestore(); }
+  });
+
+  it('does not retain POSIX process groups for a Windows executor', async () => {
+    jest.useFakeTimers();
+    const platform = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    const kill = spyOn(process, 'kill').mockImplementation(() => true);
+    const manager = new ProcessManager(() => {}, new HostProcessService());
+    const internals = manager as unknown as {
+      processes: Map<string, unknown>;
+      exitedGroups: Map<string, unknown>;
+      maybeClose(entry: unknown): void;
+    };
+    try {
+      const entry = {
+        processId: 'windows',
+        pid: 123,
+        exitCode: 0,
+        openStreams: 0,
+        closed: false,
+        killTimer: setTimeout(() => {}, 1_000),
+      };
+      internals.processes.set(entry.processId, entry);
+      internals.maybeClose(entry);
+      expect(internals.exitedGroups.size).toBe(0);
+      expect(jest.getTimerCount()).toBe(0);
+      jest.advanceTimersByTime(10_000);
+      expect(kill).not.toHaveBeenCalled();
+    } finally {
+      manager.dispose();
+      kill.mockRestore();
+      Object.defineProperty(process, 'platform', { value: platform });
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not schedule a grace kill for a Windows executor', async () => {
+    jest.useFakeTimers();
+    const platform = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    const manager = new ProcessManager(() => {}, new HostProcessService());
+    const internals = manager as unknown as {
+      beginTermination(entry: unknown): Promise<void>;
+    };
+    const entry = { child: { kill: mock(async () => {}) }, killTimer: undefined };
+    try {
+      await internals.beginTermination(entry);
+      expect(entry.child.kill).toHaveBeenCalledWith('SIGTERM');
+      expect(entry.killTimer).toBeUndefined();
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      manager.dispose();
+      Object.defineProperty(process, 'platform', { value: platform });
+      jest.useRealTimers();
+    }
   });
 });

@@ -143,7 +143,7 @@ async function resolveRemoteRgPath(
   }
   throwIfAborted(options.signal);
   const binPath = shareBinRgPath(environment);
-  const binDir = dirname(binPath);
+  const binDir = environment.path?.dirname(binPath) ?? dirname(binPath);
   const cached = await probe.exec([binPath, '--version']).catch(() => ({ exitCode: -1 }));
   if (cached.exitCode === 0) return { path: binPath, source: 'share-bin-cached' };
   throwIfAborted(options.signal);
@@ -201,6 +201,7 @@ async function installRemoteRg(
   } finally {
     await fs.remove(staged).catch(() => {});
   }
+  if (host.pathClass === 'win32') return;
   const chmodRun = await probe.exec(['chmod', '755', binPath]).catch(() => ({ exitCode: -1 }));
   if (chmodRun.exitCode !== 0) {
     throw new Error2(
@@ -288,7 +289,6 @@ export function detectTarget(): string | undefined {
 }
 
 export function detectRemoteTarget(osKind: string, osArch: string): string | undefined {
-  if (osKind === 'Windows') return undefined;
   return rgTargetFor(osKind, osArch);
 }
 

@@ -8,6 +8,7 @@ import { FileEditService } from '#/app/edit/fileEditService';
 import { HostFsError } from '#/os/interface/hostFsErrors';
 
 import { RemoteExecConnection } from '#/remote/client/connection';
+import { requireAbsolutePath } from '#/remote/server/fsHandler';
 import { RemoteFileSystem } from '#/os/backends/remote/remoteFileSystem';
 import { FS_READ_DIRECTORY_MAX_ENTRIES, FS_READ_FILE_WHOLE_MAX_BYTES } from '#/remote/protocol/methods';
 import {
@@ -216,6 +217,23 @@ describe('remote fs text decoding', () => {
       connection.close();
       await loopback.host.done;
       await rm(workDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('requireAbsolutePath', () => {
+  it('asks Windows targets for a drive path', () => {
+    const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')!;
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+    try {
+      for (const path of ['/c/work', '/tmp', '\\\\server\\share']) {
+        expect(() => requireAbsolutePath({ path }, 'path')).toThrow(
+          'path must be an absolute Windows drive path such as C:\\work',
+        );
+      }
+      expect(requireAbsolutePath({ path: 'C:\\work' }, 'path')).toBe('C:\\work');
+    } finally {
+      Object.defineProperty(process, 'platform', descriptor);
     }
   });
 });

@@ -312,6 +312,7 @@ export class ReadTool implements IReadTool {
       const workspace = this.workspaceConfig(view);
       const path = resolvePathAccessPath(args.path, {
         env,
+        shellPathBridge: view.shellPathBridge,
         workspace,
         operation: 'read',
       });

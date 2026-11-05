@@ -104,6 +104,7 @@ export class GlobTool implements IGlobTool {
       if (args.path !== undefined) {
         path = resolvePathAccessPath(args.path, {
           env,
+          shellPathBridge: view.shellPathBridge,
           workspace,
           operation: 'search',
           policy: { guardMode: 'absolute-outside-allowed', checkSensitive: false },

@@ -15,7 +15,7 @@ The security boundaries are fixed:
 - **Hooks and MCP servers stay local by default**: lifecycle hooks and stdio MCP servers without an explicit `environment_id` run on your machine — see [Limitations](#limitations).
 - **SSH uses the system `ssh`**: the SSH launcher spawns the system `ssh` binary, so `~/.ssh/config` (users, ports, keys, `ProxyJump`, `ControlMaster`) and your ssh-agent apply as usual — see [SSH authentication](#ssh-authentication) for passwords, passphrases, and host keys.
 
-Only POSIX targets are supported; Windows targets are not.
+POSIX and Windows targets are supported. Windows targets require Git for Windows (Git Bash) and support SSH and custom command launchers, not Docker launchers.
 
 ::: info Remote environments vs. Remote Control
 [Remote Control](./remote-control.md) is the opposite direction: it lets another device (like your phone) watch and steer sessions that run on **this** machine. A remote environment does the reverse — this machine's CLI drives tool execution on **another** machine or container.
@@ -50,7 +50,7 @@ defaultCwd = "/home/me/kimi-code"
 Key rules:
 
 - `type` and `command` are mutually exclusive within one entry: `type = "ssh"` and `type = "docker"` are built-in launchers, while `command` + `args` is the generic form (same shape as stdio entries in `.mcp.json`). For the generic form, Kimi Code appends `<remoteBin> exec-server` (default `~/.kimi-code/bin/kimi`) after `args` unless `args` already invokes `exec-server`; launchers that pass arguments straight through without a shell, such as `kubectl exec`, need an absolute `remoteBin` because `~` is not expanded. `env` sets the launcher process's environment on your machine; it is **not** propagated into commands the agent runs on the target.
-- `defaultCwd` is used when a session is created on the environment unless `--environment-cwd` overrides it. It must be an absolute POSIX path on the target; relative paths and `~` are not expanded against your machine or the target's home. Repeated separators, `.` and `..` are normalized before checking that directory on the target, and the normalized path is saved in the binding. Symlink names are preserved, not rewritten with realpath; `symlink/..` therefore uses the lexical parent, not the symlink target's physical parent.
+- `defaultCwd` is used when a session is created on the environment unless `--environment-cwd` overrides it. It must be an absolute POSIX path, or a Windows drive path such as `C:\work\project` on a Windows target; relative paths, `~`, and UNC paths are not supported. Repeated separators, `.` and `..` are normalized before checking that directory on the target, and the normalized path is saved in the binding. Symlink names are preserved, not rewritten with realpath; `symlink/..` therefore uses the lexical parent, not the symlink target's physical parent.
 - The optional top-level `default` names the environment a session binds to when creation does not specify one — a cold start, print mode, or an API create. The entry it points at must set `defaultCwd`. Without a `default`, those sessions start on the `local` environment. In the TUI, `/new` instead keeps the current session's environment and working directory. If no session exists yet, `/new` uses `--environment` when the process was started with it, otherwise the resolved default.
 - If the configuration file cannot be read or the `[environments]` section is invalid, session creation fails with `config.invalid` instead of treating this as no default. Explicitly selecting `local` still creates a local session.
 - The environment id is the entry's key: at most 64 characters, no leading or trailing whitespace; `local` and `default` are reserved words.
@@ -62,6 +62,22 @@ Changing an environment's launcher (for example `host`, `container`, `context`, 
 Environment IDs are process-wide: sessions bound to the same ID share one connection, and their working directories can differ.
 
 For the full field reference, see [`environments`](../configuration/config-files.md#environments).
+
+### Windows targets
+
+Windows targets use Git Bash for the `Bash` tool, matching local Windows sessions. Install [Git for Windows](https://gitforwindows.org/) and the Windows `kimi` binary on the target. Native PowerShell tool commands and Windows Docker containers are not supported.
+
+The launcher detects the target before running the executor, so `remoteBin` may be a bare name on the target account's `PATH`, an absolute Windows path (including paths with spaces), or a `~/` path under the target account's home. Use a native drive path for `defaultCwd`, not a Git Bash path such as `/c/work/project`; UNC paths are not supported. Tool arguments can use lexical drive forms such as `/c/work/file.txt`, but other MSYS paths such as `/tmp`, `/usr`, `/dev`, and `/proc` are rejected because their mounts cannot be confirmed on the target; the controller never runs its local `cygpath` to guess them.
+
+```toml
+[environments.windows-dev]
+type = "ssh"
+host = "windows-dev"
+remoteBin = "kimi"
+defaultCwd = 'C:\work\project'
+```
+
+Custom command launchers also need the Windows executor and Git Bash on the target. If the supplied `args` already invoke `exec-server`, the launcher is responsible for its own Windows command quoting.
 
 ## Creating and resuming sessions
 

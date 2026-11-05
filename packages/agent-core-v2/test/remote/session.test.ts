@@ -54,7 +54,7 @@ describe.skipIf(process.platform === 'win32')('RemoteSession over a subprocess l
     try {
       expect(session.executorVersion).toBe(TEST_VERSION);
       expect(session.host.osKind.length).toBeGreaterThan(0);
-      expect(session.host.pathClass).toBe('posix');
+      expect(session.host.pathClass).toBe(process.platform === 'win32' ? 'win32' : 'posix');
       expect(session.host.shellPath.length).toBeGreaterThan(0);
       expect(session.host.homeDir.length).toBeGreaterThan(0);
       expect(session.host.cwd.length).toBeGreaterThan(0);
@@ -64,7 +64,11 @@ describe.skipIf(process.platform === 'win32')('RemoteSession over a subprocess l
 
       const file = join(workDir, 'chain.txt');
       await session.fs.writeText(file, 'chain-data');
-      const proc = await session.process.spawn('cat', [file], { cwd: workDir });
+      const proc = await session.process.spawn(process.execPath, [
+        '-e',
+        'process.stdout.write(require("node:fs").readFileSync(process.argv[1], "utf8"))',
+        file,
+      ], { cwd: workDir });
       const chunks: Buffer[] = [];
       proc.stdout.on('data', (chunk: Buffer) => {
         chunks.push(chunk);
@@ -113,11 +117,11 @@ describe.skipIf(process.platform === 'win32')('RemoteSession over a subprocess l
     session.connection.onDidClose((info) => {
       closed.push(info.kind ?? 'other');
     });
-    const proc = await session.process.spawn('sleep', ['300']);
+    const proc = await session.process.spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)']);
     expect(proc.pid).toBeGreaterThan(0);
     await session.dispose();
     expect(closed).toEqual(['client_closed']);
-    await expect(session.process.spawn('true')).rejects.toThrow(ConnectionClosedError);
+    await expect(session.process.spawn(process.execPath)).rejects.toThrow(ConnectionClosedError);
   });
 
   it.skipIf(process.platform === 'win32')('uses the real askpass helper for a password retry', { timeout: 60_000 }, async () => {

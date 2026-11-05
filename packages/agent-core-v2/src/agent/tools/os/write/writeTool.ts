@@ -92,6 +92,7 @@ export class WriteTool implements IWriteTool {
       const workspace = this.workspaceConfig(view);
       const path = resolvePathAccessPath(args.path, {
         env,
+        shellPathBridge: view.shellPathBridge,
         workspace,
         operation: 'write',
       });
