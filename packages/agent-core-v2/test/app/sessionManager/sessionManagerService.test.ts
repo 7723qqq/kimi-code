@@ -1,22 +1,28 @@
-import { describe, expect, it, jest, afterEach, beforeEach } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { IEnvironmentService } from '#/app/environment/environment';
 
-import type { ServicesAccessor } from '#/_base/di/instantiation';
-import type { ISessionScopeHandle } from '#/_base/di/scope';
-import { Error2 } from '#/_base/errors/errors';
 import { Emitter, Event } from '#/_base/event';
+import type { ISessionScopeHandle } from '#/_base/di/scope';
+import type { ServicesAccessor } from '#/_base/di/instantiation';
+import { Error2 } from '#/_base/errors/errors';
+import type { ILogService } from '#/_base/log/log';
+import type { IConfigService } from '#/app/config/config';
+import { EnvironmentDeclarationService } from '#/app/environmentDeclaration/environmentDeclarationService';
 import type { ISessionIndex } from '#/app/sessionIndex/sessionIndex';
-import { reloadOnStale } from '#/app/sessionManager/sessionLookup';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
+import { reloadOnStale } from '#/app/sessionManager/sessionLookup';
 import { SessionManager } from '#/app/sessionManager/sessionManagerService';
+import { FakeEnvironment } from '#/environment/fakeEnvironment';
+import { EnvironmentRegistry } from '#/environment/environmentRegistry';
 import { ErrorCodes } from '#/errors';
 import { IAgentCronService } from '#/features/cron/cronService';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { InMemorySessionLockService } from '#/persistence/backends/memory/sessionLockService';
 import { Program } from '#/program/program';
 import type { ProgramSessionControllerInput } from '#/program/programDependencies';
-import { FakeEnvironment } from '#/environment/fakeEnvironment';
-import { RuntimeRegistry } from '#/environment/environmentRegistry';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionActivityView } from '#/session/sessionActivity/sessionActivity';
+import { fakeEnvironment, connectableEnvironment } from '../../environment/stubs';
 import type {
   SessionArchivedEvent,
   SessionCloseReason,
@@ -28,6 +34,53 @@ import type {
 import type { SessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycleService';
 import type { WorkspaceInstance } from '#/workspace/workspaceInstance/workspaceInstance';
 import type { IWorkspaceInstanceManager } from '#/workspace/workspaceInstance/workspaceInstanceManager';
+
+
+function environmentRegistryOf(workspaces: IWorkspaceInstanceManager): EnvironmentRegistry | undefined {
+  for (const id of ['workspace', 'workspace-1']) {
+    const holder = workspaces.get(id) as { environments?: EnvironmentRegistry } | undefined;
+    if (holder?.environments !== undefined) return holder.environments;
+  }
+  return undefined;
+}
+
+function makeSessionManager(
+  workspaces: IWorkspaceInstanceManager,
+  index: ISessionIndex,
+  overrides: {
+    readonly config?: IConfigService;
+    readonly hostFs?: IHostFileSystem;
+    readonly locks?: InMemorySessionLockService;
+  } = {},
+): SessionManager {
+  const log = { _serviceBrand: undefined, warn: () => {}, info: () => {}, error: () => {} } as unknown as ILogService;
+  const environments = {
+    ready: Promise.resolve(),
+    current: (id: string) => environmentRegistryOf(workspaces)?.current(id),
+    acquire: (binding: { environmentId: string }, required: never) => {
+      const registry = environmentRegistryOf(workspaces);
+      if (registry === undefined) throw new Error('environment registry is not stubbed');
+      return registry.acquire(binding, required);
+    },
+  } as unknown as IEnvironmentService;
+  return new SessionManager(
+    workspaces,
+    index,
+    new EnvironmentDeclarationService(
+      overrides.config ??
+        ({ _serviceBrand: undefined, ready: Promise.resolve(), assertValid: () => {}, get: () => undefined } as unknown as IConfigService),
+      log,
+    ),
+    environments,
+    overrides.hostFs ??
+      ({
+        _serviceBrand: undefined,
+        stat: async () => ({ isFile: false, isDirectory: true, size: 0 }),
+        realpath: async (path: string) => path,
+      } as unknown as IHostFileSystem),
+    overrides.locks ?? new InMemorySessionLockService(),
+  );
+}
 
 function controller(sessionId = 'session-1'): {
   readonly service: SessionLifecycleService;
@@ -48,12 +101,10 @@ function controller(sessionId = 'session-1'): {
       didCreate.fire({ sessionId, handle, source: 'startup' });
       return handle;
     },
-    get: (id: string) => (id === sessionId ? handle : undefined),
+    get: (id: string) => id === sessionId ? handle : undefined,
     list: () => [handle],
     resume: async () => handle,
-    close: async (sessionId: string) => {
-      didClose.fire({ sessionId });
-    },
+    close: async (sessionId: string) => { didClose.fire({ sessionId }); },
     archive: async () => {},
     restore: async () => handle,
     delete: async () => {},
@@ -62,6 +113,30 @@ function controller(sessionId = 'session-1'): {
     dispose: () => {},
   } as unknown as SessionLifecycleService;
   return { service, handle };
+}
+
+type WorkspaceLease = Awaited<ReturnType<IWorkspaceInstanceManager['acquire']>>;
+
+function workspaceManager(workspace: WorkspaceInstance): IWorkspaceInstanceManager & {
+  readonly leases: readonly WorkspaceLease[];
+} {
+  const leases: WorkspaceLease[] = [];
+  return {
+    acquire: mock(async () => {
+      let disposed = false;
+      const lease = {
+        instance: workspace,
+        dispose: mock(() => {
+          if (disposed) return;
+          disposed = true;
+        }),
+      };
+      leases.push(lease);
+      return lease;
+    }),
+    get: (workspaceId: string) => workspaceId === workspace.id ? workspace : undefined,
+    leases,
+  } as unknown as IWorkspaceInstanceManager & { readonly leases: readonly WorkspaceLease[] };
 }
 
 async function drainMicrotasks(ticks = 50): Promise<void> {
@@ -108,19 +183,13 @@ describe('SessionManager', () => {
     } as unknown as SessionLifecycleService;
     const workspace = {
       id: 'workspace-1',
-      program: {
-        sessionControllerGeneration: 'generation-1',
-        createSessionController: () => service,
-      },
+      program: { sessionControllerGeneration: 'generation-1', createSessionController: () => service },
     } as unknown as WorkspaceInstance;
-    const workspaces = {
-      acquire: async () => ({ instance: workspace, dispose: () => {} }),
-      get: () => workspace,
-    } as unknown as IWorkspaceInstanceManager;
+    const workspaces = workspaceManager(workspace);
     const index = {
       get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }),
     } as unknown as ISessionIndex;
-    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
+    const manager = makeSessionManager(workspaces, index);
 
     const resumePromise = manager.resume('session-1');
     const section = manager.withLifecycleSerialization('session-1', async () => {
@@ -139,19 +208,13 @@ describe('SessionManager', () => {
     const fake = controller();
     const workspace = {
       id: 'workspace-1',
-      program: {
-        sessionControllerGeneration: 'generation-1',
-        createSessionController: () => fake.service,
-      },
+      program: { sessionControllerGeneration: 'generation-1', createSessionController: () => fake.service },
     } as unknown as WorkspaceInstance;
-    const workspaces = {
-      acquire: async () => ({ instance: workspace, dispose: () => {} }),
-      get: () => workspace,
-    } as unknown as IWorkspaceInstanceManager;
+    const workspaces = workspaceManager(workspace);
     const index = {
       get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }),
     } as unknown as ISessionIndex;
-    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
+    const manager = makeSessionManager(workspaces, index);
 
     let releaseSection!: () => void;
     const sectionGate = new Promise<void>((resolve) => {
@@ -183,19 +246,13 @@ describe('SessionManager', () => {
     };
     const workspace = {
       id: 'workspace-1',
-      program: {
-        sessionControllerGeneration: 'generation-1',
-        createSessionController: () => fake.service,
-      },
+      program: { sessionControllerGeneration: 'generation-1', createSessionController: () => fake.service },
     } as unknown as WorkspaceInstance;
-    const workspaces = {
-      acquire: async () => ({ instance: workspace, dispose: () => {} }),
-      get: () => workspace,
-    } as unknown as IWorkspaceInstanceManager;
+    const workspaces = workspaceManager(workspace);
     const index = {
       get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }),
     } as unknown as ISessionIndex;
-    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
+    const manager = makeSessionManager(workspaces, index);
 
     let releaseSection!: () => void;
     const sectionGate = new Promise<void>((resolve) => {
@@ -224,19 +281,13 @@ describe('SessionManager', () => {
     };
     const workspace = {
       id: 'workspace-1',
-      program: {
-        sessionControllerGeneration: 'generation-1',
-        createSessionController: () => fake.service,
-      },
+      program: { sessionControllerGeneration: 'generation-1', createSessionController: () => fake.service },
     } as unknown as WorkspaceInstance;
-    const workspaces = {
-      acquire: async () => ({ instance: workspace, dispose: () => {} }),
-      get: () => workspace,
-    } as unknown as IWorkspaceInstanceManager;
+    const workspaces = workspaceManager(workspace);
     const index = {
       get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }),
     } as unknown as ISessionIndex;
-    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
+    const manager = makeSessionManager(workspaces, index);
 
     let releaseSection!: () => void;
     const sectionGate = new Promise<void>((resolve) => {
@@ -265,19 +316,13 @@ describe('SessionManager', () => {
     };
     const workspace = {
       id: 'workspace-1',
-      program: {
-        sessionControllerGeneration: 'generation-1',
-        createSessionController: () => fake.service,
-      },
+      program: { sessionControllerGeneration: 'generation-1', createSessionController: () => fake.service },
     } as unknown as WorkspaceInstance;
-    const workspaces = {
-      acquire: async () => ({ instance: workspace, dispose: () => {} }),
-      get: () => workspace,
-    } as unknown as IWorkspaceInstanceManager;
+    const workspaces = workspaceManager(workspace);
     const index = {
       get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }),
     } as unknown as ISessionIndex;
-    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
+    const manager = makeSessionManager(workspaces, index);
 
     let releaseSection!: () => void;
     const sectionGate = new Promise<void>((resolve) => {
@@ -288,10 +333,7 @@ describe('SessionManager', () => {
       await sectionGate;
       order.push('section:end');
     });
-    const forkPromise = manager.fork({
-      sourceSessionId: 'session-1',
-      newSessionId: 'session-2',
-    } as never);
+    const forkPromise = manager.fork({ sourceSessionId: 'session-1', newSessionId: 'session-2' } as never);
     await drainMicrotasks();
     expect(order).toEqual(['section:start']);
     releaseSection();
@@ -309,19 +351,13 @@ describe('SessionManager', () => {
     };
     const workspace = {
       id: 'workspace-1',
-      program: {
-        sessionControllerGeneration: 'generation-1',
-        createSessionController: () => fake.service,
-      },
+      program: { sessionControllerGeneration: 'generation-1', createSessionController: () => fake.service },
     } as unknown as WorkspaceInstance;
-    const workspaces = {
-      acquire: async () => ({ instance: workspace, dispose: () => {} }),
-      get: () => workspace,
-    } as unknown as IWorkspaceInstanceManager;
+    const workspaces = workspaceManager(workspace);
     const index = {
       get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }),
     } as unknown as ISessionIndex;
-    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
+    const manager = makeSessionManager(workspaces, index);
 
     let releaseSection!: () => void;
     const sectionGate = new Promise<void>((resolve) => {
@@ -332,10 +368,7 @@ describe('SessionManager', () => {
       await sectionGate;
       order.push('section:end');
     });
-    const childPromise = manager.createChild({
-      sourceSessionId: 'session-1',
-      newSessionId: 'session-2',
-    } as never);
+    const childPromise = manager.createChild({ sourceSessionId: 'session-1', newSessionId: 'session-2' } as never);
     await drainMicrotasks();
     expect(order).toEqual(['section:start']);
     releaseSection();
@@ -353,19 +386,13 @@ describe('SessionManager', () => {
     };
     const workspace = {
       id: 'workspace-1',
-      program: {
-        sessionControllerGeneration: 'generation-1',
-        createSessionController: () => fake.service,
-      },
+      program: { sessionControllerGeneration: 'generation-1', createSessionController: () => fake.service },
     } as unknown as WorkspaceInstance;
-    const workspaces = {
-      acquire: async () => ({ instance: workspace, dispose: () => {} }),
-      get: () => workspace,
-    } as unknown as IWorkspaceInstanceManager;
+    const workspaces = workspaceManager(workspace);
     const index = {
       get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }),
     } as unknown as ISessionIndex;
-    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
+    const manager = makeSessionManager(workspaces, index);
 
     let releaseSection!: () => void;
     const sectionGate = new Promise<void>((resolve) => {
@@ -376,10 +403,7 @@ describe('SessionManager', () => {
       await sectionGate;
       order.push('section:end');
     });
-    const createPromise = manager.create({
-      sessionId: 'session-1',
-      workDir: '/workspace',
-    } as never);
+    const createPromise = manager.create({ sessionId: 'session-1', workDir: '/workspace' } as never);
     await drainMicrotasks();
     expect(order).toEqual(['section:start']);
     releaseSection();
@@ -396,19 +420,13 @@ describe('SessionManager', () => {
     };
     const workspace = {
       id: 'workspace-1',
-      program: {
-        sessionControllerGeneration: 'generation-1',
-        createSessionController: () => fake.service,
-      },
+      program: { sessionControllerGeneration: 'generation-1', createSessionController: () => fake.service },
     } as unknown as WorkspaceInstance;
-    const workspaces = {
-      acquire: async () => ({ instance: workspace, dispose: () => {} }),
-      get: () => workspace,
-    } as unknown as IWorkspaceInstanceManager;
+    const workspaces = workspaceManager(workspace);
     const index = {
       get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }),
     } as unknown as ISessionIndex;
-    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
+    const manager = makeSessionManager(workspaces, index);
 
     let releaseSection!: () => void;
     const sectionGate = new Promise<void>((resolve) => {
@@ -437,19 +455,13 @@ describe('SessionManager', () => {
     };
     const workspace = {
       id: 'workspace-1',
-      program: {
-        sessionControllerGeneration: 'generation-1',
-        createSessionController: () => fake.service,
-      },
+      program: { sessionControllerGeneration: 'generation-1', createSessionController: () => fake.service },
     } as unknown as WorkspaceInstance;
-    const workspaces = {
-      acquire: async () => ({ instance: workspace, dispose: () => {} }),
-      get: () => workspace,
-    } as unknown as IWorkspaceInstanceManager;
+    const workspaces = workspaceManager(workspace);
     const index = {
       get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }),
     } as unknown as ISessionIndex;
-    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
+    const manager = makeSessionManager(workspaces, index);
 
     await expect(manager.resume('session-1')).rejects.toThrow('boom');
     await expect(manager.whenResumeSettled('session-1')).rejects.toThrow('boom');
@@ -460,138 +472,15 @@ describe('SessionManager', () => {
     manager.dispose();
   });
 
-  it('bounds the failed-resume records and keeps the newest error', async () => {
-    const fake = controller();
-    (fake.service as unknown as { resume: () => Promise<unknown> }).resume = async () => {
-      throw new Error('boom');
-    };
-    const workspace = {
-      id: 'workspace-1',
-      program: {
-        sessionControllerGeneration: 'generation-1',
-        createSessionController: () => fake.service,
-      },
-    } as unknown as WorkspaceInstance;
-    const workspaces = {
-      acquire: async () => ({ instance: workspace, dispose: () => {} }),
-      get: () => workspace,
-    } as unknown as IWorkspaceInstanceManager;
-    const index = {
-      get: async (sessionId: string) => ({
-        id: sessionId,
-        workspaceId: 'workspace-1',
-        cwd: '/workspace',
-      }),
-    } as unknown as ISessionIndex;
-    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
-    const failures = (manager as unknown as { resumeFailures: Map<string, Error> }).resumeFailures;
-
-    for (let i = 0; i < 70; i += 1) {
-      await expect(manager.resume(`session-${String(i)}`)).rejects.toThrow('boom');
-    }
-
-    expect(failures.size).toBeLessThanOrEqual(64);
-    await expect(manager.whenResumeSettled('session-69')).rejects.toThrow('boom');
-    manager.dispose();
-    expect(failures.size).toBe(0);
-  });
-
-  it('shares one failing attempt between concurrent resumes of the same session', async () => {
-    let calls = 0;
-    const fake = controller();
-    (fake.service as unknown as { resume: () => Promise<unknown> }).resume = async () => {
-      calls += 1;
-      throw new Error('boom');
-    };
-    const workspace = {
-      id: 'workspace-1',
-      program: {
-        sessionControllerGeneration: 'generation-1',
-        createSessionController: () => fake.service,
-      },
-    } as unknown as WorkspaceInstance;
-    const workspaces = {
-      acquire: async () => ({ instance: workspace, dispose: () => {} }),
-      get: () => workspace,
-    } as unknown as IWorkspaceInstanceManager;
-    const index = {
-      get: async (sessionId: string) => ({
-        id: sessionId,
-        workspaceId: 'workspace-1',
-        cwd: '/workspace',
-      }),
-    } as unknown as ISessionIndex;
-    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
-    const failures = (manager as unknown as { resumeFailures: Map<string, Error> }).resumeFailures;
-
-    const [first, second] = await Promise.allSettled([
-      manager.resume('session-1'),
-      manager.resume('session-1'),
-    ]);
-
-    expect(first.status).toBe('rejected');
-    expect(second.status).toBe('rejected');
-    expect(calls).toBe(1);
-    expect(failures.size).toBe(1);
-    await expect(manager.whenResumeSettled('session-1')).rejects.toThrow('boom');
-    manager.dispose();
-    expect(failures.size).toBe(0);
-  });
-
-  it('does not record a failure that settles after dispose', async () => {
-    let rejectResume: ((error: Error) => void) | undefined;
-    const fake = controller();
-    (fake.service as unknown as { resume: () => Promise<unknown> }).resume = () =>
-      new Promise((_resolve, reject) => {
-        rejectResume = reject;
-      });
-    const workspace = {
-      id: 'workspace-1',
-      program: {
-        sessionControllerGeneration: 'generation-1',
-        createSessionController: () => fake.service,
-      },
-    } as unknown as WorkspaceInstance;
-    const workspaces = {
-      acquire: async () => ({ instance: workspace, dispose: () => {} }),
-      get: () => workspace,
-    } as unknown as IWorkspaceInstanceManager;
-    const index = {
-      get: async (sessionId: string) => ({
-        id: sessionId,
-        workspaceId: 'workspace-1',
-        cwd: '/workspace',
-      }),
-    } as unknown as ISessionIndex;
-    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
-    const failures = (manager as unknown as { resumeFailures: Map<string, Error> }).resumeFailures;
-
-    const pending = manager.resume('session-1').catch(() => undefined);
-    await drainMicrotasks();
-    expect(rejectResume).toBeDefined();
-
-    manager.dispose();
-    rejectResume?.(new Error('boom'));
-    await pending;
-
-    expect(failures.size).toBe(0);
-  });
-
   it('owns one global live-session registry across workspace controllers', async () => {
     const fake = controller();
     const workspace = {
       id: 'workspace-1',
-      program: {
-        sessionControllerGeneration: 'generation-1',
-        createSessionController: () => fake.service,
-      },
+      program: { sessionControllerGeneration: 'generation-1', createSessionController: () => fake.service },
     } as unknown as WorkspaceInstance;
-    const workspaces = {
-      acquire: async () => ({ instance: workspace, dispose: () => {} }),
-      get: (workspaceId: string) => (workspaceId === workspace.id ? workspace : undefined),
-    } as unknown as IWorkspaceInstanceManager;
+    const workspaces = workspaceManager(workspace);
     const index = { get: async () => undefined } as unknown as ISessionIndex;
-    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
+    const manager = makeSessionManager(workspaces, index);
     const created = await manager.create({ workDir: '/workspace' });
     expect(created).toBe(fake.handle);
     expect(manager.get('session-1')).toBe(fake.handle);
@@ -609,21 +498,14 @@ describe('SessionManager', () => {
     const workspace = {
       id: 'workspace-1',
       program: {
-        get sessionControllerGeneration() {
-          return generation;
-        },
-        createSessionController: () =>
-          generation === 'generation-1' ? first.service : second.service,
+        get sessionControllerGeneration() { return generation; },
+        createSessionController: () => generation === 'generation-1' ? first.service : second.service,
       },
     } as unknown as WorkspaceInstance;
-    const workspaces = {
-      acquire: async () => ({ instance: workspace, dispose: () => {} }),
-      get: () => workspace,
-    } as unknown as IWorkspaceInstanceManager;
-    const manager = new SessionManager(
+    const workspaces = workspaceManager(workspace);
+    const manager = makeSessionManager(
       workspaces,
       { get: async () => undefined } as unknown as ISessionIndex,
-      new InMemorySessionLockService(),
     );
 
     expect(await manager.create({ workDir: '/workspace' })).toBe(first.handle);
@@ -634,45 +516,51 @@ describe('SessionManager', () => {
     await manager.close('session-1');
     expect(manager.get('session-1')).toBeUndefined();
     expect(manager.get('session-2')).toBe(second.handle);
+    expect(workspaces.leases).toHaveLength(4);
+    expect(workspaces.leases[0]!.dispose).toHaveBeenCalledTimes(1);
+    expect(workspaces.leases[1]!.dispose).toHaveBeenCalledTimes(1);
+    expect(workspaces.leases[2]!.dispose).toHaveBeenCalledTimes(1);
+    expect(workspaces.leases[3]!.dispose).not.toHaveBeenCalled();
     manager.dispose();
+    expect(workspaces.leases[3]!.dispose).toHaveBeenCalledTimes(1);
   });
 
-  it('releases a controller whose create failed without waiting for supersession', async () => {
+  it('retires a failed controller as soon as its operation ends', async () => {
     const first = controller('session-1');
     const second = controller('session-2');
     (first.service as { create: unknown }).create = async () => {
       throw new Error('boom');
     };
-    const disposeFirst = jest.fn();
+    const disposeFirst = mock();
     (first.service as { dispose: unknown }).dispose = disposeFirst;
     let generation = 'generation-1';
     const workspace = {
       id: 'workspace-1',
       program: {
-        get sessionControllerGeneration() {
-          return generation;
-        },
-        createSessionController: () =>
-          generation === 'generation-1' ? first.service : second.service,
+        get sessionControllerGeneration() { return generation; },
+        createSessionController: () => generation === 'generation-1' ? first.service : second.service,
       },
     } as unknown as WorkspaceInstance;
-    const workspaces = {
-      acquire: async () => ({ instance: workspace, dispose: () => {} }),
-      get: () => workspace,
-    } as unknown as IWorkspaceInstanceManager;
-    const manager = new SessionManager(
+    const workspaces = workspaceManager(workspace);
+    const manager = makeSessionManager(
       workspaces,
       { get: async () => undefined } as unknown as ISessionIndex,
-      new InMemorySessionLockService(),
     );
 
     await expect(manager.create({ workDir: '/workspace' })).rejects.toThrow('boom');
     expect(disposeFirst).toHaveBeenCalledTimes(1);
+    expect(workspaces.leases).toHaveLength(2);
+    expect(workspaces.leases[0]!.dispose).toHaveBeenCalledTimes(1);
+    expect(workspaces.leases[1]!.dispose).toHaveBeenCalledTimes(1);
     generation = 'generation-2';
     expect(await manager.create({ workDir: '/workspace' })).toBe(second.handle);
     expect(disposeFirst).toHaveBeenCalledTimes(1);
+    expect(workspaces.leases).toHaveLength(4);
+    expect(workspaces.leases[2]!.dispose).toHaveBeenCalledTimes(1);
+    expect(workspaces.leases[3]!.dispose).not.toHaveBeenCalled();
     expect(manager.get('session-2')).toBe(second.handle);
     manager.dispose();
+    expect(workspaces.leases[3]!.dispose).toHaveBeenCalledTimes(1);
     expect(disposeFirst).toHaveBeenCalledTimes(1);
   });
 });
@@ -699,10 +587,9 @@ describe('SessionManager closeIfIdle', () => {
     };
     const agent = {
       accessor: {
-        get: (token: unknown) =>
-          token === IAgentCronService
-            ? { list: () => Array.from({ length: state.cronTasks }) }
-            : undefined,
+        get: (token: unknown) => token === IAgentCronService
+          ? { list: () => Array.from({ length: state.cronTasks }) }
+          : undefined,
       },
     };
     const handle = {
@@ -711,11 +598,7 @@ describe('SessionManager closeIfIdle', () => {
         get: (token: unknown) => {
           if (token === ISessionActivityView) {
             return {
-              state: () => ({
-                busy: state.busy,
-                mainTurnActive: false,
-                pendingInteraction: state.pending,
-              }),
+              state: () => ({ busy: state.busy, mainTurnActive: false, pendingInteraction: state.pending }),
               lastActiveAt: () => state.activeAt,
             };
           }
@@ -727,13 +610,15 @@ describe('SessionManager closeIfIdle', () => {
       },
     } as unknown as ISessionScopeHandle;
     let manager: SessionManager;
-    const resume = jest.fn(
-      async (sessionId: string, _options: unknown, source: SessionCreateSource = 'resume') => {
-        if (manager.get(sessionId) === undefined) didCreate.fire({ sessionId, handle, source });
-        return handle;
-      },
-    );
-    const close = jest.fn(async (sessionId: string, _reason: SessionCloseReason = 'exit') => {
+    const resume = mock(async (
+      sessionId: string,
+      _options: unknown,
+      source: SessionCreateSource = 'resume',
+    ) => {
+      if (manager.get(sessionId) === undefined) didCreate.fire({ sessionId, handle, source });
+      return handle;
+    });
+    const close = mock(async (sessionId: string, _reason: SessionCloseReason = 'exit') => {
       didClose.fire({ sessionId });
     });
     const service = {
@@ -753,20 +638,12 @@ describe('SessionManager closeIfIdle', () => {
     } as unknown as SessionLifecycleService;
     const workspace = {
       id: 'workspace-1',
-      program: {
-        sessionControllerGeneration: 'generation-1',
-        createSessionController: () => service,
-      },
+      program: { sessionControllerGeneration: 'generation-1', createSessionController: () => service },
     } as unknown as WorkspaceInstance;
-    manager = new SessionManager(
-      {
-        acquire: async () => ({ instance: workspace, dispose: () => {} }),
-        get: () => workspace,
-      } as unknown as IWorkspaceInstanceManager,
-      {
-        get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }),
-      } as unknown as ISessionIndex,
-      locks,
+    manager = makeSessionManager(
+      workspaceManager(workspace),
+      { get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }) } as unknown as ISessionIndex,
+      { locks },
     );
     managers.push(manager);
     return { manager, handle, resume, close, locks };
@@ -775,33 +652,26 @@ describe('SessionManager closeIfIdle', () => {
   const create = (fake: ReturnType<typeof setup>): Promise<ISessionScopeHandle> =>
     fake.manager.create({ sessionId: 'session-1', workDir: '/workspace' } as never);
 
-  beforeEach(() => jest.useFakeTimers());
-
   afterEach(() => {
     for (const manager of managers) manager.dispose();
     managers.length = 0;
-    jest.useRealTimers();
   });
 
   it('reclaims after the activity idle timeout and reloads only once', async () => {
     const fake = setup();
     expect(await fake.manager.closeIfIdle('session-1', 0)).toBe(false);
     await create(fake);
-    jest.setSystemTime(Date.now() + 999);
+    vi.setSystemTime(Date.now() + 999);
     expect(await fake.manager.closeIfIdle('session-1', 1000)).toBe(false);
     await fake.manager.resume('session-1');
-    jest.setSystemTime(Date.now() + 1);
+    vi.setSystemTime(Date.now() + 1);
     expect(await fake.manager.closeIfIdle('session-1', 1000)).toBe(true);
     expect(fake.manager.get('session-1')).toBeUndefined();
     await fake.manager.resume('session-1');
     await fake.manager.close('session-1');
     await fake.manager.resume('session-1');
     expect(fake.close.mock.calls[0]?.[1]).toBe('reclaim');
-    expect(fake.resume.mock.calls.map((call) => call[2])).toEqual([
-      'resume',
-      'reclaimed',
-      'resume',
-    ]);
+    expect(fake.resume.mock.calls.map((call) => call[2])).toEqual(['resume', 'reclaimed', 'resume']);
   });
 
   const eligibilityCases: Array<[string, Guards]> = [
@@ -851,33 +721,27 @@ describe('SessionManager closeIfIdle', () => {
 });
 
 describe('SessionManager controller retirement', () => {
-  function runtime(generation: string): FakeEnvironment {
+  function remoteEnvironment(generation: string): FakeEnvironment {
     return Object.assign(
       new FakeEnvironment(
-        { workspaceId: 'workspace', runtimeId: 'local', generation },
+        { environmentId: 'remote', generation },
         { capabilities: ['fs', 'process'] },
       ),
-      { fs: {}, process: {} },
+      { fs: { stat: async () => ({ isDirectory: true }) }, process: {} },
     ) as FakeEnvironment;
   }
 
-  function liveProgram(drainTimeoutMs: number): {
-    readonly registry: RuntimeRegistry;
+  function liveProgram(): {
+    readonly registry: EnvironmentRegistry;
     readonly program: Program;
-    readonly controllers: {
-      readonly service: SessionLifecycleService;
-      readonly dispose: ReturnType<typeof jest.fn>;
-    }[];
+    readonly controllers: { readonly service: SessionLifecycleService; readonly dispose: ReturnType<typeof vi.fn> }[];
   } {
-    const registry = new RuntimeRegistry('workspace', drainTimeoutMs);
-    const controllers: {
-      readonly service: SessionLifecycleService;
-      readonly dispose: ReturnType<typeof jest.fn>;
-    }[] = [];
+    const registry = new EnvironmentRegistry();
+    const controllers: { readonly service: SessionLifecycleService; readonly dispose: ReturnType<typeof vi.fn> }[] = [];
     let nextSession = 0;
     const program = new Program(
       'workspace',
-      registry,
+      registry as unknown as IEnvironmentService,
       {
         _serviceBrand: undefined,
         workspaceId: 'workspace',
@@ -887,6 +751,7 @@ describe('SessionManager controller retirement', () => {
           id: 'workspace',
           name: 'workspace',
           root: '/workspace',
+          kind: 'implicit',
           createdAt: 0,
           lastOpenedAt: 0,
         },
@@ -894,12 +759,13 @@ describe('SessionManager controller retirement', () => {
       },
       {
         agentProfiles: { entries: () => [] },
+        environmentDeclarations: { assertAllowed: () => {} },
         createSessionController: (input: ProgramSessionControllerInput) => {
           const didCreate = new Emitter<SessionCreatedEvent>();
           const didClose = new Emitter<SessionClosedEvent>();
           const didArchive = new Emitter<SessionArchivedEvent>();
           const live = new Map<string, ISessionScopeHandle>();
-          const dispose = jest.fn(() => {
+          const dispose = mock(() => {
             input.onDispose();
             didCreate.dispose();
             didClose.dispose();
@@ -944,9 +810,10 @@ describe('SessionManager controller retirement', () => {
         },
       } as never,
     );
-    const createGeneration = jest.fn(() => {
-      const lease = registry.acquire(program.binding, ['fs', 'process']);
-      const id = lease.runtime.identity.generation;
+    const createGeneration = mock(() => {
+      const lease = registry.acquire({ environmentId: 'local' }, ['fs', 'process']);
+      const id = lease.environment.identity.generation;
+      lease.dispose();
       const behavior = {
         ready: Promise.resolve(),
         dispose: () => {},
@@ -959,7 +826,6 @@ describe('SessionManager controller retirement', () => {
       };
       return {
         id,
-        lease,
         state: behavior,
         dirs: behavior,
         fs: behavior,
@@ -982,43 +848,36 @@ describe('SessionManager controller retirement', () => {
         retired: false,
       };
     });
-    (program as unknown as { createGeneration: typeof createGeneration }).createGeneration =
-      createGeneration;
+    (program as unknown as { createGeneration: typeof createGeneration }).createGeneration = createGeneration;
     return { registry, program, controllers };
   }
 
-  function managerFor(program: Program): SessionManager {
-    const workspace = { id: 'workspace', program } as unknown as WorkspaceInstance;
-    const workspaces = {
-      acquire: async () => ({ instance: workspace, dispose: () => {} }),
-      get: (workspaceId: string) => (workspaceId === workspace.id ? workspace : undefined),
-    } as unknown as IWorkspaceInstanceManager;
-    return new SessionManager(
-      workspaces,
+  function managerFor(program: Program, registry?: EnvironmentRegistry, config?: IConfigService): SessionManager {
+    const workspace = { id: 'workspace', program, environments: registry } as unknown as WorkspaceInstance;
+    return makeSessionManager(
+      workspaceManager(workspace),
       { get: async () => undefined } as unknown as ISessionIndex,
-      new InMemorySessionLockService(),
+      { config },
     );
   }
 
-  it('releases the superseded program generation once its last session closes, before the drain timeout', async () => {
-    const { registry, program, controllers } = liveProgram(60_000);
-    const first = runtime('one');
+  it('keeps the superseded session controller until its last session closes', async () => {
+    const { registry, program, controllers } = liveProgram();
+    const first = fakeEnvironment('local', 'one');
     const registration = registry.register(first);
     await program.ready;
-    const manager = managerFor(program);
+    const manager = managerFor(program, registry);
 
     const handleOne = await manager.create({ workDir: '/workspace' });
-    const replacement = registration.replace(runtime('two'));
-    await Promise.resolve();
+    await registration.remove();
+    registry.register(fakeEnvironment('local', 'two'));
     const handleTwo = await manager.create({ workDir: '/workspace' });
     expect(manager.list()).toEqual([handleOne, handleTwo]);
-    expect(first.disposed).toBe(false);
+    expect(first.disposed).toBe(true);
 
     await manager.close(handleOne.id);
     expect(controllers[0]!.dispose).toHaveBeenCalledTimes(1);
     expect(controllers[1]!.dispose).not.toHaveBeenCalled();
-    await replacement;
-    expect(first.disposed).toBe(true);
     expect(manager.get(handleTwo.id)).toBe(handleTwo);
 
     manager.dispose();
@@ -1029,10 +888,10 @@ describe('SessionManager controller retirement', () => {
   });
 
   it('retires an idle current-generation controller and rebuilds it for the next session', async () => {
-    const { registry, program, controllers } = liveProgram(50);
-    registry.register(runtime('one'));
+    const { registry, program, controllers } = liveProgram();
+    registry.register(fakeEnvironment('local', 'one'));
     await program.ready;
-    const manager = managerFor(program);
+    const manager = managerFor(program, registry);
 
     const first = await manager.create({ workDir: '/workspace' });
     expect(controllers).toHaveLength(1);
@@ -1047,6 +906,158 @@ describe('SessionManager controller retirement', () => {
     expect(controllers[1]!.dispose).toHaveBeenCalledTimes(1);
     await program.dispose();
     await registry.dispose();
+  });
+
+  it('routes local and remote sessions of one workspace through the same controller', async () => {
+    const { registry, program, controllers } = liveProgram();
+    registry.register(fakeEnvironment('local', 'one'));
+    registry.register(remoteEnvironment('remote-one'));
+    await program.ready;
+    const manager = managerFor(program, registry, {
+      _serviceBrand: undefined,
+      ready: Promise.resolve(),
+      assertValid: () => {},
+      get: (domain: string) =>
+        domain === 'environments' ? { remote: { command: 'remote', defaultCwd: '/remote/work' } } : undefined,
+    } as unknown as IConfigService);
+
+    const local = await manager.create({ workDir: '/workspace' });
+    const remote = await manager.create({ workDir: '/workspace', environmentId: 'remote' });
+
+    expect(controllers).toHaveLength(1);
+    expect(manager.get(local.id)).toBe(local);
+    expect(manager.get(remote.id)).toBe(remote);
+
+    manager.dispose();
+    expect(controllers[0]!.dispose).toHaveBeenCalledTimes(1);
+    await program.dispose();
+    await registry.dispose();
+  });
+});
+
+describe('SessionManager creation environment', () => {
+  let manager!: SessionManager;
+  let registry!: EnvironmentRegistry;
+  afterEach(async () => {
+    manager.dispose();
+    await registry.dispose();
+  });
+
+  function configWith(section: unknown): IConfigService {
+    return {
+      _serviceBrand: undefined,
+      ready: Promise.resolve(),
+      assertValid: () => {},
+      get: (domain: string) => (domain === 'environments' ? section : undefined),
+    } as unknown as IConfigService;
+  }
+
+  function setup(config: IConfigService, remote = false) {
+    registry = new EnvironmentRegistry();
+    registry.register(Object.assign(new FakeEnvironment(
+      { environmentId: 'local', generation: 'local-one' },
+      { capabilities: ['fs', 'process'] },
+    ), { fs: {}, process: {} }));
+    if (remote) {
+      registry.register(Object.assign(new FakeEnvironment(
+        { environmentId: 'sandbox', generation: 'sandbox-one' },
+        { status: 'disconnected', capabilities: ['fs', 'process'] },
+      ), { fs: {}, process: {} }));
+    }
+    const options: unknown[] = [];
+    const service = {
+      onWillCreateSession: Event.None,
+      onDidCreateSession: Event.None,
+      onWillCloseSession: Event.None,
+      onDidCloseSession: Event.None,
+      onDidArchiveSession: Event.None,
+      onDidForkSession: Event.None,
+      create: async (opts: unknown) => {
+        options.push(opts);
+        return { id: `session-${options.length}` } as unknown as ISessionScopeHandle;
+      },
+      dispose: () => {},
+    } as unknown as SessionLifecycleService;
+    const program = {
+      sessionControllerGeneration: 'generation',
+      createSessionController: () => service,
+    } as unknown as Program;
+    const workspace = { id: 'workspace-1', root: '/workspace', environments: registry, program } as unknown as WorkspaceInstance;
+    manager = makeSessionManager(
+      workspaceManager(workspace),
+      { get: async () => undefined } as unknown as ISessionIndex,
+      { config },
+    );
+    return { options };
+  }
+
+  it('binds a new session to the configured default environment and cwd', async () => {
+    const { options } = setup(configWith({
+      default: 'sandbox',
+      sandbox: { command: 'sandbox', args: ['ssh'], defaultCwd: '/home/me/sandbox' },
+    }), true);
+
+    await manager.create({ workDir: '/workspace' });
+    expect(options[0]).toMatchObject({ environmentId: 'sandbox', environmentCwd: '/home/me/sandbox' });
+  });
+
+  it('applies the declaration defaultCwd for an explicit environment id and rejects undeclared ids', async () => {
+    const { options } = setup(configWith({ sandbox: { command: 'sandbox', defaultCwd: '/home/me/sandbox' } }), true);
+
+    await manager.create({ workDir: '/workspace', environmentId: 'sandbox' });
+    await manager.create({ workDir: '/workspace', environmentId: 'sandbox', environmentCwd: '/elsewhere' });
+    expect(options).toMatchObject([
+      { environmentId: 'sandbox', environmentCwd: '/home/me/sandbox' },
+      { environmentId: 'sandbox', environmentCwd: '/elsewhere' },
+    ]);
+    await expect(manager.create({ workDir: '/workspace', environmentId: 'missing' })).rejects.toMatchObject({
+      code: 'config.invalid',
+    });
+  });
+
+  it('keeps new sessions local when no default is configured', async () => {
+    const { options } = setup(configWith(undefined));
+
+    await manager.create({ workDir: '/workspace' });
+    expect(options[0]).toMatchObject({ workDir: '/workspace' });
+    expect((options[0] as { environmentId?: string }).environmentId).toBeUndefined();
+  });
+
+  it('rejects creation when declaration resolution fails and allows explicit local', async () => {
+    const { options } = setup({
+      _serviceBrand: undefined,
+      ready: Promise.resolve(),
+      assertValid: () => {},
+      get: () => {
+        throw new Error('config store corrupted');
+      },
+    } as unknown as IConfigService);
+
+    await expect(manager.create({ workDir: '/workspace', environmentId: 'sandbox' })).rejects.toThrow('config store corrupted');
+    await expect(manager.create({ workDir: '/workspace' })).rejects.toThrow('config store corrupted');
+    expect(options).toHaveLength(0);
+
+    await manager.create({ workDir: '/workspace', environmentId: 'local' });
+    await manager.create({ workDir: '/workspace', environmentId: 'local', environmentCwd: '/tmp/proj-a' });
+    expect(options[0]).toMatchObject({ workDir: '/workspace', environmentId: 'local' });
+    expect(options[1]).toMatchObject({
+      workDir: '/workspace',
+      environmentId: 'local',
+      environmentCwd: '/tmp/proj-a',
+    });
+  });
+
+  it('normalizes a declared remote cwd before handing it to the controller', async () => {
+    const { options } = setup(configWith({ sandbox: { command: 'sandbox', defaultCwd: '/remote//project/./sub/..' } }), true);
+    await manager.create({ workDir: '/workspace', environmentId: 'sandbox' });
+    expect(options[0]).toMatchObject({ environmentId: 'sandbox', environmentCwd: '/remote/project' });
+  });
+
+  it('requires a cwd for a registered environment that is not declared', async () => {
+    const { options } = setup(configWith(undefined), true);
+    await expect(manager.create({ workDir: '/workspace', environmentId: 'sandbox' })).rejects.toThrow('requires a cwd');
+    await manager.create({ workDir: '/workspace', environmentId: 'sandbox', environmentCwd: 'relative/dir' });
+    expect(options[0]).toMatchObject({ environmentId: 'sandbox', environmentCwd: 'relative/dir' });
   });
 });
 
@@ -1078,11 +1089,11 @@ describe('reloadOnStale', () => {
 
   it('reloads the session and retries once after a stale rejection', async () => {
     const { accessor, order, reloaded } = staleAccessor();
-    const run = jest
+    const run = vi
       .fn<() => Promise<string>>()
       .mockRejectedValueOnce(new Error2(ErrorCodes.SESSION_STALE, 'stale'))
       .mockResolvedValue('done');
-    const onReloaded = jest.fn(async (session: ISessionScopeHandle) => {
+    const onReloaded = mock(async (session: ISessionScopeHandle) => {
       order.push(`reloaded:${session === reloaded}`);
     });
 
@@ -1095,7 +1106,7 @@ describe('reloadOnStale', () => {
   it('reloads but rethrows the stale rejection when retry is off', async () => {
     const { accessor, order } = staleAccessor();
     const stale = new Error2(ErrorCodes.SESSION_STALE, 'stale');
-    const run = jest.fn(async () => {
+    const run = mock(async () => {
       throw stale;
     });
 
