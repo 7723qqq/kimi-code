@@ -184,7 +184,11 @@ describe('McpManagementService', () => {
     const environment = Object.assign(
       new FakeEnvironment(
         { environmentId: 'local', generation: 'test-generation' },
-        { capabilities: ['process'], host: { homeDir: home } },
+        {
+          capabilities: ['process'],
+          host: { homeDir: home },
+          pathClass: process.platform === 'win32' ? 'win32' : 'posix',
+        },
       ),
       { process: hostProcess },
     );

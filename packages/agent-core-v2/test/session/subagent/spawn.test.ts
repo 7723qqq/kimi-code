@@ -8,6 +8,7 @@ import { Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentProfileService, type ProfileData } from '#/agent/profile/profile';
+import { IAgentEnvironmentBindingService } from '#/agent/environmentBinding/environmentBinding';
 import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentUserToolService } from '#/agent/userTool/userTool';
@@ -152,6 +153,17 @@ describe('SessionSubagentService planSpawn and spawn', () => {
             return {
               _serviceBrand: undefined,
               acquire: acquireRuntime,
+              acquireWhenReady: acquireRuntime,
+              isAvailable: () => true,
+              inspect: () => ({ identity: { environmentId: 'acp:s1', generation: 'g1' } }),
+            };
+          }
+          if (serviceId === IAgentEnvironmentBindingService) {
+            return {
+              _serviceBrand: undefined,
+              onDidChange: () => ({ dispose: () => {} }),
+              current: { environmentId: 'acp:s1' },
+              bind: () => ({ environmentId: 'acp:s1' }),
             };
           }
           if (serviceId === IAgentScopeContext) {

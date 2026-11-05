@@ -1237,7 +1237,11 @@ export class WorkspaceFsService implements IWorkspaceFsService {
     const roots = await this.suggestRoots();
     args.push('.', ...roots.filter((root) => !root.primary).map((root) => root.dir));
 
-    const acc = new RgJsonAccumulator(req);
+    const acc = new RgJsonAccumulator(req, (reported) =>
+      this.path.isAbsolute(reported)
+        ? this.path.resolve(reported)
+        : this.path.resolve(this.workDir, reported),
+    );
     await this.runRg(args, rgPath, signal, (line, kill) => {
       acc.feed(line);
       if (acc.capped) kill();
@@ -1512,11 +1516,17 @@ class RgJsonAccumulator {
     { matches: FsGrepMatch[]; pending: string[]; lastMatchLine: number }
   >();
   private readonly files: FsGrepFileHit[] = [];
+  private readonly seenKeys = new Set<string>();
+  private readonly aliasOf = new Map<string, string>();
+  private readonly alias = new Map<string, string>();
   private totalMatches = 0;
   private filesScanned = 0;
   private truncated = false;
 
-  constructor(private readonly req: FsGrepRequest) {}
+  constructor(
+    private readonly req: FsGrepRequest,
+    private readonly dedupeKey: (reported: string) => string = (reported) => reported,
+  ) {}
 
   get capped(): boolean {
     return (
@@ -1535,15 +1545,23 @@ class RgJsonAccumulator {
     if (t === 'begin') {
       const p = rgPath(rec.data?.path);
       if (p === undefined) return;
+      const key = this.dedupeKey(p);
+      const seen = this.aliasOf.get(key);
+      if (seen !== undefined) {
+        this.alias.set(p, seen);
+        return;
+      }
       if (this.filesScanned >= this.req.max_files) {
         this.truncated = true;
         return;
       }
+      this.aliasOf.set(key, p);
       this.fileBuf.set(p, { matches: [], pending: [], lastMatchLine: -1 });
       this.filesScanned += 1;
     } else if (t === 'context') {
-      const p = rgPath(rec.data?.path);
-      if (p === undefined) return;
+      const reported = rgPath(rec.data?.path);
+      if (reported === undefined) return;
+      const p = this.alias.get(reported) ?? reported;
       const buf = this.fileBuf.get(p);
       if (buf === undefined) return;
       buf.pending.push(stripTrailingNewline(rgText(rec.data?.lines)));
@@ -1551,8 +1569,9 @@ class RgJsonAccumulator {
         buf.pending.shift();
       }
     } else if (t === 'match') {
-      const p = rgPath(rec.data?.path);
-      if (p === undefined) return;
+      const reported = rgPath(rec.data?.path);
+      if (reported === undefined) return;
+      const p = this.alias.get(reported) ?? reported;
       const buf = this.fileBuf.get(p);
       if (buf === undefined) return;
       if (this.totalMatches >= this.req.max_total_matches) {
@@ -1570,9 +1589,9 @@ class RgJsonAccumulator {
       this.totalMatches += 1;
       if (this.totalMatches >= this.req.max_total_matches) this.truncated = true;
     } else if (t === 'end') {
-      const p = rgPath(rec.data?.path);
-      if (p === undefined) return;
-      this.finalize(p);
+      const reported = rgPath(rec.data?.path);
+      if (reported === undefined) return;
+      this.finalize(this.alias.get(reported) ?? reported);
     }
   }
 

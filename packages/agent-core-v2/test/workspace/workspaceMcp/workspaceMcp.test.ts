@@ -155,7 +155,10 @@ describe('WorkspaceMcpService', () => {
         const environment = Object.assign(
           new FakeEnvironment(
             { environmentId: 'local', generation: 'test-generation' },
-            { capabilities: ['process'] },
+            {
+              capabilities: ['process'],
+              pathClass: process.platform === 'win32' ? 'win32' : 'posix',
+            },
           ),
           { process: new HostProcessService() },
         );
