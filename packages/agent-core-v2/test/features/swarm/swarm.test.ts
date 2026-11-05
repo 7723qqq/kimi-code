@@ -64,12 +64,11 @@ import {
 } from '#/session/subagent/spawn';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
 import { SessionSubagentService } from '#/session/subagent/subagentService';
-import { IWorkspaceInstanceManager } from '#/workspace/workspaceInstance/workspaceInstanceManager';
-import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
-import type { ToolCall } from '#human/message';
+import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
+import { IEventDispatcher } from '#/state/eventDispatcher';
 import type { ExecutableToolContext } from '#/tool/toolContract';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
+import type { ToolCall } from '#human/llm/message';
 
 import SWARM_MODE_ENTER_REMINDER from '../../../src/features/swarm/agent/enter-reminder.md?raw';
 import { stubLog } from '../../_base/log/stubs';
@@ -89,8 +88,6 @@ import {
   testWireScope,
 } from '../../wire/stubs';
 import { createReminderStub } from '../reminder/stubs';
-import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
-import { IEventDispatcher } from '#/state/eventDispatcher';
 
 const signal = new AbortController().signal;
 

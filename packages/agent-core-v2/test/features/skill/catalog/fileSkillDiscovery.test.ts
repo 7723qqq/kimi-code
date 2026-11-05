@@ -2,20 +2,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
-async function viWaitFor(fn: () => void | Promise<void>, opts?: { timeout?: number }): Promise<void> {
-  const deadline = Date.now() + (opts?.timeout ?? 1000);
-  for (;;) {
-    try {
-      await fn();
-      return;
-    } catch {
-      if (Date.now() > deadline) throw new Error('vi.waitFor timed out');
-      await new Promise((r) => setTimeout(r, 10));
-    }
-  }
-}
-
-
 import { dirname, join } from 'pathe';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -24,17 +10,13 @@ import { ILogService, type LogPayload } from '#/_base/log/log';
 import { FileSkillDiscovery } from '#/features/skill/catalog/fileSkillDiscovery';
 import { ISkillDiscovery } from '#/features/skill/catalog/skillDiscovery';
 import type { SkillRoot } from '#/features/skill/catalog/types';
-import { EnvironmentSkillDiscovery } from '#/features/skill/workspace/environmentSkillDiscovery';
-import { HostFileSystem } from '#/os/backends/host/hostFsService';
-
-import { stubLog } from '../../../_base/log/stubs';
 
 interface RecordedWarning {
   readonly message: string;
   readonly payload: LogPayload;
 }
 
-describe.each(['local', 'environment'] as const)('%s skill discovery', (backend) => {
+describe('FileSkillDiscovery', () => {
   let root: string;
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
@@ -72,9 +54,7 @@ describe.each(['local', 'environment'] as const)('%s skill discovery', (backend)
   });
 
   function discover(roots: readonly SkillRoot[]) {
-    return backend === 'local'
-      ? ix.get(ISkillDiscovery).discover(roots)
-      : new EnvironmentSkillDiscovery(ix.get(ILogService), new HostFileSystem()).discover(roots);
+    return ix.get(ISkillDiscovery).discover(roots);
   }
 
   async function writeSkill(rel: string, frontmatter: string, body = 'body'): Promise<void> {
@@ -107,50 +87,6 @@ describe.each(['local', 'environment'] as const)('%s skill discovery', (backend)
 
     expect(result.skills.map((s) => s.name)).toEqual(['commit']);
     expect(result.skills[0]?.source).toBe('project');
-  });
-
-  it.skipIf(backend === 'local')('bounds parallel skill reads and keeps precedence when later files finish first', async () => {
-    for (let i = 0; i < 10; i++) {
-      await writeSkill(`skills/skill-${i}/SKILL.md`, `name: shared\ndescription: from skill-${i}`);
-    }
-    const fs = new HostFileSystem();
-    const stat = fs.stat.bind(fs);
-    const readText = fs.readText.bind(fs);
-    let releaseMetadata!: () => void;
-    const metadataReady = new Promise<void>((resolve) => { releaseMetadata = resolve; });
-    let metadataInFlight = 0;
-    let metadataPeak = 0;
-    let readsReleased = false;
-    const reads: { path: string; release(): void }[] = [];
-    fs.stat = async (path) => {
-      metadataInFlight += 1;
-      metadataPeak = Math.max(metadataPeak, metadataInFlight);
-      try { await metadataReady; return await stat(path); }
-      finally { metadataInFlight -= 1; }
-    };
-    fs.readText = async (path, options) => {
-      const text = await readText(path, options);
-      if (!readsReleased) await new Promise<void>((resolve) => { reads.push({ path, release: resolve }); });
-      return text;
-    };
-    const discovery = new EnvironmentSkillDiscovery(stubLog(), fs);
-    const loading = discovery.discover([skillRoot('skills')]);
-    try {
-      await viWaitFor(() => { expect(metadataInFlight).toBe(8); });
-      releaseMetadata();
-      await viWaitFor(() => { expect(reads).toHaveLength(8); });
-      expect(metadataPeak).toBe(8);
-      readsReleased = true;
-      for (const { release } of reads.toSorted((a, b) => b.path.localeCompare(a.path))) release();
-      const result = await loading;
-      expect(result.skills).toHaveLength(1);
-      expect(result.skills[0]?.description).toBe('from skill-0');
-    } finally {
-      readsReleased = true;
-      releaseMetadata();
-      for (const { release } of reads) release();
-      await loading;
-    }
   });
 
   it('returns an empty result when given no roots', async () => {
@@ -324,28 +260,5 @@ describe.each(['local', 'environment'] as const)('%s skill discovery', (backend)
       },
     ]);
     expect(warnings).toEqual([]);
-  });
-});
-
-describe('EnvironmentSkillDiscovery directory failures', () => {
-  it('warns about a failed directory listing instead of silently returning no skills', async () => {
-    const failure = new Error('directory listing exceeds 50000 entries');
-    class UnreadableDirectoryFs extends HostFileSystem {
-      override async readdir(): Promise<never> { throw failure; }
-    }
-    const warnings: RecordedWarning[] = [];
-    const discovery = new EnvironmentSkillDiscovery({
-      ...stubLog(),
-      warn: (message, payload) => { warnings.push({ message, payload }); },
-    }, new UnreadableDirectoryFs());
-
-    const result = await discovery.discover([{ path: '/remote/skills', source: 'project' }]);
-
-    expect(result.skills).toEqual([]);
-    expect(result.scannedDirectories).toEqual([]);
-    expect(warnings).toEqual([{
-      message: 'Unable to scan skills in /remote/skills',
-      payload: failure,
-    }]);
   });
 });

@@ -12,51 +12,24 @@ import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IEventBus } from '#/app/event/eventBus';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IHostFileSystem, type HostFileStat } from '#/os/interface/hostFileSystem';
-import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
-import type { Environment } from '#/environment/environment';
-import { stubAgentEnvironment } from '../../environment/stubs';
-import { IEventDispatcher } from '#/state/eventDispatcher';
 import { ErrorCodes, Error2 } from '#/errors';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { ISessionInitService } from '#/features/sessionInit/sessionInit';
 import { SessionInitService } from '#/features/sessionInit/sessionInitService';
-import { IAgentReminderService } from '#/features/reminder/reminderService';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import { IHostFileSystem, type HostFileStat } from '#/os/interface/hostFileSystem';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
+import { IEventDispatcher } from '#/state/eventDispatcher';
 import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { stubAgentContext } from '../../agent/agentContext/stubs';
-import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 
 const WORK_DIR = '/project';
 const AGENTS_MD = 'latest project instructions';
 const AGENTS_MD_PATH = `${WORK_DIR}/AGENTS.md`;
 const GIT_DIR_PATH = `${WORK_DIR}/.git`;
-
-function stubHostFs(entries: Record<string, string>): IHostFileSystem {
-  const directories = new Set(
-    Object.keys(entries)
-      .filter((path) => path.endsWith('/.git')),
-  );
-  return {
-    _serviceBrand: undefined,
-    stat: mock(async (path: string): Promise<HostFileStat> => {
-      if (directories.has(path)) return { isFile: false, isDirectory: true, size: 0 };
-      const content = entries[path];
-      if (content !== undefined) return { isFile: true, isDirectory: false, size: content.length };
-      throw new Error(`ENOENT: ${path}`);
-    }),
-    readText: mock(async (path: string) => {
-      const content = entries[path];
-      if (content !== undefined) return content;
-      throw new Error(`ENOENT: ${path}`);
-    }),
-  } as unknown as IHostFileSystem;
-}
-
-function stubEnvironmentService(workDir: string, fs: IHostFileSystem, homeDir: string): IAgentEnvironmentService {
-  return stubAgentEnvironment({ fs, host: { homeDir } } as unknown as Environment, { workDir });
-}
 
 describe('SessionInitService', () => {
   let disposables: DisposableStore;
@@ -69,8 +42,6 @@ describe('SessionInitService', () => {
   let create: ReturnType<typeof mock>;
   let run: ReturnType<typeof mock>;
   let runCompletion: Promise<{ summary: string; usage?: undefined }>;
-  let hostFs: IHostFileSystem;
-  let environmentWorkDir: string;
 
   beforeEach(() => {
     disposables = new DisposableStore();
@@ -83,8 +54,6 @@ describe('SessionInitService', () => {
       events.push({ type: 'agent.status.updated', model: 'mock-model' });
     });
     runCompletion = Promise.resolve({ summary: 'Explored and wrote AGENTS.md', usage: undefined });
-    hostFs = stubHostFs({ [AGENTS_MD_PATH]: AGENTS_MD, [GIT_DIR_PATH]: '' });
-    environmentWorkDir = WORK_DIR;
 
     const handles: Record<string, { id: string; accessor: { get: (id: unknown) => unknown } }> = {};
     const lifecycle = {
@@ -124,9 +93,6 @@ describe('SessionInitService', () => {
           if (id === IAgentPermissionModeService) return permissionMode;
           if (id === IAgentAgentsMdReminderService) return { seedInjected };
           if (id === IAgentReminderService) return { notify: appendReminder };
-          if (id === IAgentEnvironmentService) {
-            return stubEnvironmentService(environmentWorkDir, hostFs, '/home');
-          }
           if (id === IEventDispatcher) {
             return {
               flush,
@@ -177,10 +143,15 @@ describe('SessionInitService', () => {
     ix.stub(IHostEnvironment, {
       _serviceBrand: undefined,
       homeDir: '/home',
-    } as unknown as IHostEnvironment);    ix.stub(IBootstrapService, {
+    } as unknown as IHostEnvironment);
+    ix.stub(IBootstrapService, {
       _serviceBrand: undefined,
       homeDir: '/home/brand',
     } as unknown as IBootstrapService);
+    ix.stub(ISessionContext, {
+      _serviceBrand: undefined,
+      cwd: WORK_DIR,
+    } as unknown as ISessionContext);
     ix.set(ISessionInitService, new SyncDescriptor(SessionInitService));
   });
 
@@ -231,24 +202,6 @@ describe('SessionInitService', () => {
     expect(events).toContainEqual(
       expect.objectContaining({ type: 'subagent.completed', subagentId: 'agent-0' }),
     );
-  });
-
-  it('reloads and seeds AGENTS.md from the bound environment at the binding cwd', async () => {
-    const remoteWorkDir = '/remote/work';
-    const remoteAgentsMdPath = `${remoteWorkDir}/AGENTS.md`;
-    hostFs = stubHostFs({
-      [remoteAgentsMdPath]: 'remote target instructions',
-      [`${remoteWorkDir}/.git`]: '',
-    });
-    environmentWorkDir = remoteWorkDir;
-
-    const svc = ix.get(ISessionInitService);
-    await svc.generateAgentsMd();
-
-    expect(appendReminder).toHaveBeenCalledTimes(1);
-    const [content] = appendReminder.mock.calls[0] as [string, { variant: string }];
-    expect(content).toContain('remote target instructions');
-    expect(seedInjected).toHaveBeenCalledWith([remoteAgentsMdPath], remoteWorkDir);
   });
 
   it('wraps a subagent failure in SESSION_INIT_FAILED', async () => {

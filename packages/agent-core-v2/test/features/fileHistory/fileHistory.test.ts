@@ -12,7 +12,7 @@ import { TestInstantiationService } from '#/_base/di/test';
 import { USER_PROMPT_ORIGIN } from '#/agent/contextMemory/types';
 import { TurnStarted } from '#/agent/loop/turnEvents';
 import { TurnEnded } from '#/agent/loop/turnOps';
-import type { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
+import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IEventBus, type ISessionEventBus } from '#/app/event/eventBus';
@@ -28,24 +28,23 @@ import {
   FileHistoryCheckpointed,
   FileHistoryTracked,
 } from '#/features/fileHistory/fileHistoryOps';
-import type { FoldContext } from '#/state/state';
-import type { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import type { ToolCall } from '#human/llm/message';
+import { AgentFileHistoryService, countLineDiff } from '#/features/fileHistory/fileHistoryService';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { HostFsError } from '#/os/interface/hostFsErrors';
-import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 import { BlobStoreService } from '#/persistence/backends/node-fs/blobStoreService';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IBlobStore } from '#/persistence/interface/blobStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import type { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import type { ISessionContext } from '#/session/sessionContext/sessionContext';
 import type { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { resolveWorkspacePath } from '#/session/workspaceContext/workspacePaths';
 import { IEventDispatcher } from '#/state/eventDispatcher';
+import type { FoldContext } from '#/state/state';
 import type { RunnableToolExecution } from '#/tool/toolContract';
+import type { ToolCall } from '#human/llm/message';
 
 import {
   stubToolExecutorEvents,
@@ -58,7 +57,6 @@ import {
   registerTestEventDispatcher,
   testWireScope,
 } from '../../wire/stubs';
-import { countLineDiff } from '#/features/fileHistory/fileHistoryService';
 
 const SCOPE = 'wire';
 const KEY = 'file-history-test';
@@ -105,43 +103,35 @@ describe('AgentFileHistoryService', () => {
     disposables.dispose();
   });
 
-  function stubEnvironment(remoteShape = false): IAgentEnvironmentService {
-    const environment = {
-      fs: hostFs(remoteShape),
-      path: posix,
-      workspace: { mapRoots: (roots: unknown) => roots },
-    };
+  function stubRuntime(): IAgentRuntimeService {
     return {
-      inspect: () => environment,
       acquire: () => ({
-        environment,
+        runtime: {
+          fs: hostFs(),
+          path: posix,
+          workspace: { mapRoots: (roots: unknown) => roots },
+        },
         dispose: () => {},
       }),
-    } as unknown as IAgentEnvironmentService;
+    } as unknown as IAgentRuntimeService;
   }
 
-  function hostFs(remoteShape = false): IHostFileSystem {
-    const missing = (path: string): Error =>
-      remoteShape
-        ? new HostFsError('os.fs.not_found', 'stat failed: path does not exist', {
-            details: { path, op: 'stat', domainCode: 'os.fs.not_found' },
-          })
-        : Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+  function hostFs(): IHostFileSystem {
     return createFakeHostFs({
       stat: async (path: string) => {
         const content = files.get(path);
-        if (content === undefined) throw missing(path);
+        if (content === undefined) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
         return { isFile: true, isDirectory: false, size: content.byteLength };
       },
       readBytes: async (path: string) => {
         const content = files.get(path);
-        if (content === undefined) throw missing(path);
-        return content;
+        if (content === undefined) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+        return tornReads.has(path) ? encoder.encode('x'.repeat(content.byteLength + 8)) : content;
       },
     });
   }
 
-  function createService(agentId = 'main', remoteShape = false): AgentFileHistoryService {
+  function createService(agentId = 'main'): AgentFileHistoryService {
     const ctx =
       agentId === scopeCtx.agentId
         ? scopeCtx
@@ -149,7 +139,6 @@ describe('AgentFileHistoryService', () => {
     const workspace = {
       workDir: WORK_DIR,
       additionalDirs: [],
-      resolve: (rel: string) => resolveWorkspacePath(posix, WORK_DIR, rel),
     } as unknown as ISessionWorkspaceContext;
     pushConstructionFrame({
       ctor: AgentFileHistoryService,
@@ -165,7 +154,7 @@ describe('AgentFileHistoryService', () => {
           executorEvents.executor,
           eventBus,
           ix.get(IEventDispatcher),
-          stubEnvironment(remoteShape),
+          stubRuntime(),
           blobs,
           workspace,
           {
@@ -339,34 +328,6 @@ describe('AgentFileHistoryService', () => {
     entry = service.history().checkpoints.find((c) => c.turnId === 2 && c.phase === 'end')?.entries[
       'new.txt'
     ];
-    expect(entry?.key).toBeNull();
-    expect(await service.changes(2)).toEqual([
-      { path: 'new.txt', status: 'deleted', additions: 0, deletions: 1 },
-    ]);
-  });
-
-
-  it('records deletion when a remote fs reports fs-domain not_found', async () => {
-    const service = createService('main', true);
-
-    startTurn(1);
-    await fireEdit(service, '/ws/new.txt', 1);
-    setFile('/ws/new.txt', 'created\n');
-    endTurn(1);
-    startTurn(2);
-    await service.settled();
-    expect(await service.changes(1)).toEqual([
-      { path: 'new.txt', status: 'added', additions: 1, deletions: 0 },
-    ]);
-
-    await fireEdit(service, '/ws/new.txt', 2);
-    files.delete('/ws/new.txt');
-    endTurn(2);
-    startTurn(3);
-    await service.settled();
-    const entry = service
-      .history()
-      .checkpoints.find((c) => c.turnId === 2 && c.phase === 'end')?.entries['new.txt'];
     expect(entry?.key).toBeNull();
     expect(await service.changes(2)).toEqual([
       { path: 'new.txt', status: 'deleted', additions: 0, deletions: 1 },

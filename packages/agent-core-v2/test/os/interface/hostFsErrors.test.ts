@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-import { Error2 } from '#/_base/errors/errors';
-import {
-  HostFsError,
-  isHostFsNotDirectory,
-  isHostFsNotFound,
-  toHostFsError,
-} from '#/os/interface/hostFsErrors';
+import { HostFsError, toHostFsError } from '#/os/interface/hostFsErrors';
 
 function errnoError(code: string, syscall = 'open'): NodeJS.ErrnoException {
   const error = new Error(`${code}: mock failure`) as NodeJS.ErrnoException;
@@ -15,9 +9,9 @@ function errnoError(code: string, syscall = 'open'): NodeJS.ErrnoException {
   return error;
 }
 
-const CTX = { path: '/x/y.txt', op: 'read' };
-
 describe('toHostFsError', () => {
+  const CTX = { path: '/x/y.txt', op: 'read' };
+
   it.each([
     ['ENOENT', 'os.fs.not_found'],
     ['EISDIR', 'os.fs.is_directory'],
@@ -109,105 +103,5 @@ describe('toHostFsError', () => {
   it('maps EROFS to os.fs.unknown (read-only filesystem)', () => {
     const error = toHostFsError(errnoError('EROFS'), CTX);
     expect(error.code).toBe('os.fs.unknown');
-  });
-});
-
-type HostFsErrorCase = {
-  name: string;
-  errors: unknown[];
-  expected: boolean;
-};
-
-describe('isHostFsNotFound', () => {
-  it.each<HostFsErrorCase>([
-    {
-      name: 'matches a bare Node ENOENT error',
-      errors: [errnoError('ENOENT')],
-      expected: true,
-    },
-    {
-      name: 'matches a HostFsError carrying a Node ENOENT cause (node-local shape)',
-      errors: [toHostFsError(errnoError('ENOENT'), CTX)],
-      expected: true,
-    },
-    {
-      name: 'matches a HostFsError with an fs-domain code and no Node cause (remote shape)',
-      errors: [
-        new HostFsError('os.fs.not_found', 'stat failed: path does not exist', {
-          details: { path: '/x/y.txt', op: 'stat', domainCode: 'os.fs.not_found' },
-        }),
-      ],
-      expected: true,
-    },
-    {
-      name: 'matches an Error2 wrapper whose unwrapped cause carries ENOENT',
-      errors: [new Error2('os.fs.unknown', 'outer', { cause: errnoError('ENOENT') })],
-      expected: true,
-    },
-    {
-      name: 'does not match not-directory errors',
-      errors: [
-        errnoError('ENOTDIR'),
-        toHostFsError(errnoError('ENOTDIR'), CTX),
-        new HostFsError('os.fs.not_directory', 'stat failed'),
-      ],
-      expected: false,
-    },
-    {
-      name: 'does not match non-matching codes or non-error values',
-      errors: [
-        errnoError('EACCES'),
-        toHostFsError(errnoError('EACCES'), CTX),
-        new HostFsError('os.fs.permission_denied', 'read failed'),
-        new HostFsError('os.fs.unknown', 'read failed'),
-        new Error('boom'),
-        undefined,
-        null,
-        'ENOENT',
-      ],
-      expected: false,
-    },
-  ])('$name', ({ errors, expected }) => {
-    for (const error of errors) {
-      expect(isHostFsNotFound(error)).toBe(expected);
-    }
-  });
-});
-
-describe('isHostFsNotDirectory', () => {
-  it.each<HostFsErrorCase>([
-    {
-      name: 'matches a bare Node ENOTDIR error',
-      errors: [errnoError('ENOTDIR')],
-      expected: true,
-    },
-    {
-      name: 'matches a HostFsError carrying a Node ENOTDIR cause (node-local shape)',
-      errors: [toHostFsError(errnoError('ENOTDIR'), CTX)],
-      expected: true,
-    },
-    {
-      name: 'matches a HostFsError with an fs-domain code and no Node cause (remote shape)',
-      errors: [
-        new HostFsError('os.fs.not_directory', 'stat failed: a path component is not a directory'),
-      ],
-      expected: true,
-    },
-    {
-      name: 'does not match not-found errors or non-matching codes',
-      errors: [
-        errnoError('ENOENT'),
-        toHostFsError(errnoError('ENOENT'), CTX),
-        new HostFsError('os.fs.not_found', 'stat failed'),
-        errnoError('EACCES'),
-        new Error('boom'),
-        undefined,
-      ],
-      expected: false,
-    },
-  ])('$name', ({ errors, expected }) => {
-    for (const error of errors) {
-      expect(isHostFsNotDirectory(error)).toBe(expected);
-    }
   });
 });

@@ -1,31 +1,33 @@
 import { describe, expect, it, mock } from 'bun:test';
 
-import { PathSecurityError } from '#/tool/path-access';
-import { MEDIA_SNIFF_BYTES } from '#/agent/media/file-type';
-import type { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
-import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
-import { stubAgentEnvironment } from '../../../../environment/stubs';
-import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import {
-  type ReadInput,
-  ReadInputSchema,
-  TRANSCODE_MAX_BYTES,
-} from '#/agent/tools/os/read/read';
-import { ReadTool } from '#/agent/tools/os/read/readTool';
 import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender';
+import { MEDIA_SNIFF_BYTES } from '#/agent/media/file-type';
 import type { IMediaReadContext } from '#/agent/media/mediaReadContext';
 import type { IAgentProfileService } from '#/agent/profile/profile';
-import type { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
+import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import type { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import type { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { FakeEnvironment } from '#/environment/fakeEnvironment';
-import { EnvironmentRegistry } from '#/environment/environmentRegistry';
-import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
-import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
-import { IConfigService } from '#/app/config/config';
+import type { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
 import { READ_SECTION } from '#/agent/tools/os/read/configSection';
-import { estimateTokens } from '#/human/llm/tokens';
+import { type ReadInput, ReadInputSchema, TRANSCODE_MAX_BYTES } from '#/agent/tools/os/read/read';
+import { ReadTool } from '#/agent/tools/os/read/readTool';
+import type { IConfigService } from '#/app/config/config';
+import type { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
+import { estimateTokens } from '#/llm-adapter/contract/tokens';
+import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { FakeRuntime } from '#/runtime/fakeRuntime';
+import { RuntimeRegistry } from '#/runtime/runtimeRegistry';
+import { PathSecurityError } from '#/tool/path-access';
+import type {
+  ExecutableToolContext,
+  ExecutableToolResult,
+  ToolExecution,
+} from '#/tool/toolContract';
+
+import { stubToolResultTruncationService } from '../../../../agent/toolResultTruncation/stubs';
+import { stubConfigService } from '../../../../app/config/stubs';
+import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
 
 const signal = new AbortController().signal;
 const PERMISSIVE_WORKSPACE = stubWorkspaceContext('/');
@@ -98,15 +100,33 @@ function createReadTool(
   gitMemory?: unknown,
   config: IConfigService = stubConfigService(),
 ): ReadTool {
-  const environment = Object.assign(
-    new FakeEnvironment(
-      { environmentId: 'local', generation: 'test' },
+  const runtime = Object.assign(
+    new FakeRuntime(
+      { workspaceId: 'workspace', runtimeId: 'local', generation: 'test' },
       { capabilities: ['fs'], pathClass: env.pathClass },
     ),
-    { host: env, fs },
+    { environment: env, fs },
   );
-  const resolver = stubAgentEnvironment(environment);
-  return new ReadTool(resolver, workspace, skillCatalog, truncation, stubConfigService(), profile, toolPolicy, toolRegistry);
+  const resolver: IAgentRuntimeService = {
+    _serviceBrand: undefined,
+    onDidChange: () => ({ dispose: () => {} }),
+    isAvailable: () => true,
+    inspect: () => runtime,
+    acquire: () => ({ runtime, track: (resource) => resource, dispose: () => {} }),
+  };
+  return new ReadTool(
+    resolver,
+    workspace,
+    skillCatalog,
+    { getMediaReadContext: () => undefined } as IMediaReadContext,
+    truncation,
+    config,
+    profile,
+    toolPolicy,
+    toolRegistry,
+    undefined,
+    gitMemory as never,
+  );
 }
 
 function createSpiedFs(content: string) {
@@ -217,54 +237,6 @@ async function execute(tool: ReadTool, args: ReadInput): Promise<ExecutableToolR
     signal,
   };
   return execution.execute(ctx);
-}
-
-function createRegistryBackedTool(environmentValue: FakeEnvironment) {
-  const registry = new EnvironmentRegistry();
-  registry.register(environmentValue);
-  const binding = { environmentId: 'local' } as const;
-  const environment: IAgentEnvironmentService = {
-    _serviceBrand: undefined,
-    onDidChange: (listener) => registry.onDidChange(() => listener()),
-    isAvailable: (required = []) => {
-      try {
-        const lease = registry.acquire(binding, required);
-        lease.dispose();
-        return true;
-      } catch {
-        return false;
-      }
-    },
-    inspect: () => registry.inspect(binding),
-    acquire: (required = []) => registry.acquire(binding, required),
-    acquireWhenReady: (required = []) => registry.acquireWhenReady(binding, required),
-    workspaceRoots: () => ({ workDir: '/workspace', additionalDirs: [] }),
-  };
-  const tool = new ReadTool(
-    environment,
-    stubWorkspaceContext('/workspace'),
-    { catalog: { getSkillRoots: () => [] } } as unknown as ISessionSkillCatalog,
-    stubToolResultTruncationService(),
-    stubConfigService(),
-    stubProfileService({ image_in: true, video_in: true }),
-    { isToolActive: () => true } as unknown as IAgentToolPolicyService,
-    { resolve: () => ({}) } as unknown as IAgentToolRegistryService,
-  );
-  return { registry, tool };
-}
-
-async function connectingReadExecution(status?: 'connecting') {
-  const env = createTestEnv();
-  const fs = createSpiedFs('visible').fs;
-  const environmentValue = new FakeEnvironment(
-    { environmentId: 'local', generation: 'test' },
-    { capabilities: ['fs'], status },
-  );
-  Object.assign(environmentValue, { host: env, fs });
-  const { tool } = createRegistryBackedTool(environmentValue);
-  const execution = await tool.resolveExecution({ path: '/workspace/a.txt' });
-  if (!('execute' in execution)) throw new Error('expected executable Read tool');
-  return { environmentValue, execution };
 }
 
 describe('ReadTool', () => {
@@ -1750,15 +1722,51 @@ describe('ReadTool', () => {
     expect(result.truncated).toBeUndefined();
   });
 
-  it('rechecks environment availability when execution starts after the tool was shown', async () => {
-    const { environmentValue, execution } = await connectingReadExecution();
+  it('rechecks runtime availability when execution starts after the tool was shown', async () => {
+    const env = createTestEnv();
+    const fs = createSpiedFs('visible').fs;
+    const runtimeValue = new FakeRuntime(
+      { workspaceId: 'workspace', runtimeId: 'local', generation: 'test' },
+      { capabilities: ['fs'] },
+    );
+    Object.assign(runtimeValue, { environment: env, fs });
+    const registry = new RuntimeRegistry('workspace');
+    registry.register(runtimeValue);
+    const binding = { workspaceId: 'workspace', runtimeId: 'local' } as const;
+    const runtime: IAgentRuntimeService = {
+      _serviceBrand: undefined,
+      onDidChange: (listener) => registry.onDidChange(() => listener()),
+      isAvailable: (required = []) => {
+        try {
+          const lease = registry.acquire(binding, required);
+          lease.dispose();
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      inspect: () => registry.inspect(binding),
+      acquire: (required = []) => registry.acquire(binding, required),
+    };
+    const tool = new ReadTool(
+      runtime,
+      stubWorkspaceContext('/workspace'),
+      { catalog: { getSkillRoots: () => [] } } as unknown as ISessionSkillCatalog,
+      { getMediaReadContext: () => undefined } as IMediaReadContext,
+      stubToolResultTruncationService(),
+      stubConfigService(),
+      stubProfileService({ image_in: true, video_in: true }),
+      { isToolActive: () => true } as unknown as IAgentToolPolicyService,
+      { resolve: () => ({}) } as unknown as IAgentToolRegistryService,
+    );
+    const execution = await tool.resolveExecution({ path: '/workspace/a.txt' });
     expect('execute' in execution).toBe(true);
 
-    environmentValue.setStatus('disconnected');
+    runtimeValue.setStatus('disconnected');
 
     if (!('execute' in execution)) throw new Error('expected executable Read tool');
     await expect(
       execution.execute({ turnId: 0, toolCallId: 'call_read_late', signal }),
-    ).rejects.toMatchObject({ code: 'environment.unavailable' });
+    ).rejects.toMatchObject({ code: 'runtime.unavailable' });
   });
 });

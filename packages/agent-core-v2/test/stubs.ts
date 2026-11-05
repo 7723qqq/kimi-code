@@ -44,8 +44,6 @@ export class StubConfigService implements IConfigService {
     };
   }
 
-  assertValid(): void {}
-
   getAll(): ResolvedConfig {
     return Object.fromEntries(this._values) as ResolvedConfig;
   }

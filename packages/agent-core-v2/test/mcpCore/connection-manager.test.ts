@@ -31,43 +31,10 @@ import {
 } from '#/mcpCore/connection-manager';
 import { type StoredMcpOAuthTokens } from '#/mcpCore/oauth/provider';
 import { McpOAuthService } from '#/mcpCore/oauth/service';
-import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import { HostProcessService } from '#/os/backends/host/hostProcessService';
-import type { EnvironmentBinding } from '#/environment/environment';
 import { HostProcessError, HostProcessErrorCode } from '#/os/interface/hostProcess';
-import { RuntimeError } from '#/environment/environmentRegistry';
-
-const testEnvironmentBinding: EnvironmentBinding = { environmentId: 'local' };
-const testProcess = new HostProcessService();
-const testEnvironment = Object.assign(
-  new FakeEnvironment({ ...testEnvironmentBinding, generation: 'test-generation' }, {
-    capabilities: ['process'],
-  }),
-  { process: testProcess },
-);
-const testEnvironmentResolver = {
-  _serviceBrand: undefined,
-  inspect: () => testEnvironment,
-  acquire: () => ({
-    environment: testEnvironment,
-    track: <T extends { dispose(): void | Promise<void> }>(resource: T): T => resource,
-    dispose: () => {},
-  }),
-  acquireWhenReady: async () => ({
-    environment: testEnvironment,
-    track: <T extends { dispose(): void | Promise<void> }>(resource: T): T => resource,
-    dispose: () => {},
-  }),
-};
-
-function createManager(options: McpConnectionManagerOptions = {}): McpConnectionManager {
-  return new McpConnectionManager({
-    environmentResolver: testEnvironmentResolver,
-    environmentId: testEnvironmentBinding.environmentId,
-    stdioCwd: process.cwd(),
-    ...options,
-  });
-}
+import { FakeRuntime } from '#/runtime/fakeRuntime';
+import { RuntimeError } from '#/runtime/runtimeRegistry';
 
 import { recordingTelemetry, type TelemetryRecord } from '../app/telemetry/stubs';
 import {
@@ -132,7 +99,7 @@ function createManager(
   options: ConstructorParameters<typeof McpConnectionManager>[0] = {},
 ): McpConnectionManager {
   const runtime = Object.assign(
-    new FakeEnvironment(
+    new FakeRuntime(
       { workspaceId: 'workspace', runtimeId: 'local', generation: 'test' },
       {
         capabilities: ['process'],
@@ -549,7 +516,6 @@ describe('McpConnectionManager', () => {
       await rm(cwd, { recursive: true, force: true });
     }
   }, 15000);
-
 
   it('announces the resolved custom identity as the MCP client name', async () => {
     const cm = createManager({ resolveClientName: () => 'acme-dev' });
@@ -1434,7 +1400,7 @@ describe('McpConnectionManager', () => {
       }),
     );
     const spawnRuntime = Object.assign(
-      new FakeEnvironment(
+      new FakeRuntime(
         { workspaceId: 'workspace', runtimeId: 'local', generation: 'test' },
         {
           capabilities: ['process'],

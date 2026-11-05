@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, jest, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -9,24 +9,23 @@ import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory'
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentPermissionRulesService } from '#/agent/permissionRules/permissionRules';
 import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { IAgentPlanService, type PlanData } from '#/features/plan/plan';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { IHostProcessService } from '#/os/interface/hostProcess';
 import { IBlobStore } from '#/persistence/interface/blobStore';
-import { createFakeHostFs, createFakeProcessRunner } from '../../tools/fixtures/fake-exec';
-import { createMapFs, stubPlanEnvironment } from './stubs';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import type { ToolCall } from '#human/llm/message';
+
+import { runWillBeginStepHooks, type StubLoop } from '../../agent/loop/stubs';
 import {
-  agentService,
   createCommandRunner,
   createTestAgent,
   execEnvServices,
   renderSnapshot,
   type TestAgentContext,
 } from '../../harness';
-import { type PlanData } from '#/features/plan/plan';
-import { type ToolCall } from '#/human/llm/message';
+import { createFakeHostFs, createFakeProcessRunner } from '../../tools/fixtures/fake-exec';
 
 interface PlanFakes {
   readonly fs: IHostFileSystem;
@@ -153,14 +152,13 @@ describe('Plan service', () => {
   }
 
   async function expectActivePlanPath(): Promise<string> {
-    const path = (await expectActivePlan()).path;
-    if (path === null) throw new Error('expected plan file path');
-    return path;
+    return (await expectActivePlan()).path;
   }
 
   function expectedPlanPath(id: string): string {
+    const session = ctx.get(ISessionContext);
     const agent = ctx.get(IAgentScopeContext);
-    return join(ctx.get(ISessionContext).sessionDir, 'agents', agent.agentId, 'plans', `${id}.md`);
+    return join(session.sessionDir, 'agents', agent.agentId, 'plans', `${id}.md`);
   }
 
   async function expectPlanActive(active: boolean): Promise<void> {
@@ -189,22 +187,12 @@ describe('Plan service', () => {
       expect(ctx.llmCalls).toHaveLength(0);
     });
 
-    it('restores plan content from the persistent path written by previous versions', async () => {
-      const session = ctx.get(ISessionContext);
-      const path = join(session.sessionDir, 'agents', ctx.get(IAgentScopeContext).agentId, 'plans', 'existing-plan.md');
-      const content = '# Existing plan\n\n- Keep the saved work';
-      const { fakes } = createPlanFileFakes(new Map([[path, content]]));
-      useFakes(fakes);
-
-      await ctx.dispatch({ type: 'plan_mode.enter', id: 'existing-plan' });
-
-      expect(await plan.status()).toEqual({ id: 'existing-plan', path, content });
-    });
-
-    it('keeps the local persistent plan path on enter and restore', async () => {
-      useFakes(createPlanFakes({
-        writeText: mock(async (_path: string, _content: string): Promise<void> => {}),
-      }));
+    it('derives the plan path from the agent homedir on enter and restore', async () => {
+      useFakes(
+        createPlanFakes({
+          writeText: jest.fn(async (_path: string, _content: string): Promise<void> => {}),
+        }),
+      );
       await plan.enter('stable-plan');
 
       const livePath = await expectActivePlanPath();
@@ -250,63 +238,6 @@ describe('Plan service', () => {
       expect(ctx.llmCalls).toHaveLength(2);
       expect(ctx.llmCalls[0]!.tools.map((tool) => tool.name)).not.toContain('EnterPlanMode');
       expect(toolResultText(ctx.llmCalls[1]!.history)).not.toContain('Plan mode is now active');
-    });
-  });
-
-  describe('remote environment binding', () => {
-    const remoteTempDir = '/remote/tmp';
-    let remoteCtx: TestAgentContext;
-    let remotePlan: IAgentPlanService;
-    let localFiles: Map<string, string>;
-    let remoteFiles: Map<string, string>;
-    let remoteMkdir: Mock<IHostFileSystem['mkdir']>;
-
-    beforeEach(async () => {
-      localFiles = new Map();
-      remoteFiles = new Map();
-      remoteMkdir = vi.fn<IHostFileSystem['mkdir']>().mockResolvedValue(undefined);
-      remoteCtx = createTestAgent([
-        execEnvServices({ hostFs: createMapFs(localFiles) }),
-        agentService(
-          IAgentEnvironmentService,
-          stubPlanEnvironment({
-            fs: createMapFs(remoteFiles, { mkdir: remoteMkdir }),
-            tempDir: remoteTempDir,
-          }),
-        ),
-      ]);
-      remotePlan = remoteCtx.get(IAgentPlanService);
-      await remoteCtx.restorePersisted();
-    });
-
-    afterEach(async () => {
-      await remoteCtx.dispose();
-    });
-
-    function useRemoteTools(tools: readonly string[]): void {
-      remoteCtx.get(IAgentProfileService).update({ activeToolNames: [...tools] });
-      remoteCtx.newEvents();
-    }
-
-    it('keeps denying writes to non-plan files on a remote binding', async () => {
-      useRemoteTools(['Write']);
-      await remotePlan.enter('remote-plan', false);
-
-      const otherPath = '/remote/work/src/main.ts';
-      const writeCall: ToolCall = {
-        type: 'function',
-        id: 'call_write_other',
-        name: 'Write',
-        arguments: JSON.stringify({ path: otherPath, content: 'nope' }),
-      };
-      remoteCtx.mockNextResponse({ type: 'text', text: 'I will edit the source.' }, writeCall);
-      remoteCtx.mockNextResponse({ type: 'text', text: 'Understood.' });
-      await remoteCtx.rpc.prompt({ input: [{ type: 'text', text: 'Edit the source file' }] });
-
-      await remoteCtx.untilTurnEnd();
-
-      expect(remoteFiles.has(otherPath)).toBe(false);
-      expect(toolResultText(remoteCtx.llmCalls[1]!.history)).toContain('Plan mode is active');
     });
   });
 

@@ -11,7 +11,6 @@ export const OsFsErrors = {
     OS_FS_NOT_EMPTY: 'os.fs.not_empty',
     OS_FS_DIRECTORY_TOO_LARGE: 'os.fs.directory_too_large',
     OS_FS_UNAVAILABLE: 'os.fs.unavailable',
-    OS_FS_DIRECTORY_TOO_LARGE: 'os.fs.directory_too_large',
     OS_FS_UNKNOWN: 'os.fs.unknown',
   },
   retryable: ['os.fs.unavailable', 'os.fs.unknown'],

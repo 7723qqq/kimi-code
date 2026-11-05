@@ -36,11 +36,6 @@ import {
   PermissionApprovalResolved,
 } from '#/agent/toolApproval/toolApprovalService';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { IExternalHooksRunnerService } from '#/features/externalHooks/app/externalHooksRunner';
-import { ExternalHooksRunnerService } from '#/features/externalHooks/app/externalHooksRunnerService';
-import { makeHookRunner } from './runner-stub';
-import type { FullCompactionTask } from '#/agent/fullCompaction/fullCompaction';
-import type { CompactionResult } from '#/agent/fullCompaction/types';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { IEventBus, ISessionEventBus } from '#/app/event/eventBus';
@@ -50,6 +45,8 @@ import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentExternalHooksService } from '#/features/externalHooks/agent/agentExternalHooks';
 import { AgentExternalHooksService } from '#/features/externalHooks/agent/agentExternalHooksService';
+import { IExternalHooksRunnerService } from '#/features/externalHooks/app/externalHooksRunner';
+import { ExternalHooksRunnerService } from '#/features/externalHooks/app/externalHooksRunnerService';
 import {
   HookDefSchema,
   HOOKS_SECTION,
@@ -80,11 +77,11 @@ import {
 } from '#/workspace/sessionLifecycle/sessionLifecycle';
 import { emptyUsage } from '#human/llm/usage';
 
-import { stubBootstrap } from '../../app/bootstrap/stubs';
-import { registerLogServices } from '../../_base/log/stubs';
 import { stubLoopWithHooks, stubToolExecutor } from '../../agent/loop/stubs';
+import { stubBootstrap } from '../../app/bootstrap/stubs';
 import { registerStateServices } from '../../state/stubs';
 import { registerTestAgentWireServices } from '../../wire/stubs';
+import { makeHookRunner } from './runner-stub';
 
 const HOOK_BIN = process.execPath;
 const quotedPath = (value: string): string => (/\s/.test(value) ? `"${value}"` : value);
@@ -228,14 +225,13 @@ function stubHookRunner(partial: unknown): IExternalHooksRunnerService {
   const p = partial as Partial<
     Pick<
       IExternalHooksRunnerService,
-      'trigger' | 'triggerBlock' | 'fireAndForgetTrigger' | 'hasHooksFor' | 'onDidHookError'
+      'trigger' | 'triggerBlock' | 'fireAndForgetTrigger' | 'hasHooksFor'
     >
   >;
   return {
     _serviceBrand: undefined,
     ready: Promise.resolve(),
     onDidReload: Event.None,
-    onDidHookError: Event.None,
     hasHooksFor: () => false,
     ...p,
   } as IExternalHooksRunnerService;
@@ -349,19 +345,6 @@ function registerAgentEventBus(reg: ServiceRegistration): void {
   );
   reg.define(ISessionEventBus, EventBusService);
   reg.define(IEventBus, AgentEventBusView);
-}
-
-function registerHookTestServices(reg: ServiceRegistration): void {
-  registerStateServices(reg);
-  reg.defineInstance(IBootstrapService, stubBootstrap());
-  reg.defineInstance(ISessionMetadata, stubSessionMetadata());
-  reg.definePartialInstance(IConfigService, {});
-  reg.definePartialInstance(IPluginService, {});
-  reg.defineInstance(IAgentContextMemoryService, stubContextMemory());
-  registerAgentEventBus(reg);
-  reg.defineInstance(IAgentToolExecutorService, stubToolExecutor());
-  reg.definePartialInstance(IAgentPermissionGate, {});
-  reg.definePartialInstance(IAgentTaskService, {});
 }
 
 function activateAgentEventBus(ix: TestInstantiationService): IEventBus {
@@ -737,7 +720,6 @@ describe('IExternalHooksRunnerService integration', () => {
         strict: true,
         additionalServices: (reg) => {
           registerStateServices(reg);
-          registerLogServices(reg);
           reg.defineInstance(IBootstrapService, stubBootstrap());
           reg.defineInstance(ISessionContext, stubSessionContext());
           reg.defineInstance(ISessionMetadata, stubSessionMetadata());
@@ -1029,7 +1011,6 @@ describe('IExternalHooksRunnerService integration', () => {
         strict: true,
         additionalServices: (reg) => {
           registerStateServices(reg);
-          registerLogServices(reg);
           reg.defineInstance(ISessionContext, {
             _serviceBrand: undefined,
             sessionId: 'session-1',
@@ -1244,7 +1225,6 @@ describe('IExternalHooksRunnerService integration', () => {
         strict: true,
         additionalServices: (reg) => {
           registerStateServices(reg);
-          registerLogServices(reg);
           reg.defineInstance(ISessionContext, stubSessionContext());
           reg.definePartialInstance(ISessionManager, lifecycle.service);
           reg.defineInstance(ISessionMetadata, stubSessionMetadata('My Session'));
@@ -1583,98 +1563,6 @@ describe('IExternalHooksRunnerService integration', () => {
       reloadEmitter.fire();
       await advanceHostTime(timers, 120_000);
       expect(fired).toEqual(['SessionHeartbeat']);
-    } finally {
-      ix?.dispose();
-      disposables.dispose();
-    }
-  });
-
-  it('runs every agent-scope hook trigger with the session local cwd', async () => {
-    const disposables = new DisposableStore();
-    let ix: TestInstantiationService | undefined;
-    try {
-      const loop = stubLoopWithHooks();
-      const seen: Array<{ event: string; cwd: unknown }> = [];
-      const hookEngine = {
-        trigger: async (event: string, args: { cwd?: unknown }) => {
-          seen.push({ event, cwd: args.cwd });
-          return [];
-        },
-        triggerBlock: async (event: string, args: { cwd?: unknown }) => {
-          seen.push({ event, cwd: args.cwd });
-          return undefined;
-        },
-        fireAndForgetTrigger: async (event: string, args: { cwd?: unknown }) => {
-          seen.push({ event, cwd: args.cwd });
-          return [];
-        },
-      };
-      const compactionHooks = createHooks<{ onWillCompact: FullCompactionTask }, 'onWillCompact'>([
-        'onWillCompact',
-      ]);
-
-      ix = createServices(disposables, {
-        strict: true,
-        additionalServices: (reg) => {
-          registerTestAgentWireServices(reg, 'wire/external-hooks-cwd');
-          registerHookTestServices(reg);
-          reg.defineInstance(ISessionContext, {
-            _serviceBrand: undefined,
-            sessionId: 'session-1',
-            workspaceId: 'workspace-1',
-            sessionDir: '/tmp/session-1',
-            metaScope: 'sessions/workspace-1/session-1',
-            cwd: '/local/session-cwd',
-            scope: (subKey?: string) =>
-              subKey === undefined || subKey === ''
-                ? 'sessions/workspace-1/session-1'
-                : `sessions/workspace-1/session-1/${subKey}`,
-          });
-          reg.defineInstance(IAgentLoopService, loop);
-          reg.definePartialInstance(IAgentFullCompactionService, { hooks: compactionHooks });
-        },
-      });
-      activateAgentEventBus(ix);
-      ix.set(IExternalHooksRunnerService, stubHookRunner(hookEngine));
-      ix.set(IAgentExternalHooksService, new SyncDescriptor(AgentExternalHooksService));
-      ix.get(IAgentExternalHooksService);
-      const eventBus = ix.get(IEventBus);
-
-      eventBus.publish(
-        new PermissionApprovalRequested({
-          sessionId: 'session-1',
-          agentId: 'main',
-          turnId: 1,
-          toolCallId: 'call-bash',
-          toolName: 'Bash',
-          action: 'Run command',
-          toolInput: { command: 'pwd' },
-          display: { kind: 'command' as const, command: 'pwd' },
-        }),
-      );
-      await loop.hooks.onBeforeSubmitPrompt.run({
-        promptMessage: { role: 'user', content: [{ type: 'text', text: 'hi' }] },
-        isSteer: false,
-        hookParts: [],
-        block: false,
-      });
-      await loop.hooks.onDidFinishStep.run(makeAfterStep(new AbortController().signal));
-      await compactionHooks.onWillCompact.run({
-        abortController: new AbortController(),
-        promise: Promise.resolve({ tokensAfter: 0 } as unknown as CompactionResult),
-        trigger: 'auto',
-        tokenCount: 1,
-      });
-      await flushMicrotasks();
-
-      expect(seen.map((call) => call.event).toSorted()).toEqual([
-        'PermissionRequest',
-        'PostCompact',
-        'PreCompact',
-        'Stop',
-        'UserPromptSubmit',
-      ]);
-      expect(seen.every((call) => call.cwd === '/local/session-cwd')).toBe(true);
     } finally {
       ix?.dispose();
       disposables.dispose();

@@ -1,10 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-import { EventEmitter } from 'node:events';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { PassThrough, Readable } from 'node:stream';
-import { join } from 'pathe';
+import { join } from 'node:path';
+import { type Readable } from 'node:stream';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
@@ -16,8 +14,6 @@ import {
 } from '#/os/interface/hostProcess';
 import type { IHostTimerHandle, IHostTimers } from '#/os/interface/hostTimers';
 import { expectRejection } from '#test/helpers/assertions';
-import { mock } from 'bun:test';
-import { spyOn } from 'bun:test';
 
 interface FakeTimerHandle extends IHostTimerHandle {
   readonly id: number;

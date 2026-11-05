@@ -12,34 +12,14 @@ import type { AgentContext } from '#/agent/agentContext/agentContext';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentProfileService, type ProfileData } from '#/agent/profile/profile';
-import { IAgentEnvironmentBindingService } from '#/agent/environmentBinding/environmentBinding';
+import { IAgentRuntimeBindingService } from '#/agent/runtimeBinding/runtimeBinding';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentUserToolService } from '#/agent/userTool/userTool';
 import type { Event2 } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
 import { LifecycleScope } from '#/app/scopes';
 import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
-import {
-  IAgentLifecycleService,
-  type CreateAgentOptions,
-} from '#/session/agentLifecycle/agentLifecycle';
-import { labelsFromAgentMeta } from '#/session/agentLifecycle/subagentMetadata';
-import { createHooks } from '#/hooks';
-import {
-  type AgentRunHandle,
-  type AgentTaskHooks,
-  ISessionSubagentService,
-} from '#/session/subagent/subagent';
-import {
-  type SpawnSubagentOptions,
-  type SubagentSpawnPlanInput,
-} from '#/session/subagent/spawn';
-import {
-  ISessionMetadata,
-  type AgentMeta,
-  type SessionMetadataChangedEvent,
-} from '#/session/sessionMetadata/sessionMetadata';
-import { IEventDispatcher } from '#/state/eventDispatcher';
+import { Error2, ErrorCodes } from '#/errors';
 import {
   AgentRunBatch,
   resolveSwarmMaxConcurrency,
@@ -58,9 +38,27 @@ import {
   type SessionSwarmTask,
 } from '#/features/swarm/session/sessionSwarm';
 import { SessionSwarmService } from '#/features/swarm/session/sessionSwarmService';
+import { createHooks } from '#/hooks';
 import { APIProviderRateLimitError } from '#/llm-adapter/contract/errors';
 import { IHostClock } from '#/os/interface/hostClock';
 import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
+import {
+  IAgentLifecycleService,
+  type CreateAgentOptions,
+} from '#/session/agentLifecycle/agentLifecycle';
+import { labelsFromAgentMeta } from '#/session/agentLifecycle/subagentMetadata';
+import {
+  ISessionMetadata,
+  type AgentMeta,
+  type SessionMetadataChangedEvent,
+} from '#/session/sessionMetadata/sessionMetadata';
+import { type SpawnSubagentOptions, type SubagentSpawnPlanInput } from '#/session/subagent/spawn';
+import {
+  type AgentRunHandle,
+  type AgentTaskHooks,
+  ISessionSubagentService,
+} from '#/session/subagent/subagent';
+import { IEventDispatcher } from '#/state/eventDispatcher';
 
 import { stubAgentContext } from '../../agent/agentContext/stubs';
 
@@ -2195,13 +2193,13 @@ function agentHandle(
         const service = services.get(serviceId);
         if (service !== undefined) return service;
         if (serviceId === IAgentProfileService) return profile;
-        if (serviceId === IAgentEnvironmentBindingService) {
+        if (serviceId === IAgentRuntimeBindingService) {
           return {
             _serviceBrand: undefined,
-            current: { environmentId: 'local' },
+            current: { workspaceId: 'w1', runtimeId: 'local' },
             switch: () => {},
             onDidChange: Event.None,
-          } as unknown as IAgentEnvironmentBindingService;
+          } as unknown as IAgentRuntimeBindingService;
         }
         if (serviceId === IAgentPermissionModeService) return permissionMode;
         if (serviceId === IAgentLoopService) {
