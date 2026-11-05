@@ -1,5 +1,7 @@
 import { join } from 'pathe';
 
+import { workspaceRootKey } from '#/_base/utils/workdir-slug';
+
 export type MemoryScope = 'global' | 'project' | 'session';
 export type MemoryType = 'note' | 'decision' | 'pattern' | 'lesson' | 'reference';
 
@@ -29,7 +31,7 @@ export interface MemorySearchResult {
 }
 
 export function projectIdFromCwd(cwd: string): string {
-  return new Bun.CryptoHasher('sha256').update(cwd).digest('hex').slice(0, 12);
+  return new Bun.CryptoHasher('sha256').update(workspaceRootKey(cwd)).digest('hex').slice(0, 12);
 }
 
 export function memoryDir(homeDir: string): string {
