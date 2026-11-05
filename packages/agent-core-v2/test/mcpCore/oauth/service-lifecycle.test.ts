@@ -307,8 +307,8 @@ describe('McpOAuthService lifecycle', () => {
     const completeA = a.complete({ timeoutMs: 10_000 });
     const completeB = b.complete({ timeoutMs: 10_000 });
     await get(`${redirectUri}?code=abc123&state=${state}`);
-    await expect(completeA).resolves.toBeUndefined();
-    await expect(completeB).resolves.toBeUndefined();
+    expect(await completeA).toBeUndefined();
+    expect(await completeB).toBeUndefined();
     await service.shutdown();
   });
 
@@ -326,7 +326,7 @@ describe('McpOAuthService lifecycle', () => {
     const redirectUri = a.authorizationUrl.searchParams.get('redirect_uri');
     const completeA = a.complete({ timeoutMs: 10_000 });
     await get(`${redirectUri}?code=abc123&state=${state}`);
-    await expect(completeA).resolves.toBeUndefined();
+    expect(await completeA).toBeUndefined();
     await service.shutdown();
   });
 
@@ -383,7 +383,7 @@ describe('McpOAuthService lifecycle', () => {
 
     const flow = service.beginAuthorization('srv', oauthServer.url);
     const refresh = service.refresh('srv', oauthServer.url);
-    await expect(refresh).resolves.toBeUndefined();
+    expect(await refresh).toBeUndefined();
     await flow;
     expect(tokenCalls).toBe(0);
     await service.shutdown();
