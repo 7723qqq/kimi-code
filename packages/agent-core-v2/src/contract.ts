@@ -37,4 +37,4 @@ export * from '#/tool/path-access';
 export * from '#/human/llm/finish-reason';
 export * from '#/human/llm/usage';
 
-export * from '#/runtime/runtime';
+export * from '#/environment/environment';

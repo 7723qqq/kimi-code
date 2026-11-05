@@ -8,10 +8,6 @@ import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IHostProcessService } from '#/os/interface/hostProcess';
 
 import type { Environment, EnvironmentCapability, EnvironmentPath, EnvironmentStatus } from './environment';
-import { EnvironmentProviderContext } from '#/environment/environmentProvider';
-import { type EnvironmentProviderHost } from '#/environment/environmentProvider';
-import { type EnvironmentProviderAttachment } from '#/environment/environmentProvider';
-import { LocalEnvironment } from '#/environment/localEnvironment';
 
 let nextGeneration = 1;
 
@@ -83,29 +79,5 @@ export class LocalEnvironment implements Environment {
     this.currentStatus = 'disposed';
     this.statusEmitter.fire('disposed');
     this.statusEmitter.dispose();
-  }
-}
-
-export class LocalEnvironmentProviderFactory implements EnvironmentProviderFactory {
-  readonly id = 'local';
-  readonly imports = {
-    root: [IHostEnvironment, IHostFileSystem, IHostProcessService],
-    imports: [],
-    local: [],
-  };
-
-  async attach(
-    context: EnvironmentProviderContext,
-    host: EnvironmentProviderHost,
-  ): Promise<EnvironmentProviderAttachment> {
-    const handle = host.registerRuntime(
-      new LocalEnvironment(
-        context.id,
-        host.get(IHostEnvironment),
-        host.get(IHostFileSystem),
-        host.get(IHostProcessService),
-      ),
-    );
-    return { dispose: () => handle.remove() };
   }
 }
