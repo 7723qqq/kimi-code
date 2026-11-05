@@ -198,7 +198,6 @@ function sessionSummaryForLog(session: {
   title: string;
   busy: boolean;
   message_count: number;
-  last_seq: number;
   metadata: Record<string, unknown>;
 }): Record<string, unknown> {
   return {
@@ -206,7 +205,6 @@ function sessionSummaryForLog(session: {
     title: session.title,
     busy: session.busy,
     message_count: session.message_count,
-    last_seq: session.last_seq,
     cwd: session.metadata['cwd'],
   };
 }

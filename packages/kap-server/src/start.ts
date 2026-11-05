@@ -370,7 +370,6 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
   const sessionRating = createServerSessionRating(core, { debugEndpoints, logger });
   core.accessor.get(IGlobalSearchService).setLiveTranscriptSource(transcriptService);
   const broadcaster = new SessionEventBroadcaster({
-    eventsDir: join(homeDir, 'server', 'events'),
     core,
     logger,
     transcriptService,

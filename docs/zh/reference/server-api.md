@@ -669,7 +669,6 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 | `GET /api/v1/sessions/{session_id}/runtime` | 读取 main agent 的运行时绑定 |
 | `POST /api/v1/sessions/{session_id}/runtime` | 切换 main agent 的运行时绑定 |
 | `POST /api/v1/sessions/{session_id}/export` | 导出会话与诊断信息（zip 流，不走信封） |
-| `GET /api/v1/sessions/{session_id}/snapshot` | 客户端重建用全量快照（含 `as_of_seq` 与 `epoch`） |
 | `GET /api/v1/sessions/{session_id}/media/{file_id}` | 按文件 id 下载提示词媒体（二进制） |
 
 #### session 对象
@@ -690,11 +689,10 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 | `last_turn_reason` | string | main agent 最近一次轮次的结果：`completed` / `cancelled` / `failed` |
 | `last_prompt` | string | 最近一条用户提示词文本（如有） |
 | `metadata` | object | 自定义元数据；始终携带 `cwd`（会话的工作目录） |
-| `agent_config` | object | 投影为 `{ model }`；`model` 在大多数响应中为 `""`，仅由 `GET /api/v1/sessions/{session_id}/snapshot` 填入实时模型 |
-| `usage` | object | token 汇总 `{ input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, context_tokens, context_limit?, total_cost_usd?, turn_count? }`；在 snapshot 端点之外全为零 |
+| `agent_config` | object | 投影为 `{ model }`；`model` 在大多数响应中为 `""`，仅由快照类端点填入实时模型 |
+| `usage` | object | token 汇总 `{ input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, context_tokens, context_limit?, total_cost_usd?, turn_count? }`；在快照类端点之外全为零 |
 | `permission_rules` | array | 会话权限规则；当前始终为 `[]` |
 | `message_count` | integer | 消息数；当前始终为 `0` |
-| `last_seq` | integer | 最后的事件序列号；当前始终为 `0` |
 
 #### `POST /api/v1/sessions`
 
@@ -993,18 +991,6 @@ schema 还接受 `agent_config` 内的 `system_prompt`、`tools`、`mcp_servers`
 | `session_id` | path | string | **必填。** 会话 id |
 | `web_log` | body | string | 要包含在归档中的客户端日志文本，最多 256 KB UTF-8 |
 | `desktop` | body | boolean | 同时包含桌面宿主的日志。默认 `false` |
-
-#### `GET /api/v1/sessions/{session_id}/snapshot`
-
-为重新同步后重建客户端组装一份原子快照：会话、最近的消息、进行中的轮次、存活的 subagent 以及待处理交互，全部盖上 `as_of_seq` 水位与用于重新订阅的 `epoch`——见 [断线恢复](#断线恢复)。与普通的会话端点不同，内嵌的会话携带实时的 `agent_config.model` 与真实的 `usage` 总计。
-
-| 参数 | 位置 | 类型 | 说明 |
-| --- | --- | --- | --- |
-| `session_id` | path | string | **必填。** 会话 id |
-
-成功时，`data` 为 `{ as_of_seq, epoch, session, messages, in_flight_turn, subagents?, pending_approvals, pending_questions }`：`session` 为 [session 对象](#session-对象)，`messages` 为最新 100 条消息的 `{ items, has_more }`，`in_flight_turn` 为已部分流式输出的轮次（空闲时为 `null`，已知时带 `current_prompt_id`），`subagents` 列出存活的 subagent 任务，`pending_approvals` / `pending_questions` 承载未答复的交互。
-
-- `40401`：会话不存在
 
 #### `GET /api/v1/sessions/{session_id}/media/{file_id}`
 
@@ -2396,7 +2382,7 @@ Agent 自身的状态由另外四种平铺帧同步，每帧都携带完整的�
 
 ### 断线恢复
 
-重连后在 `subscribe` 的 `cursors` 里带上每个会话最后应用事件的 `{seq, epoch}`，服务端会回放缺口；落后超过缓冲（1000 条）或游标失效时改为收到 `resync_required`。此时调用 `GET /api/v1/sessions/{session_id}/snapshot` 拿全量快照（含 `as_of_seq` 与 `epoch`），再以新游标重新订阅。
+重连后用 `subscribe_v2` 重新订阅，服务端会针对你请求的每个 agent 回一份全新的 `transcript.reset`，本地状态从这份基线重建，而不是按游标回放；全局推送事件在连接建立后即刻恢复。
 
 ### 转录协议
 

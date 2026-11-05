@@ -87,7 +87,6 @@ interface SessionWire {
   usage: { input_tokens: number };
   permission_rules: unknown[];
   message_count: number;
-  last_seq: number;
 }
 
 interface PageWire {
@@ -418,7 +417,6 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(body.data.agent_config).toEqual({ model: '' });
     expect(body.data.permission_rules).toEqual([]);
     expect(body.data.message_count).toBe(0);
-    expect(body.data.last_seq).toBe(0);
     expect(Number.isNaN(Date.parse(body.data.created_at))).toBe(false);
   });
 
@@ -538,22 +536,6 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(got.body.data.agent_config).toEqual({ model: 'stub' });
   });
 
-  it('reports the journaled event watermark as last_seq', async () => {
-    const cwd = home as string;
-    const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
-    const id = created.body.data.id;
-
-    const initial = await getJson<SessionWire>(`/api/v1/sessions/${id}`);
-    const baseline = initial.body.data.last_seq;
-
-    const renamed = await postJson<SessionWire>(`/api/v1/sessions/${id}/profile`, {
-      title: 'watermark probe',
-    });
-    expect(renamed.body.code).toBe(0);
-
-    const got = await getJson<SessionWire>(`/api/v1/sessions/${id}`);
-    expect(got.body.data.last_seq).toBeGreaterThan(baseline);
-  });
 
   it('supports exclude_empty when listing sessions', async () => {
     const cwd = home as string;
@@ -1288,32 +1270,6 @@ describe('server-v2 /api/v1/sessions', () => {
     }
   });
 
-  it('keeps failed journal cleanup retriable without publishing deletion', async () => {
-    const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd: home } });
-    const id = created.body.data.id;
-    const journalPath = join(home!, 'server', 'events', `${id}.jsonl`);
-    await waitForAssertion(async () =>
-      expect(await readFile(journalPath, 'utf8')).toContain('journal_header'),
-    );
-    await closeSessionById(server!.core.accessor, id);
-    await rm(journalPath);
-    await mkdir(journalPath);
-    const events: Event2<any>[] = [];
-    const sub = server!.core.accessor.get(IEventService).subscribe((event) => events.push(event));
-    try {
-      const failed = await postJson(`/api/v1/sessions/${id}:delete`);
-      expect(failed.body.code).not.toBe(0);
-      expect(await server!.core.accessor.get(ISessionManager).status(id)).toBeDefined();
-      expect(events.filter((event) => event.type === 'event.session.deleted')).toEqual([]);
-      await rm(journalPath, { recursive: true });
-      const retried = await postJson<{ deleted: boolean }>(`/api/v1/sessions/${id}:delete`);
-      expect(retried.body.data).toEqual({ deleted: true });
-      expect(events.filter((event) => event.type === 'event.session.deleted')).toHaveLength(1);
-      await expect(readFile(journalPath)).rejects.toMatchObject({ code: 'ENOENT' });
-    } finally {
-      sub.dispose();
-    }
-  });
 
   it.each(['closing', 'cleanup'] as const)(
     'waits for %s before recreating an explicit session id',
@@ -1321,11 +1277,6 @@ describe('server-v2 /api/v1/sessions', () => {
       const manager = server!.core.accessor.get(ISessionManager);
       const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd: home } });
       const id = created.body.data.id;
-      const journalPath = join(home!, 'server', 'events', `${id}.jsonl`);
-      await waitForAssertion(async () =>
-        expect(await readFile(journalPath, 'utf8')).toContain('journal_header'),
-      );
-      const oldJournal = await readFile(journalPath, 'utf8');
       let enter!: () => void;
       let release!: () => void;
       const entered = new Promise<void>((resolve) => {
@@ -1354,18 +1305,6 @@ describe('server-v2 /api/v1/sessions', () => {
         release();
         await deletion;
         await creation;
-        server!.core.accessor.get(IEventService).publish(
-          new SessionMetaUpdated({
-            payload: { sessionId: id, agentId: 'main', patch: { title: 'Recreated session' } },
-          }),
-        );
-        await waitForAssertion(async () => {
-          const journal = await readFile(journalPath, 'utf8');
-          expect(journal).toContain('journal_header');
-          expect(JSON.parse(journal.split('\n')[0]!).epoch).not.toBe(
-            JSON.parse(oldJournal.split('\n')[0]!).epoch,
-          );
-        });
         expect(manager.get(id)).toBeDefined();
       } finally {
         release();

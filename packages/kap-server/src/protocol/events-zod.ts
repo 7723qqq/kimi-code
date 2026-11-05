@@ -1165,21 +1165,7 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   agentStatusUpdatedEventSchema,
   agentCreatedEventSchema,
   agentDisposedEventSchema,
-  sessionMetaUpdatedEventSchema,
-  sessionCreatedEventSchema,
-  sessionArchivedEventSchema,
-  sessionDeletedEventSchema,
-  workspaceCreatedEventSchema,
-  workspaceUpdatedEventSchema,
-  workspaceDeletedEventSchema,
-  sessionWorkChangedEventSchema,
   sessionStatusChangedEventSchema,
-  configChangedEventSchema,
-  configWarningEventSchema,
-  modelCatalogChangedEventSchema,
-  diUnitChangedEventSchema,
-  pluginChangedEventSchema,
-  capabilityChangedEventSchema,
   goalUpdatedEventSchema,
   skillActivatedEventSchema,
   pluginCommandActivatedEventSchema,
@@ -1223,9 +1209,19 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   promptSteeredEventSchema,
 ]);
 
-export const eventSchema = agentEventSchema.and(
-  z.object({
-    agentId: z.string(),
-    sessionId: z.string(),
-  }),
-);
+export const pushEventSchema = z.discriminatedUnion('type', [
+  sessionMetaUpdatedEventSchema,
+  sessionCreatedEventSchema,
+  sessionArchivedEventSchema,
+  sessionDeletedEventSchema,
+  workspaceCreatedEventSchema,
+  workspaceUpdatedEventSchema,
+  workspaceDeletedEventSchema,
+  sessionWorkChangedEventSchema,
+  configChangedEventSchema,
+  configWarningEventSchema,
+  modelCatalogChangedEventSchema,
+  diUnitChangedEventSchema,
+  pluginChangedEventSchema,
+  capabilityChangedEventSchema,
+]);

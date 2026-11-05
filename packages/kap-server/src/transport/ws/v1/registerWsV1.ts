@@ -4,8 +4,7 @@ import { WebSocketServer } from 'ws';
 import type { CredentialValidator } from '../../../services/auth/credentials';
 import { selectWsBearerProtocol } from '../bearerProtocol';
 import { type IConnectionRegistry } from '../connectionRegistry';
-import type { SessionEventBroadcaster } from './sessionEventBroadcaster';
-import type { JournalLogger } from './sessionEventJournal';
+import type { BroadcastLogger, SessionEventBroadcaster } from './sessionEventBroadcaster';
 import { createTaskSource } from './taskRequests';
 import { WsConnectionV1 } from './wsConnectionV1';
 
@@ -15,8 +14,7 @@ export interface RegisterWsV1Options {
   readonly validateCredential?: CredentialValidator;
   readonly registry: IConnectionRegistry;
   readonly broadcaster: SessionEventBroadcaster;
-  readonly logger?: JournalLogger;
-  readonly maxBufferSize?: number;
+  readonly logger?: BroadcastLogger;
   readonly flushIntervalMs?: number;
   readonly maxBatchSize?: number;
   readonly highWaterMarkBytes?: number;
@@ -39,7 +37,6 @@ export function registerWsV1(core: Scope, opts: RegisterWsV1Options): WebSocketS
       remoteAddress: req.socket.remoteAddress ?? null,
       userAgent: req.headers['user-agent'] ?? null,
       logger: opts.logger,
-      maxBufferSize: opts.maxBufferSize,
       flushIntervalMs: opts.flushIntervalMs,
       maxBatchSize: opts.maxBatchSize,
       highWaterMarkBytes: opts.highWaterMarkBytes,

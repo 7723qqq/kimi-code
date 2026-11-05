@@ -22,7 +22,6 @@ import type {
 } from '@moonshot-ai/agent-core-v2/llm-adapter/model/catalog';
 import { ErrorCode } from '@moonshot-ai/kap-server/protocol/error-codes';
 import type { Message } from '@moonshot-ai/kap-server/protocol/message';
-import type { SessionStatusResponse } from '@moonshot-ai/kap-server/protocol/rest-session';
 import type { Session } from '@moonshot-ai/kap-server/protocol/session';
 
 import { DaemonClient, EnvelopeError } from '../harness/index.js';
@@ -279,7 +278,7 @@ describeLive('DaemonClient (live server required)', () => {
   );
 
   it(
-    'undoSession removes the latest prompt and returns refreshed messages plus status',
+    'undoSession removes the latest prompt and returns refreshed messages',
     async () => {
       const log = createCaseLogger('client: undo action');
       const client = new DaemonClient({ baseUrl: BASE_URL });
@@ -324,7 +323,6 @@ describeLive('DaemonClient (live server required)', () => {
       expect(afterText).toContain('KEEP');
       expect(afterText).not.toContain('UNDO-ME');
       expect(result.messages.has_more).toBe(false);
-      expect(result.status.context_tokens).toBeGreaterThanOrEqual(0);
     },
     PROMPT_TIMEOUT_MS * 2 + 30_000,
   );
@@ -400,14 +398,11 @@ describe('DaemonClient session action helpers', () => {
     });
   });
 
-  it('undoSession posts the action-suffix route and unwraps messages plus status', async () => {
+  it('undoSession posts the action-suffix route and unwraps messages', async () => {
     const log = createCaseLogger('client helper: undoSession');
     const calls: FetchCall[] = [];
     const message = testMessage({ id: 'msg_kept', session_id: 'sess_source' });
-    const undoResponse = {
-      messages: { items: [message], has_more: false },
-      status: testSessionStatus(),
-    };
+    const undoResponse = { messages: { items: [message], has_more: false } };
     const client = new DaemonClient({
       baseUrl: 'http://server.example.test',
       fetchImpl: recordingFetch(okEnvelope(undoResponse), calls),
@@ -645,7 +640,6 @@ function testSession(overrides: Partial<Session> = {}): Session {
     },
     permission_rules: [],
     message_count: 0,
-    last_seq: 0,
   };
   return {
     ...base,
@@ -699,19 +693,6 @@ function testMessage(overrides: Partial<Message> = {}): Message {
   };
 }
 
-function testSessionStatus(): SessionStatusResponse {
-  return {
-    busy: false,
-    model: 'kimi-code/kimi-for-coding',
-    thinking_level: 'off',
-    permission: 'manual',
-    plan_mode: false,
-    swarm_mode: false,
-    context_tokens: 0,
-    max_context_tokens: 100,
-    context_usage: 0,
-  };
-}
 
 function textFromMessages(messages: Array<{ content: Array<{ type: string; text?: string }> }>): string {
   return messages

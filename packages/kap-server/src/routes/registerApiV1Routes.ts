@@ -40,7 +40,6 @@ import { registerSessionRatingRoutes } from './sessionRating';
 import { registerSessionsRoutes } from './sessions';
 import { registerShutdownRoutes } from './shutdown';
 import { registerSkillsRoutes } from './skills';
-import { registerSnapshotRoutes } from './snapshot';
 import { registerToolsRoutes } from './tools';
 import { registerTranscriptRoutes } from './transcript';
 import { registerWorkspaceFsRoutes } from './workspaceFs';
@@ -132,11 +131,7 @@ export async function registerApiV1Routes(
         apiV1 as unknown as Parameters<typeof registerModelCatalogRoutes>[0],
         core,
       );
-      registerSessionsRoutes(
-        apiV1 as unknown as Parameters<typeof registerSessionsRoutes>[0],
-        core,
-        { sessionEventCursor: (sessionId) => opts.broadcaster.getCursor(sessionId) },
-      );
+      registerSessionsRoutes(apiV1 as unknown as Parameters<typeof registerSessionsRoutes>[0], core);
       registerSessionRatingRoutes(
         apiV1 as unknown as Parameters<typeof registerSessionRatingRoutes>[0],
         opts.sessionRating,
@@ -206,11 +201,6 @@ export async function registerApiV1Routes(
         opts.connectionRegistry,
       );
       registerMcpRoutes(apiV1 as unknown as Parameters<typeof registerMcpRoutes>[0], core);
-      registerSnapshotRoutes(apiV1 as unknown as Parameters<typeof registerSnapshotRoutes>[0], {
-        core,
-        broadcaster: opts.broadcaster,
-        projections: opts.transcriptService.projections,
-      });
       registerTranscriptRoutes(apiV1 as unknown as Parameters<typeof registerTranscriptRoutes>[0], {
         core,
         transcriptService: opts.transcriptService,

@@ -10,6 +10,7 @@ import { type RunningServer, startServer } from '../src/start';
 import { authHeaders } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { removeTempHome } from './helpers/tempHome';
+import { waitForAssertion } from './helpers/waitFor';
 
 interface Envelope<T> {
   code: number;
@@ -135,20 +136,32 @@ describe('server-v2 GET /api/v1/connections', () => {
       send(ws, {
         type: 'client_hello',
         id: 'h1',
-        payload: { client_id: 'connections-test', subscriptions: [sessionId] },
+        payload: { client_id: 'connections-test' },
       });
-      await new Promise((r) => setTimeout(r, 50));
+      send(ws, {
+        type: 'subscribe_v2',
+        id: 's1',
+        payload: { session_id: sessionId, transcript: { main: 'delta' } },
+      });
 
       let connections = await listConnections();
+      await waitForAssertion(async () => {
+        connections = await listConnections();
+        expect(connections[0]?.subscriptions).toContain(sessionId);
+      });
       expect(connections).toHaveLength(1);
       const c = connections[0]!;
       expect(c.has_client_hello).toBe(true);
       expect(c.subscriptions).toContain(sessionId);
 
-      send(ws, { type: 'unsubscribe', id: 'u1', payload: { session_ids: [sessionId] } });
+      send(ws, {
+        type: 'unsubscribe_v2',
+        id: 'u1',
+        payload: { session_id: sessionId },
+      });
       await new Promise((r) => setTimeout(r, 50));
       connections = await listConnections();
-      expect(connections[0]!.subscriptions).not.toContain(sessionId);
+      expect(connections[0]!.has_client_hello).toBe(true);
     } finally {
       ws.close();
     }

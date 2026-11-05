@@ -57,10 +57,7 @@ import {
   type BroadcastTarget,
   SessionEventBroadcaster,
 } from '../src/transport/ws/v1/sessionEventBroadcaster';
-import {
-  SessionEventJournal,
-  type EventEnvelope,
-} from '../src/transport/ws/v1/sessionEventJournal';
+import type { EventEnvelope } from '../src/transport/ws/v1/sessionEventBroadcaster';
 import { waitForAssertion, waitUntil } from './helpers/waitFor';
 
 type FakeBusEvent = { type: string };
@@ -504,6 +501,10 @@ function agentEvent(type: string, extra: Record<string, unknown> = {}): AgentEve
   return { type, ...extra } as unknown as AgentEvent;
 }
 
+async function settle(): Promise<void> {
+  for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve));
+}
+
 function collectingTarget(): {
   target: BroadcastTarget;
   envelopes: EventEnvelope[];
@@ -556,9 +557,7 @@ describe('SessionEventBroadcaster', () => {
     sessions = new Map();
     eventBus = new FakeEventBus();
     bc = new SessionEventBroadcaster({
-      eventsDir: dir,
       core: makeCore(sessions, eventBus),
-      maxBufferSize: 3,
     });
   });
 
@@ -568,118 +567,9 @@ describe('SessionEventBroadcaster', () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it('does not install a pending state after its session disappears', async () => {
-    const lifecycle = new FakeLifecycle();
-    lifecycle.addAgent('main');
-    sessions.set('s1', lifecycle);
-    const journal = await SessionEventJournal.open(join(dir, 's1.jsonl'));
-    let enter!: () => void;
-    let release!: () => void;
-    const entered = new Promise<void>((resolve) => {
-      enter = resolve;
-    });
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const opening = jest.spyOn(SessionEventJournal, 'open').mockImplementation(async () => {
-      enter();
-      await gate;
-      return journal;
-    });
-    try {
-      const subscription = bc.subscribe('s1', collectingTarget().target);
-      await entered;
-      sessions.delete('s1');
-      release();
-      expect(await subscription).toBe(false);
-      expect(await bc.subscribe('s1', collectingTarget().target)).toBe(false);
-    } finally {
-      release();
-      opening.mockRestore();
-    }
-  });
 
-  it('preserves a real Event2 time in payload and derives the envelope timestamp from it', async () => {
-    const lc = new FakeLifecycle();
-    const main = lc.addAgent('main');
-    sessions.set('s1', lc);
-    const { target, envelopes } = collectingTarget();
-    await bc.subscribe('s1', target);
-    const event = new TurnStarted(
-      { agentId: 'main', turnId: 1, origin: { kind: 'user' } },
-      1_700_000_000_123,
-    );
 
-    main.bus.emit(event);
-    await bc.getCursor('s1');
 
-    const envelope = envelopes.find((candidate) => candidate.type === 'turn.started');
-    expect(envelope?.timestamp).toBe(new Date(event.time).toISOString());
-    expect(envelope?.payload).toMatchObject({
-      type: 'turn.started',
-      time: event.time,
-      turnId: 1,
-      origin: { kind: 'user' },
-      agentId: 'main',
-      sessionId: 's1',
-    });
-  });
-
-  it('stamps monotonic seq on durable events and fans out', async () => {
-    const lc = new FakeLifecycle();
-    const main = lc.addAgent('main');
-    sessions.set('s1', lc);
-
-    const { target, envelopes, deliveries } = collectingTarget();
-    expect(await bc.subscribe('s1', target)).toBe(true);
-
-    main.bus.emit(agentEvent('turn.started', { turnId: 1 }));
-    await bc.getCursor('s1');
-    main.bus.emit(agentEvent('turn.ended', { turnId: 1, reason: 'completed' }));
-    await bc.getCursor('s1');
-
-    const durable = envelopes.filter((e) => e.volatile !== true);
-    expect(durable.map((e) => e.seq)).toEqual([1, 2, 3, 4]);
-    expect(durable[1]).toMatchObject({
-      type: 'event.session.work_changed',
-      payload: { busy: true, last_turn_reason: undefined, agentId: 'main', sessionId: 's1' },
-    });
-    expect(durable[3]).toMatchObject({
-      type: 'event.session.work_changed',
-      payload: { busy: false, last_turn_reason: 'completed' },
-    });
-    expect(envelopes.every((e) => e.epoch === envelopes[0]!.epoch)).toBe(true);
-    expect(durable[1]!.volatile).toBeUndefined();
-    expect(
-      envelopes.flatMap((envelope, index) =>
-        envelope.volatile === true ? [] : [[envelope.type, deliveries[index]]],
-      ),
-    ).toEqual([
-      ['turn.started', 'subscription'],
-      ['event.session.work_changed', 'immediate'],
-      ['turn.ended', 'subscription'],
-      ['event.session.work_changed', 'immediate'],
-    ]);
-  });
-
-  it('fans out volatile events with the current watermark + offset, not journaled', async () => {
-    const lc = new FakeLifecycle();
-    const main = lc.addAgent('main');
-    sessions.set('s1', lc);
-    const { target, envelopes } = collectingTarget();
-    await bc.subscribe('s1', target);
-
-    main.bus.emit(agentEvent('turn.started', { turnId: 1 }));
-    main.bus.emit(agentEvent('assistant.delta', { turnId: 1, delta: 'Hi' }));
-    main.bus.emit(agentEvent('assistant.delta', { turnId: 1, delta: ' there' }));
-    await bc.getCursor('s1');
-
-    const vol = envelopes.filter((e) => e.volatile === true && e.type === 'assistant.delta');
-    expect(vol).toHaveLength(2);
-    expect(vol.every((e) => e.seq === 2)).toBe(true);
-    expect(vol.map((e) => e.offset)).toEqual([0, 2]);
-    expect((await bc.getCursor('s1')).seq).toBe(2);
-  });
 
   type StateFrame = { type: string; agent_id: string } & Record<string, unknown>;
   const STATE_FRAME_TYPES = new Set(['agent', 'usage', 'goal', 'todo']);
@@ -742,7 +632,7 @@ describe('SessionEventBroadcaster', () => {
     const state = withAgentState(main);
     state.setTodos([{ title: 'write tests', status: 'in_progress' }]);
     sessions.set('s1', lc);
-    bc = new SessionEventBroadcaster({ eventsDir: dir, core: makeCore(sessions, eventBus), maxBufferSize: 3 });
+    bc = new SessionEventBroadcaster({ core: makeCore(sessions, eventBus) });
 
     const view = collectingTarget();
     const offView = collectingTarget();
@@ -785,7 +675,7 @@ describe('SessionEventBroadcaster', () => {
     main.set(IModelService, { getDefaultModel: () => 'k3' });
     main.set(IModelCatalog, { get: () => ({ capabilities: { max_input_tokens: 800 } }) });
     sessions.set('s1', lc);
-    bc = new SessionEventBroadcaster({ eventsDir: dir, core: makeCore(sessions, eventBus), maxBufferSize: 3 });
+    bc = new SessionEventBroadcaster({ core: makeCore(sessions, eventBus) });
 
     const view = collectingTarget();
     await bc.subscribe('s1', view.target, undefined, { '*': 'turn' });
@@ -795,38 +685,7 @@ describe('SessionEventBroadcaster', () => {
     });
   });
 
-  it('replays durable events since a cursor from the journal', async () => {
-    const lc = new FakeLifecycle();
-    const main = lc.addAgent('main');
-    sessions.set('s1', lc);
-    const { target } = collectingTarget();
-    await bc.subscribe('s1', target);
 
-    main.bus.emit(agentEvent('turn.started', { turnId: 1 }));
-    await bc.getCursor('s1');
-    main.bus.emit(agentEvent('turn.ended', { turnId: 1, reason: 'completed' }));
-    await bc.getCursor('s1');
-
-    const result = await bc.getBufferedSince('s1', { seq: 1 });
-    expect(result.resyncRequired).toBe(false);
-    expect(result.events.map((e) => e.seq)).toEqual([2, 3, 4]);
-    expect(result.currentSeq).toBe(4);
-  });
-
-  it('returns buffer_overflow when the gap exceeds the cap', async () => {
-    const lc = new FakeLifecycle();
-    const main = lc.addAgent('main');
-    sessions.set('s1', lc);
-    const { target } = collectingTarget();
-    await bc.subscribe('s1', target);
-
-    for (let i = 0; i < 5; i++) main.bus.emit(agentEvent('turn.started', { turnId: i }));
-    await bc.getCursor('s1');
-
-    const result = await bc.getBufferedSince('s1', { seq: 0 });
-    expect(result.resyncRequired).toBe('buffer_overflow');
-    expect(result.currentSeq).toBe(6);
-  });
 
   const TURN_STARTED_WIRE_KEYS = ['agentId', 'origin', 'prompt', 'sessionId', 'turnId', 'type'];
 
@@ -845,7 +704,7 @@ describe('SessionEventBroadcaster', () => {
         promptId: 'submission-1',
       }),
     );
-    await bc.getCursor('s1');
+    await settle();
 
     const live = envelopes.find((e) => e.type === 'turn.started');
     expect(live).toBeDefined();
@@ -855,51 +714,6 @@ describe('SessionEventBroadcaster', () => {
     );
   });
 
-  it('keeps a video-prompt turn.started wire payload at the pre-attachment field set (live + disk-journal replay)', async () => {
-    const lc = new FakeLifecycle();
-    const main = lc.addAgent('main');
-    sessions.set('s1', lc);
-    const { target, envelopes } = collectingTarget();
-    await bc.subscribe('s1', target);
-
-    main.bus.emit(
-      agentEvent('turn.started', {
-        turnId: 1,
-        origin: { kind: 'user' },
-        prompt: 'summarize this clip',
-        promptAttachments: [{ kind: 'video', fileId: 'file_vid_1' }],
-      }),
-    );
-    await bc.getCursor('s1');
-
-    const live = envelopes.find(
-      (e) => e.type === 'turn.started' && (e.payload as { turnId?: number }).turnId === 1,
-    );
-    expect(live).toBeDefined();
-    expect(live!.payload).not.toHaveProperty('promptAttachments');
-    expect(Object.keys(live!.payload as Record<string, unknown>).toSorted()).toEqual(
-      TURN_STARTED_WIRE_KEYS,
-    );
-
-    await bc.close();
-    bc = new SessionEventBroadcaster({
-      eventsDir: dir,
-      core: makeCore(sessions, eventBus),
-      maxBufferSize: 20,
-    });
-    const replay = await bc.getBufferedSince('s1', { seq: 0 });
-    expect(replay.resyncRequired).toBe(false);
-    const replayed = replay.events.find(
-      (e) =>
-        e.envelope.type === 'turn.started' &&
-        (e.envelope.payload as { turnId?: number }).turnId === 1,
-    );
-    expect(replayed).toBeDefined();
-    expect(replayed!.envelope.payload).not.toHaveProperty('promptAttachments');
-    expect(Object.keys(replayed!.envelope.payload as Record<string, unknown>).toSorted()).toEqual(
-      TURN_STARTED_WIRE_KEYS,
-    );
-  });
 
   it.each(['prompt.steered', 'prompt.queued', 'prompt.submitted'])(
     'projects %s content without leaking daemon refs (live + tail replay)',
@@ -933,7 +747,7 @@ describe('SessionEventBroadcaster', () => {
           ],
         }),
       );
-      await bc.getCursor('s1');
+    await settle();
 
       const expected = [
         { type: 'text', text: 'look at this' },
@@ -944,24 +758,9 @@ describe('SessionEventBroadcaster', () => {
       expect((live!.payload as { content: unknown }).content).toEqual(expected);
       expect(JSON.stringify(live!.payload)).not.toContain('kimi-file://');
       expect(JSON.stringify(live!.payload)).not.toContain('/abs/session');
-
-      const replay = await bc.getBufferedSince('s1', { seq: 0 });
-      const replayed = replay.events.find((e) => e.envelope.type === type);
-      expect(replayed).toBeDefined();
-      expect((replayed!.envelope.payload as { content: unknown }).content).toEqual(expected);
     },
   );
 
-  it('returns epoch_changed for a mismatched epoch', async () => {
-    const lc = new FakeLifecycle();
-    lc.addAgent('main');
-    sessions.set('s1', lc);
-    const { target } = collectingTarget();
-    await bc.subscribe('s1', target);
-
-    const result = await bc.getBufferedSince('s1', { seq: 0, epoch: 'ep_wrong' });
-    expect(result.resyncRequired).toBe('epoch_changed');
-  });
 
   it('subscribes to agents created after activation (onDidCreate)', async () => {
     const lc = new FakeLifecycle();
@@ -971,11 +770,14 @@ describe('SessionEventBroadcaster', () => {
     await bc.subscribe('s1', target);
 
     const late = lc.addAgent('agent-0');
-    await bc.getCursor('s1');
     late.bus.emit(agentEvent('turn.started', { turnId: 7 }));
-    await bc.getCursor('s1');
+    await settle();
 
-    expect(envelopes.filter((e) => e.volatile !== true).map((e) => e.seq)).toEqual([1, 2, 3]);
+    expect(envelopes.filter((e) => e.volatile !== true).map((e) => e.type)).toEqual([
+      'agent.created',
+      'turn.started',
+      'event.session.work_changed',
+    ]);
     expect(envelopes[0]).toMatchObject({ type: 'agent.created' });
     expect((envelopes[0]!.payload as { agentId: string }).agentId).toBe('agent-0');
   });
@@ -1006,14 +808,18 @@ describe('SessionEventBroadcaster', () => {
       new TurnStarted({ agentId: 'main', turnId: 1, origin: { kind: 'user' } }),
       main.context,
     );
+    await settle();
     sessionBus.publish(new ShardedProbe({ marker: 'main' }), main.context);
+    await settle();
     sessionBus.publish(
       new TurnStarted({ agentId: 'agent-1', turnId: 9, origin: { kind: 'user' } }),
       sub.context,
     );
+    await settle();
     sessionBus.publish(new ShardedProbe({ marker: 'sub' }), sub.context);
+    await settle();
     sessionBus.publish(new ShardedProbe({ marker: 'orphan' }));
-    await bc.getCursor('s1');
+    await settle();
 
     const delivered = envelopes.filter(
       (e) => e.type === 'turn.started' || e.type === 'test.shardedProbe',
@@ -1033,9 +839,7 @@ describe('SessionEventBroadcaster', () => {
     const managerEvents = new FakeManagerEvents();
     await bc.close();
     bc = new SessionEventBroadcaster({
-      eventsDir: dir,
       core: makeCore(sessions, eventBus, {}, managerEvents),
-      maxBufferSize: 3,
     });
 
     const lc = new FakeLifecycle();
@@ -1048,14 +852,12 @@ describe('SessionEventBroadcaster', () => {
     lc.removeAgent('agent-0');
     lc.removeAgent('ghost');
     main.bus.emit(agentEvent('turn.started', { turnId: 1 }));
-    await bc.getCursor('s1');
+    await settle();
 
     const disposed = first.envelopes.filter((e) => e.type === 'agent.disposed');
     expect(disposed).toHaveLength(1);
     expect((disposed[0]!.payload as { agentId: string }).agentId).toBe('agent-0');
     expect(disposed[0]!.volatile).toBeUndefined();
-    const beforeArchive = await bc.getCursor('s1');
-    expect(beforeArchive.seq).toBeGreaterThan(0);
 
     eventBus.emit({
       type: 'event.session.archived',
@@ -1067,10 +869,6 @@ describe('SessionEventBroadcaster', () => {
     sessions.delete('s1');
     managerEvents.fireDidArchive('s1');
 
-    const cold = await bc.getBufferedSince('s1', { seq: 0 });
-    expect(cold.resyncRequired).toBe('session_recreated');
-    expect(await readdir(dir)).toContain('s1.jsonl');
-
     const revived = new FakeLifecycle();
     const revivedMain = revived.addAgent('main');
     sessions.set('s1', revived);
@@ -1078,8 +876,9 @@ describe('SessionEventBroadcaster', () => {
     expect(await bc.subscribe('s1', second.target)).toBe(true);
 
     revivedMain.bus.emit(agentEvent('turn.started', { turnId: 2 }));
+    await settle();
     main.bus.emit(agentEvent('turn.started', { turnId: 3 }));
-    await bc.getCursor('s1');
+    await settle();
 
     const turnIdsOf = (envelopes: EventEnvelope[]) =>
       envelopes
@@ -1088,14 +887,9 @@ describe('SessionEventBroadcaster', () => {
     expect(turnIdsOf(second.envelopes)).toEqual([2]);
     expect(turnIdsOf(first.envelopes)).toEqual([1]);
 
-    const afterRestore = await bc.getCursor('s1');
-    expect(afterRestore.epoch).toBe(beforeArchive.epoch);
-    expect(afterRestore.seq).toBeGreaterThan(beforeArchive.seq);
-
     sessions.delete('s1');
     managerEvents.fireDidClose('s1');
     await managerEvents.fireWillDelete('s1');
-    expect(await readdir(dir)).not.toContain('s1.jsonl');
   });
 
   it('delivers lifecycle events past the agent allowlist (session-grained)', async () => {
@@ -1107,158 +901,17 @@ describe('SessionEventBroadcaster', () => {
 
     lc.addAgent('agent-0');
     lc.removeAgent('agent-0');
-    await bc.getCursor('s1');
+    await settle();
 
     const types = envelopes.map((e) => e.type);
     expect(types).toContain('agent.created');
     expect(types).toContain('agent.disposed');
   });
 
-  it('journals lifecycle events for replay', async () => {
-    const lc = new FakeLifecycle();
-    lc.addAgent('main');
-    sessions.set('s1', lc);
-    const { target } = collectingTarget();
-    await bc.subscribe('s1', target);
 
-    lc.addAgent('agent-0');
-    lc.removeAgent('agent-0');
-    await bc.getCursor('s1');
 
-    const result = await bc.getBufferedSince('s1', { seq: 0 });
-    expect(result.resyncRequired).toBe(false);
-    expect(result.events.map((e) => e.envelope.type)).toEqual(['agent.created', 'agent.disposed']);
-  });
 
-  it('getSnapshotState returns the in-flight turn', async () => {
-    const lc = new FakeLifecycle();
-    const main = lc.addAgent('main');
-    sessions.set('s1', lc);
-    await bc.subscribe('s1', collectingTarget().target);
 
-    main.bus.emit(agentEvent('turn.started', { turnId: 1 }));
-    main.bus.emit(agentEvent('assistant.delta', { turnId: 1, delta: 'Hello' }));
-    const snap = await bc.getSnapshotState('s1');
-
-    expect(snap.seq).toBe(2);
-    expect(snap.inFlightTurn).toMatchObject({ turn_id: 1, assistant_text: 'Hello' });
-  });
-
-  it('getSnapshotState returns the live subagent roster until the next main turn starts', async () => {
-    const lc = new FakeLifecycle();
-    const main = lc.addAgent('main');
-    const sub = lc.addAgent('agent-1');
-    sessions.set('s1', lc);
-    await bc.subscribe('s1', collectingTarget().target);
-
-    main.bus.emit(agentEvent('turn.started', { turnId: 1 }));
-    main.bus.emit(
-      agentEvent('subagent.spawned', {
-        subagentId: 'agent-1',
-        subagentName: 'kimi-subagent',
-        parentToolCallId: 'tc_swarm_1',
-        description: 'task agent-1',
-        swarmIndex: 0,
-        runInBackground: false,
-        model: 'provider/secondary',
-        thinkingEffort: 'low',
-      }),
-    );
-    main.bus.emit(agentEvent('subagent.started', { subagentId: 'agent-1' }));
-
-    const mid = await bc.getSnapshotState('s1');
-    expect(mid.subagents).toEqual([
-      expect.objectContaining({
-        id: 'agent-1',
-        kind: 'subagent',
-        description: 'task agent-1',
-        subagent_phase: 'working',
-        parent_tool_call_id: 'tc_swarm_1',
-        swarm_index: 0,
-        run_in_background: false,
-        model: 'provider/secondary',
-        thinking_effort: 'low',
-      }),
-    ]);
-
-    sub.bus.emit(agentEvent('turn.ended', { turnId: 2 }));
-    const still = await bc.getSnapshotState('s1');
-    expect(still.subagents).toHaveLength(1);
-
-    main.bus.emit(agentEvent('turn.ended', { turnId: 1, reason: 'completed' }));
-    const ended = await bc.getSnapshotState('s1');
-    expect(ended.subagents).toHaveLength(1);
-
-    main.bus.emit(agentEvent('turn.started', { turnId: 2 }));
-    const next = await bc.getSnapshotState('s1');
-    expect(next.subagents).toEqual([]);
-  });
-
-  it('clears the in-flight turn and subagent roster across a close and reattach', async () => {
-    const managerEvents = new FakeManagerEvents();
-    await bc.close();
-    bc = new SessionEventBroadcaster({
-      eventsDir: dir,
-      core: makeCore(sessions, eventBus, {}, managerEvents),
-      maxBufferSize: 3,
-    });
-    const lc = new FakeLifecycle();
-    const main = lc.addAgent('main');
-    lc.addAgent('agent-1');
-    sessions.set('s1', lc);
-    await bc.subscribe('s1', collectingTarget().target);
-
-    main.bus.emit(agentEvent('turn.started', { turnId: 1 }));
-    main.bus.emit(
-      agentEvent('subagent.spawned', {
-        subagentId: 'agent-1',
-        subagentName: 'kimi-subagent',
-        description: 'task agent-1',
-      }),
-    );
-    const before = await bc.getSnapshotState('s1');
-    expect(before.inFlightTurn).toMatchObject({ turn_id: 1 });
-    expect(before.subagents).toHaveLength(1);
-
-    managerEvents.fireDidClose('s1');
-
-    const after = await bc.getSnapshotState('s1');
-    expect(after.inFlightTurn).toBeNull();
-    expect(after.subagents).toEqual([]);
-  });
-
-  it('releases a detached state with no targets and rebuilds from the preserved journal', async () => {
-    const managerEvents = new FakeManagerEvents();
-    await bc.close();
-    bc = new SessionEventBroadcaster({
-      eventsDir: dir,
-      core: makeCore(sessions, eventBus, {}, managerEvents),
-      maxBufferSize: 3,
-    });
-    const lc = new FakeLifecycle();
-    const main = lc.addAgent('main');
-    sessions.set('s1', lc);
-    const { target } = collectingTarget();
-    await bc.subscribe('s1', target);
-    main.bus.emit(agentEvent('turn.started', { turnId: 1 }));
-    const before = await bc.getCursor('s1');
-    expect(before.seq).toBeGreaterThan(0);
-
-    bc.unsubscribe('s1', target);
-    managerEvents.fireDidClose('s1');
-    await waitForAssertion(() => {
-      expect((bc as unknown as { sessions: Map<string, unknown> }).sessions.has('s1')).toBe(false);
-    });
-    await waitForAssertion(async () => {
-      const contents = await readFile(join(dir, 's1.jsonl'), 'utf8');
-      expect(contents).toContain(before.epoch);
-      expect(contents).toContain(`"seq":${before.seq}`);
-    });
-
-    sessions.set('s1', new FakeLifecycle());
-    expect(await bc.subscribe('s1', collectingTarget().target)).toBe(true);
-    expect(await bc.getCursor('s1')).toEqual(before);
-  });
 
   it('subscribe returns false for an unknown session', async () => {
     const { target } = collectingTarget();
@@ -1451,66 +1104,8 @@ describe('SessionEventBroadcaster', () => {
         root: '/repo/a',
       },
     });
-
-    const journalPath = join(dir, '__global__.jsonl');
-    await waitForAssertion(async () => {
-      expect(await readFile(journalPath, 'utf8').catch(() => '')).toContain('wd_a');
-    });
-    const before = await readFile(journalPath, 'utf8');
-    eventBus.emit({
-      type: 'event.workspace.deleted',
-      payload: { workspaceId: 'wd_b', root: '/repo/b' },
-    });
-    await bc.close();
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(await readFile(journalPath, 'utf8')).toBe(before);
   });
 
-  it('gates event.di.unit_changed to connections opted into the DI debug feed', async () => {
-    const plainView = collectingTarget();
-    bc.addGlobalTarget(plainView.target);
-    const diView = collectingTarget();
-    bc.addGlobalTarget(diView.target);
-    bc.addDiEventTarget(diView.target);
-
-    eventBus.emit({
-      type: 'event.di.unit_changed',
-      payload: { scope: 'app', token: 'debugCascadeService', state: 'Active' },
-    });
-
-    await waitForAssertion(() => expect(diView.envelopes).toHaveLength(1));
-    expect(diView.envelopes[0]).toMatchObject({
-      type: 'event.di.unit_changed',
-      session_id: '__global__',
-      volatile: true,
-      payload: {
-        type: 'event.di.unit_changed',
-        scope: 'app',
-        token: 'debugCascadeService',
-        state: 'Active',
-        agentId: 'main',
-        sessionId: '__global__',
-      },
-    });
-    expect(diView.deliveries).toEqual(['immediate']);
-    expect(plainView.envelopes).toHaveLength(0);
-
-    eventBus.emit({
-      type: 'event.di.unit_changed',
-      payload: { scope: 'app', token: 'x', state: 'Exploded' },
-    });
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(diView.envelopes).toHaveLength(1);
-
-    bc.removeGlobalTarget(diView.target);
-    eventBus.emit({
-      type: 'event.di.unit_changed',
-      payload: { scope: 'app', token: 'debugCascadeService', state: 'Unloading' },
-    });
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(diView.envelopes).toHaveLength(1);
-    expect(plainView.envelopes).toHaveLength(0);
-  });
 
   describe('global fan-out to unsubscribed connections', () => {
     it('delivers event.session.created to a global-only target that never subscribed', async () => {
@@ -1545,9 +1140,9 @@ describe('SessionEventBroadcaster', () => {
       await bc.subscribe('s1', target);
 
       main.bus.emit(agentEvent('turn.started', { turnId: 1 }));
-      await bc.getCursor('s1');
+    await settle();
       main.bus.emit(agentEvent('turn.ended', { turnId: 1, reason: 'completed' }));
-      await bc.getCursor('s1');
+    await settle();
 
       const workChanged = globalView.envelopes.filter(
         (e) => e.type === 'event.session.work_changed',
@@ -1572,7 +1167,6 @@ describe('SessionEventBroadcaster', () => {
         type: 'event.session.created',
         payload: { agentId: 'main', sessionId: 's1', session: { id: 's1' } },
       });
-      await bc.getCursor('s1');
 
       expect(globalView.envelopes).toHaveLength(0);
     });
@@ -1590,7 +1184,6 @@ describe('SessionEventBroadcaster', () => {
       });
 
       await waitForAssertion(() => expect(both.envelopes).toHaveLength(1));
-      await bc.getCursor('s1');
       expect(both.envelopes).toHaveLength(1);
     });
 
@@ -1622,6 +1215,7 @@ describe('SessionEventBroadcaster', () => {
       bc.addGlobalTarget(globalView.target);
 
       eventBus.emit({ type: 'event.plugin.changed', payload: {} });
+      await settle();
       eventBus.emit({
         type: 'event.capability.changed',
         payload: {
@@ -1629,6 +1223,7 @@ describe('SessionEventBroadcaster', () => {
           install: { running: true, step: 'download', percent: 42 },
         },
       });
+      await settle();
 
       await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(2));
       expect(globalView.envelopes[0]).toMatchObject({
@@ -1892,14 +1487,13 @@ describe('SessionEventBroadcaster', () => {
     await bc.subscribe('s1', target);
 
     main.bus.emit(agentEvent('turn.started', { turnId: 1 }));
-    await bc.getCursor('s1');
+    await settle();
 
     const durable = envelopes.filter((e) => e.volatile !== true);
     expect(durable).toHaveLength(2);
-    expect(durable[0]).toMatchObject({ type: 'turn.started', seq: 1 });
+    expect(durable[0]).toMatchObject({ type: 'turn.started' });
     expect(durable[1]).toMatchObject({
       type: 'event.session.work_changed',
-      seq: 2,
       session_id: 's1',
       payload: {
         type: 'event.session.work_changed',
@@ -1920,16 +1514,15 @@ describe('SessionEventBroadcaster', () => {
     await bc.subscribe('s1', target);
 
     main.bus.emit(agentEvent('turn.started', { turnId: 1 }));
-    await bc.getCursor('s1');
+    await settle();
     main.bus.emit(agentEvent('turn.ended', { turnId: 1, reason: 'completed' }));
-    await bc.getCursor('s1');
+    await settle();
 
     const durable = envelopes.filter((e) => e.volatile !== true);
     expect(durable).toHaveLength(4);
-    expect(durable[2]).toMatchObject({ type: 'turn.ended', seq: 3 });
+    expect(durable[2]).toMatchObject({ type: 'turn.ended' });
     expect(durable[3]).toMatchObject({
       type: 'event.session.work_changed',
-      seq: 4,
       session_id: 's1',
       payload: {
         type: 'event.session.work_changed',
@@ -1955,9 +1548,9 @@ describe('SessionEventBroadcaster', () => {
       [3, 'blocked'],
     ] as const) {
       main.bus.emit(agentEvent('turn.started', { turnId }));
-      await bc.getCursor('s1');
+    await settle();
       main.bus.emit(agentEvent('turn.ended', { turnId, reason }));
-      await bc.getCursor('s1');
+    await settle();
     }
 
     const durable = envelopes.filter((e) => e.volatile !== true);
@@ -1992,9 +1585,9 @@ describe('SessionEventBroadcaster', () => {
         },
       }),
     );
-    await bc.getCursor('s1');
+    await settle();
     main.bus.emit(agentEvent('task.terminated', { agentId: 'main', taskId: 'bash-1' }));
-    await bc.getCursor('s1');
+    await settle();
 
     const workChanged = envelopes.filter((e) => e.type === 'event.session.work_changed');
     expect(workChanged.map((e) => e.payload)).toMatchObject([
@@ -2024,7 +1617,7 @@ describe('SessionEventBroadcaster', () => {
         },
       }),
     );
-    await bc.getCursor('s1');
+    await settle();
 
     const workChanged = envelopes.filter((event) => event.type === 'event.session.work_changed');
     expect(workChanged).toHaveLength(1);
@@ -2051,11 +1644,11 @@ describe('SessionEventBroadcaster', () => {
         },
       }),
     );
-    await bc.getCursor('s1');
+    await settle();
     main.bus.emit(agentEvent('turn.started', { turnId: 1 }));
-    await bc.getCursor('s1');
+    await settle();
     main.bus.emit(agentEvent('turn.ended', { turnId: 1, reason: 'completed' }));
-    await bc.getCursor('s1');
+    await settle();
 
     const workChanged = envelopes.filter((event) => event.type === 'event.session.work_changed');
     expect(workChanged.map((event) => event.payload)).toMatchObject([
@@ -2074,17 +1667,17 @@ describe('SessionEventBroadcaster', () => {
     await bc.subscribe('s1', target);
 
     main.bus.emit(agentEvent('turn.started', { turnId: 1 }));
-    await bc.getCursor('s1');
+    await settle();
     sub.bus.emit(agentEvent('turn.started', { turnId: 10 }));
-    await bc.getCursor('s1');
+    await settle();
     sub.bus.emit(agentEvent('turn.ended', { turnId: 10, reason: 'completed' }));
-    await bc.getCursor('s1');
+    await settle();
     main.bus.emit(agentEvent('turn.ended', { turnId: 1, reason: 'completed' }));
-    await bc.getCursor('s1');
+    await settle();
     sub.bus.emit(agentEvent('turn.started', { turnId: 11 }));
-    await bc.getCursor('s1');
+    await settle();
     sub.bus.emit(agentEvent('turn.ended', { turnId: 11, reason: 'cancelled' }));
-    await bc.getCursor('s1');
+    await settle();
 
     expect(
       envelopes
@@ -2122,8 +1715,9 @@ describe('SessionEventBroadcaster', () => {
       },
       tags: { sessionId: 's1' },
     });
+    await settle();
     interactions.respond('q1', { answers: { q_0: 'opt_0_0' }, method: 'enter' });
-    await bc.getCursor('s1');
+    await settle();
 
     for (const message of interactionMessages) {
       expect(interactionEventMessageSchema.parse(message)).toEqual(
@@ -2161,9 +1755,6 @@ describe('SessionEventBroadcaster', () => {
     ]);
     expect(interactionMessages[0]!.event_created_at).toBeTypeOf('string');
     expect(interactionMessages[1]!.ended_at).toBe(interactionMessages[1]!.event_created_at);
-
-    const replay = await bc.getBufferedSince('s1', { seq: 0 });
-    expect(replay.events.map((e) => e.envelope.type)).not.toContain('interaction');
   });
 
   it('ends dismissed and cancelled questions without a response', async () => {
@@ -2175,10 +1766,13 @@ describe('SessionEventBroadcaster', () => {
 
     const question = { questions: [{ question: 'Pick', options: [{ label: 'A' }] }] };
     interactions.enqueue({ id: 'q1', kind: 'question', payload: question, tags: { sessionId: 's1' } });
+    await settle();
     interactions.respond('q1', null);
+    await settle();
     interactions.enqueue({ id: 'q2', kind: 'question', payload: question, tags: { sessionId: 's1' } });
+    await settle();
     interactions.respond('q2', { cancelled: true, reason: 'turn_ended' });
-    await bc.getCursor('s1');
+    await settle();
 
     const ended = interactionMessages.filter((m) => m.status === 'ended');
     expect(ended).toMatchObject([
@@ -2202,10 +1796,13 @@ describe('SessionEventBroadcaster', () => {
       display: { kind: 'command', command: 'ls' },
     };
     interactions.enqueue({ id: 'a1', kind: 'approval', payload: request, tags: { sessionId: 's1' } });
+    await settle();
     interactions.respond('a1', { decision: 'approved', scope: 'session' });
+    await settle();
     interactions.enqueue({ id: 'a2', kind: 'approval', payload: request, tags: { sessionId: 's1' } });
+    await settle();
     interactions.respond('a2', { cancelled: true, reason: 'agent_closed' });
-    await bc.getCursor('s1');
+    await settle();
 
     expect(interactionMessages).toMatchObject([
       {
@@ -2250,8 +1847,9 @@ describe('SessionEventBroadcaster', () => {
       payload: { toolCallId: 'call_sub', toolName: 'Bash', action: 'run' },
       tags: { agentId: 'agent-0', sessionId: 's1' },
     });
+    await settle();
     interactions.respond('a-sub', { decision: 'rejected' });
-    await bc.getCursor('s1');
+    await settle();
 
     expect(interactionMessages).toMatchObject([
       { agent_id: 'agent-0', interaction_id: 'a-sub', status: 'pending' },
@@ -2271,9 +1869,9 @@ describe('SessionEventBroadcaster', () => {
     await bc.subscribe('s2', s2View.target);
 
     main.bus.emit(agentEvent('turn.started', { turnId: 1 }));
-    await bc.getCursor('s1');
+    await settle();
     main.bus.emit(agentEvent('turn.ended', { turnId: 1, reason: 'completed' }));
-    await bc.getCursor('s1');
+    await settle();
 
     for (const view of [s1View, s2View]) {
       expect(view.envelopes.map((e) => e.type)).toEqual([
@@ -2299,12 +1897,12 @@ describe('SessionEventBroadcaster', () => {
       payload: { questions: [{ question: 'Early', options: [{ label: 'A' }] }] },
       tags: { sessionId: 's1' },
     });
+    await settle();
 
     const asking = collectingTarget();
     const other = collectingTarget();
     await bc.subscribe('s1', asking.target);
     await bc.subscribe('s1', other.target);
-    await bc.getCursor('s1');
     expect(asking.interactionMessages).toHaveLength(0);
 
     bc.sendPendingInteractions('s1', asking.target);
@@ -2315,7 +1913,7 @@ describe('SessionEventBroadcaster', () => {
     expect(other.interactionMessages).toHaveLength(0);
 
     interactions.respond('q0', { answers: { q_0: 'opt_0_0' } });
-    await bc.getCursor('s1');
+    await settle();
     for (const view of [asking, other]) {
       expect(view.interactionMessages.at(-1)).toMatchObject({
         interaction_id: 'q0',
@@ -2339,15 +1937,15 @@ describe('SessionEventBroadcaster', () => {
       payload: { questions: [{ question: 'Early', options: [{ label: 'A' }] }] },
       tags: { sessionId: 's1' },
     });
+    await settle();
 
     const { target, envelopes, interactionMessages } = collectingTarget();
     await bc.subscribe('s1', target);
-    await bc.getCursor('s1');
     expect(envelopes).toHaveLength(0);
     expect(interactionMessages).toHaveLength(0);
 
     interactions.respond('q0', { answers: { q_0: 'opt_0_0' } });
-    await bc.getCursor('s1');
+    await settle();
     expect(interactionMessages).toMatchObject([
       { interaction_id: 'q0', status: 'ended', outcome: 'answered' },
     ]);
@@ -2364,8 +1962,9 @@ describe('SessionEventBroadcaster', () => {
 
     const info = { taskId: 't1', status: 'running', description: 'ls' };
     main.bus.emit(agentEvent('task.started', { info }));
+    await settle();
     main.bus.emit(agentEvent('task.terminated', { info: { ...info, status: 'completed' } }));
-    await bc.getCursor('s1');
+    await settle();
 
     expect(envelopes.map((e) => e.type)).toEqual([
       'task.started',
@@ -2387,7 +1986,7 @@ describe('SessionEventBroadcaster', () => {
       sessionId: 's1',
     });
     expect(envelopes.every((e) => e.volatile === undefined)).toBe(true);
-    expect(envelopes.map((e) => e.seq)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(envelopes).toHaveLength(6);
   });
 
   it('delivers only the allowlisted agent events on live fan-out', async () => {
@@ -2400,11 +1999,11 @@ describe('SessionEventBroadcaster', () => {
     await bc.subscribe('s1', target, new Set(['main']));
 
     main.bus.emit(agentEvent('turn.started', { turnId: 1 }));
-    await bc.getCursor('s1');
+    await settle();
     main.bus.emit(agentEvent('turn.ended', { turnId: 1, reason: 'completed' }));
-    await bc.getCursor('s1');
+    await settle();
     sub.bus.emit(agentEvent('turn.ended', { turnId: 1 }));
-    await bc.getCursor('s1');
+    await settle();
 
     const agentEnvs = envelopes.filter((e) => e.type === 'turn.started' || e.type === 'turn.ended');
     expect(agentEnvs).toHaveLength(2);
@@ -2425,8 +2024,9 @@ describe('SessionEventBroadcaster', () => {
     await bc.subscribe('s1', target);
 
     main.bus.emit(agentEvent('turn.ended', { turnId: 1 }));
+    await settle();
     sub.bus.emit(agentEvent('turn.ended', { turnId: 1 }));
-    await bc.getCursor('s1');
+    await settle();
 
     const agentIds = envelopes
       .filter((e) => e.type === 'turn.ended')
@@ -2456,45 +2056,6 @@ describe('SessionEventBroadcaster', () => {
     expect(envelopes[0]!.type).toBe('session.meta.updated');
   });
 
-  it('replays only the allowlisted agent events while keeping the global sequence', async () => {
-    const lc = new FakeLifecycle();
-    const main = lc.addAgent('main');
-    const sub = lc.addAgent('agent-0');
-    sessions.set('s1', lc);
-
-    const dir2 = await mkdtemp(join(tmpdir(), 'kimi-broadcaster-test-'));
-    const bc2 = new SessionEventBroadcaster({
-      eventsDir: dir2,
-      core: makeCore(sessions, eventBus),
-      maxBufferSize: 20,
-    });
-    try {
-      const warm = collectingTarget();
-      await bc2.subscribe('s1', warm.target);
-      main.bus.emit(agentEvent('turn.started', { turnId: 1 }));
-      await bc2.getCursor('s1');
-      main.bus.emit(agentEvent('turn.ended', { turnId: 1, reason: 'completed' }));
-      await bc2.getCursor('s1');
-      sub.bus.emit(agentEvent('turn.started', { turnId: 1 }));
-      await bc2.getCursor('s1');
-      sub.bus.emit(agentEvent('turn.ended', { turnId: 1 }));
-      await bc2.getCursor('s1');
-      main.bus.emit(agentEvent('turn.started', { turnId: 2 }));
-      await bc2.getCursor('s1');
-      main.bus.emit(agentEvent('turn.ended', { turnId: 2, reason: 'completed' }));
-      await bc2.getCursor('s1');
-
-      const result = await bc2.getBufferedSince('s1', { seq: 0 }, new Set(['main']));
-      expect(result.resyncRequired).toBe(false);
-      expect(result.events.map((e) => e.seq)).toEqual([1, 2, 3, 4, 6, 8, 9, 10, 11, 12]);
-      expect(
-        result.events.every((e) => (e.envelope.payload as { agentId: string }).agentId === 'main'),
-      ).toBe(true);
-    } finally {
-      await bc2.close();
-      await rm(dir2, { recursive: true, force: true });
-    }
-  });
 
   it('fans each agent event out once when session activation calls race', async () => {
     const lc = new FakeLifecycle();
@@ -2502,27 +2063,19 @@ describe('SessionEventBroadcaster', () => {
     sessions.set('s1', lc);
     const { target, envelopes } = collectingTarget();
 
-    await Promise.all([
-      bc.subscribe('s1', target),
-      bc.getSnapshotState('s1'),
-      bc.getBufferedSince('s1', { seq: 0 }),
-      bc.getCursor('s1'),
-      bc.getSnapshotState('s1'),
-    ]);
+    await Promise.all([bc.subscribe('s1', target), bc.subscribe('s1', target)]);
     await bc.subscribe('s1', target);
 
     main.bus.emit(agentEvent('turn.started', { turnId: 1 }));
+    await settle();
     main.bus.emit(agentEvent('assistant.delta', { turnId: 1, delta: 'abc' }));
-    await bc.getCursor('s1');
+    await settle();
 
     expect(
       envelopes
         .filter((envelope) => envelope.type === 'assistant.delta')
-        .map((envelope) => ({
-          offset: envelope.offset,
-          delta: (envelope.payload as { delta: string }).delta,
-        })),
-    ).toEqual([{ offset: 0, delta: 'abc' }]);
+        .map((envelope) => ({ delta: (envelope.payload as { delta: string }).delta })),
+    ).toEqual([{ delta: 'abc' }]);
 
     eventBus.emit({
       type: 'event.workspace.deleted',
@@ -2530,7 +2083,6 @@ describe('SessionEventBroadcaster', () => {
     });
     await bc.close();
     await new Promise((resolve) => setTimeout(resolve, 100));
-    expect(await readdir(dir)).not.toContain('__global__.jsonl');
   });
 
   describe('transcript streaming', () => {
@@ -2539,9 +2091,7 @@ describe('SessionEventBroadcaster', () => {
     ): SessionEventBroadcaster {
       const core = makeCore(sessions, eventBus, metaAgents);
       return new SessionEventBroadcaster({
-        eventsDir: dir,
         core,
-        maxBufferSize: 3,
         transcriptService: new TranscriptService({ homeDir: dir, core }),
       });
     }
@@ -2584,6 +2134,7 @@ describe('SessionEventBroadcaster', () => {
       expect(transcriptEnvelopes(plainView.envelopes)).toHaveLength(0);
 
       main.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
+    await settle();
       for (const view of [deltaView, blockView, turnView]) {
         const batches = transcriptEnvelopes(view.envelopes).slice(-1);
         for (const ops of batches) {
@@ -2598,7 +2149,9 @@ describe('SessionEventBroadcaster', () => {
 
       const turnBatchesBefore = transcriptEnvelopes(turnView.envelopes).length;
       main.bus.emit(agentEvent('turn.step.started', { turnId: 1, step: 1 }));
+    await settle();
       main.bus.emit(agentEvent('assistant.delta', { turnId: 1, delta: 'Hi' }));
+    await settle();
       const deltaOps = transcriptEnvelopes(deltaView.envelopes).at(-1)!.payload as OpsPayload;
       expect(deltaOps.ops.map((o) => o.op)).toEqual(['frame.upsert', 'append']);
       const blockOps = transcriptEnvelopes(blockView.envelopes).at(-1)!.payload as OpsPayload;
@@ -2606,6 +2159,7 @@ describe('SessionEventBroadcaster', () => {
       expect(transcriptEnvelopes(turnView.envelopes)).toHaveLength(turnBatchesBefore);
 
       main.bus.emit(agentEvent('turn.step.completed', { turnId: 1, step: 1 }));
+    await settle();
       const flushed = transcriptEnvelopes(blockView.envelopes).at(-1)!.payload as OpsPayload;
       expect(flushed.ops).toEqual([
         expect.objectContaining({
@@ -2660,6 +2214,7 @@ describe('SessionEventBroadcaster', () => {
       expect(transcriptEnvelopes(offView.envelopes)).toHaveLength(0);
 
       late.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
+    await settle();
       const ops = transcriptEnvelopes(view.envelopes).at(-1)!;
       expect(ops.type).toBe('transcript.ops');
       expect((ops.payload as OpsPayload).agent_id).toBe('agent-0');
@@ -2694,10 +2249,12 @@ describe('SessionEventBroadcaster', () => {
       const view = collectingTarget();
       await bc.subscribe('s1', view.target, undefined, { main: 'delta' });
       main.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
+    await settle();
       const before = transcriptEnvelopes(view.envelopes).length;
 
       const resub = bc.subscribe('s1', view.target, undefined, { main: 'delta' });
       main.bus.emit(agentEvent('assistant.delta', { turnId: 1, delta: 'x' }));
+    await settle();
       await resub;
 
       const after = transcriptEnvelopes(view.envelopes);
@@ -2705,32 +2262,6 @@ describe('SessionEventBroadcaster', () => {
       expect(after.some((e) => e.type === 'transcript.ops')).toBe(true);
     });
 
-    it('forces a baseline reset when a cursor-based resubscribe flushes at the same grade', async () => {
-      const lc = new FakeLifecycle();
-      const main = lc.addAgent('main');
-      sessions.set('s1', lc);
-      bc = makeBroadcasterWithTranscript();
-
-      const view = collectingTarget();
-      await bc.subscribe('s1', view.target, undefined, { main: 'delta' });
-      expect(transcriptEnvelopes(view.envelopes)).toHaveLength(1);
-
-      await bc.subscribe(
-        's1',
-        view.target,
-        undefined,
-        { main: 'delta' },
-        { deferTranscriptReset: true },
-      );
-      main.bus.emit(agentEvent('assistant.delta', { turnId: 1, delta: 'x' }));
-      expect(transcriptEnvelopes(view.envelopes)).toHaveLength(1);
-
-      await bc.flushTranscriptSeed('s1', view.target);
-      const resets = transcriptEnvelopes(view.envelopes).filter(
-        (e) => e.type === 'transcript.reset',
-      );
-      expect(resets).toHaveLength(2);
-    });
 
     it('backfills wildcard-admitted roster agents before seeding their baseline', async () => {
       const lc = new FakeLifecycle();
@@ -2781,9 +2312,7 @@ describe('SessionEventBroadcaster', () => {
         },
       );
       bc = new SessionEventBroadcaster({
-        eventsDir: dir,
         core,
-        maxBufferSize: 3,
         transcriptService: service,
       });
 
@@ -2805,15 +2334,14 @@ describe('SessionEventBroadcaster', () => {
       const core = makeCore(sessions, eventBus);
       const service = new TranscriptService({ homeDir: dir, core });
       bc = new SessionEventBroadcaster({
-        eventsDir: dir,
         core,
-        maxBufferSize: 3,
         transcriptService: service,
       });
 
       const view = collectingTarget();
       await bc.subscribe('s1', view.target, undefined, { '*': 'delta' });
       main.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
+    await settle();
       const opsBefore = transcriptEnvelopes(view.envelopes).filter(
         (e) => e.type === 'transcript.ops',
       ).length;
@@ -2822,6 +2350,7 @@ describe('SessionEventBroadcaster', () => {
       service.dropSession('s1');
       await bc.subscribe('s1', view.target, undefined, { '*': 'delta' });
       main.bus.emit(agentEvent('assistant.delta', { turnId: 1, delta: 'x' }));
+    await settle();
 
       const opsAfter = transcriptEnvelopes(view.envelopes).filter(
         (e) => e.type === 'transcript.ops',
@@ -2838,12 +2367,15 @@ describe('SessionEventBroadcaster', () => {
       const first = collectingTarget();
       await bc.subscribe('s1', first.target, undefined, { '*': 'delta' });
       main.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
+    await settle();
 
       const second = collectingTarget();
       const pending = bc.subscribe('s1', second.target, undefined, { '*': 'delta' });
       main.bus.emit(agentEvent('assistant.delta', { turnId: 1, delta: 'x' }));
+    await settle();
       await pending;
       main.bus.emit(agentEvent('assistant.delta', { turnId: 1, delta: 'y' }));
+    await settle();
 
       const types = transcriptEnvelopes(second.envelopes).map((e) => e.type);
       expect(types[0]).toBe('transcript.reset');
@@ -2884,10 +2416,12 @@ describe('SessionEventBroadcaster', () => {
       expect(transcriptEnvelopes(view.envelopes)).toHaveLength(1);
 
       main.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
+    await settle();
       expect(transcriptEnvelopes(view.envelopes)).toHaveLength(2);
 
       const sub = lc.addAgent('sub-1');
       sub.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
+    await settle();
       const frames = transcriptEnvelopes(view.envelopes);
       expect(frames).toHaveLength(4);
       const subFrames = frames.filter(
@@ -2905,10 +2439,15 @@ describe('SessionEventBroadcaster', () => {
       const full = collectingTarget();
       await bc.subscribe('s1', full.target, undefined, { main: 'delta' });
       main.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
+    await settle();
       main.bus.emit(agentEvent('turn.step.started', { turnId: 1, step: 1 }));
+    await settle();
       main.bus.emit(agentEvent('assistant.delta', { turnId: 1, delta: 'secret body' }));
+    await settle();
       main.bus.emit(agentEvent('turn.step.completed', { turnId: 1, step: 1 }));
+    await settle();
       main.bus.emit(agentEvent('turn.ended', { turnId: 1, reason: 'completed' }));
+    await settle();
 
       const late = collectingTarget();
       await bc.subscribe('s1', late.target, undefined, { main: 'turn' });
@@ -2948,11 +2487,13 @@ describe('SessionEventBroadcaster', () => {
 
       expect(transcriptEnvelopes(view.envelopes)).toHaveLength(1);
       main.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
+    await settle();
       expect(transcriptEnvelopes(view.envelopes).at(-1)!.type).toBe('transcript.ops');
 
       const late = lc.addAgent('agent-0');
       expect(transcriptEnvelopes(view.envelopes)).toHaveLength(2);
       late.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
+    await settle();
       expect(transcriptEnvelopes(view.envelopes)).toHaveLength(2);
     });
 
@@ -2970,14 +2511,15 @@ describe('SessionEventBroadcaster', () => {
       expect(typeof watermark).toBe('number');
 
       main.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
+    await settle();
       main.bus.emit(agentEvent('turn.ended', { turnId: 1, reason: 'completed' }));
+    await settle();
 
       const ops = transcriptEnvelopes(view.envelopes).filter((e) => e.type === 'transcript.ops');
       expect(ops.length).toBeGreaterThan(0);
       const seqs = ops.map((e) => (e.payload as { seq?: number }).seq);
       expect(seqs.every((seq) => seq !== undefined && seq > watermark!)).toBe(true);
       expect([...seqs].toSorted((a, b) => a! - b!)).toEqual(seqs);
-      expect(ops.every((e) => e.volatile === true && e.seq === reset.seq)).toBe(true);
     });
 
     it('replays journaled batches instead of a reset when transcript_since is covered', async () => {
@@ -2989,10 +2531,13 @@ describe('SessionEventBroadcaster', () => {
       const first = collectingTarget();
       await bc.subscribe('s1', first.target, undefined, { '*': 'delta' });
       main.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
+    await settle();
       const cursor = (transcriptEnvelopes(first.envelopes).at(-1)!.payload as { seq: number }).seq;
 
       main.bus.emit(agentEvent('assistant.delta', { turnId: 1, delta: 'hi' }));
+    await settle();
       main.bus.emit(agentEvent('turn.ended', { turnId: 1, reason: 'completed' }));
+    await settle();
 
       const second = collectingTarget();
       await bc.subscribe(
@@ -3013,6 +2558,7 @@ describe('SessionEventBroadcaster', () => {
       expect([...seqs].toSorted((a, b) => a - b)).toEqual(seqs);
 
       main.bus.emit(agentEvent('assistant.delta', { turnId: 1, delta: 'again' }));
+    await settle();
       expect(transcriptEnvelopes(second.envelopes).at(-1)!.type).toBe('transcript.ops');
     });
 
@@ -3025,6 +2571,7 @@ describe('SessionEventBroadcaster', () => {
       const first = collectingTarget();
       await bc.subscribe('s1', first.target, undefined, { '*': 'delta' });
       main.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
+    await settle();
       const cursor = (transcriptEnvelopes(first.envelopes).at(-1)!.payload as { seq: number }).seq;
 
       const second = collectingTarget();
@@ -3049,6 +2596,7 @@ describe('SessionEventBroadcaster', () => {
       const first = collectingTarget();
       await bc.subscribe('s1', first.target, undefined, { '*': 'delta' });
       main.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
+    await settle();
 
       const second = collectingTarget();
       await bc.subscribe(
@@ -3087,10 +2635,13 @@ describe('SessionEventBroadcaster', () => {
       await bc.subscribe('s1', legacy.target);
 
       main.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
+    await settle();
       main.bus.emit(agentEvent('turn.step.started', { turnId: 1, step: 1 }));
+    await settle();
       main.bus.emit(agentEvent('assistant.delta', { turnId: 1, delta: 'Hi' }));
+    await settle();
       main.bus.emit(agentEvent('tool.result', { turnId: 1, toolCallId: 'tc-1', output: 'ok' }));
-      await bc.getCursor('s1');
+    await settle();
 
       expect(transcriptEnvelopes(graded.envelopes).length).toBeGreaterThan(0);
       const gradedTypes = graded.envelopes.map((e) => e.type);
@@ -3118,9 +2669,8 @@ describe('SessionEventBroadcaster', () => {
       await bc.subscribe('s1', view.target, undefined, { '*': 'delta' });
 
       const late = lc.addAgent('agent-0');
-      await bc.getCursor('s1');
       late.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
-      await bc.getCursor('s1');
+    await settle();
 
       const types = view.envelopes.map((e) => e.type);
       expect(types).toContain('agent.created');
@@ -3139,43 +2689,14 @@ describe('SessionEventBroadcaster', () => {
       await bc.subscribe('s1', view.target, undefined, { main: 'delta' });
 
       main.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
+    await settle();
       sub.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
-      await bc.getCursor('s1');
+    await settle();
 
       const turns = view.envelopes.filter((e) => e.type === 'turn.started');
       expect(turns.map((e) => (e.payload as { agentId: string }).agentId)).toEqual(['agent-0']);
     });
 
-    it('filters the replayed backlog by transcript grades', async () => {
-      const lc = new FakeLifecycle();
-      const main = lc.addAgent('main');
-      sessions.set('s1', lc);
-      bc = makeBroadcasterWithTranscript();
-
-      await bc.subscribe('s1', collectingTarget().target);
-      main.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
-      await bc.getCursor('s1');
-      main.bus.emit(agentEvent('turn.ended', { turnId: 1, reason: 'completed' }));
-      await bc.getCursor('s1');
-
-      const unfiltered = await bc.getBufferedSince('s1', { seq: 1 });
-      expect(unfiltered.events.map((e) => e.envelope.type)).toEqual([
-        'event.session.work_changed',
-        'turn.ended',
-        'event.session.work_changed',
-      ]);
-
-      const filtered = await bc.getBufferedSince('s1', { seq: 1 }, undefined, { '*': 'delta' });
-      expect(filtered.events.map((e) => e.envelope.type)).toEqual([
-        'event.session.work_changed',
-        'event.session.work_changed',
-      ]);
-
-      const offSpec = await bc.getBufferedSince('s1', { seq: 1 }, undefined, { '*': 'off' });
-      expect(offSpec.events.map((e) => e.envelope.type)).toEqual(
-        unfiltered.events.map((e) => e.envelope.type),
-      );
-    });
 
     it('unsubscribeTranscript detaches per agent: ops stop and legacy events resume for that agent only', async () => {
       const lc = new FakeLifecycle();
@@ -3188,8 +2709,9 @@ describe('SessionEventBroadcaster', () => {
       await bc.subscribe('s1', view.target, undefined, { '*': 'delta' });
 
       main.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
+    await settle();
       sub.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
-      await bc.getCursor('s1');
+    await settle();
       expect(view.envelopes.map((e) => e.type)).not.toContain('turn.started');
       const opsBefore = transcriptEnvelopes(view.envelopes).filter(
         (e) => e.type === 'transcript.ops',
@@ -3201,8 +2723,9 @@ describe('SessionEventBroadcaster', () => {
       bc.unsubscribeTranscript('s1', view.target, ['main']);
 
       main.bus.emit(agentEvent('turn.started', { turnId: 2, origin: { kind: 'user' } }));
+    await settle();
       sub.bus.emit(agentEvent('turn.started', { turnId: 2, origin: { kind: 'user' } }));
-      await bc.getCursor('s1');
+    await settle();
 
       const turns = view.envelopes.filter((e) => e.type === 'turn.started');
       expect(turns.map((e) => (e.payload as { agentId: string }).agentId)).toEqual(['main']);
@@ -3228,7 +2751,7 @@ describe('SessionEventBroadcaster', () => {
       bc.unsubscribeTranscript('s1', view.target);
 
       main.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
-      await bc.getCursor('s1');
+    await settle();
       expect(transcriptEnvelopes(view.envelopes)).toHaveLength(1);
       expect(view.envelopes.map((e) => e.type)).toContain('turn.started');
 
@@ -3250,25 +2773,6 @@ describe('SessionEventBroadcaster', () => {
       expect(() => bc.unsubscribeTranscript('s1', view.target, ['main'])).not.toThrow();
     });
 
-    it('unsubscribeTranscript cancels a pending deferred baseline', async () => {
-      const lc = new FakeLifecycle();
-      lc.addAgent('main');
-      sessions.set('s1', lc);
-      bc = makeBroadcasterWithTranscript();
-
-      const view = collectingTarget();
-      await bc.subscribe(
-        's1',
-        view.target,
-        undefined,
-        { '*': 'delta' },
-        { deferTranscriptReset: true },
-      );
-      bc.unsubscribeTranscript('s1', view.target);
-      await bc.flushTranscriptSeed('s1', view.target);
-
-      expect(transcriptEnvelopes(view.envelopes)).toHaveLength(0);
-    });
   });
 });
 
@@ -3278,7 +2782,6 @@ describe('sessionEventMessageSchema', () => {
   function envelope(payload: Record<string, unknown>): Record<string, unknown> {
     return {
       type: payload['type'],
-      seq: 3,
       session_id: '__global__',
       timestamp,
       payload: { agentId: 'main', sessionId: '__global__', ...payload },

@@ -7,24 +7,19 @@ import { ulid } from 'ulid';
 import type { RawData, WebSocket } from 'ws';
 
 import { SYSTEM_CLOCK, type Clock, type TimerHandle } from '../../../lib/clock';
-import {
-  unsubscribeV2PayloadSchema,
-  WS_PROTOCOL_VERSION,
-  type SessionCursor,
-} from '../../../protocol/ws-control';
+import { unsubscribeV2PayloadSchema, WS_PROTOCOL_VERSION } from '../../../protocol/ws-control';
 import type { CredentialValidator } from '../../../services/auth/credentials';
 import type { IConnectionRegistry } from '../connectionRegistry';
-import { buildAck, buildPing, buildResponse, buildResyncRequired, buildServerHello } from './protocol';
+import { buildAck, buildPing, buildResponse, buildServerHello } from './protocol';
 import {
   type AgentFilter,
   type BroadcastDelivery,
   type BroadcastFrame,
+  type BroadcastLogger,
   type BroadcastTarget,
-  type ResyncReason,
   type SessionEventBroadcaster,
   type TargetSubscription,
 } from './sessionEventBroadcaster';
-import { type JournalLogger } from './sessionEventJournal';
 import { TaskRequests, type TaskSource } from './taskRequests';
 
 const TASK_REQUEST_TYPES: ReadonlySet<string> = new Set([
@@ -33,8 +28,6 @@ const TASK_REQUEST_TYPES: ReadonlySet<string> = new Set([
   'task.stop',
   'task.background',
 ]);
-
-const DEFAULT_MAX_BUFFER_SIZE = 1000;
 
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 10_000;
 const HEARTBEAT_MISS_LIMIT = 2;
@@ -62,8 +55,7 @@ export interface WsConnectionV1Options {
   readonly validateCredential?: CredentialValidator;
   readonly remoteAddress: string | null;
   readonly userAgent: string | null;
-  readonly logger?: JournalLogger;
-  readonly maxBufferSize?: number;
+  readonly logger?: BroadcastLogger;
   readonly flushIntervalMs?: number;
   readonly maxBatchSize?: number;
   readonly highWaterMarkBytes?: number;
@@ -80,13 +72,12 @@ export class WsConnectionV1 implements BroadcastTarget {
   private readonly socket: WebSocket;
   private readonly broadcaster: SessionEventBroadcaster;
   private readonly validateCredential?: CredentialValidator;
-  private readonly maxBufferSize: number;
   private readonly flushIntervalMs: number;
   private readonly maxBatchSize: number;
   private readonly highWaterMarkBytes: number;
   private readonly heartbeatIntervalMs: number;
   private readonly taskRequests: TaskRequests;
-  private readonly logger?: JournalLogger;
+  private readonly logger?: BroadcastLogger;
   private readonly clock: Clock;
 
   private closed = false;
@@ -113,7 +104,6 @@ export class WsConnectionV1 implements BroadcastTarget {
     this.broadcaster = opts.broadcaster;
     this.validateCredential = opts.validateCredential;
     this.logger = opts.logger;
-    this.maxBufferSize = opts.maxBufferSize ?? DEFAULT_MAX_BUFFER_SIZE;
     this.flushIntervalMs = opts.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS;
     this.maxBatchSize = opts.maxBatchSize ?? DEFAULT_MAX_BATCH_SIZE;
     this.highWaterMarkBytes = opts.highWaterMarkBytes ?? DEFAULT_HIGH_WATER_MARK_BYTES;
@@ -138,7 +128,6 @@ export class WsConnectionV1 implements BroadcastTarget {
         ws_connection_id: this.id,
         protocol_version: WS_PROTOCOL_VERSION,
         heartbeat_ms: this.heartbeatIntervalMs,
-        max_event_buffer_size: this.maxBufferSize,
         capabilities: { event_batching: false, compression: false },
       }),
     );
@@ -188,17 +177,11 @@ export class WsConnectionV1 implements BroadcastTarget {
       case 'client_hello':
         this.enqueueControl(frame.id, () => this.onClientHello(frame));
         return;
-      case 'subscribe':
-        this.enqueueControl(frame.id, () => this.onSubscribe(frame));
-        return;
       case 'subscribe_v2':
         this.enqueueControl(frame.id, () => this.onSubscribeV2(frame));
         return;
       case 'unsubscribe_v2':
         this.enqueueControl(frame.id, () => this.onUnsubscribeV2(frame));
-        return;
-      case 'unsubscribe':
-        this.enqueueControl(frame.id, () => this.onUnsubscribe(frame));
         return;
       default:
         return;
@@ -225,68 +208,7 @@ export class WsConnectionV1 implements BroadcastTarget {
   private async onClientHello(frame: InboundFrame): Promise<void> {
     if (!(await this.authorize(frame))) return;
     this.gotClientHello = true;
-
-    const payload = frame.payload ?? {};
-    const subscriptions = asStringArray(payload['subscriptions']);
-    const cursors = payload['cursors'] as Record<string, SessionCursor> | undefined;
-    const agentFilter = parseAgentFilter(payload['agent_filter']);
-
-    const accepted: string[] = [];
-    const resyncRequired: string[] = [];
-    const serverCursors: Record<string, { seq: number; epoch?: string }> = {};
-
-    for (const sid of subscriptions) {
-      await this.attachSession(
-        sid,
-        cursors?.[sid],
-        agentFilter?.[sid],
-        this.subscriptions.get(sid)?.transcriptGrades,
-        undefined,
-        { accepted, resyncRequired, serverCursors },
-      );
-    }
-
-    this.sendImmediateFrame(
-      buildAck(frame.id ?? '', 0, 'success', {
-        accepted_subscriptions: accepted,
-        resync_required: resyncRequired,
-        cursors: serverCursors,
-      }),
-    );
-    this.sendPendingInteractions(accepted);
-  }
-
-  private async onSubscribe(frame: InboundFrame): Promise<void> {
-    const payload = frame.payload ?? {};
-    const sessionIds = asStringArray(payload['session_ids']);
-    const cursors = payload['cursors'] as Record<string, SessionCursor> | undefined;
-    const agentFilter = parseAgentFilter(payload['agent_filter']);
-
-    const accepted: string[] = [];
-    const notFound: string[] = [];
-    const resyncRequired: string[] = [];
-    const serverCursors: Record<string, { seq: number; epoch?: string }> = {};
-
-    for (const sid of sessionIds) {
-      await this.attachSession(
-        sid,
-        cursors?.[sid],
-        agentFilter?.[sid],
-        this.subscriptions.get(sid)?.transcriptGrades,
-        undefined,
-        { accepted, resyncRequired, serverCursors, notFound },
-      );
-    }
-
-    this.sendImmediateFrame(
-      buildAck(frame.id ?? '', 0, 'success', {
-        accepted,
-        not_found: notFound,
-        resync_required: resyncRequired,
-        cursors: serverCursors,
-      }),
-    );
-    this.sendPendingInteractions(accepted);
+    this.sendImmediateFrame(buildAck(frame.id ?? '', 0, 'success', {}));
   }
 
   private async onSubscribeV2(frame: InboundFrame): Promise<void> {
@@ -299,24 +221,16 @@ export class WsConnectionV1 implements BroadcastTarget {
 
     const accepted: string[] = [];
     const notFound: string[] = [];
-    const resyncRequired: string[] = [];
-    const serverCursors: Record<string, { seq: number; epoch?: string }> = {};
 
-    await this.attachSession(
-      sid,
-      undefined,
-      this.subscriptions.get(sid)?.agentFilter,
-      parsed.data.transcript,
-      parsed.data.transcript_since,
-      { accepted, resyncRequired, serverCursors, notFound },
-    );
+    await this.attachSession(sid, this.subscriptions.get(sid)?.agentFilter, parsed.data.transcript, parsed.data.transcript_since, {
+      accepted,
+      notFound,
+    });
 
     this.sendImmediateFrame(
       buildAck(frame.id ?? '', 0, 'success', {
         accepted,
         not_found: notFound,
-        resync_required: resyncRequired,
-        cursors: serverCursors,
       }),
     );
     this.sendPendingInteractions(accepted);
@@ -345,23 +259,6 @@ export class WsConnectionV1 implements BroadcastTarget {
       buildAck(frame.id ?? '', 0, 'success', {
         accepted: [sid],
         not_found: [],
-        resync_required: [],
-      }),
-    );
-  }
-
-  private async onUnsubscribe(frame: InboundFrame): Promise<void> {
-    const payload = frame.payload ?? {};
-    const sessionIds = asStringArray(payload['session_ids']);
-    for (const sid of sessionIds) {
-      this.broadcaster.unsubscribe(sid, this);
-      this.subscriptions.delete(sid);
-    }
-    this.sendImmediateFrame(
-      buildAck(frame.id ?? '', 0, 'success', {
-        accepted: [],
-        not_found: [],
-        resync_required: [],
       }),
     );
   }
@@ -372,63 +269,25 @@ export class WsConnectionV1 implements BroadcastTarget {
 
   private async attachSession(
     sid: string,
-    cursor: SessionCursor | undefined,
     filter: AgentFilter | undefined,
     transcriptGrades: TranscriptGradeSpec | undefined,
     transcriptSince: Record<string, number> | undefined,
     collectors: {
       accepted: string[];
-      resyncRequired: string[];
-      serverCursors: Record<string, { seq: number; epoch?: string }>;
       notFound?: string[];
     },
   ): Promise<void> {
-    const { accepted, resyncRequired, serverCursors, notFound } = collectors;
+    const { accepted, notFound } = collectors;
     const ok = await this.broadcaster.subscribe(sid, this, filter, transcriptGrades, {
-      deferTranscriptReset: cursor !== undefined,
       transcriptSince,
     });
     if (!ok) {
-      if (notFound !== undefined) notFound.push(sid);
-      else resyncRequired.push(sid);
-      const cur = await this.broadcaster.getCursor(sid);
-      this.sendImmediateFrame(buildResyncRequired(sid, 'session_recreated', cur.seq, cur.epoch));
+      notFound?.push(sid);
       return;
     }
     this.subscriptions.set(sid, { agentFilter: filter, transcriptGrades });
     accepted.push(sid);
-    if (cursor !== undefined) {
-      await this.replay(sid, cursor, filter, transcriptGrades, resyncRequired, serverCursors);
-      await this.broadcaster.flushTranscriptSeed(sid, this);
-    } else {
-      const cur = await this.broadcaster.getCursor(sid);
-      serverCursors[sid] = cur;
-    }
-  }
-
-  private async replay(
-    sid: string,
-    cursor: SessionCursor,
-    filter: AgentFilter | undefined,
-    transcriptGrades: TranscriptGradeSpec | undefined,
-    resyncRequired: string[],
-    serverCursors: Record<string, { seq: number; epoch?: string }>,
-  ): Promise<void> {
-    const result = await this.broadcaster.getBufferedSince(sid, cursor, filter, transcriptGrades);
-    if (result.resyncRequired !== false) {
-      this.sendImmediateFrame(
-        buildResyncRequired(
-          sid,
-          result.resyncRequired as ResyncReason,
-          result.currentSeq,
-          result.epoch,
-        ),
-      );
-      resyncRequired.push(sid);
-    } else {
-      for (const { envelope } of result.events) this.sendSubscribedFrame(envelope);
-    }
-    serverCursors[sid] = { seq: result.currentSeq, epoch: result.epoch };
+    await this.broadcaster.flushTranscriptSeed(sid, this);
   }
 
   private async authorize(frame: InboundFrame): Promise<boolean> {
@@ -537,23 +396,6 @@ export class WsConnectionV1 implements BroadcastTarget {
     this.broadcaster.removeGlobalTarget(this);
     for (const sid of this.subscriptions.keys()) this.broadcaster.unsubscribe(sid, this);
   }
-}
-
-function asStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((v): v is string => typeof v === 'string');
-}
-
-function parseAgentFilter(value: unknown): Record<string, AgentFilter> | undefined {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
-  const out: Record<string, AgentFilter> = {};
-  for (const [sid, ids] of Object.entries(value)) {
-    if (!Array.isArray(ids)) continue;
-    const set = new Set(ids.filter((v): v is string => typeof v === 'string'));
-    if (set.size === 0) continue;
-    out[sid] = set;
-  }
-  return out;
 }
 
 function rawDataToString(data: RawData): string {

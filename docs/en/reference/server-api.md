@@ -671,7 +671,6 @@ These endpoints create, list, and inspect sessions, drive session-level actions 
 | `GET /api/v1/sessions/{session_id}/runtime` | Read the main agent's runtime binding |
 | `POST /api/v1/sessions/{session_id}/runtime` | Switch the main agent's runtime binding |
 | `POST /api/v1/sessions/{session_id}/export` | Export the session with diagnostics (zip stream, not enveloped) |
-| `GET /api/v1/sessions/{session_id}/snapshot` | Full snapshot for client rebuilds (with `as_of_seq` and `epoch`) |
 | `GET /api/v1/sessions/{session_id}/media/{file_id}` | Download prompt media by file id (binary) |
 
 #### The session object
@@ -692,11 +691,10 @@ Every endpoint that returns a session uses this wire shape. The live facts (`bus
 | `last_turn_reason` | string | Main agent's latest turn outcome: `completed` / `cancelled` / `failed` |
 | `last_prompt` | string | Most recent user prompt text, when present |
 | `metadata` | object | Custom metadata; always carries `cwd` (the session's working directory) |
-| `agent_config` | object | Projected as `{ model }`; `model` is `""` in most responses and only filled with the live model by `GET /api/v1/sessions/{session_id}/snapshot` |
-| `usage` | object | Token rollup `{ input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, context_tokens, context_limit?, total_cost_usd?, turn_count? }`; all zeros outside the snapshot endpoint |
+| `agent_config` | object | Projected as `{ model }`; `model` is `""` in most responses and only filled with the live model by the snapshot endpoints |
+| `usage` | object | Token rollup `{ input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, context_tokens, context_limit?, total_cost_usd?, turn_count? }`; all zeros outside the snapshot endpoints |
 | `permission_rules` | array | Session permission rules; currently always `[]` |
 | `message_count` | integer | Message count; currently always `0` |
-| `last_seq` | integer | Last event sequence number; currently always `0` |
 
 #### `POST /api/v1/sessions`
 
@@ -995,18 +993,6 @@ Exports the session together with diagnostic logs as a zip attachment (`kimi-ses
 | `session_id` | path | string | **Required.** Session id |
 | `web_log` | body | string | Client log text to include in the archive, at most 256 KB UTF-8 |
 | `desktop` | body | boolean | Also include the desktop host's log. Default `false` |
-
-#### `GET /api/v1/sessions/{session_id}/snapshot`
-
-Assembles an atomic snapshot for rebuilding a client after a resync: the session, recent messages, the in-flight turn, live subagents, and pending interactions, all stamped with the `as_of_seq` watermark and `epoch` used to resubscribe — see [Reconnect and recovery](#reconnect-and-recovery). Unlike the plain session endpoints, the embedded session carries the live `agent_config.model` and real `usage` totals.
-
-| Parameter | In | Type | Description |
-| --- | --- | --- | --- |
-| `session_id` | path | string | **Required.** Session id |
-
-On success, `data` is `{ as_of_seq, epoch, session, messages, in_flight_turn, subagents?, pending_approvals, pending_questions }`: `session` is [the session object](#the-session-object), `messages` is the newest 100 messages as `{ items, has_more }`, `in_flight_turn` is the partially streamed turn (`null` when idle, with `current_prompt_id` when known), `subagents` lists live subagent tasks, and `pending_approvals` / `pending_questions` carry the unanswered interactions.
-
-- `40401`: session not found
 
 #### `GET /api/v1/sessions/{session_id}/media/{file_id}`
 
@@ -2398,7 +2384,7 @@ Approvals and questions from every agent in the session, sub-agents included, ar
 
 ### Reconnect and recovery
 
-After reconnecting, pass each session's last applied `{seq, epoch}` in `subscribe`'s `cursors`; the server replays the gap. If you fall more than the buffer (1000 events) behind, or the cursor is no longer valid, you get `resync_required` instead. In that case, call `GET /api/v1/sessions/{session_id}/snapshot` for a full snapshot (with `as_of_seq` and `epoch`), then subscribe again with the fresh cursor.
+After reconnecting, resubscribe with `subscribe_v2`; the server answers with a fresh `transcript.reset` for each agent you ask for, so local state is rebuilt from that baseline instead of replayed from a cursor. Global push events resume as soon as the socket is open.
 
 ### Transcript protocol
 

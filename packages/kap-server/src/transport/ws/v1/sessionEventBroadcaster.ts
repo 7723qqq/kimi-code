@@ -1,5 +1,3 @@
-import { rm } from 'node:fs/promises';
-
 import { isInstantiationServiceDisposedError } from '@moonshot-ai/agent-core-v2';
 import type {
   ApprovalRequest,
@@ -22,7 +20,6 @@ import {
   INTERACTION_TAG_SESSION_ID,
   INTERACTION_TAG_TOOL_CALL_ID,
   ISessionActivityView,
-  ISessionIndex,
   ISessionManager,
   followSessionLifecycles,
   getLiveSessionById,
@@ -52,8 +49,6 @@ import {
 import { toWireQuestion } from '../../../protocol/question-wire';
 import type { AgentFeedMessage } from '../../../protocol/ws-agent';
 import type { TaskEventMessage, TaskListMessage } from '../../../protocol/ws-task';
-import type { InFlightTurn, SnapshotSubagent } from '../../../protocol/rest-snapshot';
-import type { SessionCursor } from '../../../protocol/ws-control';
 import type { InteractionEventMessage, InteractionOutcome } from '../../../protocol/interaction';
 import {
   approvalExpiresAt,
@@ -75,32 +70,21 @@ import type {
   Event,
 } from './events';
 import { isVolatileEventType } from './events';
-import { InFlightTurnTracker } from './inFlightTurnTracker';
-import {
-  type EventEnvelope,
-  type JournalLogger,
-  SessionEventJournal,
-  sessionJournalPath,
-} from './sessionEventJournal';
 import { SessionAgentFeed } from './sessionAgentFeed';
 import { SessionTaskFeed } from './sessionTaskFeed';
-import { SubagentRosterTracker } from './subagentRosterTracker';
 import { toTaskMessage } from './taskState';
 
-export type ResyncReason = 'buffer_overflow' | 'session_recreated' | 'epoch_changed';
-
-export interface BufferedSinceResult {
-  events: Array<{ seq: number; envelope: EventEnvelope }>;
-  resyncRequired: ResyncReason | false;
-  currentSeq: number;
-  epoch: string;
+export interface BroadcastLogger {
+  warn(obj: unknown, msg: string): void;
+  error?(obj: unknown, msg: string): void;
 }
 
-export interface SessionSnapshotState {
-  seq: number;
-  epoch: string;
-  inFlightTurn: InFlightTurn | null;
-  subagents: SnapshotSubagent[];
+export interface EventEnvelope {
+  readonly type: string;
+  readonly volatile?: boolean;
+  readonly session_id?: string;
+  readonly timestamp: string;
+  readonly payload: unknown;
 }
 
 export type BroadcastDelivery = 'subscription' | 'immediate';
@@ -130,12 +114,8 @@ interface TranscriptStream {
 
 interface SessionState {
   readonly sessionId: string;
-  readonly journal: SessionEventJournal;
-  readonly tracker: InFlightTurnTracker;
-  readonly roster: SubagentRosterTracker;
   deferredWork?: SessionActivityState;
   detached?: true;
-  readonly tail: Array<{ seq: number; envelope: EventEnvelope }>;
   readonly targets: Map<BroadcastTarget, TargetSubscription>;
   queue: Promise<void>;
   readonly agentDisposables: Map<string, IDisposable>;
@@ -146,20 +126,14 @@ interface SessionState {
   readonly listedAgents: Map<BroadcastTarget, Set<string>>;
   transcriptStream?: TranscriptStream;
   readonly transcriptSeeded: Set<BroadcastTarget>;
-  readonly deferredTranscriptSeeds: Map<
-    BroadcastTarget,
-    { readonly spec: TranscriptGradeSpec; readonly transcriptSince?: Record<string, number> }
-  >;
 }
 
-export const DEFAULT_MAX_BUFFER_SIZE = 1000;
 const GLOBAL_SESSION_ID = '__global__';
 const TRANSCRIPT_RESET_TAIL_TURNS = 0;
 
 async function disposeSessionState(state: SessionState): Promise<void> {
   for (const d of state.lifecycleDisposables) d.dispose();
   for (const d of state.agentDisposables.values()) d.dispose();
-  await state.journal.close();
 }
 
 export class SessionEventBroadcaster {
@@ -168,7 +142,6 @@ export class SessionEventBroadcaster {
   private readonly diEventTargets = new Set<BroadcastTarget>();
   private readonly pendingStates = new Map<string, Promise<SessionState | undefined>>();
   private readonly evictions = new Map<string, Promise<void>>();
-  private readonly maxBufferSize: number;
   private readonly coreEventSubscription: IDisposable;
   private readonly deletionSubscription: IDisposable | undefined;
   private readonly createSubscription: IDisposable | undefined;
@@ -177,14 +150,11 @@ export class SessionEventBroadcaster {
 
   constructor(
     private readonly opts: {
-      readonly eventsDir: string;
       readonly core: Scope;
-      readonly logger?: JournalLogger;
-      readonly maxBufferSize?: number;
+      readonly logger?: BroadcastLogger;
       readonly transcriptService?: TranscriptService;
     },
   ) {
-    this.maxBufferSize = opts.maxBufferSize ?? DEFAULT_MAX_BUFFER_SIZE;
     const sessionManager = opts.core.accessor.get(ISessionManager);
     this.deletionSubscription = sessionManager.onWillDeleteSession?.((event) => {
       event.waitUntil(this.purgeSession(event.sessionId));
@@ -234,7 +204,7 @@ export class SessionEventBroadcaster {
     target: BroadcastTarget,
     filter?: AgentFilter,
     transcriptGrades?: TranscriptGradeSpec,
-    opts?: { deferTranscriptReset?: boolean; transcriptSince?: Record<string, number> },
+    opts?: { transcriptSince?: Record<string, number> },
   ): Promise<boolean> {
     let session: ISessionScopeHandle | undefined;
     try {
@@ -262,25 +232,16 @@ export class SessionEventBroadcaster {
     state.targets.set(target, { agentFilter: filter, transcriptGrades });
     this.sendAgentLists(state, target, transcriptGrades);
     if (transcriptGrades !== undefined) {
-      if (opts?.deferTranscriptReset === true) {
-        state.transcriptSeeded.delete(target);
-        state.deferredTranscriptSeeds.set(target, {
-          spec: transcriptGrades,
-          transcriptSince: opts.transcriptSince,
-        });
-      } else {
-        state.deferredTranscriptSeeds.delete(target);
-        const gated = this.willSendTranscriptReset(state, transcriptGrades, prev);
-        if (gated) state.transcriptSeeded.delete(target);
-        await this.subscribeTranscript(
-          state,
-          target,
-          transcriptGrades,
-          prev?.transcriptGrades,
-          opts?.transcriptSince,
-        );
-        if (state.targets.has(target)) state.transcriptSeeded.add(target);
-      }
+      const gated = this.willSendTranscriptReset(state, transcriptGrades, prev);
+      if (gated) state.transcriptSeeded.delete(target);
+      await this.subscribeTranscript(
+        state,
+        target,
+        transcriptGrades,
+        prev?.transcriptGrades,
+        opts?.transcriptSince,
+      );
+      if (state.targets.has(target)) state.transcriptSeeded.add(target);
     }
     return true;
   }
@@ -304,28 +265,13 @@ export class SessionEventBroadcaster {
     return false;
   }
 
-  async flushTranscriptSeed(sessionId: string, target: BroadcastTarget): Promise<void> {
-    const state = this.sessions.get(sessionId);
-    if (state === undefined) return;
-    const deferred = state.deferredTranscriptSeeds.get(target);
-    if (deferred === undefined) return;
-    state.deferredTranscriptSeeds.delete(target);
-    await this.subscribeTranscript(
-      state,
-      target,
-      deferred.spec,
-      undefined,
-      deferred.transcriptSince,
-    );
-    if (state.targets.has(target)) state.transcriptSeeded.add(target);
-  }
+  async flushTranscriptSeed(_sessionId: string, _target: BroadcastTarget): Promise<void> {}
 
   unsubscribe(sessionId: string, target: BroadcastTarget): void {
     const state = this.sessions.get(sessionId);
     if (state === undefined) return;
     state.targets.delete(target);
     state.transcriptSeeded.delete(target);
-    state.deferredTranscriptSeeds.delete(target);
     state.listedAgents.delete(target);
     this.evictDetachedSession(sessionId);
   }
@@ -343,7 +289,6 @@ export class SessionEventBroadcaster {
     if (next === undefined) {
       state.targets.set(target, { agentFilter: sub.agentFilter, transcriptGrades: undefined });
       state.transcriptSeeded.delete(target);
-      state.deferredTranscriptSeeds.delete(target);
     } else {
       state.targets.set(target, { agentFilter: sub.agentFilter, transcriptGrades: next });
       this.sendAgentLists(state, target, next);
@@ -493,8 +438,6 @@ export class SessionEventBroadcaster {
   ): EventEnvelope {
     return {
       type,
-      seq: state.journal.seq,
-      epoch: state.journal.epoch,
       volatile: true,
       session_id: state.sessionId,
       timestamp: new Date().toISOString(),
@@ -502,98 +445,6 @@ export class SessionEventBroadcaster {
     };
   }
 
-  async getBufferedSince(
-    sessionId: string,
-    cursor: SessionCursor,
-    filter?: AgentFilter,
-    transcriptGrades?: TranscriptGradeSpec,
-  ): Promise<BufferedSinceResult> {
-    const state = await this.ensureState(sessionId);
-    if (state === undefined) {
-      return { events: [], resyncRequired: 'session_recreated', currentSeq: 0, epoch: '' };
-    }
-    await state.queue;
-    const { journal, tail } = state;
-    const currentSeq = journal.seq;
-    const { epoch } = journal;
-
-    if (cursor.epoch !== undefined && cursor.epoch !== epoch) {
-      return { events: [], resyncRequired: 'epoch_changed', currentSeq, epoch };
-    }
-    const gapSince = journal.durabilityGapSince();
-    if (gapSince !== undefined && cursor.seq >= gapSince - 1) {
-      return { events: [], resyncRequired: 'buffer_overflow', currentSeq, epoch };
-    }
-    if (cursor.seq > currentSeq) {
-      return { events: [], resyncRequired: 'epoch_changed', currentSeq, epoch };
-    }
-    if (cursor.seq === currentSeq) {
-      return { events: [], resyncRequired: false, currentSeq, epoch };
-    }
-    if (currentSeq - cursor.seq > this.maxBufferSize) {
-      return { events: [], resyncRequired: 'buffer_overflow', currentSeq, epoch };
-    }
-
-    const applyFilter = (
-      entries: Array<{ seq: number; envelope: EventEnvelope }>,
-    ): Array<{ seq: number; envelope: EventEnvelope }> =>
-      filter === undefined && transcriptGrades === undefined
-        ? entries
-        : entries.filter(
-            ({ envelope }) =>
-              matchesAgentFilter(envelope, filter) &&
-              !suppressedByTranscript(envelope, transcriptGrades),
-          );
-
-    const tailStart = tail[0]?.seq;
-    if (tailStart !== undefined && tailStart <= cursor.seq + 1) {
-      const events = applyFilter(tail.filter((e) => e.seq > cursor.seq));
-      return { events, resyncRequired: false, currentSeq, epoch };
-    }
-    const fromDisk = await journal.readSince(cursor.seq, this.maxBufferSize);
-    return { events: applyFilter(fromDisk), resyncRequired: false, currentSeq, epoch };
-  }
-
-  async getCursor(sessionId: string): Promise<{ seq: number; epoch: string }> {
-    const state = await this.ensureState(sessionId);
-    if (state === undefined) {
-      const cold = await this.readColdWatermark(sessionId);
-      return cold ?? { seq: 0, epoch: '' };
-    }
-    await state.queue;
-    return { seq: state.journal.seq, epoch: state.journal.epoch };
-  }
-
-  async getSnapshotState(sessionId: string): Promise<SessionSnapshotState> {
-    const state = await this.ensureState(sessionId);
-    if (state === undefined) {
-      const cold = await this.readColdWatermark(sessionId);
-      return cold !== undefined
-        ? { ...cold, inFlightTurn: null, subagents: [] }
-        : { seq: 0, epoch: '', inFlightTurn: null, subagents: [] };
-    }
-    await state.queue;
-    return {
-      seq: state.journal.seq,
-      epoch: state.journal.epoch,
-      inFlightTurn: state.tracker.get(sessionId),
-      subagents: state.roster.get(sessionId),
-    };
-  }
-
-  private async readColdWatermark(
-    sessionId: string,
-  ): Promise<{ seq: number; epoch: string } | undefined> {
-    const summary = await this.opts.core.accessor.get(ISessionIndex).get(sessionId);
-    if (summary === undefined) return undefined;
-    const journal = await SessionEventJournal.open(
-      sessionJournalPath(this.opts.eventsDir, sessionId),
-      this.opts.logger,
-    );
-    const watermark = { seq: journal.seq, epoch: journal.epoch };
-    await journal.close();
-    return watermark;
-  }
 
   async close(): Promise<void> {
     if (this.closed) return;
@@ -620,7 +471,6 @@ export class SessionEventBroadcaster {
   private async purgeSession(sessionId: string): Promise<void> {
     this.evictSession(sessionId);
     await this.evictions.get(sessionId);
-    await rm(sessionJournalPath(this.opts.eventsDir, sessionId), { force: true });
   }
 
   private evictSession(sessionId: string): void {
@@ -673,11 +523,8 @@ export class SessionEventBroadcaster {
     for (const disposable of state.agentDisposables.values()) disposable.dispose();
     state.agentDisposables.clear();
     state.knownInteractions.clear();
-    state.tracker.clear(sessionId);
-    state.roster.clear(sessionId);
     state.deferredWork = undefined;
     state.transcriptSeeded.clear();
-    state.deferredTranscriptSeeds.clear();
     state.transcriptStream = undefined;
     this.opts.transcriptService?.dropSession(sessionId);
     this.evictDetachedSession(sessionId);
@@ -738,27 +585,14 @@ export class SessionEventBroadcaster {
     const session = getLiveSessionById(this.opts.core.accessor, sessionId);
     if (session === undefined) return undefined;
 
-    const journal = await SessionEventJournal.open(
-      sessionJournalPath(this.opts.eventsDir, sessionId),
-      this.opts.logger,
-    );
-    if (this.closed || getLiveSessionById(this.opts.core.accessor, sessionId) !== session) {
-      await journal.close();
-      return undefined;
-    }
     const state: SessionState = {
       sessionId,
-      journal,
-      tracker: new InFlightTurnTracker(),
-      roster: new SubagentRosterTracker(),
-      tail: [],
       targets: new Map(),
       queue: Promise.resolve(),
       agentDisposables: new Map(),
       lifecycleDisposables: [],
       knownInteractions: new Map(),
       transcriptSeeded: new Set(),
-      deferredTranscriptSeeds: new Map(),
       listedAgents: new Map(),
     };
     this.sessions.set(sessionId, state);
@@ -793,27 +627,15 @@ export class SessionEventBroadcaster {
   }
 
   private async createGlobalState(): Promise<SessionState | undefined> {
-    const journal = await SessionEventJournal.open(
-      sessionJournalPath(this.opts.eventsDir, GLOBAL_SESSION_ID),
-      this.opts.logger,
-    );
-    if (this.closed) {
-      await journal.close();
-      return undefined;
-    }
+    if (this.closed) return undefined;
     const state: SessionState = {
       sessionId: GLOBAL_SESSION_ID,
-      journal,
-      tracker: new InFlightTurnTracker(),
-      roster: new SubagentRosterTracker(),
-      tail: [],
       targets: new Map(),
       queue: Promise.resolve(),
       agentDisposables: new Map(),
       lifecycleDisposables: [],
       knownInteractions: new Map(),
       transcriptSeeded: new Set(),
-      deferredTranscriptSeeds: new Map(),
       listedAgents: new Map(),
     };
     this.sessions.set(GLOBAL_SESSION_ID, state);
@@ -1296,24 +1118,9 @@ export class SessionEventBroadcaster {
   }
 
   private async dispatch(state: SessionState, event: Event, volatile: boolean): Promise<void> {
-    const { journal, tracker, roster, tail, targets, sessionId } = state;
-    const annotation = tracker.apply(sessionId, event);
-    roster.apply(sessionId, event);
+    const { targets, sessionId } = state;
 
-    let envelope: EventEnvelope;
-    if (volatile) {
-      envelope = this.buildEnvelope(journal.seq, sessionId, event, {
-        epoch: journal.epoch,
-        volatile: true,
-        ...(annotation.offset !== undefined ? { offset: annotation.offset } : {}),
-      });
-    } else {
-      const seq = journal.nextSeq();
-      envelope = this.buildEnvelope(seq, sessionId, event, { epoch: journal.epoch });
-      journal.append(seq, envelope);
-      tail.push({ seq, envelope });
-      while (tail.length > this.maxBufferSize) tail.shift();
-    }
+    const envelope = this.buildEnvelope(sessionId, event, volatile ? { volatile: true } : {});
 
     if (isGlobalEvent(event.type)) {
       const recipients = new Set<BroadcastTarget>(this.globalTargets);
@@ -1337,14 +1144,12 @@ export class SessionEventBroadcaster {
   }
 
   private buildEnvelope(
-    seq: number,
     sessionId: string,
     event: Event,
-    extras: { epoch?: string; volatile?: boolean; offset?: number },
+    extras: { volatile?: boolean },
   ): EventEnvelope {
     return {
       type: event.type,
-      seq,
       session_id: sessionId,
       timestamp:
         event.time !== undefined ? new Date(event.time).toISOString() : new Date().toISOString(),

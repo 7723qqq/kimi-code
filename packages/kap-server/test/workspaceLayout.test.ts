@@ -106,12 +106,13 @@ describe('local/local on-disk layout (byte compatibility)', () => {
       join(sessionDir, 'agents', 'main').replaceAll('\\', '/'),
     );
 
-    const snapshot = await fetch(`${base}/api/v1/sessions/${sessionId}/snapshot`, {
-      headers: authHeaders(server!),
-    });
-    const snapshotBody = (await snapshot.json()) as Envelope<{ session: { id: string } }>;
-    expect(snapshotBody.code).toBe(0);
-    expect(snapshotBody.data.session.id).toBe(sessionId);
+    const transcript = await fetch(
+      `${base}/api/v1/sessions/${sessionId}/transcript?agent_id=main`,
+      { headers: authHeaders(server!) },
+    );
+    const transcriptBody = (await transcript.json()) as Envelope<{ agents: unknown[] }>;
+    expect(transcriptBody.code).toBe(0);
+    expect(transcriptBody.data.agents.length).toBeGreaterThan(0);
 
     const second = await postJson<{ id: string; workspace_id: string }>('/api/v1/sessions', {
       metadata: { cwd: workDir },

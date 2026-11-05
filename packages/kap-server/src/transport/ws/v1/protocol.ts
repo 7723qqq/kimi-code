@@ -4,7 +4,6 @@ export interface ServerHelloPayload {
   ws_connection_id: string;
   protocol_version: number;
   heartbeat_ms: number;
-  max_event_buffer_size: number;
   capabilities: {
     event_batching: boolean;
     compression: boolean;
@@ -41,37 +40,6 @@ export interface AckFrame<P = unknown> {
 
 export function buildAck<P>(id: string, code: number, msg: string, payload: P): AckFrame<P> {
   return { type: 'ack', id, code, msg, payload };
-}
-
-export type ResyncReason = 'buffer_overflow' | 'session_recreated' | 'epoch_changed';
-
-export interface ResyncRequiredFrame {
-  type: 'resync_required';
-  timestamp: string;
-  payload: {
-    session_id: string;
-    reason: ResyncReason;
-    current_seq: number;
-    epoch?: string;
-  };
-}
-
-export function buildResyncRequired(
-  sessionId: string,
-  reason: ResyncReason,
-  currentSeq: number,
-  epoch?: string,
-): ResyncRequiredFrame {
-  return {
-    type: 'resync_required',
-    timestamp: new Date().toISOString(),
-    payload: {
-      session_id: sessionId,
-      reason,
-      current_seq: currentSeq,
-      ...(epoch !== undefined ? { epoch } : {}),
-    },
-  };
 }
 
 export function buildResponse(
