@@ -1,37 +1,29 @@
-import { IAgentEnvironmentService, inspectAgentRuntime } from '#/agent/environmentBinding/agentEnvironment';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import { withFileMemory } from '#/agent/tools/fileMemory';
+import {
+  resolvePathAccessPath,
+  type WorkspaceConfig,
+} from '#/tool/path-access';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import { literalRulePattern, matchesPathRuleSubject } from '#/tool/rule-match';
 import { IFileEditService } from '#/app/edit/fileEdit';
-import { IGitMemoryService } from '#/features/gitMemory/gitMemoryService';
-import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { EnvironmentWorkspaceView } from '#/environment/environmentWorkspaceView';
 import { IAgentPlanService } from '#/features/plan/plan';
+import { acquireOrWhenReady, IAgentEnvironmentService, pinnedGeneration } from '#/agent/environmentBinding/agentEnvironment';
+import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import {
-  PathSecurityError,
-  resolvePathAccessPath,
-  type PathClass,
-  type WorkspaceConfig,
-} from '#/tool/path-access';
-import { assertRealPathWriteTarget } from '#/tool/realpath-access';
-import { literalRulePattern, matchesPathRuleSubject } from '#/tool/rule-match';
 import {
   ToolAccesses,
-  ToolSideEffects,
   type ExecutableToolResult,
   type ToolExecution,
 } from '#/tool/toolContract';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 
 import { EditInputSchema, IEditTool, type EditInput } from './edit';
 import editDescriptionTemplate from './edit.md?raw';
-import { pinnedGeneration } from '#/agent/environmentBinding/agentEnvironment';
 
 export class EditTool implements IEditTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'Edit' as const;
-  readonly sideEffect = ToolSideEffects.write;
   readonly description = editDescriptionTemplate;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(EditInputSchema);
 
@@ -122,15 +114,7 @@ export class EditTool implements IEditTool {
     args: EditInput,
     safePath: string,
     fs: IHostFileSystem,
-    workspace: WorkspaceConfig,
-    pathClass: PathClass,
   ): Promise<ExecutableToolResult> {
-    try {
-      await assertRealPathWriteTarget(fs, safePath, workspace, pathClass);
-    } catch (error) {
-      if (error instanceof PathSecurityError) return { isError: true, output: error.message };
-      throw error;
-    }
     if (args.old_string === args.new_string) {
       return {
         isError: true,
@@ -138,25 +122,18 @@ export class EditTool implements IEditTool {
       };
     }
 
-    const result = await this.editor.edit(
-      {
-        path: safePath,
-        displayPath: args.path,
-        old_string: args.old_string,
-        new_string: args.new_string,
-        replace_all: args.replace_all ?? false,
-      },
-      fs,
-    );
+    const result = await this.editor.edit({
+      path: safePath,
+      displayPath: args.path,
+      old_string: args.old_string,
+      new_string: args.new_string,
+      replace_all: args.replace_all ?? false,
+    }, fs);
     if (!result.ok) {
       return { isError: true, output: result.error };
     }
     const word = result.count === 1 ? 'occurrence' : 'occurrences';
-    return withFileMemory(
-      { output: `Replaced ${String(result.count)} ${word} in ${args.path}` },
-      args.path,
-      this.gitMemory,
-    );
+    return { output: `Replaced ${String(result.count)} ${word} in ${args.path}` };
   }
 }
 

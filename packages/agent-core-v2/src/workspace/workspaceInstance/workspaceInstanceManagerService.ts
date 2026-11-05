@@ -2,44 +2,44 @@ import { IInstantiationService, ref, type LiveRef } from '#/_base/di/instantiati
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Emitter } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
-import { canonicalWorkspaceRoot } from '#/_base/utils/paths';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
-import { IAgentProfileRegistry } from '#/app/agentProfileCatalog/agentProfileRegistry';
 import { IBuiltinAgentProfileLoader } from '#/app/agentProfileCatalog/builtinAgentProfileLoader';
+import { IAgentProfileRegistry } from '#/app/agentProfileCatalog/agentProfileRegistry';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { IEventService } from '#/app/event/event';
 import { IFlagService } from '#/app/flag/flag';
 import { IGitService } from '#/app/git/git';
-import { IMcpConfigStore } from '#/app/mcpConfig/configStore';
 import { IMcpOAuthService } from '#/app/mcpConfig/oauthService';
+import type { McpOAuthService } from '#/mcpCore/oauth/service';
+import { IMcpConfigStore } from '#/app/mcpConfig/configStore';
 import { IPluginService } from '#/app/plugin/plugin';
-import { LifecycleScope } from '#/app/scopes';
 import { ISessionIndex, ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
-import { IAppStateService } from '#/app/state/appState';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IWorkspaceService, type Workspace } from '#/app/workspace/workspace';
-import { Error2, ErrorCodes } from '#/errors';
 import { IBuiltinSkillSource } from '#/features/skill/catalog/builtinSkillSource';
 import { IUserFileSkillSource } from '#/features/skill/catalog/userFileSkillSource';
+import { IAppStateService } from '#/app/state/appState';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { LifecycleScope } from '#/app/scopes';
+import { IWorkspaceService, type Workspace } from '#/app/workspace/workspace';
+import { IWorkspacePersistence } from '#/app/workspace/workspacePersistence';
 import { IModelService } from '#/llm-adapter/model/model';
 import { IProviderService } from '#/llm-adapter/provider/provider';
-import type { McpOAuthService } from '#/mcpCore/oauth/service';
-import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
-import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { ISessionLockService } from '#/persistence/interface/sessionLock';
+import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { Error2, ErrorCodes } from '#/errors';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IEnvironmentService } from '#/app/environment/environment';
+import { canonicalWorkspaceRoot } from '#/_base/utils/paths';
 import { workspaceRootKey } from '#/_base/utils/workdir-slug';
 import { SessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycleService';
 import { IWorkspaceTrustStore } from '#/workspace/workspaceTrust/workspaceTrustStore';
 
 import { WorkspaceInstance } from './workspaceInstance';
 import { IWorkspaceInstanceManager, type WorkspaceInstanceLease, type WorkspaceInstanceRef } from './workspaceInstanceManager';
-import { type EnvironmentProviderFactory } from '#/environment/environmentProvider';
 
 export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
   declare readonly _serviceBrand: undefined;
@@ -93,20 +93,20 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
 
   findByRoot(root: string): WorkspaceInstance | undefined {
     const normalized = root.replace(/[\\/]$/, '');
-    return [...this.instances.values()].find(
-      (instance) => instance.root.replace(/[\\/]$/, '') === normalized,
-    );
+    return [...this.instances.values()].find((instance) => instance.root.replace(/[\\/]$/, '') === normalized);
   }
 
   findContaining(cwd: string): WorkspaceInstance | undefined {
     const probe = canonicalWorkspaceRoot(cwd);
     let best: { readonly instance: WorkspaceInstance; readonly rootLength: number } | undefined;
     for (const instance of this.instances.values()) {
-      const root = canonicalWorkspaceRoot(instance.root);
-      const prefix = root.endsWith('/') ? root : `${root}/`;
-      if (probe !== root && !probe.startsWith(prefix)) continue;
-      if (best === undefined || root.length > best.rootLength) {
-        best = { instance, rootLength: root.length };
+      for (const dir of [instance.root, ...instance.program.dirs.additionalDirs]) {
+        const root = canonicalWorkspaceRoot(dir);
+        const prefix = root.endsWith('/') ? root : `${root}/`;
+        if (probe !== root && !probe.startsWith(prefix)) continue;
+        if (best === undefined || root.length > best.rootLength) {
+          best = { instance, rootLength: root.length };
+        }
       }
     }
     return best?.instance;
@@ -122,8 +122,9 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
 
   acquire(ref: WorkspaceInstanceRef): Promise<WorkspaceInstanceLease> {
     if (this.disposing) return Promise.reject(new Error('workspace instance manager is disposing'));
-    const key =
-      'workspaceId' in ref ? `id:${ref.workspaceId}` : `root:${ref.root.replace(/[\\/]$/, '')}`;
+    const key = 'workspaceId' in ref
+      ? `id:${ref.workspaceId}`
+      : `root:${ref.root.replace(/[\\/]$/, '')}`;
     let request = this.requests.get(key);
     if (request === undefined) {
       const pending: Promise<Workspace> = this.resolveWorkspace(ref).finally(() => {
@@ -139,23 +140,24 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
     let workspace: Workspace | undefined;
     if ('workspaceId' in ref) {
       workspace = await this.workspaces.get(ref.workspaceId);
-      if (workspace === undefined && ref.root !== undefined)
-        workspace = await this.workspaces.createOrTouch(ref.root);
+      if (workspace === undefined && ref.root !== undefined) workspace = await this.workspaces.createOrTouch(ref.root);
     } else {
       workspace = await this.workspaces.createOrTouch(ref.root);
     }
-    if (workspace === undefined)
-      throw new Error2(
-        ErrorCodes.WORKSPACE_NOT_FOUND,
-        `workspace ${'workspaceId' in ref ? ref.workspaceId : ref.root} does not exist`,
-      );
+    if (workspace === undefined) throw new Error2(ErrorCodes.WORKSPACE_NOT_FOUND, `workspace ${'workspaceId' in ref ? ref.workspaceId : ref.root} does not exist`);
     return workspace;
   }
 
   private async acquireWorkspace(workspace: Workspace): Promise<WorkspaceInstanceLease> {
     while (!this.disposing) {
       const existing = this.instances.get(workspace.id);
-      if (existing !== undefined) return this.retain(existing);
+      if (existing !== undefined) {
+        if (workspaceRootKey(existing.root) === workspaceRootKey(workspace.root)) {
+          return this.retain(existing);
+        }
+        await this.close(existing);
+        continue;
+      }
       const closing = this.closing.get(workspace.id);
       if (closing !== undefined) {
         await closing;
@@ -163,12 +165,9 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
       }
       let pending = this.inflight.get(workspace.id);
       if (pending === undefined) {
-        const materialization: Promise<WorkspaceInstance> = this.materialize(workspace).finally(
-          () => {
-            if (this.inflight.get(workspace.id) === materialization)
-              this.inflight.delete(workspace.id);
-          },
-        );
+        const materialization: Promise<WorkspaceInstance> = this.materialize(workspace).finally(() => {
+          if (this.inflight.get(workspace.id) === materialization) this.inflight.delete(workspace.id);
+        });
         this.inflight.set(workspace.id, materialization);
         pending = materialization;
       }
@@ -219,30 +218,7 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
     return pending;
   }
 
-  async addProvider(factory: EnvironmentProviderFactory): Promise<{ dispose(): Promise<void> }> {
-    if (this.providers.has(factory.id))
-      throw new Error(`runtime provider ${factory.id} already exists`);
-    this.providers.set(factory.id, factory);
-    const attached: WorkspaceInstance[] = [];
-    try {
-      for (const instance of this.instances.values()) {
-        await this.attach(instance, factory);
-        attached.push(instance);
-      }
-    } catch (error) {
-      this.providers.delete(factory.id);
-      for (const instance of attached.toReversed()) await this.detach(instance, factory.id);
-      throw error;
-    }
-    return {
-      dispose: async () => {
-        if (this.providers.get(factory.id) !== factory) return;
-        this.providers.delete(factory.id);
-        for (const instance of [...this.attachments.keys()].toReversed())
-          await this.detach(instance, factory.id);
-      },
-    };
-  }  async dispose(): Promise<void> {
+  async dispose(): Promise<void> {
     this.disposing = true;
     await Promise.allSettled([
       ...this.requests.values(),
@@ -269,7 +245,6 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
       },
       {
         appState: this.appState,
-        workspaces: this.workspaces,
         bootstrap: this.bootstrap,
         config: this.config,
         git: this.git,
@@ -284,6 +259,9 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
         builtinSkills: this.builtinSkills,
         userSkills: this.userSkills,
         telemetry: this.telemetry,
+        docs: this.docs,
+        workspaces: this.workspaces,
+        workspaceStore: this.workspaceStore,
         trustStore: this.trustStore,
         createSessionController: (input) => new SessionLifecycleService(
           this.instantiation,
@@ -315,9 +293,7 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
       },
     );
     try {
-      for (const provider of this.providers.values()) await this.attach(instance, provider);
-      if (instance.runtimes.current('local') === undefined)
-        throw new Error(`workspace ${workspace.id} has no local runtime`);      instance.activate();
+      instance.activate();
       this.instances.set(workspace.id, instance);
       this.changeEmitter.fire({ workspaceId: workspace.id, instance });
       return instance;
@@ -332,23 +308,7 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
   }
 
   private async disposeInstance(instance: WorkspaceInstance): Promise<void> {
-    const requests = this.attachmentRequests.get(instance);
-    if (requests !== undefined) await Promise.allSettled(requests);
-    this.attachmentRequests.delete(instance);
-    const attachments = this.attachments.get(instance);
-    this.attachments.delete(instance);
-    if (attachments !== undefined) {
-      for (const attachment of [...attachments.values()].toReversed()) {
-        try {
-          await attachment.dispose();
-        } catch (error) {
-          this.log.error('workspace runtime attachment disposal failed', {
-            workspaceId: instance.id,
-            error,
-          });
-        }
-      }
-    }    try {
+    try {
       await instance.dispose();
     } catch (error) {
       this.log.error('workspace disposal failed', { workspaceId: instance.id, error });

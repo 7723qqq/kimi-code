@@ -7,30 +7,24 @@ import { IAgentPlanService } from '#/features/plan/plan';
 import { EnvironmentWorkspaceView } from '#/environment/environmentWorkspaceView';
 import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import {
-  PathSecurityError,
-  resolvePathAccessPath,
-  type PathClass,
-  type WorkspaceConfig,
-} from '#/tool/path-access';
-import { assertRealPathWriteTarget } from '#/tool/realpath-access';
-import { literalRulePattern, matchesPathRuleSubject } from '#/tool/rule-match';
 import {
   ToolAccesses,
-  ToolSideEffects,
   type ExecutableToolResult,
   type ToolExecution,
 } from '#/tool/toolContract';
-
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import {
+  resolvePathAccessPath,
+  type WorkspaceConfig,
+} from '#/tool/path-access';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import { literalRulePattern, matchesPathRuleSubject } from '#/tool/rule-match';
 import { IWriteTool, WriteInputSchema, type WriteInput } from './write';
 import WRITE_DESCRIPTION from './write.md?raw';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 
 export class WriteTool implements IWriteTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'Write' as const;
-  readonly sideEffect = ToolSideEffects.write;
   readonly description = WRITE_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(WriteInputSchema);
 
@@ -124,13 +118,9 @@ export class WriteTool implements IWriteTool {
         await fs.writeText(safePath, args.content);
       }
       const bytesWritten = Buffer.byteLength(args.content, 'utf8');
-      return await withFileMemory(
-        {
-          output: `${mode === 'append' ? 'Appended' : 'Wrote'} ${String(bytesWritten)} bytes to ${args.path}`,
-        },
-        args.path,
-        this.gitMemory,
-      );
+      return {
+        output: `${mode === 'append' ? 'Appended' : 'Wrote'} ${String(bytesWritten)} bytes to ${args.path}`,
+      };
     } catch (error) {
       if (isHostFsNotFound(error)) {
         return {

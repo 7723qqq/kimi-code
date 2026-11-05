@@ -1,60 +1,101 @@
-import { onUnexpectedError } from '#/_base/errors/unexpectedError';
-import { getShellPathBridge } from '#/_base/execEnv/shellPathBridge';
-import { renderPrompt } from '#/_base/utils/render-prompt';
-import { IAgentEnvironmentService, inspectAgentRuntime } from '#/agent/environmentBinding/agentEnvironment';
-import { resolveAgentTaskConfig } from '#/agent/task/configSection';
 import { IAgentTaskService } from '#/agent/task/task';
-import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { resolveAgentTaskConfig } from '#/agent/task/configSection';
 import { IConfigService } from '#/app/config/config';
 import type { HostEnvironmentInfo } from '#/os/interface/hostEnvironment';
 import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
-import { EnvironmentWorkspaceView } from '#/environment/environmentWorkspaceView';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { acquireOrWhenReady, pinnedGeneration } from '#/agent/environmentBinding/agentEnvironment';
+import { acquireOrWhenReady, pinnedGeneration, IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
+import { EnvironmentWorkspaceView } from '#/environment/environmentWorkspaceView';
+import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
+import { getShellPathBridge } from '#/_base/execEnv/shellPathBridge';
 import {
   DEFAULT_TOOL_RESULT_MAX_CHARS,
-  ToolSideEffects,
   type ExecutableToolResult,
   type ToolExecution,
   type ToolUpdate,
 } from '#/tool/toolContract';
-
 import {
-  MS_PER_SECOND,
-  ShellToolResults,
-  foregroundDescription,
-  killSpawnedProcess,
-  normalizeTimeoutMs,
-} from '../shell/shellToolResults';
-import { type BashInput, BashInputSchema, DEFAULT_BACKGROUND_TIMEOUT_S, IBashTool } from './bash';
+  type ToolOutputAccumulatorResult,
+  ToolOutputAccumulator,
+} from '#/tool/output-accumulator';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
+import { renderPrompt } from '#/_base/utils/render-prompt';
+import { userCancellationReason } from '#/_base/utils/abort';
 import bashDescriptionTemplate from './bash.md?raw';
 import { ProcessTask } from './process-task';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import { literalRulePattern } from '#/tool/rule-match';
-import { matchesGlobRuleSubject } from '#/tool/rule-match';
-import { ToolOutputAccumulator } from '#/tool/output-accumulator';
+import {
+  type BashInput,
+  BashInputSchema,
+  DEFAULT_BACKGROUND_TIMEOUT_S,
+  DEFAULT_TIMEOUT_S,
+  IBashTool,
+  MAX_BACKGROUND_TIMEOUT_S,
+  MAX_TIMEOUT_S,
+} from './bash';
 
-const BACKGROUND_GUIDANCE =
-  'For long-running builds, tests, watchers, or servers that the conversation should not wait on, set `run_in_background=true` with a short `description`; the call returns a task ID. Set `disable_timeout=true` only when the task should run without a timeout. You are notified automatically when the task completes, so return control to the user instead of waiting on it. Use `TaskOutput` only for a non-blocking snapshot, and `TaskStop` only to cancel.';
+const MS_PER_SECOND = 1000;
 
-const NO_BACKGROUND_GUIDANCE =
-  'Background execution is disabled for this agent. Do not set `run_in_background=true`.';
+const SHELL_TIMEOUT_VARS = {
+  DEFAULT_TIMEOUT_S,
+  DEFAULT_BACKGROUND_TIMEOUT_S,
+  MAX_TIMEOUT_S,
+  MAX_BACKGROUND_TIMEOUT_S,
+};
 
-const TIMEOUT_MOVES_TO_BACKGROUND =
-  'Set `timeout` for possibly long-running commands. A foreground command that hits its timeout is moved to the background instead of being killed, and you are notified when it completes. The user can also move a running foreground command to the background at any time.';
+function timeoutCapS(isBackground: boolean): number {
+  return isBackground ? MAX_BACKGROUND_TIMEOUT_S : MAX_TIMEOUT_S;
+}
 
-const TIMEOUT_KILLS_WITH_BACKGROUND =
-  'Set `timeout` for possibly long-running commands. A foreground command that hits its timeout is killed. The user can also move a running foreground command to the background at any time.';
+function normalizeTimeoutMs(timeout: number | undefined, isBackground: boolean): number {
+  const defaultSeconds = isBackground ? DEFAULT_BACKGROUND_TIMEOUT_S : DEFAULT_TIMEOUT_S;
+  const value = timeout ?? defaultSeconds;
+  return Math.min(value, timeoutCapS(isBackground)) * MS_PER_SECOND;
+}
 
-const TIMEOUT_KILLS =
-  'Set `timeout` for possibly long-running commands. A command that hits its timeout is killed.';
+async function disposeProcess(proc: IHostProcess): Promise<void> {
+  try {
+    await proc.dispose();
+  } catch {
+  }
+}
+
+function renderBashDescription(shellName: string): string {
+  return renderPrompt(bashDescriptionTemplate, { ...SHELL_TIMEOUT_VARS, SHELL_NAME: shellName });
+}
+
+function withoutBackgroundDescription(description: string): string {
+  return description
+    .replace(
+      /\r?\n\r?\nIf `run_in_background=true`,[\s\S]*?point them to the background-task panel\./,
+      '\n\nBackground execution is disabled for this agent. Do not set `run_in_background=true`.',
+    )
+    .replace(
+      ` For possibly long-running foreground commands, set the \`timeout\` argument in seconds. Foreground commands default to ${String(DEFAULT_TIMEOUT_S)}s and allow up to ${String(MAX_TIMEOUT_S)}s. When a foreground command hits its timeout it is moved to the background instead of being killed, and you will be automatically notified when it completes.`,
+      ` For possibly long-running commands, set the \`timeout\` argument in seconds. The default is ${String(DEFAULT_TIMEOUT_S)}s; foreground commands allow up to ${String(MAX_TIMEOUT_S)}s; a foreground command that hits its timeout is killed.`,
+    )
+    .replace(
+      ' The user can also move a running foreground command to the background at any time.',
+      '',
+    )
+    .replace(
+      /\r?\n- Prefer `run_in_background=true`[\s\S]*?conversation to continue before the command finishes\./,
+      '\n- Do not set `run_in_background=true`; background task management tools are not available.',
+    );
+}
+
+function withoutAutoBackgroundOnTimeout(description: string): string {
+  return description.replace(
+    ' When a foreground command hits its timeout it is moved to the background instead of being killed, and you will be automatically notified when it completes.',
+    ' A foreground command that hits its timeout is killed.',
+  );
+}
 
 export class BashTool implements IBashTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'Bash' as const;
-  readonly sideEffect = ToolSideEffects.shell;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(BashInputSchema);
 
   constructor(
@@ -64,11 +105,7 @@ export class BashTool implements IBashTool {
     @IAgentTaskService private readonly tasks: IAgentTaskService,
     @IAgentToolPolicyService private readonly toolPolicy: IAgentToolPolicyService,
     @IConfigService private readonly config: IConfigService,
-  ) {
-    this.results = new ShellToolResults(this.tasks, () => this.allowBackground());
-  }
-
-  private readonly results: ShellToolResults;
+  ) {}
 
   private allowBackground(): boolean {
     return (
@@ -161,7 +198,7 @@ export class BashTool implements IBashTool {
     onForegroundTaskStart?: (taskId: string) => void,
     expectedGeneration?: string,
   ): Promise<ExecutableToolResult> {
-    const validationError = this.results.validateRunRequest(args, signal);
+    const validationError = this.validateRunRequest(args, signal);
     if (validationError !== undefined) return validationError;
 
     const startsInBackground = args.run_in_background === true;
@@ -175,9 +212,7 @@ export class BashTool implements IBashTool {
     const env = view.host;
     const command = env.osKind === 'Windows' ? rewriteWindowsNullRedirect(args.command) : args.command;
     const effectiveCwd = view.resolve(args.cwd ?? view.workDir);
-    const description = startsInBackground
-      ? args.description!.trim()
-      : foregroundDescription('Bash', args.command, args.description);
+    const description = startsInBackground ? args.description!.trim() : foregroundDescription(args);
     const timeoutMs = startsInBackground
       ? args.disable_timeout
         ? undefined
@@ -219,14 +254,7 @@ export class BashTool implements IBashTool {
     let taskId: string;
     try {
       taskId = this.tasks.registerTask(
-        new ProcessTask(
-          proc,
-          command,
-          description,
-          onProcessOutput,
-          () => lease.dispose(),
-          toolCallId,
-        ),
+        new ProcessTask(proc, command, description, onProcessOutput, () => lease.dispose(), toolCallId),
         {
           detached: startsInBackground,
           timeoutMs,
@@ -249,7 +277,7 @@ export class BashTool implements IBashTool {
     if (!startsInBackground) onForegroundTaskStart?.(taskId);
 
     if (startsInBackground) {
-      return this.results.backgroundStartedResult(taskId, proc, description, {
+      return this.backgroundStartedResult(taskId, proc, description, {
         title: 'Background task started',
         brief: `Started ${taskId}`,
       });
@@ -269,7 +297,7 @@ export class BashTool implements IBashTool {
                 title: 'Task moved to background by the user',
                 brief: `Backgrounded ${taskId} by the user`,
               };
-        return this.results.backgroundStartedResult(
+        return this.backgroundStartedResult(
           taskId,
           proc,
           description,
@@ -279,46 +307,156 @@ export class BashTool implements IBashTool {
         );
       }
 
-      return await this.results.foregroundCompletionResult(
-        taskId,
-        proc,
-        builder,
-        foregroundTimeoutMs,
-      );
+      return await this.foregroundCompletionResult(taskId, proc, builder, foregroundTimeoutMs);
     } finally {
       collectForegroundOutput = false;
     }
   }
-}
 
-registerAgentToolService(IBashTool, BashTool, {
-  name: 'Bash',
-  domain: 'os/backends',
-  requiredRuntimeCapabilities: ['process'],
-});
-
-function closeProcessStdin(proc: IHostProcess): void {
-  try {
-    proc.stdin.end();
-  } catch (error) {
-    onUnexpectedError(error);
+  private validateRunRequest(
+    args: BashInput,
+    signal: AbortSignal,
+  ): ExecutableToolResult | undefined {
+    if (signal.aborted) return { isError: true, output: 'Aborted before command started' };
+    if (args.command.length === 0) return { isError: true, output: 'Command cannot be empty.' };
+    if (args.run_in_background !== true) return undefined;
+    if (!this.allowBackground()) {
+      return {
+        isError: true,
+        output:
+          'Background execution is not available for this agent because TaskOutput and TaskStop are not enabled.',
+      };
+    }
+    if (!args.description?.trim()) {
+      return {
+        isError: true,
+        output: 'description is required when run_in_background is true.',
+      };
+    }
+    return undefined;
   }
-}
 
-function shellQuote(s: string): string {
-  return `'${s.replaceAll("'", "'\\''")}'`;
-}
+  private async foregroundCompletionResult(
+    taskId: string,
+    proc: IHostProcess,
+    builder: ToolOutputAccumulator,
+    foregroundTimeoutMs: number,
+  ): Promise<ExecutableToolResult> {
+    const current = this.tasks.getTask(taskId);
+    const exitCode = current?.kind === 'process' ? current.exitCode : proc.exitCode;
+    let result: ToolOutputAccumulatorResult;
+    if (current?.status === 'timed_out') {
+      const timeoutLabel = formatTimeoutLabel(foregroundTimeoutMs);
+      result = builder.error(`Command killed by timeout (${timeoutLabel})`, {
+        brief: `Killed by timeout (${timeoutLabel})`,
+      });
+    } else if (
+      current?.status === 'killed' &&
+      current.stopReason === userCancellationReason().message
+    ) {
+      result = builder.error('Interrupted by user', { brief: 'Interrupted by user' });
+    } else if (
+      (current?.status === 'failed' || current?.status === 'killed') &&
+      current.stopReason !== undefined
+    ) {
+      result = builder.error(current.stopReason, { brief: current.stopReason });
+    } else if (exitCode === 0) {
+      result = builder.ok('Command executed successfully.');
+    } else {
+      if (builder.nChars === 0) builder.write(`Process exited with code ${String(exitCode)}`);
+      result = builder.error(`Command failed with exit code: ${String(exitCode)}.`, {
+        brief: `Failed with exit code: ${String(exitCode)}`,
+      });
+    }
+    return this.addForegroundOutputReference(taskId, result, builder.totalChars);
+  }
 
-const NUL_TARGET_BOUNDARY = /[\s|&;)]/;
+  private async addForegroundOutputReference(
+    taskId: string,
+    result: ToolOutputAccumulatorResult,
+    totalChars: number,
+  ): Promise<ExecutableToolResult> {
+    if (totalChars <= DEFAULT_TOOL_RESULT_MAX_CHARS) return result;
+    const output = await this.tasks.getOutputSnapshot(taskId, 0);
+    if (!output.fullOutputAvailable || output.outputPath === undefined) {
+      return result;
+    }
 
-interface HeredocDelimiter {
-  readonly delimiter: string;
-  readonly start: number;
-}
+    const taskOutputHint = this.allowBackground()
+      ? `\nnext_step: Use TaskOutput(task_id="${taskId}") to query the task output.`
+      : '';
+    const taskInfo = `task_id: ${taskId}\noutput_size_bytes: ${String(output.outputSizeBytes)}${taskOutputHint}`;
+    const existingSuffix = result.spill?.suffix;
+    return {
+      ...result,
+      spill: {
+        outputPath: output.outputPath,
+        totalChars,
+        suffix: existingSuffix !== undefined ? `${existingSuffix}\n${taskInfo}` : taskInfo,
+      },
+    };
+  }
 
-function isNulRedirectAt(text: string, at: number): boolean {
-  if (text.slice(at, at + 3).toLowerCase() !== 'nul') return false;
-  return at + 3 >= text.length || NUL_TARGET_BOUNDARY.test(text[at + 3]!);
+  private backgroundStartedResult(
+    taskId: string,
+    proc: IHostProcess,
+    description: string,
+    labels: { title: string; brief: string },
+    builder = new ToolOutputAccumulator(),
+    scenario: 'background_started' | 'foreground_detached' | 'foreground_detached_by_user' = 'background_started',
+  ): ExecutableToolResult {
+    const status = this.tasks.getTask(taskId)?.status ?? 'running';
+    const detachedByUser = scenario === 'foreground_detached_by_user' ? 'detached_by_user: true\n' : '';
+    const metadata =
+      `task_id: ${taskId}\n` +
+      `pid: ${String(proc.pid)}\n` +
+      `description: ${description}\n` +
+      `status: ${status}\n` +
+      detachedByUser +
+      `automatic_notification: true\n` +
+      this.nextStepLines(scenario) +
+      'human_shell_hint: The task is visible in the background-task panel.';
+
+    const foregroundResult = builder.ok('');
+    const foregroundOutput = foregroundResult.output.length > 0 ? foregroundResult.output : '';
+    const result: ExecutableToolResult & {
+      readonly brief: string;
+    } = {
+      isError: false,
+      output:
+        foregroundOutput.length === 0
+          ? metadata
+          : `${metadata}\n\nforeground_output:\n${foregroundOutput}`,
+      brief: labels.brief,
+    };
+    return result;
+  }
+
+  private nextStepLines(
+    scenario: 'background_started' | 'foreground_detached' | 'foreground_detached_by_user',
+  ): string {
+    if (scenario === 'foreground_detached' || scenario === 'foreground_detached_by_user') {
+      const avoid = this.allowBackground()
+        ? 'do NOT wait, poll, or call TaskOutput on it'
+        : 'do NOT wait or poll';
+      const moved =
+        scenario === 'foreground_detached_by_user'
+          ? 'The user moved this task to the background.'
+          : 'The task now runs in the background.';
+      return (
+        `next_step: ${moved} You will be automatically notified ` +
+        `when it completes — ${avoid}; continue with your current work.\n`
+      );
+    }
+    if (!this.allowBackground()) {
+      return 'next_step: You will be automatically notified when it completes.\n';
+    }
+    return (
+      'next_step: The completion arrives automatically in a later turn — do NOT wait, poll, ' +
+      'or call TaskOutput on it; continue with your current work.\n' +
+      'next_step: Use TaskStop only if the task must be cancelled.\n'
+    );
+  }
 }
 
 registerAgentToolService(IBashTool, BashTool, {
@@ -327,198 +465,39 @@ registerAgentToolService(IBashTool, BashTool, {
   requiredEnvironmentCapabilities: ['process'],
 });
 
-function readHeredocDelimiter(text: string, at: number): HeredocDelimiter | undefined {
-  let cursor = at + 2;
-  if (text[cursor] === '-') cursor++;
-  while (text[cursor] === ' ' || text[cursor] === '\t') cursor++;
-  const quote = text[cursor];
-  if (quote === "'" || quote === '"') {
-    const close = text.indexOf(quote, cursor + 1);
-    if (close === -1) return undefined;
-    const delimiter = text.slice(cursor + 1, close);
-    if (delimiter.length === 0) return undefined;
-    return { delimiter, start: at };
+function formatTimeoutLabel(timeoutMs: number): string {
+  return timeoutMs % 1000 === 0 ? `${String(timeoutMs / 1000)}s` : `${String(timeoutMs)}ms`;
+}
+
+function foregroundDescription(args: BashInput): string {
+  const explicit = args.description?.trim();
+  if (explicit !== undefined && explicit.length > 0) return explicit;
+  const preview = args.command.length > 60 ? `${args.command.slice(0, 60)}…` : args.command;
+  return `Bash: ${preview}`;
+}
+
+function closeProcessStdin(proc: IHostProcess): void {
+  try {
+    proc.stdin.end();
+  } catch {
   }
-  const wordStart = cursor;
-  while (cursor < text.length && !/[\s|&;()<>]/.test(text[cursor]!)) cursor++;
-  if (cursor === wordStart) return undefined;
-  return { delimiter: text.slice(wordStart, cursor), start: at };
 }
 
-function endOfLineIncludingNewline(text: string, at: number): number {
-  const newline = text.indexOf('\n', at);
-  return newline === -1 ? text.length : newline + 1;
-}
-
-function heredocBodyEnd(text: string, at: number, delimiter: string): number {
-  let cursor = at;
-  while (cursor < text.length) {
-    const lineEnd = endOfLineIncludingNewline(text, cursor);
-    const line = text.slice(cursor, lineEnd);
-    cursor = lineEnd;
-    if (line.trim() === delimiter || line.trim() === `${delimiter};`) return cursor;
+async function killSpawnedProcess(proc: IHostProcess): Promise<void> {
+  try {
+    await proc.kill('SIGTERM');
+  } catch {
+  } finally {
+    await disposeProcess(proc);
   }
-  return text.length;
 }
 
-function readSubstitutionBody(text: string, at: number): { body: string; end: number } {
-  let depth = 1;
-  let cursor = at;
-  while (cursor < text.length) {
-    const ch = text[cursor]!;
-    if (ch === '\\') {
-      cursor += 2;
-      continue;
-    }
-    if (ch === "'" || ch === '"') {
-      const close = text.indexOf(ch, cursor + 1);
-      cursor = close === -1 ? text.length : close + 1;
-      continue;
-    }
-    if (ch === '(') depth++;
-    if (ch === ')') {
-      depth--;
-      if (depth === 0) return { body: text.slice(at, cursor), end: cursor + 1 };
-    }
-    cursor++;
-  }
-  return { body: text.slice(at), end: text.length };
+function shellQuote(s: string): string {
+  return `'${s.replaceAll("'", "'\\''")}'`;
 }
 
-function readBacktickBody(text: string, at: number): { body: string; end: number } {
-  let cursor = at;
-  while (cursor < text.length) {
-    const ch = text[cursor]!;
-    if (ch === '\\') {
-      cursor += 2;
-      continue;
-    }
-    if (ch === '`') return { body: text.slice(at, cursor), end: cursor + 1 };
-    cursor++;
-  }
-  return { body: text.slice(at), end: text.length };
-}
-
-function rewriteNulRedirects(text: string): string {
-  const out: string[] = [];
-  let plain = '';
-  const flushPlain = (): void => {
-    if (plain.length > 0) {
-      out.push(plain);
-      plain = '';
-    }
-  };
-  const lastPlainChar = (): string => plain.slice(-1);
-
-  let cursor = 0;
-  let inSingle = false;
-  let inDouble = false;
-  while (cursor < text.length) {
-    const ch = text[cursor]!;
-
-    if (inSingle) {
-      plain += ch;
-      if (ch === "'") inSingle = false;
-      cursor++;
-      continue;
-    }
-
-    if (ch === '\\') {
-      plain += text.slice(cursor, cursor + 2);
-      cursor += 2;
-      continue;
-    }
-
-    if (inDouble) {
-      if (ch === '"') {
-        plain += ch;
-        inDouble = false;
-        cursor++;
-        continue;
-      }
-      if (ch === '$' && text[cursor + 1] === '(') {
-        const inner = readSubstitutionBody(text, cursor + 2);
-        flushPlain();
-        out.push('$(', rewriteNulRedirects(inner.body), ')');
-        cursor = inner.end;
-        continue;
-      }
-      if (ch === '`') {
-        const inner = readBacktickBody(text, cursor + 1);
-        flushPlain();
-        out.push('`', rewriteNulRedirects(inner.body), '`');
-        cursor = inner.end;
-        continue;
-      }
-      plain += ch;
-      cursor++;
-      continue;
-    }
-
-    if (ch === "'" || ch === '"') {
-      flushPlain();
-      inSingle = ch === "'";
-      inDouble = ch === '"';
-      out.push(ch);
-      cursor++;
-      continue;
-    }
-
-    if (ch === '`') {
-      const inner = readBacktickBody(text, cursor + 1);
-      flushPlain();
-      out.push('`', rewriteNulRedirects(inner.body), '`');
-      cursor = inner.end;
-      continue;
-    }
-
-    if (ch === '$' && text[cursor + 1] === '(') {
-      const inner = readSubstitutionBody(text, cursor + 2);
-      flushPlain();
-      out.push('$(', rewriteNulRedirects(inner.body), ')');
-      cursor = inner.end;
-      continue;
-    }
-
-    if (ch === '#' && (lastPlainChar() === '' || /[\s;|&(]/.test(lastPlainChar()))) {
-      const lineEnd = endOfLineIncludingNewline(text, cursor);
-      plain += text.slice(cursor, lineEnd);
-      cursor = lineEnd;
-      continue;
-    }
-
-    if (ch === '<' && text[cursor + 1] === '<' && text[cursor + 2] !== '<') {
-      const heredoc = readHeredocDelimiter(text, cursor);
-      if (heredoc === undefined) {
-        plain += '<<';
-        cursor += 2;
-        continue;
-      }
-      const lineEnd = endOfLineIncludingNewline(text, heredoc.start);
-      const bodyEnd = heredocBodyEnd(text, lineEnd, heredoc.delimiter);
-      plain += text.slice(cursor, lineEnd);
-      flushPlain();
-      out.push(text.slice(lineEnd, bodyEnd));
-      cursor = bodyEnd;
-      continue;
-    }
-
-    if (ch === '>') {
-      const nulStart = nulRedirectWordStart(text, cursor);
-      if (nulStart !== undefined) {
-        plain += `${text.slice(cursor, nulStart)}/dev/null`;
-        cursor = nulStart + 3;
-        continue;
-      }
-    }
-
-    plain += ch;
-    cursor++;
-  }
-  flushPlain();
-  return out.join('');
-}
+const WINDOWS_NUL_REDIRECT = /(\d?&?>+\s*)[Nn][Uu][Ll](?=\s|$|[|&;)\n])/g;
 
 function rewriteWindowsNullRedirect(command: string): string {
-  return rewriteNulRedirects(command);
+  return command.replace(WINDOWS_NUL_REDIRECT, '$1/dev/null');
 }
