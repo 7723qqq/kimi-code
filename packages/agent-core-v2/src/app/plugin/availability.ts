@@ -1,5 +1,5 @@
-import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { mkdir, open, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
@@ -37,7 +37,7 @@ const EMPTY: PluginAvailabilityFile = { version: 1, sources: {} };
 export function pluginAvailabilitySourceKey(source: string): string {
   const normalized = source.trim();
   if (/^sha256:[a-f0-9]{64}$/.test(normalized)) return normalized;
-  return `sha256:${createHash('sha256').update(normalized).digest('hex')}`;
+  return `sha256:${new Bun.CryptoHasher('sha256').update(normalized).digest('hex')}`;
 }
 
 function availabilityValue(entry: PluginAvailabilityEntry): string {
@@ -125,7 +125,7 @@ function migrateAvailabilityEntry(value: unknown): PluginAvailabilityEntry {
 async function readAvailability(filePath: string): Promise<PluginAvailabilityFile> {
   let text: string;
   try {
-    text = await readFile(filePath, 'utf8');
+    text = await Bun.file(filePath).text();
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return EMPTY;
     throw error;

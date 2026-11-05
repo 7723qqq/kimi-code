@@ -137,7 +137,6 @@
  *   interaction bridge already relies on.
  */
 import { readdir } from 'node:fs/promises';
-import { createHash } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { ISessionMediaStore } from '@moonshot-ai/agent-core-v2';
 import { buildDaemonFileUrl } from '@moonshot-ai/agent-core-v2';
@@ -655,7 +654,11 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   override async attachFile(input: { sessionId: string; data: Uint8Array; options: Pick<UploadFileOptions, 'name' | 'mimeType'> }): Promise<string> {
     const store = this.requireLiveSession(input.sessionId).accessor.get(ISessionMediaStore);
     const mimeType = input.options.mimeType ?? 'application/octet-stream';
-    const fileId = `f_attachment_${createHash('sha256').update(mimeType).update('\0').update(input.data).digest('hex')}`;
+    const fileId = `f_attachment_${new Bun.CryptoHasher('sha256')
+      .update(mimeType)
+      .update('\0')
+      .update(input.data)
+      .digest('hex')}`;
     await store.materialize({
       fileId, size: input.data.length, name: input.options.name, mimeType,
       stream: () => Readable.from([input.data]),

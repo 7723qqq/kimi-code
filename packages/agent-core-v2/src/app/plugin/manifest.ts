@@ -1,4 +1,4 @@
-import { readdir, readFile, realpath, stat } from 'node:fs/promises';
+import { readdir, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 import { HookDefSchema, type HookDefConfig } from '#/features/externalHooks/configSection';
@@ -671,7 +671,7 @@ async function readInterfaceLocales(
       continue;
     }
     try {
-      const raw: unknown = JSON.parse(await readFile(real, 'utf8'));
+      const raw: unknown = JSON.parse(await Bun.file(real).text());
       const localized = readInterface(raw);
       if (localized === undefined) {
         diagnostics.push({

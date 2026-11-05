@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createWriteStream, existsSync } from 'node:fs';
-import { chmod, copyFile, mkdir, mkdtemp, rename, rm, stat, readFile } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, mkdtemp, rename, rm, stat } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -430,7 +430,7 @@ async function downloadRgBinary(
     const archivePath = join(tmp, archive.archiveName);
     await fetchRgArchive(archive, archivePath);
     const extracted = await extractRgArchive(archive, target, archivePath, tmp);
-    return await readFile(extracted);
+    return await Bun.file(extracted).bytes();
   } finally {
     await rm(tmp, { recursive: true, force: true });
   }
@@ -454,7 +454,7 @@ export async function verifyArchiveChecksum(
 }
 
 export async function extractRgFromZip(archivePath: string, destination: string): Promise<void> {
-  const buf = await readFile(archivePath);
+  const buf = Buffer.from(await Bun.file(archivePath).bytes());
   const binName = 'rg.exe';
   await new Promise<void>((resolve, reject) => {
     yauzlFromBuffer(buf, { lazyEntries: true }, (openErr, zipfile) => {
