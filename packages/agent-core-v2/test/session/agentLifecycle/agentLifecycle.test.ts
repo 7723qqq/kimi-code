@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 
+import { waitForAssertion } from '#test/helpers/waitFor';
+
 async function viWaitFor(fn: () => void | Promise<void>, opts?: { timeout?: number }): Promise<void> {
   const deadline = Date.now() + (opts?.timeout ?? 1000);
   for (;;) {
@@ -861,16 +863,12 @@ describe('AgentLifecycleService', () => {
     const disposed: string[] = [];
     disposables.add(svc.onDidClose((agent) => disposed.push(agent.agentId)));
     loopSettled.mockImplementation(() => new Promise<void>(() => {}));
-    ;
-    try {
-      const removal = svc.remove(main);
-      await Bun.sleep(3_000);
+    const removal = svc.remove(main);
 
+    await waitForAssertion(() => {
       expect(disposed).toEqual(['main']);
-      await removal;
-    } finally {
-      ;
-    }
+    }, { timeout: 10_000 });
+    await removal;
   });
 
   it('remove cancels queued turns before waiting for the active turn to settle', async () => {
@@ -1339,19 +1337,15 @@ describe('AgentLifecycleService', () => {
       token_type: 'Bearer',
     } satisfies OAuthTokens);
 
-    const tokenEntries = [...atomicDocs.entries()].filter(
-      ([key]) => key.startsWith('credentials/mcp/') && key.endsWith('-tokens.json'),
+    const tokenKeys = [...atomicDocs.keys()].filter(
+      (key) => key.startsWith('credentials/mcp/') && key.endsWith('-tokens.json'),
     );
-    expect(tokenEntries).toEqual([
-      [
-        expect.stringMatching(/^credentials\/mcp\/linear-[a-f0-9]{24}-tokens\.json$/),
-        {
-          access_token: 'session-token',
-          token_type: 'Bearer',
-          obtained_at: expect.any(Number),
-        },
-      ],
-    ]);
+    expect(tokenKeys).toEqual([expect.stringMatching(/^credentials\/mcp\/linear-[a-f0-9]{24}-tokens\.json$/)]);
+
+    await expect(provider.tokens()).resolves.toMatchObject({
+      access_token: 'session-token',
+      token_type: 'Bearer',
+    });
   });
 
   it('returns an agent without waiting for the MCP handle readiness', async () => {

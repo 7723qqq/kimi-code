@@ -364,6 +364,9 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
         );
       }
       stage = 'restore';
+      handle.accessor.get(IAgentProfileService);
+      handle.accessor.get(IAgentPermissionModeService);
+      handle.accessor.get(IAgentMcpService);
       await handle.accessor.get(IEventDispatcher).restore();
       attachInteractionAgent(agentId, this.ctx.sessionId, handle.accessor.get(IEventDispatcher));
       stage = 'bootstrap';
