@@ -100,6 +100,18 @@ describe('WelcomeComponent', () => {
     expect(codes.size).toBeGreaterThanOrEqual(5);
   });
 
+  it('shows the remote binding cwd instead of the local work dir', () => {
+    const remote: AppState = {
+      ...appState,
+      environment: { environmentId: 'dev-box', status: 'ready', cwd: '/remote/project' },
+    };
+
+    const lines = new WelcomeComponent(remote).render(80).join('\n');
+
+    expect(lines).toContain('/remote/project');
+    expect(lines).not.toContain('/tmp/project');
+  });
+
   it('renders exactly the default banner when not colored', () => {
     const base = headerOf(new WelcomeComponent(appState).render(80));
     setDanceView(false, 5);

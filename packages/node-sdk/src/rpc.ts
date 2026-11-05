@@ -80,6 +80,9 @@ import type {
   PluginCommandDef,
   SuggestFilesInput,
   SuggestFilesResult,
+  GitPullRequest,
+  GitQueryInput,
+  GitStatusSummary,
   Unsubscribe,
   UploadFileOptions,
   WorkspaceTrustInfo,
@@ -480,6 +483,10 @@ export abstract class SDKRpcClientBase {
     workDir: string,
     input: SuggestFilesInput,
   ): Promise<SuggestFilesResult | undefined>;
+
+  abstract getGitStatus(workDir: string, input: GitQueryInput): Promise<GitStatusSummary | null>;
+
+  abstract getGitPullRequest(workDir: string, input: GitQueryInput): Promise<GitPullRequest | null>;
 
   abstract listBackgroundTasks(
     input: SessionIdRpcInput & { activeOnly?: boolean; limit?: number },

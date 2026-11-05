@@ -103,10 +103,50 @@ describe('FooterComponent', () => {
       dispose,
     }));
     const footer = new FooterComponent(appState);
+    footer.setGitBinding((state) => ({
+      key: state.workDir,
+      source: { status: async () => null, pullRequest: async () => null },
+    }));
     footer.refreshGitStatus();
     expect(refresh).toHaveBeenCalledTimes(1);
     footer.dispose();
     expect(dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the remote git badge from the binding and keeps it through a disconnect', () => {
+    const status = {
+      branch: 'feat/remote-badge',
+      dirty: false,
+      ahead: 0,
+      behind: 0,
+      diffAdded: 0,
+      diffDeleted: 0,
+      pullRequest: null,
+    };
+    gitStatusMocks.createGitStatusCache.mockImplementation(() => ({
+      getStatus: () => status,
+      refresh: jest.fn(),
+      dispose: jest.fn(),
+    }));
+    const remoteState: AppState = {
+      ...appState,
+      environment: { environmentId: 'dev-box', status: 'ready', cwd: '/remote/proj' },
+    };
+    const footer = new FooterComponent(remoteState);
+    footer.setGitBinding((state) => ({
+      key: [state.sessionId, state.workDir, 'remote'].join('\0'),
+      source: { status: async () => null, pullRequest: async () => null },
+    }));
+
+    expect(footer.render(120).join('\n')).toContain('feat/remote-badge');
+    expect(gitStatusMocks.createGitStatusCache).toHaveBeenCalledTimes(1);
+
+    footer.setState({
+      ...remoteState,
+      environment: { environmentId: 'dev-box', status: 'connecting', cwd: '/remote/proj' },
+    });
+    expect(gitStatusMocks.createGitStatusCache).toHaveBeenCalledTimes(1);
+    expect(footer.render(120).join('\n')).toContain('feat/remote-badge');
   });
 
   const previousChalkLevel = chalk.level;

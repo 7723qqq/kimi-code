@@ -3,6 +3,7 @@ import { LifecycleScope } from '#/app/scopes';
 import { ErrorCodes, Error2 } from '#/errors';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { LOCAL_ENVIRONMENT_ID } from '#/environment/environment';
+import { resolveProgramPath } from '#/environment/programPath';
 import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment/environment';
 
 import type {
@@ -202,9 +203,13 @@ export class GitService implements IGitService {
     cwd: string,
     options: RunOptions = {},
   ): Promise<RunResult> {
+    const program = this.environmentId === LOCAL_ENVIRONMENT_ID ? localProgramPath(cmd, cwd) : cmd;
+    if (program === undefined) {
+      return { exitCode: -1, stdout: '', stderr: '' };
+    }
     const lease = this.resolver.acquire({ environmentId: this.environmentId }, ['process']);
     const spawned = await lease.environment.process!
-      .spawn(cmd, args, { cwd, env: options.env })
+      .spawn(program, args, { cwd, env: options.env })
       .then(
         (proc) => ({ ok: true as const, proc }),
         () => ({ ok: false as const }),
@@ -267,6 +272,14 @@ interface RunResult {
 interface RunOptions {
   readonly timeoutMs?: number;
   readonly env?: Record<string, string>;
+}
+
+function localProgramPath(cmd: string, cwd: string): string | undefined {
+  try {
+    return resolveProgramPath(cmd, { cwd });
+  } catch {
+    return undefined;
+  }
 }
 
 

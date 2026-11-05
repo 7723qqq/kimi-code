@@ -79,8 +79,13 @@ export class WelcomeComponent implements Component {
       ? chalk.hex(currentTheme.palette.warning)(t('tui.chrome.welcome.modelNotSet'))
       : (effectiveActiveModel?.displayName ?? effectiveActiveModel?.model ?? this.state.model);
 
+    const workDir =
+      this.state.environment?.environmentId !== 'local' &&
+      this.state.environment?.cwd !== undefined
+        ? this.state.environment.cwd
+        : this.state.workDir;
     const infoLines = [
-      labelStyle(t('tui.chrome.welcome.directory')) + this.state.workDir,
+      labelStyle(t('tui.chrome.welcome.directory')) + workDir,
       labelStyle(t('tui.chrome.welcome.session')) + this.state.sessionId,
       labelStyle(t('tui.chrome.welcome.model')) + modelValue,
       labelStyle(t('tui.chrome.welcome.version')) + this.state.version,

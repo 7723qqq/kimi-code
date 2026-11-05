@@ -10,6 +10,7 @@
 
 import { join } from 'node:path';
 
+import type { GitPullRequest, GitStatusSummary } from '@moonshot-ai/kimi-code-sdk';
 import { FSWatcher } from 'chokidar';
 
 import { resolveCommandPath } from '#/utils/process/resolve-command';
@@ -75,9 +76,17 @@ export interface GitStatusDeps {
   readonly watch: (headPath: string, onChange: () => void) => GitWatchHandle | null;
 }
 
+export interface GitStatusSource {
+  status(): Promise<GitStatusSummary | null>;
+  pullRequest(): Promise<GitPullRequest | null>;
+  /** Local work tree whose HEAD is polled for branch switches; unset for a remote one. */
+  readonly localWorkDir?: string;
+}
+
 export interface GitStatusCacheOptions {
   readonly onChange?: () => void;
   readonly deps?: Partial<GitStatusDeps>;
+  readonly source?: GitStatusSource;
 }
 
 interface StatusState {
@@ -211,8 +220,9 @@ export function createGitStatusCache(
 
   const cache: GitStatusCache = {
     getStatus: () => {
-      if (git === undefined || disposed) return null;
-      if (repoDetected && !isRepo) return null;
+      const sourced = options.source !== undefined;
+      if (disposed || (!sourced && git === undefined)) return null;
+      if (!sourced && repoDetected && !isRepo) return null;
       const now = d.now();
       if (!repoDetected || now - status.fetchedAt >= STATUS_TTL_MS) {
         requestRefresh(false);
@@ -267,9 +277,16 @@ export function createGitStatusCache(
     const epochAtStart = epoch;
     try {
       if (!repoDetected) {
-        await probeRepo(epochAtStart);
+        if (options.source === undefined) {
+          await probeRepo(epochAtStart);
+        } else {
+          repoDetected = true;
+          const localWorkDir = options.source.localWorkDir;
+          if (localWorkDir !== undefined) await probeRepoFor(localWorkDir, epochAtStart);
+        }
       }
-      if (disposed || epoch !== epochAtStart || !isRepo) return;
+      if (disposed || epoch !== epochAtStart) return;
+      if (options.source === undefined && !isRepo) return;
       await loadStatus(epochAtStart);
     } finally {
       if (epoch === epochAtStart) {
@@ -300,6 +317,20 @@ export function createGitStatusCache(
     startHeadWatch(join(gitDir, 'HEAD'));
   }
 
+  async function probeRepoFor(dir: string, epochAtStart: number): Promise<void> {
+    const program = d.resolveCommand('git', dir);
+    if (program === undefined) return;
+    const result = await runCommand(d, program, ['-C', dir, 'rev-parse', '--absolute-git-dir'], {
+      timeout: SPAWN_TIMEOUT_MS,
+      maxBuffer: GIT_MAX_BUFFER,
+    });
+    if (disposed || epoch !== epochAtStart) return;
+    if (result === null || result.code !== 0) return;
+    const gitDir = result.stdout.trim();
+    if (gitDir.length === 0) return;
+    startHeadWatch(join(gitDir, 'HEAD'));
+  }
+
   function startHeadWatch(headPath: string): void {
     if (disposed || headWatcher !== null) return;
     try {
@@ -313,6 +344,42 @@ export function createGitStatusCache(
   }
 
   async function loadStatus(epochAtStart: number): Promise<void> {
+    const source = options.source;
+    if (source !== undefined) {
+      let summary: GitStatusSummary | null;
+      try {
+        summary = await source.status();
+      } catch {
+        status = { ...status, fetchedAt: d.now() };
+        return;
+      }
+      if (disposed || epoch !== epochAtStart) return;
+      if (summary === null || summary.branch === '') {
+        publishStatus({
+          branch: null,
+          dirty: false,
+          ahead: 0,
+          behind: 0,
+          diffAdded: 0,
+          diffDeleted: 0,
+          fetchedAt: d.now(),
+          loaded: true,
+        });
+        return;
+      }
+      publishStatus({
+        branch: summary.branch,
+        dirty: summary.dirty,
+        ahead: summary.ahead,
+        behind: summary.behind,
+        diffAdded: summary.additions,
+        diffDeleted: summary.deletions,
+        fetchedAt: d.now(),
+        loaded: true,
+      });
+      refreshPullRequestIfNeeded(summary.branch, d.now());
+      return;
+    }
     if (git === undefined) return;
     const result = await execGit(['-C', workDir, 'status', '--porcelain', '-b']);
     if (disposed || epoch !== epochAtStart) return;
@@ -403,7 +470,7 @@ export function createGitStatusCache(
       requestId,
     };
 
-    void readPullRequest(d, workDir).then((value) => {
+    void readPullRequest(d, workDir, options.source).then((value) => {
       if (disposed || pullRequest.requestId !== requestId) return;
 
       const previous = pullRequest.branch === branchName ? pullRequest.value : null;
@@ -507,7 +574,19 @@ function sameStatus(a: StatusState, b: StatusState): boolean {
   );
 }
 
-async function readPullRequest(d: GitStatusDeps, workDir: string): Promise<PullRequestInfo | null> {
+async function readPullRequest(
+  d: GitStatusDeps,
+  workDir: string,
+  source?: GitStatusSource,
+): Promise<PullRequestInfo | null> {
+  if (source !== undefined) {
+    try {
+      const found: GitPullRequest | null = await source.pullRequest();
+      return found === null ? null : { number: found.number, url: found.url };
+    } catch {
+      return null;
+    }
+  }
   // Resolve gh through PATH as well — this runs with cwd = workDir, where a
   // planted `gh.exe` would otherwise be picked up by cmd.exe on Windows.
   const gh = d.resolveCommand('gh', workDir);

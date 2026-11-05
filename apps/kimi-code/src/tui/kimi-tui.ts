@@ -82,6 +82,7 @@ import {
 import * as slashCommands from './commands/dispatch';
 import { BannerComponent } from './components/chrome/banner';
 import { DeviceCodeBoxComponent } from './components/chrome/device-code-box';
+import type { FooterGitBinding } from './components/chrome/footer';
 import { GutterContainer } from './components/chrome/gutter-container';
 import { MoonLoader, type SpinnerStyle } from './components/chrome/moon-loader';
 import type { StatusSurfaceKey } from './components/chrome/status-surface/region';
@@ -539,6 +540,7 @@ export class KimiTUI {
     this.state.statsRegion.setSegmentsProvider(() => this.sessionStatSegments());
     this.programStatus = new ProgramStatusController(this.state, this.state.terminal);
     this.state.footer.setExpandHintProvider(() => this.toolOutputExpandHint());
+    this.state.footer.setGitBinding((state) => this.footerGitBinding(state));
     this.state.transcriptContainer.setUnhandledClick((index) => this.toggleClickedFoldBlock(index));
     this.uninstallRainbowDance = installRainbowDance(() => {
       this.state.ui.requestRender();
@@ -2840,6 +2842,36 @@ export class KimiTUI {
 
   handleBackgroundTaskStatus(info: BackgroundTaskInfo): void {
     this.programStatus.updateBackgroundTask(info);
+  }
+
+  /**
+   * The environment the current or next session runs on: the live binding,
+   * else the one the TUI was started for.
+   */
+  private environmentIdOf(environment: AppState['environment']): string {
+    return environment?.environmentId ?? this.options.startup.environment ?? 'local';
+  }
+
+  /**
+   * The footer reads git state through the engine: a live session's own
+   * environment, or the local work dir before the lazy session exists. A
+   * remote binding has nothing to read until its session does. The key
+   * ignores the connection status so a transient disconnect keeps the last
+   * badge; the footer re-reads when the environment turns ready.
+   */
+  private footerGitBinding(state: AppState): FooterGitBinding | null {
+    const local = this.environmentIdOf(state.environment) === 'local';
+    const sessionId = state.sessionId === '' ? undefined : state.sessionId;
+    if (sessionId === undefined && !local) return null;
+    const { workDir } = state;
+    return {
+      key: [sessionId ?? '', workDir, local ? 'local' : 'remote'].join('\0'),
+      source: {
+        status: () => this.harness.getGitStatus(workDir, { sessionId }),
+        pullRequest: () => this.harness.getGitPullRequest(workDir, { sessionId }),
+        localWorkDir: local ? workDir : undefined,
+      },
+    };
   }
 
   /**

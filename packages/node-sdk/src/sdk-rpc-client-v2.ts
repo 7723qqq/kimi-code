@@ -148,7 +148,7 @@ import { McpConnectionManager } from '@moonshot-ai/agent-core-v2/mcpCore/connect
 import { ITowerRateLimitService } from '@moonshot-ai/agent-core-v2';
 import { readTowerStatusSummary } from '@moonshot-ai/agent-core-v2/features/tower/tools/status/statusReader';
 import { loadMcpServers } from '@moonshot-ai/agent-core-v2/app/mcpConfig/configLoader';
-import { fsSuggestRequestSchema } from '@moonshot-ai/agent-core-v2/workspace/workspaceFs/fs';
+import { fsSuggestRequestSchema, type IWorkspaceFsService } from '@moonshot-ai/agent-core-v2/workspace/workspaceFs/fs';
 import { ILogService } from '@moonshot-ai/agent-core-v2';
 import { IAppendLogStore } from '@moonshot-ai/agent-core-v2/persistence/interface/appendLogStore';
 import { ISessionLockService } from '@moonshot-ai/agent-core-v2';
@@ -265,6 +265,9 @@ import type {
   SkillSummary,
   SuggestFilesInput,
   SuggestFilesResult,
+  GitPullRequest,
+  GitQueryInput,
+  GitStatusSummary,
   TelemetryClient,
   Unsubscribe,
   UploadFileOptions,
@@ -738,6 +741,50 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       return suggest(this.requireLiveSession(input.sessionId).accessor.get(ISessionWorkdir).fs);
     }
     return this.withWorkspaceInstance('suggestFiles', workDir, (handler) => suggest(handler.program.fs));
+  }
+
+  /**
+   * The same engine git status the kap-server `fs:git_status` action serves:
+   * a live session's working directory on the session's own environment, or
+   * `workDir` on this machine. The pull request is read separately so a slow
+   * `gh` never delays the status.
+   */
+  override async getGitStatus(
+    workDir: string,
+    input: GitQueryInput,
+  ): Promise<GitStatusSummary | null> {
+    const read = (fs: Pick<IWorkspaceFsService, 'gitStatus'>) =>
+      nullWhenGitUnavailable(fs.gitStatus({ include_pull_request: false }));
+    const status =
+      input.sessionId !== undefined
+        ? await read(this.requireLiveSession(input.sessionId).accessor.get(ISessionWorkdir).fs)
+        : await this.withWorkspaceInstance('getGitStatus', workDir, (handler) =>
+            read(handler.program.fs),
+          );
+    if (status === null) return null;
+    return {
+      branch: status.branch,
+      dirty: Object.keys(status.entries).length > 0,
+      ahead: status.ahead,
+      behind: status.behind,
+      additions: status.additions,
+      deletions: status.deletions,
+    };
+  }
+
+  override async getGitPullRequest(
+    workDir: string,
+    input: GitQueryInput,
+  ): Promise<GitPullRequest | null> {
+    const read = (fs: Pick<IWorkspaceFsService, 'pullRequest'>) =>
+      nullWhenGitUnavailable(fs.pullRequest({}));
+    const found =
+      input.sessionId !== undefined
+        ? await read(this.requireLiveSession(input.sessionId).accessor.get(ISessionWorkdir).fs)
+        : await this.withWorkspaceInstance('getGitPullRequest', workDir, (handler) =>
+            read(handler.program.fs),
+          );
+    return found;
   }
 
   /**
@@ -3221,6 +3268,15 @@ function restateEngineError(error: unknown): unknown {
     details: error.details as Record<string, unknown> | undefined,
     cause: error.cause,
   });
+}
+
+async function nullWhenGitUnavailable<T>(read: Promise<T>): Promise<T | null> {
+  try {
+    return await read;
+  } catch (error) {
+    if (isError2(error) && error.code === ErrorCodes.FS_GIT_UNAVAILABLE) return null;
+    throw error;
+  }
 }
 
 /**
