@@ -212,9 +212,9 @@ describe('EditTool', () => {
   });
 
   it('executes against the selected environment filesystem instead of the App filesystem', async () => {
-    const environmentWrite = vi.fn().mockResolvedValue(undefined);
+    const environmentWrite = mock().mockResolvedValue(undefined);
     const { fs: environmentFs } = createSpiedEditFs({
-      readText: vi.fn().mockResolvedValue('environment content'),
+      readText: mock().mockResolvedValue('environment content'),
       writeText: environmentWrite,
     });
     const appRead = mock().mockRejectedValue(new Error('App filesystem bypass'));

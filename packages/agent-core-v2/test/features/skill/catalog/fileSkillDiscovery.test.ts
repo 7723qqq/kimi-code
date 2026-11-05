@@ -2,6 +2,20 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
+async function viWaitFor(fn: () => void | Promise<void>, opts?: { timeout?: number }): Promise<void> {
+  const deadline = Date.now() + (opts?.timeout ?? 1000);
+  for (;;) {
+    try {
+      await fn();
+      return;
+    } catch {
+      if (Date.now() > deadline) throw new Error('vi.waitFor timed out');
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  }
+}
+
+
 import { dirname, join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -123,9 +137,9 @@ describe.each(['local', 'environment'] as const)('%s skill discovery', (backend)
     const discovery = new EnvironmentSkillDiscovery(stubLog(), fs);
     const loading = discovery.discover([skillRoot('skills')]);
     try {
-      await vi.waitFor(() => { expect(metadataInFlight).toBe(8); });
+      await viWaitFor(() => { expect(metadataInFlight).toBe(8); });
       releaseMetadata();
-      await vi.waitFor(() => { expect(reads).toHaveLength(8); });
+      await viWaitFor(() => { expect(reads).toHaveLength(8); });
       expect(metadataPeak).toBe(8);
       readsReleased = true;
       for (const { release } of reads.toSorted((a, b) => b.path.localeCompare(a.path))) release();

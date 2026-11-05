@@ -38,7 +38,7 @@ import { IHostTimerHandle } from '#/os/interface/hostTimers';
 import { IHostTimers } from '#/os/interface/hostTimers';
 
 vi.mock('#/os/backends/node-local/tools/rgLocator', () => ({
-  ensureRgPath: vi.fn(async (): Promise<{ path: string; source: string }> => ({
+  ensureRgPath: mock(async (): Promise<{ path: string; source: string }> => ({
     path: 'rg',
     source: 'system-path',
   })),
@@ -764,8 +764,8 @@ describe('GlobTool', () => {
     const actual = await vi.importActual<typeof import('#/os/backends/node-local/tools/rgLocator')>(
       '#/os/backends/node-local/tools/rgLocator',
     );
-    vi.mocked(ensureRgPath).mockImplementationOnce(actual.ensureRgPath);
-    const exec = vi.fn(async (_command: string, args: readonly string[] = [], _options?: { cwd?: string }) =>
+    ensureRgPath.mockImplementationOnce(actual.ensureRgPath);
+    const exec = mock(async (_command: string, args: readonly string[] = [], _options?: { cwd?: string }) =>
       args[0] === '--version' ? fakeProcess('ripgrep 15.0.0\n') : fakeProcess('/workspace/src/a.ts\n'),
     );
     const { fs } = createTestFs();

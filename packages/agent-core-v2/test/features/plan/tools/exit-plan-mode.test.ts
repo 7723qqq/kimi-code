@@ -1,4 +1,4 @@
-import { describe, expect, it, jest } from 'bun:test';
+import { describe, expect, it, jest, mock } from 'bun:test';
 
 import type { IAgentPlanService, PlanData } from '#/features/plan/plan';
 import {
@@ -23,7 +23,7 @@ function planService(): IAgentPlanService {
     enter: async () => {},
     cancel: () => {},
     clear: async () => {},
-    exit: vi.fn(),
+    exit: mock(),
     resolveFile: async () => undefined,
     recordRevision: async () => {},
     status: async () =>

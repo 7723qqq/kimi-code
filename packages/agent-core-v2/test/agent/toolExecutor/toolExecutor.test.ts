@@ -1398,9 +1398,9 @@ describe('truncation pipeline', () => {
 
   it('resolves attachment references for media reads and exposes binary paths for converters', async () => {
     const environmentFs = mediaEnvironment.inspect().fs!;
-    vi.spyOn(environmentFs, 'stat').mockRejectedValue(new Error('client cannot access daemon storage'));
-    vi.spyOn(environmentFs, 'readBytes').mockRejectedValue(new Error('client cannot access daemon storage'));
-    vi.spyOn(environmentFs, 'readLines').mockImplementation(() => {
+    spyOn(environmentFs, 'stat').mockRejectedValue(new Error('client cannot access daemon storage'));
+    spyOn(environmentFs, 'readBytes').mockRejectedValue(new Error('client cannot access daemon storage'));
+    spyOn(environmentFs, 'readLines').mockImplementation(() => {
       throw new Error('client cannot access daemon storage');
     });
     registry.register(new ReadMediaFileTool(mediaEnvironment, { workspaceDir: homeDir, additionalDirs: [] }, {
@@ -1473,7 +1473,7 @@ describe('truncation pipeline', () => {
 
   it('reads session text from its owner while workspace text still uses the environment buffer', async () => {
     const environmentFs = mediaEnvironment.inspect().fs!;
-    const clientRead = vi.spyOn(environmentFs, 'readLines').mockImplementation(async function* () {
+    const clientRead = spyOn(environmentFs, 'readLines').mockImplementation(async function* () {
       yield 'unsaved client buffer\n';
     });
     const workspaceFile = join(homeDir, 'workspace.txt');

@@ -40,13 +40,13 @@ function stubHostFs(entries: Record<string, string>): IHostFileSystem {
   );
   return {
     _serviceBrand: undefined,
-    stat: vi.fn(async (path: string): Promise<HostFileStat> => {
+    stat: mock(async (path: string): Promise<HostFileStat> => {
       if (directories.has(path)) return { isFile: false, isDirectory: true, size: 0 };
       const content = entries[path];
       if (content !== undefined) return { isFile: true, isDirectory: false, size: content.length };
       throw new Error(`ENOENT: ${path}`);
     }),
-    readText: vi.fn(async (path: string) => {
+    readText: mock(async (path: string) => {
       const content = entries[path];
       if (content !== undefined) return content;
       throw new Error(`ENOENT: ${path}`);

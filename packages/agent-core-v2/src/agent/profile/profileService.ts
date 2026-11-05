@@ -58,7 +58,6 @@ import {
   requiresStrictThinkingValidation,
   type ThinkingConfig,
 } from '#/llm-adapter/model/thinking';
-import { ErrorCodes, Error2 } from "#/errors";
 import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { EnvironmentWorkspaceView } from '#/environment/environmentWorkspaceView';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';

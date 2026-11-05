@@ -1,3 +1,4 @@
+import { describe, expect, it, mock } from 'bun:test';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { ISessionEventBus } from '#/app/event/eventBus';
@@ -338,13 +339,13 @@ describe('AgentEnvironmentBindingService environment reminder', () => {
 });
 
 function probeFs(files: Record<string, string>, directories: readonly string[] = []): IHostFileSystem {
-  const stat = vi.fn(async (path: string): Promise<HostFileStat> => {
+  const stat = mock(async (path: string): Promise<HostFileStat> => {
     const content = files[path];
     if (content !== undefined) return { isFile: true, isDirectory: false, size: content.length };
     if (directories.includes(path)) return { isFile: false, isDirectory: true, size: 0 };
     throw new Error(`missing: ${path}`);
   });
-  const readText = vi.fn(async (path: string): Promise<string> => {
+  const readText = mock(async (path: string): Promise<string> => {
     const content = files[path];
     if (content === undefined) throw new Error(`missing: ${path}`);
     return content;

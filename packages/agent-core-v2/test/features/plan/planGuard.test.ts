@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, jest, type Mock } from 'bun:test';
+import { Mock, afterEach, beforeEach, describe, expect, it, jest, mock } from 'bun:test';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
@@ -159,12 +159,12 @@ describe('AgentPlanService plan-guard listener', () => {
   function availableEnvironment(): IAgentEnvironmentService {
     return stubPlanEnvironment({
       fs: createFakeHostFs({
-        mkdir: vi.fn().mockResolvedValue(undefined),
-        readText: vi.fn(async (path: string) => files.get(path) ?? ''),
-        writeText: vi.fn(async (path: string, content: string) => {
+        mkdir: mock().mockResolvedValue(undefined),
+        readText: mock(async (path: string) => files.get(path) ?? ''),
+        writeText: mock(async (path: string, content: string) => {
           files.set(path, content);
         }),
-        realpath: vi.fn(async (path: string) =>
+        realpath: mock(async (path: string) =>
           path.startsWith('/var/') ? `/private${path}` : path,
         ),
       }),

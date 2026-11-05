@@ -1,3 +1,4 @@
+import { describe, expect, it, mock } from 'bun:test';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { IFileEditService } from '#/app/edit/fileEdit';
@@ -34,10 +35,10 @@ import { stubWorkspaceContext } from '../../../session/workspaceContext/stub-wor
 
 vi.mock('#/os/backends/node-local/tools/rgLocator', async (importOriginal) => {
   const original = await importOriginal<typeof import('#/os/backends/node-local/tools/rgLocator')>();
-  return { ...original, ensureRgPath: vi.fn() };
+  return { ...original, ensureRgPath: mock() };
 });
 
-const ensureRgPathMock = vi.mocked(ensureRgPath);
+const ensureRgPathMock = ensureRgPath;
 
 const ENVIRONMENT_CHANGED_OUTPUT = 'Environment changed before execution. Retry the tool call.';
 const BINDING: EnvironmentBinding = { environmentId: 'remote' };

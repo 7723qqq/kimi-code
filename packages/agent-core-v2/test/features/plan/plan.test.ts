@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, jest, mock } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -204,7 +204,7 @@ describe('Plan service', () => {
 
     it('keeps the local persistent plan path on enter and restore', async () => {
       useFakes(createPlanFakes({
-        writeText: vi.fn(async (_path: string, _content: string): Promise<void> => {}),
+        writeText: mock(async (_path: string, _content: string): Promise<void> => {}),
       }));
       await plan.enter('stable-plan');
 

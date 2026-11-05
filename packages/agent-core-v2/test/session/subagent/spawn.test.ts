@@ -55,7 +55,7 @@ import { stubLog } from '../../_base/log/stubs';
 import { stubAgentContext } from '../../agent/agentContext/stubs';
 import { stubFlag } from '../../app/flag/stubs';
 import { StubConfigService } from '../../stubs';
-import { mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 const CALLER_ID = 'main';
 
@@ -152,8 +152,8 @@ describe('SessionSubagentService planSpawn and spawn', () => {
       track: (resource) => resource,
       dispose: mock(),
     };
-    acquireEnvironment = vi.fn(() => lease);
-    acquireWhenReadyEnvironment = vi.fn(async () => lease);
+    acquireEnvironment = mock(() => lease);
+    acquireWhenReadyEnvironment = mock(async () => lease);
     callerBinding = { environmentId: 'acp:s1' };
     caller = {
       id: CALLER_ID,

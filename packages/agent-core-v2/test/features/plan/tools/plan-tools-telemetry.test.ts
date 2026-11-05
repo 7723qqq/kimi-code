@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, jest, mock } from 'bun:test';
 
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IAgentPlanService, type PlanData } from '#/features/plan/plan';
@@ -35,13 +35,13 @@ function planService({
 } = {}): IAgentPlanService {
   return {
     _serviceBrand: undefined,
-    enter: vi.fn(async () => {}),
-    cancel: vi.fn(),
-    clear: vi.fn(async () => {}),
-    exit: exit ?? vi.fn(),
+    enter: mock(async () => {}),
+    cancel: mock(),
+    clear: mock(async () => {}),
+    exit: exit ?? mock(),
     resolveFile: async () => undefined,
-    recordRevision: vi.fn(async () => {}),
-    status: vi.fn(async () => status),
+    recordRevision: mock(async () => {}),
+    status: mock(async () => status),
   };
 }
 

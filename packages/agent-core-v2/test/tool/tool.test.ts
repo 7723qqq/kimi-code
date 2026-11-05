@@ -879,7 +879,7 @@ describe('Agent tool description', () => {
   it('filters descriptions by the inherited environment capabilities without churning the registry', async () => {
     ctx = createTestAgent();
     const environment = ctx.get(IAgentEnvironmentService);
-    vi.spyOn(environment, 'isAvailable').mockImplementation((required = []) => !required.includes('fs'));
+    spyOn(environment, 'isAvailable').mockImplementation((required = []) => !required.includes('fs'));
 
     for (const name of ['Edit', 'Write', 'Glob', 'Grep']) {
       expect(agentDescription()).not.toMatch(new RegExp(`Tools:.*\\b${name}\\b`));
@@ -889,7 +889,7 @@ describe('Agent tool description', () => {
     expect(ctx.get(IAgentToolRegistryService).resolve('Edit')).toBeDefined();
     expect(ctx.get(IAgentToolRegistryService).resolve('Bash')).toBeDefined();
 
-    vi.mocked(environment.isAvailable).mockReturnValue(true);
+    environment.isAvailable.mockReturnValue(true);
     expect(agentDescription()).toMatch(/Tools:.*\bEdit\b/);
   });
 
@@ -1757,7 +1757,7 @@ describe('Agent tool execution contract', () => {
   it('does not create a subagent when process disappears after tool activation', async () => {
     const lifecycle = createAgentLifecycleStub();
     const context = createAgentToolContext(lifecycle);
-    vi.spyOn(context.get(IAgentEnvironmentService), 'acquire').mockImplementation(() => {
+    spyOn(context.get(IAgentEnvironmentService), 'acquire').mockImplementation(() => {
       throw new Error('process capability is no longer available');
     });
 

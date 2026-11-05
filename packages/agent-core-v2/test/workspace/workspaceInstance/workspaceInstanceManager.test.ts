@@ -1,12 +1,26 @@
 import { EnvironmentService } from '#/app/environment/environmentService';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+async function viWaitFor(fn: () => void | Promise<void>, opts?: { timeout?: number }): Promise<void> {
+  const deadline = Date.now() + (opts?.timeout ?? 1000);
+  for (;;) {
+    try {
+      await fn();
+      return;
+    } catch {
+      if (Date.now() > deadline) throw new Error('vi.waitFor timed out');
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  }
+}
+
+
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import type { Workspace, IWorkspaceService } from '#/app/workspace/workspace';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import type { Environment } from '#/environment/environment';
 import { WorkspaceInstanceManager } from '#/workspace/workspaceInstance/workspaceInstanceManagerService';
-import { mock } from 'bun:test';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
 
 function deferred(): { readonly promise: Promise<void>; resolve(): void } {
   let resolve!: () => void;
@@ -100,7 +114,7 @@ describe('WorkspaceInstanceManager', () => {
     first.dispose();
     expect(value.get('one')).toBe(first.instance);
     second.dispose();
-    await vi.waitFor(() => {
+    await viWaitFor(() => {
       expect(value.get('one')).toBeUndefined();
     });
     await value.dispose();
@@ -129,7 +143,7 @@ describe('WorkspaceInstanceManager', () => {
     expect(lease.instance.program.status).toBe('degraded');
     expect(lease.instance.snapshot().lifecycle).toBe('active');
     lease.dispose();
-    await vi.waitFor(() => {
+    await viWaitFor(() => {
       expect(value.get('one')).toBeUndefined();
     });
     await value.dispose();

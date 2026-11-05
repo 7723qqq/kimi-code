@@ -1,3 +1,4 @@
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { IEnvironmentService } from '#/app/environment/environment';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -995,7 +996,7 @@ describe('SessionManager controller retirement', () => {
         },
       } as never,
     );
-    const createGeneration = vi.fn(() => {
+    const createGeneration = mock(() => {
       const lease = registry.acquire({ environmentId: 'local' }, ['fs', 'process']);
       const id = lease.environment.identity.generation;
       lease.dispose();

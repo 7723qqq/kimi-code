@@ -1504,11 +1504,11 @@ describe('agentsMdReminder remote environment binding', () => {
       isDirectory: true,
       size: 0,
     };
-    const stat = vi.fn(async (path: string): Promise<HostFileStat> => {
+    const stat = mock(async (path: string): Promise<HostFileStat> => {
       if (path === remoteSubDir || path === `${remoteWorkDir}/.git`) return directory;
       throw new Error(`missing: ${path}`);
     });
-    const readText = vi.fn(async (path: string): Promise<string> => {
+    const readText = mock(async (path: string): Promise<string> => {
       if (path === remoteAgentsMd) return 'remote instructions';
       throw new Error(`missing: ${path}`);
     });

@@ -1,3 +1,4 @@
+import { describe, expect, it, mock } from 'bun:test';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { IConfigService } from '#/app/config/config';
@@ -45,7 +46,7 @@ const DEV = { type: 'ssh', host: 'dev.example.test', defaultCwd: '/remote/projec
 describe('environment declarations', () => {
   it('resolves user [environments] entries and the configured default', async () => {
     const { config } = fakeConfig({ default: 'dev', dev: DEV } as unknown as EnvironmentsSection);
-    const service = new EnvironmentDeclarationService(config, { warn: vi.fn() } as never);
+    const service = new EnvironmentDeclarationService(config, { warn: mock() } as never);
     expect(await service.declarations()).toEqual({
       entries: [{ id: 'dev', entry: DEV }],
       defaultId: 'dev',
@@ -55,7 +56,7 @@ describe('environment declarations', () => {
 
   it('fires a change only when the declared catalog changes', async () => {
     const source = fakeConfig({ dev: DEV } as unknown as EnvironmentsSection);
-    const service = new EnvironmentDeclarationService(source.config, { warn: vi.fn() } as never);
+    const service = new EnvironmentDeclarationService(source.config, { warn: mock() } as never);
     const changed: EnvironmentDeclarationSet[] = [];
     service.onDidChange((event) => { changed.push(event); });
     await service.declarations();
@@ -71,7 +72,7 @@ describe('environment declarations', () => {
   });
 
   it('rejects resolution failures until the config resolves again', async () => {
-    const warn = vi.fn();
+    const warn = mock();
     const source = fakeConfig({ dev: DEV } as unknown as EnvironmentsSection);
     const service = new EnvironmentDeclarationService(source.config, { warn } as never);
     await service.declarations();
@@ -85,7 +86,7 @@ describe('environment declarations', () => {
 
   it('revalidates after silent config failures and recovery', async () => {
     const source = fakeConfig(undefined);
-    const service = new EnvironmentDeclarationService(source.config, { warn: vi.fn() } as never);
+    const service = new EnvironmentDeclarationService(source.config, { warn: mock() } as never);
     expect(await service.declarations()).toEqual({ entries: [] });
     source.failSilently(new Error('broken config'));
     await expect(service.declarations()).rejects.toThrow('broken config');
@@ -96,7 +97,7 @@ describe('environment declarations', () => {
 
   it('keeps registration errors until the declaration goes away', async () => {
     const source = fakeConfig({ dev: DEV } as unknown as EnvironmentsSection);
-    const service = new EnvironmentDeclarationService(source.config, { warn: vi.fn() } as never);
+    const service = new EnvironmentDeclarationService(source.config, { warn: mock() } as never);
     await service.declarations();
     service.reportRegistration('dev', new Error('bad launcher'));
     expect(service.registrationError('dev')?.message).toContain('bad launcher');

@@ -133,7 +133,7 @@ describe('ensureRgPath remote environment branch', () => {
     } else {
       globalThis.fetch = savedFetch;
     }
-    vi.restoreAllMocks();
+    mock.restore();
   });
 
   function remoteEnvironment(
@@ -154,10 +154,10 @@ describe('ensureRgPath remote environment branch', () => {
     if (options.withFs !== false) {
       Object.assign(environment, {
         fs: {
-          mkdir: vi.fn(async () => {}),
-          writeBytes: vi.fn(async () => {}),
-          rename: vi.fn(async () => {}),
-          remove: vi.fn(async () => {}),
+          mkdir: mock(async () => {}),
+          writeBytes: mock(async () => {}),
+          rename: mock(async () => {}),
+          remove: mock(async () => {}),
         },
         process: {},
       });
@@ -168,7 +168,7 @@ describe('ensureRgPath remote environment branch', () => {
   it('requires allowCachedFallback before touching the share bin or the network', async () => {
     const probe = noRgProbe();
     const environment = remoteEnvironment('remote-no-fallback');
-    const fetchMock = vi.fn();
+    const fetchMock = mock();
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     await expect(ensureRgPath(probe, { environment })).rejects.toThrow(/on PATH/);

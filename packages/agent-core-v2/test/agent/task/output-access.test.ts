@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { PassThrough, Readable } from 'node:stream';
@@ -183,7 +183,7 @@ describe('AgentTaskService — readOutput / getOutputSnapshot', () => {
       await remoteManager.wait(id);
       const snapshot = await remoteManager.getOutputSnapshot(id, 1_000);
       expect(snapshot.outputPath).toBe(join(remoteCtx.get(ISessionContext).sessionDir, 'agents', 'main', 'tasks', id, 'output.log'));
-      const acquire = vi.spyOn(environment, 'acquire').mockImplementation(() => { throw new Error('remote disconnected'); });
+      const acquire = spyOn(environment, 'acquire').mockImplementation(() => { throw new Error('remote disconnected'); });
       const read = remoteCtx.get(IReadTool);
       const result = await executeTool(read, toolContext('read_local_fallback', { path: snapshot.outputPath! }));
       expect(result.isError ?? false).toBe(false);

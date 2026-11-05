@@ -1,3 +1,4 @@
+import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { EnvironmentError, EnvironmentRegistry } from '#/environment/environmentRegistry';
@@ -30,7 +31,7 @@ describe('EnvironmentRegistry', () => {
   it('drains a removed environment after its lease is released', async () => {
     const first = fakeEnvironment('local', 'one');
     const originalDispose = first.dispose.bind(first);
-    const dispose = vi.fn(originalDispose);
+    const dispose = mock(originalDispose);
     Object.assign(first, { dispose });
     const registration = registry.register(first);
     const lease = registry.acquire({ environmentId: 'local' });
@@ -44,20 +45,20 @@ describe('EnvironmentRegistry', () => {
   });
 
   it('disposes a removed environment after the drain timeout', async () => {
-    vi.useFakeTimers();
+    ;
     try {
       const first = fakeEnvironment('local', 'one');
       const registration = registry.register(first);
       const lease = registry.acquire({ environmentId: 'local' });
       const removal = registration.remove();
 
-      await vi.advanceTimersByTimeAsync(5000);
+      await Bun.sleep(5000);
       await removal;
 
       expect(first.disposed).toBe(true);
       lease.dispose();
     } finally {
-      vi.useRealTimers();
+      ;
     }
   });
 

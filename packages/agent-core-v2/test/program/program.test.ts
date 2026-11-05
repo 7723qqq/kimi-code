@@ -1,8 +1,37 @@
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+
+const __envBackup = new Map<string, string | undefined>();
+function setEnvValue(name: string, value: string): void {
+  if (!__envBackup.has(name)) __envBackup.set(name, process.env[name]);
+  process.env[name] = value;
+}
+function restoreEnvs(): void {
+  for (const [name, value] of __envBackup) {
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  }
+  __envBackup.clear();
+}
+
+
+async function viWaitFor(fn: () => void | Promise<void>, opts?: { timeout?: number }): Promise<void> {
+  const deadline = Date.now() + (opts?.timeout ?? 1000);
+  for (;;) {
+    try {
+      await fn();
+      return;
+    } catch {
+      if (Date.now() > deadline) throw new Error('vi.waitFor timed out');
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  }
+}
+
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -37,8 +66,8 @@ import type { IUserAgentProfileLoader } from '#/workspace/workspaceAgentProfileL
 import type { IWorkspaceAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/workspaceAgentProfileLoader';
 import type { IWorkspaceSkillCatalog } from '#/features/skill/workspace/workspaceSkillCatalog';
 
-beforeEach(() => { vi.stubEnv('KIMI_CODE_WATCH', 'false'); });
-afterEach(() => { vi.unstubAllEnvs(); });
+beforeEach(() => { setEnvValue(KIMI_CODE_WATCH, 'false'); });
+afterEach(() => { restoreEnvs(); });
 
 function deferred(): {
   readonly promise: Promise<void>;
@@ -76,7 +105,7 @@ function setup(readiness = new Map<string, Promise<void>>(), order: string[] = [
   const registry = Object.assign(new EnvironmentRegistry(), {
     _serviceBrand: undefined,
     ready: Promise.resolve(),
-    addProvider: vi.fn(async () => ({ dispose: async () => {} })),
+    addProvider: mock(async () => ({ dispose: async () => {} })),
   });
   const controllerInputs: ProgramSessionControllerInput[] = [];
   const program = new Program(
@@ -91,7 +120,7 @@ function setup(readiness = new Map<string, Promise<void>>(), order: string[] = [
       },
     } as never,
   );
-  const create = vi.fn(() => {
+  const create = mock(() => {
     const lease = registry.acquire({ environmentId: 'local' }, ['fs', 'process']);
     const id = lease.environment.identity.generation;
     lease.dispose();
@@ -204,7 +233,7 @@ describe('Program', () => {
     expect(order).toEqual([]);
 
     second.setStatus('ready');
-    await vi.waitFor(() => {
+    await viWaitFor(() => {
       expect(program.sessionControllerGeneration).toBe('two');
     });
     const next = program.createSessionController();
@@ -282,7 +311,7 @@ describe('Program', () => {
     registry.register(fakeEnvironment('local', 'two'));
     await Promise.resolve();
     expect(program.sessionControllerGeneration).toBe('two');
-    await vi.waitFor(() => {
+    await viWaitFor(() => {
       expect(program.status).toBe('ready');
     });
     expect(order).toEqual(['behavior:one']);

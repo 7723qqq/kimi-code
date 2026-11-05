@@ -1,6 +1,20 @@
 import { describe, expect, it, mock } from 'bun:test';
 import { PassThrough, Readable, type Writable } from 'node:stream';
 
+const __envBackup = new Map<string, string | undefined>();
+function setEnvValue(name: string, value: string): void {
+  if (!__envBackup.has(name)) __envBackup.set(name, process.env[name]);
+  process.env[name] = value;
+}
+function restoreEnvs(): void {
+  for (const [name, value] of __envBackup) {
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  }
+  __envBackup.clear();
+}
+
+
 import { userCancellationReason } from '#/_base/utils/abort';
 import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import type { IAgentTaskService } from '#/agent/task/task';
@@ -961,12 +975,12 @@ describe('BashTool', () => {
   it('keeps an explicit GIT_TERMINAL_PROMPT and defaults an unset one to 0', async () => {
     const { runner, exec } = createTestRunner(processWithOutput({ stdout: 'ok\n' }));
     const tool = bashTool(runner);
-    vi.stubEnv('GIT_TERMINAL_PROMPT', '1');
+    setEnvValue(GIT_TERMINAL_PROMPT, '1');
     try {
       await executeTool(tool, context({ command: 'git status', timeout: 60 }));
       expect(exec.mock.calls[0]?.[2]?.env).toMatchObject({ GIT_TERMINAL_PROMPT: '1' });
     } finally {
-      vi.unstubAllEnvs();
+      restoreEnvs();
     }
     exec.mockClear();
     const previous = process.env['GIT_TERMINAL_PROMPT'];
