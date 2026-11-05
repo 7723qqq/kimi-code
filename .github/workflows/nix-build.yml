@@ -103,7 +103,7 @@ jobs:
       - name: Install Nix
         uses: cachix/install-nix-action@v31
         with:
-          nix-path: nixpkgs=channel:nixos-unstable
+          nix_path: nixpkgs=channel:nixos-unstable
 
       - name: Build
         id: build
@@ -116,6 +116,30 @@ jobs:
             echo "BUILD_FAILED=true" >> "$GITHUB_OUTPUT"
             echo "LOG_FILE=$LOG_FILE" >> "$GITHUB_OUTPUT"
           fi
+
+      # A push to main fails the same way a pull request does, and the log is
+      # the only place the reason exists. Surface it on every event: the hash
+      # mismatch as a `::error::` annotation (the API exposes annotations, the
+      # raw log needs repo auth), and the tail in the job summary.
+      - name: Report build failure
+        if: steps.build.outputs.BUILD_FAILED == 'true'
+        run: |
+          set -euo pipefail
+          LOG_FILE="${{ steps.build.outputs.LOG_FILE }}"
+
+          SPECIFIED=$(grep -oP 'specified:\s+\K\S+' "$LOG_FILE" || true)
+          GOT=$(grep -oP 'got:\s+\K\S+' "$LOG_FILE" || true)
+          if [ -n "$SPECIFIED" ] && [ -n "$GOT" ]; then
+            echo "::error title=Nix bunDeps hash mismatch::specified ${SPECIFIED} got ${GOT} - set outputHash in flake.nix to the got value"
+          fi
+
+          {
+            echo '### Nix build failed'
+            echo ''
+            echo '```'
+            tail -n 80 "$LOG_FILE"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Extract error log
         if: steps.build.outputs.BUILD_FAILED == 'true' && github.event_name == 'pull_request'
