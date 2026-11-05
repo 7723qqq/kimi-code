@@ -14,7 +14,7 @@ import type {
 import type { Command } from 'commander';
 
 import { detectInstallSource } from '#/cli/update/source';
-import { t } from '#/i18n';
+import { createKimiCodeHostIdentity } from '#/cli/host-identity';
 import { detectShellEnvironment } from '#/utils/process/shell-env';
 
 import { promptYesNo, type ConfirmPromptAnswer } from './confirm';

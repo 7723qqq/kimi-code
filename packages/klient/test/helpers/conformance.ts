@@ -605,18 +605,52 @@ export function defineKlientConformance(
       }
     });
 
-    it('agent runtime binding is available through every transport', async () => {
+    it('agent environment binding and media events are available through every transport', async () => {
       const created = await target.klient.global.sessions.create({
         workDir: process.cwd(),
-        title: 'conformance runtime',
+        title: 'conformance environment',
       });
       try {
         const agent = target.klient.session(created.id).agent('main');
-        const binding = await agent.getRuntime();
-        expect(binding.runtimeId).toBe('local');
-        expect(binding.workspaceId.length).toBeGreaterThan(0);
-        await expect(agent.switchRuntime('missing-runtime')).rejects.toThrow(/missing-runtime/);
-        expect(await agent.getRuntime()).toEqual(binding);
+        const binding = await agent.getEnvironment();
+        expect(binding.environmentId).toBe('local');
+        expect(binding).toEqual({ environmentId: 'local' });
+        expect(await agent.getEnvironment()).toEqual(binding);
+
+        const seen: unknown[] = [];
+        const sub = agent.events.on('tool.result', (event) => seen.push(event));
+        await new Promise((resolve) => {
+          setTimeout(resolve, 300);
+        });
+        try {
+          const live = getLiveSessionById(target.app.accessor, created.id);
+          if (live === undefined) throw new Error('expected a live session');
+          const main = live.accessor.get(IAgentLifecycleService).handleOf('main');
+          if (main === undefined) throw new Error('expected the main agent');
+          main.accessor.get(IEventBus).publish(
+            new ToolResultEvent({
+              agentId: 'main',
+              turnId: 1,
+              toolCallId: 'call-media',
+              output: [
+                { type: 'text', text: 'media' },
+                { type: 'image_url', imageUrl: { url: 'data:image/png;base64,QUJD' } },
+              ],
+            }),
+          );
+          await waitFor(() => seen.length === 1, 2_000);
+          expect(seen[0]).toMatchObject({
+            output: [
+              { type: 'text', text: 'media' },
+              {
+                type: 'image_url',
+                imageUrl: expect.objectContaining({ url: 'data:image/png;base64,QUJD' }),
+              },
+            ],
+          });
+        } finally {
+          sub.dispose();
+        }
       } finally {
         await target.klient.session(created.id).close();
       }

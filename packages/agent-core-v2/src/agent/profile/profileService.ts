@@ -58,10 +58,17 @@ import {
   requiresStrictThinkingValidation,
   type ThinkingConfig,
 } from '#/llm-adapter/model/thinking';
-import { IProtocolAdapterRegistry } from '#/llm-adapter/protocol/protocol';
-import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
-import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
-import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
+import { THINKING_SECTION } from '#/app/kosongConfig/configSection';
+import { IProviderDiscoveryService } from '#/app/kosongConfig/discovery';
+import { DEFAULT_AGENT_PROFILE_NAME } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import { IBuiltinAgentProfileLoader } from '#/app/agentProfileCatalog/builtinAgentProfileLoader';
+import { ErrorCodes, Error2 } from "#/errors";
+import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IConfigService } from '#/app/config/config';
+import type { LoopControl } from '#/agent/loop/configSection';
+import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
+import { EnvironmentWorkspaceView } from '#/environment/environmentWorkspaceView';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
 import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
@@ -166,7 +173,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     @IConfigService private readonly config: IConfigService,
     @IModelCatalog private readonly modelCatalog: IModelCatalog,
     @IProtocolAdapterRegistry private readonly protocolAdapters: IProtocolAdapterRegistry,
-    @IAgentRuntimeService private readonly runtime: IAgentRuntimeService,
+    @IAgentEnvironmentService private readonly environment: IAgentEnvironmentService,
     @ISessionContext private readonly sessionContext: ISessionContext,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @ISessionNotify private readonly notify: ISessionNotify,
@@ -936,19 +943,19 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
   ): Promise<SystemPromptContext> {
     await this.notify.ready;
     const preloadedAgentsMd = await this.workspaceInstructionsSnapshot();
-    const fsAvailable = this.runtime.isAvailable(['fs']);
-    const lease = this.runtime.acquire(fsAvailable ? ['fs'] : []);
-    const env = lease.runtime.environment;
-    const view = new RuntimeWorkspaceView(lease.runtime, {
-      workDir: this.sessionContext.cwd,
+    const fsAvailable = this.environment.isAvailable(['fs']);
+    const lease = this.environment.acquire(fsAvailable ? ['fs'] : []);
+    const view = new EnvironmentWorkspaceView(lease.environment, {
+      workDir: this.workspace.workDir,
       additionalDirs: options?.additionalDirs ?? this.workspace.additionalDirs,
     });
+    const env = view.host;
     let base: SystemPromptContext;
     try {
       base = !fsAvailable
         ? {}
         : await prepareSystemPromptContext(
-            { fs: lease.runtime.fs!, homeDir: env.homeDir },
+            { fs: lease.environment.fs!, homeDir: env.homeDir },
             view.workDir,
             this.bootstrap.homeDir,
             {

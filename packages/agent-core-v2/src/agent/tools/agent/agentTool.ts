@@ -23,6 +23,19 @@ import {
   resolveActiveToolNames,
 } from '#/agent/toolPolicy/evaluate';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
+import { TOOL_SELECT_FLAG_ID } from '#/agent/toolSelect/flag';
+import { SELECT_TOOLS_TOOL_NAME } from '#/agent/toolSelect/toolSelect';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import {
+  ToolAccesses,
+  isMcpToolName,
+  type ExecutableToolContext,
+  type ExecutableToolResult,
+  type ToolExecution,
+} from '#/tool/toolContract';
 import {
   AgentToolContribution,
   registerAgentToolService,
@@ -52,18 +65,15 @@ import {
 } from '#/session/agentLifecycle/subagentMetadata';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { type AgentMeta, ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
-import { backendIncompatibility } from '#/session/subagent/backend/backendCompat';
+
+import { emitAgentRunSpawned, mirrorAgentRun, SubagentStarted } from '#/session/subagent/mirrorAgentRun';
+import { IEventDispatcher } from '#/state/eventDispatcher';
+import { ISessionSubagentService } from '#/session/subagent/subagent';
 import {
-  BACKENDS_EXPERIMENTAL_UNAVAILABLE,
-  buildSubagentBackendDescriptions,
-  exposesSubagentBackends,
-  stripSubagentBackendParameter,
-} from '#/session/subagent/backend/configSection';
-import {
-  ISubagentBackendService,
-  type SubagentBackendName,
-  type SubagentBackendResult,
-} from '#/session/subagent/backend/subagentBackend';
+  FORK_EXPERIMENTAL_UNAVAILABLE,
+  forkIncompatibility,
+} from '#/session/subagent/spawn';
+import { SUBAGENT_FORK_FLAG_ID } from '#/session/subagent/flag';
 import {
   buildSubagentModelDescriptions,
   exposesSubagentModelChoice,
@@ -150,7 +160,7 @@ export class SubagentTool implements ISubagentTool {
     @ISessionAgentProfileCatalog private readonly catalog: ISessionAgentProfileCatalog,
     @IAgentScopeContext scopeContext: IAgentScopeContext,
     @IInstantiationService private readonly instantiationService: IInstantiationService,
-    @IAgentRuntimeService private readonly runtime: IAgentRuntimeService,
+    @IAgentEnvironmentService private readonly environment: IAgentEnvironmentService,
     @IAgentTaskService private readonly tasks: IAgentTaskService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @IModelCatalog private readonly modelCatalog: IModelCatalog,
@@ -234,7 +244,7 @@ export class SubagentTool implements ISubagentTool {
     this.instantiationService.invokeFunction((accessor) => {
       for (const { options } of this.contributions.items) {
         if (refs.get(options.name)?.source === 'user') continue;
-        if (isToolAvailable(options, accessor, this.runtime)) {
+        if (isToolAvailable(options, accessor, this.environment)) {
           refs.set(options.name, { name: options.name, source: options.source ?? 'builtin' });
         } else {
           refs.delete(options.name);
@@ -783,7 +793,7 @@ function truncateReason(reason: string): string {
 registerAgentToolService(ISubagentTool, SubagentTool, {
   name: 'Agent',
   domain: 'subagent',
-  requiredRuntimeCapabilities: ['process'],
+  requiredEnvironmentCapabilities: ['process'],
 });
 
 function buildProfileDescriptions(

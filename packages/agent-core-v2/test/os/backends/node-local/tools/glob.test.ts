@@ -4,8 +4,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable, type Writable } from 'node:stream';
 
-import { probeHostEnvironmentFromNode } from '#/_base/execEnv/environmentProbe';
-import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { ensureRgPath, type RgProbe } from '#/os/backends/node-local/tools/rgLocator';
+import { PathSecurityError, type PathClass } from '#/tool/path-access';
+import { noopTelemetryService } from '#/app/telemetry/telemetry';
+import type { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
+import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
+import { stubAgentEnvironment } from '../../../../environment/stubs';
 import {
   type GlobInput,
   GlobInputSchema,
@@ -23,22 +29,21 @@ import type { RgHostProcessService } from '#/os/backends/host/tools/runRg';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
-import type { IHostTimerHandle, IHostTimers } from '#/os/interface/hostTimers';
-import { FakeRuntime } from '#/runtime/fakeRuntime';
-import type { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { PathSecurityError, type PathClass } from '#/tool/path-access';
-import type {
-  ExecutableToolContext,
-  ExecutableToolResult,
-  ToolExecution,
-} from '#/tool/toolContract';
+import type { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
+import { FakeEnvironment } from '#/environment/fakeEnvironment';
+import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
+import { probeHostEnvironmentFromNode } from '#/_base/execEnv/environmentProbe';
+import type { ITelemetryService, TelemetryProperties } from '#/app/telemetry/telemetry';
+import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
 
-import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
-
-const realEnsureRgPath = rgLocator.ensureRgPath;
-const ensureRgPath = spyOn(rgLocator, 'ensureRgPath').mockImplementation(async () => ({
-  path: 'rg',
-  source: 'system-path',
+vi.mock('#/os/backends/node-local/tools/rgLocator', () => ({
+  ensureRgPath: vi.fn(async (): Promise<{ path: string; source: string }> => ({
+    path: 'rg',
+    source: 'system-path',
+  })),
+  rgUnavailableMessage: (cause: unknown) =>
+    `rg unavailable: ${cause instanceof Error ? cause.message : String(cause)}`,
 }));
 spyOn(rgLocator, 'rgUnavailableMessage').mockImplementation(
   (cause: unknown) => `rg unavailable: ${cause instanceof Error ? cause.message : String(cause)}`,
@@ -171,25 +176,19 @@ function createTestProcessService(
   return { _serviceBrand: undefined, spawn, timers } as unknown as RgHostProcessService;
 }
 
-function createRuntime(
+function createEnvironment(
   fs: IHostFileSystem,
   environment: IHostEnvironment,
   process: IHostProcessService,
-): IAgentRuntimeService {
-  const runtime = Object.assign(
-    new FakeRuntime(
-      { workspaceId: 'workspace', runtimeId: 'local', generation: 'test' },
+): IAgentEnvironmentService {
+  const backend = Object.assign(
+    new FakeEnvironment(
+      { environmentId: 'local', generation: 'test' },
       { capabilities: ['fs', 'process'], pathClass: environment.pathClass },
     ),
-    { fs, environment, process },
+    { fs, host: environment, process },
   );
-  return {
-    _serviceBrand: undefined,
-    onDidChange: () => ({ dispose: () => {} }),
-    isAvailable: () => true,
-    inspect: () => runtime,
-    acquire: () => ({ runtime, track: (resource) => resource, dispose: () => {} }),
-  };
+  return stubAgentEnvironment(backend);
 }
 
 function createRealRgProbe(processService: IHostProcessService): RgProbe {
@@ -315,7 +314,7 @@ function makeTool(
   const processService = createTestProcessService(exec, opts.timers);
   const env = createTestEnv({ home: opts.home, pathClass: opts.pathClass });
   const tool = new GlobTool(
-    createRuntime(fs, env, processService),
+    createEnvironment(fs, env, processService),
     workspaceConfig,
     opts.telemetry ?? noopTelemetryService,
   );
@@ -761,6 +760,37 @@ describe('GlobTool', () => {
     });
   });
 
+  it('spawns the rg probe and the rg run in the session workspace cwd', async () => {
+    const actual = await vi.importActual<typeof import('#/os/backends/node-local/tools/rgLocator')>(
+      '#/os/backends/node-local/tools/rgLocator',
+    );
+    vi.mocked(ensureRgPath).mockImplementationOnce(actual.ensureRgPath);
+    const exec = vi.fn(async (_command: string, args: readonly string[] = [], _options?: { cwd?: string }) =>
+      args[0] === '--version' ? fakeProcess('ripgrep 15.0.0\n') : fakeProcess('/workspace/src/a.ts\n'),
+    );
+    const { fs } = createTestFs();
+    const processService = createTestProcessService(exec);
+    const backend = Object.assign(
+      new FakeEnvironment(
+        { environmentId: 'ssh-dev', generation: 'rg-probe-cwd' },
+        { capabilities: ['fs', 'process'], pathClass: 'posix' },
+      ),
+      { fs, host: createTestEnv({ home: '/home/remote' }), process: processService },
+    );
+    const tool = new GlobTool(stubAgentEnvironment(backend), workspace, noopTelemetryService);
+
+    const result = await execute(tool, { pattern: '**/*.ts' });
+
+    expect(result.isError).not.toBe(true);
+    expect(result.output).toContain('src/a.ts');
+    expect(exec.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(exec.mock.calls[0]?.[0]).toBe('rg');
+    expect(exec.mock.calls[0]?.[1]).toEqual(['--version']);
+    for (const call of exec.mock.calls) {
+      expect(call[2]?.cwd).toBe('/workspace');
+    }
+  });
+
   describe('skills / additional dirs', () => {
     const skillsWorkspace = stubWorkspaceContext('/workspace', ['/skills']);
 
@@ -1078,6 +1108,8 @@ describe.skipIf(realRgResolution === undefined)('GlobTool integration (real ripg
   let realEnv: IHostEnvironment;
   let realProcessService: IHostProcessService;
   let realFs: IHostFileSystem;
+  let tool: GlobTool;
+  let runRealRg = false;
 
   beforeAll(() => {
     ensureRgPath.mockResolvedValue(realRgResolution!);
@@ -1099,6 +1131,7 @@ describe.skipIf(realRgResolution === undefined)('GlobTool integration (real ripg
     };
     realProcessService = new HostProcessService();
     realFs = new HostFileSystem();
+    tool = new GlobTool(createEnvironment(realFs, realEnv, realProcessService), stubWorkspaceContext(tmpDir!), noopTelemetryService);
   });
 
   afterEach(async () => {
@@ -1115,21 +1148,9 @@ describe.skipIf(realRgResolution === undefined)('GlobTool integration (real ripg
     await fs.utimes(full, mtime, mtime);
   }
 
-  const ws = () => stubWorkspaceContext(tmpDir!);
-
   it('continues through every match beyond the default page without duplicates', async () => {
-    const expected = Array.from(
-      { length: 347 },
-      (_, index) => `file-${String(index).padStart(3, '0')}.ts`,
-    );
-    await Promise.all(
-      expected.map((name, index) => touch(name, new Date(1_700_000_000_000 - index * 1000))),
-    );
-    const tool = new GlobTool(
-      createRuntime(realFs, realEnv, realProcessService),
-      ws(),
-      noopTelemetryService,
-    );
+    const expected = Array.from({ length: 347 }, (_, index) => `file-${String(index).padStart(3, '0')}.ts`);
+    await Promise.all(expected.map((name, index) => touch(name, new Date(1_700_000_000_000 - index * 1000))));
     const recovered: string[] = [];
     for (const offset of [0, 100, 200, 300]) {
       const result = await execute(tool, GlobInputSchema.parse({ pattern: '*.ts', offset }));
@@ -1154,7 +1175,6 @@ describe.skipIf(realRgResolution === undefined)('GlobTool integration (real ripg
       ws(),
       noopTelemetryService,
     );
-
     const result = await execute(tool, { pattern: '*.ts', path: tmpDir! });
 
     expect(result.output).toBe('new.ts\nmid.ts\nold.ts');
@@ -1169,7 +1189,6 @@ describe.skipIf(realRgResolution === undefined)('GlobTool integration (real ripg
       ws(),
       noopTelemetryService,
     );
-
     const result = await execute(tool, { pattern: '*.ts', path: tmpDir! });
 
     expect(result.output).toContain('root.ts');
@@ -1186,7 +1205,6 @@ describe.skipIf(realRgResolution === undefined)('GlobTool integration (real ripg
       ws(),
       noopTelemetryService,
     );
-
     const result = await execute(tool, { pattern: '{src,test}/*.ts', path: tmpDir! });
 
     expect(result.output).toContain('src/a.ts');
@@ -1203,7 +1221,6 @@ describe.skipIf(realRgResolution === undefined)('GlobTool integration (real ripg
       ws(),
       noopTelemetryService,
     );
-
     const result = await execute(tool, { pattern: 'src/**/*.ts', path: tmpDir! });
 
     expect(result.output).toContain('src/a.ts');
@@ -1218,7 +1235,6 @@ describe.skipIf(realRgResolution === undefined)('GlobTool integration (real ripg
       ws(),
       noopTelemetryService,
     );
-
     const result = await execute(tool, { pattern: '\\{a,b\\}.ts', path: tmpDir! });
 
     expect(result.output).toContain('{a,b}.ts');
@@ -1233,9 +1249,7 @@ describe.skipIf(realRgResolution === undefined)('GlobTool integration (real ripg
         createRuntime(realFs, realEnv, realProcessService),
         ws(),
         noopTelemetryService,
-      );
-
-      const result = await execute(tool, { pattern: '*.ts', path: externalDir });
+      );      const result = await execute(tool, { pattern: '*.ts', path: externalDir });
 
       expect(result.output).toBe(extFile.split(path.sep).join('/'));
     } finally {

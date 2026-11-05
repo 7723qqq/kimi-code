@@ -19,7 +19,28 @@ import type { Event2 } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
 import { LifecycleScope } from '#/app/scopes';
 import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
-import { Error2, ErrorCodes } from '#/errors';
+import {
+  IAgentLifecycleService,
+  type CreateAgentOptions,
+} from '#/session/agentLifecycle/agentLifecycle';
+import { labelsFromAgentMeta } from '#/session/agentLifecycle/subagentMetadata';
+import { createHooks } from '#/hooks';
+import {
+  type AgentRunHandle,
+  type AgentTaskHooks,
+  ISessionSubagentService,
+} from '#/session/subagent/subagent';
+import {
+  type SpawnSubagentOptions,
+  type SubagentSpawnPlanInput,
+} from '#/session/subagent/spawn';
+import {
+  ISessionMetadata,
+  type AgentMeta,
+  type SessionMetadataChangedEvent,
+} from '#/session/sessionMetadata/sessionMetadata';
+import { IEventDispatcher } from '#/state/eventDispatcher';
+import { IAgentEnvironmentBindingService } from '#/agent/environmentBinding/environmentBinding';
 import {
   AgentRunBatch,
   resolveSwarmMaxConcurrency,
@@ -2193,13 +2214,13 @@ function agentHandle(
         const service = services.get(serviceId);
         if (service !== undefined) return service;
         if (serviceId === IAgentProfileService) return profile;
-        if (serviceId === IAgentRuntimeBindingService) {
+        if (serviceId === IAgentEnvironmentBindingService) {
           return {
             _serviceBrand: undefined,
-            current: { workspaceId: 'w1', runtimeId: 'local' },
+            current: { environmentId: 'local' },
             switch: () => {},
             onDidChange: Event.None,
-          } as unknown as IAgentRuntimeBindingService;
+          } as unknown as IAgentEnvironmentBindingService;
         }
         if (serviceId === IAgentPermissionModeService) return permissionMode;
         if (serviceId === IAgentLoopService) {

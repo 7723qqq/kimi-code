@@ -35,8 +35,7 @@ export interface HostEnvironmentInfo {
   readonly homeDir: string;
   readonly cwd?: string;
   readonly tempDir?: string;
-  readonly jsRuntimes?: ReadonlyArray<JsRuntimeInfo>;
-}
+  readonly jsRuntimes?: ReadonlyArray<JsRuntimeInfo>;}
 
 export interface HostEnvironmentProbeDeps {
   readonly platform: string;

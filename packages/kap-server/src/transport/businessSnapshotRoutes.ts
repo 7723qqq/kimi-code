@@ -2,7 +2,7 @@ import type { Scope } from '@moonshot-ai/agent-core-v2';
 
 import { okEnvelope } from '../protocol/envelope';
 import {
-  agentRuntimeBindingSnapshot,
+  agentEnvironmentBindingSnapshot,
   sessionWorkspaceAssociation,
   workspaceSnapshot,
   workspaceSnapshots,
@@ -42,18 +42,16 @@ export function registerBusinessSnapshotRoutes(
       reply,
       () => sessionWorkspaceAssociation(core, requestParams(req)['session_id'] ?? ''),
       callTimeoutMs,
-    ),
-  );
-  app.get(`${basePath}/session/:session_id/agent/:agent_id/runtime-binding`, async (req, reply) =>
+    ));
+  app.get(`${basePath}/session/:session_id/agent/:agent_id/environment-binding`, async (req, reply) =>
     sendSnapshot(
       req,
       reply,
-      () =>
-        agentRuntimeBindingSnapshot(
-          core,
-          requestParams(req)['session_id'] ?? '',
-          requestParams(req)['agent_id'] ?? '',
-        ),
+      () => agentEnvironmentBindingSnapshot(
+        core,
+        requestParams(req)['session_id'] ?? '',
+        requestParams(req)['agent_id'] ?? '',
+      ),
       callTimeoutMs,
     ),
   );

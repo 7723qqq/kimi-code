@@ -16,7 +16,7 @@ import type { ToolDescription as KosongTool } from '#human/llm/message';
 interface McpToolOptions {
   readonly serverName?: string;
   readonly attachmentStore?: McpOutputOptions['attachmentStore'];
-  readonly originalsDir?: string;
+  readonly originals?: () => McpOutputOptions['originals'];
   readonly telemetry?: ITelemetryService;
   readonly providerType?: () => string | undefined;
   readonly reconnect?: (signal?: AbortSignal) => Promise<MCPClient | undefined>;
@@ -65,7 +65,7 @@ export function createMcpTool(
         return mcpResultToExecutableOutput(result, qualifiedName, {
           signal: context.signal,
           attachmentStore: options.attachmentStore,
-          originalsDir: options.originalsDir,
+          originals: options.originals?.(),
           telemetry: options.telemetry,
           providerType: options.providerType?.(),
         });

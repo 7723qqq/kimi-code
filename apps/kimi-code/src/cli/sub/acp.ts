@@ -40,6 +40,24 @@ export function registerAcpCommand(parent: Command): void {
     .option('--login', t('cli.optionDescriptions.acpLogin'), false)
     .option('--region <region>', t('cli.optionDescriptions.acpRegion'))
     .action(async (opts: { login?: boolean; region?: string }) => {
+      // The root program accepts `--environment <id>` (commands.ts), so
+      // `kimi --environment <id> acp` parses cleanly — but ACP sessions are
+      // bound to the ACP client's own environment (the reverse-RPC fs/terminal
+      // bridge), never to a configured [environments] entry. Reject loudly
+      // instead of silently dropping the flag.
+      const rootOptions = parent.opts<{ environment?: string; environmentCwd?: string }>();
+      if (rootOptions.environment !== undefined) {
+        process.stderr.write(
+          `error: Cannot use --environment with 'acp': ACP sessions run in the ACP client's own environment.\n`,
+        );
+        process.exit(1);
+      }
+      if (rootOptions.environmentCwd !== undefined) {
+        process.stderr.write(
+          `error: Cannot use --environment-cwd with 'acp': ACP sessions run in the ACP client's own environment.\n`,
+        );
+        process.exit(1);
+      }
       if (opts.login === true) {
         await runLoginFlow({
           region: opts.region === undefined ? undefined : parseRegionFlag(opts.region),

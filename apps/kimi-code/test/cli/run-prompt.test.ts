@@ -41,6 +41,7 @@ function opts(overrides: Partial<Parameters<typeof runPrompt>[0]> = {}) {
     skillsDirs: [],
     agent: undefined,
     agentFiles: [],
+    environment: undefined,
     addDirs: [],
     ...overrides,
   };

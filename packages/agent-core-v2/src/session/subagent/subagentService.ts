@@ -13,15 +13,23 @@ import {
   subagentTypeNotAllowedMessage,
   withoutDelegatingTargets,
 } from '#/app/agentProfileCatalog/profile-shared';
-import { applyProfilePromptPrefix } from '#/app/agentProfileCatalog/promptPrefix';
+import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { IAgentUserToolService } from '#/agent/userTool/userTool';
+import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
+import { IAgentEnvironmentBindingService } from '#/agent/environmentBinding/environmentBinding';
+import type { Environment } from '#/environment/environment';
 import { IConfigService } from '#/app/config/config';
 import { LifecycleScope } from '#/app/scopes';
 import { Error2, ErrorCodes } from '#/errors';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { createHooks } from '#/hooks';
 import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
-import type { Runtime } from '#/runtime/runtime';
-import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
+import { ILogService } from '#/_base/log/log';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { EnvironmentWorkspaceView } from '#/environment/environmentWorkspaceView';
+import { createHooks } from '#/hooks';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import {
   assertSubagentDepthAllowed,
@@ -157,9 +165,10 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
     const depth = assertSubagentDepthAllowed(parentMeta);
     const labels = { ...opts.labels, ...subagentLabels(opts.callerAgentId, { depth }) };
     const { plan } = opts;
+    const callerBinding = caller.accessor.get(IAgentEnvironmentBindingService).current;
     const lease = plan.fork
       ? undefined
-      : caller.accessor.get(IAgentRuntimeService).acquire(['process']);
+      : await caller.accessor.get(IAgentEnvironmentService).acquireWhenReady(['process']);
     try {
       let created: IAgentScopeHandle;
       try {
@@ -178,8 +187,9 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
               model: plan.model,
               thinking: plan.thinking,
             },
-            labels,
-            runtimeId: lease!.runtime.identity.runtimeId,
+            labels: opts.labels,
+            environmentId: callerBinding.environmentId,
+            environmentCwd: callerBinding.cwd,
           });
           created = this.agentLifecycle.handleOf(createdContext.agentId)!;
         }
@@ -203,7 +213,7 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
       }
       const promptText = plan.fork
         ? opts.prompt
-        : await this.applyPromptPrefix(plan.profileName, opts.prompt, lease!.runtime);
+        : await this.applyPromptPrefix(plan.profileName, opts.prompt, lease!.environment, callerBinding.cwd);
       return {
         agentId: created.id,
         profileName: plan.profileName,
@@ -223,16 +233,17 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
   private async applyPromptPrefix(
     profileName: string,
     prompt: string,
-    runtime: Runtime,
+    environment: Environment,
+    cwd: string | undefined,
   ): Promise<string> {
     const profile = this.catalog.get(profileName);
     if (profile?.promptPrefix === undefined) return prompt;
-    const view = new RuntimeWorkspaceView(runtime, {
-      workDir: this.sessionContext.cwd,
+    const view = new EnvironmentWorkspaceView(environment, {
+      workDir: cwd ?? this.sessionContext.cwd,
     });
     return applyProfilePromptPrefix(profile, prompt, {
       cwd: view.workDir,
-      process: runtime.process!,
+      process: environment.process!,
       log: this.log,
     });
   }

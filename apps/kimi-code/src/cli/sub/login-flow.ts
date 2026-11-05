@@ -11,7 +11,7 @@ import type {
   ManagedKimiConfigShape,
 } from '@moonshot-ai/kimi-code-oauth';
 
-import { t } from '#/i18n';
+import { createKimiCodeHostIdentity } from '#/cli/host-identity';
 import { openUrl } from '#/utils/open-url';
 
 // The OAuth toolkit and the SDK harness pull the zod/engine stack; both load

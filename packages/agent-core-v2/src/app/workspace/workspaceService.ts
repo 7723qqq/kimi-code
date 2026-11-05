@@ -60,6 +60,71 @@ export class WorkspaceService implements IWorkspaceService {
     });
   }
 
+  createOrTouch(root: string, name?: string): Promise<Workspace> {
+    return this.runExclusive(async () => {
+      let stat;
+      try {
+        stat = await this.hostFs.stat(root);
+      } catch {
+        stat = undefined;
+      }
+      if (stat !== undefined && !stat.isDirectory) {
+        try {
+          stat = await this.hostFs.stat(await this.hostFs.realpath(root));
+        } catch {
+          stat = undefined;
+        }
+      }
+      if (stat !== undefined && !stat.isDirectory) {
+        throw new Error2(ErrorCodes.FS_PATH_NOT_FOUND, `workspace root ${root} is not a directory`);
+      }
+      await this.ensureMerged();
+      let ws!: Workspace;
+      let existing: Workspace | undefined;
+      await this.store.update((catalog) => {
+        const byId = new Map(catalog.workspaces.map((entry) => [entry.id, entry]));
+        const deletedIds = new Set(catalog.deletedIds);
+        const id = encodeWorkDirKey(root);
+        existing = byId.get(id);
+        if (existing === undefined) {
+          const rootKey = workspaceRootKey(root);
+          for (const entry of byId.values()) {
+            if (isWorkDirKey(entry.id) && workspaceRootKey(entry.root) === rootKey) {
+              existing = entry;
+              break;
+            }
+          }
+        }
+        const now = Date.now();
+        ws =
+          existing !== undefined
+            ? { ...existing, lastOpenedAt: now }
+            : {
+                id,
+                root,
+                name: name ?? basename(root),
+                kind: 'implicit',
+                additionalDirs: [],
+                createdAt: now,
+                lastOpenedAt: now,
+              };
+        byId.set(ws.id, ws);
+        deletedIds.delete(ws.id);
+        return {
+          workspaces: [...byId.values()],
+          deletedIds: [...deletedIds],
+          idempotencyKeys: catalog.idempotencyKeys,
+        };
+      });
+      this.event.publish(
+        existing === undefined
+          ? new WorkspaceCreated({ payload: { workspace: ws } })
+          : new WorkspaceUpdated({ payload: { workspace: ws } }),
+      );
+      return ws;
+    });
+  }
+
   create(input: WorkspaceCreate): Promise<Workspace> {
     return this.runExclusive(async () => {
       await this.requireDirectory(input.root);

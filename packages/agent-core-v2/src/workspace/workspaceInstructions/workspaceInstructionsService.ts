@@ -46,11 +46,13 @@ export class WorkspaceInstructionsService
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @ILogService private readonly log: ILogService,
     @IWorkspaceStateService private readonly states: IWorkspaceStateService,
+    private readonly personalFs?: IHostFileSystem,
+    private readonly watchEnabled = true,
   ) {
     super();
     this.states.contributeState(workspaceInstructionsCurrentKey);
     this.ready = this.reload();
-    void this.watchCandidateFiles();
+    if (this.watchEnabled) void this.watchCandidateFiles();
   }
 
   private get current(): WorkspaceInstructionsSnapshot {
@@ -66,31 +68,30 @@ export class WorkspaceInstructionsService
   }
 
   reload(): Promise<void> {
-    const tail = this.reloadTail
-      .catch(() => undefined)
-      .then(async () => {
-        const result = await loadAgentsMdForRoots(
-          { fs: this.fs, homeDir: this.env.homeDir },
-          this.bootstrap.homeDir,
-          [this.workspace.cwd],
-        );
-        const next: WorkspaceInstructionsSnapshot = {
-          agentsMd: result.content,
-          agentsMdWarning: result.warning,
-          agentsMdPaths: result.paths,
-        };
-        const changed =
-          next.agentsMd !== this.current.agentsMd ||
-          next.agentsMdWarning !== this.current.agentsMdWarning;
-        this.current = next;
-        const changes = [...this.pendingChanges.values()];
-        this.pendingChanges.clear();
-        const loaded = this.loaded;
-        this.loaded = true;
-        if (changed && loaded) {
-          this.onDidChangeEmitter.fire(changes);
-        }
-      });
+    const tail = this.reloadTail.catch(() => undefined).then(async () => {
+      const result = await loadAgentsMdForRoots(
+        { fs: this.fs, homeDir: this.env.homeDir },
+        this.bootstrap.homeDir,
+        [this.workspace.cwd],
+        this.personalFs,
+      );
+      const next: WorkspaceInstructionsSnapshot = {
+        agentsMd: result.content,
+        agentsMdWarning: result.warning,
+        agentsMdPaths: result.paths,
+      };
+      const changed =
+        next.agentsMd !== this.current.agentsMd ||
+        next.agentsMdWarning !== this.current.agentsMdWarning;
+      this.current = next;
+      const changes = [...this.pendingChanges.values()];
+      this.pendingChanges.clear();
+      const loaded = this.loaded;
+      this.loaded = true;
+      if (changed && loaded) {
+        this.onDidChangeEmitter.fire(changes);
+      }
+    });
     this.reloadTail = tail;
     return tail;
   }

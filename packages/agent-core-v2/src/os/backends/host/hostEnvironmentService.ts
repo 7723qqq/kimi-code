@@ -1,5 +1,4 @@
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { BugIndicatingError } from '#/_base/errors/errors';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';import { BugIndicatingError } from '#/_base/errors/errors';
 import {
   probeHostEnvironmentFromNode,
   ProbeShellNotFoundError,
@@ -94,11 +93,3 @@ export class HostEnvironmentService implements IHostEnvironment {
     return this.require('jsRuntimes') as ReadonlyArray<JsRuntimeInfo> | undefined;
   }
 }
-
-registerScopedService(
-  LifecycleScope.App,
-  IHostEnvironment,
-  HostEnvironmentService,
-  ScopeActivation.OnScopeCreated,
-  'hostEnvironment',
-);

@@ -23,8 +23,7 @@ import {
   resolveKimiRegionFresh,
 } from '#/utils/region';
 
-import type { PromptHarness } from './prompt-session';
-import { createKimiCodeHostIdentity } from './version';
+import { createKimiCodeHostIdentity } from './host-identity';
 
 export interface CliTelemetryBootstrap {
   readonly homeDir: string;

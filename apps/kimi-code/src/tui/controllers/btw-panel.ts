@@ -14,9 +14,8 @@ import { formatHookResultPlain } from '../utils/hook-result-format';
 import type { ImageAttachmentStore } from '../utils/image-attachment-store';
 import {
   extractMediaAttachments,
-  originalsDirForSession,
   pendingMediaIngestions,
-  resolveOriginalCaptions,
+  resolveSessionOriginalCaptions,
   type ExtractionResult,
 } from '../utils/image-placeholder';
 import type { StagingLease, StagingLeaseTracker } from './staging-leases';
@@ -247,13 +246,16 @@ export class BtwPanelController {
       }
       prepared = this.host.prepareSkillActivations(activations);
       const input = extraction.hasMedia
-        ? resolveOriginalCaptions(
-            extraction.parts,
-            extraction.imageAttachmentIds,
-            this.imageStore,
-            originalsDirForSession(session),
+        ? await resolveSessionOriginalCaptions(
+            extraction.parts, extraction.imageAttachmentIds, this.imageStore,
+            session,
           )
         : prompt;
+      if (this.cancelledAgentIds.delete(agentId)) {
+        panel.markFailed('Interrupted by user');
+        return;
+      }
+      if (this.host.session !== session || this.panelsByAgentId.get(agentId) !== panel || !panel.isRunning()) return;
       lease = this.staging.create(
         [
           ...new Set([...extraction.imageAttachmentIds, ...extraction.videoAttachmentIds]),
@@ -267,7 +269,7 @@ export class BtwPanelController {
       const request = session.promptWithSkills(input, prepared.skills);
       this.staging.trackDispatch(lease, request, () => {});
       await request;
-    } catch (error) {
+    } finally {
       if (lease === undefined) {
         if (prepared !== undefined) this.host.releaseSkillArgumentMedia(prepared);
         if (extraction !== undefined) {
@@ -277,7 +279,6 @@ export class BtwPanelController {
           );
         }
       }
-      throw error;
     }
   }
 

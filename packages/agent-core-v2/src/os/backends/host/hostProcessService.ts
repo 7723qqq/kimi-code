@@ -1,12 +1,11 @@
-import { statSync } from 'node:fs';
-import { join } from 'node:path';
-import { Readable, Writable } from 'node:stream';
+import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
+import { stat } from 'node:fs/promises';
+import type { Readable, Writable } from 'node:stream';
 
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { BufferedReadable } from '#/_base/execEnv/bufferedReadable';
 import { LifecycleScope } from '#/app/scopes';
-import { HostTimersService } from '#/os/backends/host/hostTimersService';
-import {
+import { HostTimersService } from '#/os/backends/host/hostTimersService';import {
   HostProcessError,
   HostProcessErrorCode,
   IHostProcessService,
@@ -304,6 +303,18 @@ export class HostProcessService implements IHostProcessService {
     args: readonly string[] = [],
     options: HostProcessOptions = {},
   ): Promise<IHostProcess> {
+    if (options.cwd !== undefined) {
+      const cwdStat = await stat(options.cwd).catch(() => undefined);
+      if (cwdStat === undefined || !cwdStat.isDirectory()) {
+        throw new HostProcessError(
+          HostProcessErrorCode.SpawnFailed,
+          `Failed to spawn "${command}": cwd ${options.cwd} does not exist or is not a directory`,
+          {
+            details: { command, args: [...args], cwd: options.cwd },
+          },
+        );
+      }
+    }
     const spawnOptions = buildSpawnOptions(options);
     const resolved = resolveWindowsSpawn(command, args, spawnOptions, options.shell);
     let proc: Bun.Subprocess<'pipe', 'pipe', 'pipe'>;
@@ -329,11 +340,3 @@ export class HostProcessService implements IHostProcessService {
     return new HostProcess(proc, options.mergeStderr ?? false, this.timers);
   }
 }
-
-registerScopedService(
-  LifecycleScope.App,
-  IHostProcessService,
-  HostProcessService,
-  ScopeActivation.OnScopeCreated,
-  'hostProcess',
-);

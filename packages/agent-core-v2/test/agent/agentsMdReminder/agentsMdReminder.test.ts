@@ -7,26 +7,7 @@ import { join, normalize, basename, dirname } from 'pathe';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { Emitter } from '#/_base/event';
-import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminder';
-import { AgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminderService';
-import { extractBashTargetDirs } from '#/agent/agentsMdReminder/bashTargets';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import { profileKey } from '#/agent/profile/profileOps';
-import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentStateService } from '#/agent/state/agentState';
-import { AgentStateService } from '#/agent/state/agentStateService';
-import { IAgentToolDedupeService } from '#/agent/toolDedupe/toolDedupe';
-import { AgentToolDedupeService } from '#/agent/toolDedupe/toolDedupeService';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { AgentToolExecutorService } from '#/agent/toolExecutor/toolExecutorService';
-import type { ToolDidExecuteContext } from '#/agent/toolExecutor/toolHooks';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
-import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
-import { ToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncationService';
+import { ILogService } from '#/_base/log/log';
 import { IBashParserService } from '#/app/bashParser/bashParser';
 import { BashParserService } from '#/app/bashParser/bashParserService';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
@@ -37,8 +18,10 @@ import { OrderedHookSlot } from '#/hooks';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem, type HostFileStat } from '#/os/interface/hostFileSystem';
-import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import type { RuntimeLease } from '#/runtime/runtime';
+import type { Environment } from '#/environment/environment';
+import { EnvironmentError } from '#/environment/environmentRegistry';
+import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
+import { stubAgentEnvironment } from '../../environment/stubs';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
 import { IEventDispatcher } from '#/state/eventDispatcher';
@@ -49,13 +32,37 @@ import type {
   ExecutableToolResult,
   ToolExecution,
 } from '#/tool/toolContract';
-import type { ToolCall } from '#human/llm/message';
-import type { WatchChange } from '#human/utils/watch';
-
-import { registerLogServices } from '../../_base/log/stubs';
-import { SYMLINKS } from '../../_support/symlinkSupport';
-import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { AgentToolExecutorService } from '#/agent/toolExecutor/toolExecutorService';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
+import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
+import { ToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncationService';
+import { IEventBus } from '#/app/event/eventBus';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { IAgentStateService } from '#/agent/state/agentState';
+import { profileKey } from '#/agent/profile/profileOps';
+import { AgentStateService } from '#/agent/state/agentStateService';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentToolDedupeService } from '#/agent/toolDedupe/toolDedupe';
+import { AgentToolDedupeService } from '#/agent/toolDedupe/toolDedupeService';
+import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { createReminderHarness } from '../../features/reminder/stubs';
+import { OrderedHookSlot } from '#/hooks';
+import { IEventDispatcher } from '#/state/eventDispatcher';
+import type { ToolDidExecuteContext } from '#/agent/toolExecutor/toolHooks';
+import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminder';
+import { AgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminderService';
+import { extractBashTargetDirs } from '#/agent/agentsMdReminder/bashTargets';
+import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
+import { stubToolExecutorEvents, type ToolExecutorEventStubs } from '../toolExecutor/stubs';
+import { runWillBeginStepHooks, stubLoopWithHooks, type StubLoop } from '../loop/stubs';
+import { stubContextMemory, type StubContextMemory } from '../contextMemory/stubs';
+import { stubLog } from '../../_base/log/stubs';
 import { stubAgentContext } from '../agentContext/stubs';
 import { stubContextMemory, type StubContextMemory } from '../contextMemory/stubs';
 import { runWillBeginStepHooks, stubLoopWithHooks, type StubLoop } from '../loop/stubs';
@@ -104,6 +111,9 @@ function createHarness(
     readonly cwd?: string;
     readonly hostFs?: IHostFileSystem;
     readonly pathClass?: 'posix' | 'win32';
+    readonly environmentWorkDir?: string;
+    readonly acquireError?: Error;
+    readonly log?: ILogService;
     readonly restoredProfile?: {
       readonly systemPrompt: string;
       readonly agentsMdPaths?: readonly string[];
@@ -131,10 +141,10 @@ function createHarness(
           write: async () => {},
         });
         reg.define(IAgentToolResultTruncationService, ToolResultTruncationService);
-        registerLogServices(reg);
       } else {
         reg.defineInstance(IAgentToolExecutorService, events.executor);
       }
+      reg.defineInstance(ILogService, options.log ?? stubLog());
       reg.defineInstance(IAgentScopeContext, {
         _serviceBrand: undefined,
         agentId: 'main',
@@ -196,39 +206,39 @@ function createHarness(
       } as unknown as IHostEnvironment;
       reg.defineInstance(IHostFileSystem, hostFs);
       reg.defineInstance(IHostEnvironment, hostEnvironment);
-      reg.defineInstance(IAgentRuntimeService, {
-        _serviceBrand: undefined,
-        onDidChange: () => ({ dispose: () => {} }),
-        isAvailable: () => true,
-        inspect() {
-          return this.acquire().runtime;
+      const environment = {
+        identity: { environmentId: 'local', generation: 'test' },
+        capabilities: new Set(['fs', 'process']),
+        host: hostEnvironment,
+        path: {
+          separator: options.pathClass === 'win32' ? '\\' : '/',
+          delimiter: options.pathClass === 'win32' ? ';' : ':',
+          isAbsolute: (path: string) => path.startsWith('/') || /^[A-Za-z]:[\\\\]/.test(path),
+          join,
+          relative: (from: string, to: string) => normalize(to).replace(`${normalize(from)}/`, ''),
+          resolve: (...paths: readonly string[]) => normalize(join(...paths)),
+          basename: (path: string) => basename(path),
+          dirname: (path: string) => dirname(path),
         },
-        acquire: (): RuntimeLease => ({
-          runtime: {
-            identity: { workspaceId: 'workspace-1', runtimeId: 'local', generation: 'test' },
-            capabilities: new Set(['fs', 'process']),
-            environment: hostEnvironment,
-            path: {
-              separator: options.pathClass === 'win32' ? '\\' : '/',
-              delimiter: options.pathClass === 'win32' ? ';' : ':',
-              isAbsolute: (path: string) => path.startsWith('/') || /^[A-Za-z]:[\\\\]/.test(path),
-              join,
-              relative: (from: string, to: string) =>
-                normalize(to).replace(`${normalize(from)}/`, ''),
-              resolve: (...paths: readonly string[]) => normalize(join(...paths)),
-              basename: (path: string) => basename(path),
-              dirname: (path: string) => dirname(path),
-            },
-            workspace: { mapRoots: (roots) => roots },
-            fs: hostFs,
-            status: 'ready',
-            onDidChangeStatus: () => ({ dispose: () => {} }),
-            dispose: () => {},
-          },
-          track: (resource) => resource,
-          dispose: () => {},
-        }),
-      } satisfies IAgentRuntimeService);
+        workspace: { mapRoots: (roots: { workDir: string; additionalDirs?: readonly string[] }) => roots },
+        fs: hostFs,
+        status: 'ready',
+        onDidChangeStatus: () => ({ dispose: () => {} }),
+        dispose: () => {},
+      } as unknown as Environment;
+      const agentEnvironment = stubAgentEnvironment(environment, {
+        workDir: options.environmentWorkDir ?? options.cwd ?? workDir,
+      });
+      if (options.acquireError !== undefined) {
+        const failure = options.acquireError;
+        agentEnvironment.acquire = () => {
+          throw failure;
+        };
+        agentEnvironment.acquireWhenReady = async () => {
+          throw failure;
+        };
+      }
+      reg.defineInstance(IAgentEnvironmentService, agentEnvironment);
       reg.defineInstance(IBashParserService, new BashParserService());
       reg.defineInstance(
         ITelemetryService,
@@ -1486,6 +1496,68 @@ describe('agentsMdReminder Windows Bash paths', () => {
       expect(reminderText(h)).toContain(agentsMdPath);
     }
   });
+});
+
+describe('agentsMdReminder remote environment binding', () => {
+  const sessionCwd = '/Users/local/Projects/kimi-code';
+  const remoteWorkDir = '/remote/work';
+  const remoteSubDir = `${remoteWorkDir}/packages/kap-server`;
+  const remoteAgentsMd = `${remoteSubDir}/AGENTS.md`;
+
+  function remoteProbeFs(): IHostFileSystem {
+    const directory: HostFileStat = {
+      isFile: false,
+      isDirectory: true,
+      size: 0,
+    };
+    const stat = vi.fn(async (path: string): Promise<HostFileStat> => {
+      if (path === remoteSubDir || path === `${remoteWorkDir}/.git`) return directory;
+      throw new Error(`missing: ${path}`);
+    });
+    const readText = vi.fn(async (path: string): Promise<string> => {
+      if (path === remoteAgentsMd) return 'remote instructions';
+      throw new Error(`missing: ${path}`);
+    });
+    return { stat, readText } as unknown as IHostFileSystem;
+  }
+
+  function remoteHarness(): Harness {
+    const h = createHarness({
+      cwd: sessionCwd,
+      hostFs: remoteProbeFs(),
+      environmentWorkDir: remoteWorkDir,
+    });
+    h.reminder.seedInjected([], remoteWorkDir);
+    return h;
+  }
+
+  it('reminds for a relative Bash target resolved against the bound environment workDir', async () => {
+    const h = remoteHarness();
+
+    const result = await fire(h, didCtx('Bash', { command: 'ls packages/kap-server' }));
+
+    expect(outputText(result)).toBe('original result');
+    expect(reminderText(h)).toContain(remoteAgentsMd);
+  });
+
+});
+
+describe('agentsMdReminder environment degradation', () => {
+  it('skips the reminder without escaping when the seeded environment is disconnected', async () => {
+    const h = createHarness({
+      acquireError: new EnvironmentError('environment.unavailable', 'environment remote is disconnected'),
+    });
+    const dir = join(workDir, 'pkg');
+    await writeAgentsMd(dir, 'pkg instructions');
+    h.reminder.seedInjected([], workDir);
+
+    const result = await fire(h, didCtx('Read', { path: join(dir, 'index.ts') }));
+
+    expect(outputText(result)).toBe('original result');
+    expect(agentsMdMessages(h)).toHaveLength(0);
+    expect(h.reminders).toHaveLength(0);
+  });
+
 });
 
 describe('extractBashTargetDirs', () => {

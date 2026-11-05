@@ -23,6 +23,7 @@ export {
 export { MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE } from '@moonshot-ai/agent-core-v2/tool/toolContract';
 
 export type { AgentStatusUpdatedEvent } from '@moonshot-ai/agent-core-v2/agent/usage/usageEvents';
+export type { EnvironmentStatusChangedEvent } from '@moonshot-ai/agent-core-v2/agent/environmentBinding/environmentEvents';
 export type { SessionMetaUpdatedEvent } from '@moonshot-ai/agent-core-v2/session/sessionMetadata/sessionMetaEvents';
 export type { GoalUpdatedEvent } from '@moonshot-ai/agent-core-v2';
 export type { TodoUpdatedEvent } from '@moonshot-ai/agent-core-v2';

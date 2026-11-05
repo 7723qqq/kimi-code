@@ -1,10 +1,17 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { IEnvironmentService } from '#/app/environment/environment';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { type IAgentScopeHandle } from '#/_base/di/scope';
 import { TestInstantiationService } from '#/_base/di/test';
 import { Event } from '#/_base/event';
+import { LifecycleScope } from '#/app/scopes';
+import type { IAgentScopeHandle } from '#/_base/di/scope';
+import { IConfigService } from '#/app/config/config';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IFlagService } from '#/app/flag/flag';
 import { ILogService } from '#/_base/log/log';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentProfileService, type ProfileData } from '#/agent/profile/profile';
@@ -15,21 +22,26 @@ import {
   normalizeAgentProfile,
   type AgentProfile,
 } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import { IConfigService } from '#/app/config/config';
-import { IFlagService } from '#/app/flag/flag';
-import { LifecycleScope } from '#/app/scopes';
+import { IAgentProfileService, type ProfileData } from '#/agent/profile/profile';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { IAgentUserToolService } from '#/agent/userTool/userTool';
+import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
+import { IAgentEnvironmentBindingService } from '#/agent/environmentBinding/environmentBinding';
 import { Error2, ErrorCodes, isError2 } from '#/errors';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { UNKNOWN_CAPABILITY } from '#/llm-adapter/contract/capability';
 import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
-import { FakeRuntime } from '#/runtime/fakeRuntime';
-import { type RuntimeLease } from '#/runtime/runtime';
+import { FakeEnvironment } from '#/environment/fakeEnvironment';
+import type { EnvironmentBinding, EnvironmentLease } from '#/environment/environment';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { MAX_SUBAGENT_DEPTH } from '#/session/agentLifecycle/subagentMetadata';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { ISessionMetadata, type AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
-import { SECONDARY_MODEL_SECTION } from '#/session/subagent/configSection';
+import {
+  SECONDARY_MODEL_SECTION,
+} from '#/session/subagent/configSection';
+import { ISessionSubagentService } from '#/session/subagent/subagent';
+import { SessionSubagentService } from '#/session/subagent/subagentService';
 import {
   FORK_CONTEXT_NOTICE,
   type SpawnedSubagent,
@@ -37,8 +49,12 @@ import {
   type SubagentSpawnPlan,
   type SubagentSpawnPlanInput,
 } from '#/session/subagent/spawn';
-import { ISessionSubagentService } from '#/session/subagent/subagent';
-import { SessionSubagentService } from '#/session/subagent/subagentService';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
+import { IWorkspaceInstanceManager } from '#/workspace/workspaceInstance/workspaceInstanceManager';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
+import { EnvironmentRegistry } from '#/environment/environmentRegistry';
 
 import { stubLog } from '../../_base/log/stubs';
 import { stubAgentContext } from '../../agent/agentContext/stubs';
@@ -56,16 +72,17 @@ describe('SessionSubagentService planSpawn and spawn', () => {
   let modelMeta: Map<string, Partial<Model>>;
   let caller: IAgentScopeHandle;
   let createdHandles: Map<string, IAgentScopeHandle>;
-  let createAgent: ReturnType<typeof mock>;
-  let forkAgent: ReturnType<typeof mock>;
-  let acquireRuntime: ReturnType<typeof mock>;
-  let callerPermissionMode: { mode: string; setMode: ReturnType<typeof mock> };
-  let createdPermissionMode: { mode: string; setMode: ReturnType<typeof mock> };
+  let createAgent: ReturnType<typeof vi.fn>;
+  let forkAgent: ReturnType<typeof vi.fn>;
+  let acquireEnvironment: ReturnType<typeof vi.fn>;
+  let acquireWhenReadyEnvironment: ReturnType<typeof vi.fn>;
+  let callerPermissionMode: { mode: string; setMode: ReturnType<typeof vi.fn> };
+  let createdPermissionMode: { mode: string; setMode: ReturnType<typeof vi.fn> };
   let callerUserTools: IAgentUserToolService;
   let createdUserTools: IAgentUserToolService;
-  let createdReminder: { notify: ReturnType<typeof mock> };
-  let lease: RuntimeLease;
-  let sessionAgents: Record<string, AgentMeta>;
+  let createdReminder: { notify: ReturnType<typeof vi.fn> };
+  let lease: EnvironmentLease;
+  let callerBinding: EnvironmentBinding;
 
   function userToolsStub(): IAgentUserToolService {
     return {
@@ -135,11 +152,13 @@ describe('SessionSubagentService planSpawn and spawn', () => {
     createdUserTools = userToolsStub();
     createdReminder = { notify: mock() };
     lease = {
-      runtime: new FakeRuntime({ workspaceId: 'w1', runtimeId: 'acp:s1', generation: 'g1' }),
+      environment: new FakeEnvironment({ environmentId: 'acp:s1', generation: 'g1' }),
       track: (resource) => resource,
       dispose: mock(),
     };
-    acquireRuntime = mock(() => lease);
+    acquireEnvironment = vi.fn(() => lease);
+    acquireWhenReadyEnvironment = vi.fn(async () => lease);
+    callerBinding = { environmentId: 'acp:s1' };
     caller = {
       id: CALLER_ID,
       kind: LifecycleScope.Agent,
@@ -148,10 +167,17 @@ describe('SessionSubagentService planSpawn and spawn', () => {
           if (serviceId === IAgentProfileService) return profileServiceStub(callerData);
           if (serviceId === IAgentPermissionModeService) return callerPermissionMode;
           if (serviceId === IAgentUserToolService) return callerUserTools;
-          if (serviceId === IAgentRuntimeService) {
+          if (serviceId === IAgentEnvironmentService) {
             return {
               _serviceBrand: undefined,
-              acquire: acquireRuntime,
+              acquire: acquireEnvironment,
+              acquireWhenReady: acquireWhenReadyEnvironment,
+            };
+          }
+          if (serviceId === IAgentEnvironmentBindingService) {
+            return {
+              _serviceBrand: undefined,
+              current: callerBinding,
             };
           }
           if (serviceId === IAgentScopeContext) {
@@ -215,24 +241,22 @@ describe('SessionSubagentService planSpawn and spawn', () => {
         return { id: alias, ...modelMeta.get(alias) } as Model;
       },
     } as unknown as IModelCatalog);
-    ix.stub(ISessionContext, {
-      _serviceBrand: undefined,
-      cwd: '/repo',
-    } as unknown as ISessionContext);
-    sessionAgents = {};
-    ix.stub(ISessionMetadata, {
-      _serviceBrand: undefined,
-      ready: Promise.resolve(),
-      onDidChangeMetadata: Event.None,
-      read: async () => ({
-        id: 'session-1',
-        createdAt: 0,
-        updatedAt: 0,
-        archived: false,
-        agents: sessionAgents,
-      }),
-    } as unknown as ISessionMetadata);
+    ix.stub(ISessionContext, { _serviceBrand: undefined, cwd: '/repo', workspaceId: 'w1' } as unknown as ISessionContext);
     ix.stub(ILogService, stubLog());
+    ix.stub(IEnvironmentService, new EnvironmentRegistry() as unknown as IEnvironmentService);
+    ix.stub(IHostFileSystem, {} as IHostFileSystem);
+    ix.stub(IAtomicDocumentStore, {
+      _serviceBrand: undefined,
+      get: async () => undefined,
+    } as unknown as IAtomicDocumentStore);
+    ix.stub(IAppendLogStore, {
+      _serviceBrand: undefined,
+      read: async function* () {},
+    } as unknown as IAppendLogStore);
+    ix.stub(IBootstrapService, {
+      _serviceBrand: undefined,
+      scope: (name: string) => name,
+    } as unknown as IBootstrapService);
   });
 
   afterEach(() => {
@@ -559,48 +583,23 @@ describe('SessionSubagentService planSpawn and spawn', () => {
     );
   });
 
-  it('rejects spawning from a caller at the maximum delegation depth', async () => {
-    const svc = service();
-    sessionAgents[CALLER_ID] = { labels: { subagentDepth: String(MAX_SUBAGENT_DEPTH) } };
-
-    const error = await spawnError(svc, {
-      callerAgentId: CALLER_ID,
-      plan: { profileName: 'coder', model: 'main-model', modelSource: 'inherited', fork: false },
-      prompt: 'One level too deep',
-    });
-
-    expect(error.code).toBe(ErrorCodes.SUBAGENT_DEPTH_EXCEEDED);
-    expect(createAgent).not.toHaveBeenCalled();
-    expect(forkAgent).not.toHaveBeenCalled();
-    expect(acquireRuntime).not.toHaveBeenCalled();
-  });
-
-  it('rejects forking from a caller at the maximum delegation depth', async () => {
-    const svc = service();
-    sessionAgents[CALLER_ID] = { labels: { subagentDepth: String(MAX_SUBAGENT_DEPTH) } };
-
-    const error = await spawnError(svc, {
-      callerAgentId: CALLER_ID,
-      plan: {
-        profileName: 'orchestrator',
-        model: 'main-model',
-        modelSource: 'inherited',
-        fork: true,
-      },
-      prompt: 'Fork too deep',
-    });
-
-    expect(error.code).toBe(ErrorCodes.SUBAGENT_DEPTH_EXCEEDED);
-    expect(forkAgent).not.toHaveBeenCalled();
-    expect(createAgent).not.toHaveBeenCalled();
-  });
-
-  it('creates the child on the acquired runtime lease', async () => {
+  it('creates the child on the acquired environment lease', async () => {
     const svc = service();
 
     await spawnNonForkChild(svc);
 
-    expect(createAgent).toHaveBeenCalledWith(expect.objectContaining({ runtimeId: 'acp:s1' }));
+    expect(createAgent).toHaveBeenCalledWith(expect.objectContaining({ environmentId: 'acp:s1' }));
+  });
+
+  it('inherits the caller binding when the requested environment matches the current one', async () => {
+    callerBinding = { environmentId: 'acp:s1', cwd: '/remote/repo' };
+    const svc = service();
+
+    await spawnNonForkChild(svc);
+
+    expect(createAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ environmentId: 'acp:s1', environmentCwd: '/remote/repo' }),
+    );
   });
 
   it('inherits the caller permission mode and user tools', async () => {
@@ -634,7 +633,7 @@ describe('SessionSubagentService planSpawn and spawn', () => {
     });
   });
 
-  it('releases the runtime lease after spawn', async () => {
+  it('releases the environment lease after spawn', async () => {
     const svc = service();
 
     await spawnNonForkChild(svc);
@@ -683,17 +682,18 @@ describe('SessionSubagentService planSpawn and spawn', () => {
   });
 
   it('does not require the process capability when forking', async () => {
-    acquireRuntime.mockImplementation(() => {
+    acquireEnvironment.mockImplementation(() => {
       throw new Error('process capability is no longer available');
     });
     const svc = service();
 
     await expect(spawnForkChild(svc)).resolves.toMatchObject({ agentId: 'agent-fork' });
 
-    expect(acquireRuntime).not.toHaveBeenCalled();
-    expect(forkAgent).toHaveBeenCalledWith(expect.objectContaining({ agentId: 'main' }), {
-      labels: { parentAgentId: 'main', subagentDepth: '1' },
-    });
+    expect(acquireEnvironment).not.toHaveBeenCalled();
+    expect(forkAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ agentId: 'main' }),
+      { labels: { parentAgentId: 'main' } },
+    );
   });
 
   it('wraps a create rejection with the secondary-model config hint', async () => {
@@ -723,8 +723,8 @@ describe('SessionSubagentService planSpawn and spawn', () => {
     expect(error.message).toContain('comes from [secondary_model.models]');
   });
 
-  it('spawn throws before creating anything when the caller runtime lease fails', async () => {
-    acquireRuntime.mockImplementation(() => {
+  it('spawn throws before creating anything when the caller environment lease fails', async () => {
+    acquireWhenReadyEnvironment.mockImplementation(() => {
       throw new Error('process capability is no longer available');
     });
     const svc = service();

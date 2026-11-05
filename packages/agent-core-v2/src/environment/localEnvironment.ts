@@ -2,16 +2,12 @@ import * as posixPath from 'node:path/posix';
 import * as win32Path from 'node:path/win32';
 
 import { Emitter } from '#/_base/event';
+import { isWindowsAbsolutePath } from '#/_base/utils/paths';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IHostProcessService } from '#/os/interface/hostProcess';
 
-import type {
-  Environment,
-  EnvironmentCapability,
-  EnvironmentPath,
-  EnvironmentStatus,
-} from './environment';
+import type { Environment, EnvironmentCapability, EnvironmentPath, EnvironmentStatus } from './environment';
 
 let nextGeneration = 1;
 
@@ -47,20 +43,28 @@ export class LocalEnvironment implements Environment {
       homeDir: environment.homeDir,
     };
     const path = environment.pathClass === 'win32' ? win32Path : posixPath;
+    const hostResolve = (...paths: readonly string[]): string => {
+      const last = paths[paths.length - 1] ?? '';
+      if (path !== posixPath || !paths.some((p) => isWindowsAbsolutePath(p))) {
+        return path.resolve(...paths);
+      }
+      if (paths.length === 1 && isWindowsAbsolutePath(last)) return last;
+      return win32Path.resolve(...paths).replaceAll('\\', '/');
+    };
     this.path = {
       separator: path.sep as '/' | '\\',
       delimiter: path.delimiter as ':' | ';',
       isAbsolute: (p) => path.isAbsolute(p),
       join: (...paths) => path.join(...paths),
       relative: (from, to) => path.relative(from, to),
-      resolve: (...paths) => path.resolve(...paths),
+      resolve: (...paths) => hostResolve(...paths),
       basename: (p) => path.basename(p),
       dirname: (p) => path.dirname(p),
     };
     this.workspace = {
       mapRoots: (roots) => ({
-        workDir: path.resolve(roots.workDir),
-        additionalDirs: roots.additionalDirs?.map((root) => path.resolve(root)),
+        workDir: hostResolve(roots.workDir),
+        additionalDirs: roots.additionalDirs?.map((root) => hostResolve(root)),
       }),
     };
     this.fs = fs;
@@ -75,5 +79,29 @@ export class LocalEnvironment implements Environment {
     this.currentStatus = 'disposed';
     this.statusEmitter.fire('disposed');
     this.statusEmitter.dispose();
+  }
+}
+
+export class LocalRuntimeProviderFactory implements RuntimeProviderFactory {
+  readonly id = 'local';
+  readonly imports = {
+    root: [IHostEnvironment, IHostFileSystem, IHostProcessService],
+    imports: [],
+    local: [],
+  };
+
+  async attach(
+    context: RuntimeProviderContext,
+    host: RuntimeProviderHost,
+  ): Promise<RuntimeProviderAttachment> {
+    const handle = host.registerRuntime(
+      new LocalRuntime(
+        context.id,
+        host.get(IHostEnvironment),
+        host.get(IHostFileSystem),
+        host.get(IHostProcessService),
+      ),
+    );
+    return { dispose: () => handle.remove() };
   }
 }

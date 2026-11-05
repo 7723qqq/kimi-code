@@ -23,7 +23,8 @@ function planService(): IAgentPlanService {
     enter: async () => {},
     cancel: () => {},
     clear: async () => {},
-    exit: jest.fn(),
+    exit: vi.fn(),
+    resolveFile: async () => undefined,
     recordRevision: async () => {},
     status: async () =>
       ({

@@ -638,8 +638,7 @@ export function projectContext(
       case 'spec_mode.exit':
       case 'spec.revision':
       case 'plugin.session_start':
-      case 'runtime.set_binding':
-      case 'environment.set_binding':
+      case 'runtime.set_binding':      case 'environment.set_binding':
       case 'staleGuard.recorded':
       case 'staleGuard.cleared':
       case 'interruptionReminder.recorded':

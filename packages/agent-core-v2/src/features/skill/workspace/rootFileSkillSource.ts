@@ -19,6 +19,7 @@ import {
   type ISkillSource,
   type SkillContribution,
 } from '#/features/skill/catalog/skillSource';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
 import { watchCandidates } from '#human/utils/watch';
@@ -52,7 +53,8 @@ export class WorkspaceRootSkillSource extends Disposable implements IWorkspaceRo
     @IWorkspaceContext private readonly workspace: IWorkspaceContext,
     @IConfigService private readonly config: IConfigService,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
-    @IWorkspaceDirs private readonly dirs: IWorkspaceDirs,
+    private readonly fs: IHostFileSystem,
+    private readonly watchEnabled = true,
   ) {
     super();
     this._register(
@@ -80,7 +82,9 @@ export class WorkspaceRootSkillSource extends Disposable implements IWorkspaceRo
       this.config.get<MergeAllAvailableSkillsConfig>(MERGE_ALL_AVAILABLE_SKILLS_SECTION) ?? true;
     await this.dirs.ready;
     const discover = async () =>
-      this.discovery.discover(await projectRootsForDirs(this.workDirs, { mergeAllAvailableSkills }));
+      this.discovery.discover(
+        await projectRoots(this.workspace.cwd, { mergeAllAvailableSkills }, this.fs),
+      );
     let contribution = await discover();
     while (await this.updateProjectSkillRootWatches(contribution.scannedDirectories)) {
       contribution = await discover();
@@ -91,16 +95,10 @@ export class WorkspaceRootSkillSource extends Disposable implements IWorkspaceRo
   private async updateProjectSkillRootWatches(
     scannedDirectories: readonly string[],
   ): Promise<boolean> {
-    const watches = new Map<string, readonly string[]>();
-    for (const workDir of this.workDirs) {
-      const { projectRoot, candidates } = await projectSkillRootCandidates(workDir);
-      if (!watches.has(projectRoot)) watches.set(projectRoot, candidates);
-    }
-    const signature = JSON.stringify({
-      watches: [...watches],
-      scannedDirectories: [...scannedDirectories].toSorted(),
-    });
+    if (!this.watchEnabled) return false;
+    const signature = [...scannedDirectories].toSorted().join('\0');
     if (signature === this.watchSignature) return false;
+    const { projectRoot, candidates } = await projectSkillRootCandidates(this.workspace.cwd, this.fs);
     const resources = this.watchResources.add(new DisposableStore());
     try {
       for (const [projectRoot, candidates] of watches) {

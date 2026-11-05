@@ -39,6 +39,7 @@ export interface IHostFileSystem {
   readdir(path: string): Promise<readonly HostDirEntry[]>;
   mkdir(path: string, options?: { readonly recursive?: boolean }): Promise<void>;
   remove(path: string): Promise<void>;
+  rename?(from: string, to: string): Promise<void>;
   realpath(path: string): Promise<string>;
   rename?(from: string, to: string): Promise<void>;
 }

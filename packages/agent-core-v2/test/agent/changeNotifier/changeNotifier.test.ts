@@ -7,14 +7,15 @@ import { join, normalize, basename, dirname } from 'pathe';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { Emitter } from '#/_base/event';
-import { IAgentChangeNotifierService } from '#/agent/changeNotifier/changeNotifier';
-import {
-  ChangeNotifierSnapshotEvent,
-  changeNotifierSnapshotKey,
-} from '#/agent/changeNotifier/changeNotifierOps';
-import { AgentChangeNotifierService } from '#/agent/changeNotifier/changeNotifierService';
-import { IAgentProfileService, type ProfileData } from '#/agent/profile/profile';
-import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import { OrderedHookSlot } from '#/hooks';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IConfigService } from '#/app/config/config';
+import { IEventDispatcher } from '#/state/eventDispatcher';
+import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import type { EnvironmentLease } from '#/environment/environment';
+import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
@@ -235,18 +236,18 @@ function createHarness(options: {
       } as unknown as IBootstrapService);
       reg.defineInstance(IHostFileSystem, hostFs);
       reg.defineInstance(IHostEnvironment, hostEnvironment);
-      reg.defineInstance(IAgentRuntimeService, {
+      reg.defineInstance(IAgentEnvironmentService, {
         _serviceBrand: undefined,
         onDidChange: () => ({ dispose: () => {} }),
         isAvailable: () => true,
         inspect() {
-          return this.acquire().runtime;
+          return this.acquire().environment;
         },
-        acquire: (): RuntimeLease => ({
-          runtime: {
-            identity: { workspaceId: 'workspace-1', runtimeId: 'local', generation: 'test' },
+        acquire: (): EnvironmentLease => ({
+          environment: {
+            identity: { environmentId: 'local', generation: 'test' },
             capabilities: new Set(['fs', 'process']),
-            environment: hostEnvironment,
+            host: hostEnvironment,
             path: {
               separator: '/',
               delimiter: ':',
@@ -267,7 +268,11 @@ function createHarness(options: {
           track: (resource) => resource,
           dispose: () => {},
         }),
-      } satisfies IAgentRuntimeService);
+        async acquireWhenReady() {
+          return this.acquire();
+        },
+        workspaceRoots: () => ({ workDir }),
+      } satisfies IAgentEnvironmentService);
       reg.defineInstance(IEventDispatcher, {
         _serviceBrand: undefined,
         hooks: { onDidRestore: new OrderedHookSlot() },

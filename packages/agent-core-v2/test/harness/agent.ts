@@ -71,74 +71,42 @@ type RegisterToolPayload = UserToolRegistration;
 type RunShellCommandPayload = RunShellCommandInput;
 type ShellCommandResult = RunShellCommandResult;
 type SetModelResult = ProfileSetModelResult;
-interface BeginCompactionPayload {
-  readonly instruction?: string;
-}
-interface CancelPayload {
-  readonly turnId?: number;
-}
-interface CancelPlanPayload {
-  readonly id?: string;
-}
-interface CancelShellCommandPayload {
-  readonly commandId: string;
-}
-interface DetachTaskPayload {
-  readonly taskId: string;
-}
-interface EnterSwarmPayload {
-  readonly trigger: SwarmModeTrigger;
-}
-interface GetTaskOutputPayload {
-  readonly taskId: string;
-  readonly tail?: number;
-}
-interface GetTasksPayload {
-  readonly activeOnly?: boolean;
-  readonly limit?: number;
-}
-interface RunCommandPayload {
-  readonly name: string;
-  readonly args?: string;
-}
-interface SetActiveToolsPayload {
-  readonly names: readonly string[];
-}
-interface SetModelPayload {
-  readonly model: string;
-}
-interface SetPermissionPayload {
-  readonly mode: PermissionMode;
-}
-interface SetThinkingPayload {
-  readonly level: string;
-}
-interface StopTaskPayload {
-  readonly taskId: string;
-  readonly reason?: string;
-}
-interface UndoHistoryPayload {
-  readonly count: number;
-}
-interface UnregisterToolPayload {
-  readonly name: string;
-}
-import type { ILogger, LogContext, LogLevel } from '#/_base/log/log';
-import { ILogOptions } from '#/_base/log/logConfig';
-import { type AgentModelInstanceOf } from '#/agent/agentContext/agentSpace';
-import type { ApprovalRequest, ApprovalResponse } from '#/agent/interaction/approval';
-import type { QuestionRequest, QuestionResult } from '#/agent/interaction/question';
-import type { AgentLLMRequestSource } from '#/agent/llmRequester/llmRequester';
-import { TurnPrompt } from '#/agent/loop/turnOps';
-import { promptMetadataTextFromContentParts } from '#/agent/prompt/promptMetadataText';
-import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
-import { IAgentRuntimeBindingSeed } from '#/agent/runtimeBinding/runtimeBinding';
+interface BeginCompactionPayload { readonly instruction?: string }
+interface CancelPayload { readonly turnId?: number }
+interface CancelPlanPayload { readonly id?: string }
+interface CancelShellCommandPayload { readonly commandId: string }
+interface DetachTaskPayload { readonly taskId: string }
+interface EnterSwarmPayload { readonly trigger: SwarmModeTrigger }
+interface GetTaskOutputPayload { readonly taskId: string; readonly tail?: number }
+interface GetTasksPayload { readonly activeOnly?: boolean; readonly limit?: number }
+interface RunCommandPayload { readonly name: string; readonly args?: string }
+interface SetActiveToolsPayload { readonly names: readonly string[] }
+interface SetModelPayload { readonly model: string }
+interface SetPermissionPayload { readonly mode: PermissionMode }
+interface SetThinkingPayload { readonly level: string }
+interface StopTaskPayload { readonly taskId: string; readonly reason?: string }
+interface UndoHistoryPayload { readonly count: number }
+interface UnregisterToolPayload { readonly name: string }
+import { type UsageStatus } from '#/agent/usage/usage';
+import { type PromptWithSkillsInput, type PromptWithSkillsResult, type SkillActivationInput } from '#/features/skill/skill';
+import { IAgentSkillService } from '#/features/skill/skillService';
+import { IAgentEnvironmentBindingSeed, IAgentEnvironmentBindingService } from '#/agent/environmentBinding/environmentBinding';
+import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
+import type { EnvironmentBinding, EnvironmentLease } from '#/environment/environment';
+import { LocalEnvironment } from '#/environment/localEnvironment';
+import { IAgentToolDedupeService } from '#/agent/toolDedupe/toolDedupe';
+import type {
+  ExecutableToolOutput as ToolOutput,
+  ExecutableToolResult,
+} from '#/tool/toolContract';
+import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
-import { IAgentToolDedupeService } from '#/agent/toolDedupe/toolDedupe';
-import { type UsageStatus } from '#/agent/usage/usage';
-import type { EnvironmentDisclosureSnapshot } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import { IEventService } from '#/app/event/event';
+import { ISessionStateService } from '#/session/state/sessionState';
+import { workspaceContextAdditionalDirsKey } from '#/session/workspaceContext/workspaceContextService';
+import type { StateKey } from '#/state/state';
+import { IEventDispatcher } from '#/state/eventDispatcher';
+import { EventDispatcherService } from '#/state/eventDispatcherService';
 import { EVENT2_REGISTRY, event2FromRecord } from '#/app/event/event2';
 import { IEventBus, ISessionEventBus } from '#/app/event/eventBus';
 import {
@@ -197,6 +165,7 @@ import {
   IHostProcessService,
   ISessionBtwService,
   ISessionContext,
+  ISessionWorkdir,
   IAgentScopeContext,
   makeAgentScopeContext,
   IAgentShellCommandService,
@@ -767,6 +736,7 @@ const noopHookRunner: IExternalHooksRunnerService = {
   _serviceBrand: undefined,
   ready: Promise.resolve(),
   onDidReload: Event.None as Event<void>,
+  onDidHookError: Event.None as IExternalHooksRunnerService['onDidHookError'],
   trigger: async () => [],
   triggerBlock: async () => undefined,
   fireAndForgetTrigger: async () => [],
@@ -1346,6 +1316,12 @@ export class AgentTestContext {
               primaryByWorkspace: {},
               onDidChange: Event.None as Event<void>,
             } satisfies ISessionWorkspaceInfo);
+            reg.defineInstance(ISessionWorkdir, {
+              _serviceBrand: undefined,
+              environmentId: 'local',
+              cwd: this.cwd,
+              fs: undefined as never,
+            });
             reg.defineInstance(
               IWorkspaceStateService,
               new WorkspaceStateService(this.root.accessor.get(IAppStateService)),
@@ -1393,31 +1369,42 @@ export class AgentTestContext {
       seeds: collectScopeSeed(
         [
           (reg) => {
-            reg.defineInstance(IAgentRuntimeBindingSeed, {
+            reg.defineInstance(IAgentEnvironmentBindingSeed, {
               _serviceBrand: undefined,
-              binding: { workspaceId: 'workspace-1', runtimeId: 'local' },
+              binding: { environmentId: 'local' },
             });
-            const runtime = new LocalRuntime(
-              'workspace-1',
-              this.root.accessor.get(IHostEnvironment),
+            const harnessBinding = { environmentId: 'local' };
+            reg.defineInstance<IAgentEnvironmentBindingService>(IAgentEnvironmentBindingService, {
+              _serviceBrand: undefined,
+              onDidChange: Event.None as IAgentEnvironmentBindingService['onDidChange'],
+              get current() {
+                return harnessBinding;
+              },
+              bind: (environmentId: string, cwd?: string) => ({ ...harnessBinding, environmentId, cwd }),
+            });
+            const environment = new LocalEnvironment(this.root.accessor.get(IHostEnvironment),
               this.root.accessor.get(IHostFileSystem),
               this.root.accessor.get(IHostProcessService),
             );
-            reg.defineInstance<IAgentRuntimeService>(IAgentRuntimeService, {
+            reg.defineInstance<IAgentEnvironmentService>(IAgentEnvironmentService, {
               _serviceBrand: undefined,
               onDidChange: () => ({ dispose: () => {} }),
-              isAvailable: (required = []) =>
-                required.every((capability) => runtime.capabilities.has(capability)),
-              inspect: () => runtime,
-              acquire: (required = []): RuntimeLease => {
-                const missing = required.filter(
-                  (capability) => !runtime.capabilities.has(capability),
-                );
+              isAvailable: (required = []) => required.every((capability) => environment.capabilities.has(capability)),
+              inspect: () => environment,
+              acquire: (required = []): EnvironmentLease => {
+                const missing = required.filter((capability) => !environment.capabilities.has(capability));
                 if (missing.length > 0) {
-                  throw new Error(`test runtime missing capabilities: ${missing.join(', ')}`);
+                  throw new Error(`test environment missing capabilities: ${missing.join(', ')}`);
                 }
-                return { runtime, track: (resource) => resource, dispose: () => {} };
+                return { environment, track: (resource) => resource, dispose: () => {} };
               },
+              acquireWhenReady(required = []) { return Promise.resolve(this.acquire(required)); },
+              workspaceRoots: () => ({
+                workDir: this.session.accessor.get(ISessionContext).cwd,
+                additionalDirs: this.session.accessor
+                  .get(ISessionStateService)
+                  .get(workspaceContextAdditionalDirsKey),
+              }),
             });
             reg.defineDescriptor(IWireService, new SyncDescriptor(WireService));
             reg.defineDescriptor(IEventDispatcher, new SyncDescriptor(EventDispatcherService));
@@ -2378,6 +2365,7 @@ function createWorkspaceContextStub(
       }
       return target;
     },
+    setWorkDir: () => {},
   };
 }
 

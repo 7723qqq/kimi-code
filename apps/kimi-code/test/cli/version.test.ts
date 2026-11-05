@@ -2,12 +2,10 @@ import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-import {
-  createKimiCodeUserAgent,
-  getHostPackageJsonPath,
-  getHostPackageRoot,
-  getVersion,
-} from '#/cli/version';
+import { describe, expect, it } from 'vitest';
+
+import { createKimiCodeUserAgent } from '#/cli/host-identity';
+import { getHostPackageJsonPath, getHostPackageRoot, getVersion } from '#/cli/version';
 
 describe('cli version helpers', () => {
   it('resolves the host package manifest near apps/kimi-code and reads its version', () => {

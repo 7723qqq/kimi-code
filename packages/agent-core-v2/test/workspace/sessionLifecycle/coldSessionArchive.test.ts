@@ -1,20 +1,25 @@
-import { describe, expect, it } from 'bun:test';
+import { EnvironmentRegistry } from '#/environment/environmentRegistry';
+import { IEnvironmentService } from '#/app/environment/environment';
+
+import { describe, expect, it, vi } from 'vitest';
 
 import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiation';
 import type { ISessionScopeHandle } from '#/_base/di/scope';
 import { Emitter, Event } from '#/_base/event';
+import type { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import type { IConfigService } from '#/app/config/config';
 import { IEventService } from '#/app/event/event';
+import { ISessionManager, type UnguardedSessionLifecycle } from '#/app/sessionManager/sessionManager';
+import { SessionManager } from '#/app/sessionManager/sessionManagerService';
+import { EnvironmentDeclarationService } from '#/app/environmentDeclaration/environmentDeclarationService';
 import {
   ISessionIndex,
   ISessionIndexMirror,
   type SessionSummary,
 } from '#/app/sessionIndex/sessionIndex';
-import {
-  ISessionManager,
-  type UnguardedSessionLifecycle,
-} from '#/app/sessionManager/sessionManager';
-import { SessionManager } from '#/app/sessionManager/sessionManagerService';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { InMemorySessionLockService } from '#/persistence/backends/memory/sessionLockService';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { ISessionLockService } from '#/persistence/interface/sessionLock';
@@ -242,12 +247,23 @@ function sessionManagerResuming(sessionId: string): SessionManager {
       createSessionController: () => controller,
     },
   } as unknown as WorkspaceInstance;
+  const environments = new EnvironmentRegistry() as unknown as IEnvironmentService;
   return new SessionManager(
     {
       acquire: async () => ({ instance: workspace, dispose: () => {} }),
       get: () => workspace,
     } as unknown as IWorkspaceInstanceManager,
     { get: async () => summary } as unknown as ISessionIndex,
+    new EnvironmentDeclarationService(
+      { _serviceBrand: undefined, ready: Promise.resolve(), assertValid: () => {}, get: () => undefined } as unknown as IConfigService,
+      { _serviceBrand: undefined, warn: () => {}, info: () => {}, error: () => {} } as unknown as ILogService,
+    ),
+    environments,
+    {
+      _serviceBrand: undefined,
+      stat: async () => ({ isFile: false, isDirectory: true, size: 0 }),
+      realpath: async (path: string) => path,
+    } as unknown as IHostFileSystem,
     new InMemorySessionLockService(),
   );
 }

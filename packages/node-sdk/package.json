@@ -34,33 +34,13 @@
       "types": "./src/index.ts",
       "default": "./src/index.ts"
     },
-    "./catalog": {
-      "types": "./src/catalog.ts",
-      "default": "./src/catalog.ts"
+    "./exec-server": {
+      "types": "./src/exec-server.ts",
+      "default": "./src/exec-server.ts"
     },
-    "./config-mapper": {
-      "types": "./src/v2/config-mapper.ts",
-      "default": "./src/v2/config-mapper.ts"
-    },
-    "./errors": {
-      "types": "./src/errors.ts",
-      "default": "./src/errors.ts"
-    },
-    "./errors-codes": {
-      "types": "./src/errors-codes.ts",
-      "default": "./src/errors-codes.ts"
-    },
-    "./logging": {
-      "types": "./src/logging/index.ts",
-      "default": "./src/logging/index.ts"
-    },
-    "./proxy": {
-      "types": "./src/proxy.ts",
-      "default": "./src/proxy.ts"
-    },
-    "./runtime": {
-      "types": "./src/runtime.ts",
-      "default": "./src/runtime.ts"
+    "./ssh-askpass": {
+      "types": "./src/ssh-askpass.ts",
+      "default": "./src/ssh-askpass.ts"
     }
   },
   "publishConfig": {

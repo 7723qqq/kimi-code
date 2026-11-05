@@ -13,11 +13,12 @@ import { createMcpTool } from '#/agent/mcp/tools/mcp';
 import { sniffImageDimensions } from '#/agent/media/file-type';
 import { ITelemetryService, type TelemetryProperties } from '#/app/telemetry/telemetry';
 import { StdioMcpClient } from '#/mcpCore/client-stdio';
-import { type MCPClient, type MCPContentBlock, type MCPToolResult } from '#/mcpCore/types';
-import { HostProcessService } from '#/os/backends/host/hostProcessService';
-import { FakeRuntime } from '#/runtime/fakeRuntime';
-import { type ToolExecution } from '#/tool/toolContract';
-import { type ContentPart } from '#human/llm/message';
+import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
+import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { FakeEnvironment } from '#/environment/fakeEnvironment';
+import type { MCPClient, MCPContentBlock, MCPToolResult } from '#/mcpCore/types';
+import type { ToolExecution } from '#/tool/toolContract';
+import { sniffImageDimensions } from '#/agent/media/file-type';
 
 function modelText(result: Awaited<ReturnType<typeof mcpResultToExecutableOutput>>): string {
   return renderToolResultForModel(result)
@@ -883,7 +884,7 @@ describe('mcpResultToExecutableOutput', () => {
     const out = await mcpResultToExecutableOutput(
       result([{ type: 'image', data: bigBytes.toString('base64'), mimeType: 'image/png' }]),
       'mcp__s__shot',
-      { originalsDir: dir },
+      { originals: { fs: new HostFileSystem(), dir } },
     );
 
     const caption = modelText(out);
@@ -908,7 +909,7 @@ describe('mcpResultToExecutableOutput', () => {
         { type: 'image', data: big, mimeType: 'image/png' },
       ]),
       'mcp__s__shot',
-      { originalsDir: dir },
+      { originals: { fs: new HostFileSystem(), dir } },
     );
 
     const parts = out.output as ContentPart[];
@@ -934,7 +935,7 @@ describe('mcpResultToExecutableOutput', () => {
         { type: 'image', data: big, mimeType: 'image/png' },
       ]),
       'mcp__s__shot',
-      { originalsDir: dir },
+      { originals: { fs: new HostFileSystem(), dir } },
     );
 
     expect(out.truncated).toBeUndefined();
@@ -1112,13 +1113,10 @@ describe('mcpResultToExecutableOutput over a real stdio server', () => {
   );
 
   async function callFixtureTool(name: string) {
-    const runtime = Object.assign(
-      new FakeRuntime(
-        { workspaceId: 'workspace', runtimeId: 'local', generation: 'test' },
-        {
-          capabilities: ['process'],
-          pathClass: process.platform === 'win32' ? 'win32' : 'posix',
-        },
+    const environment = Object.assign(
+      new FakeEnvironment(
+        { environmentId: 'local', generation: 'test' },
+        { capabilities: ['process'] },
       ),
       { process: new HostProcessService() },
     );
@@ -1129,17 +1127,21 @@ describe('mcpResultToExecutableOutput over a real stdio server', () => {
         args: [fixture],
       },
       {
-        runtimeResolver: {
+        environmentResolver: {
           _serviceBrand: undefined,
-          inspect: () => runtime,
+          inspect: () => environment,
           acquire: () => ({
-            runtime,
+            environment,
+            track: (resource) => resource,
+            dispose: () => {},
+          }),
+          acquireWhenReady: async () => ({
+            environment,
             track: (resource) => resource,
             dispose: () => {},
           }),
         },
-        workspaceId: 'workspace',
-        runtimeId: 'local',
+        environmentId: 'local',
         defaultCwd: process.cwd(),
       },
     );

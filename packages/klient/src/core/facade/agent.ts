@@ -8,19 +8,33 @@
  * (`turn.*`, `assistant.delta`, `tool.call.*`, `prompt.completed`, …).
  */
 
-import type { IAgentCommandService } from '@moonshot-ai/agent-core-v2';
-import type { IAgentContextMemoryService } from '@moonshot-ai/agent-core-v2';
-import type { IAgentMcpService } from '@moonshot-ai/agent-core-v2';
-import type { IAgentRuntimeBindingService } from '@moonshot-ai/agent-core-v2';
-import type { ISessionTokenCountingService } from '@moonshot-ai/agent-core-v2';
-import type { IAgentPlanService } from '@moonshot-ai/agent-core-v2';
-import type { IAgentProfileService } from '@moonshot-ai/agent-core-v2';
-import type { IAgentShellCommandService } from '@moonshot-ai/agent-core-v2';
-import type { IAgentSkillService } from '@moonshot-ai/agent-core-v2';
-import type { IAgentTaskService } from '@moonshot-ai/agent-core-v2';
-import type { ISessionUsageService } from '@moonshot-ai/agent-core-v2';
-import type { ContentPart } from '@moonshot-ai/agent-core-v2';
-import type { PermissionMode } from '@moonshot-ai/agent-core-v2/contract';
+import type { IAgentCommandService } from '@moonshot-ai/agent-core-v2/agent/command/agentCommand';
+import type { IAgentMcpService } from '@moonshot-ai/agent-core-v2/agent/mcp/mcp';
+import type { IAgentEnvironmentBindingService } from '@moonshot-ai/agent-core-v2/agent/environmentBinding/environmentBinding';
+
+import type { ISessionTokenCountingService } from '@moonshot-ai/agent-core-v2/session/tokenCounting/sessionTokenCounting';
+import type { IAgentPlanService } from '@moonshot-ai/agent-core-v2/features/plan/plan';
+import type { IAgentProfileService } from '@moonshot-ai/agent-core-v2/agent/profile/profile';
+import type { IAgentShellCommandService } from '@moonshot-ai/agent-core-v2/agent/shellCommand/shellCommand';
+import type { IAgentSkillService } from '@moonshot-ai/agent-core-v2/features/skill/skillService';
+import type { IAgentTaskService } from '@moonshot-ai/agent-core-v2/agent/task/task';
+import type { ISessionUsageService } from '@moonshot-ai/agent-core-v2/session/usage/sessionUsage';
+import {
+  fromCoreMessage,
+  type ContentPart,
+} from '@moonshot-ai/agent-core-v2/human/message';
+import {
+  fromLlmMessage,
+  type Message as LegacyMessage,
+} from '@moonshot-ai/agent-core-v2/llm-adapter/contract/message';
+import type {
+  ContextMessage as CoreContextMessage,
+  ContextMessageTiming,
+  PromptOrigin,
+} from '@moonshot-ai/agent-core-v2/agent/contextMemory/types';
+import type { ToolInputDisplay } from '@moonshot-ai/agent-core-v2/tool/toolInputDisplay';
+import type { TokenUsage } from '@moonshot-ai/agent-core-v2/human/llm-requester/usage';
+import type { PermissionMode } from '@moonshot-ai/agent-core-v2/agent/permissionPolicy/types';
 
 import type { ScopeRef } from '../channel.js';
 import type { ScopedCaller } from './session.js';
@@ -42,7 +56,7 @@ export type AgentContextData = {
   tokenCount: ReturnType<ISessionTokenCountingService['statusSize']>;
 };
 export type AgentCommandInfo = Awaited<ReturnType<IAgentCommandService['list']>>[number];
-export type RuntimeBinding = ReturnType<IAgentRuntimeBindingService['get']>;
+export type EnvironmentBinding = IAgentEnvironmentBindingService['current'];
 export type PlanData = Awaited<ReturnType<IAgentPlanService['status']>>;
 export type AgentTaskInfo = Awaited<ReturnType<IAgentTaskService['list']>>[number];
 export type McpServerEntry = ReturnType<IAgentMcpService['list']>[number];
@@ -79,8 +93,7 @@ export interface AgentFacade {
   getContext(): Promise<AgentContextData>;
   listCommands(): Promise<readonly AgentCommandInfo[]>;
   runCommand(input: { name: string; args?: string }): Promise<void>;
-  getRuntime(): Promise<RuntimeBinding>;
-  switchRuntime(runtimeId: string): Promise<RuntimeBinding>;
+  getEnvironment(): Promise<EnvironmentBinding>;
   getPlan(): Promise<PlanData>;
   enterPlan(): Promise<void>;
   clearPlan(): Promise<void>;
@@ -155,10 +168,8 @@ export function createAgentFacade(call: ScopedCaller, scope: ScopeRef): AgentFac
         'run',
         input.args === undefined ? [input.name] : [input.name, input.args],
       ) as Promise<void>,
-    getRuntime: () =>
-      call(scope, 'agentRuntimeBindingService', 'get', []) as Promise<RuntimeBinding>,
-    switchRuntime: (runtimeId) =>
-      call(scope, 'agentRuntimeBindingService', 'switch', [runtimeId]) as Promise<RuntimeBinding>,
+    getEnvironment: () =>
+      call(scope, 'agentEnvironmentBindingService', 'current', []) as Promise<EnvironmentBinding>,
     getPlan: () => call(scope, 'agentPlanService', 'status', []) as Promise<PlanData>,
     enterPlan: () => call(scope, 'agentPlanService', 'enter', []) as Promise<void>,
     clearPlan: () => call(scope, 'agentPlanService', 'clear', []) as Promise<void>,

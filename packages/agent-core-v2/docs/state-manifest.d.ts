@@ -27,7 +27,7 @@
 // references become '(circular)', and class instances collapse to a '(ClassName)'
 // marker — the wire shape of an entry is the JSON projection of the type here.
 //
-// Index (App: 0 keys · Workspace: 8 keys · Session: 9 keys · Agent: 79 keys)
+// Index (App: 0 keys · Workspace: 8 keys · Session: 9 keys · Agent: 73 keys)
 //   App
 //   Workspace
 //     workspaceDirs.ephemeralDirs          src/workspace/workspaceDirs/workspaceDirsService.ts
@@ -98,8 +98,6 @@
 //     profile.emittedPluginBudgetWarnings             src/agent/profile/profileService.ts
 //     profile.emittedThinkingEffortWarnings           src/agent/profile/profileService.ts
 //     profile.emittedToolPatternWarnings              src/agent/profile/profileService.ts
-//     runtime.binding                                 src/agent/runtimeBinding/runtimeBindingService.ts
-//     runtimeBinding                                  src/agent/runtimeBinding/runtimeBindingOps.ts
 //     shellCommand.tasks                              src/agent/shellCommand/shellCommandService.ts
 //     spec                                            src/features/spec/specOps.ts
 //     spec.wasActive                                  src/features/spec/injection/specModeInjection.ts
@@ -697,6 +695,8 @@ export interface SessionStateSnapshot {
     readonly archived: boolean;
     readonly archivedAt?: number;
     readonly cwd?: string;
+    readonly environmentId?: string;
+    readonly environmentCwd?: string;
     readonly forkedFrom?: string;
     readonly agents?: Readonly<Record<string, /* AgentMeta — packages/agent-core-v2/src/session/sessionMetadata/sessionMetadata.ts */ {
       readonly homedir?: string;
@@ -1238,17 +1238,6 @@ export interface AgentStateSnapshot {
   'profile.emittedPluginBudgetWarnings': Set<string>;
   'profile.emittedThinkingEffortWarnings': Set<string>;
   'profile.emittedToolPatternWarnings': Set<string>;
-  // src/agent/runtimeBinding/runtimeBindingOps.ts
-  // replayable · durable — folds: RuntimeSetBinding
-  'runtimeBinding': /* RuntimeBinding — packages/agent-core-v2/src/runtime/runtime.ts */ {
-    readonly workspaceId: string;
-    readonly runtimeId: string;
-  } | undefined;
-  // src/agent/runtimeBinding/runtimeBindingService.ts
-  'runtime.binding': /* RuntimeBinding — packages/agent-core-v2/src/runtime/runtime.ts */ {
-    readonly workspaceId: string;
-    readonly runtimeId: string;
-  };
   // src/agent/shellCommand/shellCommandService.ts
   'shellCommand.tasks': Map<string, string>;
   // src/agent/task/taskOps.ts
@@ -1412,7 +1401,7 @@ export interface AgentStateSnapshot {
         readonly size?: number;
         readonly oversize?: boolean;
         readonly mtimeMs?: number;
-        readonly unreadable?: boolean;
+        readonly environmentId?: string;
       }>>;
     }[];
     readonly tracked: readonly string[];

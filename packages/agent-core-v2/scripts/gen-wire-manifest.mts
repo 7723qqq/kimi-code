@@ -344,7 +344,7 @@ function emitTsDict(lines: string[], dict: SketchDict, indent: string): void {
     );
     if (typeLines.length > 1) {
       lines.push(...typeLines.slice(1, -1));
-      lines.push(`${typeLines[typeLines.length - 1]};`);
+      lines.push(`${typeLines.at(-1)};`);
     }
   }
 }
@@ -388,7 +388,7 @@ function renderPayloadDecl(
       ...header,
       `type ${name} = { ${nameField} } & (${lines[0]}`,
       ...lines.slice(1, -1),
-      `${lines[lines.length - 1]});`,
+      `${lines.at(-1)});`,
       '',
     ];
   }

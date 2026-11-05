@@ -143,8 +143,8 @@ export interface AcpServerOptions {
    * scope. Absent → `persistOriginalImage`'s shared temp-dir fallback.
    */
   readonly resolveOriginalsDir?: (sessionId: string) => string | undefined;
-  readonly bindSessionRuntime?: (sessionId: string) => Promise<void>;
-  readonly unbindSessionRuntime?: (sessionId: string) => Promise<void>;
+  readonly bindSessionEnvironment?: (sessionId: string) => Promise<void>;
+  readonly unbindSessionEnvironment?: (sessionId: string) => Promise<void>;
   /** Static or per-session host command palette. */
   readonly slashCommands?: SlashCommandsResolver;
 }
@@ -156,8 +156,8 @@ export class AcpServer {
   private readonly terminalAuthEnv: Readonly<Record<string, string>> | undefined;
   private readonly terminalAuthLegacyCommand: string | undefined;
   private readonly resolveOriginalsDir: ((sessionId: string) => string | undefined) | undefined;
-  private readonly bindSessionRuntime: ((sessionId: string) => Promise<void>) | undefined;
-  private readonly unbindSessionRuntime: ((sessionId: string) => Promise<void>) | undefined;
+  private readonly bindSessionEnvironment: ((sessionId: string) => Promise<void>) | undefined;
+  private readonly unbindSessionEnvironment: ((sessionId: string) => Promise<void>) | undefined;
   private readonly resolveSlashCommands: (
     session: SessionHandle,
   ) => Promise<ReadonlyArray<AvailableCommand> | SlashCommandsSnapshot>;
@@ -179,8 +179,8 @@ export class AcpServer {
     this.terminalAuthEnv = opts.terminalAuthEnv;
     this.terminalAuthLegacyCommand = opts.terminalAuthLegacyCommand;
     this.resolveOriginalsDir = opts.resolveOriginalsDir;
-    this.bindSessionRuntime = opts.bindSessionRuntime;
-    this.unbindSessionRuntime = opts.unbindSessionRuntime;
+    this.bindSessionEnvironment = opts.bindSessionEnvironment;
+    this.unbindSessionEnvironment = opts.unbindSessionEnvironment;
     const slashCommands = opts.slashCommands;
     this.resolveSlashCommands =
       typeof slashCommands === 'function'
@@ -256,6 +256,7 @@ export class AcpServer {
       workDir: params.cwd,
       additionalDirs: params.additionalDirectories,
       mcpServers: acpMcpServersToConfigRecord(params.mcpServers),
+      environmentId: 'local',
     });
     return { sessionId: meta.id, ...(await this.activateSession(meta.id)) };
   }
@@ -349,7 +350,7 @@ export class AcpServer {
       this.sessions.delete(params.sessionId);
     }
     await this.klient.session(params.sessionId).close();
-    await this.unbindSessionRuntime?.(params.sessionId);
+    await this.unbindSessionEnvironment?.(params.sessionId);
   }
 
   /**
@@ -377,7 +378,7 @@ export class AcpServer {
       acpSession.dispose();
       this.sessions.delete(params.sessionId);
     }
-    await this.unbindSessionRuntime?.(params.sessionId);
+    await this.unbindSessionEnvironment?.(params.sessionId);
     return {};
   }
 
@@ -607,7 +608,7 @@ export class AcpServer {
   private async wireSession(sessionId: string): Promise<AcpSession> {
     const session = this.klient.session(sessionId);
     await this.bindDefaultModel(session.agent('main'));
-    await this.bindSessionRuntime?.(sessionId);
+    await this.bindSessionEnvironment?.(sessionId);
     const hostCommands = await this.resolveSlashCommands(session);
     const acpSession = new AcpSession(
       this.conn,

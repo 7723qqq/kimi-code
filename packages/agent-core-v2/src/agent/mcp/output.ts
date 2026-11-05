@@ -12,16 +12,20 @@ import {
 } from '#/agent/media/image-format-policy';
 import { persistOriginalImage } from '#/agent/media/image-originals';
 import { buildDaemonFileUrl, mediaExtensionForMime } from '#/agent/media/mediaRef';
-import type { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
-import type { ITelemetryService } from '#/app/telemetry/telemetry';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { MCPContentBlock, MCPToolResult } from '#/mcpCore/types';
-import type { ExecutableToolResult } from '#/tool/toolContract';
-import type { ContentPart } from '#human/llm/message';
+import type { EnvironmentPath } from '#/environment/environment';
+
+export interface McpOriginalsTarget {
+  readonly fs: IHostFileSystem;
+  readonly dir: string;
+  readonly path?: EnvironmentPath;
+}
 
 export interface McpOutputOptions {
   readonly signal?: AbortSignal;
   readonly attachmentStore?: ISessionMediaStore;
-  readonly originalsDir?: string;
+  readonly originals?: McpOriginalsTarget;
   readonly telemetry?: ITelemetryService;
   readonly providerType?: string;
 }
@@ -239,7 +243,9 @@ export async function mcpResultToExecutableOutput(
         return persistOriginalImage(
           bytes,
           mimeType,
-          options.originalsDir === undefined ? {} : { dir: options.originalsDir },
+          options.originals === undefined
+            ? {}
+            : { fs: options.originals.fs, dir: options.originals.dir, path: options.originals.path },
         );
       },
     },

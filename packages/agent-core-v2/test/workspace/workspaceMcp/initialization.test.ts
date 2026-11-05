@@ -25,7 +25,11 @@ import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
-import { IRuntimeResolver } from '#/workspace/workspaceInstance/workspaceInstanceManager';
+import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment/environment';
+import { FakeEnvironment } from '#/environment/fakeEnvironment';
+import { IWorkspaceTrust } from '#/workspace/workspaceTrust/workspaceTrust';
+import { IWorkspaceMcpConfigService } from '#/workspace/workspaceMcpConfig/workspaceMcpConfig';
+import { WorkspaceMcpConfigService } from '#/workspace/workspaceMcpConfig/workspaceMcpConfigService';
 import { IWorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcp';
 import { WorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcpService';
 import { IWorkspaceMcpConfigService } from '#/workspace/workspaceMcpConfig/workspaceMcpConfig';
@@ -77,21 +81,11 @@ describe('Workspace MCP initialization', () => {
         });
         reg.defineInstance(ILogService, stubLog());
         reg.defineInstance(ITelemetryService, noopTelemetryService);
-        const runtime = Object.assign(
-          new FakeRuntime(
-            { workspaceId: 'test-workspace', runtimeId: 'local', generation: 'test-generation' },
-            {
-              capabilities: ['process'],
-              pathClass: process.platform === 'win32' ? 'win32' : 'posix',
-            },
-          ),
+        const environment = Object.assign(
+          new FakeEnvironment({ environmentId: 'local', generation: 'test-generation' }, { capabilities: ['process'] }),
           { process: new HostProcessService() },
         );
-        reg.defineInstance(IRuntimeResolver, {
-          _serviceBrand: undefined,
-          inspect: () => runtime,
-          acquire: () => ({ runtime, track: (resource) => resource, dispose: () => {} }),
-        });
+        reg.definePartialInstance(IEnvironmentService, { _serviceBrand: undefined, inspect: () => environment, acquire: () => ({ environment, track: (resource) => resource, dispose: () => {} }), acquireWhenReady: async () => ({ environment, track: (resource) => resource, dispose: () => {} }) });
         reg.definePartialInstance(IConfigService, {
           ready,
           onDidSectionChange: Event.None as IConfigService['onDidSectionChange'],
@@ -123,7 +117,7 @@ describe('Workspace MCP initialization', () => {
         transport: 'stdio',
         command: process.execPath,
         args: [stdioFixture],
-        runtime_id: 'local',
+        environment_id: 'local',
       },
     });
     const service = createWorkspaceMcpService(ready);
@@ -144,7 +138,7 @@ describe('Workspace MCP initialization', () => {
         transport: 'stdio',
         command: process.execPath,
         args: [slowToolStdioFixture],
-        runtime_id: 'local',
+        environment_id: 'local',
         env: { KIMI_TEST_MCP_TOOL_DELAY_MS: '300' },
       },
     });

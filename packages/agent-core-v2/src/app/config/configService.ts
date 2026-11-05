@@ -361,7 +361,7 @@ export class ConfigService extends Disposable implements IConfigService {
   private readonly diagnosticsList: ConfigDiagnostic[] = [];
   private lastDiagnosticsSnapshot = '[]';
   private readonly configKey: string;
-  private tainted = false;
+  private readError?: unknown;
   private readonly envNamesBySection = new WeakMap<ConfigSection, readonly string[]>();
   private readonly envSectionResolutions = new WeakMap<ConfigSection, EnvSectionResolution>();
 
@@ -415,6 +415,27 @@ export class ConfigService extends Disposable implements IConfigService {
       userValue: this.raw[domain] as T | undefined,
       memoryValue,
     };
+  }
+
+  assertValid(domain: string): void {
+    if (this.readError !== undefined) {
+      throw new Error2(
+        ErrorCodes.CONFIG_INVALID,
+        `Cannot use config section '${domain}' because ${this.bootstrap.configPath} could not be read`,
+        { cause: this.readError },
+      );
+    }
+    const value = this.raw[domain];
+    if (value === undefined) return;
+    try {
+      this.registry.validate(domain, value);
+    } catch (error) {
+      throw new Error2(
+        ErrorCodes.CONFIG_INVALID,
+        `Invalid config section '${domain}': ${describeUnknownError(error)}`,
+        { cause: error },
+      );
+    }
   }
 
   getAll(): ResolvedConfig {
@@ -653,12 +674,12 @@ export class ConfigService extends Disposable implements IConfigService {
   private async load(source: ConfigChangeSource): Promise<void> {
     this.diagnosticsList.length = 0;
     let fileData: ResolvedConfig = {};
-    let failed = false;
     try {
       const data = await this.documentStore.get<ResolvedConfig>(CONFIG_SCOPE, this.configKey);
       fileData = data !== undefined && isPlainObject(data) ? data : {};
+      this.readError = undefined;
     } catch (error) {
-      failed = true;
+      this.readError = error;
       const message =
         error instanceof TomlError
           ? `Failed to parse ${this.bootstrap.configPath}: ${describeTomlSyntaxError(error)}`
@@ -666,12 +687,10 @@ export class ConfigService extends Disposable implements IConfigService {
       this.pushDiagnostic({ severity: 'error', message });
       this.log.warn('config load failed', { error: describeUnknownError(error) });
       if (source !== 'load') {
-        this.tainted = true;
         this.emitDiagnosticsIfChanged();
         return;
       }
     }
-    this.tainted = failed;
     const nextRawSnake = cloneRecord(fileData);
     for (const diagnostic of collectKeyDeprecations(nextRawSnake, this.registry.listSections())) {
       this.pushDiagnostic(diagnostic);
@@ -917,7 +936,7 @@ export class ConfigService extends Disposable implements IConfigService {
   }
 
   private assertPersistable(): void {
-    if (!this.tainted) return;
+    if (this.readError === undefined) return;
     throw new Error2(
       ErrorCodes.CONFIG_PERSIST_BLOCKED,
       `Refusing to persist config: ${this.bootstrap.configPath} could not be read; fix the file and reload before writing.`,
@@ -953,7 +972,7 @@ export class ConfigService extends Disposable implements IConfigService {
       this.log.warn('config persist aborted: re-read failed', {
         error: describeUnknownError(error),
       });
-      this.tainted = true;
+      this.readError = error;
       throw new Error2(
         ErrorCodes.CONFIG_PERSIST_BLOCKED,
         `Refusing to persist config: ${this.bootstrap.configPath} could not be read; fix the file and reload before writing.`,

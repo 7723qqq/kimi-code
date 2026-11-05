@@ -85,7 +85,7 @@ export function computeIssues(entries: readonly WireEntry[], warnings: readonly 
               detail: t('wireRow.noPrecedingCall'),
             });
           }
-          // Runtime failure / partial-output signals carried on the result.
+          // Environment failure / partial-output signals carried on the result.
           // v1 persisted `truncated` / `message`; v2 persists `note` instead.
           const result = ev.result as { truncated?: boolean; message?: string; note?: string };
           if (ev.result.isError === true) {

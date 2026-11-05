@@ -339,6 +339,7 @@ describe('resolveSlashCommandInput', () => {
       reason: 'unknown',
     });
   });
+
 });
 
 describe('goal command resolution', () => {

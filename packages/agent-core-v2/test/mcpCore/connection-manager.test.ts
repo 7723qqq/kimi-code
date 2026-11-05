@@ -31,10 +31,43 @@ import {
 } from '#/mcpCore/connection-manager';
 import { type StoredMcpOAuthTokens } from '#/mcpCore/oauth/provider';
 import { McpOAuthService } from '#/mcpCore/oauth/service';
-import { HostProcessService } from '#/os/backends/host/hostProcessService';
+import type { StoredMcpOAuthTokens } from '#/mcpCore/oauth/provider';
+import { FakeEnvironment } from '#/environment/fakeEnvironment';
+import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
+import type { EnvironmentBinding } from '#/environment/environment';
 import { HostProcessError, HostProcessErrorCode } from '#/os/interface/hostProcess';
-import { FakeRuntime } from '#/runtime/fakeRuntime';
-import { RuntimeError } from '#/runtime/runtimeRegistry';
+
+const testEnvironmentBinding: EnvironmentBinding = { environmentId: 'local' };
+const testProcess = new HostProcessService();
+const testEnvironment = Object.assign(
+  new FakeEnvironment({ ...testEnvironmentBinding, generation: 'test-generation' }, {
+    capabilities: ['process'],
+  }),
+  { process: testProcess },
+);
+const testEnvironmentResolver = {
+  _serviceBrand: undefined,
+  inspect: () => testEnvironment,
+  acquire: () => ({
+    environment: testEnvironment,
+    track: <T extends { dispose(): void | Promise<void> }>(resource: T): T => resource,
+    dispose: () => {},
+  }),
+  acquireWhenReady: async () => ({
+    environment: testEnvironment,
+    track: <T extends { dispose(): void | Promise<void> }>(resource: T): T => resource,
+    dispose: () => {},
+  }),
+};
+
+function createManager(options: McpConnectionManagerOptions = {}): McpConnectionManager {
+  return new McpConnectionManager({
+    environmentResolver: testEnvironmentResolver,
+    environmentId: testEnvironmentBinding.environmentId,
+    stdioCwd: process.cwd(),
+    ...options,
+  });
+}
 
 import { recordingTelemetry, type TelemetryRecord } from '../app/telemetry/stubs';
 import {
@@ -516,6 +549,7 @@ describe('McpConnectionManager', () => {
       await rm(cwd, { recursive: true, force: true });
     }
   }, 15000);
+
 
   it('announces the resolved custom identity as the MCP client name', async () => {
     const cm = createManager({ resolveClientName: () => 'acme-dev' });

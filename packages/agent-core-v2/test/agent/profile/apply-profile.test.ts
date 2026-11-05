@@ -6,9 +6,10 @@ import { basename, dirname, isAbsolute, join, normalize, relative, resolve } fro
 
 import { Emitter, Event } from '#/_base/event';
 import { IAgentChangeNotifierService } from '#/agent/changeNotifier/changeNotifier';
-import { IAgentProfileService, type ResolvedAgentProfile } from '#/agent/profile/profile';
-import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
-import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
+import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
+import type { Environment, EnvironmentCapability, EnvironmentStatus } from '#/environment/environment';
+import { stubAgentEnvironment } from '../../environment/stubs';
 import { normalizeAgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import { DEFAULT_PRODUCT_NAME } from '#/app/agentProfileCatalog/profile-shared';
 import { IPluginService } from '#/app/plugin/plugin';
@@ -18,10 +19,10 @@ import {
   BUILTIN_SKILL_SOURCE_ID,
   PLUGIN_SKILL_SOURCE_ID,
 } from '#/features/skill/catalog/skillSource';
-import type { SkillCatalog } from '#/features/skill/catalog/types';
-import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
-import { HostFileSystem } from '#/os/backends/host/hostFsService';
-import type { Runtime, RuntimeCapability, RuntimeStatus } from '#/runtime/runtime';
+import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
+import { DEFAULT_PRODUCT_NAME } from '#/app/agentProfileCatalog/profile-shared';
+import { IWorkspaceInstanceManager } from '#/workspace/workspaceInstance/workspaceInstanceManager';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 
 import { stubAgentIdentity } from '../../app/agentIdentity/stubs';
 import {
@@ -185,7 +186,7 @@ describe('AgentProfileService.applyProfile', () => {
     expect(seed?.agentsMd).toContain('project instructions');
   });
 
-  it('renders the complete runtime context exactly', async () => {
+  it('renders the complete environment context exactly', async () => {
     await writeFile(join(workDir, 'AGENTS.md'), 'project instructions', 'utf-8');
     const { profile: svc } = buildContext();
 
@@ -194,7 +195,7 @@ describe('AgentProfileService.applyProfile', () => {
     expect(svc.data().systemPrompt).toBe(exactSystemPrompt(workDir, 'project instructions'));
   });
 
-  it('maps prompt context roots through the bound runtime workspace view', async () => {
+  it('maps prompt context roots through the bound environment workspace view', async () => {
     const mappedDir = await mkdtemp(join(tmpdir(), 'kimi-apply-mapped-'));
     const localExtra = await mkdtemp(join(tmpdir(), 'kimi-apply-extra-local-'));
     const mappedExtra = await mkdtemp(join(tmpdir(), 'kimi-apply-extra-mapped-'));
@@ -210,8 +211,8 @@ describe('AgentProfileService.applyProfile', () => {
       const fs = new HostFileSystem();
       const { profile: svc } = buildContext(
         agentService(
-          IAgentRuntimeService,
-          mappedRuntimeService(fs, homeDir, (path) => mapping.get(path) ?? path),
+          IAgentEnvironmentService,
+          mappedEnvironmentService(fs, homeDir, (path) => mapping.get(path) ?? path, ['fs'], workDir),
         ),
       );
 
@@ -231,13 +232,39 @@ describe('AgentProfileService.applyProfile', () => {
     }
   });
 
-  it('skips the directory listing when the bound runtime has no fs capability', async () => {
+  it('renders the binding-derived workspace workDir instead of the host session cwd', async () => {
+    const bindingDir = await mkdtemp(join(tmpdir(), 'kimi-apply-binding-'));
+    try {
+      await writeFile(join(bindingDir, 'binding-only.txt'), 'x', 'utf-8');
+      await writeFile(join(workDir, 'host-only.txt'), 'x', 'utf-8');
+      const { profile: svc } = buildContext(
+        agentService(ISessionWorkspaceContext, {
+          _serviceBrand: undefined,
+          workDir: bindingDir,
+          additionalDirs: [],
+          resolve: (rel: string) => resolve(bindingDir, rel),
+          isWithin: () => true,
+          assertAllowed: (absPath: string) => absPath,
+          setWorkDir: () => {},
+        }),
+      );
+
+      await svc.applyProfile(exactProfile);
+
+      const prompt = svc.data().systemPrompt;
+      expect(prompt).toContain(`cwd:${bindingDir}`);
+      expect(prompt).toContain('binding-only.txt');
+      expect(prompt).not.toContain(`cwd:${workDir}`);
+      expect(prompt).not.toContain('host-only.txt');
+    } finally {
+      await rm(bindingDir, { recursive: true, force: true });
+    }
+  });
+
+  it('skips the directory listing when the bound environment has no fs capability', async () => {
     const fs = new HostFileSystem();
     const { profile: svc } = buildContext(
-      agentService(
-        IAgentRuntimeService,
-        mappedRuntimeService(fs, homeDir, (path) => path, []),
-      ),
+      agentService(IAgentEnvironmentService, mappedEnvironmentService(fs, homeDir, (path) => path, [], workDir)),
     );
 
     await svc.applyProfile(exactProfile);
@@ -539,16 +566,17 @@ function exactSystemPrompt(workDir: string, agentsMd: string): string {
   ].join('\n');
 }
 
-function mappedRuntimeService(
+function mappedEnvironmentService(
   fs: HostFileSystem,
   homeDir: string,
   map: (path: string) => string,
-  capabilities: readonly RuntimeCapability[] = ['fs'],
-): IAgentRuntimeService {
-  const runtime: Runtime = {
-    identity: { workspaceId: 'workspace-1', runtimeId: 'mapped', generation: 'g1' },
+  capabilities: readonly EnvironmentCapability[] = ['fs'],
+  workDir?: string,
+): IAgentEnvironmentService {
+  const environment: Environment = {
+    identity: { environmentId: 'mapped', generation: 'g1' },
     capabilities: new Set(capabilities),
-    environment: {
+    host: {
       osKind: 'Linux',
       osArch: 'x64',
       osVersion: 'test',
@@ -575,19 +603,12 @@ function mappedRuntimeService(
     },
     fs,
     status: 'ready',
-    onDidChangeStatus: Event.None as Event<RuntimeStatus>,
+    onDidChangeStatus: Event.None as Event<EnvironmentStatus>,
     dispose: () => {},
   };
-  return {
-    _serviceBrand: undefined,
-    onDidChange: Event.None as Event<void>,
+  return stubAgentEnvironment(environment, {
+    workDir,
     isAvailable: (required = []) =>
-      required.every((capability) => runtime.capabilities.has(capability)),
-    inspect: () => runtime,
-    acquire: () => ({
-      runtime,
-      track: <T>(resource: T): T => resource,
-      dispose: () => {},
-    }),
-  };
+      required.every((capability) => environment.capabilities.has(capability)),
+  });
 }

@@ -34,13 +34,11 @@ export {
 export { Service } from '#/_base/di/service';
 export * from './errors';
 export * from './events';
-export * from '#/runtime/runtime';
-export * from '#/runtime/runtimeRegistry';
-export * from '#/runtime/runtimeWorkspaceView';
-export * from '#/runtime/runtimeProvider';
-export * from '#/runtime/runtimeUnitHost';
-export * from '#/runtime/localRuntime';
-export * from '#/runtime/standaloneRuntime';
+export * from '#/environment/environment';
+export * from '#/app/environment/environment';
+export * from '#/app/environment/environmentService';
+export * from '#/environment/environmentRegistry';
+export * from '#/environment/environmentProvider';
 export * from '#/remote/declaration/remoteEnvironmentDeclaration';
 import '#/remote/declaration/configSection';
 export * from '#/program/program';
@@ -51,12 +49,13 @@ export * from '#/app/workspaceLifecycle/workspaceLifecycle';
 export * from '#/app/workspaceLifecycle/workspaceLifecycleService';
 export * from '#/agent/runtimeBinding/runtimeBinding';
 export * from '#/agent/runtimeBinding/runtimeBindingService';
-export * from '#/agent/runtimeBinding/agentRuntime';
-export * from '#/agent/environmentBinding/environmentBinding';
+export * from '#/agent/runtimeBinding/agentRuntime';export * from '#/agent/environmentBinding/environmentBinding';
 export * from '#/agent/environmentBinding/environmentBindingService';
 export * from '#/agent/environmentBinding/agentEnvironment';
 export * from '#/app/sessionManager/sessionManager';
 export * from '#/app/sessionManager/sessionManagerService';
+export * from '#/app/environmentDeclaration/environmentDeclaration';
+export * from '#/app/environmentDeclaration/environmentDeclarationService';
 
 export * from '#/_base/log/log';
 export * from '#/_base/log/logConfig';
@@ -82,46 +81,11 @@ export * from '#/os/interface/hostClock';
 export * from '#/os/interface/hostEnvironment';
 export * from '#/os/interface/hostFileSystem';
 export * from '#/os/interface/hostProcess';
-export * from '#/os/interface/hostTimers';
-export * from '#/os/backends/host/hostClockService';
-export * from '#/os/backends/host/hostEnvironmentService';
-export * from '#/os/backends/host/hostFsService';
-export * from '#/os/backends/host/hostProcessService';
-export * from '#/os/backends/host/hostTimersService';
-export {
-  ProbeShellNotFoundError,
-  probeHostEnvironmentFromNode,
-} from '#/_base/execEnv/environmentProbe';
-export {
-  SHELL_PAYLOAD_MANIFEST,
-  ShellPayloadStatusCorruptError,
-  type ShellPayloadArchive,
-  type ShellPayloadKind,
-  type ShellPayloadPin,
-  type ShellPayloadStatus,
-  type ShellPayloadVerifyResult,
-  findShellPayloadPin,
-  readShellPayloadStatus,
-  resolveShellPayloadHome,
-  shellPayloadExePath,
-  shellPayloadInstallDir,
-  shellPayloadPinOf,
-  shellPayloadStatusPath,
-  shellPayloadsDir,
-  verifyShellPayload,
-} from '#/_base/execEnv/shellPayload';
-export {
-  ShellPayloadExtractError,
-  ShellPayloadIntegrityError,
-  type ShellPayloadArchiveDownload,
-  type ShellProvisionDeps,
-  type ShellProvisionResult,
-  applyDownloadMirror,
-  createWindowsShellProvisionDeps,
-  downloadShellPayloadArchive,
-  provisionShellPayload,
-  resolveDownloadCandidates,
-} from '#/_base/execEnv/shellProvision';
+export * from '#/os/backends/node-local/hostClockService';
+export * from '#/os/backends/node-local/hostEnvironmentService';
+export * from '#/os/backends/node-local/hostFsService';
+export * from '#/os/backends/node-local/hostProcessService';
+import '#/os/backends/node-local/hostServices';
 export * from '#/agent/tools/os/bash/bash';
 import '#/agent/tools/os/bash/bashTool';
 export * from '#/agent/tools/os/glob/glob';
@@ -348,6 +312,7 @@ export * from '#/session/sessionAgentProfileCatalog/agentProfileCatalogSeed';
 export * from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalogService';
 export * from '#/session/sessionInstructions/instructionsProvider';
 export * from '#/session/workspaceInfo/workspaceInfo';
+export * from '#/session/workdir/workdir';
 export * from '#/workspace/workspaceDirs/workspaceDirs';
 export * from '#/workspace/workspaceDirs/workspaceDirsService';
 export * from '#/features/skill/workspace/workspaceSkillCatalog';
@@ -603,6 +568,7 @@ export * from '#/app/gateway/gatewayService';
 
 export * from '#/session/workspaceContext/workspaceContext';
 export * from '#/session/workspaceContext/workspaceContextService';
+import '#/session/workspaceContext/agentWorkspaceContextService';
 export * from '#/app/projectLocalConfig/projectLocalConfig';
 export * from '#/app/workspace/workspace';
 export * from '#/app/workspace/workspaceService';

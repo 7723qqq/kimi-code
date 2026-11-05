@@ -11,12 +11,8 @@ import type { IPluginService } from '#/app/plugin/plugin';
 import type { ISessionManager } from '#/app/sessionManager/sessionManager';
 import type { IAppStateService } from '#/app/state/appState';
 import type { IWorkspaceService } from '#/app/workspace/workspace';
-import type { ITelemetryService } from '#/app/telemetry/telemetry';
-import type { IBuiltinSkillSource } from '#/features/skill/catalog/builtinSkillSource';
-import type { IUserFileSkillSource } from '#/features/skill/catalog/userFileSkillSource';
-import type { IWorkspaceSkillCatalog } from '#/features/skill/workspace/workspaceSkillCatalog';
-import type { McpOAuthService } from '#/mcpCore/oauth/service';
-import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import type { IWorkspacePersistence } from '#/app/workspace/workspacePersistence';
+import type { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import type { SessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycleService';
 import type { IExplicitAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/explicitAgentProfileLoader';
 import type { IExtraAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoader';
@@ -25,22 +21,18 @@ import type { IUserAgentProfileLoader } from '#/workspace/workspaceAgentProfileL
 import type { IWorkspaceAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/workspaceAgentProfileLoader';
 import type { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import type { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
-import type { IWorkspaceInstructionsService } from '#/workspace/workspaceInstructions/workspaceInstructions';
-import type { IWorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcp';
+import type { IWorkspaceInstructionsService } from '#/workspace/workspaceInstructions/workspaceInstructions';import type { IWorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcp';
 import type { IWorkspaceTrustStore } from '#/workspace/workspaceTrust/workspaceTrustStore';
+import type { ProgramWorkdir } from './programWorkdirs';
 
 export interface ProgramSessionControllerInput {
   readonly context: IWorkspaceContext;
-  readonly fs: IHostFileSystem;
-  readonly workspaceAgentProfiles: IWorkspaceAgentProfileLoader;
   readonly extraAgentProfiles: IExtraAgentProfileLoader;
   readonly explicitAgentProfiles: IExplicitAgentProfileLoader;
   readonly userAgentProfiles: IUserAgentProfileLoader;
   readonly pluginAgentProfiles: IPluginAgentProfileLoader;
-  readonly dirs: IWorkspaceDirs;
-  readonly skills: IWorkspaceSkillCatalog;
-  readonly instructions: IWorkspaceInstructionsService;
   readonly mcp: IWorkspaceMcpService;
+  readonly acquireWorkdir: (environmentId: string, cwd: string) => Promise<ProgramWorkdir>;
   readonly onDispose: () => void;
 }
 

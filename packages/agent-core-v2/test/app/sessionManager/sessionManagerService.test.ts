@@ -1,22 +1,30 @@
-import { describe, expect, it, jest, afterEach, beforeEach } from 'bun:test';
+import { IEnvironmentService } from '#/app/environment/environment';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { Emitter, Event } from '#/_base/event';
+import type { ISessionScopeHandle } from '#/_base/di/scope';
 import type { ServicesAccessor } from '#/_base/di/instantiation';
 import type { ISessionScopeHandle } from '#/_base/di/scope';
 import { Error2 } from '#/_base/errors/errors';
-import { Emitter, Event } from '#/_base/event';
+import type { ILogService } from '#/_base/log/log';
+import type { IConfigService } from '#/app/config/config';
+import { EnvironmentDeclarationService } from '#/app/environmentDeclaration/environmentDeclarationService';
 import type { ISessionIndex } from '#/app/sessionIndex/sessionIndex';
+import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { reloadOnStale } from '#/app/sessionManager/sessionLookup';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { SessionManager } from '#/app/sessionManager/sessionManagerService';
+import { FakeEnvironment } from '#/environment/fakeEnvironment';
+import { EnvironmentRegistry } from '#/environment/environmentRegistry';
 import { ErrorCodes } from '#/errors';
 import { IAgentCronService } from '#/features/cron/cronService';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { InMemorySessionLockService } from '#/persistence/backends/memory/sessionLockService';
 import { Program } from '#/program/program';
 import type { ProgramSessionControllerInput } from '#/program/programDependencies';
-import { FakeRuntime } from '#/runtime/fakeRuntime';
-import { RuntimeRegistry } from '#/runtime/runtimeRegistry';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionActivityView } from '#/session/sessionActivity/sessionActivity';
+import { fakeEnvironment, connectableEnvironment } from '../../environment/stubs';
 import type {
   SessionArchivedEvent,
   SessionCloseReason,
@@ -28,6 +36,53 @@ import type {
 import type { SessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycleService';
 import type { WorkspaceInstance } from '#/workspace/workspaceInstance/workspaceInstance';
 import type { IWorkspaceInstanceManager } from '#/workspace/workspaceInstance/workspaceInstanceManager';
+
+
+function environmentRegistryOf(workspaces: IWorkspaceInstanceManager): EnvironmentRegistry | undefined {
+  for (const id of ['workspace', 'workspace-1']) {
+    const holder = workspaces.get(id) as { environments?: EnvironmentRegistry } | undefined;
+    if (holder?.environments !== undefined) return holder.environments;
+  }
+  return undefined;
+}
+
+function makeSessionManager(
+  workspaces: IWorkspaceInstanceManager,
+  index: ISessionIndex,
+  overrides: {
+    readonly config?: IConfigService;
+    readonly hostFs?: IHostFileSystem;
+    readonly locks?: InMemorySessionLockService;
+  } = {},
+): SessionManager {
+  const log = { _serviceBrand: undefined, warn: () => {}, info: () => {}, error: () => {} } as unknown as ILogService;
+  const environments = {
+    ready: Promise.resolve(),
+    current: (id: string) => environmentRegistryOf(workspaces)?.current(id),
+    acquire: (binding: { environmentId: string }, required: never) => {
+      const registry = environmentRegistryOf(workspaces);
+      if (registry === undefined) throw new Error('environment registry is not stubbed');
+      return registry.acquire(binding, required);
+    },
+  } as unknown as IEnvironmentService;
+  return new SessionManager(
+    workspaces,
+    index,
+    new EnvironmentDeclarationService(
+      overrides.config ??
+        ({ _serviceBrand: undefined, ready: Promise.resolve(), assertValid: () => {}, get: () => undefined } as unknown as IConfigService),
+      log,
+    ),
+    environments,
+    overrides.hostFs ??
+      ({
+        _serviceBrand: undefined,
+        stat: async () => ({ isFile: false, isDirectory: true, size: 0 }),
+        realpath: async (path: string) => path,
+      } as unknown as IHostFileSystem),
+    overrides.locks ?? new InMemorySessionLockService(),
+  );
+}
 
 function controller(sessionId = 'session-1'): {
   readonly service: SessionLifecycleService;
@@ -120,7 +175,7 @@ describe('SessionManager', () => {
     const index = {
       get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }),
     } as unknown as ISessionIndex;
-    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
+    const manager = makeSessionManager(workspaces, index);
 
     const resumePromise = manager.resume('session-1');
     const section = manager.withLifecycleSerialization('session-1', async () => {
@@ -151,7 +206,7 @@ describe('SessionManager', () => {
     const index = {
       get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }),
     } as unknown as ISessionIndex;
-    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
+    const manager = makeSessionManager(workspaces, index);
 
     let releaseSection!: () => void;
     const sectionGate = new Promise<void>((resolve) => {
@@ -195,7 +250,7 @@ describe('SessionManager', () => {
     const index = {
       get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }),
     } as unknown as ISessionIndex;
-    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
+    const manager = makeSessionManager(workspaces, index);
 
     let releaseSection!: () => void;
     const sectionGate = new Promise<void>((resolve) => {
@@ -236,7 +291,7 @@ describe('SessionManager', () => {
     const index = {
       get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }),
     } as unknown as ISessionIndex;
-    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
+    const manager = makeSessionManager(workspaces, index);
 
     let releaseSection!: () => void;
     const sectionGate = new Promise<void>((resolve) => {
@@ -277,7 +332,7 @@ describe('SessionManager', () => {
     const index = {
       get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }),
     } as unknown as ISessionIndex;
-    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
+    const manager = makeSessionManager(workspaces, index);
 
     let releaseSection!: () => void;
     const sectionGate = new Promise<void>((resolve) => {
@@ -321,7 +376,7 @@ describe('SessionManager', () => {
     const index = {
       get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }),
     } as unknown as ISessionIndex;
-    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
+    const manager = makeSessionManager(workspaces, index);
 
     let releaseSection!: () => void;
     const sectionGate = new Promise<void>((resolve) => {
@@ -365,7 +420,7 @@ describe('SessionManager', () => {
     const index = {
       get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }),
     } as unknown as ISessionIndex;
-    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
+    const manager = makeSessionManager(workspaces, index);
 
     let releaseSection!: () => void;
     const sectionGate = new Promise<void>((resolve) => {
@@ -408,7 +463,7 @@ describe('SessionManager', () => {
     const index = {
       get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }),
     } as unknown as ISessionIndex;
-    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
+    const manager = makeSessionManager(workspaces, index);
 
     let releaseSection!: () => void;
     const sectionGate = new Promise<void>((resolve) => {
@@ -449,7 +504,7 @@ describe('SessionManager', () => {
     const index = {
       get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }),
     } as unknown as ISessionIndex;
-    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
+    const manager = makeSessionManager(workspaces, index);
 
     await expect(manager.resume('session-1')).rejects.toThrow('boom');
     await expect(manager.whenResumeSettled('session-1')).rejects.toThrow('boom');
@@ -591,7 +646,7 @@ describe('SessionManager', () => {
       get: (workspaceId: string) => (workspaceId === workspace.id ? workspace : undefined),
     } as unknown as IWorkspaceInstanceManager;
     const index = { get: async () => undefined } as unknown as ISessionIndex;
-    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
+    const manager = makeSessionManager(workspaces, index);
     const created = await manager.create({ workDir: '/workspace' });
     expect(created).toBe(fake.handle);
     expect(manager.get('session-1')).toBe(fake.handle);
@@ -616,14 +671,10 @@ describe('SessionManager', () => {
           generation === 'generation-1' ? first.service : second.service,
       },
     } as unknown as WorkspaceInstance;
-    const workspaces = {
-      acquire: async () => ({ instance: workspace, dispose: () => {} }),
-      get: () => workspace,
-    } as unknown as IWorkspaceInstanceManager;
-    const manager = new SessionManager(
+    const workspaces = workspaceManager(workspace);
+    const manager = makeSessionManager(
       workspaces,
       { get: async () => undefined } as unknown as ISessionIndex,
-      new InMemorySessionLockService(),
     );
 
     expect(await manager.create({ workDir: '/workspace' })).toBe(first.handle);
@@ -634,7 +685,13 @@ describe('SessionManager', () => {
     await manager.close('session-1');
     expect(manager.get('session-1')).toBeUndefined();
     expect(manager.get('session-2')).toBe(second.handle);
+    expect(workspaces.leases).toHaveLength(4);
+    expect(workspaces.leases[0]!.dispose).toHaveBeenCalledTimes(1);
+    expect(workspaces.leases[1]!.dispose).toHaveBeenCalledTimes(1);
+    expect(workspaces.leases[2]!.dispose).toHaveBeenCalledTimes(1);
+    expect(workspaces.leases[3]!.dispose).not.toHaveBeenCalled();
     manager.dispose();
+    expect(workspaces.leases[3]!.dispose).toHaveBeenCalledTimes(1);
   });
 
   it('releases a controller whose create failed without waiting for supersession', async () => {
@@ -656,23 +713,26 @@ describe('SessionManager', () => {
           generation === 'generation-1' ? first.service : second.service,
       },
     } as unknown as WorkspaceInstance;
-    const workspaces = {
-      acquire: async () => ({ instance: workspace, dispose: () => {} }),
-      get: () => workspace,
-    } as unknown as IWorkspaceInstanceManager;
-    const manager = new SessionManager(
+    const workspaces = workspaceManager(workspace);
+    const manager = makeSessionManager(
       workspaces,
       { get: async () => undefined } as unknown as ISessionIndex,
-      new InMemorySessionLockService(),
     );
 
     await expect(manager.create({ workDir: '/workspace' })).rejects.toThrow('boom');
     expect(disposeFirst).toHaveBeenCalledTimes(1);
+    expect(workspaces.leases).toHaveLength(2);
+    expect(workspaces.leases[0]!.dispose).toHaveBeenCalledTimes(1);
+    expect(workspaces.leases[1]!.dispose).toHaveBeenCalledTimes(1);
     generation = 'generation-2';
     expect(await manager.create({ workDir: '/workspace' })).toBe(second.handle);
     expect(disposeFirst).toHaveBeenCalledTimes(1);
+    expect(workspaces.leases).toHaveLength(4);
+    expect(workspaces.leases[2]!.dispose).toHaveBeenCalledTimes(1);
+    expect(workspaces.leases[3]!.dispose).not.toHaveBeenCalled();
     expect(manager.get('session-2')).toBe(second.handle);
     manager.dispose();
+    expect(workspaces.leases[3]!.dispose).toHaveBeenCalledTimes(1);
     expect(disposeFirst).toHaveBeenCalledTimes(1);
   });
 });
@@ -758,15 +818,10 @@ describe('SessionManager closeIfIdle', () => {
         createSessionController: () => service,
       },
     } as unknown as WorkspaceInstance;
-    manager = new SessionManager(
-      {
-        acquire: async () => ({ instance: workspace, dispose: () => {} }),
-        get: () => workspace,
-      } as unknown as IWorkspaceInstanceManager,
-      {
-        get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }),
-      } as unknown as ISessionIndex,
-      locks,
+    manager = makeSessionManager(
+      workspaceManager(workspace),
+      { get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }) } as unknown as ISessionIndex,
+      { locks },
     );
     managers.push(manager);
     return { manager, handle, resume, close, locks };
@@ -851,33 +906,30 @@ describe('SessionManager closeIfIdle', () => {
 });
 
 describe('SessionManager controller retirement', () => {
-  function runtime(generation: string): FakeRuntime {
+  function remoteEnvironment(generation: string): FakeEnvironment {
     return Object.assign(
-      new FakeRuntime(
-        { workspaceId: 'workspace', runtimeId: 'local', generation },
+      new FakeEnvironment(
+        { environmentId: 'remote', generation },
         { capabilities: ['fs', 'process'] },
       ),
-      { fs: {}, process: {} },
-    ) as FakeRuntime;
+      { fs: { stat: async () => ({ isDirectory: true }) }, process: {} },
+    ) as FakeEnvironment;
   }
 
-  function liveProgram(drainTimeoutMs: number): {
-    readonly registry: RuntimeRegistry;
+  function liveProgram(): {
+    readonly registry: EnvironmentRegistry;
     readonly program: Program;
     readonly controllers: {
       readonly service: SessionLifecycleService;
       readonly dispose: ReturnType<typeof jest.fn>;
     }[];
   } {
-    const registry = new RuntimeRegistry('workspace', drainTimeoutMs);
-    const controllers: {
-      readonly service: SessionLifecycleService;
-      readonly dispose: ReturnType<typeof jest.fn>;
-    }[] = [];
+    const registry = new EnvironmentRegistry();
+    const controllers: { readonly service: SessionLifecycleService; readonly dispose: ReturnType<typeof vi.fn> }[] = [];
     let nextSession = 0;
     const program = new Program(
       'workspace',
-      registry,
+      registry as unknown as IEnvironmentService,
       {
         _serviceBrand: undefined,
         workspaceId: 'workspace',
@@ -894,6 +946,7 @@ describe('SessionManager controller retirement', () => {
       },
       {
         agentProfiles: { entries: () => [] },
+        environmentDeclarations: { assertAllowed: () => {} },
         createSessionController: (input: ProgramSessionControllerInput) => {
           const didCreate = new Emitter<SessionCreatedEvent>();
           const didClose = new Emitter<SessionClosedEvent>();
@@ -944,9 +997,10 @@ describe('SessionManager controller retirement', () => {
         },
       } as never,
     );
-    const createGeneration = jest.fn(() => {
-      const lease = registry.acquire(program.binding, ['fs', 'process']);
-      const id = lease.runtime.identity.generation;
+    const createGeneration = vi.fn(() => {
+      const lease = registry.acquire({ environmentId: 'local' }, ['fs', 'process']);
+      const id = lease.environment.identity.generation;
+      lease.dispose();
       const behavior = {
         ready: Promise.resolve(),
         dispose: () => {},
@@ -959,7 +1013,6 @@ describe('SessionManager controller retirement', () => {
       };
       return {
         id,
-        lease,
         state: behavior,
         dirs: behavior,
         fs: behavior,
@@ -987,38 +1040,32 @@ describe('SessionManager controller retirement', () => {
     return { registry, program, controllers };
   }
 
-  function managerFor(program: Program): SessionManager {
-    const workspace = { id: 'workspace', program } as unknown as WorkspaceInstance;
-    const workspaces = {
-      acquire: async () => ({ instance: workspace, dispose: () => {} }),
-      get: (workspaceId: string) => (workspaceId === workspace.id ? workspace : undefined),
-    } as unknown as IWorkspaceInstanceManager;
-    return new SessionManager(
-      workspaces,
+  function managerFor(program: Program, registry?: EnvironmentRegistry, config?: IConfigService): SessionManager {
+    const workspace = { id: 'workspace', program, environments: registry } as unknown as WorkspaceInstance;
+    return makeSessionManager(
+      workspaceManager(workspace),
       { get: async () => undefined } as unknown as ISessionIndex,
-      new InMemorySessionLockService(),
+      { config },
     );
   }
 
-  it('releases the superseded program generation once its last session closes, before the drain timeout', async () => {
-    const { registry, program, controllers } = liveProgram(60_000);
-    const first = runtime('one');
+  it('keeps the superseded session controller until its last session closes', async () => {
+    const { registry, program, controllers } = liveProgram();
+    const first = fakeEnvironment('local', 'one');
     const registration = registry.register(first);
     await program.ready;
-    const manager = managerFor(program);
+    const manager = managerFor(program, registry);
 
     const handleOne = await manager.create({ workDir: '/workspace' });
-    const replacement = registration.replace(runtime('two'));
-    await Promise.resolve();
+    await registration.remove();
+    registry.register(fakeEnvironment('local', 'two'));
     const handleTwo = await manager.create({ workDir: '/workspace' });
     expect(manager.list()).toEqual([handleOne, handleTwo]);
-    expect(first.disposed).toBe(false);
+    expect(first.disposed).toBe(true);
 
     await manager.close(handleOne.id);
     expect(controllers[0]!.dispose).toHaveBeenCalledTimes(1);
     expect(controllers[1]!.dispose).not.toHaveBeenCalled();
-    await replacement;
-    expect(first.disposed).toBe(true);
     expect(manager.get(handleTwo.id)).toBe(handleTwo);
 
     manager.dispose();
@@ -1029,10 +1076,10 @@ describe('SessionManager controller retirement', () => {
   });
 
   it('retires an idle current-generation controller and rebuilds it for the next session', async () => {
-    const { registry, program, controllers } = liveProgram(50);
-    registry.register(runtime('one'));
+    const { registry, program, controllers } = liveProgram();
+    registry.register(fakeEnvironment('local', 'one'));
     await program.ready;
-    const manager = managerFor(program);
+    const manager = managerFor(program, registry);
 
     const first = await manager.create({ workDir: '/workspace' });
     expect(controllers).toHaveLength(1);
@@ -1047,6 +1094,158 @@ describe('SessionManager controller retirement', () => {
     expect(controllers[1]!.dispose).toHaveBeenCalledTimes(1);
     await program.dispose();
     await registry.dispose();
+  });
+
+  it('routes local and remote sessions of one workspace through the same controller', async () => {
+    const { registry, program, controllers } = liveProgram();
+    registry.register(fakeEnvironment('local', 'one'));
+    registry.register(remoteEnvironment('remote-one'));
+    await program.ready;
+    const manager = managerFor(program, registry, {
+      _serviceBrand: undefined,
+      ready: Promise.resolve(),
+      assertValid: () => {},
+      get: (domain: string) =>
+        domain === 'environments' ? { remote: { command: 'remote', defaultCwd: '/remote/work' } } : undefined,
+    } as unknown as IConfigService);
+
+    const local = await manager.create({ workDir: '/workspace' });
+    const remote = await manager.create({ workDir: '/workspace', environmentId: 'remote' });
+
+    expect(controllers).toHaveLength(1);
+    expect(manager.get(local.id)).toBe(local);
+    expect(manager.get(remote.id)).toBe(remote);
+
+    manager.dispose();
+    expect(controllers[0]!.dispose).toHaveBeenCalledTimes(1);
+    await program.dispose();
+    await registry.dispose();
+  });
+});
+
+describe('SessionManager creation environment', () => {
+  let manager!: SessionManager;
+  let registry!: EnvironmentRegistry;
+  afterEach(async () => {
+    manager.dispose();
+    await registry.dispose();
+  });
+
+  function configWith(section: unknown): IConfigService {
+    return {
+      _serviceBrand: undefined,
+      ready: Promise.resolve(),
+      assertValid: () => {},
+      get: (domain: string) => (domain === 'environments' ? section : undefined),
+    } as unknown as IConfigService;
+  }
+
+  function setup(config: IConfigService, remote = false) {
+    registry = new EnvironmentRegistry();
+    registry.register(Object.assign(new FakeEnvironment(
+      { environmentId: 'local', generation: 'local-one' },
+      { capabilities: ['fs', 'process'] },
+    ), { fs: {}, process: {} }));
+    if (remote) {
+      registry.register(Object.assign(new FakeEnvironment(
+        { environmentId: 'sandbox', generation: 'sandbox-one' },
+        { status: 'disconnected', capabilities: ['fs', 'process'] },
+      ), { fs: {}, process: {} }));
+    }
+    const options: unknown[] = [];
+    const service = {
+      onWillCreateSession: Event.None,
+      onDidCreateSession: Event.None,
+      onWillCloseSession: Event.None,
+      onDidCloseSession: Event.None,
+      onDidArchiveSession: Event.None,
+      onDidForkSession: Event.None,
+      create: async (opts: unknown) => {
+        options.push(opts);
+        return { id: `session-${options.length}` } as unknown as ISessionScopeHandle;
+      },
+      dispose: () => {},
+    } as unknown as SessionLifecycleService;
+    const program = {
+      sessionControllerGeneration: 'generation',
+      createSessionController: () => service,
+    } as unknown as Program;
+    const workspace = { id: 'workspace-1', root: '/workspace', environments: registry, program } as unknown as WorkspaceInstance;
+    manager = makeSessionManager(
+      workspaceManager(workspace),
+      { get: async () => undefined } as unknown as ISessionIndex,
+      { config },
+    );
+    return { options };
+  }
+
+  it('binds a new session to the configured default environment and cwd', async () => {
+    const { options } = setup(configWith({
+      default: 'sandbox',
+      sandbox: { command: 'sandbox', args: ['ssh'], defaultCwd: '/home/me/sandbox' },
+    }), true);
+
+    await manager.create({ workDir: '/workspace' });
+    expect(options[0]).toMatchObject({ environmentId: 'sandbox', environmentCwd: '/home/me/sandbox' });
+  });
+
+  it('applies the declaration defaultCwd for an explicit environment id and rejects undeclared ids', async () => {
+    const { options } = setup(configWith({ sandbox: { command: 'sandbox', defaultCwd: '/home/me/sandbox' } }), true);
+
+    await manager.create({ workDir: '/workspace', environmentId: 'sandbox' });
+    await manager.create({ workDir: '/workspace', environmentId: 'sandbox', environmentCwd: '/elsewhere' });
+    expect(options).toMatchObject([
+      { environmentId: 'sandbox', environmentCwd: '/home/me/sandbox' },
+      { environmentId: 'sandbox', environmentCwd: '/elsewhere' },
+    ]);
+    await expect(manager.create({ workDir: '/workspace', environmentId: 'missing' })).rejects.toMatchObject({
+      code: 'config.invalid',
+    });
+  });
+
+  it('keeps new sessions local when no default is configured', async () => {
+    const { options } = setup(configWith(undefined));
+
+    await manager.create({ workDir: '/workspace' });
+    expect(options[0]).toMatchObject({ workDir: '/workspace' });
+    expect((options[0] as { environmentId?: string }).environmentId).toBeUndefined();
+  });
+
+  it('rejects creation when declaration resolution fails and allows explicit local', async () => {
+    const { options } = setup({
+      _serviceBrand: undefined,
+      ready: Promise.resolve(),
+      assertValid: () => {},
+      get: () => {
+        throw new Error('config store corrupted');
+      },
+    } as unknown as IConfigService);
+
+    await expect(manager.create({ workDir: '/workspace', environmentId: 'sandbox' })).rejects.toThrow('config store corrupted');
+    await expect(manager.create({ workDir: '/workspace' })).rejects.toThrow('config store corrupted');
+    expect(options).toHaveLength(0);
+
+    await manager.create({ workDir: '/workspace', environmentId: 'local' });
+    await manager.create({ workDir: '/workspace', environmentId: 'local', environmentCwd: '/tmp/proj-a' });
+    expect(options[0]).toMatchObject({ workDir: '/workspace', environmentId: 'local' });
+    expect(options[1]).toMatchObject({
+      workDir: '/workspace',
+      environmentId: 'local',
+      environmentCwd: '/tmp/proj-a',
+    });
+  });
+
+  it('normalizes a declared remote cwd before handing it to the controller', async () => {
+    const { options } = setup(configWith({ sandbox: { command: 'sandbox', defaultCwd: '/remote//project/./sub/..' } }), true);
+    await manager.create({ workDir: '/workspace', environmentId: 'sandbox' });
+    expect(options[0]).toMatchObject({ environmentId: 'sandbox', environmentCwd: '/remote/project' });
+  });
+
+  it('requires a cwd for a registered environment that is not declared', async () => {
+    const { options } = setup(configWith(undefined), true);
+    await expect(manager.create({ workDir: '/workspace', environmentId: 'sandbox' })).rejects.toThrow('requires a cwd');
+    await manager.create({ workDir: '/workspace', environmentId: 'sandbox', environmentCwd: 'relative/dir' });
+    expect(options[0]).toMatchObject({ environmentId: 'sandbox', environmentCwd: 'relative/dir' });
   });
 });
 

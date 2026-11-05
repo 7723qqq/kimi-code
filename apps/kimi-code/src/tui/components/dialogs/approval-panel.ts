@@ -531,32 +531,28 @@ export class ApprovalPanelComponent extends DockSection implements Focusable {
       ]);
     }
 
-    if (part === 'body') {
-      const body: string[] = [];
-      if (visibleBlocks.length > 0) {
-        body.push('');
-        for (const block of visibleBlocks) {
-          const blockLines = renderDisplayBlock(block, blockStyles, Math.max(1, width - 6));
-          for (const line of blockLines) body.push(indent(line));
-        }
-        if (hiddenBlockCount > 0) {
-          body.push(
-            indent(
-              dim(
-                t(
-                  hiddenBlockCount === 1
-                    ? 'tui.dialogs.approvalPanel.moreBlocksHidden_one'
-                    : 'tui.dialogs.approvalPanel.moreBlocksHidden_other',
-                  { count: hiddenBlockCount },
-                ),
-              ),
-            ),
-          );
-        }
-      } else if (data.description) {
-        body.push('');
-        for (const descLine of data.description.split('\n')) {
-          body.push(indent(dim(descLine)));
+  private renderHead(width: number): string[] {
+    const borderColorBold = (text: string) => currentTheme.boldFg('borderFocus', text);
+    const dim = (text: string) => currentTheme.fg('textDim', text);
+    const environment = this.request.data.environment;
+    const lines = [
+      currentTheme.fg(this.focused ? 'borderFocus' : 'border', '─'.repeat(width)),
+      `  ${borderColorBold('▶')} ${borderColorBold(headerFor(this.request.data.tool_name))}` +
+        (environment === undefined ? '' : `  ${dim(environment)}`),
+    ];
+    if (this.visibleBlocks().length > 0 || this.request.data.description) lines.push('');
+    return lines.map((line) => truncateToWidth(line, width));
+  }
+
+  private renderBody(width: number): string[] {
+    const { data } = this.request;
+    const blocks = this.visibleBlocks();
+    const lines: string[] = [];
+    if (blocks.length > 0) {
+      const blockStyles = makeBlockStyles();
+      for (const block of blocks) {
+        for (const line of renderDisplayBlock(block, blockStyles, Math.max(1, width - 2))) {
+          lines.push(`  ${line}`);
         }
       }
       return clipped(body);

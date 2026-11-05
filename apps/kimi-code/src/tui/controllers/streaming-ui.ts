@@ -751,11 +751,7 @@ export class StreamingUIController {
       void (async () => {
         try {
           const plan = await session.getPlan();
-          // Drop the write if the tool UI was reset (step boundary, error,
-          // /clear, session switch) while getPlan() was in flight — the
-          // component may have been disposed and detached from the tree.
-          if (this._pendingToolComponents.get(toolCallId) !== tc) return;
-          tc.setPlanInfo(plan === null ? {} : { plan: plan.content, path: plan.path });
+          tc.setPlanInfo(plan === null ? {} : { plan: plan.content, path: plan.path ?? undefined });
         } catch {
           if (this._pendingToolComponents.get(toolCallId) !== tc) return;
           tc.setPlanInfo({});

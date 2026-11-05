@@ -7,6 +7,7 @@ import type {
   PromptOrigin,
   ResumedAgentState,
   ToolCall,
+  ToolInputDisplay,
 } from '@moonshot-ai/kimi-code-sdk';
 import {
   limitAgentReplayByTurns,
@@ -206,6 +207,7 @@ export function collectReplayMessageContent(
 export function toolCallFromReplayMessage(
   rawToolCall: ToolCall,
   context: ReplayRenderContext,
+  display?: ToolInputDisplay,
 ): ToolCallBlockData | undefined {
   const id = rawToolCall.id;
   const name = rawToolCall.name;
@@ -214,6 +216,7 @@ export function toolCallFromReplayMessage(
     id,
     name,
     args: parseReplayToolArguments(rawToolCall.arguments),
+    display,
     step: context.stepIndex,
     turnId: context.currentTurnId,
   };

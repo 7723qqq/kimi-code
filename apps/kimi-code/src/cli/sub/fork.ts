@@ -1,9 +1,9 @@
 import type { SessionSummary } from '@moonshot-ai/kimi-code-sdk';
 import type { Command } from 'commander';
 
-import { t } from '#/i18n';
-
-import { promptYesNo, type ConfirmPromptAnswer } from './confirm';
+import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE } from '#/constant/app';
+import { createCliTelemetryBootstrap, initializeCliTelemetry } from '#/cli/telemetry';
+import { createKimiCodeHostIdentity } from '#/cli/host-identity';
 
 interface WritableLike {
   write(chunk: string): boolean;

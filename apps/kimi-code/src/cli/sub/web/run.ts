@@ -30,7 +30,9 @@ import { openUrl as defaultOpenUrl } from '#/utils/open-url';
 import { getDataDir } from '#/utils/paths';
 import { generateRemoteControlQr } from '#/utils/remote-control-qr';
 
-import { createKimiCodeHostIdentity, getHostPackageRoot, getVersion } from '../../version';
+import { initializeServerTelemetry } from '../../telemetry';
+import { createKimiCodeHostIdentity } from '../../host-identity';
+import { getHostPackageRoot, getVersion } from '../../version';
 import {
   accessUrlLines,
   browserOpenOrigin,

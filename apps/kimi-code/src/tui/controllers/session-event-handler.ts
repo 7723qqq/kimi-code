@@ -127,6 +127,7 @@ export interface SessionEventHost {
   showError(msg: string): void;
   showStatus(msg: string, color?: ColorToken): void;
   showNotice(title: string, detail?: string): void;
+  refreshEnvironmentSlot(): Promise<void>;
   updateActivityPane(): void;
   /** One-row live status above the input box for an in-flight Ctrl+P rewrite. */
   readonly promptOptimizerActivity: import('./prompt-optimizer-activity').PromptOptimizerActivityController;
@@ -453,23 +454,12 @@ export class SessionEventHandler {
         break;
       case 'background.task.started':
       case 'background.task.terminated':
-        this.handleBackgroundTaskEvent(event);
-        break;
-      case 'cron.fired':
-        this.handleCronFired(event);
-        break;
-      case 'mcp.server.status':
-        this.renderMcpServerStatus(event.server);
-        break;
-      case 'tool.list.updated':
-        break;
-      case 'prompt.completed':
-        if (event.reason === 'blocked' || event.reason === 'failed') {
-          this.host.releaseSteerDelivery?.(event.promptId);
-        }
-        break;
-      default:
-        break;
+        this.handleBackgroundTaskEvent(event); break;
+      case 'cron.fired': this.handleCronFired(event); break;
+      case 'environment.status.changed': void this.host.refreshEnvironmentSlot(); break;
+      case 'mcp.server.status': this.renderMcpServerStatus(event.server); break;
+      case 'tool.list.updated': break;
+      default: break;
     }
   }
 

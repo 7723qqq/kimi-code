@@ -12,7 +12,7 @@ import { createFakeHostFs } from '../../../tools/fixtures/fake-exec';
 async function enterPlan(plan: IAgentPlanService, id = 'test-plan'): Promise<string> {
   await plan.enter(id, false);
   const status = await plan.status();
-  if (status === null) {
+  if (status === null || status.path === null) {
     throw new Error('expected plan file path');
   }
   return status.path;

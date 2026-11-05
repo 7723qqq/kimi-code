@@ -13,6 +13,7 @@ import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
 import { IEventBus } from '#/app/event/eventBus';
 import { LifecycleScope } from '#/app/scopes';
 import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
+import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 
 import { IAgentToolActivationService } from './toolActivation';
 import { isToolAvailable } from './toolAvailability';
@@ -27,7 +28,7 @@ export class AgentToolActivationService extends Service implements IAgentToolAct
     @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @ISessionToolPolicyGate private readonly toolPolicyGate: ISessionToolPolicyGate,
-    @IAgentRuntimeService private readonly runtime: IAgentRuntimeService,
+    @IAgentEnvironmentService private readonly environment: IAgentEnvironmentService,
     @IEventBus eventBus: IEventBus,
     @AgentToolContribution private readonly contributions: CollectionView<AgentToolContribution>,
   ) {
@@ -37,11 +38,7 @@ export class AgentToolActivationService extends Service implements IAgentToolAct
         void this.activate();
       }),
     );
-    this._register(
-      this.runtime.onDidChange(() => {
-        this.refreshRuntimeRecords();
-      }),
-    );
+    this._register(this.environment.onDidChange(() => this.refreshEnvironmentRecords()));
     this._register(
       this.contributions.onDidChange((change) => {
         this.activateRecords(change.added);
@@ -74,7 +71,7 @@ export class AgentToolActivationService extends Service implements IAgentToolAct
             ? isToolActive(disclosurePolicy, options.name, source)
             : isToolActive(policy, options.name, source);
         if (!activeByProfile) continue;
-        if (!isToolAvailable(options, accessor, this.runtime)) continue;
+        if (!isToolAvailable(options, accessor, this.environment)) continue;
         const tool = accessor.get(id);
         const registration = this.toolRegistry.register(tool, {
           source: options.source,
@@ -86,14 +83,22 @@ export class AgentToolActivationService extends Service implements IAgentToolAct
     });
   }
 
-  private refreshRuntimeRecords(): void {
+  private refreshEnvironmentRecords(): void {
     for (const record of this.contributions.items) {
-      const required = record.options.requiredRuntimeCapabilities;
-      if (required !== undefined && !this.runtime.isAvailable(required)) {
-        this.deactivateRecord(record);
-      }
+      if (!this.environmentAllows(record)) this.deactivateRecord(record);
     }
     this.activateRecords(this.contributions.items);
+  }
+
+  private environmentAllows(record: AgentToolContribution): boolean {
+    const required = record.options.requiredEnvironmentCapabilities;
+    if (required === undefined) return true;
+    if (this.environment.isAvailable(required)) return true;
+    try {
+      return typeof this.environment.inspect().connect === 'function';
+    } catch {
+      return false;
+    }
   }
 
   private deactivateRecord(record: AgentToolContribution): void {

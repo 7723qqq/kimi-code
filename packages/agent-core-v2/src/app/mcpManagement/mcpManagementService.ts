@@ -27,16 +27,17 @@ import {
   type McpOAuthTokenState,
 } from '#/mcpCore/oauth/service';
 import { canonicalMcpOAuthResource } from '#/mcpCore/oauth/store';
-import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { IHostProcessService } from '#/os/interface/hostProcess';
-import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
-import { LocalRuntime } from '#/runtime/localRuntime';
-import { RuntimeRegistry } from '#/runtime/runtimeRegistry';
+import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
+import { IConfigService } from '#/app/config/config';
+import { MCP_SECTION, type McpSection } from '#/app/mcpConfig/configSection';
+import { IMcpConfigStore, normalizeServerName } from '#/app/mcpConfig/configStore';
+import { IMcpOAuthService } from '#/app/mcpConfig/oauthService';
 import {
-  IRuntimeResolver,
-  IWorkspaceInstanceManager,
-  type WorkspaceInstanceLease,
-} from '#/workspace/workspaceInstance/workspaceInstanceManager';
+  IMcpRegistryService,
+  type McpRegistryEntry,
+  type McpRegistryQuery,
+} from '#/app/mcpRegistry/mcpRegistry';
+import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment/environment';
 
 import {
   IMcpManagementService,
@@ -72,11 +73,7 @@ export class McpManagementService extends Disposable implements IMcpManagementSe
     @IMcpOAuthService private readonly oauth: McpOAuthService,
     @IConfigService private readonly config: IConfigService,
     @IAgentIdentity private readonly identity: IAgentIdentity,
-    @IRuntimeResolver private readonly runtimeResolver: IRuntimeResolver,
-    @IWorkspaceInstanceManager private readonly workspaceInstances: IWorkspaceInstanceManager,
-    @IHostEnvironment private readonly hostEnvironment: IHostEnvironment,
-    @IHostProcessService private readonly hostProcess: IHostProcessService,
-    @IHostTimers private readonly timers: IHostTimers,
+    @IEnvironmentService private readonly environmentResolver: EnvironmentResolver,
     @ILogService private readonly log: ILogService,
   ) {
     super();
@@ -181,44 +178,12 @@ export class McpManagementService extends Disposable implements IMcpManagementSe
   ): Promise<T> {
     await this.waitForReadiness();
     const section = this.config.get<McpSection | undefined>(MCP_SECTION);
-    let workspaceId: string | undefined;
-    let stdioCwd = cwd;
-    let runtimeResolver = this.runtimeResolver;
-    let transientRuntimes: RuntimeRegistry | undefined;
-    let workspaceLease: WorkspaceInstanceLease | undefined;
-    if (server.transport === 'stdio') {
-      stdioCwd = normalize(cwd ?? process.cwd());
-      const workspace = this.workspaceInstances.findContaining(stdioCwd);
-      if (workspace !== undefined) {
-        workspaceLease = await this.workspaceInstances.acquire({ workspaceId: workspace.id });
-        workspaceId = workspaceLease.instance.id;
-      } else {
-        const runtimeId = server.runtime_id;
-        if (runtimeId !== undefined && runtimeId !== 'local') {
-          throw new Error2(
-            ErrorCodes.REQUEST_INVALID,
-            `Cannot probe MCP server "${server.name}" with runtime_id "${runtimeId}": no materialized workspace contains ${stdioCwd}, and an out-of-workspace probe only supports the local runtime`,
-          );
-        }
-        await this.hostEnvironment.ready;
-        workspaceId = `mcp-probe-${randomUUID()}`;
-        transientRuntimes = new RuntimeRegistry(workspaceId);
-        transientRuntimes.register(
-          new LocalRuntime(workspaceId, this.hostEnvironment, undefined, this.hostProcess),
-        );
-        runtimeResolver = {
-          _serviceBrand: undefined,
-          inspect: (binding) => transientRuntimes!.inspect(binding),
-          acquire: (binding, required) => transientRuntimes!.acquire(binding, required),
-        };
-      }
-    }
+    const stdioCwd = server.transport === 'stdio' ? normalize(cwd ?? process.cwd()) : cwd;
     const manager = new McpConnectionManager({
       log: this.log,
       stdioCwd,
-      runtimeResolver,
-      workspaceId,
-      runtimeId: workspaceId === undefined ? undefined : 'local',
+      environmentResolver: this.environmentResolver,
+      environmentId: 'local',
       oauthService: this.oauth,
       resolveClientName: () => this.identity.current().slug,
       resolveDefaults: () => ({
@@ -230,15 +195,7 @@ export class McpManagementService extends Disposable implements IMcpManagementSe
       await manager.connectAll({ [server.name]: mcpConfigWithoutName(server) });
       return inspect(manager);
     } finally {
-      try {
-        await manager.shutdown();
-      } finally {
-        try {
-          await transientRuntimes?.dispose();
-        } finally {
-          workspaceLease?.dispose();
-        }
-      }
+      await manager.shutdown();
     }
   }
 

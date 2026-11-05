@@ -160,9 +160,9 @@ describe('AgentProfileRegistryService (collection fold)', () => {
     wdA.dispose();
 
     expect(seen).toStrictEqual([
-      { sourceId: 'user', workspaceKey: undefined },
-      { sourceId: 'workspace', workspaceKey: 'wd_a' },
-      { sourceId: 'workspace', workspaceKey: 'wd_a' },
+      { sourceId: 'user', workspaceKey: undefined, contextKey: undefined },
+      { sourceId: 'workspace', workspaceKey: 'wd_a', contextKey: undefined },
+      { sourceId: 'workspace', workspaceKey: 'wd_a', contextKey: undefined },
     ]);
     subscription.dispose();
     container.dispose();
@@ -178,7 +178,7 @@ describe('AgentProfileRegistryService (collection fold)', () => {
     stale.dispose();
 
     expect(registry.entries()[0]?.contribution.profiles[0]?.name).toBe('v2');
-    expect(seen).toStrictEqual([{ sourceId: 'user', workspaceKey: undefined }]);
+    expect(seen).toStrictEqual([{ sourceId: 'user', workspaceKey: undefined, contextKey: undefined }]);
     subscription.dispose();
     container.dispose();
   });

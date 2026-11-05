@@ -1,9 +1,12 @@
 import { collection } from '#/_base/di/collection';
 import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiation';
 import { ScopeActivation, overrideScopedService, registerScopedService } from '#/_base/di/scope';
-import { LifecycleScope } from '#/app/scopes';
-import type { RuntimeCapability } from '#/runtime/runtime';
-import type { AgentTool, ToolDisclosure, ToolSource } from '#/tool/toolContract';
+import type {
+  AgentTool,
+  ToolDisclosure,
+  ToolSource,
+} from '#/tool/toolContract';
+import type { EnvironmentCapability } from '#/environment/environment';
 
 export type AnyAgentTool = AgentTool<any>;
 
@@ -14,7 +17,7 @@ export interface AgentToolContributionOptions {
   readonly source?: ToolSource;
   readonly disclosure?: ToolDisclosure;
   readonly when?: (accessor: ServicesAccessor) => boolean;
-  readonly requiredRuntimeCapabilities?: readonly RuntimeCapability[];
+  readonly requiredEnvironmentCapabilities?: readonly EnvironmentCapability[];
   readonly domain?: string;
 }
 

@@ -648,20 +648,13 @@ export const sessionWorkChangedEventSchema = z.object({
   last_turn_reason: z.enum(['completed', 'cancelled', 'failed']).optional(),
 });
 
-const legacySessionStatusSchema = z.enum([
-  'idle',
-  'running',
-  'awaiting_approval',
-  'awaiting_question',
-  'aborted',
+export const environmentStatusSchema = z.enum([
+  'pending',
+  'connecting',
+  'ready',
+  'disconnected',
+  'disposed',
 ]);
-
-export const sessionStatusChangedEventSchema = z.object({
-  type: z.literal('event.session.status_changed'),
-  status: legacySessionStatusSchema,
-  previous_status: legacySessionStatusSchema,
-  current_prompt_id: z.string().min(1).optional(),
-});
 
 export const configChangedEventSchema = z.object({
   type: z.literal('event.config.changed'),

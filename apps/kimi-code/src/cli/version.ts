@@ -1,7 +1,9 @@
 /**
- * Kimi Code version helpers.
+ * Kimi Code version and package location.
  *
- * `getVersion` reads the host CLI's `package.json#version`.
+ * Kept free of workspace imports so the process entry's light paths
+ * (`cli/exec-server.ts`) can resolve the version without pulling in the SDK
+ * module graph; the product identity built on top lives in `host-identity.ts`.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -9,9 +11,7 @@ import { dirname, resolve } from 'node:path';
 
 import { createKimiUserAgent, type KimiHostIdentity } from '@moonshot-ai/kimi-code-oauth/identity';
 
-import { CLI_MSH_PLATFORM, CLI_USER_AGENT_PRODUCT } from '#/constant/app';
-
-import { KIMI_BUILD_INFO } from './build-info';
+import { CLI_MSH_PLATFORM, CLI_USER_AGENT_PRODUCT } from '#/constant/app';import { KIMI_BUILD_INFO } from './build-info';
 
 const MODULE_DIR = import.meta.dirname;
 
@@ -45,20 +45,4 @@ export function getVersion(): string {
     version: string;
   };
   return pkg.version;
-}
-
-export function createKimiCodeHostIdentity(version = getVersion()): KimiHostIdentity {
-  return {
-    productName: CLI_USER_AGENT_PRODUCT,
-    version,
-    platform: CLI_MSH_PLATFORM,
-  };
-}
-
-/**
- * Product User-Agent (`kimi-code-cli/<version>`) for ad-hoc outbound fetches
- * that don't go through the provider pipeline (registry / catalog imports).
- */
-export function createKimiCodeUserAgent(version = getVersion()): string {
-  return createKimiUserAgent(createKimiCodeHostIdentity(version));
 }

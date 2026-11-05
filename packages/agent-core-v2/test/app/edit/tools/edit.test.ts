@@ -4,6 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as posixPath from 'node:path/posix';
 
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { PathSecurityError } from '#/tool/path-access';
+import { stubWorkspaceContext } from '../../../session/workspaceContext/stub-workspace-context';
+import { stubAgentEnvironment } from '../../../environment/stubs';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
 import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
@@ -14,8 +19,7 @@ import { FileEditService } from '#/app/edit/fileEditService';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
-import type { Runtime } from '#/runtime/runtime';
+import type { Environment } from '#/environment/environment';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { PathSecurityError } from '#/tool/path-access';
 import type {
@@ -73,10 +77,10 @@ function buildTool(
       reg.define(IFileEditService, FileEditService);
     },
   });
-  const runtimeValue = {
-    identity: { workspaceId: 'workspace', runtimeId: 'local', generation: 'test' },
+  const environmentValue = {
+    identity: { environmentId: 'local', generation: 'test' },
     capabilities: new Set(['fs'] as const),
-    environment: env,
+    host: env,
     path: posixPath,
     workspace: {
       mapRoots: (roots: { workDir: string; additionalDirs?: readonly string[] }) => roots,
@@ -85,19 +89,9 @@ function buildTool(
     status: 'ready',
     onDidChangeStatus: () => ({ dispose: () => {} }),
     dispose: () => {},
-  } as unknown as Runtime;
-  const runtime: IAgentRuntimeService = {
-    _serviceBrand: undefined,
-    onDidChange: () => ({ dispose: () => {} }),
-    isAvailable: () => true,
-    inspect: () => runtimeValue,
-    acquire: () => ({
-      runtime: runtimeValue,
-      track: (resource) => resource,
-      dispose: () => {},
-    }),
-  };
-  return new EditTool(ix.get(IFileEditService), runtime, workspace);
+  } as unknown as Environment;
+  const environment = stubAgentEnvironment(environmentValue);
+  return new EditTool(ix.get(IFileEditService), environment, workspace);
 }
 
 function isPromiseLike(
@@ -137,9 +131,9 @@ describe('EditTool', () => {
     disposables.dispose();
   });
 
-  it('exposes before/after on the file_io display so the approval panel can render a diff', () => {
+  it('exposes before/after on the file_io display so the approval panel can render a diff', async () => {
     const tool = buildTool(createSpiedEditFs().fs, createTestEnv(), PERMISSIVE_WORKSPACE);
-    const execution = tool.resolveExecution({
+    const execution = await tool.resolveExecution({
       path: '/tmp/foo.ts',
       old_string: 'a\nb\nc',
       new_string: 'a\nB\nc',
@@ -156,9 +150,9 @@ describe('EditTool', () => {
     });
   });
 
-  it('declares readWriteFile access for the edited path', () => {
+  it('declares readWriteFile access for the edited path', async () => {
     const tool = buildTool(createSpiedEditFs().fs, createTestEnv(), PERMISSIVE_WORKSPACE);
-    const execution = tool.resolveExecution({
+    const execution = await tool.resolveExecution({
       path: '/tmp/foo.ts',
       old_string: 'a',
       new_string: 'b',
@@ -217,16 +211,16 @@ describe('EditTool', () => {
     expect(writeText).toHaveBeenCalledWith('/tmp/a.txt', 'alpha gamma');
   });
 
-  it('executes against the selected runtime filesystem instead of the App filesystem', async () => {
-    const runtimeWrite = mock().mockResolvedValue(undefined);
-    const { fs: runtimeFs } = createSpiedEditFs({
-      readText: mock().mockResolvedValue('runtime content'),
-      writeText: runtimeWrite,
+  it('executes against the selected environment filesystem instead of the App filesystem', async () => {
+    const environmentWrite = vi.fn().mockResolvedValue(undefined);
+    const { fs: environmentFs } = createSpiedEditFs({
+      readText: vi.fn().mockResolvedValue('environment content'),
+      writeText: environmentWrite,
     });
     const appRead = mock().mockRejectedValue(new Error('App filesystem bypass'));
     const appWrite = mock().mockRejectedValue(new Error('App filesystem bypass'));
     const { fs: appFs } = createSpiedEditFs({ readText: appRead, writeText: appWrite });
-    const tool = buildTool(runtimeFs, createTestEnv(), PERMISSIVE_WORKSPACE, appFs);
+    const tool = buildTool(environmentFs, createTestEnv(), PERMISSIVE_WORKSPACE, appFs);
 
     const result = await execute(tool, {
       path: '/tmp/a.txt',
@@ -235,7 +229,7 @@ describe('EditTool', () => {
     });
 
     expect(result.output).toContain('Replaced 1 occurrence');
-    expect(runtimeWrite).toHaveBeenCalledWith('/tmp/a.txt', 'runtime generation');
+    expect(environmentWrite).toHaveBeenCalledWith('/tmp/a.txt', 'environment generation');
     expect(appRead).not.toHaveBeenCalled();
     expect(appWrite).not.toHaveBeenCalled();
   });

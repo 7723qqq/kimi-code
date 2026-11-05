@@ -11,6 +11,7 @@
  * permission-rule matcher.
  */
 import { parsePattern } from '@moonshot-ai/agent-core-v2/agent/permissionRules/matchesRule';
+import { EnvironmentsSectionSchema } from '@moonshot-ai/agent-core-v2/remote/declaration/remoteEnvironmentDeclaration';
 import { z } from 'zod';
 
 import { ErrorCodes, KimiError } from '#/errors';
@@ -279,26 +280,9 @@ export const ExperimentalConfigSchema = z.record(z.string(), z.union([z.boolean(
 
 export type ExperimentalConfig = z.infer<typeof ExperimentalConfigSchema>;
 
-const HOOK_EVENT_TYPES = [
-  'PreToolUse',
-  'PostToolUse',
-  'PostToolUseFailure',
-  'PermissionRequest',
-  'PermissionResult',
-  'UserPromptSubmit',
-  'Stop',
-  'StopFailure',
-  'Interrupt',
-  'SessionStart',
-  'SessionEnd',
-  'SubagentStart',
-  'SubagentStop',
-  'PreCompact',
-  'PostCompact',
-  'Notification',
-] as const;
+export const EnvironmentsConfigSchema = EnvironmentsSectionSchema;
 
-export type HookEventType = (typeof HOOK_EVENT_TYPES)[number];
+export type EnvironmentsConfig = z.infer<typeof EnvironmentsConfigSchema>;
 
 export const HookDefSchema = z
   .object({
@@ -349,7 +333,6 @@ export const McpServerStdioConfigSchema = z.object({
   args: z.array(z.string()).optional(),
   env: StringRecordSchema.optional(),
   cwd: z.string().optional(),
-  executor: z.enum(['local']).optional(),
   ...McpServerCommonFields,
 });
 
@@ -436,6 +419,7 @@ export const KimiConfigSchema = z.object({
   image: ImageConfigSchema.optional(),
   modelCatalog: ModelCatalogConfigSchema.optional(),
   experimental: ExperimentalConfigSchema.optional(),
+  environments: EnvironmentsConfigSchema.optional(),
   telemetry: z.boolean().optional(),
   disableFeedbackSurvey: z.boolean().optional(),
   raw: z.record(z.string(), z.unknown()).optional(),
@@ -491,6 +475,7 @@ export const KimiConfigPatchSchema = z
     image: ImageConfigPatchSchema.optional(),
     modelCatalog: ModelCatalogConfigPatchSchema.optional(),
     experimental: ExperimentalConfigPatchSchema.optional(),
+    environments: EnvironmentsConfigSchema.optional(),
     telemetry: z.boolean().optional(),
     disableFeedbackSurvey: z.boolean().optional(),
   })

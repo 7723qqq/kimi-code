@@ -27,7 +27,7 @@ async function ensureRuntimeAssetsExist() {
   try {
     await stat(webIndexPath);
   } catch {
-    fail(`Runtime asset not found at ${webIndexPath}. Run \`bun run build\` first.`);
+    fail(`Environment asset not found at ${webIndexPath}. Run \`pnpm build\` first.`);
   }
 }
 

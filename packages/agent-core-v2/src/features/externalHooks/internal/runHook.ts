@@ -86,13 +86,7 @@ export async function runHook(
       env: options.env,
     });
   } catch (error) {
-    return options.failClosed === true
-      ? blockResult(
-          `Permission hook failed to spawn: ${errorMessage(error)}`,
-          undefined,
-          errorMessage(error),
-        )
-      : allowResult({ stderr: errorMessage(error), errored: true });
+    return allowResult({ stderr: errorMessage(error), errored: true, error: errorMessage(error) });
   }
 
   return new Promise<HookResult>((resolve) => {
@@ -136,26 +130,7 @@ export async function runHook(
       },
       (error) => {
         void proc.dispose();
-        const failureStderr = stderr + errorMessage(error);
-        if (options.failClosed === true) {
-          settle(
-            blockResult(
-              'Permission hook errored while running',
-              undefined,
-              failureStderr,
-              truncated,
-            ),
-          );
-          return;
-        }
-        settle(
-          allowResult({
-            stdout,
-            stderr: failureStderr,
-            errored: true,
-            outputTruncated: truncated,
-          }),
-        );
+        settle(allowResult({ stdout, stderr: stderr + errorMessage(error), errored: true, error: errorMessage(error) }));
       },
     );
 
@@ -274,7 +249,7 @@ function allowResult(input: {
   readonly timedOut?: boolean;
   readonly errored?: boolean;
   readonly structuredOutput?: boolean;
-  readonly outputTruncated?: boolean;
+  readonly error?: string;
 }): HookResult {
   return {
     action: 'allow',
@@ -285,7 +260,7 @@ function allowResult(input: {
     timedOut: input.timedOut,
     errored: input.errored,
     structuredOutput: input.structuredOutput,
-    outputTruncated: input.outputTruncated,
+    error: input.error,
   };
 }
 

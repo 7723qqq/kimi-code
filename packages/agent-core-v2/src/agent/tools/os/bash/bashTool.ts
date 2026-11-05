@@ -12,9 +12,10 @@ import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProce
 import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import { ToolOutputAccumulator } from '#/tool/output-accumulator';
-import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
+import { acquireOrWhenReady, pinnedGeneration, IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
+import { EnvironmentWorkspaceView } from '#/environment/environmentWorkspaceView';
+import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
+import { getShellPathBridge } from '#/_base/execEnv/shellPathBridge';
 import {
   DEFAULT_TOOL_RESULT_MAX_CHARS,
   ToolSideEffects,
@@ -56,7 +57,7 @@ export class BashTool implements IBashTool {
   readonly parameters: Record<string, unknown> = toInputJsonSchema(BashInputSchema);
 
   constructor(
-    @IAgentRuntimeService private readonly runtime: IAgentRuntimeService,
+    @IAgentEnvironmentService private readonly environment: IAgentEnvironmentService,
     @ISessionContext private readonly ctx: ISessionContext,
     @ISessionWorkspaceContext private readonly workspaceCtx: ISessionWorkspaceContext,
     @IAgentTaskService private readonly tasks: IAgentTaskService,
@@ -87,19 +88,16 @@ export class BashTool implements IBashTool {
   }
 
   get description(): string {
-    const allowBackground = this.allowBackground();
-    return renderPrompt(bashDescriptionTemplate, {
-      SHELL_NAME: inspectAgentRuntime(this.runtime).environment.shellName,
-      TIMEOUT_GUIDANCE: !allowBackground
-        ? TIMEOUT_KILLS
-        : this.autoBackgroundOnTimeout()
-          ? TIMEOUT_MOVES_TO_BACKGROUND
-          : TIMEOUT_KILLS_WITH_BACKGROUND,
-      BACKGROUND_GUIDANCE: allowBackground ? BACKGROUND_GUIDANCE : NO_BACKGROUND_GUIDANCE,
-    });
+    const renderedDescription = renderBashDescription(this.environment.inspect().host?.shellName ?? 'sh');
+    if (!this.allowBackground()) return withoutBackgroundDescription(renderedDescription);
+    if (!this.autoBackgroundOnTimeout()) {
+      return withoutAutoBackgroundOnTimeout(renderedDescription);
+    }
+    return renderedDescription;
   }
 
   resolveExecution(args: BashInput): ToolExecution {
+    const expectedGeneration = this.reviewedGeneration();
     const preview = args.command.length > 50 ? `${args.command.slice(0, 50)}…` : args.command;
     return {
       description: args.run_in_background
@@ -108,15 +106,32 @@ export class BashTool implements IBashTool {
       display: {
         kind: 'command',
         command: args.command,
-        cwd: args.cwd ?? this.ctx.cwd,
+        cwd: this.executionCwd(args),
         description: args.description,
         language: 'bash',
       },
       approvalRule: literalRulePattern(this.name, args.command),
       matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, args.command),
       execute: ({ signal, onUpdate, onForegroundTaskStart, toolCallId }) =>
-        this.execution(args, signal, toolCallId, onUpdate, onForegroundTaskStart),
+        this.execution(args, signal, toolCallId, onUpdate, onForegroundTaskStart, expectedGeneration),
     };
+  }
+
+  private reviewedGeneration(): string | undefined {
+    try {
+      return pinnedGeneration(this.environment.inspect());
+    } catch {
+      return undefined;
+    }
+  }
+
+  private executionCwd(args: BashInput): string {
+    try {
+      const view = new EnvironmentWorkspaceView(this.environment.inspect(), this.workspaceCtx);
+      return view.resolve(args.cwd ?? view.workDir);
+    } catch {
+      return args.cwd ?? this.ctx.cwd;
+    }
   }
 
   private spawn(
@@ -134,7 +149,7 @@ export class BashTool implements IBashTool {
       SHELL: env.shellPath,
     };
 
-    return processService.spawn(env.shellPath, ['-c', shellCommand], { env: noninteractiveEnv });
+    return processService.spawn(env.shellPath, ['-c', shellCommand], { cwd: effectiveCwd, env: noninteractiveEnv });
   }
 
   private async execution(
@@ -143,17 +158,21 @@ export class BashTool implements IBashTool {
     toolCallId: string,
     onUpdate?: (update: ToolUpdate) => void,
     onForegroundTaskStart?: (taskId: string) => void,
+    expectedGeneration?: string,
   ): Promise<ExecutableToolResult> {
     const validationError = this.results.validateRunRequest(args, signal);
     if (validationError !== undefined) return validationError;
 
     const startsInBackground = args.run_in_background === true;
     const foregroundTimeoutMs = normalizeTimeoutMs(args.timeout, false);
-    const lease = this.runtime.acquire(['process']);
-    const view = new RuntimeWorkspaceView(lease.runtime, this.workspaceCtx);
-    const env = lease.runtime.environment;
-    const command =
-      env.osKind === 'Windows' ? rewriteWindowsNullRedirect(args.command) : args.command;
+    const lease = await acquireOrWhenReady(this.environment, ['process']);
+    if (expectedGeneration !== undefined && lease.environment.identity.generation !== expectedGeneration) {
+      lease.dispose();
+      return { isError: true, output: 'Environment changed before execution. Retry the tool call.' };
+    }
+    const view = new EnvironmentWorkspaceView(lease.environment, this.workspaceCtx);
+    const env = view.host;
+    const command = env.osKind === 'Windows' ? rewriteWindowsNullRedirect(args.command) : args.command;
     const effectiveCwd = view.resolve(args.cwd ?? view.workDir);
     const description = startsInBackground
       ? args.description!.trim()
@@ -167,7 +186,7 @@ export class BashTool implements IBashTool {
     const builder = new ToolOutputAccumulator();
     let proc: IHostProcess;
     try {
-      proc = lease.track(await this.spawn(lease.runtime.process!, env, effectiveCwd, command));
+      proc = lease.track(await this.spawn(lease.environment.process!, env, effectiveCwd, command), this.ctx.sessionId);
     } catch (error) {
       lease.dispose();
       return {
@@ -301,12 +320,11 @@ function isNulRedirectAt(text: string, at: number): boolean {
   return at + 3 >= text.length || NUL_TARGET_BOUNDARY.test(text[at + 3]!);
 }
 
-function nulRedirectWordStart(text: string, at: number): number | undefined {
-  let cursor = at + 1;
-  if (text[cursor] === '>') cursor++;
-  while (text[cursor] === ' ' || text[cursor] === '\t') cursor++;
-  return isNulRedirectAt(text, cursor) ? cursor : undefined;
-}
+registerAgentToolService(IBashTool, BashTool, {
+  name: 'Bash',
+  domain: 'os/backends',
+  requiredEnvironmentCapabilities: ['process'],
+});
 
 function readHeredocDelimiter(text: string, at: number): HeredocDelimiter | undefined {
   let cursor = at + 2;

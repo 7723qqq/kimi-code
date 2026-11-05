@@ -17,7 +17,12 @@ import {
 import { pino } from 'pino';
 
 import { listLiveServerInstances } from '../src/instanceRegistry';
-import { listenWithPortRetry, type RunningServer, startServer } from '../src/start';
+import {
+  listenWithPortRetry,
+  type RunningServer,
+  startServer,
+} from '../src/start';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authedFetch } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { removeTempHome } from './helpers/tempHome';

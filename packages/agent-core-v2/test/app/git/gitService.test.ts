@@ -17,12 +17,11 @@ import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IHostProcessService } from '#/os/interface/hostProcess';
-import type { Runtime } from '#/runtime/runtime';
-import {
-  IRuntimeResolver,
-  IWorkspaceInstanceManager,
-  type WorkspaceInstanceChange,
-} from '#/workspace/workspaceInstance/workspaceInstanceManager';
+import { IWorkspaceInstanceManager, type WorkspaceInstanceChange } from '#/workspace/workspaceInstance/workspaceInstanceManager';
+import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment/environment';
+import { Event } from '#/_base/event';
+import type { Environment } from '#/environment/environment';
+import { normalize } from 'pathe';
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', args, {
@@ -48,15 +47,16 @@ describe('GitService', () => {
     git(repo, 'config', 'commit.gpgsign', 'false');
     disposables = new DisposableStore();
     const process = new HostProcessService();
-    const runtime = { process } as unknown as Runtime;
+    const environment = { process } as unknown as Environment;
     ix = createServices(disposables, {
       additionalServices: (reg) => {
         reg.define(IHostProcessService, HostProcessService);
         reg.define(IHostFileSystem, HostFileSystem);
-        reg.defineInstance(IRuntimeResolver, {
+        reg.definePartialInstance(IEnvironmentService, {
           _serviceBrand: undefined,
-          inspect: () => runtime,
-          acquire: () => ({ runtime, track: (resource) => resource, dispose: () => {} }),
+          inspect: () => environment,
+          acquire: () => ({ environment, track: (resource) => resource, dispose: () => {} }),
+          acquireWhenReady: async () => ({ environment, track: (resource) => resource, dispose: () => {} }),
         });
         reg.definePartialInstance(IWorkspaceInstanceManager, {
           findByRoot: () => ({ id: 'workspace-1' }) as never,

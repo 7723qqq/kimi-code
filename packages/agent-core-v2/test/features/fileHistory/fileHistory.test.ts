@@ -28,8 +28,13 @@ import {
   FileHistoryCheckpointed,
   FileHistoryTracked,
 } from '#/features/fileHistory/fileHistoryOps';
-import { AgentFileHistoryService, countLineDiff } from '#/features/fileHistory/fileHistoryService';
+import type { FoldContext } from '#/state/state';
+import type { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import type { ToolCall } from '#human/llm/message';
+import type { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { HostFsError } from '#/os/interface/hostFsErrors';
+import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
@@ -41,6 +46,7 @@ import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import type { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import type { ISessionContext } from '#/session/sessionContext/sessionContext';
 import type { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
+import { resolveWorkspacePath } from '#/session/workspaceContext/workspacePaths';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import type { FoldContext } from '#/state/state';
 import type { RunnableToolExecution } from '#/tool/toolContract';
@@ -103,35 +109,43 @@ describe('AgentFileHistoryService', () => {
     disposables.dispose();
   });
 
-  function stubRuntime(): IAgentRuntimeService {
+  function stubEnvironment(remoteShape = false): IAgentEnvironmentService {
+    const environment = {
+      fs: hostFs(remoteShape),
+      path: posix,
+      workspace: { mapRoots: (roots: unknown) => roots },
+    };
     return {
+      inspect: () => environment,
       acquire: () => ({
-        runtime: {
-          fs: hostFs(),
-          path: posix,
-          workspace: { mapRoots: (roots: unknown) => roots },
-        },
+        environment,
         dispose: () => {},
       }),
-    } as unknown as IAgentRuntimeService;
+    } as unknown as IAgentEnvironmentService;
   }
 
-  function hostFs(): IHostFileSystem {
+  function hostFs(remoteShape = false): IHostFileSystem {
+    const missing = (path: string): Error =>
+      remoteShape
+        ? new HostFsError('os.fs.not_found', 'stat failed: path does not exist', {
+            details: { path, op: 'stat', domainCode: 'os.fs.not_found' },
+          })
+        : Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
     return createFakeHostFs({
       stat: async (path: string) => {
         const content = files.get(path);
-        if (content === undefined) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+        if (content === undefined) throw missing(path);
         return { isFile: true, isDirectory: false, size: content.byteLength };
       },
       readBytes: async (path: string) => {
         const content = files.get(path);
-        if (content === undefined) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
-        return tornReads.has(path) ? encoder.encode('x'.repeat(content.byteLength + 8)) : content;
+        if (content === undefined) throw missing(path);
+        return content;
       },
     });
   }
 
-  function createService(agentId = 'main'): AgentFileHistoryService {
+  function createService(agentId = 'main', remoteShape = false): AgentFileHistoryService {
     const ctx =
       agentId === scopeCtx.agentId
         ? scopeCtx
@@ -139,6 +153,7 @@ describe('AgentFileHistoryService', () => {
     const workspace = {
       workDir: WORK_DIR,
       additionalDirs: [],
+      resolve: (rel: string) => resolveWorkspacePath(posix, WORK_DIR, rel),
     } as unknown as ISessionWorkspaceContext;
     pushConstructionFrame({
       ctor: AgentFileHistoryService,
@@ -154,7 +169,7 @@ describe('AgentFileHistoryService', () => {
           executorEvents.executor,
           eventBus,
           ix.get(IEventDispatcher),
-          stubRuntime(),
+          stubEnvironment(remoteShape),
           blobs,
           workspace,
           {
@@ -328,6 +343,34 @@ describe('AgentFileHistoryService', () => {
     entry = service.history().checkpoints.find((c) => c.turnId === 2 && c.phase === 'end')?.entries[
       'new.txt'
     ];
+    expect(entry?.key).toBeNull();
+    expect(await service.changes(2)).toEqual([
+      { path: 'new.txt', status: 'deleted', additions: 0, deletions: 1 },
+    ]);
+  });
+
+
+  it('records deletion when a remote fs reports fs-domain not_found', async () => {
+    const service = createService('main', true);
+
+    startTurn(1);
+    await fireEdit(service, '/ws/new.txt', 1);
+    setFile('/ws/new.txt', 'created\n');
+    endTurn(1);
+    startTurn(2);
+    await service.settled();
+    expect(await service.changes(1)).toEqual([
+      { path: 'new.txt', status: 'added', additions: 1, deletions: 0 },
+    ]);
+
+    await fireEdit(service, '/ws/new.txt', 2);
+    files.delete('/ws/new.txt');
+    endTurn(2);
+    startTurn(3);
+    await service.settled();
+    const entry = service
+      .history()
+      .checkpoints.find((c) => c.turnId === 2 && c.phase === 'end')?.entries['new.txt'];
     expect(entry?.key).toBeNull();
     expect(await service.changes(2)).toEqual([
       { path: 'new.txt', status: 'deleted', additions: 0, deletions: 1 },

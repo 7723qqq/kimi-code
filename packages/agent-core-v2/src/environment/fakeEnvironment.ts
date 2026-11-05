@@ -3,12 +3,7 @@ import * as win32Path from 'node:path/win32';
 
 import { Emitter } from '#/_base/event';
 
-import type {
-  Environment,
-  EnvironmentCapability,
-  EnvironmentPath,
-  EnvironmentStatus,
-} from './environment';
+import type { Environment, EnvironmentCapability, EnvironmentPath, EnvironmentStatus } from './environment';
 
 export class FakeEnvironment implements Environment {
   readonly capabilities: ReadonlySet<EnvironmentCapability>;
@@ -58,12 +53,10 @@ export class FakeEnvironment implements Environment {
       dirname: (p) => path.dirname(p),
     };
     this.workspace = {
-      mapRoots:
-        options.mapWorkspaceRoots ??
-        ((roots) => ({
-          workDir: path.resolve(roots.workDir),
-          additionalDirs: roots.additionalDirs?.map((root) => path.resolve(root)),
-        })),
+      mapRoots: options.mapWorkspaceRoots ?? ((roots) => ({
+        workDir: path.resolve(roots.workDir),
+        additionalDirs: roots.additionalDirs?.map((root) => path.resolve(root)),
+      })),
     };
   }
 

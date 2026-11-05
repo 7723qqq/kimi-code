@@ -24,7 +24,7 @@ export function withAttachmentLocation(
   };
 }
 
-export function runtimeFileSource(fs: IHostFileSystem, path: string): FileReadSource {
+export function environmentFileSource(fs: IHostFileSystem, path: string): FileReadSource {
   return {
     name: path,
     stat: () => fs.stat(path),

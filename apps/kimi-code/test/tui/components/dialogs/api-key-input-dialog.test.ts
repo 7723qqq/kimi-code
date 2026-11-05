@@ -28,29 +28,26 @@ describe('ApiKeyInputDialogComponent', () => {
     }
   });
 
-  it('places the caret where the input line was clicked', () => {
-    const collected: string[] = [];
-    const dialog = new ApiKeyInputDialogComponent('Kimi Code', ['Paste below.'], (result) => {
-      if (result.kind === 'ok') collected.push(result.value);
-    });
-    dialog.focused = true;
-    dialog.handleInput('abc');
-
-    // Column 5 is the first text cell: border + padding + the `> ` prompt.
-    dialog.handleMouse(mouse('click', inputRow(dialog), undefined, 5));
-    dialog.handleInput('X');
+  it('preserves password whitespace when trimming is disabled', () => {
+    let submitted: string | undefined;
+    const dialog = new ApiKeyInputDialogComponent(
+      'dev-box',
+      ['Password'],
+      (result) => {
+        if (result.kind === 'ok') submitted = result.value;
+      },
+      { trimValue: false },
+    );
+    dialog.handleInput(' secret ');
     dialog.handleInput('\r');
-
-    expect(collected).toEqual(['Xabc']);
+    expect(submitted).toBe(' secret ');
   });
 
-  it('only takes the keyboard on a click while unfocused', () => {
-    const dialog = new ApiKeyInputDialogComponent('Kimi Code', ['Paste below.'], () => {});
-    const row = inputRow(dialog);
-
-    const result = dialog.handleMouse(mouse('click', row, undefined, 5));
-
-    expect(result?.focus).toBe(true);
-    expect(strip(dialog.render(60).join('\n'))).toContain('> ');
+  it('does not convert trailing layout padding into password bullets', () => {
+    const dialog = new ApiKeyInputDialogComponent('dev-box', [], () => {});
+    dialog.handleInput('smoke-password');
+    const rendered = dialog.render(60).join('\n');
+    expect(rendered).not.toContain('smoke-password');
+    expect(rendered.match(/•/g)).toHaveLength(14);
   });
 });

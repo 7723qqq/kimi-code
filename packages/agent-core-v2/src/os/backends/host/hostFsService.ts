@@ -12,6 +12,7 @@ import {
   stat as nodeStat,
   writeFile,
 } from 'node:fs/promises';
+import { decodeTextWithErrors, readUtf8Lines, type TextDecodeErrors } from '#/_base/execEnv/decodeText';
 
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import {
@@ -82,6 +83,14 @@ export class HostFileSystem implements IHostFileSystem {
     }
   }
 
+  async appendBytes(path: string, data: Uint8Array): Promise<void> {
+    try {
+      await appendFile(path, data);
+    } catch (error) {
+      throw toHostFsError(error, { path, op: 'append' });
+    }
+  }
+
   async readBytes(path: string, n?: number, offset = 0): Promise<Uint8Array> {
     try {
       if (n === undefined && offset === 0) {
@@ -102,7 +111,7 @@ export class HostFileSystem implements IHostFileSystem {
     }
   }
 
-  async writeBytes(path: string, data: Uint8Array): Promise<void> {
+  async writeBytes(path: string, data: Uint8Array | AsyncIterable<Uint8Array>): Promise<void> {
     try {
       await writeFile(path, data);
     } catch (error) {
@@ -216,9 +225,7 @@ export class HostFileSystem implements IHostFileSystem {
     } catch (error) {
       throw toHostFsError(error, { path, op: 'append' });
     }
-  }
-
-  async rename(from: string, to: string): Promise<void> {
+  }  async rename(from: string, to: string): Promise<void> {
     try {
       await nodeRename(from, to);
     } catch (error) {
@@ -234,11 +241,3 @@ export class HostFileSystem implements IHostFileSystem {
     }
   }
 }
-
-registerScopedService(
-  LifecycleScope.App,
-  IHostFileSystem,
-  HostFileSystem,
-  ScopeActivation.OnScopeCreated,
-  'hostFs',
-);

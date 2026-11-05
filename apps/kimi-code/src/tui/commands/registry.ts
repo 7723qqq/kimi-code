@@ -345,9 +345,7 @@ export const BUILTIN_SLASH_COMMANDS = [
   {
     name: 'new',
     aliases: ['clear'],
-    get description() {
-      return t('tui.slashCommands.new');
-    },
+    description: 'Start a fresh session in the current environment',
     priority: 80,
   },
   {

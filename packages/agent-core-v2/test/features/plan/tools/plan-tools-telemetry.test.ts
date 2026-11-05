@@ -35,12 +35,13 @@ function planService({
 } = {}): IAgentPlanService {
   return {
     _serviceBrand: undefined,
-    enter: jest.fn(async () => {}),
-    cancel: jest.fn(),
-    clear: jest.fn(async () => {}),
-    exit: exit ?? jest.fn(),
-    recordRevision: jest.fn(async () => {}),
-    status: jest.fn(async () => status),
+    enter: vi.fn(async () => {}),
+    cancel: vi.fn(),
+    clear: vi.fn(async () => {}),
+    exit: exit ?? vi.fn(),
+    resolveFile: async () => undefined,
+    recordRevision: vi.fn(async () => {}),
+    status: vi.fn(async () => status),
   };
 }
 

@@ -5,6 +5,7 @@ import type {
   AgentReplayRecord,
   BackgroundTaskInfo,
   ContentPart,
+  ContextMessage,
   Event,
   GoalSnapshot,
   PromptOrigin,
@@ -61,6 +62,7 @@ function makeStartupInput(): KimiTUIStartupInput {
       skillsDirs: [],
       agent: undefined,
       agentFiles: [],
+      environment: undefined,
     },
     tuiConfig: {
       theme: 'dark',
@@ -81,6 +83,7 @@ function message(
   content: readonly ContentPart[],
   extra: {
     readonly toolCalls?: readonly ToolCall[];
+    readonly toolCallDisplays?: ContextMessage['toolCallDisplays'];
     readonly toolCallId?: string;
     readonly origin?: PromptOrigin | TaskNotificationOrigin;
     readonly isError?: boolean;
@@ -93,6 +96,7 @@ function message(
       role,
       content: [...content],
       toolCalls: [...(extra.toolCalls ?? [])],
+      toolCallDisplays: extra.toolCallDisplays,
       toolCallId: extra.toolCallId,
       origin: extra.origin as PromptOrigin | undefined,
       isError: extra.isError,
@@ -228,15 +232,17 @@ function makeHarness(initialSession: Session) {
         k2: { model: 'moonshot-v1', maxContextSize: 100 },
       },
     })),
-    setConfig: mock(async () => ({ providers: {} })),
-    createSession: mock(async () => initialSession),
-    resumeSession: mock(async () => initialSession),
-    forkSession: mock(async () => initialSession),
-    listSessions: mock(async () => []),
-    close: mock(async () => {}),
-    track: mock(),
-    setTelemetryContext: mock(),
-    getExperimentalFeatures: mock(async () => []),
+    setConfig: vi.fn(async () => ({ providers: {} })),
+    resolveSessionEnvironment: vi.fn(async () => ({ environmentId: 'local', cwd: undefined })),
+    onConfigSectionChanged: vi.fn(() => vi.fn()),
+    createSession: vi.fn(async () => initialSession),
+    resumeSession: vi.fn(async () => initialSession),
+    forkSession: vi.fn(async () => initialSession),
+    listSessions: vi.fn(async () => []),
+    close: vi.fn(async () => {}),
+    track: vi.fn(),
+    setTelemetryContext: vi.fn(),
+    getExperimentalFeatures: vi.fn(async () => []),
     get interactiveAgentId() {
       return interactiveAgentScope.getStore() ?? 'main';
     },

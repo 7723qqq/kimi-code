@@ -16,9 +16,7 @@ const HOOK_BIN = process.execPath;
 const quotedPath = (value: string): string => (/\s/.test(value) ? `"${value}"` : value);
 
 function nodeCommand(source: string): string {
-  const file = join(tmpdir(), `kimi-hook-${randomUUID()}.mjs`);
-  writeFileSync(file, source);
-  return `${quotedPath(HOOK_BIN)} ${quotedPath(file)}`;
+  return `node -e ${JSON.stringify(source.replaceAll(/\s*\n\s*/g, ' '))}`;
 }
 
 describe('runHook process runner', () => {

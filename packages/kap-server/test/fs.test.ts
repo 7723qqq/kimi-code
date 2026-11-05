@@ -1,11 +1,15 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import { IEnvironmentService } from '@moonshot-ai/agent-core-v2';
 import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 
-import { IModelCatalog, IWorkspaceInstanceManager } from '@moonshot-ai/agent-core-v2';
-import { HostFileSystem } from '@moonshot-ai/agent-core-v2/os/backends/host/hostFsService';
-import { FakeRuntime } from '@moonshot-ai/agent-core-v2/runtime/fakeRuntime';
+import { IModelCatalog, ISessionManager, IWorkspaceInstanceManager } from '@moonshot-ai/agent-core-v2';
+import { HostFileSystem } from '@moonshot-ai/agent-core-v2/os/backends/node-local/hostFsService';
+import { HostProcessService } from '@moonshot-ai/agent-core-v2/os/backends/node-local/hostProcessService';
+import { FakeEnvironment } from '@moonshot-ai/agent-core-v2/environment/fakeEnvironment';
+import type { EnvironmentCapability } from '@moonshot-ai/agent-core-v2/environment/environment';
+import { ErrorCode } from '../src/protocol/error-codes';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ErrorCode } from '../src/protocol/error-codes';
 import { type RunningServer, startServer } from '../src/start';
@@ -93,21 +97,16 @@ describe('server-v2 /api/v1 fs routes', () => {
     return body.data.id;
   }
 
-  async function postFs<T>(
-    id: string,
-    action: string,
-    body: unknown,
-    runtimeId = 'local',
-  ): Promise<Envelope<T>> {
+  async function postFs<T>(id: string, action: string, body: unknown): Promise<Envelope<T>> {
     const res = await fetch(`${base}/api/v1/sessions/${id}/fs:${action}`, {
       method: 'POST',
       headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
-      body: JSON.stringify({ runtime_id: runtimeId, ...(body as object) }),
+      body: JSON.stringify(body),
     } as never);
     return (await res.json()) as Envelope<T>;
   }
 
-  it('defaults fs actions to the local runtime when runtime_id is omitted', async () => {
+  it('serves fs actions from a local session workspace', async () => {
     await writeFile(join(work!, 'a.txt'), 'hello');
     const id = await createSession();
     const res = await fetch(`${base}/api/v1/sessions/${id}/fs:stat`, {
@@ -150,39 +149,41 @@ describe('server-v2 /api/v1 fs routes', () => {
     expect(body.data.size).toBe(11);
   });
 
-  it('fs:read uses the selected non-local runtime and mapped workspace root', async () => {
+  it('serves fs actions and downloads from the environment the session was created on', async () => {
     await writeFile(join(work!, 'selected.txt'), 'local');
-    const remote = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-remote-'));
+    const remote = await realpath(await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-remote-')));
     await writeFile(join(remote, 'selected.txt'), 'remote');
-    const id = await createSession();
-    const provider = await server!.core.accessor.get(IWorkspaceInstanceManager).addProvider({
-      id: 'remote-test-provider',
-      imports: { root: [], imports: [], local: [] },
-      attach: async (context, host) => {
-        const runtime = Object.assign(
-          new FakeRuntime(
-            { workspaceId: context.id, runtimeId: 'remote-test', generation: 'remote-generation' },
-            {
-              capabilities: ['fs'],
-              pathClass: process.platform === 'win32' ? 'win32' : 'posix',
-              mapWorkspaceRoots: () => ({ workDir: remote, additionalDirs: [] }),
-            },
+    const provider = await server!.core.accessor.get(IEnvironmentService).addProvider({
+      id: 'remote-session-provider',
+      attach: async (host) => {
+        const environment = Object.assign(
+          new FakeEnvironment(
+            { environmentId: 'remote-session', generation: 'remote-generation' },
+            { capabilities: ['fs', 'process'] },
           ),
-          { fs: new HostFileSystem() },
+          { fs: new HostFileSystem(), process: new HostProcessService() },
         );
-        const registration = host.registerRuntime(runtime);
+        const registration = host.registerEnvironment(environment);
         return { dispose: () => registration.remove() };
       },
     });
     try {
-      const body = await postFs<{ content: string }>(
-        id,
-        'read',
-        { path: 'selected.txt' },
-        'remote-test',
-      );
+      const created = await fetch(`${base}/api/v1/sessions`, {
+        method: 'POST',
+        headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
+        body: JSON.stringify({ metadata: { cwd: work as string }, environment_id: 'remote-session', environment_cwd: remote }),
+      } as never);
+      const session = (await created.json()) as Envelope<{ id: string }>;
+      expect(session.code).toBe(0);
+      const body = await postFs<{ content: string }>(session.data.id, 'read', { path: 'selected.txt' });
       expect(body.code).toBe(0);
       expect(body.data.content).toBe('remote');
+      const download = await fetch(`${base}/api/v1/sessions/${session.data.id}/fs/selected.txt:download`, {
+        headers: authHeaders(server as RunningServer),
+      } as never);
+      expect(await download.text()).toBe('remote');
+      const opened = await postFs<null>(session.data.id, 'reveal', { path: 'selected.txt' });
+      expect(opened.code).not.toBe(0);
     } finally {
       await provider.dispose();
       await rm(remote, { recursive: true, force: true });
@@ -219,6 +220,74 @@ describe('server-v2 /api/v1 fs routes', () => {
     const names = body.data.items.map((i) => i.name).toSorted();
     expect(names).toEqual(['a.txt', 'b.txt']);
     expect(body.data.truncated).toBe(false);
+  });
+
+  it('fs:list expands in-workspace symlink directories and keeps outside links closed', async () => {
+    await mkdir(join(work!, 'real/nested'), { recursive: true });
+    await writeFile(join(work!, 'real/nested/inside.txt'), '');
+    await symlink(join(work!, 'real'), join(work!, 'link'));
+    const outside = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-outside-'));
+    await writeFile(join(outside, 'secret.txt'), '');
+    await symlink(outside, join(work!, 'outside-link'));
+    try {
+      const id = await createSession();
+      const recursive = await postFs<{
+        items: FsEntryWire[];
+        truncated: boolean;
+        children_by_path?: Record<string, FsEntryWire[]>;
+      }>(id, 'list', { depth: 2 });
+      expect(recursive.code).toBe(0);
+      expect(recursive.data.items.find((i) => i.path === 'link')).toMatchObject({
+        kind: 'symlink',
+        is_directory: true,
+      });
+      expect(recursive.data.children_by_path?.['link']?.map((i) => i.name)).toContain('nested');
+      expect(
+        recursive.data.items.find((i) => i.path === 'outside-link')?.is_directory,
+      ).toBeUndefined();
+
+      const direct = await postFs<{ items: FsEntryWire[] }>(id, 'list', { path: 'link' });
+      expect(direct.code).toBe(0);
+      expect(direct.data.items.map((i) => i.name)).toEqual(['nested']);
+
+      const escaped = await postFs<null>(id, 'list', { path: 'outside-link' });
+      expect(escaped.code).toBe(ErrorCode.FS_PATH_ESCAPES_SESSION);
+
+      const allowed = await postFs<{
+        items: FsEntryWire[];
+        children_by_path?: Record<string, FsEntryWire[]>;
+      }>(id, 'list', { depth: 2, allow_external_symlinks: true });
+      expect(allowed.code).toBe(0);
+      expect(allowed.data.items.find((i) => i.path === 'outside-link')).toMatchObject({
+        kind: 'symlink',
+        is_directory: true,
+      });
+      expect(allowed.data.children_by_path?.['outside-link']?.map((i) => i.name)).toEqual([
+        'secret.txt',
+      ]);
+
+      const allowedDirect = await postFs<{ items: FsEntryWire[] }>(id, 'list', {
+        path: 'outside-link',
+        allow_external_symlinks: true,
+      });
+      expect(allowedDirect.data.items.map((i) => i.name)).toEqual(['secret.txt']);
+
+      const allowedRead = await postFs<{ content: string }>(id, 'read', {
+        path: 'outside-link/secret.txt',
+        allow_external_symlinks: true,
+      });
+      expect(allowedRead.code).toBe(0);
+      expect(allowedRead.data.content).toBe('');
+
+      const allowedDownload = await fetch(
+        `${base}/api/v1/sessions/${id}/fs/outside-link/secret.txt:download?allow_external_symlinks=true`,
+        { headers: authHeaders(server as RunningServer) } as never,
+      );
+      expect(allowedDownload.status).toBe(200);
+      expect(await allowedDownload.text()).toBe('');
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
   });
 
   it('fs:list keeps gitignored paths hidden unless allowed via allow_ignored_globs', async () => {
@@ -486,12 +555,9 @@ describe('server-v2 /api/v1 fs routes', () => {
       const body = await postFs<null>(id, 'read', { path: 'docs/secret.txt' });
       expect(body.code).toBe(ErrorCode.FS_PATH_ESCAPES_SESSION);
 
-      const res = await fetch(
-        `${base}/api/v1/sessions/${id}/fs/docs/secret.txt:download?runtime_id=local`,
-        {
-          headers: authHeaders(server as RunningServer),
-        } as never,
-      );
+      const res = await fetch(`${base}/api/v1/sessions/${id}/fs/docs/secret.txt:download`, {
+        headers: authHeaders(server as RunningServer),
+      } as never);
       const downloadBody = (await res.json()) as Envelope<null>;
       expect(downloadBody.code).toBe(ErrorCode.FS_PATH_ESCAPES_SESSION);
 
@@ -536,11 +602,121 @@ describe('server-v2 /api/v1 fs routes', () => {
     }
   });
 
+  async function postWorkspaceList<T>(body: unknown): Promise<Envelope<T>> {
+    const res = await fetch(`${base}/api/v1/workspace/fs:list`, {
+      method: 'POST',
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
+      body: JSON.stringify(body),
+    } as never);
+    return (await res.json()) as Envelope<T>;
+  }
+
+  it('workspace fs:list expands symlink directories without a session', async () => {
+    await mkdir(join(work!, 'real/nested'), { recursive: true });
+    await writeFile(join(work!, 'real/nested/inside.txt'), '');
+    await symlink(join(work!, 'real'), join(work!, 'link'));
+
+    const root = await postWorkspaceList<{
+      items: FsEntryWire[];
+      truncated: boolean;
+      children_by_path?: Record<string, FsEntryWire[]>;
+    }>({ workspace: work, depth: 2 });
+    expect(root.code).toBe(0);
+    expect(root.data.items.find((i) => i.path === 'link')).toMatchObject({
+      kind: 'symlink',
+      is_directory: true,
+    });
+    expect(root.data.children_by_path?.['link']?.map((i) => i.name)).toContain('nested');
+
+    const children = await postWorkspaceList<{ items: FsEntryWire[] }>({
+      workspace: work,
+      path: 'link',
+    });
+    expect(children.code).toBe(0);
+    expect(children.data.items.map((i) => i.name)).toEqual(['nested']);
+
+    const missing = await postWorkspaceList<null>({
+      workspace: work,
+      path: 'does-not-exist',
+    });
+    expect(missing.code).toBe(ErrorCode.FS_PATH_NOT_FOUND);
+  });
+
+  it('workspace fs:list maps permission errors to FS_PERMISSION_DENIED', async () => {
+    if (process.getuid?.() === 0) return;
+    const blocked = join(work!, 'blocked');
+    await mkdir(blocked);
+    await chmod(blocked, 0o000);
+    try {
+      const body = await postWorkspaceList<null>({ workspace: blocked });
+      expect(body.code).toBe(ErrorCode.FS_PERMISSION_DENIED);
+    } finally {
+      await chmod(blocked, 0o755);
+    }
+  });
+
+  it('workspace fs:list can open external symlink directories when enabled', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-workspace-outside-'));
+    await writeFile(join(outside, 'secret.txt'), '');
+    await symlink(outside, join(work!, 'outside-link'));
+    try {
+      const root = await postWorkspaceList<{
+        items: FsEntryWire[];
+        children_by_path?: Record<string, FsEntryWire[]>;
+      }>({ workspace: work, depth: 2, allow_external_symlinks: true });
+      expect(root.code).toBe(0);
+      expect(root.data.items.find((i) => i.path === 'outside-link')).toMatchObject({
+        kind: 'symlink',
+        is_directory: true,
+      });
+      expect(root.data.children_by_path?.['outside-link']?.map((i) => i.name)).toEqual([
+        'secret.txt',
+      ]);
+
+      const children = await postWorkspaceList<{ items: FsEntryWire[] }>({
+        workspace: work,
+        path: 'outside-link',
+        allow_external_symlinks: true,
+      });
+      expect(children.code).toBe(0);
+      expect(children.data.items.map((i) => i.name)).toEqual(['secret.txt']);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  interface RegisteredWorkspaceWire {
+    id: string;
+    root: string;
+    additional_dirs: string[];
+  }
+
+  async function createRegisteredWorkspace(additionalDirs: readonly string[] = []): Promise<RegisteredWorkspaceWire> {
+    const res = await fetch(`${base}/api/v1/workspaces`, {
+      method: 'POST',
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
+      body: JSON.stringify({ root: work, additional_dirs: [...additionalDirs] }),
+    } as never);
+    const body = (await res.json()) as Envelope<RegisteredWorkspaceWire>;
+    expect(body.code).toBe(0);
+    return body.data;
+  }
+
+  async function updateRegisteredWorkspaceDirs(id: string, additionalDirs: readonly string[]): Promise<void> {
+    const res = await fetch(`${base}/api/v1/workspaces/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
+      body: JSON.stringify({ additional_dirs: [...additionalDirs] }),
+    } as never);
+    const body = (await res.json()) as Envelope<RegisteredWorkspaceWire>;
+    expect(body.code).toBe(0);
+  }
+
   async function postWorkspaceSearch<T>(body: unknown): Promise<Envelope<T>> {
     const res = await fetch(`${base}/api/v1/workspace/fs:search`, {
       method: 'POST',
       headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
-      body: JSON.stringify({ runtime_id: 'local', ...(body as object) }),
+      body: JSON.stringify(body),
     } as never);
     return (await res.json()) as Envelope<T>;
   }
@@ -583,7 +759,7 @@ describe('server-v2 /api/v1 fs routes', () => {
     expect(body.data.items.map((i) => i.path)).toContain('eta.ts');
   });
 
-  it('workspace fs:search defaults to the local runtime when runtime_id is omitted', async () => {
+  it('workspace fs:search serves the local workspace', async () => {
     await writeFile(join(work!, 'theta.ts'), '');
     const res = await fetch(`${base}/api/v1/workspace/fs:search`, {
       method: 'POST',
@@ -617,7 +793,7 @@ describe('server-v2 /api/v1 fs routes', () => {
     const res = await fetch(`${base}/api/v1/workspace/fs:suggest`, {
       method: 'POST',
       headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
-      body: JSON.stringify({ runtime_id: 'local', ...(body as object) }),
+      body: JSON.stringify(body),
     } as never);
     return (await res.json()) as Envelope<T>;
   }
@@ -708,7 +884,7 @@ describe('server-v2 /api/v1 fs routes', () => {
     expect(shown.data.items.map((i) => i.path)).toContain('.theta.ts');
   });
 
-  it('workspace fs:suggest defaults to the local runtime when runtime_id is omitted', async () => {
+  it('workspace fs:suggest serves the local workspace', async () => {
     await writeFile(join(work!, 'iota.ts'), '');
     const res = await fetch(`${base}/api/v1/workspace/fs:suggest`, {
       method: 'POST',
@@ -1122,5 +1298,4 @@ describe('server-v2 /api/v1 fs routes', () => {
       await rm(first, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
       await rm(second, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     }
-  });
-});
+  });});

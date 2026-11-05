@@ -1,6 +1,10 @@
 import type { Command } from 'commander';
 
-import { t } from '#/i18n';
+import { createCliTelemetryBootstrap } from '#/cli/telemetry';
+import { createKimiCodeHostIdentity } from '#/cli/host-identity';
+
+import { importBudget, importSessions, scanImportableSessions, sourceHomes } from './run-import';
+import { ImportSessionsScreenComponent } from './screen';
 
 export function registerImportSessionsCommand(
   parent: Command,
