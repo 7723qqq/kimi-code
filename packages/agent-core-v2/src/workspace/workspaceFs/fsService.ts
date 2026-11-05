@@ -155,6 +155,7 @@ export class WorkspaceFsService implements IWorkspaceFsService {
   }
 
   private absOf(rel: string): string {
+    if (this.path.isAbsolute(rel)) return rel;
     return rel === '' || rel === '.' ? this.workDir : this.path.join(this.workDir, rel);
   }
 
@@ -1264,12 +1265,21 @@ export class WorkspaceFsService implements IWorkspaceFsService {
     let truncated = false;
 
     const filePaths: string[] = [];
-    await this.walk(this.workDir, '', matcher, async (rel, _name, kind) => {
+    const collectFile = async (reported: string, kind: string): Promise<void> => {
       if (kind !== 'file') return;
-      if (req.include_globs && !matchesAnyGlob(rel, req.include_globs)) return;
-      if (req.exclude_globs && matchesAnyGlob(rel, req.exclude_globs)) return;
-      filePaths.push(rel);
-    });
+      if (req.include_globs && !matchesAnyGlob(reported, req.include_globs)) return;
+      if (req.exclude_globs && matchesAnyGlob(reported, req.exclude_globs)) return;
+      filePaths.push(reported);
+    };
+    await this.walk(this.workDir, '', matcher, async (rel, _name, kind) =>
+      collectFile(rel, kind),
+    );
+    for (const dir of this.workspaceDirs.additionalDirs) {
+      const base = this.path.resolve(dir);
+      await this.walk(base, '', matcher, async (rel, _name, kind) =>
+        collectFile(this.path.join(base, rel), kind),
+      );
+    }
 
     for (const rel of filePaths) {
       if (signal.aborted) {
