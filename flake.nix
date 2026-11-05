@@ -279,7 +279,7 @@
             # "got: sha256-…"; paste that value here.
             outputHashMode = "recursive";
             outputHashAlgo = "sha256";
-            outputHash = "sha256-upuZBI4j/FlWzJh5WeAJ1+DU8ghgAvkU6/7arcsH4f0=";
+            outputHash = "sha256-wAkkX9+Nt7Fq24Pf6nL9+K1QSUwr8W5JXsyk1yPOKVw=";
           });
 
           kimi-code = pkgs.stdenv.mkDerivation (finalAttrs: {
