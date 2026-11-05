@@ -7,12 +7,12 @@
  * Responsibilities: light-entry contract, exit codes/stderr discipline,
  * executorVersion surface.
  * Wiring: child processes spawn the real `src/main.ts` through tsx; no mocks.
- * Run: pnpm -C apps/kimi-code exec vitest run test/cli/exec-server.test.ts
+ * Run: bun test test/cli/exec-server.test.ts
  */
 
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname, parse, resolve } from 'node:path';
 
 import { describe, expect, it } from 'bun:test';
 
@@ -23,6 +23,7 @@ const appRoot = resolve(import.meta.dirname, '..', '..');
 const srcRoot = resolve(appRoot, 'src');
 const HOST_OS_KIND =
   process.platform === 'win32' ? 'Windows' : process.platform === 'darwin' ? 'macOS' : 'Linux';
+const HOST_ROOT = parse(appRoot).root;
 const hostPackage = JSON.parse(readFileSync(resolve(appRoot, 'package.json'), 'utf-8')) as {
   version: string;
 };
@@ -189,7 +190,7 @@ async function runExecServerHandshake(
   try {
     send({ method: 'initialize', id: 1, params: { clientName: 'vitest', clientVersion: '0.0.0' } });
     const initialize = await nextLine();
-    send({ method: 'fs/getMetadata', id: 2, params: { path: '/' } });
+    send({ method: 'fs/getMetadata', id: 2, params: { path: HOST_ROOT } });
     const status = await nextLine();
     child.stdin.end();
     const exitCode = await new Promise<number | null>((resolveExit) => {
@@ -217,7 +218,7 @@ async function runExecServerHandshake(
 
 describe('exec-server stdio handshake (source entry)', () => {
   it(
-    'answers initialize with the host version and a posix environment, then exits 0 on stdin EOF',
+    'answers initialize with the host version and environment, then exits 0 on stdin EOF',
     { timeout: 60_000 },
     async () => {
       const result = await runExecServerHandshake(process.execPath, ['src/main.ts', 'exec-server']);
