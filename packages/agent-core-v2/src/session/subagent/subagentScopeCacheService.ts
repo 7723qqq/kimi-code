@@ -8,6 +8,7 @@ import { IAgentTaskService } from '#/agent/task/task';
 import { ISessionEventBus } from '#/app/event/eventBus';
 import { LifecycleScope } from '#/app/scopes';
 import { SubagentSuspended } from '#/features/swarm/session/sessionSwarmService';
+import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 
@@ -25,6 +26,13 @@ import {
 
 const MAX_EVICT_ATTEMPTS = 3;
 
+const SYSTEM_HOST_TIMERS: IHostTimers = {
+  _serviceBrand: undefined,
+  setClampedTimeout: (callback, timeoutMs) => globalThis.setTimeout(callback, timeoutMs),
+  setTimeout: (callback, timeoutMs) => globalThis.setTimeout(callback, timeoutMs),
+  clearTimeout: (handle) => globalThis.clearTimeout(handle as ReturnType<typeof setTimeout>),
+};
+
 type EvictOutcome = 'removed' | 'missing' | 'closing' | 'deferred' | 'timeout' | 'failed';
 
 export class SessionSubagentScopeCacheService
@@ -35,6 +43,7 @@ export class SessionSubagentScopeCacheService
 
   private readonly capacity: number;
   private readonly removeTimeoutMs: number;
+  private readonly timers: IHostTimers;
   private readonly retired = new Map<string, number>();
   private readonly closing = new Set<string>();
   private evictions: Promise<void> = Promise.resolve();
@@ -43,10 +52,12 @@ export class SessionSubagentScopeCacheService
     @IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService,
     @ISessionEventBus bus: ISessionEventBus,
     @ILogService private readonly log: ILogService,
+    @IHostTimers timers?: IHostTimers,
   ) {
     super();
     this.capacity = resolveSubagentScopeCacheSize();
     this.removeTimeoutMs = resolveSubagentScopeEvictTimeoutMs();
+    this.timers = timers ?? SYSTEM_HOST_TIMERS;
     if (this.capacity === 0) return;
     this._register(
       bus.subscribe(SubagentCompleted, (event) => {
@@ -159,14 +170,14 @@ export class SessionSubagentScopeCacheService
       () => 'removed' as const,
       (error: unknown) => ({ error }),
     );
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    let timer: IHostTimerHandle | undefined;
     const outcome = await Promise.race([
       removal,
       new Promise<'timeout'>((resolve) => {
-        timer = setTimeout(() => resolve('timeout'), this.removeTimeoutMs);
+        timer = this.timers.setTimeout(() => resolve('timeout'), this.removeTimeoutMs);
       }),
     ]);
-    if (timer !== undefined) clearTimeout(timer);
+    if (timer !== undefined) this.timers.clearTimeout(timer);
     const durationMs = Date.now() - startedAt;
     if (outcome === 'timeout') {
       this.log.warn('subagent scope eviction timed out; moving on to the next eviction', {

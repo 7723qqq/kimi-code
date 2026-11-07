@@ -1,19 +1,7 @@
-import { mock, afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it } from 'bun:test';
 
-async function viWaitFor(fn: () => void | Promise<void>, opts?: { timeout?: number }): Promise<void> {
-  const deadline = Date.now() + (opts?.timeout ?? 1000);
-  for (;;) {
-    try {
-      await fn();
-      return;
-    } catch {
-      await new Promise((r) => setTimeout(r, 10));
-    }
-  }
-}
-
-
-import { RemoteExecConnection } from '#/remote/client/connection';
+import type { IHostTimerHandle, IHostTimers } from '#/os/interface/hostTimers';
+import { DEFAULT_INITIALIZE_TIMEOUT_MS, RemoteExecConnection } from '#/remote/client/connection';
 import { ConnectionClosedError, RequestTimeoutError } from '#/remote/protocol/errors';
 import type { BytePipe } from '#/remote/client/execBridge';
 import { RemoteProcessService } from '#/os/backends/remote/remoteProcess';
@@ -40,6 +28,68 @@ import {
   testInitializeResult,
   type ScriptedFrame,
 } from './helpers/loopback';
+
+async function viWaitFor(fn: () => void | Promise<void>, opts?: { timeout?: number }): Promise<void> {
+  const deadline = Date.now() + (opts?.timeout ?? 1000);
+  for (;;) {
+    try {
+      await fn();
+      return;
+    } catch {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  }
+}
+
+interface ScheduledHandshakeTimer extends IHostTimerHandle {
+  readonly timeoutMs: number;
+  readonly callback: () => void;
+  readonly clearedBy: IHostTimerHandle[];
+  fired: boolean;
+}
+
+function createHandshakeTimers(): {
+  timers: IHostTimers;
+  scheduled: ScheduledHandshakeTimer[];
+  advance: (byMs: number) => Promise<void>;
+} {
+  let elapsed = 0;
+  const scheduled: ScheduledHandshakeTimer[] = [];
+  const timers: IHostTimers = {
+    _serviceBrand: undefined,
+    setClampedTimeout: (callback, timeoutMs) => timers.setTimeout(callback, timeoutMs),
+    setTimeout: (callback, timeoutMs) => {
+      const timer: ScheduledHandshakeTimer = {
+        timeoutMs,
+        callback,
+        clearedBy: [],
+        fired: false,
+        unref: () => {},
+      };
+      scheduled.push(timer);
+      return timer;
+    },
+    clearTimeout: (handle) => {
+      (handle as ScheduledHandshakeTimer).clearedBy.push(handle);
+    },
+  };
+  const advance = async (byMs: number): Promise<void> => {
+    const target = elapsed + byMs;
+    for (let guard = 0; guard < 100; guard += 1) {
+      const due = scheduled
+        .filter(
+          (timer) => timer.clearedBy.length === 0 && !timer.fired && timer.timeoutMs <= target,
+        )
+        .toSorted((left, right) => left.timeoutMs - right.timeoutMs)[0];
+      if (due === undefined) break;
+      due.fired = true;
+      due.callback();
+      await Promise.resolve();
+    }
+    elapsed = target;
+  };
+  return { timers, scheduled, advance };
+}
 
 function pushAll(decoder: LineFrameDecoder, chunks: Uint8Array[]): unknown[] {
   const frames: unknown[] = [];
@@ -226,18 +276,66 @@ describe('initialize timeout default', () => {
   afterEach(() => {
   });
 
-  it(
-    'fails as a handshake timeout when the executor passes the default window',
-    async () => {
-      const pipe = createScriptedServer(() => {});
-      const pending = RemoteExecConnection.connect(pipe, {
-        clientName: 'test',
-        clientVersion: '0.0.0',
-      });
-      await expect(pending).rejects.toMatchObject({ name: 'HandshakeError', kind: 'timeout' });
-    },
-    15_000,
-  );
+  it('fails only when the injected handshake timer reaches the default window', async () => {
+    const { timers, scheduled, advance } = createHandshakeTimers();
+    const pipe = createScriptedServer(() => {});
+    let settled = false;
+    const pending = RemoteExecConnection.connect(pipe, {
+      clientName: 'test',
+      clientVersion: '0.0.0',
+      handshakeTimers: timers,
+    }).then(
+      () => {
+        settled = true;
+        return undefined;
+      },
+      (error: unknown) => {
+        settled = true;
+        throw error;
+      },
+    );
+
+    expect(scheduled).toHaveLength(1);
+    const [handshakeTimer] = scheduled;
+    if (handshakeTimer === undefined) throw new Error('missing handshake timer');
+    expect(handshakeTimer.timeoutMs).toBe(DEFAULT_INITIALIZE_TIMEOUT_MS);
+    expect(handshakeTimer.clearedBy).toEqual([]);
+    await advance(DEFAULT_INITIALIZE_TIMEOUT_MS - 1);
+    expect(handshakeTimer.fired).toBe(false);
+    expect(settled).toBe(false);
+    await advance(1);
+    expect(handshakeTimer.fired).toBe(true);
+    expect(settled).toBe(true);
+    await expect(pending).rejects.toMatchObject({
+      name: 'HandshakeError',
+      kind: 'timeout',
+      message: `initialize timed out after ${DEFAULT_INITIALIZE_TIMEOUT_MS}ms`,
+    });
+    expect(handshakeTimer.clearedBy).toEqual([handshakeTimer]);
+  });
+
+  it('clears the injected timer after a successful initialize', async () => {
+    const { timers, scheduled, advance } = createHandshakeTimers();
+    const pipe = createScriptedServer((frame, reply) => {
+      if (frame.method === INITIALIZE_METHOD) {
+        reply({ id: frame.id, result: testInitializeResult() });
+      }
+    });
+    const connection = await RemoteExecConnection.connect(pipe, {
+      clientName: 'test',
+      clientVersion: '0.0.0',
+      handshakeTimers: timers,
+    });
+    expect(scheduled).toHaveLength(1);
+    const [handshakeTimer] = scheduled;
+    if (handshakeTimer === undefined) throw new Error('missing handshake timer');
+    expect(handshakeTimer.clearedBy).toEqual([handshakeTimer]);
+    expect(handshakeTimer.timeoutMs).toBe(DEFAULT_INITIALIZE_TIMEOUT_MS);
+    await advance(DEFAULT_INITIALIZE_TIMEOUT_MS);
+    expect(handshakeTimer.fired).toBe(false);
+    expect(connection.closed).toBe(false);
+    connection.close();
+  });
 });
 
 describe('liveness heartbeat', () => {

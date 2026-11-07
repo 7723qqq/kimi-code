@@ -1,3 +1,4 @@
+import type { IHostTimerHandle, IHostTimers } from '#/os/interface/hostTimers';
 import { encodeFrame, LineFrameDecoder } from '#/remote/protocol/codec';
 import type { ConnectionCloseInfo, ExecChannel } from '#/remote/protocol/channel';
 import { ConnectionClosedError, RequestTimeoutError, RpcError, RpcErrorCode } from '#/remote/protocol/errors';
@@ -35,7 +36,17 @@ export interface ConnectOptions {
   readonly requestCallTimeoutMs?: number;
   readonly livenessIntervalMs?: number;
   readonly livenessTimeoutMs?: number;
+  readonly handshakeTimers?: IHostTimers;
 }
+
+const SYSTEM_HANDSHAKE_TIMERS: IHostTimers = {
+  _serviceBrand: undefined,
+  setClampedTimeout: (callback, timeoutMs) => globalThis.setTimeout(callback, timeoutMs),
+  setTimeout: (callback, timeoutMs) => globalThis.setTimeout(callback, timeoutMs),
+  clearTimeout: (handle) => {
+    globalThis.clearTimeout(handle as ReturnType<typeof globalThis.setTimeout>);
+  },
+};
 
 export type HandshakeErrorKind = 'timeout' | 'executor-exit' | 'incompatible' | 'authentication';
 
@@ -77,7 +88,8 @@ export class RemoteExecConnection implements ExecChannel {
   private nextId = 1;
   private state: 'handshake' | 'ready' | 'closed' = 'handshake';
   private handshakeComplete = false;
-  private handshakeTimer: NodeJS.Timeout | undefined;
+  private handshakeTimer: IHostTimerHandle | undefined;
+  private handshakeTimers: IHostTimers = SYSTEM_HANDSHAKE_TIMERS;
   private requestCallTimeoutMs = DEFAULT_REQUEST_CALL_TIMEOUT_MS;
   private closeInfo: ConnectionCloseInfo | undefined;
   private livenessIntervalMs = DEFAULT_LIVENESS_INTERVAL_MS;
@@ -119,7 +131,8 @@ export class RemoteExecConnection implements ExecChannel {
       this.requestCallTimeoutMs = options.requestCallTimeoutMs ?? DEFAULT_REQUEST_CALL_TIMEOUT_MS;
       this.livenessIntervalMs = options.livenessIntervalMs ?? DEFAULT_LIVENESS_INTERVAL_MS;
       this.livenessTimeoutMs = options.livenessTimeoutMs ?? DEFAULT_LIVENESS_TIMEOUT_MS;
-      this.handshakeTimer = setTimeout(() => {
+      this.handshakeTimers = options.handshakeTimers ?? SYSTEM_HANDSHAKE_TIMERS;
+      this.handshakeTimer = this.handshakeTimers.setTimeout(() => {
         this.fail(new HandshakeError(`initialize timed out after ${timeoutMs}ms`, { kind: 'timeout' }));
       }, timeoutMs);
       this.handshakeTimer.unref?.();
@@ -175,7 +188,7 @@ export class RemoteExecConnection implements ExecChannel {
 
   private onInitializeResult(result: InitializeResult): void {
     if (this.handshakeTimer !== undefined) {
-      clearTimeout(this.handshakeTimer);
+      this.handshakeTimers.clearTimeout(this.handshakeTimer);
       this.handshakeTimer = undefined;
     }
     const parsed = this.validateInitializeResult(result);
@@ -437,7 +450,7 @@ export class RemoteExecConnection implements ExecChannel {
     this.state = 'closed';
     this.closeInfo = { reason: error.message, kind };
     if (this.handshakeTimer !== undefined) {
-      clearTimeout(this.handshakeTimer);
+      this.handshakeTimers.clearTimeout(this.handshakeTimer);
       this.handshakeTimer = undefined;
     }
     this.stopLiveness();

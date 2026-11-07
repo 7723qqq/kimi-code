@@ -6,6 +6,7 @@ import { join, resolve, isAbsolute } from 'pathe';
 import type { ILogService } from '#/_base/log/log';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import type { WebSearchProvider } from '#/agent/tools/web-search/web-search';
+import type { IHostTimerHandle, IHostTimers } from '#/os/interface/hostTimers';
 import type { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import type { ISessionContext } from '#/session/sessionContext/sessionContext';
 import type { ISessionSubagentService } from '#/session/subagent/subagent';
@@ -25,6 +26,15 @@ export const WORKFLOW_SYNC_PREFIX_LIMIT_MS = 30_000;
 export const WORKFLOW_DEADLINE_ERROR_MESSAGE = 'Workflow script deadline exceeded';
 
 export const WORKFLOW_CANCELLED_ERROR_MESSAGE = 'Workflow cancelled';
+
+const SYSTEM_HOST_TIMERS: IHostTimers = {
+  _serviceBrand: undefined,
+  setClampedTimeout: (callback, timeoutMs) => globalThis.setTimeout(callback, timeoutMs),
+  setTimeout: (callback, timeoutMs) => globalThis.setTimeout(callback, timeoutMs),
+  clearTimeout: (handle) => {
+    globalThis.clearTimeout(handle as ReturnType<typeof globalThis.setTimeout>);
+  },
+};
 
 class Semaphore {
   private available: number;
@@ -67,12 +77,16 @@ export interface WorkflowRunOptions {
   readonly entry: WorkflowRunEntry;
   readonly deadlineMs?: number;
   readonly syncPrefixLimitMs?: number;
+  readonly timers?: IHostTimers;
+  readonly onDeadlineAborted?: () => void;
 }
 
 export async function executeWorkflow(opts: WorkflowRunOptions): Promise<unknown> {
   const { script, args, deps, entry } = opts;
   const deadlineMs = opts.deadlineMs ?? WORKFLOW_DEADLINE_DEFAULT_MS;
   const syncPrefixLimitMs = opts.syncPrefixLimitMs ?? WORKFLOW_SYNC_PREFIX_LIMIT_MS;
+  const timers = opts.timers ?? SYSTEM_HOST_TIMERS;
+  const onDeadlineAborted = opts.onDeadlineAborted ?? (() => {});
 
   const sem = new Semaphore(MAX_CONCURRENT);
   const workspaceRoot = deps.workspaceRoot;
@@ -254,11 +268,12 @@ export async function executeWorkflow(opts: WorkflowRunOptions): Promise<unknown
 ${script}
 })()`;
 
-  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+  let deadlineTimer: IHostTimerHandle | undefined;
   let onAbort: (() => void) | undefined;
   const deadlinePromise = new Promise<never>((_resolve, reject) => {
-    deadlineTimer = setTimeout(() => {
+    deadlineTimer = timers.setTimeout(() => {
       entry.abortController.abort(new Error(WORKFLOW_DEADLINE_ERROR_MESSAGE));
+      onDeadlineAborted();
       reject(new Error(WORKFLOW_DEADLINE_ERROR_MESSAGE));
     }, deadlineMs);
   });
@@ -289,7 +304,7 @@ ${script}
     const result = await Promise.race([runPromise, deadlinePromise, abortPromise]);
     return result;
   } finally {
-    if (deadlineTimer) clearTimeout(deadlineTimer);
+    if (deadlineTimer !== undefined) timers.clearTimeout(deadlineTimer);
     if (onAbort) entry.abortController.signal.removeEventListener('abort', onAbort);
   }
 }

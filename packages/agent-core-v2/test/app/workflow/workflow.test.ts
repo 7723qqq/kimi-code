@@ -8,11 +8,13 @@ import {
   executeWorkflow,
   WORKFLOW_CANCELLED_ERROR_MESSAGE,
   WORKFLOW_DEADLINE_DEFAULT_MS,
+  WORKFLOW_DEADLINE_ERROR_MESSAGE,
   WORKFLOW_SYNC_PREFIX_LIMIT_MS,
   type WorkflowRuntimeDeps,
 } from '#/app/workflow/workflowRuntime';
 import { WorkflowService } from '#/app/workflow/workflowService';
 import type { WorkflowRunEntry } from '#/app/workflow/workflowTypes';
+import type { IHostTimerHandle, IHostTimers } from '#/os/interface/hostTimers';
 
 interface FakeLog {
   readonly level: 'debug';
@@ -52,14 +54,108 @@ function makeRuntimeDeps(workspaceRoot: string): WorkflowRuntimeDeps {
   };
 }
 
-function makeEntry(): WorkflowRunEntry {
+interface ScheduledTimer {
+  readonly timeoutMs: number;
+  readonly due: number;
+  readonly callback: () => void;
+  fired: boolean;
+  cleared: boolean;
+}
+
+interface ControlledTimerHandle extends IHostTimerHandle {
+  readonly timer: ScheduledTimer;
+}
+
+interface ControlledTimers {
+  readonly timers: IHostTimers;
+  readonly scheduled: ScheduledTimer[];
+  readonly ready: Promise<void>;
+  advance(ms: number): void;
+}
+
+function makeControlledTimers(events: string[]): ControlledTimers {
+  const scheduled: ScheduledTimer[] = [];
+  let now = 0;
+  let resolveReady!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    resolveReady = resolve;
+  });
+  const timers: IHostTimers = {
+    _serviceBrand: undefined,
+    setClampedTimeout: (callback, timeoutMs) => timers.setTimeout(callback, timeoutMs),
+    setTimeout: (callback, timeoutMs) => {
+      const timer: ScheduledTimer = {
+        timeoutMs,
+        due: now + timeoutMs,
+        callback,
+        fired: false,
+        cleared: false,
+      };
+      scheduled.push(timer);
+      events.push(`timer:${timeoutMs}`);
+      resolveReady();
+      return { unref: () => {}, timer } satisfies ControlledTimerHandle;
+    },
+    clearTimeout: (handle) => {
+      const timer = (handle as ControlledTimerHandle).timer;
+      timer.cleared = true;
+      events.push(`clear:${timer.timeoutMs}`);
+    },
+  };
+  return {
+    timers,
+    scheduled,
+    ready,
+    advance(ms) {
+      now += ms;
+      for (const timer of scheduled) {
+        if (!timer.fired && !timer.cleared && timer.due <= now) {
+          timer.fired = true;
+          events.push(`fire:${timer.timeoutMs}`);
+          timer.callback();
+        }
+      }
+    },
+  };
+}
+
+function captureRun(
+  run: Promise<unknown>,
+  events: string[],
+  label: string,
+): Promise<{ value?: unknown; error?: unknown }> {
+  return run.then(
+    (value) => {
+      events.push(`${label}:resolved`);
+      return { value };
+    },
+    (error: unknown) => {
+      events.push(`${label}:rejected`);
+      return { error };
+    },
+  );
+}
+
+function makeEntry(events?: string[]): WorkflowRunEntry {
+  const abortController = new AbortController();
+  if (events) {
+    abortController.signal.addEventListener(
+      'abort',
+      () => events.push(`abort:${String(abortController.signal.reason)}`),
+      { once: true },
+    );
+  }
   return {
     runId: 'wf_test',
     status: 'running',
     agentCount: 0,
-    startedAt: Date.now(),
-    abortController: new AbortController(),
+    startedAt: 0,
+    abortController,
   };
+}
+
+async function flushMicrotasks(): Promise<void> {
+  for (let i = 0; i < 4; i++) await Promise.resolve();
 }
 
 function makeService(): WorkflowService {
@@ -443,60 +539,101 @@ describe('workflow run deadline and cancellation', () => {
     expect(WORKFLOW_SYNC_PREFIX_LIMIT_MS).toBe(30_000);
   });
 
-  it(
-    'aborts a synchronous infinite loop at the sync prefix limit',
-    { timeout: 5_000 },
-    async () => {
-      const entry = makeEntry();
-      const started = Date.now();
+  it('rejects a synchronous infinite loop through the vm timeout route', async () => {
+    const events: string[] = [];
+    const entry = makeEntry(events);
+    const controlled = makeControlledTimers(events);
+    const run = captureRun(
+      executeWorkflow({
+        script: 'while (true) {}',
+        deps: makeRuntimeDeps(tmpdir()),
+        entry,
+        deadlineMs: 3_000,
+        syncPrefixLimitMs: 300,
+        timers: controlled.timers,
+      }),
+      events,
+      'vm',
+    );
 
-      await expect(
-        executeWorkflow({
-          script: 'while (true) {}',
-          deps: makeRuntimeDeps(tmpdir()),
-          entry,
-          deadlineMs: 3_000,
-          syncPrefixLimitMs: 300,
-        }),
-      ).rejects.toThrow(/timed out/);
+    const outcome = await run;
+    expect(outcome.error).toBeInstanceOf(Error);
+    expect(String(outcome.error)).toMatch(/timed out/);
+    expect(events).toEqual(['timer:3000', 'clear:3000', 'vm:rejected']);
+    expect(entry.abortController.signal.aborted).toBe(false);
+    expect(controlled.scheduled[0]?.cleared).toBe(true);
+  });
 
-      expect(Date.now() - started).toBeLessThan(2_000);
-    },
-  );
-
-  it('aborts a run that is stuck on a pending promise', { timeout: 5_000 }, async () => {
-    const entry = makeEntry();
-    const started = Date.now();
-
-    await expect(
+  it('rejects a pending promise only after the injected deadline timer fires', async () => {
+    const events: string[] = [];
+    const entry = makeEntry(events);
+    const controlled = makeControlledTimers(events);
+    const run = captureRun(
       executeWorkflow({
         script: 'await new Promise(() => {});\nreturn "unreachable";',
         deps: makeRuntimeDeps(tmpdir()),
         entry,
         deadlineMs: 400,
+        timers: controlled.timers,
+        onDeadlineAborted: () => events.push('deadline.aborted'),
       }),
-    ).rejects.toThrow(/deadline exceeded/);
+      events,
+      'deadline',
+    );
 
-    expect(entry.abortController.signal.aborted).toBe(true);
-    expect(Date.now() - started).toBeLessThan(2_000);
+    await controlled.ready;
+    controlled.advance(399);
+    await flushMicrotasks();
+    expect(events).toEqual(['timer:400']);
+    expect(entry.abortController.signal.aborted).toBe(false);
+
+    controlled.advance(1);
+    const outcome = await run;
+    expect(outcome.error).toBeInstanceOf(Error);
+    expect((outcome.error as Error).message).toBe(WORKFLOW_DEADLINE_ERROR_MESSAGE);
+    expect(events).toEqual([
+      'timer:400',
+      'fire:400',
+      `abort:Error: ${WORKFLOW_DEADLINE_ERROR_MESSAGE}`,
+      'deadline.aborted',
+      'clear:400',
+      'deadline:rejected',
+    ]);
+    expect(controlled.scheduled[0]?.cleared).toBe(true);
   });
 
-  it('rejects an in-flight run as soon as it is aborted', { timeout: 5_000 }, async () => {
-    const entry = makeEntry();
-    const run = executeWorkflow({
-      script: 'await new Promise(() => {});\nreturn "unreachable";',
-      deps: makeRuntimeDeps(tmpdir()),
-      entry,
-      deadlineMs: 60_000,
-    });
+  it('rejects an in-flight run through the explicit cancel route', async () => {
+    const events: string[] = [];
+    const entry = makeEntry(events);
+    const controlled = makeControlledTimers(events);
+    const run = captureRun(
+      executeWorkflow({
+        script: 'await new Promise(() => {});\nreturn "unreachable";',
+        deps: makeRuntimeDeps(tmpdir()),
+        entry,
+        deadlineMs: 60_000,
+        timers: controlled.timers,
+      }),
+      events,
+      'cancel',
+    );
 
-    setTimeout(() => {
-      entry.abortController.abort(new Error(WORKFLOW_CANCELLED_ERROR_MESSAGE));
-    }, 50);
-    const started = Date.now();
+    await controlled.ready;
+    expect(events).toEqual(['timer:60000']);
+    expect(controlled.scheduled[0]?.fired).toBe(false);
 
-    await expect(run).rejects.toThrow(WORKFLOW_CANCELLED_ERROR_MESSAGE);
-    expect(Date.now() - started).toBeLessThan(1_500);
+    entry.abortController.abort(new Error(WORKFLOW_CANCELLED_ERROR_MESSAGE));
+    const outcome = await run;
+    expect(outcome.error).toBeInstanceOf(Error);
+    expect((outcome.error as Error).message).toBe(WORKFLOW_CANCELLED_ERROR_MESSAGE);
+    expect(events).toEqual([
+      'timer:60000',
+      `abort:Error: ${WORKFLOW_CANCELLED_ERROR_MESSAGE}`,
+      'clear:60000',
+      'cancel:rejected',
+    ]);
+    expect(controlled.scheduled[0]?.cleared).toBe(true);
+    expect(controlled.scheduled[0]?.fired).toBe(false);
   });
 
   it('returns the result of a normal script', async () => {

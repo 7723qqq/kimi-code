@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn, type Mock } from 'bun:test';
 
 import { createControlledPromise } from '@antfu/utils';
 
@@ -10,14 +10,14 @@ import { TestInstantiationService } from '#/_base/di/test';
 import { Emitter, Event } from '#/_base/event';
 import { Ledger } from '#/_base/lifecycle/ledger';
 import { ILogService } from '#/_base/log/log';
-import '#/agent/profile/profileService';
 import { userCancellationReason } from '#/_base/utils/abort';
+import '#/agent/profile/profileService';
 import { type AgentContext } from '#/agent/agentContext/agentContext';
-import '#/agent/permissionMode/permissionModeService';
 import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminder';
+import '#/agent/permissionMode/permissionModeService';
 import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
-import '#/agent/contextMemory/contextMemoryService';
 import { IAgentLoopService, type LoopSnapshot } from '#/agent/loop/loop';
+import '#/agent/contextMemory/contextMemoryService';
 import { type MachineEngine, type MachineEngineAttachBundle } from '#/agent/loop/machine/engine';
 import { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
 import { SessionMediaStoreService } from '#/agent/media/sessionMediaStoreService';
@@ -35,10 +35,11 @@ import { _clearAgentToolContributionsForTests } from '#/agent/toolRegistry/toolC
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IBuiltinAgentProfileLoader } from '#/app/agentProfileCatalog/builtinAgentProfileLoader';
-import '#/agent/mcp/mcpService';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import '#/state/eventDispatcherService';
+import '#/agent/mcp/mcpService';
 import { IConfigService } from '#/app/config/config';
+import '#/state/eventDispatcherService';
+import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment/environment';
 import { ISessionEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
 import { IFlagService } from '#/app/flag/flag';
@@ -47,6 +48,8 @@ import { createMcpOAuthStore } from '#/app/mcpConfig/oauthStore';
 import { IPluginService } from '#/app/plugin/plugin';
 import { LifecycleScope } from '#/app/scopes';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { FakeEnvironment } from '#/environment/fakeEnvironment';
+import { Error2, ErrorCodes, isError2 } from '#/errors';
 import { ISessionNotify } from '#/features/notify/sessionNotify';
 import { AgentReminderService, IAgentReminderService } from '#/features/reminder/reminderService';
 import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
@@ -58,21 +61,19 @@ import { McpOAuthService } from '#/mcpCore/oauth/service';
 import { IHostClock } from '#/os/interface/hostClock';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { IHostTimers } from '#/os/interface/hostTimers';
+import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { BlobStoreService } from '#/persistence/backends/node-fs/blobStoreService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IBlobStore } from '#/persistence/interface/blobStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { AgentLifecycleService } from '#/session/agentLifecycle/agentLifecycleService';
 import { createAgentAwaitingClose } from '#/session/agentLifecycle/createAwaitingClose';
 import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { ISessionWorkdir } from '#/session/workdir/workdir';
 import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
@@ -96,17 +97,17 @@ import {
 } from '#/session/subagent/subagentScopeCache';
 import { SessionSubagentScopeCacheService } from '#/session/subagent/subagentScopeCacheService';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
+import { ISessionWorkdir } from '#/session/workdir/workdir';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
 import { IWorkspaceInstanceManager } from '#/workspace/workspaceInstance/workspaceInstanceManager';
-import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment/environment';
 import type { AgentEventStore } from '#human/agent/slices';
+import { restoreEnvs, setEnv } from '#test/helpers/stubs';
+import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
 
 import { stubAgentContext } from '../../agent/agentContext/stubs';
 import { stubProviderDiscovery } from '../../stubs';
-import { restoreEnvs, setEnv } from '#test/helpers/stubs';
-import { waitForAssertion } from '#test/helpers/waitFor';
 
 const noopLog = {
   _serviceBrand: undefined,
@@ -166,6 +167,58 @@ const pluginServiceStub = {
   enabledMcpServers: async () => ({}),
   enabledHooks: async () => [],
 } as unknown as IPluginService;
+
+interface ControlledTimer {
+  readonly timeoutMs: number;
+  readonly callback: () => void;
+  cleared: boolean;
+  fired: boolean;
+}
+
+interface ControlledTimerHandle extends IHostTimerHandle {
+  readonly timer: ControlledTimer;
+}
+
+interface ControlledTimers {
+  readonly timers: IHostTimers;
+  readonly scheduled: ControlledTimer[];
+  advance(byMs: number): void;
+}
+
+function controlledTimers(): ControlledTimers {
+  let elapsed = 0;
+  const scheduled: ControlledTimer[] = [];
+  const timers: IHostTimers = {
+    _serviceBrand: undefined,
+    setClampedTimeout: (callback, timeoutMs) => timers.setTimeout(callback, timeoutMs),
+    setTimeout: (callback, timeoutMs) => {
+      const timer: ControlledTimer = {
+        timeoutMs: elapsed + timeoutMs,
+        callback,
+        cleared: false,
+        fired: false,
+      };
+      scheduled.push(timer);
+      return { unref: () => {}, timer } satisfies ControlledTimerHandle;
+    },
+    clearTimeout: (handle) => {
+      (handle as ControlledTimerHandle).timer.cleared = true;
+    },
+  };
+  return {
+    timers,
+    scheduled,
+    advance: (byMs) => {
+      elapsed += byMs;
+      for (const timer of scheduled) {
+        if (!timer.cleared && !timer.fired && timer.timeoutMs <= elapsed) {
+          timer.fired = true;
+          timer.callback();
+        }
+      }
+    },
+  };
+}
 
 function stubAttachStore(): AgentEventStore {
   return {
@@ -369,9 +422,13 @@ describe('SessionSubagentScopeCacheService', () => {
     ix.stub(IEnvironmentService, {
       onDidChange: () => ({ dispose: () => {} }),
       _serviceBrand: undefined,
-      inspect: (binding) => new FakeEnvironment({ ...binding, generation: `${binding.environmentId}-one` }),
+      inspect: (binding) =>
+        new FakeEnvironment({ ...binding, generation: `${binding.environmentId}-one` }),
       acquire: (binding) => ({
-        environment: new FakeEnvironment({ ...binding, generation: `${binding.environmentId}-one` }),
+        environment: new FakeEnvironment({
+          ...binding,
+          generation: `${binding.environmentId}-one`,
+        }),
         track: (resource) => resource,
         dispose: () => {},
       }),
@@ -803,32 +860,38 @@ describe('SessionSubagentScopeCacheService', () => {
     expect(svc.handleOf('agent-1')).toBeDefined();
   });
 
-  it('rebuild gives up waiting once the configured eviction timeout elapses', async () => {
-    setEnv(SUBAGENT_SCOPE_EVICT_TIMEOUT_ENV, '50');
-    cacheService('1');
-    const stopAll = createControlledPromise<never[]>();
-    let stopAllCalls = 0;
-    ix.stub(IAgentTaskService, {
-      _serviceBrand: undefined,
-      list: () => [],
-      stopAllOnExit: () => (stopAllCalls++ === 0 ? stopAll : Promise.resolve([])),
-      suppressAllTerminalNotifications: async () => {},
-    } as unknown as IAgentTaskService);
-    const svc = ix.get(IAgentLifecycleService);
-    await svc.create({ agentId: 'agent-1' });
-    await svc.create({ agentId: 'agent-2' });
-
-    completed('agent-1');
-    completed('agent-2');
-    await waitForAssertion(() => {
-      expect(svc.handleOf('agent-2')).toBeUndefined();
+  it('rebuild gives up waiting only after the controlled deadline reaches the configured timeout', async () => {
+    let clock = 1_000;
+    const clockSpy = spyOn(Date, 'now').mockImplementation(() => clock);
+    const create = mock(async () => {
+      throw new Error2(ErrorCodes.AGENT_ALREADY_EXISTS, 'Agent "agent-1" already exists');
     });
-
-    const started = Date.now();
-    await expect(createAgentAwaitingClose(svc, { agentId: 'agent-1' })).rejects.toThrow(
-      /already exists/,
+    const lifecycle = { create } as unknown as IAgentLifecycleService;
+    const awaited = createAgentAwaitingClose(lifecycle, { agentId: 'agent-1' });
+    let settled = false;
+    const rejection = awaited.then(
+      () => {
+        settled = true;
+        return undefined;
+      },
+      (error: unknown) => {
+        settled = true;
+        return error;
+      },
     );
-    expect(Date.now() - started).toBeLessThan(DEFAULT_SUBAGENT_SCOPE_EVICT_TIMEOUT_MS);
+    await waitUntil(() => create.mock.calls.length >= 1);
+    expect(settled).toBe(false);
+
+    clock += 50;
+    await waitUntil(() => create.mock.calls.length >= 2);
+    expect(settled).toBe(false);
+
+    clock += DEFAULT_SUBAGENT_SCOPE_EVICT_TIMEOUT_MS - 50;
+    const error = await rejection;
+    expect(settled).toBe(true);
+    expect(isError2(error) && error.code).toBe(ErrorCodes.AGENT_ALREADY_EXISTS);
+    expect(create.mock.calls.length).toBeGreaterThan(2);
+    expect(clockSpy).toHaveBeenCalled();
   });
 
   it('rebuild stops waiting when the caller aborts while the previous scope is still closing', async () => {
@@ -956,6 +1019,12 @@ describe('SessionSubagentScopeCacheService eviction guards', () => {
     } as unknown as IAgentLifecycleService);
     ix.stub(ISessionEventBus, bus);
     ix.stub(ILogService, logs.log);
+    ix.stub(IHostTimers, {
+      _serviceBrand: undefined,
+      setClampedTimeout: (callback, timeoutMs) => setTimeout(callback, timeoutMs),
+      setTimeout: (callback, timeoutMs) => setTimeout(callback, timeoutMs),
+      clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+    });
     setEnv(SUBAGENT_SCOPE_CACHE_SIZE_ENV, '1');
   });
 
@@ -964,8 +1033,9 @@ describe('SessionSubagentScopeCacheService eviction guards', () => {
     restoreEnvs();
   });
 
-  function startCache(env: Record<string, string> = {}): void {
+  function startCache(env: Record<string, string> = {}, timers?: IHostTimers): void {
     for (const [key, value] of Object.entries(env)) setEnv(key, value);
+    if (timers !== undefined) ix.stub(IHostTimers, timers);
     ix.set(ISessionSubagentScopeCacheService, new SyncDescriptor(SessionSubagentScopeCacheService));
     ix.get(ISessionSubagentScopeCacheService);
   }
@@ -1144,6 +1214,44 @@ describe('SessionSubagentScopeCacheService eviction guards', () => {
       1,
     );
     expect(handles.has('agent-later')).toBe(true);
+  });
+
+  it('times out a hung remove only after the injected eviction timer advances to the deadline', async () => {
+    const controlled = controlledTimers();
+    startCache({ [SUBAGENT_SCOPE_EVICT_TIMEOUT_ENV]: '1000' }, controlled.timers);
+    removeAgent.mockImplementation((context: AgentContext) => {
+      closingAgents.add(context.agentId);
+      willClose.fire(context);
+      return new Promise<void>(() => {});
+    });
+    handles.set('agent-1', idleHandle('agent-1'));
+    handles.set('agent-2', idleHandle('agent-2'));
+
+    bus.publish(new SubagentCompleted({ subagentId: 'agent-1', resultSummary: 'done' }));
+    bus.publish(new SubagentCompleted({ subagentId: 'agent-2', resultSummary: 'done' }));
+    await waitForAssertion(() => {
+      expect(controlled.scheduled).toHaveLength(1);
+    });
+    expect(controlled.scheduled[0]?.timeoutMs).toBe(1000);
+
+    controlled.advance(999);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(controlled.scheduled[0]?.fired).toBe(false);
+    expect(controlled.scheduled[0]?.cleared).toBe(false);
+    expect(
+      logs.entries.filter((entry) => entry.level === 'warn' && entry.message.includes('timed out')),
+    ).toHaveLength(0);
+
+    controlled.advance(1);
+    await waitForAssertion(() => {
+      expect(
+        logs.entries.some((entry) => entry.level === 'warn' && entry.message.includes('timed out')),
+      ).toBe(true);
+    });
+    expect(controlled.scheduled[0]?.fired).toBe(true);
+    expect(controlled.scheduled[0]?.cleared).toBe(true);
+    expect((removeAgent.mock.calls[0]![0] as { agentId: string }).agentId).toBe('agent-1');
+    expect(handles.has('agent-1')).toBe(true);
   });
 
   it('times out a hung remove, keeps tracking the closing scope, and keeps the queue moving', async () => {
