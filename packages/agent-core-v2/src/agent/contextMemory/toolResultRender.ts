@@ -52,7 +52,7 @@ function renderStatus(result: RenderableToolResult): ContentPart[] {
   const single = typeof output === 'string' ? output : singleTextPart(output);
   if (single !== undefined) {
     if (result.isError === true) {
-      if (single.length === 0) return [textPart(TOOL_EMPTY_ERROR_STATUS)];
+      if (isEmptyOutputText(single)) return [textPart(TOOL_EMPTY_ERROR_STATUS)];
       return [textPart(TOOL_ERROR_STATUS + '\n' + single)];
     }
     return isEmptyOutputText(single) ? [textPart(TOOL_EMPTY_STATUS)] : [textPart(single)];

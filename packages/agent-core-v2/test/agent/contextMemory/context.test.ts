@@ -12,6 +12,7 @@ import {
   closeTrailingOpenToolExchange,
   INHERITED_IN_FLIGHT_TOOL_OUTPUT,
 } from '#/agent/contextMemory/openToolExchange';
+import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender';
 import { type ContextMessage } from '#/agent/contextMemory/types';
 import { buildImageCompressionCaption } from '#/agent/media/image-compress';
 import { IAgentContextMemoryService, IAgentProfileService } from '#/index';
@@ -115,6 +116,12 @@ describe('Agent context', () => {
         content: [{ type: 'text', text: '<system>Tool output is empty.</system>' }],
         toolCallId: 'call_empty',
       },
+    ]);
+  });
+
+  it('treats a whitespace-only error output as empty', () => {
+    expect(renderToolResultForModel({ output: '   \n\t ', isError: true })).toEqual([
+      { type: 'text', text: '<system>ERROR: Tool execution failed. Tool output is empty.</system>' },
     ]);
   });
 
