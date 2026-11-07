@@ -6,6 +6,27 @@ outline: 2
 
 This page documents the changes in each Kimi Code CLI release.
 
+## 2.5.2 (2026-11-06)
+
+### Bug Fixes
+
+- Fix duplicate tool declaration errors in `select_tools` when MCP tool definitions change.
+- Web: fix steered messages being queued instead of delivered while a session is running.
+- Web: fix project creation when the Web UI is opened over HTTP.
+
+## 2.5.1 (2026-11-05)
+
+### Bug Fixes
+
+- Fix repeated HTTP 400 errors in sessions caused by empty system messages for dynamic tool schemas.
+- Fix missing image and video previews in live and reloaded tool results.
+- Fix sessions belonging to deleted workspaces still appearing in session lists.
+- Web: generate session titles automatically after the first turn of a new session.
+- Web: display local images whose paths contain spaces.
+- Web: stop the session info panel from floating over and covering chat messages in narrow layouts.
+- Web: hide stale empty implicit workspaces from the workspace list.
+- Web: stop tool call summaries from repeatedly expanding and collapsing while a response is in progress.
+
 ## 2.5.0 (2026-11-04)
 
 ### Features

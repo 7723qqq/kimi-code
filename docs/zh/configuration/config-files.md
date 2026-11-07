@@ -751,7 +751,7 @@ defaultCwd = "/workspace"
 | --- | --- | --- | --- |
 | `theme` | `string` | `auto` | 配色主题：`auto`（跟随终端）、`dark`、`light`，或[自定义主题](../customization/themes.md)的名字 |
 | `locale` | `string` | 自动探测 | 终端界面语言：`en` 或 `zh`，用 `/settings` 对话框即可切换并写入。未设置时，若 `KIMI_LANG` 或系统的 `LANG` / `LC_ALL` / `LC_MESSAGES` 表明是中文则取 `zh`，否则取 `en`；显式设置可固定为某一种语言 |
-| `tui_mode` | `string` | `regular` | 界面布局：`regular` 渲染进终端滚动缓冲区；`fullscreen`（实验性）接管鼠标，支持滚轮翻会话记录与面板、拖选复制、点击选中列表行与标签，以及在问题对话框中点选选项；切换后需重启生效 |
+| `tui_mode` | `string` | `regular` | 界面布局：`regular` 渲染进终端滚动缓冲区；`fullscreen`（实验性）接管鼠标，支持滚轮翻会话记录与面板、拖选复制、点击选中列表行与标签，以及在问题对话框中点选选项；`textual`（实验性）以独立 sidecar 进程运行 Rust textual-rs 前端，pi-tui 完全不启动、终端由 sidecar 独占，需先在 `apps/kimi-code/rust` 执行一次 `cargo build`；切换后需重启生效 |
 | `render_latex` | `boolean` | `true` | 将 Markdown 消息中的 LaTeX 公式（`$…$`、`$$…$$`）渲染为 Unicode 文本；`false` 则保留原始源码 |
 | `disable_paste_burst` | `boolean` | `false` | 禁用非 bracketed paste 的粘贴突发兜底；默认开启，避免快速多行粘贴被逐行提交 |
 | `cache_expiry_hint` | `boolean` | `true` | resume 或长时间空闲后发消息时，若上下文缓存可能过期则提醒，可先压缩或新建会话（仅 v2 引擎） |
@@ -774,7 +774,7 @@ model、cwd、git 分支、permission 模式、plan 模式、spec 模式、swarm
 ```toml
 # ~/.kimi-code/tui.toml
 theme = "auto" # "auto" | "dark" | "light" | 自定义主题名
-tui_mode = "regular" # "regular" | "fullscreen"（"fullscreen" 为实验性）
+tui_mode = "regular" # "regular" | "fullscreen" | "textual"（"fullscreen" 和 "textual" 为实验性）
 render_latex = true # false 表示消息中的 LaTeX 公式保留原始源码
 disable_paste_burst = false # true 表示禁用非 bracketed paste 的粘贴突发兜底
 cache_expiry_hint = true # false 表示关闭 resume / 空闲提交时的"缓存已过期"提醒弹窗

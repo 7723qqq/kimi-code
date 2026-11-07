@@ -42,7 +42,7 @@ Use `offset` (default 0) and `head_limit` (default 100) to page through matching
 
 - `write` — record a note. It is split into atomic units and associated with whatever it resembles.
 - `recall` — return the atoms and concepts related to a `query` cue.
-- `pin` / `forget` — mark an atom or concept as important so it does not fade, or hide it from recall (kept for audit).
+- `pin` / `forget` — mark an atom or concept as important so it does not fade, or remove it from recall along with its associations (a forgotten atom keeps a tombstone for history recall).
 - `list` / `export` — inspect what the memory holds, or write everything to `memory-export.json` in the working directory.
 - `replay` — re-consolidate memories that were contradicted, highest priority first.
 - `propose` / `approve` — suggest a memory-code rule, then accept it into the code file.

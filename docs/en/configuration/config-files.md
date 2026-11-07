@@ -751,7 +751,7 @@ Alongside `config.toml`, the CLI keeps terminal-UI and client preferences in a c
 | --- | --- | --- | --- |
 | `theme` | `string` | `auto` | Color theme: `auto` (follow the terminal), `dark`, `light`, or the name of a [custom theme](../customization/themes.md) |
 | `locale` | `string` | auto-detected | UI language for the terminal: `en` or `zh`. The `/settings` dialog writes it for you. Unset, the CLI picks `zh` when `KIMI_LANG` or the system `LANG` / `LC_ALL` / `LC_MESSAGES` says Chinese, and `en` otherwise; set it explicitly to pin one language |
-| `tui_mode` | `string` | `regular` | UI layout: `regular` renders into the terminal scrollback; `fullscreen` (experimental) takes over the mouse — wheel scrolling, drag-to-copy, click-to-pick rows and tabs, and clickable question-dialog options; a switch takes effect after a restart |
+| `tui_mode` | `string` | `regular` | UI layout: `regular` renders into the terminal scrollback; `fullscreen` (experimental) takes over the mouse — wheel scrolling, drag-to-copy, click-to-pick rows and tabs, and clickable question-dialog options; `textual` (experimental) runs the Rust textual-rs frontend as a separate sidecar process, so pi-tui never starts and the sidecar owns the terminal — it needs `cargo build` once in `apps/kimi-code/rust`; a switch takes effect after a restart |
 | `render_latex` | `boolean` | `true` | Render LaTeX math expressions (`$…$`, `$$…$$`) in Markdown messages as Unicode text; `false` keeps the raw source |
 | `disable_paste_burst` | `boolean` | `false` | Disable the non-bracketed paste-burst fallback that keeps rapid multi-line pastes from submitting line by line |
 | `cache_expiry_hint` | `boolean` | `true` | On resume or when submitting after a long idle stretch, warn that the context cache may have expired and offer to compact or start a new session (v2 engine only) |
@@ -774,7 +774,7 @@ Model, cwd, git branch, permission mode, plan mode, spec mode, swarm mode, hello
 ```toml
 # ~/.kimi-code/tui.toml
 theme = "auto" # "auto" | "dark" | "light" | custom theme name
-tui_mode = "regular" # "regular" | "fullscreen" ("fullscreen" is experimental)
+tui_mode = "regular" # "regular" | "fullscreen" | "textual" (fullscreen and textual are experimental)
 render_latex = true # false keeps LaTeX math in messages as raw source
 disable_paste_burst = false # true disables non-bracketed paste-burst fallback
 cache_expiry_hint = true # false disables the "cache expired" dialog on resume / idle submit

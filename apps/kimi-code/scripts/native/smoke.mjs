@@ -22,8 +22,8 @@ async function ensureExecutableExists() {
 }
 
 // `kimi exec-server --listen stdio` is the remote-executor light entry: the
-// SEA binary must answer the NDJSON handshake with the package version and a
-// posix environment, keep stdout protocol-only, and exit 0 on stdin EOF.
+// SEA binary must answer the NDJSON handshake with the package version and its
+// own host environment, keep stdout protocol-only, and exit 0 on stdin EOF.
 async function runExecServerSmoke() {
   const { spawn } = await import('node:child_process');
   const startedAt = performance.now();
@@ -83,10 +83,17 @@ async function runExecServerSmoke() {
     if (initialize.id !== 1 || result.executorVersion !== expectedVersion) {
       fail(`exec-server handshake mismatch: expected executorVersion ${expectedVersion}, got ${JSON.stringify(initialize)}`);
     }
-    if (result.environment?.osKind === undefined || result.environment.osKind === 'windows') {
-      fail(`exec-server reported a non-posix environment: ${JSON.stringify(result.environment)}`);
+    const expectedOsKind =
+      process.platform === 'darwin' ? 'macOS' : process.platform === 'linux' ? 'Linux' : process.platform === 'win32' ? 'Windows' : process.platform;
+    if (result.environment?.osKind !== expectedOsKind) {
+      fail(`exec-server reported osKind ${JSON.stringify(result.environment?.osKind)}, expected ${expectedOsKind}`);
     }
-    send({ method: 'fs/getMetadata', id: 2, params: { path: '/' } });
+    const expectedPathClass = process.platform === 'win32' ? 'win32' : 'posix';
+    if (result.environment?.pathClass !== expectedPathClass) {
+      fail(`exec-server reported pathClass ${JSON.stringify(result.environment?.pathClass)}, expected ${expectedPathClass}`);
+    }
+    const hostRoot = process.platform === 'win32' ? `${process.env.SystemDrive ?? 'C:'}\\` : '/';
+    send({ method: 'fs/getMetadata', id: 2, params: { path: hostRoot } });
     const metadata = await nextFrame();
     if (metadata.id !== 2 || metadata.result?.isDirectory !== true) {
       fail(`exec-server fs/getMetadata mismatch: ${JSON.stringify(metadata)}`);
@@ -155,12 +162,12 @@ async function runSshAskpassSmoke() {
   }
 }
 
-async function runKimi(args) {
+async function runKimi(args, extraEnv) {
   try {
     const { stdout, stderr } = await execFileAsync(executablePath, args, {
       cwd: appRoot,
       maxBuffer: 1024 * 1024 * 16,
-      env: env === undefined ? undefined : { ...process.env, ...env },
+      env: extraEnv === undefined ? undefined : { ...process.env, ...extraEnv },
     });
     return `${stdout}${stderr}`;
   } catch (error) {

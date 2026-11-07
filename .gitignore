@@ -82,3 +82,6 @@ logs/
 # Zig build output for the structural review tool (tools/review).
 tools/review/zig-out/
 tools/review/.zig-cache/
+
+# Rust build output for the textual-rs frontend sidecar (apps/kimi-code/rust).
+/apps/kimi-code/rust/target/

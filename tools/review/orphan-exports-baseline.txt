@@ -106,3 +106,16 @@ stubPair  packages/agent-core-v2/src/_base/di/test.ts
 usesTraitDrivenThinking  packages/agent-core-v2/src/llm-adapter/model/thinking.ts
 verifyFileIntegritySync  packages/minidb/src/gen-codec.ts
 writeAudit  packages/agent-core-v2/src/features/associativeMemory/audit.ts
+
+# Offline recall evaluation API: consumed by eval.gate.test.ts and eval.bench.ts,
+# never by the runtime memory path. Kept exported for reproducible audits.
+collectCalibration  packages/agent-core-v2/src/features/associativeMemory/eval.ts
+collectCostMs  packages/agent-core-v2/src/features/associativeMemory/eval.ts
+evaluateExtended  packages/agent-core-v2/src/features/associativeMemory/eval.ts
+interferenceRate  packages/agent-core-v2/src/features/associativeMemory/eval.ts
+retentionRate  packages/agent-core-v2/src/features/associativeMemory/eval.ts
+
+# Pre-existing test-facing helpers in the memory feature and injection layer.
+applyRecallRules  packages/agent-core-v2/src/features/associativeMemory/code.ts
+resetRendered  packages/agent-core-v2/src/agent/injection/renderedLines.ts
+splitNote  packages/agent-core-v2/src/features/associativeMemory/encode.ts
