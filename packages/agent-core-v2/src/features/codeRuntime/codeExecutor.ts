@@ -5,7 +5,6 @@ import { MEMORY_CAP_BYTES, MemoryCapUnavailableError, createMemoryGuard, type Me
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_OUTPUT_CHARS = 100_000;
-const WINDOWS_MEMORY_ATTRIBUTION_RATIO = 0.9;
 const STDERR_CAPTURE_CHARS = 4_096;
 const RAW_OUTPUT_CEILING_CHARS = DEFAULT_MAX_OUTPUT_CHARS * 4;
 
@@ -18,6 +17,29 @@ export interface CodeRunOptions {
 interface ShimError {
   readonly kind: string;
   readonly message: string;
+}
+
+export interface CodeExitRoute {
+  readonly memoryLimitExceeded: boolean;
+  readonly outputLimitHit: boolean;
+  readonly exitCode: number;
+  readonly stderr: string;
+}
+
+export type CodeExitKind = 'memory-limit' | 'output-limit' | 'worker-exit';
+
+export function classifyCodeExit(route: CodeExitRoute): { kind: CodeExitKind; message: string } {
+  if (route.outputLimitHit) {
+    return { kind: 'output-limit', message: 'program output exceeded the size limit' };
+  }
+  if (route.memoryLimitExceeded) {
+    return { kind: 'memory-limit', message: 'program exceeded the memory budget and was terminated' };
+  }
+  const stderrNote = route.stderr.trim().length > 0 ? `: ${route.stderr.trim().slice(-500)}` : '';
+  return {
+    kind: 'worker-exit',
+    message: `code subprocess exited with code ${String(route.exitCode)} without reporting a result${stderrNote}`,
+  };
 }
 
 function shimSpawnCommand(): readonly string[] {
@@ -229,40 +251,17 @@ export async function runCodeInSubprocess(
       }
     };
 
-    const memoryLimitOutcome = (): CodeRunOutcome => ({
-      logs: [...logs],
-      error: {
-        kind: 'memory-limit',
-        message: 'program exceeded the memory budget and was terminated',
-      },
-    });
-
     const onExited = (exitCode: number): void => {
       if (settled) return;
-      if (rawLimitHit) {
-        settle({
-          logs: [...logs],
-          error: { kind: 'output-limit', message: 'program output exceeded the size limit' },
-        });
-        return;
-      }
-      if (guard?.exceeded() === true) {
-        settle(memoryLimitOutcome());
-        return;
-      }
-      const peak = guard?.peakBytes();
-      if (peak !== undefined && peak >= MEMORY_CAP_BYTES * WINDOWS_MEMORY_ATTRIBUTION_RATIO) {
-        settle(memoryLimitOutcome());
-        return;
-      }
-      const stderrNote =
-        stderrSink.text.trim().length > 0 ? `: ${stderrSink.text.trim().slice(-500)}` : '';
+      const classification = classifyCodeExit({
+        memoryLimitExceeded: guard?.exceeded() === true,
+        outputLimitHit: rawLimitHit,
+        exitCode,
+        stderr: stderrSink.text,
+      });
       settle({
         logs: [...logs],
-        error: {
-          kind: 'worker-exit',
-          message: `code subprocess exited with code ${String(exitCode)} without reporting a result${stderrNote}`,
-        },
+        error: { kind: classification.kind, message: classification.message },
       });
     };
 

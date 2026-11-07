@@ -12,7 +12,6 @@ export const MEMORY_CAP_BYTES = 512 * 1024 * 1024;
 
 export interface MemoryGuard {
   exceeded(): boolean;
-  peakBytes(): number | undefined;
   dispose(): void;
 }
 
@@ -24,9 +23,9 @@ const WIN32_PROCESS_SET_QUOTA = 0x0100;
 const WIN32_PROCESS_TERMINATE = 0x0001;
 const WIN32_PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
 const WIN32_EXTENDED_LIMIT_SIZE = 144;
-const WIN32_PEAK_JOB_MEMORY_OFFSET = 128;
+const WIN32_PEAK_JOB_MEMORY_OFFSET = 136;
 
-interface Win32Kernel32 {
+export interface Win32Kernel32 {
   CreateJobObjectW(extra: unknown, name: unknown): unknown;
   SetInformationJobObject(job: unknown, infoClass: number, info: ArrayBuffer, size: number): boolean;
   AssignProcessToJobObject(job: unknown, process: unknown): boolean;
@@ -65,11 +64,11 @@ function buildExtendedLimits(capBytes: number): ArrayBuffer {
   return buf;
 }
 
-function createWindowsGuard(pid: number, capBytes: number): MemoryGuard {
-  const k32 = loadKernel32();
-  if (k32 === null) {
-    throw new MemoryCapUnavailableError('bun:ffi cannot load kernel32.dll on this Windows host');
-  }
+export function createWindowsGuard(
+  pid: number,
+  capBytes: number,
+  k32: Win32Kernel32,
+): MemoryGuard {
   const job = k32.CreateJobObjectW(null, null);
   if (job === null || job === 0) {
     throw new MemoryCapUnavailableError('CreateJobObjectW failed');
@@ -95,21 +94,20 @@ function createWindowsGuard(pid: number, capBytes: number): MemoryGuard {
     if (processHandle !== null && processHandle !== 0) k32.CloseHandle(processHandle);
     throw error;
   }
-  let peakJobMemoryBytes: number | undefined;
-  const queryPeakJobMemoryBytes = (): number | undefined => {
+  let lastPeakJobMemoryBytes = 0;
+  const queryPeakJobMemoryBytes = (): number => {
     const buf = new ArrayBuffer(WIN32_EXTENDED_LIMIT_SIZE);
     if (!k32.QueryInformationJobObject(job, WIN32_EXTENDED_LIMIT_INFO_CLASS, buf, WIN32_EXTENDED_LIMIT_SIZE, null)) {
-      return peakJobMemoryBytes;
+      return lastPeakJobMemoryBytes;
     }
-    peakJobMemoryBytes = Number(
+    lastPeakJobMemoryBytes = Number(
       new DataView(buf).getBigUint64(WIN32_PEAK_JOB_MEMORY_OFFSET, true),
     );
-    return peakJobMemoryBytes;
+    return lastPeakJobMemoryBytes;
   };
   let disposed = false;
   return {
-    exceeded: () => (queryPeakJobMemoryBytes() ?? 0) >= capBytes,
-    peakBytes: () => queryPeakJobMemoryBytes(),
+    exceeded: () => queryPeakJobMemoryBytes() >= capBytes,
     dispose: () => {
       if (disposed) return;
       disposed = true;
@@ -151,9 +149,6 @@ function createLinuxGuard(pid: number, capBytes: number, kill: () => void): Memo
   timer.unref();
   return {
     exceeded: () => hit,
-    peakBytes: () => {
-      return;
-    },
     dispose: () => {
       if (disposed) return;
       disposed = true;
@@ -197,9 +192,6 @@ function createDarwinGuard(pid: number, capBytes: number, kill: () => void): Mem
   timer.unref();
   return {
     exceeded: () => hit,
-    peakBytes: () => {
-      return;
-    },
     dispose: () => {
       if (disposed) return;
       disposed = true;
@@ -210,8 +202,13 @@ function createDarwinGuard(pid: number, capBytes: number, kill: () => void): Mem
 
 export function createMemoryGuard(pid: number, capBytes: number, kill: () => void): MemoryGuard {
   switch (process.platform) {
-    case 'win32':
-      return createWindowsGuard(pid, capBytes);
+    case 'win32': {
+      const k32 = loadKernel32();
+      if (k32 === null) {
+        throw new MemoryCapUnavailableError('bun:ffi cannot load kernel32.dll on this Windows host');
+      }
+      return createWindowsGuard(pid, capBytes, k32);
+    }
     case 'linux':
       return createLinuxGuard(pid, capBytes, kill);
     case 'darwin':
