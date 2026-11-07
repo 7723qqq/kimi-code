@@ -26,6 +26,7 @@ import {
 import chalk from 'chalk';
 
 import { kimiCodePluginMarketplaceUrl } from '#/constant/region-urls';
+import { t } from '#/i18n';
 import { handleFeedbackCommand } from '#/tui/commands/info';
 import {
   promptFeedbackAttachment,
@@ -14126,6 +14127,31 @@ describe('transcript fold block clicks', () => {
     return [`${name}-body`, `${name}-mid`, `${name}-more`, `${name}-tail`].join('\n');
   }
 
+  function clickTranscriptAt(
+    driver: MessageDriver,
+    x: number,
+    y: number,
+  ): ReturnType<NonNullable<TUIState['transcriptContainer']['handleMouse']>> {
+    const lines = driver.state.transcriptContainer.render(transcriptWidth);
+    expect(y).toBeGreaterThanOrEqual(0);
+    expect(y).toBeLessThan(lines.length);
+    const event: TuiMouseEvent = {
+      type: 'click',
+      button: 'left',
+      x,
+      y,
+      screenX: x,
+      screenY: y,
+      width: transcriptWidth,
+      height: lines.length,
+      shift: false,
+      alt: false,
+      ctrl: false,
+      clickCount: 1,
+    };
+    return driver.state.transcriptContainer.handleMouse(event);
+  }
+
   function emitBash(
     driver: MessageDriver,
     toolCallId: string,
@@ -14302,6 +14328,134 @@ describe('transcript fold block clicks', () => {
     expect(transcript).toContain('alpha-tail');
     expect(driver.state.toolOutputExpanded).toBe(false);
     expect(renderFooterLine1(driver)).toContain('ctrl+o expand');
+  });
+
+  it('routes a live thinking header click through the component to the fold toggle', async () => {
+    const { driver } = await makeDriver();
+    const longThinking = ['think-one', 'think-two', 'think-three', 'think-four'].join('\n');
+    driver.streamingUI.onThinkingUpdate(longThinking);
+
+    const lines = driver.state.transcriptContainer.render(transcriptWidth);
+    const headerY = lines.findIndex((line) =>
+      stripSgr(line).includes(t('tui.messages.thinking.liveLabel')),
+    );
+    expect(headerY).toBeGreaterThanOrEqual(0);
+    const thinking = driver.state.transcriptContainer.children.find(
+      (child): child is ThinkingComponent => child instanceof ThinkingComponent,
+    );
+    expect(thinking).toBeInstanceOf(ThinkingComponent);
+    const headerButton = (
+      thinking as unknown as { headerButton: { handleMouse(event: unknown): unknown } }
+    ).headerButton;
+    const buttonMouse = spyOn(headerButton, 'handleMouse');
+    const toggleFold = spyOn(
+      driver as unknown as { toggleTranscriptFold(c: unknown): boolean },
+      'toggleTranscriptFold',
+    );
+    const render = requestRenderSpy(driver);
+    render.mockClear();
+    const container = driver.state.transcriptContainer as unknown as {
+      unhandledClick: (index: number) => unknown;
+    };
+    const realFallback = container.unhandledClick;
+    const fallback = mock(() => undefined);
+    container.unhandledClick = fallback;
+
+    try {
+      const before = stripSgr(renderTranscript(driver));
+      expect(before).toContain('think-four');
+      expect(before).not.toContain('think-one');
+      expect(thinking!.hasHiddenContent()).toBe(true);
+
+      const opened = clickTranscriptAt(driver, 2, headerY);
+      expect(opened).toEqual(
+        expect.objectContaining({
+          handled: true,
+          target: expect.objectContaining({ component: thinking }),
+        }),
+      );
+      expect(buttonMouse).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'click',
+          button: 'left',
+          x: 1,
+          y: 0,
+          height: 1,
+        }),
+      );
+      expect(toggleFold).toHaveBeenCalledWith(thinking);
+      expect(fallback).not.toHaveBeenCalled();
+      expect(thinking!.isExpanded()).toBe(true);
+      expect(stripSgr(renderTranscript(driver))).toContain('think-one');
+      expect(render).toHaveBeenCalledTimes(1);
+
+      buttonMouse.mockClear();
+      toggleFold.mockClear();
+      render.mockClear();
+
+      const closed = clickTranscriptAt(driver, 2, headerY);
+      expect(closed).toEqual(
+        expect.objectContaining({
+          handled: true,
+          target: expect.objectContaining({ component: thinking }),
+        }),
+      );
+      expect(buttonMouse).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'click',
+          button: 'left',
+          x: 1,
+          y: 0,
+          height: 1,
+        }),
+      );
+      expect(toggleFold).toHaveBeenCalledWith(thinking);
+      expect(fallback).not.toHaveBeenCalled();
+      expect(thinking!.isExpanded()).toBe(false);
+      const collapsed = stripSgr(renderTranscript(driver));
+      expect(collapsed).toContain('think-four');
+      expect(collapsed).not.toContain('think-one');
+      expect(render).toHaveBeenCalledTimes(1);
+
+      buttonMouse.mockClear();
+      toggleFold.mockClear();
+      const bodyY = collapsed.split('\n').findIndex((line) => line.includes('think-four'));
+      container.unhandledClick = realFallback;
+      const bodyClick = clickTranscriptAt(driver, 2, bodyY);
+      expect(bodyClick).toEqual(
+        expect.objectContaining({
+          handled: true,
+          target: expect.objectContaining({ component: driver.state.transcriptContainer }),
+        }),
+      );
+      expect(buttonMouse).not.toHaveBeenCalled();
+      expect(toggleFold).not.toHaveBeenCalled();
+      expect(thinking!.isExpanded()).toBe(true);
+      expect(stripSgr(renderTranscript(driver))).toContain('think-one');
+
+      clickTranscriptAt(driver, 2, headerY);
+      expect(thinking!.isExpanded()).toBe(false);
+      driver.streamingUI.onThinkingUpdate('short-only');
+      const shortHeaderY = stripSgr(renderTranscript(driver))
+        .split('\n')
+        .findIndex((line) => line.includes(t('tui.messages.thinking.liveLabel')));
+      expect(shortHeaderY).toBeGreaterThanOrEqual(0);
+      expect(thinking!.hasHiddenContent()).toBe(false);
+      buttonMouse.mockClear();
+      toggleFold.mockClear();
+      render.mockClear();
+
+      const shortClick = clickTranscriptAt(driver, 2, shortHeaderY);
+      expect(shortClick).toEqual(expect.objectContaining({ handled: true }));
+      expect(buttonMouse).toHaveBeenCalledTimes(1);
+      expect(toggleFold).toHaveBeenCalledWith(thinking);
+      expect(render).not.toHaveBeenCalled();
+      expect(thinking!.isExpanded()).toBe(false);
+    } finally {
+      container.unhandledClick = realFallback;
+      buttonMouse.mockRestore();
+      toggleFold.mockRestore();
+    }
   });
 
   it('toggles live and finalized thinking without advertising it in the footer', async () => {

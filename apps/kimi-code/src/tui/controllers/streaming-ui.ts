@@ -32,6 +32,7 @@ import { nextTranscriptId } from '../utils/transcript-id';
 export interface StreamingUIHost {
   state: TUIState;
   session: Session | undefined;
+  toggleTranscriptFold(component: Component): boolean;
   setAppState(patch: Partial<AppState>): void;
   patchLivePane(patch: Partial<LivePaneState>): void;
   resetLivePane(): void;
@@ -698,6 +699,9 @@ export class StreamingUIController {
       this._pendingAgentGroup = null;
       this._pendingReadGroup = null;
       const component = new ThinkingComponent(fullText, true, 'live', state.ui);
+      component.setToggleHandler(() => {
+        this.host.toggleTranscriptFold(component);
+      });
       if (state.toolOutputExpanded) component.setExpanded(true);
       this._activeThinkingComponent = component;
       const entry: TranscriptEntry = {
