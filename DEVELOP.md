@@ -718,6 +718,7 @@ This fork shares its root commit with `MoonshotAI/kimi-code` and has since diver
 
 - **`.upstream/ledger.tsv` is the only progress source.** Every open upstream commit is one row with a verdict (`pending` / `in_progress` / `ported` / `equivalent` / `partial` / `blocked` / `not-applicable`) and a probe (`test:` / `grep:` / `absent:` / `manual:`).
 - **`.upstream/PLAYBOOK.md`** maps each upstream pnpm/Node construct to its Bun equivalent. Upstream capability is *translated*, never dropped for being on the other toolchain.
+- **`.upstream/issues.tsv` records upstream issues selected for this fork.** Each row is one upstream issue with an area, a priority, why it is useful here, and a `local_check` status (`open` / `likely-fixed` / `needs-check`) to resolve against this branch before work starts. It is a selection list, not a progress ledger: applying an issue means branching from `main` and moving its `status` to `done` with the fixing commit.
 - **`bun scripts/upstream-ledger.mjs --refresh`** re-reads `upstream/main` and adds new commits as `pending`. `--verify` runs the probes and advances verdicts. `--report` prints the batch × verdict matrix. `--set` / `--probe` / `--cluster` / `--batch-done` are the only ways to edit a row.
 - **Never report progress with commit counts or diff line counts.** Aggregate the ledger.
 - **`tools/review`'s `upstream-drift` check is complementary, not a substitute.** It only catches whole files upstream has and this branch lacks; content-level gaps inside a shared file are the ledger's job.
