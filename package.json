@@ -77,7 +77,7 @@
     "check:deep-imports": "bun packages/agent-core-v2/scripts/check-deep-imports.mjs",
     "check:boundaries": "cd packages/agent-core-v2 && bun run lint:imports",
     "check:catalog-versions": "bun tools/review/check-catalog-versions.mjs",
-    "gen:manifests": "cd packages/agent-core-v2 && bun run gen:config-manifest && bun run gen:wire-manifest && bun run gen:state-manifest",
+    "gen:manifests": "cd packages/agent-core-v2 && bun run gen:config-manifest && bun run gen:wire-manifest && bun run gen:state-manifest && bun run gen:error-codes",
     "test:bench": "bun scripts/run-tests.mjs --script=test:bench",
     "scan:residue": "bun scripts/scan-test-residue.mjs --baseline=.scan-test-residue.baseline.json",
     "scan:residue:json": "bun scripts/scan-test-residue.mjs --baseline=.scan-test-residue.baseline.json --json",
