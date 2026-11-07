@@ -1,5 +1,6 @@
 import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { Emitter, type Event } from '#/_base/event';
+import type { IHostTimerHandle, IHostTimers } from '#/os/interface/hostTimers';
 
 import type {
   Environment,
@@ -46,9 +47,19 @@ interface Entry {
 
 export interface EnvironmentRegistryOptions {
   readonly drainTimeoutMs?: number;
+  readonly timers?: IHostTimers;
 }
 
 const DEFAULT_ENVIRONMENT_DRAIN_TIMEOUT_MS = 5000;
+
+const SYSTEM_HOST_TIMERS: IHostTimers = {
+  _serviceBrand: undefined,
+  setClampedTimeout: (callback, timeoutMs) => globalThis.setTimeout(callback, timeoutMs),
+  setTimeout: (callback, timeoutMs) => globalThis.setTimeout(callback, timeoutMs),
+  clearTimeout: (handle) => {
+    globalThis.clearTimeout(handle as ReturnType<typeof globalThis.setTimeout>);
+  },
+};
 
 export interface EnvironmentRegistryChange {
   readonly environmentId: string;
@@ -80,9 +91,11 @@ export class EnvironmentRegistry {
   private disposing = false;
 
   private readonly drainTimeoutMs: number;
+  private readonly timers: IHostTimers;
 
   constructor(options: EnvironmentRegistryOptions = {}) {
     this.drainTimeoutMs = options.drainTimeoutMs ?? DEFAULT_ENVIRONMENT_DRAIN_TIMEOUT_MS;
+    this.timers = options.timers ?? SYSTEM_HOST_TIMERS;
   }
 
   private list(): readonly Environment[] {
@@ -323,16 +336,16 @@ export class EnvironmentRegistry {
 
   private async waitForDrain(entry: Entry): Promise<void> {
     if (entry.activeLeases === 0) return;
-    let timeout: NodeJS.Timeout | undefined;
+    let timeout: IHostTimerHandle | undefined;
     await Promise.race([
       new Promise<void>((resolve) => {
         entry.drainResolvers.add(resolve);
       }),
       new Promise<void>((resolve) => {
-        timeout = setTimeout(resolve, this.drainTimeoutMs);
+        timeout = this.timers.setTimeout(resolve, this.drainTimeoutMs);
       }),
     ]);
-    if (timeout !== undefined) clearTimeout(timeout);
+    if (timeout !== undefined) this.timers.clearTimeout(timeout);
     entry.drainResolvers.clear();
   }
 }
