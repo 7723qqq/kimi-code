@@ -25,7 +25,7 @@ export interface IMemoryRepo {
 
   logCommits(limit: number): Promise<readonly MemoryCommit[]>;
 
-  lastCommitSha(relPath: string): Promise<string | undefined>;
+  recentCommitShas(limit: number): Promise<Map<string, string>>;
 
   revert(sha: string): Promise<boolean>;
 }
@@ -137,11 +137,30 @@ export class MemoryRepo extends Disposable implements IMemoryRepo {
     return commits;
   }
 
-  async lastCommitSha(relPath: string): Promise<string | undefined> {
-    const result = await this.run(['log', '-1', '--format=%H', '--', relPath]);
-    if (!result.ok) return undefined;
-    const sha = result.stdout.trim();
-    return sha.length === 0 ? undefined : sha;
+  async recentCommitShas(limit: number): Promise<Map<string, string>> {
+    const result = await this.run([
+      'log',
+      '-n',
+      String(limit),
+      '--format=%x00%H',
+      '--name-only',
+      '--no-renames',
+    ]);
+    const shas = new Map<string, string>();
+    if (!result.ok) return shas;
+    let current: string | undefined;
+    for (const rawLine of result.stdout.split('\n')) {
+      const line = rawLine.trim();
+      if (line.length === 0) continue;
+      if (line.startsWith('\u0000')) {
+        current = line.slice(1);
+        continue;
+      }
+      if (current === undefined) continue;
+      if (shas.has(line)) continue;
+      shas.set(line, current);
+    }
+    return shas;
   }
 
   async revert(sha: string): Promise<boolean> {

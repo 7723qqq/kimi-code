@@ -8,14 +8,18 @@ import { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { LifecycleScope } from '#/app/scopes';
 
-import type { MemoryEntry, MemorySearchResult } from './memoryPaths';
+import type { MemoryEntry, MemoryScope, MemorySearchResult } from './memoryPaths';
 import { buildSnippet, detectType, extractTitle, parseMemoryPath } from './memoryPaths';
 
 const TEXT_INDEX_NAME = 'memory_body';
+const META_PREFIX = '__meta__:';
+const RECONCILE_INTERVAL_MS = 600_000;
 const STORE_SUBDIR = 'memory';
 
 export interface IMemoryStore {
   readonly _serviceBrand: undefined;
+
+  readonly revision: number;
 
   get(path: string): Promise<MemoryEntry | undefined>;
 
@@ -25,7 +29,11 @@ export interface IMemoryStore {
 
   list(): Promise<readonly string[]>;
 
-  search(query: string, limit?: number): Promise<readonly MemorySearchResult[]>;
+  search(
+    query: string,
+    limit?: number,
+    filter?: { readonly scope: MemoryScope; readonly scopeId: string },
+  ): Promise<readonly MemorySearchResult[]>;
 
   reconcile(): Promise<void>;
 }
@@ -36,6 +44,8 @@ export class MemoryStore extends Disposable implements IMemoryStore {
   declare readonly _serviceBrand: undefined;
 
   private dbPromise: Promise<MiniDb> | undefined;
+  private contentRevision = 0;
+  private seeded = false;
   private readonly dir: string;
   private readonly memoryBaseDir: string;
 
@@ -79,29 +89,52 @@ export class MemoryStore extends Disposable implements IMemoryStore {
     return db;
   }
 
+  private async ensureFresh(): Promise<void> {
+    if (this.seeded) return;
+    this.seeded = true;
+    const db = await this.openDb();
+    const marker = db.get(`${META_PREFIX}reconciled`) as { readonly at?: number } | undefined;
+    const at = typeof marker?.at === 'number' ? marker.at : 0;
+    if (Date.now() - at < RECONCILE_INTERVAL_MS) return;
+    await this.reconcile();
+  }
+
   async get(path: string): Promise<MemoryEntry | undefined> {
+    await this.ensureFresh();
     const db = await this.openDb();
     const raw = db.get(path);
     return raw as MemoryEntry | undefined;
   }
 
+  get revision(): number {
+    return this.contentRevision;
+  }
+
   async put(entry: MemoryEntry): Promise<void> {
+    this.contentRevision += 1;
     const db = await this.openDb();
     await db.set(entry.path, entry);
   }
 
   async delete(path: string): Promise<void> {
+    this.contentRevision += 1;
     const db = await this.openDb();
     await db.del(path);
   }
 
   async list(): Promise<readonly string[]> {
+    await this.ensureFresh();
     const db = await this.openDb();
     const entries = db.query({});
-    return entries.map((e) => e.key);
+    return entries.map((e) => e.key).filter((key) => !key.startsWith(META_PREFIX));
   }
 
-  async search(query: string, limit = 10): Promise<readonly MemorySearchResult[]> {
+  async search(
+    query: string,
+    limit = 10,
+    filter?: { readonly scope: MemoryScope; readonly scopeId: string },
+  ): Promise<readonly MemorySearchResult[]> {
+    await this.ensureFresh();
     const db = await this.openDb();
     const overFetch = Math.min(limit * 3, 50);
     const hits = db.search(TEXT_INDEX_NAME, query, { op: 'OR', limit: overFetch });
@@ -112,6 +145,8 @@ export class MemoryStore extends Disposable implements IMemoryStore {
       if (entry === undefined) continue;
       const parsed = parseMemoryPath(entry.path);
       if (parsed === undefined) continue;
+      if (filter !== undefined && (parsed.scope !== filter.scope || parsed.scopeId !== filter.scopeId))
+        continue;
 
       const normalizedScore = hit.score;
       if (normalizedScore < 0.15) continue;
@@ -131,6 +166,7 @@ export class MemoryStore extends Disposable implements IMemoryStore {
   }
 
   async reconcile(): Promise<void> {
+    this.contentRevision += 1;
     const { stat } = await import('node:fs/promises');
     const { join: joinPath } = await import('pathe');
 
@@ -139,6 +175,7 @@ export class MemoryStore extends Disposable implements IMemoryStore {
 
     const indexedKeys = new Set<string>();
     for (const entry of db.query({})) {
+      if (entry.key.startsWith(META_PREFIX)) continue;
       indexedKeys.add(entry.key);
     }
 
@@ -174,6 +211,7 @@ export class MemoryStore extends Disposable implements IMemoryStore {
       await db.del(staleKey);
     }
 
+    await db.set(`${META_PREFIX}reconciled`, { at: Date.now() });
     this.log.debug('memory.store.reconciled', {
       total: diskFiles.size,
       removed: indexedKeys.size,

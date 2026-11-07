@@ -51,6 +51,8 @@ interface Harness {
   readonly service: GitMemoryService;
   readonly spawns: number;
   readonly headSpawns: number;
+  readonly listCalls: number;
+  revision: number;
   readonly indexAttempts: number;
   readonly registered: string[];
   readonly warnings: readonly { message: string; payload: unknown }[];
@@ -120,6 +122,8 @@ function harness(
     headSpawns: 0,
     indexAttempts: 0,
     now: 0,
+    listCalls: 0,
+    revision: 0,
     registered: [] as string[],
     warnings: [] as { message: string; payload: unknown }[],
     events: [] as WarningIssued[],
@@ -205,7 +209,11 @@ function harness(
         } as never,
         { get: () => options.messages ?? [] } as never,
         {
+          get revision() {
+            return state.revision;
+          },
           list: async () => {
+            state.listCalls += 1;
             if (options.memoryStoreFails === true) throw new Error('memory store is locked');
             return (options.memories ?? []).map((entry) => entry.path);
           },
@@ -213,7 +221,13 @@ function harness(
             (options.memories ?? []).find((entry) => entry.path === path),
         } as never,
         {
-          lastCommitSha: async (path: string) => `a${path.replace(/[^a-z]/gi, '').padEnd(39, '0')}`,
+          recentCommitShas: async () =>
+            new Map(
+              (options.memories ?? []).map((entry) => [
+                entry.path,
+                `a${entry.path.replace(/[^a-z]/gi, '').padEnd(39, '0')}`,
+              ]),
+            ),
         } as never,
         {
           dispatch: (event: WarningIssued) => {
@@ -222,6 +236,7 @@ function harness(
           },
         } as never,
         { agentId: 'main' } as never,
+        { sessionId: 'session-test' } as never,
       );
       this.stub = options.stub;
     }
@@ -248,6 +263,15 @@ function harness(
     },
     get headSpawns() {
       return state.headSpawns;
+    },
+    get listCalls() {
+      return state.listCalls;
+    },
+    get revision() {
+      return state.revision;
+    },
+    set revision(value: number) {
+      state.revision = value;
     },
     get indexAttempts() {
       return state.indexAttempts;
@@ -508,6 +532,29 @@ describe('git memory written entries', () => {
     });
     const block = await h.service.repoBlock();
     expect(block).toContain('General note');
+  });
+
+  it('reads the memory store once per content revision', async () => {
+    const h = harness({
+      flagOn: true,
+      stub: index,
+      memories: [
+        {
+          path: 'global/general.md',
+          title: 'General note',
+          body: '# General note\nalways run the type check',
+          updatedAt: Date.parse('2026-10-21T00:00:00.000Z'),
+        },
+      ],
+    });
+    await h.service.repoBlock();
+    const afterFirst = h.listCalls;
+    expect(afterFirst).toBe(1);
+    await h.service.repoBlock();
+    expect(h.listCalls).toBe(afterFirst);
+    h.revision = 1;
+    await h.service.repoBlock();
+    expect(h.listCalls).toBe(afterFirst + 1);
   });
 });
 

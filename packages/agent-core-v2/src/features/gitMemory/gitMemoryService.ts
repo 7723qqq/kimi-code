@@ -15,11 +15,20 @@ import { parseAppliesTo } from '#/app/memory/memoryPaths';
 import { IMemoryRepo } from '#/app/memory/memoryRepo';
 import { IMemoryStore } from '#/app/memory/memoryStore';
 import { LifecycleScope } from '#/app/scopes';
+import { alreadyRendered, markRendered } from '#/agent/injection/renderedLines';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { IHostProcessService } from '#/os/interface/hostProcess';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 
-import { buildIndex, cachePath, readAnyIndex, readIndex, writeIndex } from './cache';
+import {
+  buildIndex,
+  cachePath,
+  readAnyIndex,
+  readIndex,
+  removeLegacyIndex,
+  writeIndex,
+} from './cache';
 import { GIT_MEMORY_FLAG_ID } from './flag';
 import { readGitHistory, readRepoHead, readRepoMap, readRepoTree } from './gitReader';
 import type { GitUnavailableReason, RepoHead, RepoHeadResult } from './gitReader';
@@ -83,7 +92,20 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
   private readonly renderedMemories = new Set<string>();
   private memoryStoreWarned = false;
   private readonly memoryScopeCache = new Map<string, string[]>();
+  private shaCache: { readonly revision: number; readonly map: Map<string, string> } | undefined;
   private readonly directoryHistory = new Map<string, readonly CommitRecord[]>();
+  private cleanedLegacyRoot = '';
+  private entriesCache:
+    | {
+        readonly revision: number;
+        readonly entries: readonly {
+          path: string;
+          title: string;
+          body: string;
+          updatedAt: number;
+        }[];
+      }
+    | undefined;
 
   constructor(
     @IHostProcessService private readonly process: IHostProcessService,
@@ -96,6 +118,7 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
     @IMemoryRepo private readonly memoryRepo: IMemoryRepo,
     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
+    @ISessionContext private readonly session: ISessionContext,
   ) {
     super();
     this.reminders.register('git_memory_signal', ({ isNewTurn }) =>
@@ -106,8 +129,9 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
   protected async loadIndex(): Promise<GitMemoryIndex | undefined> {
     const head = await this.ensureHead();
     if (head === undefined) return undefined;
+    await this.cleanLegacyIndex(head.repoRoot);
 
-    const path = cachePath(head.repoRoot);
+    const path = cachePath(this.bootstrap.storeDir, head.repoRoot);
     const cached = await readIndex(path, head.headSha, GIT_MEMORY_WINDOW);
     if (cached.kind === 'hit') return cached.index;
     if (cached.kind === 'miss') {
@@ -122,11 +146,21 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
     return this.rebuild(head, path);
   }
 
+  private async cleanLegacyIndex(repoRoot: string): Promise<void> {
+    if (this.cleanedLegacyRoot === repoRoot) return;
+    this.cleanedLegacyRoot = repoRoot;
+    const removed = await removeLegacyIndex(repoRoot);
+    if (removed) this.log.debug('git memory legacy cache removed', { repoRoot });
+  }
+
   private scheduleRefresh(head: RepoHead, path: string): void {
     if (this.refresh !== undefined) return;
     this.refresh = this.rebuild(head, path)
       .then((index) => {
-        if (index !== undefined) this.index = index;
+        if (index !== undefined) {
+          this.index = index;
+          this.resetDerivedState();
+        }
       })
       .catch((error) => {
         this.log.warn('git memory refresh failed', { error });
@@ -162,6 +196,7 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
 
   async repoBlock(): Promise<string> {
     if (!this.enabled()) return '';
+    this.trimRenderState();
     try {
       const index = await this.ensureIndex();
       if (index === undefined) return '';
@@ -184,6 +219,7 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
 
   async fileBlock(path: string): Promise<string> {
     if (!this.enabled()) return '';
+    this.trimRenderState();
     try {
       const index = await this.ensureIndex();
       if (index === undefined) return '';
@@ -211,6 +247,7 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
 
   async signalBlock(message: string): Promise<string> {
     if (!this.enabled()) return '';
+    this.trimRenderState();
     try {
       const paths = this.extractPaths(message);
       if (paths.length === 0) return '';
@@ -297,6 +334,13 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
   private async memoryEntries(): Promise<
     readonly { path: string; title: string; body: string; updatedAt: number }[]
   > {
+    const revision = this.memoryStore.revision;
+    if (this.entriesCache !== undefined && this.entriesCache.revision === revision) {
+      return this.entriesCache.entries;
+    }
+    if (this.entriesCache !== undefined) {
+        this.renderedMemories.clear();
+    }
     const paths = await this.memoryStore.list();
     const entries: { path: string; title: string; body: string; updatedAt: number }[] = [];
     for (const path of paths) {
@@ -309,6 +353,7 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
         updatedAt: entry.updatedAt,
       });
     }
+    this.entriesCache = { revision, entries };
     return entries;
   }
 
@@ -326,28 +371,46 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
 
   private async memoriesForPath(path: string): Promise<MemoryEntryView[]> {
     const views: MemoryEntryView[] = [];
+    const shas = await this.commitShas();
+    let chars = 0;
     for (const entry of await this.memoryEntries()) {
+      if (views.length >= MEMORY_BLOCK_MAX_ENTRIES) break;
+      if (chars >= MEMORY_BLOCK_MAX_CHARS) break;
       const patterns = this.memoryScopes(entry.path, entry.body);
       if (patterns.length === 0) continue;
       if (!patterns.some((pattern) => picomatch.isMatch(path, pattern))) continue;
-      const sha = await this.memoryRepo.lastCommitSha(entry.path);
+      const sha = shas.get(entry.path);
       if (sha === undefined) continue;
       if (this.renderedMemories.has(sha)) continue;
       this.renderedMemories.add(sha);
-      views.push(this.memoryView(entry, sha));
+      const view = this.memoryView(entry, sha);
+      const sessionKey = this.session.sessionId;
+      if (alreadyRendered(sessionKey, view.body)) continue;
+      markRendered(sessionKey, [view.body]);
+      chars += view.body.length;
+      views.push(view);
     }
     return views;
   }
 
   private async unscopedMemories(): Promise<MemoryEntryView[]> {
     const views: MemoryEntryView[] = [];
+    const shas = await this.commitShas();
+    let chars = 0;
     for (const entry of await this.memoryEntries()) {
+      if (views.length >= MEMORY_BLOCK_MAX_ENTRIES) break;
+      if (chars >= MEMORY_BLOCK_MAX_CHARS) break;
       if (this.memoryScopes(entry.path, entry.body).length > 0) continue;
-      const sha = await this.memoryRepo.lastCommitSha(entry.path);
+      const sha = shas.get(entry.path);
       if (sha === undefined) continue;
       if (this.renderedMemories.has(sha)) continue;
       this.renderedMemories.add(sha);
-      views.push(this.memoryView(entry, sha));
+      const view = this.memoryView(entry, sha);
+      const sessionKey = this.session.sessionId;
+      if (alreadyRendered(sessionKey, view.body)) continue;
+      markRendered(sessionKey, [view.body]);
+      chars += view.body.length;
+      views.push(view);
     }
     return views;
   }
@@ -409,6 +472,32 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
     );
   }
 
+  private trimRenderState(): void {
+    trimSet(this.renderedPaths);
+    trimSet(this.renderedCommits);
+    trimSet(this.renderedMemories);
+    trimMap(this.directoryHistory);
+    trimMap(this.memoryScopeCache);
+  }
+
+  private resetDerivedState(): void {
+    this.renderedPaths.clear();
+    this.renderedCommits.clear();
+    this.renderedMemories.clear();
+    this.memoryScopeCache.clear();
+    this.directoryHistory.clear();
+  }
+
+  private async commitShas(): Promise<Map<string, string>> {
+    const revision = this.memoryStore.revision;
+    if (this.shaCache !== undefined && this.shaCache.revision === revision) {
+      return this.shaCache.map;
+    }
+    const map = await this.memoryRepo.recentCommitShas(MEMORY_SHA_HISTORY);
+    this.shaCache = { revision, map };
+    return map;
+  }
+
   private async ensureIndex(): Promise<GitMemoryIndex | undefined> {
     if (this.indexLoaded) return this.index;
     if (
@@ -425,6 +514,7 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
             return;
           }
           this.index = index;
+          this.resetDerivedState();
           this.indexLoaded = true;
           this.indexFailure = undefined;
         })
@@ -546,6 +636,27 @@ function isWithinDepth(entry: string, base: string | undefined, depth: number): 
   const prefix = `${base}/`;
   if (!entry.startsWith(prefix)) return false;
   return entry.slice(prefix.length).split('/').length <= depth;
+}
+
+const RENDER_STATE_CAP = 512;
+const MEMORY_BLOCK_MAX_ENTRIES = 8;
+const MEMORY_SHA_HISTORY = 200;
+const MEMORY_BLOCK_MAX_CHARS = 4000;
+
+function trimSet(set: Set<string>): void {
+  while (set.size > RENDER_STATE_CAP) {
+    const oldest = set.values().next().value;
+    if (oldest === undefined) return;
+    set.delete(oldest);
+  }
+}
+
+function trimMap<K, V>(map: Map<K, V>): void {
+  while (map.size > RENDER_STATE_CAP) {
+    const oldest = map.keys().next().value;
+    if (oldest === undefined) return;
+    map.delete(oldest);
+  }
 }
 
 registerScopedService(

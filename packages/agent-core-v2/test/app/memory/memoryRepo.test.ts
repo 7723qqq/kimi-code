@@ -35,6 +35,24 @@ describe('memory repo', () => {
     expect(commits[0]?.sha.length).toBe(40);
   });
 
+  it('maps every touched path to its newest commit in one call', async () => {
+    const { repo, memoryDir } = await makeRepo();
+    await writeFile(join(memoryDir, 'alpha.md'), 'first', 'utf-8');
+    await writeFile(join(memoryDir, 'beta.md'), 'other', 'utf-8');
+    expect(await repo.commit('remember: alpha and beta')).toBe(true);
+    const first = await repo.recentCommitShas(20);
+    const alphaFirst = first.get('alpha.md');
+    const betaFirst = first.get('beta.md');
+    expect(alphaFirst?.length).toBe(40);
+    expect(betaFirst).toBe(alphaFirst);
+
+    await writeFile(join(memoryDir, 'alpha.md'), 'second', 'utf-8');
+    expect(await repo.commit('remember: alpha again')).toBe(true);
+    const second = await repo.recentCommitShas(20);
+    expect(second.get('alpha.md')).not.toBe(alphaFirst);
+    expect(second.get('beta.md')).toBe(betaFirst);
+  });
+
   it('reverts a commit and restores the previous content', async () => {
     const { repo, memoryDir } = await makeRepo();
     await writeFile(join(memoryDir, 'note.md'), 'first\n', 'utf-8');

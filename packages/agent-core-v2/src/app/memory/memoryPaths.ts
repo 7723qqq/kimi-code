@@ -1,6 +1,9 @@
 import { join } from 'pathe';
 
-import { workspaceRootKey } from '#/_base/utils/workdir-slug';
+import { resolveProjectIdentity } from './projectIdentity';
+
+export type { ProjectIdentity, ProjectIdentityKind } from './projectIdentity';
+export { legacyProjectIdFromCwd, resolveProjectIdentity } from './projectIdentity';
 
 export type MemoryScope = 'global' | 'project' | 'session';
 export type MemoryType = 'note' | 'decision' | 'pattern' | 'lesson' | 'reference';
@@ -31,7 +34,7 @@ export interface MemorySearchResult {
 }
 
 export function projectIdFromCwd(cwd: string): string {
-  return new Bun.CryptoHasher('sha256').update(workspaceRootKey(cwd)).digest('hex').slice(0, 12);
+  return resolveProjectIdentity(cwd).id;
 }
 
 export function memoryDir(homeDir: string): string {

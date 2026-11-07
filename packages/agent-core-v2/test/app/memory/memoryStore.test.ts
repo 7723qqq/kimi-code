@@ -64,15 +64,48 @@ describe('MemoryStore', () => {
     return host.app.accessor.get(IMemoryStore);
   }
 
-  it('stores, lists, and searches memory entries', async () => {
+  it('indexes files written to disk, then lists and searches them', async () => {
+    const dir = join(homeDir, 'memory', 'global');
+    await fsp.mkdir(dir, { recursive: true });
+    await fsp.writeFile(join(dir, 'alpha.md'), '# alpha\nprefers pnpm over npm', 'utf-8');
+    await fsp.writeFile(join(dir, 'beta.md'), '# beta\nunrelated body', 'utf-8');
+
     const store = build();
-    await store.put(entry('global/alpha.md', 'prefers pnpm over npm'));
-    await store.put(entry('global/beta.md', 'unrelated body'));
-    expect(await store.get('global/alpha.md')).toMatchObject({ title: 'global/alpha.md' });
+    expect(await store.get('global/alpha.md')).toMatchObject({ title: 'alpha' });
     expect(await store.list()).toEqual(['global/alpha.md', 'global/beta.md']);
     const hits = await store.search('pnpm');
     expect(hits.length).toBeGreaterThan(0);
     expect(hits[0]!.path).toBe('global/alpha.md');
+  });
+
+  it('advances the content revision on every mutation', async () => {
+    const store = build();
+    const start = store.revision;
+    await store.put(entry('global/alpha.md', 'body'));
+    expect(store.revision).toBeGreaterThan(start);
+    const afterPut = store.revision;
+    await store.delete('global/alpha.md');
+    expect(store.revision).toBeGreaterThan(afterPut);
+    const afterDelete = store.revision;
+    await store.reconcile();
+    expect(store.revision).toBeGreaterThan(afterDelete);
+  });
+
+  it('aligns the index with files added or removed on disk', async () => {
+    const dir = join(homeDir, 'memory', 'global');
+    await fsp.mkdir(dir, { recursive: true });
+    await fsp.writeFile(join(dir, 'alpha.md'), '# alpha\nbody', 'utf-8');
+    const store = build();
+    expect(await store.list()).toEqual(['global/alpha.md']);
+
+    await fsp.writeFile(join(dir, 'beta.md'), '# beta\nbody', 'utf-8');
+    await store.reconcile();
+    expect(await store.list()).toEqual(['global/alpha.md', 'global/beta.md']);
+
+    await fsp.unlink(join(dir, 'alpha.md'));
+    await store.reconcile();
+    expect(await store.list()).toEqual(['global/beta.md']);
+    expect(await store.get('global/alpha.md')).toBeUndefined();
   });
 
   it('never deletes user data when the store is corrupt and degrades with a clear error', async () => {

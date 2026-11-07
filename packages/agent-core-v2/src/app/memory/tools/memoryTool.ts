@@ -1,4 +1,6 @@
+import { LockFile } from '@moonshot-ai/minidb';
 import { t } from '@moonshot-ai/kimi-i18n';
+import { join } from 'pathe';
 import { z } from 'zod';
 
 import { createDecorator } from '#/_base/di/instantiation';
@@ -10,6 +12,7 @@ import { IFlagService } from '#/app/flag/flag';
 import {
   detectType,
   extractTitle,
+  legacyProjectIdFromCwd,
   memoryDir,
   parseAppliesTo,
   projectIdFromCwd,
@@ -26,6 +29,8 @@ import { ToolSideEffects, type AgentTool, type ToolExecution } from '#/tool/tool
 
 import DESCRIPTION from './memory.md?raw';
 
+const MAX_REFERENCE_CANDIDATES = 8;
+
 const MemoryActionSchema = z.enum(['search', 'read', 'write', 'list', 'delete', 'log', 'revert']);
 
 export const MemoryToolInputSchema = z
@@ -41,7 +46,9 @@ export const MemoryToolInputSchema = z
     scope: z
       .enum(['global', 'project', 'session'])
       .optional()
-      .describe('Memory scope (for `write`, `list`). Defaults to `project`.'),
+      .describe(
+        'Memory scope (for `search`, `write`, `list`). `search` defaults to every scope of every project; `write` defaults to `project`; `list` defaults to all scopes.',
+      ),
     content: z.string().optional().describe('Markdown content (for `write` action).'),
     sha: z.string().optional().describe('Memory repository commit sha (for `revert` action).'),
   })
@@ -62,6 +69,8 @@ export class MemoryTool implements IMemoryTool {
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(MemoryToolInputSchema);
 
+  private migrationDone = false;
+
   constructor(
     @IMemoryStore private readonly store: IMemoryStore,
     @ISessionContext private readonly sessionContext: ISessionContext,
@@ -79,33 +88,87 @@ export class MemoryTool implements IMemoryTool {
       description: t('toolsV2.memory.memoryAction', { action: action }),
       approvalRule: this.name,
       execute: async () => {
-        switch (action) {
-          case 'search':
-            return this.handleSearch(args);
-          case 'read':
-            return this.handleRead(args);
-          case 'write':
-            return this.handleWrite(args);
-          case 'list':
-            return this.handleList(args);
-          case 'delete':
-            return this.handleDelete(args);
-          case 'log':
-            return this.handleLog(args);
-          case 'revert':
-            return this.handleRevert(args);
-          default:
-            return { output: t('toolsV2.memory.unknownAction', { action }), isError: true };
+        if (action === 'write' || action === 'delete') {
+          return this.withMemoryLock(() => this.runAction(args));
         }
+        return this.runAction(args);
       },
     };
+  }
+
+  private async runAction(args: MemoryToolInput) {
+    if (
+      args.action === 'search' ||
+      args.action === 'list' ||
+      args.action === 'read' ||
+      args.action === 'write' ||
+      args.action === 'delete'
+    ) {
+      await this.migrateLegacyProjectScope();
+    }
+    switch (args.action) {
+      case 'search':
+        return this.handleSearch(args);
+      case 'read':
+        return this.handleRead(args);
+      case 'write':
+        return this.handleWrite(args);
+      case 'list':
+        return this.handleList(args);
+      case 'delete':
+        return this.handleDelete(args);
+      case 'log':
+        return this.handleLog(args);
+      case 'revert':
+        return this.handleRevert(args);
+      default:
+        return { output: t('toolsV2.memory.unknownAction', { action: args.action }), isError: true };
+    }
+  }
+
+  private async withMemoryLock<T>(task: () => Promise<T>): Promise<T> {
+    const lock = new LockFile(join(this.bootstrap.homeDir, 'locks', 'memory-write.lock'));
+    let locked = false;
+    try {
+      locked = await lock.acquire();
+    } catch {
+      locked = false;
+    }
+    try {
+      return await task();
+    } finally {
+      if (locked) lock.releaseSync();
+    }
+  }
+
+  private async migrateLegacyProjectScope(): Promise<void> {
+    if (this.migrationDone) return;
+    this.migrationDone = true;
+    const cwd = this.sessionContext.cwd;
+    const legacy = legacyProjectIdFromCwd(cwd);
+    const next = projectIdFromCwd(cwd);
+    if (legacy === next) return;
+    const { existsSync } = await import('node:fs');
+    const { rename } = await import('node:fs/promises');
+    const base = memoryDir(this.bootstrap.homeDir);
+    const legacyDir = scopeDir(base, 'project', legacy);
+    const nextDir = scopeDir(base, 'project', next);
+    if (!existsSync(legacyDir) || existsSync(nextDir)) return;
+    try {
+      await rename(legacyDir, nextDir);
+      await this.store.reconcile();
+    } catch (error) {
+      onUnexpectedError(error);
+    }
   }
 
   private async handleSearch(args: MemoryToolInput) {
     if (!args.query) {
       return { output: t('toolsV2.memory.searchQueryRequired'), isError: true };
     }
-    const results = await this.store.search(args.query, 10);
+    const scope = args.scope;
+    const filter = scope === undefined ? undefined : { scope, scopeId: this.resolveScopeId(scope) };
+    const results = await this.store.search(args.query, 10, filter);
     if (results.length === 0) {
       return { output: t('toolsV2.memory.noEntriesFound', { query: args.query }) };
     }
@@ -256,6 +319,11 @@ export class MemoryTool implements IMemoryTool {
     if (!reverted) {
       return { output: t('toolsV2.memory.revertFailed', { sha: args.sha }), isError: true };
     }
+    try {
+      await this.store.reconcile();
+    } catch (error) {
+      onUnexpectedError(error);
+    }
     return { output: t('toolsV2.memory.reverted', { sha: args.sha }) };
   }
 
@@ -268,7 +336,10 @@ export class MemoryTool implements IMemoryTool {
   }
 
   private async hasGitReference(content: string): Promise<boolean> {
-    const candidates = content.match(/\b[0-9a-f]{7,40}\b/g) ?? [];
+    const candidates = [...new Set(content.match(/\b[0-9a-f]{7,40}\b/g) ?? [])].slice(
+      0,
+      MAX_REFERENCE_CANDIDATES,
+    );
     const repos = [this.sessionContext.cwd, memoryDir(this.bootstrap.homeDir)];
     for (const candidate of candidates) {
       for (const repo of repos) {
@@ -303,14 +374,16 @@ export class MemoryTool implements IMemoryTool {
   private async handleList(args: MemoryToolInput) {
     const allPaths = await this.store.list();
     const scope = args.scope;
+    const prefix =
+      scope === undefined
+        ? undefined
+        : scope === 'global'
+          ? 'global/'
+          : scope === 'project'
+            ? `projects/${this.resolveScopeId('project')}/`
+            : `sessions/${this.resolveScopeId('session')}/`;
 
-    const filtered = scope
-      ? allPaths.filter((p) =>
-          p.startsWith(
-            `${scope === 'global' ? 'global' : scope === 'project' ? 'projects' : 'sessions'}/`,
-          ),
-        )
-      : allPaths;
+    const filtered = prefix === undefined ? allPaths : allPaths.filter((p) => p.startsWith(prefix));
 
     if (filtered.length === 0) {
       return { output: t('toolsV2.memory.noFilesFound') };
@@ -346,8 +419,10 @@ export class MemoryTool implements IMemoryTool {
 
     const { unlink } = await import('node:fs/promises');
     const { join: joinPath } = await import('pathe');
-    const homeDir = this.sessionContext.sessionDir.split(/[\\/]sessions[\\/]/)[0]!;
-    const fullPath = joinPath(scopeDir(memoryDir(homeDir), entry.scope, entry.scopeId), fileName);
+    const fullPath = joinPath(
+      scopeDir(memoryDir(this.bootstrap.homeDir), entry.scope, entry.scopeId),
+      fileName,
+    );
     try {
       await unlink(fullPath);
     } catch (error) {

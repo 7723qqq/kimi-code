@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 import { GIT_MEMORY_INDEX_VERSION } from './types';
@@ -9,8 +9,10 @@ export type IndexReadResult =
   | { readonly kind: 'miss' }
   | { readonly kind: 'corrupt' };
 
-export function cachePath(repoRoot: string): string {
-  return join(repoRoot, '.kimi-code', 'git-memory.json');
+export function cachePath(storeDir: string, repoRoot: string): string {
+  const normalized = repoRoot.replaceAll('\\', '/');
+  const digest = new Bun.CryptoHasher('sha256').update(normalized).digest('hex').slice(0, 16);
+  return join(storeDir, 'git-memory', `${digest}.json`);
 }
 
 export function buildIndex(
@@ -98,6 +100,22 @@ export async function readAnyIndex(path: string): Promise<GitMemoryIndex | undef
     return parsed;
   } catch {
     return undefined;
+  }
+}
+
+export function legacyCachePath(repoRoot: string): string {
+  return join(repoRoot, '.kimi-code', 'git-memory.json');
+}
+
+export async function removeLegacyIndex(repoRoot: string): Promise<boolean> {
+  const path = legacyCachePath(repoRoot);
+  const parsed = await readAnyIndex(path);
+  if (parsed === undefined) return false;
+  try {
+    await rm(path, { force: true });
+    return true;
+  } catch {
+    return false;
   }
 }
 
