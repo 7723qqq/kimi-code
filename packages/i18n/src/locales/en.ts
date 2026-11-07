@@ -602,9 +602,12 @@ export const en = {
       action: 'Memory graph: {{action}}',
       unknownAction: 'Unknown memory graph action: {{action}}',
       writeRequired: 'Write requires `text`.',
+      scopeAllNotWritable:
+        'Writes cannot target `scope: "all"`; use `project` or `global`. `all` is a read selector.',
       queryRequired: 'Recall requires a `query` parameter.',
       idRequired: 'This action requires an `id` parameter.',
       wrote: 'Recorded {{count}} memories.',
+      alreadyRecorded: 'That note is already recorded; nothing changed.',
       blockedByCode: 'Blocked by the memory code.',
       noResults: 'No related memories.',
       pinned: 'Pinned.',

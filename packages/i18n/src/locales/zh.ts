@@ -542,9 +542,12 @@ export const zh: DeepPartial<typeof import('./en').default> = {
       action: 'Memory graph: {{action}}',
       unknownAction: '未知的 memory graph 操作: {{action}}',
       writeRequired: '写入需要 `text` 参数。',
+      scopeAllNotWritable:
+        '写入不能用 `scope: "all"`；请改用 `project` 或 `global`。`all` 只用于读取。',
       queryRequired: '查询需要 `query` 参数。',
       idRequired: '该操作需要 `id` 参数。',
       wrote: '已记录 {{count}} 条记忆。',
+      alreadyRecorded: '该笔记已记录，未做改动。',
       blockedByCode: '被记忆法典拦截。',
       noResults: '没有相关记忆。',
       pinned: '已钉住。',
