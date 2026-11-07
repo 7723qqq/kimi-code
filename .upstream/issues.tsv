@@ -2,24 +2,24 @@ issue	area	priority	title	why_useful	local_check	added	status
 3487	agent-session	P0	压缩摘要以user消息的身份重新注入上下文，导致授权被自我扩张、规格丢失、过期快照被应用	压缩产物以 user 角色回注会改变授权边界；本 fork 的 compaction 是重点改动区	open	2026-10-12	needs-design
 4420	agent-session	P0	[Bug] Static permission deny rules are not enforced in `kimi -p` mode (CLI 2.3.2)	非交互模式绕过静态 deny 规则，属权限边界漏洞	fixed	2026-10-26	done
 4173	agent-session	P0	Session titles require a Kimi account even for local/self-hosted setups — no local fallback, and it fails silently	本地/自托管部署被账号依赖阻塞且静默失败	needs-check	2026-10-11	todo
-4339	tui-cli	P0	输入框输入的对话文字，点击发送到排队队列，提示报错，然后输入框的对话也没有了，输入半天的文字丢失了	排队失败丢失用户输入，属数据丢失类体验缺陷	needs-check	2026-10-22	todo
+4339	tui-cli	P0	输入框输入的对话文字，点击发送到排队队列，提示报错，然后输入框的对话也没有了，输入半天的文字丢失了	排队失败丢失用户输入，属数据丢失类体验缺陷	likely-fixed	2026-10-22	likely-fixed
 3274	tools-mcp	P0	[BUG] Gemini 3+ 工具结果包含图片时,后续请求失败("Requests ending with a model turn are not supported")	带图工具结果触发协议级后续请求失败	needs-check	2026-10-30	todo
 4594	agent-session	P0	`EnterPlanMode` always fails under an ACP client: fatal read of a not-yet-created plan file	ACP 客户端下 plan 模式完全不可用	not-applicable	2026-11-02	not-applicable
 4231	tools-mcp	P0	[Bug] Normal prompt and /update-config fail with 400 tools.function.parameters schema exceeds maximum allowed size	工具 schema 体积超限直接 400，影响所有会话	needs-check	2026-10-15	todo
 1610	tools-mcp	P1	400 error: "tools.function.parameters is not a valid moonshot flavored json schema" when using custom API endpoint with MCP tools	MCP 工具在自定义端点下 schema 校验失败（与 #4231 同族）	needs-check	2026-11-07	todo
 4370	server-api	P1	[Bug] Closed WebSocket connections remain in memory when subscription is pending	pending 订阅的连接泄漏，长跑会累积	needs-check	2026-11-07	todo
 3704	tools-mcp	P1	MCP server routing fails when multiple servers share the same name prefix	同名前缀 MCP server 路由串线	needs-check	2026-09-10	todo
-3383	tools-mcp	P1	Read.line_offset: anyOf integer 参数在第三方模型下 100% 失败（同版本数字形态正常，附Windows + Qwen3.8-Flash 复现）	read 工具 schema 形态在第三方模型下稳定复现	needs-check	2026-09-16	todo
+3383	tools-mcp	P1	Read.line_offset: anyOf integer 参数在第三方模型下 100% 失败（同版本数字形态正常，附Windows + Qwen3.8-Flash 复现）	read 工具 schema 形态在第三方模型下稳定复现	fixed	2026-09-16	done
 3382	tools-mcp	P1	[Bug]: renderToolResultForModel treats a whitespace-only error text part as non-empty output	纯空白错误文本被当非空输出；本地代码确认仍存在（single.length === 0 判断）	fixed	2026-08-31	done
 3380	tools-mcp	P1	[Bug]: ReadMediaFileTool reports stale stat size instead of actual attached media bytes	媒体字节数报错	likely-fixed	2026-09-06	todo
-2974	tools-mcp	P2	Skill 文件夹内的 script 文件路径解析错误	skill 脚本路径解析错误	needs-check	2026-08-16	todo
+2974	tools-mcp	P2	Skill 文件夹内的 script 文件路径解析错误	skill 脚本路径解析错误	likely-fixed	2026-08-16	likely-fixed
 3783	tui-cli	P1	kimi code tui不能粘贴图片	TUI 粘贴图片不可用	needs-check	2026-09-15	todo
 2793	tui-cli	P1	CLI hangs silently forever after "llm request" log line — no output, no error, no timeout	LLM 请求无超时静默挂起（与已修的 stream-liveness 不是同一路径）	open	2026-08-11	todo
-2975	provider-auth	P2	CLI 模式下设置 Secondary Model 时 config.toml 的 key 错误	secondary model 配置 key 错误	needs-check	2026-09-03	todo
+2975	provider-auth	P2	CLI 模式下设置 Secondary Model 时 config.toml 的 key 错误	secondary model 配置 key 错误	likely-fixed	2026-09-03	likely-fixed
 4194	provider-auth	P1	`openai` provider: hard-coded model name check picks `max_tokens` for newer reasoning models, every request fails with HTTP 400	新推理模型全部 400	needs-check	2026-10-13	todo
 2166	provider-auth	P1	Error with models not supporting prompt cache	不支持 prompt cache 的模型报错	needs-check	2026-09-01	todo
-4335	platform-build	P1	[Bug] IPC silently corrupts Unicode when a socket chunk splits a UTF-8 character	IPC 分块切断 UTF-8 导致静默乱码（本地 code-point-safe-truncation 只覆盖工具输出截断）	open	2026-11-05	todo
-4147	platform-build	P2	Bug: Include the invalid path when workspace additional-directory validation fails	校验失败信息缺少无效路径	needs-check	2026-10-12	todo
+4335	platform-build	P1	[Bug] IPC silently corrupts Unicode when a socket chunk splits a UTF-8 character	IPC 分块切断 UTF-8 导致静默乱码（本地 code-point-safe-truncation 只覆盖工具输出截断）	likely-fixed	2026-11-05	likely-fixed
+4147	platform-build	P2	Bug: Include the invalid path when workspace additional-directory validation fails	校验失败信息缺少无效路径	likely-fixed	2026-10-12	likely-fixed
 928	platform-build	P2	Linux single-binary fails on CentOS 7 with glibc 2.17 due to GLIBC_2.27/2.28/2.25 requirement	旧 glibc 单文件二进制不可用	needs-check	2026-07-23	todo
 3923	server-api	P2	kap-server: WS 'abort' control frame declared in protocol but never dispatched — silently dropped (still present in 0.43.1)	协议声明了 abort 帧但从未派发	needs-check	2026-09-20	todo
 4175	server-api	P2	Streaming chat completions are aborted after ~5 minutes on slow OpenAI-compatible endpoints	慢端点 5 分钟被中止	needs-check	2026-10-11	todo

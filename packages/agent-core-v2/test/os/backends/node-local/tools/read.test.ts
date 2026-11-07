@@ -12,6 +12,7 @@ import {
   TRANSCODE_MAX_BYTES,
 } from '#/agent/tools/os/read/read';
 import { ReadTool } from '#/agent/tools/os/read/readTool';
+import { toInputJsonSchema } from '#/tool/input-schema';
 import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender';
 import { stubToolResultTruncationService } from '../../../../agent/toolResultTruncation/stubs';
 import { stubConfigService } from '../../../../app/config/stubs';
@@ -453,6 +454,15 @@ describe('ReadTool', () => {
     expect(
       ReadInputSchema.safeParse({ path: '/tmp/test.txt', max_chars: 0 }).success,
     ).toBe(false);
+  });
+
+  it('keeps line_offset a plain integer in the model-facing schema', () => {
+    const schema = toInputJsonSchema(ReadInputSchema) as {
+      properties: Record<string, Record<string, unknown> | undefined>;
+    };
+    const lineOffset = schema.properties['line_offset'];
+    expect(lineOffset?.['type']).toBe('integer');
+    expect(lineOffset?.['anyOf']).toBeUndefined();
   });
 
   it('matches permission args with glob path semantics', async () => {

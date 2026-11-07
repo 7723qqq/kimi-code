@@ -8,9 +8,6 @@ export const DEFAULT_MAX_CHARS_LIMIT = 500_000;
 
 export const TRANSCODE_MAX_BYTES: number = 10 * 1024 * 1024;
 
-const PositiveLineOffsetSchema = z.number().int().min(1);
-const TailLineOffsetSchema = z.number().int().negative();
-
 export const ReadInputSchema = z.object({
   path: z
     .string()
@@ -23,7 +20,9 @@ export const ReadInputSchema = z.object({
         'Glob for pattern search.',
     ),
   line_offset: z
-    .union([PositiveLineOffsetSchema, TailLineOffsetSchema])
+    .number()
+    .int()
+    .refine((value) => value !== 0, 'line_offset must not be 0')
     .optional()
     .describe(
       'The line number to start reading from. Omit to start at line 1. Negative values read from the end of the file (for example, -100 reads the last 100 lines).',
