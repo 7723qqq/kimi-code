@@ -653,6 +653,7 @@ describe('SessionManager closeIfIdle', () => {
     fake.manager.create({ sessionId: 'session-1', workDir: '/workspace' } as never);
 
   afterEach(() => {
+    jest.useRealTimers();
     for (const manager of managers) manager.dispose();
     managers.length = 0;
   });
@@ -673,6 +674,13 @@ describe('SessionManager closeIfIdle', () => {
     await fake.manager.resume('session-1');
     expect(fake.close.mock.calls[0]?.[1]).toBe('reclaim');
     expect(fake.resume.mock.calls.map((call) => call[2])).toEqual(['resume', 'reclaimed', 'resume']);
+  });
+
+  it('restores the real clock before the next test starts', async () => {
+    const before = Date.now();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(Date.now()).toBeGreaterThan(before);
+    expect(jest.isFakeTimers()).toBe(false);
   });
 
   const eligibilityCases: Array<[string, Guards]> = [
