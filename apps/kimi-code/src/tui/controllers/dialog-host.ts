@@ -22,7 +22,7 @@ import { adaptPanelResponse } from '../reverse-rpc/approval/adapter';
 import type { ApprovalController } from '../reverse-rpc/approval/controller';
 import type { QuestionController } from '../reverse-rpc/question/controller';
 import type { ApprovalPanelData, QuestionPanelData } from '../reverse-rpc/types';
-import type { TUIState } from '../tui-state';
+import type { TUIState } from '../state';
 import type { LivePaneState } from '../types';
 import { formatErrorMessage } from '../utils/event-payload';
 import {

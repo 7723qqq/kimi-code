@@ -3,7 +3,7 @@ import type { Event, ResumedSessionState } from '@moonshot-ai/kimi-code-sdk';
 import { t } from '#/i18n';
 import type { NotifyEntry } from '#/tui/components/chrome/notify-panel';
 import { MAIN_AGENT_ID } from '#/tui/constant/kimi-tui';
-import type { TUIState } from '#/tui/tui-state';
+import type { TUIState } from '#/tui/state';
 import { argsRecord } from '#/tui/utils/event-payload';
 import { isTerminalBackgroundTask } from '#/tui/utils/message-replay';
 import { notifyResultState } from '#/tui/utils/notify-result';

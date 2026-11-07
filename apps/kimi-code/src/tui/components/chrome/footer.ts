@@ -29,6 +29,7 @@ import { currentTheme } from '#/tui/theme';
 import type { ColorPalette } from '#/tui/theme/colors';
 import type { AppState, EnvironmentSlotState } from '#/tui/types';
 import { permissionModeDisplayName } from '#/tui/utils/permission-mode';
+import { ButtonRow, type ButtonRowItem } from './button';
 import { formatContextStatus } from '#/tui/utils/session-stats';
 import { SpinnerTicker } from '#/tui/utils/spinner-ticker';
 import { StatusLineCommandRunner, type StatusLinePayload } from '#/tui/utils/status-line-command';
@@ -279,8 +280,12 @@ export class FooterComponent implements Component {
    */
   private backgroundBashTaskCount = 0;
   private backgroundAgentCount = 0;
-  private backgroundBadgeRange: { start: number; end: number } | null = null;
+  private lineRow: ButtonRow | undefined;
   private onBackgroundBadgeClick: (() => void) | undefined;
+  private onModelSlotClick: (() => void) | undefined;
+  private onThinkingSlotClick: (() => void) | undefined;
+  private modelNameText = '';
+  private thinkingLabelText = '';
 
   /**
    * `clock` defaults to the system clock, which keeps timers, the goal elapsed
@@ -413,6 +418,14 @@ export class FooterComponent implements Component {
     this.onBackgroundBadgeClick = handler;
   }
 
+  setModelSlotClickHandler(handler: (() => void) | undefined): void {
+    this.onModelSlotClick = handler;
+  }
+
+  setThinkingSlotClickHandler(handler: (() => void) | undefined): void {
+    this.onThinkingSlotClick = handler;
+  }
+
   refreshGitStatus(): void {
     this.gitCache?.refresh();
   }
@@ -420,14 +433,7 @@ export class FooterComponent implements Component {
   invalidate(): void {}
 
   handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
-    if (event.type !== 'click' || event.button !== 'left') return undefined;
-    const range = this.backgroundBadgeRange;
-    if (range === null || this.onBackgroundBadgeClick === undefined) return undefined;
-    if (event.x >= range.start && event.x < range.end) {
-      this.onBackgroundBadgeClick();
-      return { handled: true };
-    }
-    return undefined;
+    return this.lineRow?.handleMouse(event);
   }
 
   render(width: number): string[] {
@@ -445,36 +451,42 @@ export class FooterComponent implements Component {
     if (customLine !== null) {
       // status_line.command: the first stdout line takes over line 1.
       line1 = chalk.hex(colors.text)(customLine);
+      this.lineRow = undefined;
     } else {
       const slots = this.buildSlots(colors);
       const configured = this.state.statusLine?.items ?? null;
       const order: readonly string[] = configured ?? DEFAULT_STATUS_LINE_ITEMS;
       const composeLeft = (withTips: boolean): string => {
-        const left: string[] = [];
+        const items: ButtonRowItem[] = [];
         for (const slot of order) {
           if (!withTips && slot === 'tips') continue;
-          const pieces = slots[slot as keyof typeof slots];
-          if (pieces !== undefined) left.push(...pieces);
-        }
-        const taskPieces = slots['tasks'];
-        if (taskPieces !== undefined && taskPieces.length > 0) {
-          const firstIndex = left.indexOf(taskPieces[0]!);
-          if (firstIndex >= 0) {
-            let start = 0;
-            for (let i = 0; i < firstIndex; i++) start += visibleWidth(left[i]!) + 2;
-            let end = start;
-            for (let i = 0; i < taskPieces.length; i++) {
-              if (i > 0) end += 2;
-              end += visibleWidth(taskPieces[i]!);
+          if (slot === 'model') {
+            if (this.modelNameText.length > 0) {
+              items.push({
+                text: this.modelNameText,
+                onClick: this.onModelSlotClick,
+                gapAfter: this.thinkingLabelText.length > 0 ? 0 : 2,
+              });
             }
-            this.backgroundBadgeRange = { start, end };
-          } else {
-            this.backgroundBadgeRange = null;
+            if (this.thinkingLabelText.length > 0) {
+              items.push({
+                text: this.thinkingLabelText,
+                onClick: this.onThinkingSlotClick,
+              });
+            }
+            continue;
           }
-        } else {
-          this.backgroundBadgeRange = null;
+          const pieces = slots[slot as keyof typeof slots];
+          if (pieces === undefined) continue;
+          for (const piece of pieces) {
+            items.push({
+              text: piece,
+              onClick: slot === 'tasks' ? this.onBackgroundBadgeClick : undefined,
+            });
+          }
         }
-        return left.join('  ');
+        this.lineRow = new ButtonRow(items);
+        return this.lineRow.renderLine();
       };
       let leftLine = composeLeft(true);
       let leftWidth = visibleWidth(leftLine);
@@ -643,13 +655,19 @@ export class FooterComponent implements Component {
       // produces — so both paths must derive the colour identically.
       const thinkingColor = pulseSuffixColor(this.pulsePhase, colors);
       const modelLabel = `${model}${thinkingLabel}`;
-      let renderedModelLabel =
-        chalk.hex(colors.text)(model) +
-        (thinkingLabel ? chalk.hex(thinkingColor)(thinkingLabel) : '');
       if (isRainbowDancing()) {
-        renderedModelLabel = renderDanceFooterModel(modelLabel);
+        this.modelNameText = renderDanceFooterModel(modelLabel);
+        this.thinkingLabelText = '';
+      } else {
+        this.modelNameText = chalk.hex(colors.text)(model);
+        this.thinkingLabelText = thinkingLabel
+          ? chalk.hex(thinkingColor)(thinkingLabel)
+          : '';
       }
-      slots['model'] = [renderedModelLabel];
+      slots['model'] = [this.modelNameText + this.thinkingLabelText];
+    } else {
+      this.modelNameText = '';
+      this.thinkingLabelText = '';
     }
 
     // Background-task badges. `bash-*` tasks (shell processes) and `agent-*`

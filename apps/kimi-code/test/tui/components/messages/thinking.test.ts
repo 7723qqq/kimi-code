@@ -1,6 +1,6 @@
 import { describe, expect, it, mock } from 'bun:test';
 
-import { visibleWidth, type TUI } from '@moonshot-ai/pi-tui';
+import { visibleWidth, type TUI, type TuiMouseEvent } from '@moonshot-ai/pi-tui';
 
 import { ThinkingComponent } from '#/tui/components/messages/thinking';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
@@ -24,6 +24,30 @@ describe('ThinkingComponent', () => {
     expect(out).toContain('  working it out');
   });
 
+  it('routes a click on the live header through its toggle button', () => {
+    const component = new ThinkingComponent('working it out', true, 'live');
+    const toggle = mock();
+    component.setToggleHandler(toggle);
+    component.render(80);
+
+    expect(
+      component.handleMouse({
+        type: 'click',
+        button: 'left',
+        x: 1,
+        y: 1,
+        screenX: 1,
+        screenY: 1,
+        width: 80,
+        height: 3,
+        shift: false,
+        alt: false,
+        ctrl: false,
+      } as TuiMouseEvent),
+    ).toEqual({ handled: true });
+    expect(toggle).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps live thinking height-limited to the tail', () => {
     const component = new ThinkingComponent(longThinking, true, 'live');
     const out = strip(component.render(80).join('\n'));
@@ -34,6 +58,25 @@ describe('ThinkingComponent', () => {
     expect(out).toContain('line6');
     expect(out).toContain('line7');
     expect(out).not.toContain('ctrl+o to expand');
+  });
+
+  it('reports hidden content while live so a click can reveal the full reasoning', () => {
+    const component = new ThinkingComponent(longThinking, true, 'live');
+    component.render(80);
+
+    expect(component.hasHiddenContent()).toBe(true);
+
+    component.setExpanded(true);
+    const out = strip(component.render(80).join('\n'));
+    expect(out).toContain('line1');
+    expect(out).toContain('line7');
+  });
+
+  it('does not report hidden content while live when the tail is the whole content', () => {
+    const component = new ThinkingComponent(['line1', 'line2'].join('\n'), true, 'live');
+    component.render(80);
+
+    expect(component.hasHiddenContent()).toBe(false);
   });
 
   it('expands live thinking when setExpanded(true) is called', () => {

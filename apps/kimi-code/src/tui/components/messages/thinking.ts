@@ -5,9 +5,17 @@
  * Supports expand/collapse via Ctrl+O (shared with tool output).
  */
 
-import { Text, truncateToWidth, type Component, type TUI } from '@moonshot-ai/pi-tui';
+import {
+  Text,
+  truncateToWidth,
+  type Component,
+  type TUI,
+  type TuiMouseEvent,
+  type TuiMouseEventResult,
+} from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
+import { ButtonComponent } from '#/tui/components/chrome/button';
 import {
   BRAILLE_SPINNER_FRAMES,
   BRAILLE_SPINNER_INTERVAL_MS,
@@ -34,6 +42,8 @@ export class ThinkingComponent implements Component {
   private readonly ui: TUI | undefined;
   private spinnerFrame = 0;
   private spinnerInterval: RenderTimerHandle | undefined;
+  private onToggle: (() => void) | undefined;
+  private readonly headerButton: ButtonComponent;
   // Hold a single Text instance so pi-tui's (text, width) → lines cache
   // actually survives across renders. Re-constructing per render destroys
   // the cache and forces full re-wrap on every frame, which dominates CPU
@@ -54,9 +64,31 @@ export class ThinkingComponent implements Component {
     this.mode = mode;
     this.ui = ui;
     this.textComponent = new Text(this.styled(text), 0, 0);
+    this.headerButton = new ButtonComponent(
+      () => this.headerLabel(),
+      () => this.onToggle?.(),
+    );
     if (mode === 'live') {
       this.startSpinner();
     }
+  }
+
+  setToggleHandler(handler: (() => void) | undefined): void {
+    this.onToggle = handler;
+  }
+
+  private headerLabel(): string {
+    const frame = BRAILLE_SPINNER_FRAMES[this.spinnerFrame] ?? BRAILLE_SPINNER_FRAMES[0];
+    return (
+      currentTheme.fg('textDim', `${frame} `) +
+      currentTheme.fg('textDim', t('tui.messages.thinking.liveLabel'))
+    );
+  }
+
+  handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    if (this.mode !== 'live' || this.onToggle === undefined) return undefined;
+    if (event.y !== 1) return undefined;
+    return this.headerButton.handleMouse({ ...event, y: 0, height: 1 });
   }
 
   private markRenderDirty(): void {
@@ -118,10 +150,14 @@ export class ThinkingComponent implements Component {
 
     const contentWidth = Math.max(1, width - MESSAGE_INDENT.length);
     const contentLines = this.text.length > 0 ? this.textComponent.render(contentWidth) : [''];
-    // Collapsing swaps the hidden rows for a one-line hint, so a single
-    // hidden row would render at the same height as the full block.
+    // Live thinking always shows the tail and has no hint row, so any line
+    // past the preview is hidden. Finalized thinking swaps the hidden rows
+    // for a one-line hint, so a single hidden row would render at the same
+    // height as the full block.
     this.previewHidesLines =
-      this.mode === 'finalized' && contentLines.length > THINKING_PREVIEW_LINES + 1;
+      this.mode === 'live'
+        ? contentLines.length > THINKING_PREVIEW_LINES
+        : contentLines.length > THINKING_PREVIEW_LINES + 1;
 
     let rendered: string[];
     if (this.mode === 'live') {
@@ -129,13 +165,9 @@ export class ThinkingComponent implements Component {
         this.expanded || contentLines.length <= THINKING_PREVIEW_LINES
           ? contentLines
           : contentLines.slice(contentLines.length - THINKING_PREVIEW_LINES);
-      const spinner = currentTheme.fg(
-        'textDim',
-        `${BRAILLE_SPINNER_FRAMES[this.spinnerFrame] ?? BRAILLE_SPINNER_FRAMES[0]} `,
-      );
       rendered = [
         '',
-        spinner + currentTheme.fg('textDim', t('tui.messages.thinking.liveLabel')),
+        this.headerButton.render(width)[0] ?? '',
         ...visibleLines.map((line) => MESSAGE_INDENT + line),
       ];
     } else {

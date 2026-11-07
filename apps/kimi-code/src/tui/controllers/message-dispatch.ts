@@ -12,7 +12,7 @@ import { t } from '#/i18n';
 import { UserMessageComponent } from '../components/messages/user-message';
 import { getLlmNotSetMessage, MAIN_AGENT_ID } from '../constant/kimi-tui';
 import { MEDIA_INGESTION_SUBMIT_WAIT_MS } from '../constant/media';
-import type { TUIState } from '../tui-state';
+import type { TUIState } from '../state';
 import {
   isPromptQueuedMessage,
   type AppState,

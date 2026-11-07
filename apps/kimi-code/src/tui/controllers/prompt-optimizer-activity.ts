@@ -6,8 +6,8 @@ import {
   PromptOptimizerActivityLine,
   type PromptOptimizerPhase,
 } from '../components/chrome/prompt-optimizer-activity-line';
+import type { TUIState } from '../state';
 import { currentTheme } from '../theme';
-import type { TUIState } from '../tui-state';
 
 export interface PromptOptimizerActivityHost {
   readonly state: TUIState;

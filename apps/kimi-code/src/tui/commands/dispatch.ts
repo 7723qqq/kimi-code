@@ -12,8 +12,8 @@ import type { ModelMigrationController } from '../controllers/model-migration';
 import type { StreamingUIController } from '../controllers/streaming-ui';
 import type { TasksBrowserController } from '../controllers/tasks-browser';
 import { tryHandleDanceCommand } from '../easter-eggs/dance';
+import type { TUIState } from '../state';
 import type { ResolvedTheme } from '../theme/colors';
-import type { TUIState } from '../tui-state';
 import type {
   AppState,
   InlineSkillActivation,

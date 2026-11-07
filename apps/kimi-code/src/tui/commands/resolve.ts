@@ -1,6 +1,6 @@
 import { t } from '#/i18n';
 
-import type { TUIState } from '../tui-state';
+import type { TUIState } from '../state';
 import type { InlineSkillActivation } from '../types';
 import { extractInlineSkillActivations, findInlineSkillTokens } from '../utils/inline-skill-tokens';
 import { isExperimentalFlagEnabled } from './experimental-flags';

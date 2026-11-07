@@ -10,9 +10,9 @@ import {
   TERMINAL_THEME_DARK,
   TERMINAL_THEME_LIGHT,
 } from '#/tui/constant/terminal';
+import type { TUIState } from '#/tui/state';
 import type { ResolvedTheme } from '#/tui/theme/colors';
 import { parseOsc11Background, parseOsc11BackgroundTheme } from '#/tui/theme/terminal-background';
-import type { TUIState } from '#/tui/tui-state';
 
 export {
   DISABLE_TERMINAL_THEME_REPORTING,

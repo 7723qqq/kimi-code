@@ -33,7 +33,7 @@ import {
   SURVEY_THANKS_DURATION_MS,
   surveyMinTotalHeight,
 } from '../constant/survey';
-import type { TUIState } from '../tui-state';
+import type { TUIState } from '../state';
 import { printableChar } from '../utils/printable-key';
 import { surveyUiVeto } from '../utils/survey-policy';
 import type { BtwPanelController } from './btw-panel';

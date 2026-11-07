@@ -28,7 +28,7 @@ import {
   ReplayTurnBoundaryComponent,
   UserMessageComponent,
 } from '../components/messages/user-message';
-import type { TUIState } from '../tui-state';
+import type { TUIState } from '../state';
 import type { TranscriptEntry } from '../types';
 import { hasDispose } from '../utils/component-capabilities';
 import type { ImageAttachment, ImageAttachmentStore } from '../utils/image-attachment-store';
@@ -62,6 +62,7 @@ export interface TranscriptRenderHost {
   readonly streamingUI: StreamingUIController;
   readonly sessionEventHandler: SessionEventHandler;
   readonly btwPanelController: BtwPanelController;
+  toggleTranscriptFold(component: Component): boolean;
 }
 
 /**
@@ -162,6 +163,9 @@ export class TranscriptRendererController {
       }
       case 'thinking': {
         const thinking = new ThinkingComponent(entry.content, true);
+        thinking.setToggleHandler(() => {
+          this.host.toggleTranscriptFold(thinking);
+        });
         if (this.host.state.toolOutputExpanded) thinking.setExpanded(true);
         return thinking;
       }

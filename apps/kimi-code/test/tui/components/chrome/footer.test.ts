@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 
 import type { ModelAlias } from '@moonshot-ai/kimi-code-sdk';
+import type { TuiMouseEvent } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
 import { FooterComponent } from '#/tui/components/chrome/footer';
@@ -36,6 +37,10 @@ function truecolorCodes(text: string): Set<string> {
     codes.add(`${match[1]},${match[2]},${match[3]}`);
   }
   return codes;
+}
+
+function stripAnsi(text: string): string {
+  return text.replaceAll(/\u001B\[[0-9;]*m/g, '');
 }
 
 // Dark dance colors the footer never uses outside of /dance.
@@ -216,6 +221,58 @@ describe('FooterComponent', () => {
     const footer = new FooterComponent(state);
 
     expect(footer.render(120).join('\n')).toContain('thinking: max');
+  });
+
+  it('routes clicks on the model name and effort suffix separately', () => {
+    const effortModel: ModelAlias = {
+      provider: 'managed:kimi-code',
+      model: 'kimi-k2',
+      maxContextSize: 262144,
+      supportEfforts: ['low', 'high', 'max'],
+      defaultEffort: 'high',
+    };
+    const state: AppState = {
+      ...appState,
+      thinkingEffort: 'max',
+      availableModels: { 'kimi-k2': effortModel },
+    };
+    const footer = new FooterComponent(state);
+    const onModel = jest.fn();
+    const onThinking = jest.fn();
+    footer.setModelSlotClickHandler(onModel);
+    footer.setThinkingSlotClickHandler(onThinking);
+
+    const line = stripAnsi(footer.render(120)[0]!);
+    const modelX = line.indexOf('kimi-k2') + 1;
+    const thinkingX = line.indexOf('thinking: max') + 1;
+    expect(modelX).toBeGreaterThan(0);
+    expect(thinkingX).toBeGreaterThan(0);
+
+    expect(
+      footer.handleMouse({ type: 'click', button: 'left', x: modelX } as TuiMouseEvent),
+    ).toEqual({ handled: true });
+    expect(onModel).toHaveBeenCalledTimes(1);
+    expect(onThinking).not.toHaveBeenCalled();
+
+    expect(
+      footer.handleMouse({ type: 'click', button: 'left', x: thinkingX } as TuiMouseEvent),
+    ).toEqual({ handled: true });
+    expect(onThinking).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the background badge clickable through the button row', () => {
+    const footer = new FooterComponent(appState);
+    footer.setBackgroundCounts({ bashTasks: 1, agentTasks: 0 });
+    const onClick = jest.fn();
+    footer.setBackgroundBadgeClickHandler(onClick);
+
+    const line = stripAnsi(footer.render(120)[0]!);
+    const x = line.indexOf('[') + 1;
+    expect(x).toBeGreaterThan(0);
+    expect(footer.handleMouse({ type: 'click', button: 'left', x } as TuiMouseEvent)).toEqual({
+      handled: true,
+    });
+    expect(onClick).toHaveBeenCalledTimes(1);
   });
 
   it('does not show the effort for a legacy boolean model', () => {

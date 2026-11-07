@@ -26,7 +26,7 @@ import {
 } from '../components/dialogs/cache-hint-dialog';
 import { saveTuiConfig } from '../config';
 import { MAIN_AGENT_ID } from '../constant/kimi-tui';
-import type { TUIState } from '../tui-state';
+import type { TUIState } from '../state';
 import type { AppState, InlineSkillActivation } from '../types';
 import { evaluateCacheHint, type CacheHintDecision } from '../utils/cache-hint';
 import { formatErrorMessage } from '../utils/event-payload';

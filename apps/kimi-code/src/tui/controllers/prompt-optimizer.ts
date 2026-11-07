@@ -8,7 +8,7 @@ import {
   PromptOptimizePanelComponent,
   type PromptOptimizeChoice,
 } from '../components/dialogs/prompt-optimize-panel';
-import type { TUIState } from '../tui-state';
+import type { TUIState } from '../state';
 import { formatErrorMessage } from '../utils/event-payload';
 import type { PromptOptimizerActivityController } from './prompt-optimizer-activity';
 

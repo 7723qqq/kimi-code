@@ -16,7 +16,7 @@ import { ReadGroupComponent } from '../components/messages/read-group';
 import { ThinkingComponent } from '../components/messages/thinking';
 import { ToolCallComponent } from '../components/messages/tool-call';
 import { STREAMING_UI_FLUSH_MS } from '../constant/streaming';
-import type { TUIState } from '../tui-state';
+import type { TUIState } from '../state';
 import type {
   AppState,
   LivePaneState,

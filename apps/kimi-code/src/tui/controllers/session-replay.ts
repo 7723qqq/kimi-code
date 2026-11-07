@@ -16,8 +16,8 @@ import { modelDisplayName } from '../components/dialogs/model-selector';
 import { ShellRunComponent } from '../components/messages/shell-run';
 import { ToolCallComponent } from '../components/messages/tool-call';
 import { ReplayTurnBoundaryComponent } from '../components/messages/user-message';
+import type { TUIState } from '../state';
 import { currentTheme } from '../theme';
-import type { TUIState } from '../tui-state';
 import type {
   AppState,
   BackgroundAgentMetadata,

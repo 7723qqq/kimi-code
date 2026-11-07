@@ -19,6 +19,7 @@ import { promptPlatformSelection, promptLogoutProviderSelection } from '#/tui/co
 import * as promptsModule from '#/tui/commands/prompts';
 import { BannerComponent } from '#/tui/components/chrome/banner';
 import { WelcomeComponent } from '#/tui/components/chrome/welcome';
+import { ThinkingComponent } from '#/tui/components/messages/thinking';
 import { KimiTUI, type KimiTUIStartupInput, type TUIState } from '#/tui/kimi-tui';
 import { REPLAY_TURN_LIMIT } from '#/tui/utils/message-replay';
 import {
@@ -32,6 +33,8 @@ import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 import { quoteShellArg } from '#/utils/shell-quote';
 import { setEnv, setGlobal, restoreEnvs, restoreGlobals } from '#test/helpers/stubs';
 import { waitForAssertion } from '#test/helpers/waitFor';
+
+import { VirtualTerminal } from '../../../../packages/pi-tui/test/virtual-terminal';
 
 void mock.module('#/tui/commands/prompts', () => ({
   ...promptsModule,
@@ -343,6 +346,42 @@ describe('KimiTUI startup', () => {
     // todo list and the updates share one row, so they count once here. The
     // background-tasks mini panel is docked here (empty until opened).
     expect(driver.state.dockContainer?.children).toHaveLength(8);
+  });
+
+  it('toggles live thinking from a fullscreen click', async () => {
+    const harness = makeHarness(makeSession());
+    const driver = new KimiTUI(harness as never, makeStartupInput({}, { tuiMode: 'fullscreen' }));
+    const vt = new VirtualTerminal(120, 30);
+    (driver.state.ui as unknown as { terminal: VirtualTerminal }).terminal = vt;
+    await (driver as unknown as { init(): Promise<boolean> }).init();
+
+    driver.state.transcriptContainer.clear();
+    const thinking = new ThinkingComponent(
+      ['line1', 'line2', 'line3', 'line4'].join('\n'),
+      true,
+      'live',
+    );
+    driver.state.transcriptContainer.addChild(thinking);
+    driver.state.ui.start();
+    await vt.waitForRender();
+
+    const row = vt.getViewport().findIndex((line) => line.includes('thinking…'));
+    expect(row).toBeGreaterThanOrEqual(0);
+    vt.sendInput(`\u001B[<0;5;${row + 1}M`);
+    vt.sendInput(`\u001B[<0;5;${row + 1}m`);
+    await vt.waitForRender();
+
+    expect(thinking.isExpanded()).toBe(true);
+
+    const expandedRow = vt.getViewport().findIndex((line) => line.includes('thinking…'));
+    expect(expandedRow).toBeGreaterThanOrEqual(0);
+    await Bun.sleep(600);
+    vt.sendInput(`\u001B[<0;5;${expandedRow + 1}M`);
+    vt.sendInput(`\u001B[<0;5;${expandedRow + 1}m`);
+    await vt.waitForRender();
+    expect(thinking.isExpanded()).toBe(false);
+
+    driver.state.ui.stop();
   });
 
   it('mounts the status surface as a root child in regular mode', async () => {

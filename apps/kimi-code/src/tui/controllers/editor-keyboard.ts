@@ -29,7 +29,7 @@ import {
   getLlmNotSetMessage,
 } from '../constant/kimi-tui';
 import { MEDIA_STAGING_TTL_SECONDS } from '../constant/media';
-import type { TUIState } from '../tui-state';
+import type { TUIState } from '../state';
 import type { QueuedMessage } from '../types';
 import { formatErrorMessage } from '../utils/event-payload';
 import type {

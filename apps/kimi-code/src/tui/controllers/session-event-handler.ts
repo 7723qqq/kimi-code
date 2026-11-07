@@ -48,7 +48,6 @@ import {
   type RenderTimerHandle,
 } from '#/utils/render-clock';
 import { formatStepDebugTiming } from '#/utils/usage/debug-timing';
-import { isTurnPromptEvent, isTurnSteerEvent, isUserSteerOrigin } from '../utils/steer-delivery';
 
 import { createGoal as startGoalCommand } from '../commands/goal';
 import { MoonLoader } from '../components/chrome/moon-loader';
@@ -74,7 +73,7 @@ import {
   restoreGoalQueueItem,
   type UpcomingGoal,
 } from '../goal-queue-store';
-import type { TUIState } from '../tui-state';
+import type { TUIState } from '../state';
 import { sumTokenUsage } from '../types';
 import type {
   AppState,
@@ -102,6 +101,7 @@ import {
   type McpServerStatusSnapshot,
   selectMcpStartupStatusRows,
 } from '../utils/mcp-server-status';
+import { isTurnPromptEvent, isTurnSteerEvent, isUserSteerOrigin } from '../utils/steer-delivery';
 import { nextTranscriptId } from '../utils/transcript-id';
 import type { BtwPanelController } from './btw-panel';
 import type { StepCacheBreak } from './cache-hint-controller';
@@ -457,12 +457,21 @@ export class SessionEventHandler {
         break;
       case 'background.task.started':
       case 'background.task.terminated':
-        this.handleBackgroundTaskEvent(event); break;
-      case 'cron.fired': this.handleCronFired(event); break;
-      case 'environment.status.changed': void this.host.refreshEnvironmentSlot(); break;
-      case 'mcp.server.status': this.renderMcpServerStatus(event.server); break;
-      case 'tool.list.updated': break;
-      default: break;
+        this.handleBackgroundTaskEvent(event);
+        break;
+      case 'cron.fired':
+        this.handleCronFired(event);
+        break;
+      case 'environment.status.changed':
+        void this.host.refreshEnvironmentSlot();
+        break;
+      case 'mcp.server.status':
+        this.renderMcpServerStatus(event.server);
+        break;
+      case 'tool.list.updated':
+        break;
+      default:
+        break;
     }
   }
 

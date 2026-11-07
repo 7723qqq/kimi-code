@@ -138,10 +138,7 @@ import { ActivityPaneController } from './controllers/activity-pane';
 import { AuthFlowController } from './controllers/auth-flow';
 import { BackgroundTasksMiniController } from './controllers/background-tasks-mini';
 import { BtwPanelController } from './controllers/btw-panel';
-import {
-  CacheHintController,
-  type StepCacheBreak,
-} from './controllers/cache-hint-controller';
+import { CacheHintController, type StepCacheBreak } from './controllers/cache-hint-controller';
 import { ClipboardImageHintController } from './controllers/clipboard-image-hint';
 import { DialogHostController } from './controllers/dialog-host';
 import { type ActiveExclusiveMode, type ReviewCycleMode } from './controllers/editor-keyboard';
@@ -169,10 +166,11 @@ import { registerReverseRPCHandlers } from './reverse-rpc/index';
 import { QuestionController } from './reverse-rpc/question/controller';
 import { createQuestionAskHandler } from './reverse-rpc/question/handler';
 import type { ApprovalPanelData, QuestionPanelData } from './reverse-rpc/types';
+import type { TUIState } from './state';
 import { currentTheme, getColorPalette, getBuiltInPalette, isBuiltInTheme } from './theme';
 import type { ColorToken, ResolvedTheme, ThemeName } from './theme';
+import { createTUIState } from './tui-state';
 import type { EnvironmentSlotState } from './types';
-import { createTUIState, type TUIState } from './tui-state';
 import {
   INITIAL_LIVE_PANE,
   isPromptQueuedMessage,
@@ -259,7 +257,7 @@ import {
   turnsToTrim,
 } from './utils/transcript-window';
 
-export type { TUIState } from './tui-state';
+export type { TUIState } from './state';
 export { createTUIState } from './tui-state';
 export type {
   KimiTUIOptions,
@@ -592,6 +590,14 @@ export class KimiTUI {
       } else {
         void this.backgroundTasksMiniController.show();
       }
+    });
+    this.state.footer.setModelSlotClickHandler(() => {
+      if (this.state.activeDialog !== null) return;
+      void slashCommands.handleModelCommand(this, '');
+    });
+    this.state.footer.setThinkingSlotClickHandler(() => {
+      if (this.state.activeDialog !== null) return;
+      void slashCommands.handleEffortCommand(this, '');
     });
     this.surveyController = new SurveyController(this, {
       accessToken: this.cachedAccessTokenReader(),
@@ -2130,7 +2136,12 @@ export class KimiTUI {
         mediaSnapshots: prompt.mediaSnapshots,
       };
       this.beginSessionRequest();
-      this.runInlineSkillActivations(session, prompt.text, prompt.inlineSkillActivations, extraction);
+      this.runInlineSkillActivations(
+        session,
+        prompt.text,
+        prompt.inlineSkillActivations,
+        extraction,
+      );
       return;
     }
     const parts =
@@ -2288,9 +2299,7 @@ export class KimiTUI {
       if (runningTurnId !== undefined) this.staging.bindToTurn(stagingLease, runningTurnId);
       const request = this.messageDispatch.trackPendingEntries(
         [entry],
-        this.messageDispatch.trackSteerSubmission([entry], sdkInput, () =>
-          session.steer(sdkInput),
-        ),
+        this.messageDispatch.trackSteerSubmission([entry], sdkInput, () => session.steer(sdkInput)),
       );
       this.staging.trackDispatch(stagingLease, request, (error) => {
         this.messageDispatch.releaseSteerEntries([entry]);
@@ -4306,6 +4315,12 @@ export class KimiTUI {
       if (countedByExpandHint(children[i])) return 'expand';
     }
     return null;
+  }
+
+  toggleTranscriptFold(component: Component): boolean {
+    const index = this.state.transcriptContainer.children.indexOf(component);
+    if (index < 0) return false;
+    return this.toggleClickedFoldBlock(index)?.handled === true;
   }
 
   private toggleClickedFoldBlock(index: number): TuiMouseEventResult | undefined {
