@@ -85,6 +85,7 @@ import {
 import { workspaceIdSchema } from '../protocol/workspace';
 import { readLegacyStatus } from '../services/legacyStatus/legacyStatus';
 import { toProtocolMessage } from '../services/messages/messageProjection';
+import { loadWorkspaceVisibility } from '../services/workspaceVisibility';
 import { ensureMainAgent, MAIN_AGENT_ID } from '../transport/mainAgent';
 import { type ActionTable, dispatchAction } from './action-dispatch';
 import { sendEnvironmentError } from './environment';
@@ -311,8 +312,7 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
       const raw = req.query;
       const archivedOnly = raw.archived_only === true;
 
-      const workspaces = await core.accessor.get(IWorkspaceService).list();
-      const roots = new Map(workspaces.map((w) => [w.id, w.root]));
+      const { roots, visibleWorkspaceIds } = await loadWorkspaceVisibility(core);
 
       if (raw.workspace_id !== undefined && !roots.has(raw.workspace_id)) {
         reply.send(
@@ -372,6 +372,7 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
           if (page.items.length === 0) break;
           let exhausted = false;
           for (const summary of page.items) {
+            if (!visibleWorkspaceIds.has(summary.workspaceId)) continue;
             if (!newerThanCursor(summary)) {
               exhausted = true;
               break;
@@ -399,6 +400,7 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
         });
         const eligible: Eligible[] = [];
         for (const summary of page.items) {
+          if (!visibleWorkspaceIds.has(summary.workspaceId)) continue;
           const cwd = summary.cwd ?? roots.get(summary.workspaceId);
           if (cwd === undefined) continue;
           if (raw.exclude_empty === true && (summary.lastPrompt ?? '').length === 0) continue;

@@ -70,6 +70,35 @@ function mapContentPart(part: ContextMessage['content'][number]): MessageContent
   }
 }
 
+function projectToolResultMediaPart(part: ContextMessage['content'][number]): unknown {
+  if (part.type === 'image_url') {
+    const ref = parseDaemonFileUrl(part.imageUrl.url);
+    if (ref === undefined) return part;
+    return {
+      type: 'image',
+      source: { kind: 'session_media', file_id: ref.fileId },
+      name: part.imageUrl.name,
+    };
+  }
+  if (part.type === 'video_url') {
+    const ref = parseDaemonFileUrl(part.videoUrl.url);
+    if (ref === undefined) return part;
+    return {
+      type: 'video',
+      source: { kind: 'session_media', file_id: ref.fileId },
+      name: part.videoUrl.name,
+    };
+  }
+  return part;
+}
+
+export function projectToolResultOutput(output: unknown): unknown {
+  if (!Array.isArray(output)) return output;
+  return output.map((part) =>
+    projectToolResultMediaPart(part as ContextMessage['content'][number]),
+  );
+}
+
 function buildProtocolContent(msg: ContextMessage): MessageContent[] {
   const visibleContent = msg.content.filter((p) => p.type !== 'think' || p.hidden !== true);
   if (msg.role === 'tool') {
@@ -80,7 +109,7 @@ function buildProtocolContent(msg: ContextMessage): MessageContent[] {
       (p) => p.type === 'image_url' || p.type === 'video_url' || p.type === 'audio_url',
     );
     const output: unknown = hasMediaPart
-      ? visibleContent
+      ? projectToolResultOutput(visibleContent)
       : visibleContent.map((p) => (p.type === 'text' ? p.text : '')).join('');
     const part: MessageContent =
       msg.isError === true

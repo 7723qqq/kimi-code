@@ -169,19 +169,54 @@ describe('toProtocolMessage', () => {
     ]);
   });
 
-  it('passes raw media parts through as the tool_result output', () => {
+  it('projects daemon media refs with the UserMessage contract in tool_result output', () => {
     const result: ContextMessage = {
       role: 'tool',
       content: [
         { type: 'text', text: 'image result' },
         { type: 'image_url', imageUrl: { url: 'data:image/png;base64,AAAA' } },
+        {
+          type: 'image_url',
+          imageUrl: { url: 'kimi-file://file_9?path=%2Fcache%2Fpic.png', name: 'pic.png' },
+        },
+        { type: 'audio_url', audioUrl: { url: 'https://example.com/audio.mp3' } },
+        { type: 'video_url', videoUrl: { url: 'ms://video-1', id: 'video-1' } },
+        { type: 'video_url', videoUrl: { url: 'kimi-file://file_10', name: 'clip.mp4' } },
       ],
       toolCalls: [],
       toolCallId: 'call_media',
     };
 
     expect(toProtocolMessage(SESSION_ID, 0, result, 0).content).toEqual([
-      { type: 'tool_result', tool_call_id: 'call_media', output: result.content },
+      {
+        type: 'tool_result',
+        tool_call_id: 'call_media',
+        output: [
+          { type: 'text', text: 'image result' },
+          {
+            type: 'image_url',
+            imageUrl: expect.objectContaining({ url: 'data:image/png;base64,AAAA' }),
+          },
+          {
+            type: 'image',
+            source: { kind: 'session_media', file_id: 'file_9' },
+            name: 'pic.png',
+          },
+          {
+            type: 'audio_url',
+            audioUrl: expect.objectContaining({ url: 'https://example.com/audio.mp3' }),
+          },
+          {
+            type: 'video_url',
+            videoUrl: expect.objectContaining({ url: 'ms://video-1', id: 'video-1' }),
+          },
+          {
+            type: 'video',
+            source: { kind: 'session_media', file_id: 'file_10' },
+            name: 'clip.mp4',
+          },
+        ],
+      },
     ]);
   });
 
