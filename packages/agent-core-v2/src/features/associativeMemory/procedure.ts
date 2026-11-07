@@ -24,14 +24,27 @@ export function distillProcedures(
     atomsByNote.set(atom.noteId, list);
   }
 
+  const df = new Map<string, number>();
+  for (const atom of atoms) {
+    for (const term of new Set(atom.terms)) df.set(term, (df.get(term) ?? 0) + 1);
+  }
+  const anchorTerm = (atom: Atom): string => {
+    const shared = atom.terms.filter((term) => (df.get(term) ?? 0) >= 2);
+    const ranked = shared.toSorted(
+      (left, right) =>
+        (atom.vector[right] ?? 0) - (atom.vector[left] ?? 0) || (left < right ? -1 : 1),
+    );
+    return ranked[0] ?? '';
+  };
+
   const signatures = new Map<string, { count: number; latest: NoteRecord; steps: Atom[] }>();
   for (const note of notes) {
-    const noteAtoms = (atomsByNote.get(note.id) ?? []).toSorted((a, b) =>
-      a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+    const noteAtoms = (atomsByNote.get(note.id) ?? []).toSorted(
+      (a, b) => a.spanStart - b.spanStart || (a.id < b.id ? -1 : 1),
     );
     if (noteAtoms.length < params.procedureMinSteps) continue;
     const signature = noteAtoms
-      .map((atom) => topTerms(atom.vector, 1)[0] ?? '')
+      .map(anchorTerm)
       .filter((term) => term.length > 0)
       .join('|');
     if (signature.length === 0) continue;
@@ -93,4 +106,12 @@ export function distillProcedures(
     }
   }
   return { procedures: all, edges };
+}
+
+export function procedureModelFreeStrength(procedure: Procedure): number {
+  return Math.min(1, procedure.frequency / (procedure.frequency + 2));
+}
+
+export function shouldUseCachedProcedure(procedure: Procedure): boolean {
+  return procedureModelFreeStrength(procedure) >= 0.5;
 }

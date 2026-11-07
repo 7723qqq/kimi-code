@@ -1,9 +1,19 @@
 import type { Atom, AssociativeMemoryParams, Cooccurrence, Concept, Edge } from './types';
+import { compareByText } from './terms';
 import { averageVector, averageDense, cosine, topTerms } from './vector';
 
 export interface ClusterResult {
   readonly concepts: readonly Concept[];
   readonly edges: readonly Edge[];
+}
+
+export function coocClusterThreshold(
+  params: AssociativeMemoryParams,
+): number {
+  return Math.max(
+    1,
+    Math.round(params.clusterCoocThreshold * 2 * (1 - params.conceptFormationRate)),
+  );
 }
 
 export function conceptId(atomIds: readonly string[]): string {
@@ -25,10 +35,7 @@ export function clusterIncremental(
     return root;
   };
   for (const atom of atoms) parent.set(atom.id, atom.id);
-  const coocThreshold = Math.max(
-    1,
-    Math.round(params.clusterCoocThreshold * 2 * (1 - params.conceptFormationRate)),
-  );
+  const coocThreshold = coocClusterThreshold(params);
   for (const cooc of coocs) {
     if (cooc.count < coocThreshold) continue;
     if (!atomById.has(cooc.a) || !atomById.has(cooc.b)) continue;
@@ -49,9 +56,12 @@ export function clusterIncremental(
 
   const working: Concept[] = concepts.map((concept) => ({ ...concept }));
   const edges: Edge[] = [];
-  const sortedComponents = [...components.values()].toSorted((a, b) =>
-    a[0]! < b[0]! ? -1 : a[0]! > b[0]! ? 1 : 0,
-  );
+  const sortedComponents = [...components.values()].toSorted((a, b) => {
+    const left = atomById.get(a[0]!);
+    const right = atomById.get(b[0]!);
+    if (left === undefined || right === undefined) return 0;
+    return compareByText(left, right);
+  });
   for (const ids of sortedComponents) {
     if (ids.length < params.clusterMinSize) continue;
     for (const chunk of chunkAtoms(ids, params.clusterMaxSize, atomById)) {
@@ -66,7 +76,11 @@ export function clusterIncremental(
         .filter((concept) => concept.atomIds.length + chunk.length <= params.clusterMaxSize)
         .filter((concept) => concept.readiness >= MERGE_READINESS)
         .filter((concept) => concept.terms.some((term) => terms.has(term)))
-        .toSorted((a, b) => b.readiness - a.readiness || (a.id < b.id ? -1 : 1))[0];
+        .toSorted(
+          (a, b) =>
+            b.readiness - a.readiness ||
+            (a.label < b.label ? -1 : a.label > b.label ? 1 : a.id < b.id ? -1 : 1),
+        )[0];
       const concept =
         candidate === undefined
           ? buildConcept(chunk, atomById, params, now)
@@ -90,14 +104,55 @@ export function clusterIncremental(
     }
   }
 
-  const all = working.map((concept) => {
+  const deduped = mergeOverlapping(working, atomById, params);
+  const finalEdges: Edge[] = [];
+  for (const concept of deduped) {
+    for (const atomId of concept.atomIds) {
+      finalEdges.push({
+        id: `${concept.id}>${atomId}`,
+        from: concept.id,
+        to: atomId,
+        kind: 'concept',
+        weight: 1,
+        strengthenCount: 1,
+        validFrom: now,
+        validUntil: undefined,
+        createdAt: now,
+        lastUsedAt: now,
+      });
+    }
+  }
+  const all = deduped.map((concept) => {
     const load = concept.atomIds.length;
     return { ...concept, load, readiness: 1 / (1 + load / params.loadRef) };
   });
-  return { concepts: all, edges };
+  return { concepts: all, edges: finalEdges };
 }
 
 const MERGE_READINESS = 0.5;
+
+function mergeOverlapping(
+  concepts: readonly Concept[],
+  atomById: ReadonlyMap<string, Atom>,
+  params: AssociativeMemoryParams,
+): Concept[] {
+  const merged = new Map<string, Concept>();
+  for (const concept of concepts) {
+    const owner = [...merged.values()].find((existing) =>
+      existing.atomIds.some((id) => concept.atomIds.includes(id)),
+    );
+    if (owner === undefined) {
+      merged.set(concept.id, concept);
+      continue;
+    }
+    const extra = concept.atomIds.filter((id) => !owner.atomIds.includes(id));
+    if (extra.length === 0) continue;
+    const room = Math.max(0, params.clusterMaxSize - owner.atomIds.length);
+    if (room === 0) continue;
+    merged.set(owner.id, mergeConcept(owner, extra.slice(0, room), atomById, params));
+  }
+  return [...merged.values()];
+}
 
 function mergeConcept(
   candidate: Concept,
@@ -110,11 +165,12 @@ function mergeConcept(
   return {
     ...candidate,
     label: labelFromAtoms(members),
-    terms: topTerms(
-      averageVector(members.map((member) => member.vector)),
-      5,
-    ),
-    vector: averageVector(members.map((member) => member.vector)),
+    terms: topTerms(averageVector(members.map((member) => member.vector)), CONCEPT_TERM_LIMIT),
+    vector: undefined,
+    hubAtomId: members.reduce((best, atom) =>
+      best === undefined || atom.baseWeight > best.baseWeight ? atom : best,
+      undefined as Atom | undefined,
+    )?.id,
     denseVector: averageDense(
       members
         .map((atom) => atom.denseVector)
@@ -173,8 +229,12 @@ function buildConcept(
     nodeType: 'concept',
     label: labelFromAtoms(members),
     labelSource: 'deterministic_v1',
-    terms: topTerms(vector, 5),
-    vector,
+    terms: topTerms(vector, CONCEPT_TERM_LIMIT),
+    vector: undefined,
+    hubAtomId: members.reduce((best, atom) =>
+      best === undefined || atom.baseWeight > best.baseWeight ? atom : best,
+      undefined as Atom | undefined,
+    )?.id,
     denseVector: averageDense(
       members
         .map((atom) => atom.denseVector)
@@ -192,16 +252,23 @@ function buildConcept(
   };
 }
 
+const CONCEPT_TERM_LIMIT = 12;
+
 function labelFromAtoms(atoms: readonly Atom[]): string {
   const ranked = [...atoms]
     .toSorted(
       (a, b) =>
         Object.values(b.vector).reduce((sum, value) => sum + value, 0) -
-        Object.values(a.vector).reduce((sum, value) => sum + value, 0) || (a.id < b.id ? -1 : 1),
+        Object.values(a.vector).reduce((sum, value) => sum + value, 0) || compareByText(a, b),
     )
     .slice(0, 3);
-  return ranked
-    .flatMap((atom) => topTerms(atom.vector, 2))
-    .slice(0, 6)
-    .join(' ');
+  const terms = new Set<string>();
+  for (const atom of ranked) {
+    for (const term of topTerms(atom.vector, 3)) {
+      if (terms.size >= 6) break;
+      terms.add(term);
+    }
+    if (terms.size >= 6) break;
+  }
+  return [...terms].join(' ');
 }

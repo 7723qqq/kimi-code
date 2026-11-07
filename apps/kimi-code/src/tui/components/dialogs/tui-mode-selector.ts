@@ -31,7 +31,9 @@ export class TuiModeSelectorComponent extends ChoicePickerComponent {
       options: [...tuiModeOptions()],
       currentValue: opts.currentValue,
       onSelect: (value) => {
-        if (value === 'regular' || value === 'fullscreen') opts.onSelect(value);
+        if (value === 'regular' || value === 'fullscreen') {
+          opts.onSelect(value);
+        }
       },
       onCancel: opts.onCancel,
     });

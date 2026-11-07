@@ -6,7 +6,8 @@ export type EdgeKind =
   | 'concept'
   | 'supersede'
   | 'inhibits'
-  | 'procedure';
+  | 'procedure'
+  | 'schema';
 
 export type LabelSource = 'deterministic_v1' | 'llm';
 
@@ -16,6 +17,8 @@ export interface Atom {
   readonly scopeKey: string;
   readonly nodeType: 'atom';
   readonly text: string;
+  readonly spanStart: number;
+  readonly spanEnd: number;
   readonly terms: readonly string[];
   readonly vector: Readonly<Record<string, number>>;
   readonly denseVector: readonly number[] | undefined;
@@ -39,9 +42,10 @@ export interface Concept {
   readonly label: string;
   readonly labelSource: LabelSource;
   readonly terms: readonly string[];
-  readonly vector: Readonly<Record<string, number>>;
+  readonly vector: Readonly<Record<string, number>> | undefined;
   readonly denseVector: readonly number[] | undefined;
   readonly atomIds: readonly string[];
+  readonly hubAtomId?: string;
   readonly load: number;
   readonly readiness: number;
   readonly pinned: boolean;
@@ -80,12 +84,14 @@ export interface Edge {
   readonly lastUsedAt: number;
 }
 
+export type MemorySource = 'user' | 'tool' | 'external' | 'legacy';
+
 export interface NoteRecord {
   readonly id: string;
   readonly scopeKey: string;
   readonly text: string;
-  readonly atomIds: readonly string[];
   readonly createdAt: number;
+  readonly source: MemorySource;
 }
 
 export interface Cooccurrence {
@@ -107,6 +113,7 @@ export interface WriteResult {
   readonly atomIds: readonly string[];
   readonly blockedByCode: boolean;
   readonly scope: MemoryScopeSelector;
+  readonly decision?: 'added' | 'updated' | 'noop' | 'blocked';
 }
 
 export type MemoryScopeSelector = 'project' | 'global' | 'all';
@@ -117,6 +124,7 @@ export interface RecallQuery {
   readonly maxTokens: number | undefined;
   readonly includeHistory: boolean;
   readonly scope?: MemoryScopeSelector;
+  readonly reinforce?: boolean;
 }
 
 export interface RecallItem {
@@ -140,11 +148,18 @@ export interface RecallTraceNode {
     | { readonly from: string; readonly weight: number; readonly decayed: number }
     | undefined;
   readonly truncated: boolean;
+  readonly salience?: number;
+}
+
+export interface RecallDrop {
+  readonly id: string;
+  readonly rule: string;
 }
 
 export interface RecallResult {
   readonly items: readonly RecallItem[];
   readonly trace: readonly RecallTraceNode[];
+  readonly dropped?: readonly RecallDrop[];
 }
 
 export interface AssociativeMemoryStats {
@@ -155,6 +170,10 @@ export interface AssociativeMemoryStats {
   readonly notes: number;
   readonly suppressed: number;
   readonly pinned: number;
+  readonly meanConfidence: number;
+  readonly workingItems: number;
+  readonly sourceCounts: Readonly<Record<MemorySource, number>>;
+  readonly gatingMode?: string;
 }
 
 export interface AssociativeMemoryList {
@@ -216,6 +235,27 @@ export interface AssociativeMemoryParams {
   readonly pruneThreshold: number;
   readonly injectionMaxTokens: number;
   readonly supersedeThreshold: number;
+  readonly maxOutDegree: number;
+  readonly heteroFactor: number;
+  readonly weightDependenceK: number;
+  readonly stdpAPlus: number;
+  readonly stdpAMinus: number;
+  readonly stdpTau: number;
+  readonly bcmGain: number;
+  readonly cascadeMaxLevel: number;
+  readonly cascadeStrength: number;
+  readonly sleepDownscale: number;
+  readonly captureCount: number;
+  readonly reconsolidateMergeThreshold: number;
+  readonly reconsolidateNovelThreshold: number;
+  readonly interferenceForgetting: number;
+  readonly replayStrata: number;
+  readonly motivatedForgetting: number;
+  readonly motivatedForgettingMs: number;
+  readonly schemaMinHops: number;
+  readonly schemaTopK: number;
+  readonly schemaTtlMs: number;
+  readonly interferenceMaxEdges: number;
 }
 
 export type CodeAction = 'block_write' | 'block_recall' | 'pin' | 'supersede' | 'block_embed';

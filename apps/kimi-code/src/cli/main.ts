@@ -1,8 +1,11 @@
 /**
- * Kimi Code entry point.
+ * Kimi Code command line.
  *
- * Parses CLI arguments via Commander.js, validates options, runs the
- * outer update preflight, then delegates to the requested UI runner.
+ * `main()` is invoked exactly once, by the process entry `src/main.ts` after
+ * its light argv pre-dispatch. It parses CLI arguments via Commander.js,
+ * validates options, runs the outer update preflight, then delegates to the
+ * requested UI runner. This module must not start itself on evaluation:
+ * importing it (tests, embedders) has to stay side-effect free.
  */
 
 import {
@@ -406,8 +409,6 @@ async function bootstrap(): Promise<void> {
 
   program.parse(process.argv);
 }
-
-main();
 
 async function logStartupFailure(operation: string, error: unknown): Promise<void> {
   log.error('startup failed', {

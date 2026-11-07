@@ -11,13 +11,16 @@ import type {
   RecallResult,
   RecallTraceNode,
 } from './types';
-import { cosine, cosineDense, termFrequency } from './vector';
+import { matchesAny, STOP_TERMS } from './terms';
+import { procedureModelFreeStrength } from './procedure';
+import { averageVector, cosine, cosineDense, termFrequency } from './vector';
 
 interface Node {
   readonly id: string;
   readonly kind: 'atom' | 'concept' | 'procedure';
   readonly text: string;
   readonly noteId: string;
+  readonly scopeKey: string;
   readonly vector: Readonly<Record<string, number>>;
   readonly denseVector: readonly number[] | undefined;
   readonly terms: readonly string[];
@@ -27,6 +30,8 @@ interface Node {
   readonly conceptId: string | undefined;
   readonly suppressed: boolean;
   readonly isDeleted: boolean;
+  readonly salience: number;
+  readonly memberIds: readonly string[];
 }
 
 export function activate(
@@ -48,6 +53,7 @@ export function activate(
       kind: 'atom',
       text: atom.text,
       noteId: atom.noteId,
+      scopeKey: atom.scopeKey,
       vector: atom.vector,
       denseVector: atom.denseVector,
       terms: atom.terms,
@@ -57,6 +63,8 @@ export function activate(
       conceptId: atom.conceptId,
       suppressed: atom.suppressed,
       isDeleted: atom.isDeleted,
+      salience: atom.baseWeight,
+      memberIds: [],
     });
   }
   for (const concept of concepts) {
@@ -66,7 +74,15 @@ export function activate(
       kind: 'concept',
       text: concept.label,
       noteId,
-      vector: concept.vector,
+      scopeKey: concept.scopeKey,
+      vector:
+        concept.vector ??
+        (averageVector(
+          concept.atomIds
+            .map((id) => atomById.get(id)?.vector)
+            .filter((entry): entry is Readonly<Record<string, number>> => entry !== undefined),
+        ) as Readonly<Record<string, number>>) ??
+        {},
       denseVector: concept.denseVector,
       terms: concept.terms,
       confidence: 1,
@@ -75,6 +91,8 @@ export function activate(
       conceptId: undefined,
       suppressed: concept.suppressed,
       isDeleted: false,
+      salience: 1,
+      memberIds: concept.atomIds,
     });
   }
   for (const procedure of procedures) {
@@ -84,6 +102,7 @@ export function activate(
       kind: 'procedure',
       text: procedure.label,
       noteId: procedure.sourceNoteId,
+      scopeKey: procedure.scopeKey,
       vector: procedure.vector,
       denseVector: undefined,
       terms: procedure.terms,
@@ -93,7 +112,17 @@ export function activate(
       conceptId: undefined,
       suppressed: false,
       isDeleted: false,
+      salience: procedureModelFreeStrength(procedure),
+      memberIds: [],
     });
+  }
+
+  const labels = new Map<string, string>();
+  for (const node of nodes.values()) labels.set(node.id, node.text);
+  const noteLabels = new Map<string, string>();
+  for (const atom of atoms) {
+    const current = noteLabels.get(atom.noteId);
+    if (current === undefined || atom.text < current) noteLabels.set(atom.noteId, atom.text);
   }
 
   const isActive = (node: Node): boolean => {
@@ -104,45 +133,112 @@ export function activate(
     return node.validUntil > now;
   };
 
-  const cueTerms = tokenize(query.cue);
+  const cueTerms = tokenize(query.cue).filter((term) => !STOP_TERMS.has(term));
   const cueSet = new Set(cueTerms);
   const cueVector = termFrequency(cueTerms);
+
+  const conceptCoverage = (node: Node): number => {
+    if (node.kind !== 'concept' || node.memberIds.length === 0) return 1;
+    let matchedMembers = 0;
+    for (const memberId of node.memberIds) {
+      const member = nodes.get(memberId);
+      if (member === undefined) continue;
+      if (!member.terms.some((term) => matchesAny(term, cueTerms))) continue;
+      matchedMembers += 1;
+      if (matchedMembers >= 2) break;
+    }
+    return Math.min(1, matchedMembers / 2);
+  };
 
   const termSeeds = new Map<string, number>();
   const vectorSeeds = new Map<string, number>();
   for (const node of nodes.values()) {
     if (!isActive(node)) continue;
-    const overlap =
-      cueSet.size === 0 ? 0 : node.terms.filter((term) => cueSet.has(term)).length / cueSet.size;
-    if (overlap > 0) termSeeds.set(node.id, overlap);
+    let matched = 0;
+    let weight = 0;
+    for (const term of node.terms) {
+      if (!matchesAny(term, cueTerms)) continue;
+      matched += 1;
+      weight += node.vector[term] ?? 0;
+    }
+    const overlap = cueSet.size === 0 ? 0 : matched / cueSet.size;
     const vectorScore =
       node.denseVector !== undefined && cueDense !== undefined
         ? cosineDense(node.denseVector, cueDense)
         : cosine(cueVector, node.vector);
+    if (overlap > 0) {
+      const termWeight = weight;
+      const coverage = conceptCoverage(node);
+      const base = (cueSet.size === 0 ? overlap : (overlap + termWeight) / 2) * coverage;
+      const salience = Math.min(
+        SALIENCE_CAP,
+        1 + (Math.max(1, node.salience) - 1) * SALIENCE_GAIN,
+      );
+      termSeeds.set(node.id, base * salience);
+    }
     if (vectorScore >= params.vectorThreshold) vectorSeeds.set(node.id, vectorScore);
   }
   const seeded = new Map<string, number>(termSeeds);
   for (const [id, score] of [...vectorSeeds.entries()]
-    .toSorted((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
+    .toSorted((a, b) => b[1] - a[1] || compareLabel(labels, a[0], b[0]))
     .slice(0, params.seedTopM)) {
     seeded.set(id, Math.max(seeded.get(id) ?? 0, score));
   }
 
+  const ranked = [...seeded.entries()]
+    .toSorted((a, b) => b[1] - a[1] || compareLabel(labels, a[0], b[0]))
+    .slice(0, CROSS_SCORE_TOP_N);
+  if (ranked.length > 1) {
+    const termSets = ranked.map(([id]) => new Set(nodes.get(id)?.terms ?? []));
+    for (let index = 0; index < ranked.length; index += 1) {
+      const own = termSets[index]!;
+      let support = 0;
+      for (let peer = 0; peer < ranked.length; peer += 1) {
+        if (peer === index) continue;
+        const other = termSets[peer]!;
+        if (own.size === 0 || other.size === 0) continue;
+        let shared = 0;
+        for (const term of own) if (other.has(term)) shared += 1;
+        support += (shared / Math.sqrt(own.size * other.size)) * ranked[peer]![1];
+      }
+      const [id, score] = ranked[index]!;
+      seeded.set(
+        id,
+        score * (1 - CROSS_SCORE_WEIGHT) + (support / (ranked.length - 1)) * CROSS_SCORE_WEIGHT,
+      );
+    }
+  }
+
   const adjacency = new Map<string, { to: string; weight: number }[]>();
+  const link = (from: string, to: string, weight: number): void => {
+    const list = adjacency.get(from) ?? [];
+    list.push({ to, weight });
+    adjacency.set(from, list);
+  };
   for (const edge of edges) {
     if (edge.validUntil !== undefined && !query.includeHistory) continue;
-    const list = adjacency.get(edge.from) ?? [];
-    list.push({ to: edge.to, weight: edge.weight });
-    adjacency.set(edge.from, list);
+    if (edge.kind === 'supersede' || edge.kind === 'inhibits') {
+      link(edge.from, edge.to, edge.weight);
+      continue;
+    }
+    link(edge.from, edge.to, edge.weight);
+    link(edge.to, edge.from, edge.weight);
   }
 
   const scores = new Map<string, number>(seeded);
   const trace: RecallTraceNode[] = [];
-  for (const [id, score] of [...seeded].toSorted((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))) {
-    trace.push({ id, kind: 'seed', score, viaEdge: undefined, truncated: false });
+  for (const [id, score] of [...seeded].toSorted((a, b) => b[1] - a[1] || compareLabel(labels, a[0], b[0]))) {
+    trace.push({
+      id,
+      kind: 'seed',
+      score,
+      viaEdge: undefined,
+      truncated: false,
+      salience: nodes.get(id)?.salience,
+    });
   }
 
-  let frontier = [...seeded.keys()].toSorted();
+  let frontier = [...seeded.keys()].toSorted((a, b) => compareLabel(labels, a, b));
   let visited = seeded.size;
   let truncated = false;
 
@@ -175,12 +271,19 @@ export function activate(
       if (truncated) break;
     }
     const winners = [...candidates.entries()]
-      .toSorted((a, b) => b[1].score - a[1].score || (a[0] < b[0] ? -1 : 1))
+      .toSorted((a, b) => b[1].score - a[1].score || compareLabel(labels, a[0], b[0]))
       .slice(0, k);
     if (winners.length < candidates.size) truncated = true;
     for (const [id, info] of winners) {
       scores.set(id, Math.max(scores.get(id) ?? 0, info.score));
-      trace.push({ id, kind: 'spread', score: info.score, viaEdge: info.via, truncated: false });
+      trace.push({
+        id,
+        kind: 'spread',
+        score: info.score,
+        viaEdge: info.via,
+        truncated: false,
+        salience: nodes.get(id)?.salience,
+      });
     }
     frontier = winners.map(([id]) => id);
     if (truncated) break;
@@ -217,20 +320,33 @@ export function activate(
     if (node === undefined || node.kind !== 'atom') continue;
     noteScores.set(node.noteId, (noteScores.get(node.noteId) ?? 0) + score);
   }
-  const topNotes = new Set(
-    [...noteScores.entries()]
-      .toSorted((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
-      .slice(0, params.episodeTopN)
-      .map(([note]) => note),
-  );
   const episodeFilter = noteScores.size > 0;
+  const noteScope = new Map<string, string>();
+  for (const atom of atoms) {
+    if (!noteScope.has(atom.noteId)) noteScope.set(atom.noteId, atom.scopeKey);
+  }
+  const byScope = new Map<string, [string, number][]>();
+  for (const entry of noteScores) {
+    const scope = noteScope.get(entry[0]) ?? '';
+    const list = byScope.get(scope);
+    if (list === undefined) byScope.set(scope, [entry]);
+    else list.push(entry);
+  }
+  const topNotes = new Set<string>();
+  for (const list of byScope.values()) {
+    for (const [note] of list
+      .toSorted((a, b) => b[1] - a[1] || compareLabel(noteLabels, a[0], b[0]))
+      .slice(0, params.episodeTopN)) {
+      topNotes.add(note);
+    }
+  }
   const items: RecallItem[] = [...scores.entries()]
     .filter(([, score]) => score >= params.activationThreshold)
     .filter(([id]) => {
       const node = nodes.get(id)!;
       return node.kind === 'concept' || !episodeFilter || topNotes.has(node.noteId);
     })
-    .toSorted((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
+    .toSorted((a, b) => b[1] - a[1] || compareLabel(labels, a[0], b[0]))
     .slice(0, query.limit ?? params.topK)
     .map(([id, score]) => {
       const node = nodes.get(id)!;
@@ -249,6 +365,19 @@ export function activate(
     });
 
   return { items, trace: truncated ? trace.map((node) => ({ ...node, truncated: true })) : trace };
+}
+
+const CROSS_SCORE_TOP_N = 12;
+const SALIENCE_GAIN = 0.25;
+const SALIENCE_CAP = 2;
+const CROSS_SCORE_WEIGHT = 0.2;
+
+function compareLabel(labels: ReadonlyMap<string, string>, a: string, b: string): number {
+  const left = labels.get(a) ?? a;
+  const right = labels.get(b) ?? b;
+  if (left !== right) return left < right ? -1 : 1;
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
 }
 
 function buildConflictGroups(
