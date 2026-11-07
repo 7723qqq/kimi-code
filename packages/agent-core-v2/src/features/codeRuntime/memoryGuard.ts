@@ -16,7 +16,6 @@ export interface MemoryGuard {
   dispose(): void;
 }
 
-const WIN32_QUERY_INFO_CLASS_ACCOUNTING = 1;
 const WIN32_EXTENDED_LIMIT_INFO_CLASS = 9;
 const WIN32_LIMIT_PROCESS_MEMORY = 0x00000100;
 const WIN32_LIMIT_JOB_MEMORY = 0x00000200;
@@ -25,7 +24,7 @@ const WIN32_PROCESS_SET_QUOTA = 0x0100;
 const WIN32_PROCESS_TERMINATE = 0x0001;
 const WIN32_PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
 const WIN32_EXTENDED_LIMIT_SIZE = 144;
-const WIN32_ACCOUNTING_SIZE = 112;
+const WIN32_PEAK_JOB_MEMORY_OFFSET = 128;
 
 interface Win32Kernel32 {
   CreateJobObjectW(extra: unknown, name: unknown): unknown;
@@ -96,16 +95,21 @@ function createWindowsGuard(pid: number, capBytes: number): MemoryGuard {
     if (processHandle !== null && processHandle !== 0) k32.CloseHandle(processHandle);
     throw error;
   }
+  let peakJobMemoryBytes: number | undefined;
+  const queryPeakJobMemoryBytes = (): number | undefined => {
+    const buf = new ArrayBuffer(WIN32_EXTENDED_LIMIT_SIZE);
+    if (!k32.QueryInformationJobObject(job, WIN32_EXTENDED_LIMIT_INFO_CLASS, buf, WIN32_EXTENDED_LIMIT_SIZE, null)) {
+      return peakJobMemoryBytes;
+    }
+    peakJobMemoryBytes = Number(
+      new DataView(buf).getBigUint64(WIN32_PEAK_JOB_MEMORY_OFFSET, true),
+    );
+    return peakJobMemoryBytes;
+  };
   let disposed = false;
   return {
-    exceeded: () => false,
-    peakBytes: () => {
-      const buf = new ArrayBuffer(WIN32_ACCOUNTING_SIZE);
-      if (!k32.QueryInformationJobObject(job, WIN32_QUERY_INFO_CLASS_ACCOUNTING, buf, WIN32_ACCOUNTING_SIZE, null)) {
-        return;
-      }
-      return Number(new BigUint64Array(buf)[12]);
-    },
+    exceeded: () => (queryPeakJobMemoryBytes() ?? 0) >= capBytes,
+    peakBytes: () => queryPeakJobMemoryBytes(),
     dispose: () => {
       if (disposed) return;
       disposed = true;

@@ -543,18 +543,35 @@ describe('transcript fold block clicks', () => {
     expect(renderFooterLine1(driver)).toContain('ctrl+o expand');
   });
 
-  it('toggles a long finalized thinking block without advertising it in the footer', async () => {
+  it('toggles live and finalized thinking without advertising it in the footer', async () => {
     const { driver } = await makeDriver();
-    const longThinking = ['think-one', 'think-two', 'think-three', 'think-four'].join('\n');
+    const longThinking = ['think-one', 'think-two', 'think-three'].join('\n');
     driver.streamingUI.onThinkingUpdate(longThinking);
     const streaming = stripSgr(renderTranscript(driver));
-    expect(streaming).toContain('think-four');
+    expect(streaming).toContain('think-three');
     expect(streaming).not.toContain('think-one');
 
-    clickTranscriptLine(driver, 'think-four');
+    clickTranscriptLine(driver, 'think-three');
+    expect(stripSgr(renderTranscript(driver))).toContain('think-one');
+
+    clickTranscriptLine(driver, 'think-one');
     expect(stripSgr(renderTranscript(driver))).not.toContain('think-one');
 
+    clickTranscriptLine(driver, 'think-three');
+    expect(stripSgr(renderTranscript(driver))).toContain('think-one');
+
+    driver.streamingUI.onThinkingUpdate(`${longThinking}\nthink-four`);
+    const growing = stripSgr(renderTranscript(driver));
+    expect(growing).toContain('think-one');
+    expect(growing).toContain('think-four');
+
     driver.streamingUI.onThinkingEnd();
+    const finalized = stripSgr(renderTranscript(driver));
+    expect(finalized).toContain('think-one');
+    expect(finalized).toContain('think-four');
+    expect(renderFooterLine1(driver)).not.toContain('ctrl+o');
+
+    clickTranscriptLine(driver, 'think-four');
 
     const collapsed = stripSgr(renderTranscript(driver));
     expect(collapsed).toContain('think-one');
