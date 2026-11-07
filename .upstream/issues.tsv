@@ -11,7 +11,7 @@ issue	area	priority	title	why_useful	local_check	added	status
 3704	tools-mcp	P1	MCP server routing fails when multiple servers share the same name prefix	同名前缀 MCP server 路由串线	needs-design	2026-09-10	needs-design
 3383	tools-mcp	P1	Read.line_offset: anyOf integer 参数在第三方模型下 100% 失败（同版本数字形态正常，附Windows + Qwen3.8-Flash 复现）	read 工具 schema 形态在第三方模型下稳定复现	fixed	2026-09-16	done
 3382	tools-mcp	P1	[Bug]: renderToolResultForModel treats a whitespace-only error text part as non-empty output	纯空白错误文本被当非空输出；本地代码确认仍存在（single.length === 0 判断）	fixed	2026-08-31	done
-3380	tools-mcp	P1	[Bug]: ReadMediaFileTool reports stale stat size instead of actual attached media bytes	媒体字节数报错	likely-fixed	2026-09-06	todo
+3380	tools-mcp	P1	[Bug]: ReadMediaFileTool reports stale stat size instead of actual attached media bytes	媒体字节数报错	likely-fixed	2026-09-06	likely-fixed
 2974	tools-mcp	P2	Skill 文件夹内的 script 文件路径解析错误	skill 脚本路径解析错误	likely-fixed	2026-08-16	likely-fixed
 3783	tui-cli	P1	kimi code tui不能粘贴图片	TUI 粘贴图片不可用	likely-fixed	2026-09-15	likely-fixed
 2793	tui-cli	P1	CLI hangs silently forever after "llm request" log line — no output, no error, no timeout	LLM 请求无超时静默挂起（与已修的 stream-liveness 不是同一路径）	likely-fixed	2026-08-11	likely-fixed
