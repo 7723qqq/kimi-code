@@ -16,7 +16,7 @@ issue	area	priority	title	why_useful	local_check	added	status
 3783	tui-cli	P1	kimi code tui不能粘贴图片	TUI 粘贴图片不可用	needs-check	2026-09-15	todo
 2793	tui-cli	P1	CLI hangs silently forever after "llm request" log line — no output, no error, no timeout	LLM 请求无超时静默挂起（与已修的 stream-liveness 不是同一路径）	open	2026-08-11	todo
 2975	provider-auth	P2	CLI 模式下设置 Secondary Model 时 config.toml 的 key 错误	secondary model 配置 key 错误	likely-fixed	2026-09-03	likely-fixed
-4194	provider-auth	P1	`openai` provider: hard-coded model name check picks `max_tokens` for newer reasoning models, every request fails with HTTP 400	新推理模型全部 400	needs-check	2026-10-13	todo
+4194	provider-auth	P1	`openai` provider: hard-coded model name check picks `max_tokens` for newer reasoning models, every request fails with HTTP 400	新推理模型全部 400	fixed	2026-10-13	done
 2166	provider-auth	P1	Error with models not supporting prompt cache	不支持 prompt cache 的模型报错	needs-check	2026-09-01	todo
 4335	platform-build	P1	[Bug] IPC silently corrupts Unicode when a socket chunk splits a UTF-8 character	IPC 分块切断 UTF-8 导致静默乱码（本地 code-point-safe-truncation 只覆盖工具输出截断）	likely-fixed	2026-11-05	likely-fixed
 4147	platform-build	P2	Bug: Include the invalid path when workspace additional-directory validation fails	校验失败信息缺少无效路径	likely-fixed	2026-10-12	likely-fixed

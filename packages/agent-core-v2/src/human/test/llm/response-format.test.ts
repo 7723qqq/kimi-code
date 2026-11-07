@@ -190,6 +190,35 @@ describe('openai requester responseFormat', () => {
   });
 });
 
+describe('openai requester max completion tokens', () => {
+  it.each(['gpt-5', 'gpt-6-sol', 'gpt-6.1-sol', 'o3', 'o10'])(
+    'sends max_completion_tokens for %s',
+    async (modelName) => {
+      const client = stubOpenAIClient(chatCompletionChunks);
+      const requester = createOpenAIRequester({ clientFactory: client.clientFactory });
+      await requester.generate(
+        { model: { ...model, model: modelName }, maxCompletionTokens: 1024 },
+        { messages },
+        { signal: new AbortController().signal },
+      );
+      expect(client.body()['max_completion_tokens']).toBe(1024);
+      expect(client.body()['max_tokens']).toBeUndefined();
+    },
+  );
+
+  it('sends max_tokens for gpt-4o', async () => {
+    const client = stubOpenAIClient(chatCompletionChunks);
+    const requester = createOpenAIRequester({ clientFactory: client.clientFactory });
+    await requester.generate(
+      { model: { ...model, model: 'gpt-4o' }, maxCompletionTokens: 1024 },
+      { messages },
+      { signal: new AbortController().signal },
+    );
+    expect(client.body()['max_tokens']).toBe(1024);
+    expect(client.body()['max_completion_tokens']).toBeUndefined();
+  });
+});
+
 describe('openai-responses requester responseFormat', () => {
   it('maps json_schema to text.format', async () => {
     const client = stubResponsesClient(responsesStreamEvents);
