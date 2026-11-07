@@ -1,4 +1,4 @@
-import { daemonFileRefFromPairingPart } from '../contract/mediaRef';
+import { daemonFileRefFromPairingPart, parseDaemonFileRef } from '../contract/mediaRef';
 import {
   HIDDEN_USER_ORIGINS,
   isUserSlashOrigin,
@@ -18,6 +18,12 @@ export type HistoryMediaSource =
   | { readonly kind: 'base64'; readonly media_type: string; readonly data: string }
   | { readonly kind: 'file' | 'session_media'; readonly file_id: string };
 
+export type NativeHistoryMediaSource =
+  | { readonly kind: 'url'; readonly url: string }
+  | { readonly kind: 'inline'; readonly mimeType: string; readonly data: string }
+  | { readonly kind: 'file'; readonly id: string; readonly mimeType: string }
+  | { readonly kind: 'store'; readonly ref: string };
+
 export interface HistoryTextPartMeta {
   readonly source?: string;
   readonly contentType?: string;
@@ -31,6 +37,11 @@ export type HistoryContentPart =
   | {
       readonly type: 'image' | 'video' | 'audio';
       readonly source: HistoryMediaSource;
+      readonly name?: string;
+    }
+  | {
+      readonly type: 'image_url' | 'video_url' | 'audio_url';
+      readonly source: NativeHistoryMediaSource;
       readonly name?: string;
     }
   | {
@@ -155,6 +166,53 @@ export interface HistoryMessageProjector {
   syncOptions(options?: HistoryProjectionOptions): void;
   add(message: HistoryMessage): void;
   result(): AgentTranscriptSnapshot;
+}
+
+function toolOutputOf(message: HistoryMessage): unknown {
+  const output: HistoryContentPart[] = [];
+  let hasDaemonMedia = false;
+  for (const part of message.content ?? []) {
+    if (part.type === 'text' && 'text' in part && typeof part.text === 'string') {
+      output.push(part);
+      continue;
+    }
+    if (part.type === 'image' || part.type === 'video') {
+      if ('source' in part && (part.source as HistoryMediaSource).kind === 'session_media') {
+        hasDaemonMedia = true;
+        output.push(part);
+      }
+      continue;
+    }
+    const ref = daemonFileRefFromPairingPart(part);
+    if (ref !== undefined) {
+      hasDaemonMedia = true;
+      output.push({
+        type: ref.kind,
+        source: { kind: 'session_media', file_id: ref.ref.fileId },
+        name: ref.name,
+      });
+      continue;
+    }
+    if ((part.type === 'image_url' || part.type === 'video_url') && 'source' in part) {
+      const native = part as {
+        readonly type: 'image_url' | 'video_url';
+        readonly source: NativeHistoryMediaSource;
+        readonly name?: string;
+      };
+      if (native.source.kind === 'url') {
+        const daemonRef = parseDaemonFileRef(native.source.url);
+        if (daemonRef !== undefined) {
+          hasDaemonMedia = true;
+          output.push({
+            type: native.type === 'image_url' ? 'image' : 'video',
+            source: { kind: 'session_media', file_id: daemonRef.fileId },
+            name: native.name,
+          });
+        }
+      }
+    }
+  }
+  return hasDaemonMedia ? output : textOf(message);
 }
 
 export function groupMessagesIntoSnapshot(
@@ -554,12 +612,12 @@ export function createHistoryMessageProjector(): HistoryMessageProjector {
     if (message.role === 'tool') {
       const frame = currentTurnToolFrame(turn, message.toolCallId);
       if (frame && frame.kind === 'tool') {
-        const output = textOf(message);
+        const output = toolOutputOf(message);
         const patched: TranscriptFrame = {
           ...frame,
           state: message.isError ? 'error' : 'done',
           output,
-          error: message.isError ? output : undefined,
+          error: message.isError ? textOf(message) : undefined,
         };
         replaceToolFrame(turn!, message.toolCallId!, patched);
         syncTurnItem(items, turnIndices, turn!);
