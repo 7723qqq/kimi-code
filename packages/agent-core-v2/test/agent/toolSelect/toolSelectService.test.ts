@@ -788,10 +788,11 @@ describe('AgentToolSelectService view shaping (gate open)', () => {
     expect(h.contextMemory.get()[0]?.tools?.map((tool) => tool.name)).toEqual([USER_DEFERRED]);
   });
 
-  it('shapeHistory removes a deferred schema after re-registering the user tool inline', () => {
+  it('shapeHistory removes a deferred schema once the user tool is registered inline', () => {
     const h = createHarness();
-    registerUser(h, new EchoTool(USER_DEFERRED), 'deferred');
+    const deferred = registerUser(h, new EchoTool(USER_DEFERRED), 'deferred');
     h.contextMemory.history.push(schemaMessage(USER_DEFERRED));
+    deferred.dispose();
     registerUser(h, new EchoTool(USER_DEFERRED));
 
     expect(h.sut.shapeHistory(h.contextMemory.get())).toEqual([]);
@@ -1415,7 +1416,10 @@ describe('AgentToolSelectService consecutive failures', () => {
       if (change === 'add') registerMcp(h, new StubMcpTool(MCP_BETA));
       if (change === 'remove') registration.dispose();
       if (change === 'policy') deniedToolNames = new Set(['UnregisteredTool']);
-      if (change === 'disclosure') registerMcp(h, new StubMcpTool(MCP_ALPHA), 'inline');
+      if (change === 'disclosure') {
+        registration.dispose();
+        registerMcp(h, new StubMcpTool(MCP_ALPHA), 'inline');
+      }
       const next = h.sut.load([MCP_GONE]);
       expect(next.consecutiveFailures).toBe(1);
       expect(next.escalated).toEqual({});

@@ -119,8 +119,6 @@ export const ErrorCodes = {
   ...StateErrors.codes,
 } as const;
 
-export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
-
 export type KimiErrorCode =
   | 'agent.already_exists'
   | 'agent.already_running'

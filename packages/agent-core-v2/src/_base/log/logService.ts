@@ -1,6 +1,5 @@
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { LifecycleScope, ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
-import { LifecycleScope } from '#/app/scopes';
 
 import { createFileLogWriter, type FileLogWriter } from './fileLog';
 import {

@@ -997,31 +997,31 @@ interface TurnEndedPayload {
   reason: 'completed' | 'cancelled' | 'failed' | 'blocked';
   /** KimiErrorPayload */
   error?: {
-    code: (typeof ErrorCodes)[keyof typeof ErrorCodes];
+    code: (typeof ERROR_CODE_UNION)[number];
     message: string;
     name?: string;
     details?: Readonly<Record<string, unknown>>;
     retryable: boolean;
     cause?: {
-      code: (typeof ErrorCodes)[keyof typeof ErrorCodes];
+      code: (typeof ERROR_CODE_UNION)[number];
       message: string;
       name?: string;
       details?: Readonly<Record<string, unknown>>;
       retryable: boolean;
       cause?: {
-        code: (typeof ErrorCodes)[keyof typeof ErrorCodes];
+        code: (typeof ERROR_CODE_UNION)[number];
         message: string;
         name?: string;
         details?: Readonly<Record<string, unknown>>;
         retryable: boolean;
         cause?: {
-          code: (typeof ErrorCodes)[keyof typeof ErrorCodes];
+          code: (typeof ERROR_CODE_UNION)[number];
           message: string;
           name?: string;
           details?: Readonly<Record<string, unknown>>;
           retryable: boolean;
           cause?: {
-            code: (typeof ErrorCodes)[keyof typeof ErrorCodes];
+            code: (typeof ERROR_CODE_UNION)[number];
             message: string;
             name?: string;
             details?: Readonly<Record<string, unknown>>;

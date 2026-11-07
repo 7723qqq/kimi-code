@@ -133,6 +133,9 @@ export const kimiOpenAITrait: OpenAITrait = {
 
     if (message.role === 'system' && message.tools !== undefined && message.tools.length > 0) {
       record['tools'] = message.tools.map((tool) => convertKimiTool(tool));
+      if (record['content'] === '') {
+        delete record['content'];
+      }
     }
 
     const convertedToolCalls = record['tool_calls'];

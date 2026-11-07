@@ -94,9 +94,9 @@ describe('AgentToolRegistryService', () => {
     expect(registry.resolve('Temp')).toBeUndefined();
   });
 
-  it('replaces an existing tool when re-registering the same name', () => {
-    const original = new StubTool('Echo', 'original');
-    const replacement = new StubTool('Echo', 'replacement');
+  it('replaces an existing tool when re-registering the same name with an unchanged definition', () => {
+    const original = new StubTool('Echo', 'stable');
+    const replacement = new StubTool('Echo', 'stable');
 
     registry.register(original);
     expect(registry.resolve('Echo')).toBe(original);
@@ -105,9 +105,44 @@ describe('AgentToolRegistryService', () => {
     expect(registry.resolve('Echo')).toBe(replacement);
   });
 
-  it('does not unregister a replacement when the original disposable fires', () => {
+  it('keeps the active schema and executor when a same-name definition changes', () => {
     const original = new StubTool('Echo', 'original');
-    const replacement = new StubTool('Echo', 'replacement');
+    const changed = new StubTool('Echo', 'changed');
+
+    registry.register(original);
+    const handle = registry.register(changed);
+
+    expect(handle.status).toBe('pending');
+    expect(registry.resolve('Echo')).toBe(original);
+    expect(registry.list()).toEqual([
+      expect.objectContaining({ name: 'Echo', description: 'original' }),
+    ]);
+    expect(registry.listLive?.()).toEqual([
+      expect.objectContaining({ name: 'Echo', description: 'changed' }),
+    ]);
+
+    handle.dispose();
+    expect(registry.listLive?.()).toEqual([
+      expect.objectContaining({ name: 'Echo', description: 'original' }),
+    ]);
+    expect(registry.resolve('Echo')).toBe(original);
+  });
+
+  it('reports active status when a same-name definition is unchanged', () => {
+    const original = new StubTool('Echo', 'stable');
+    const replacement = new StubTool('Echo', 'stable');
+
+    registry.register(original);
+    const handle = registry.register(replacement);
+
+    expect(handle.status).toBe('active');
+    expect(registry.resolve('Echo')).toBe(replacement);
+    expect(registry.listLive?.()).toEqual(registry.list());
+  });
+
+  it('does not unregister a replacement when the original disposable fires', () => {
+    const original = new StubTool('Echo', 'stable');
+    const replacement = new StubTool('Echo', 'stable');
 
     const originalHandle = registry.register(original);
     registry.register(replacement);
@@ -153,8 +188,8 @@ describe('AgentToolRegistryService', () => {
   });
 
   it('calling unregister on a disposable handle from a replaced registration is safe', () => {
-    const original = new StubTool('A', 'original');
-    const replacement = new StubTool('A', 'replacement');
+    const original = new StubTool('A', 'stable');
+    const replacement = new StubTool('A', 'stable');
 
     const originalHandle = registry.register(original);
     const replacementHandle = registry.register(replacement);

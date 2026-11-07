@@ -61,6 +61,7 @@
     "gen:config-manifest": "bun scripts/gen-config-manifest.mts",
     "gen:wire-manifest": "bun scripts/gen-wire-manifest.mts",
     "gen:state-manifest": "bun scripts/gen-state-manifest.mts",
+    "gen:error-codes": "bun scripts/gen-error-codes.mts",
     "lint:imports": "bun scripts/check-import-boundaries.mjs && bun scripts/check-deep-imports.mjs",
     "clean": "rm -rf dist",
     "check:deep-imports": "bun scripts/check-deep-imports.mjs",

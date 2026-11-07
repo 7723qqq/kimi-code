@@ -12,6 +12,12 @@ export { ScopeActivation };
 
 export type ScopeKind = string;
 
+export enum LifecycleScope {
+  App = 'app',
+  Session = 'session',
+  Agent = 'agent',
+}
+
 let _scopeTopology: readonly string[] | undefined;
 
 export function setScopeTopology(kinds: readonly string[]): void {

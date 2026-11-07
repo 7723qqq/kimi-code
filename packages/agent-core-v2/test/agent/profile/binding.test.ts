@@ -1178,14 +1178,10 @@ describe('AgentToolPolicyService executor enforcement', () => {
     await ctx
       .get(IAgentProfileService)
       .bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: MOCK_MODEL });
-    const probe = new PolicyProbeTool(SELECT_TOOLS_TOOL_NAME);
-    ctx.get(IAgentToolRegistryService).register(probe);
-
     const result = await executeDirectToolCall(ctx, SELECT_TOOLS_TOOL_NAME);
 
-    expect(result).toMatchObject({ output: 'executed' });
-    expect(result.isError).toBeFalsy();
-    expect(probe.calls).toBe(1);
+    expect(result.output).toBe('select_tools is not available for the current model.');
+    expect(result.output).not.toContain('disabled by the active tool policy');
   });
 
   it.each([

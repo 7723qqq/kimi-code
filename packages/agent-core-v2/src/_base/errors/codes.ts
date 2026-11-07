@@ -1,3 +1,7 @@
+import { ERROR_CODE_UNION } from './errorCode.generated';
+
+export type ErrorCode = (typeof ERROR_CODE_UNION)[number];
+
 export interface ErrorInfo {
   readonly title?: string;
   readonly retryable: boolean;
