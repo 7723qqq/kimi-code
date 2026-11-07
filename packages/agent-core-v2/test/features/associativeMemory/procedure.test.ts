@@ -9,7 +9,7 @@ function atom(id: string, noteId: string, vector: Record<string, number>): Atom 
     id,
     noteId,
     scopeKey: 'proj',
-    nodeType: 'atom',
+    nodeType: 'atom', spanStart: 0, spanEnd: 0,
     text: id,
     terms: Object.keys(vector),
     vector,
@@ -29,7 +29,7 @@ function atom(id: string, noteId: string, vector: Record<string, number>): Atom 
 }
 
 function note(id: string, createdAt: number): NoteRecord {
-  return { id, scopeKey: 'proj', text: id, atomIds: [], createdAt };
+  return { id, scopeKey: 'proj', text: id, createdAt, source: 'user' };
 }
 
 function params(overrides: Partial<AssociativeMemoryParams> = {}): AssociativeMemoryParams {

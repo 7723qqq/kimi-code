@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import {
+  filterRecallItems,
   applyRecallRules,
   applyWriteRules,
   orderConflictGroups,
@@ -46,6 +47,10 @@ describe('associative memory code', () => {
     const rules = [recallRule('internal-host')];
     const items = [item('a', 'see internal-host for details'), item('b', 'public docs')];
     expect(applyRecallRules(items, rules).map((entry) => entry.id)).toEqual(['b']);
+    const filtered = filterRecallItems(items, rules);
+    expect(filtered.kept.map((entry) => entry.id)).toEqual(['b']);
+    expect(filtered.dropped).toHaveLength(1);
+    expect(filtered.dropped[0]!.rule).toBe('r');
   });
 
   it('resolves conflicts by keeping every side and sorting by confidence and recency', () => {

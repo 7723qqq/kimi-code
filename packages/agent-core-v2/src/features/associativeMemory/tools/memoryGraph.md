@@ -1,9 +1,35 @@
 Record experience into a self-training associative memory and recall it by association.
 
 The memory encodes what you write into atomic units, learns weighted associations
-between them, and injects related memories into the context on each turn. Writing a
+between them, and injects related memories into the context as the conversation moves.
+A given memory is surfaced once per session and then held back until the next
+session, so the context is not flooded with the same lines. Writing a
 note trains the memory: the new atoms are linked to whatever the note reminds the
-memory of, and associations that are used survive while unused ones fade.
+memory of, a surfaced memory keeps its recency, and associations that are used
+survive while unused ones fade.
+
+## What recall can and cannot do
+
+`recall` matches on the words in the cue: terms you write are what later lookups
+must share. A cue phrased with completely different words ("ship a build" for a
+note about a deploy rollout) shares no terms and will not reach the note, unless
+an embedding provider is configured, in which case paraphrase matches also work.
+Write the words you would search for, or repeat the note's own vocabulary in the
+cue, instead of assuming the memory knows synonyms.
+
+Diversity is capped before `limit` applies: at most three distinct notes surface
+per scope, so a larger `limit` returns at most three note items (concepts can add
+to that count). Raise the cue's precision instead of raising `limit`.
+
+A concept is a compression node: several atoms that keep appearing together are
+summarised as one labelled node, and that node can be recalled, labelled and
+pinned. It does not outrank the atoms it summarises — when a cue points at one
+member, you get the atom; spread cues return both, with the atoms first.
+
+This graph is separate from the `Memory` markdown store, and recall is not unified:
+`recall` here searches the graph only, while markdown memories are searched with
+`Memory({ action: "search" })`. Writing here does not create a markdown file, and
+writing through `Memory` does not train this graph.
 
 ## Actions
 
@@ -11,6 +37,11 @@ memory of, and associations that are used survive while unused ones fade.
 Record a note. The note is split into atomic units and trained into the graph.
 Write what is worth remembering: decisions, lessons, patterns, references.
 Do not write credentials or private keys; the memory code blocks them.
+Writing a note whose terms already exist is a no-op: it refreshes that note's
+recency instead of storing a second copy. Terms are compared as a set, so a note
+that only reorders the same words counts as the same memory (`"A before B"` and
+`"B before A"` collide); say it with one different word when the order carries
+meaning.
 ```
 MemoryGraph({ action: "write", text: "The auth service retries twice before failing." })
 ```
@@ -29,13 +60,17 @@ MemoryGraph({ action: "pin", id: "<atom id>" })
 ```
 
 ### `forget`
-Soft-delete an atom or concept. It is hidden from recall but kept for audit.
+Soft-delete an atom or concept. It stops matching recall and its associations are
+removed, so it no longer votes on what is related; a forgotten atom keeps a
+tombstone that history recall (`includeHistory`) can still show. Forgetting an atom
+also drops any concept or procedure that contained it.
 ```
 MemoryGraph({ action: "forget", id: "<atom id>" })
 ```
 
 ### `list`
-List what the memory holds, newest first. Use `kind` to show atoms, concepts, or procedures.
+List what the memory holds, most recently activated first. Use `kind` to show atoms,
+concepts, or procedures.
 ```
 MemoryGraph({ action: "list", kind: "concept", limit: 10 })
 ```
@@ -48,8 +83,13 @@ MemoryGraph({ action: "export", scope: "all" })
 ```
 
 ### `replay`
-Re-consolidate the memories that were contradicted (their prediction was wrong), highest
-priority first. Call this after a correction to strengthen the surrounding associations.
+Re-consolidate the memories that were flagged as contradicted, highest priority first.
+A memory is flagged when `reconsolidate` supersedes it, or when a write supersedes it as
+a near-duplicate; the write path needs two notes that share nearly every term, so in most
+stores only `reconsolidate` produces candidates and otherwise this returns `replayed: 0`.
+It strengthens edges between the flagged atoms, refreshes their recency, and lowers each
+priority by one. It never un-suppresses them, so a flagged memory stays out of `recall`
+unless you pass `includeHistory`. It reads the project scope only.
 ```
 MemoryGraph({ action: "replay", limit: 5 })
 ```
@@ -85,6 +125,8 @@ MemoryGraph({ action: "audit", limit: 20 })
 
 ### `stats`
 Counts for a scope: atoms, concepts, procedures, edges, notes, pinned, suppressed.
+Forgotten memories are excluded from every count; `suppressed` covers atoms that were
+superseded or retired by the atom budget.
 ```
 MemoryGraph({ action: "stats", scope: "all" })
 ```

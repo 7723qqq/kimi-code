@@ -79,6 +79,7 @@ async function run(
     query?: string;
     id?: string;
     kind?: 'atom' | 'concept';
+    scope?: 'project' | 'global' | 'all';
   },
 ): Promise<string> {
   const execution = tool.resolveExecution(args);
@@ -186,4 +187,5 @@ describe('MemoryGraph tool', () => {
     expect(tool.description.length).toBeGreaterThan(0);
     expect(tool.parameters).toBeDefined();
   });
+
 });

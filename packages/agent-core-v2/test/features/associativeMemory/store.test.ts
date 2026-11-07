@@ -7,7 +7,7 @@ import { AssociativeMemoryStore } from '#/features/associativeMemory/store';
 import type { Atom, Concept, Edge, NoteRecord } from '#/features/associativeMemory/types';
 
 function note(id: string, scopeKey: string, text: string): NoteRecord {
-  return { id, scopeKey, text, atomIds: [`atom:${id}:0`], createdAt: 1 };
+  return { id, scopeKey, text, createdAt: 1, source: 'user' };
 }
 
 function atom(id: string, scopeKey: string, noteId: string, text: string): Atom {
@@ -15,7 +15,7 @@ function atom(id: string, scopeKey: string, noteId: string, text: string): Atom 
     id,
     noteId,
     scopeKey,
-    nodeType: 'atom',
+    nodeType: 'atom', spanStart: 0, spanEnd: 0,
     text,
     terms: [text],
     vector: { [text]: 1 },
@@ -122,5 +122,22 @@ describe('AssociativeMemoryStore', () => {
     expect(store.listEdges()).toEqual([]);
     expect(store.listNotes().map((n) => n.id)).toEqual(['n1']);
     await store.close();
+  });
+
+  it('derives atom text from the note instead of persisting a second copy', async () => {
+    const text = 'first fact\n\nsecond fact';
+    const store = await AssociativeMemoryStore.open('proj-a', root);
+    await store.putNote(note('n1', 'proj-a', text));
+    await store.putAtom({
+      ...atom('a1', 'proj-a', 'n1', text.slice(0, 10)),
+      spanStart: 0,
+      spanEnd: 10,
+    });
+    await store.putNote(note('n1', 'proj-a', `FIRST fact${text.slice(10)}`));
+    await store.close();
+
+    const reopened = await AssociativeMemoryStore.open('proj-a', root);
+    expect(reopened.listAtoms()[0]?.text).toBe('FIRST fact');
+    await reopened.close();
   });
 });

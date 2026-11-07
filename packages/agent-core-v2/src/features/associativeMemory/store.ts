@@ -23,6 +23,7 @@ export class AssociativeMemoryStore {
   private readonly atoms = new Map<string, Atom>();
   private readonly concepts = new Map<string, Concept>();
   private readonly edges = new Map<string, Edge>();
+  private readonly bySource = new Map<string, Set<string>>();
   private readonly notes = new Map<string, NoteRecord>();
   private readonly coocs = new Map<string, Cooccurrence>();
   private readonly procedures = new Map<string, Procedure>();
@@ -46,9 +47,21 @@ export class AssociativeMemoryStore {
 
   private load(): void {
     const db = this.requireDb();
+    for (const entry of db.query({ key: { prefix: NOTE_PREFIX } })) {
+      const stored = entry.value as Partial<NoteRecord>;
+      if (stored.id === undefined) continue;
+      const note: NoteRecord = { ...stored, source: stored.source ?? 'legacy' } as NoteRecord;
+      this.notes.set(note.id, note);
+    }
     for (const entry of db.query({ key: { prefix: ATOM_PREFIX } })) {
-      const atom = entry.value as Atom;
-      this.atoms.set(atom.id, atom);
+      const stored = entry.value as Partial<Atom>;
+      if (stored.id === undefined) continue;
+      const note = stored.noteId === undefined ? undefined : this.notes.get(stored.noteId);
+      const text =
+        note !== undefined && stored.spanStart !== undefined && stored.spanEnd !== undefined
+          ? note.text.slice(stored.spanStart, stored.spanEnd)
+          : (stored.text ?? '');
+      this.atoms.set(stored.id, { ...stored, text } as Atom);
     }
     for (const entry of db.query({ key: { prefix: CONCEPT_PREFIX } })) {
       const concept = entry.value as Concept;
@@ -57,10 +70,7 @@ export class AssociativeMemoryStore {
     for (const entry of db.query({ key: { prefix: EDGE_PREFIX } })) {
       const edge = entry.value as Edge;
       this.edges.set(edge.id, edge);
-    }
-    for (const entry of db.query({ key: { prefix: NOTE_PREFIX } })) {
-      const note = entry.value as NoteRecord;
-      this.notes.set(note.id, note);
+      this.indexEdge(edge);
     }
     for (const entry of db.query({ key: { prefix: COOC_PREFIX } })) {
       const cooc = entry.value as Cooccurrence;
@@ -78,6 +88,26 @@ export class AssociativeMemoryStore {
 
   listConcepts(): readonly Concept[] {
     return [...this.concepts.values()];
+  }
+
+  private indexEdge(edge: Edge): void {
+    let ids = this.bySource.get(edge.from);
+    if (ids === undefined) {
+      ids = new Set();
+      this.bySource.set(edge.from, ids);
+    }
+    ids.add(edge.id);
+  }
+
+  edgesFrom(sources: ReadonlySet<string>): readonly Edge[] {
+    const out: Edge[] = [];
+    for (const source of sources) {
+      for (const id of this.bySource.get(source) ?? []) {
+        const edge = this.edges.get(id);
+        if (edge !== undefined) out.push(edge);
+      }
+    }
+    return out;
   }
 
   listEdges(): readonly Edge[] {
@@ -102,6 +132,10 @@ export class AssociativeMemoryStore {
 
   getAtom(id: string): Atom | undefined {
     return this.atoms.get(id);
+  }
+
+  getEdge(id: string): Edge | undefined {
+    return this.edges.get(id);
   }
 
   getConcept(id: string): Concept | undefined {
@@ -133,7 +167,9 @@ export class AssociativeMemoryStore {
 
   async putAtom(atom: Atom): Promise<void> {
     this.atoms.set(atom.id, atom);
-    await this.requireDb().set(`${ATOM_PREFIX}${atom.id}`, atom);
+    const persisted: Record<string, unknown> = { ...atom };
+    delete persisted['text'];
+    await this.requireDb().set(`${ATOM_PREFIX}${atom.id}`, persisted);
   }
 
   async putConcept(concept: Concept): Promise<void> {
@@ -143,6 +179,7 @@ export class AssociativeMemoryStore {
 
   async putEdge(edge: Edge): Promise<void> {
     this.edges.set(edge.id, edge);
+    this.indexEdge(edge);
     await this.requireDb().set(`${EDGE_PREFIX}${edge.id}`, edge);
   }
 
@@ -162,8 +199,30 @@ export class AssociativeMemoryStore {
   }
 
   async deleteEdge(id: string): Promise<void> {
+    const existing = this.edges.get(id);
+    if (existing !== undefined) this.bySource.get(existing.from)?.delete(id);
     this.edges.delete(id);
     await this.requireDb().del(`${EDGE_PREFIX}${id}`);
+  }
+
+  async deleteNote(id: string): Promise<void> {
+    this.notes.delete(id);
+    await this.requireDb().del(`${NOTE_PREFIX}${id}`);
+  }
+
+  async deleteConcept(id: string): Promise<void> {
+    this.concepts.delete(id);
+    await this.requireDb().del(`${CONCEPT_PREFIX}${id}`);
+  }
+
+  async deleteCooccurrence(key: string): Promise<void> {
+    this.coocs.delete(key);
+    await this.requireDb().del(`${COOC_PREFIX}${key}`);
+  }
+
+  async deleteProcedure(id: string): Promise<void> {
+    this.procedures.delete(id);
+    await this.requireDb().del(`${PROCEDURE_PREFIX}${id}`);
   }
 
   async clearGraph(): Promise<void> {

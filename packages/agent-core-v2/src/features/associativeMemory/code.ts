@@ -1,7 +1,7 @@
 import { parseFrontmatter } from '#/_base/text/frontmatter';
 
 import { toHardRule } from './code/rules';
-import type { HardRule, MemoryCode, RecallItem } from './types';
+import type { HardRule, MemoryCode, RecallDrop, RecallItem } from './types';
 
 export function codeAllowsEmbeddings(code: MemoryCode): boolean {
   return !code.rules.some((rule) => rule.action === 'block_embed');
@@ -33,15 +33,26 @@ export function applyRecallRules(
   items: readonly RecallItem[],
   rules: readonly HardRule[],
 ): RecallItem[] {
-  return items.filter(
-    (item) =>
-      !rules.some(
-        (rule) =>
-          (rule.scope === 'recall' || rule.scope === 'atom') &&
-          rule.action === 'block_recall' &&
-          ruleMatches(rule, item.text),
-      ),
-  );
+  return filterRecallItems(items, rules).kept;
+}
+
+export function filterRecallItems(
+  items: readonly RecallItem[],
+  rules: readonly HardRule[],
+): { readonly kept: RecallItem[]; readonly dropped: readonly RecallDrop[] } {
+  const kept: RecallItem[] = [];
+  const dropped: RecallDrop[] = [];
+  for (const item of items) {
+    const hit = rules.find(
+      (rule) =>
+        (rule.scope === 'recall' || rule.scope === 'atom') &&
+        rule.action === 'block_recall' &&
+        ruleMatches(rule, item.text),
+    );
+    if (hit === undefined) kept.push(item);
+    else dropped.push({ id: item.id, rule: hit.id });
+  }
+  return { kept, dropped };
 }
 
 export function resolveConflict(

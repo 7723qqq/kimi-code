@@ -1,4 +1,4 @@
-import { appendFile, mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'pathe';
 import { dump } from 'js-yaml';
 
@@ -8,11 +8,27 @@ import { toHardRule } from './rules';
 import type { HardRule, MemoryCode } from '../types';
 
 export const proposalsFileName = 'proposals.md';
+export const MAX_PENDING_PROPOSALS = 50;
+
+async function readProposalLines(path: string): Promise<string[]> {
+  try {
+    const text = await Bun.file(path).text();
+    return text
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+  } catch {
+    return [];
+  }
+}
 
 export async function proposeRule(homeDir: string, storeRoot: string, rule: unknown): Promise<void> {
   const dir = join(homeDir, storeRoot);
   await mkdir(dir, { recursive: true });
-  await appendFile(join(dir, proposalsFileName), `- ${JSON.stringify(rule)}\n`, 'utf8');
+  const path = join(dir, proposalsFileName);
+  const lines = [...(await readProposalLines(path)), `- ${JSON.stringify(rule)}`];
+  const kept = lines.slice(-MAX_PENDING_PROPOSALS);
+  await writeFile(path, `${kept.join('\n')}\n`, 'utf8');
 }
 
 export async function approveProposal(
@@ -40,12 +56,15 @@ export async function approveProposal(
     content = '';
   }
   const parsed = parseFrontmatter(content);
-  const existing = Array.isArray((parsed.data as { rules?: unknown }).rules)
-    ? ((parsed.data as { rules: unknown[] }).rules as HardRule[])
-    : [];
+  const data = parsed.data as { rules?: unknown } | null | undefined;
+  const existing = Array.isArray(data?.rules) ? (data.rules as HardRule[]) : [];
   const rules = [...defaults.rules, ...existing, rule];
-  const body = parsed.body.trim().length > 0 ? `${parsed.body.trim()}\n` : '';
-  await writeFile(codePath, `---\n${dump({ rules })}---\n${body}`, 'utf8');
+  const body = (parsed.body ?? '').trim();
+  await writeFile(
+    codePath,
+    `---\n${dump({ rules })}---\n${body.length > 0 ? `${body}\n` : ''}`,
+    'utf8',
+  );
 
   const remaining = [...lines.slice(0, index), ...lines.slice(index + 1)];
   if (remaining.length === 0) {

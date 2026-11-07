@@ -35,7 +35,8 @@ describe('associative memory integration', () => {
           { debug() {}, info() {}, warn() {}, error() {} } as never,
           { register: () => ({ dispose() {} }) } as never,
           { get: () => [] } as never,
-        );
+          { cwd } as never,
+          );
       }
       protected override now(): number {
         return now;
@@ -94,18 +95,13 @@ describe('associative memory integration', () => {
     expect((await h.service.stats()).atoms).toBe(total);
   });
 
-  it('closes the interval of a superseded atom and hides it unless history is requested', async () => {
+  it('keeps a re-written note as one note instead of superseding it', async () => {
     const h = build(join(homeDir, 'proj-a'));
     const first = await h.service.writeNote('the cache ttl is 30 seconds');
     const second = await h.service.writeNote('the cache ttl is 30 seconds');
-    const firstId = first.atomIds[0];
-    const secondId = second.atomIds[0];
-    if (firstId === undefined || secondId === undefined) throw new Error('expected atoms');
-    expect((await h.service.stats()).suppressed).toBeGreaterThan(0);
-    const hidden = await h.service.recall(query('cache ttl'));
-    expect(hidden.items.map((item) => item.id)).not.toContain(firstId);
-    expect(hidden.items.map((item) => item.id)).toContain(secondId);
-    const history = await h.service.recall({ ...query('cache ttl'), includeHistory: true });
-    expect(history.items.map((item) => item.id)).toContain(firstId);
+    expect(second.decision).toBe('noop');
+    expect(second.noteId).toBe(first.noteId);
+    expect((await h.service.stats()).notes).toBe(1);
+    expect((await h.service.stats()).suppressed).toBe(0);
   });
 });

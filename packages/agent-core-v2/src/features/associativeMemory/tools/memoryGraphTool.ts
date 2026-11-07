@@ -66,7 +66,9 @@ export class MemoryGraphTool implements IMemoryGraphTool {
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(MemoryGraphInputSchema);
 
-  constructor(@IAssociativeMemoryService private readonly memory: IAssociativeMemoryService) {}
+  constructor(
+    @IAssociativeMemoryService private readonly memory: IAssociativeMemoryService,
+  ) {}
 
   resolveExecution(args: MemoryGraphInput): ToolExecution {
     return {
@@ -118,11 +120,18 @@ export class MemoryGraphTool implements IMemoryGraphTool {
     if (args.text === undefined || args.text.trim().length === 0) {
       return { output: t('toolsV2.memoryGraph.writeRequired'), isError: true };
     }
+    if (args.scope === 'all') {
+      return { output: t('toolsV2.memoryGraph.scopeAllNotWritable'), isError: true };
+    }
     const result = await this.memory.writeNote(
       args.text,
       args.scope === 'global' ? 'global' : 'project',
+      'tool',
     );
     if (result.blockedByCode) return { output: t('toolsV2.memoryGraph.blockedByCode') };
+    if (result.decision === 'noop') {
+      return { output: t('toolsV2.memoryGraph.alreadyRecorded') };
+    }
     return { output: t('toolsV2.memoryGraph.wrote', { count: String(result.atomIds.length) }) };
   }
 
@@ -136,8 +145,11 @@ export class MemoryGraphTool implements IMemoryGraphTool {
       maxTokens: ASSOCIATIVE_MEMORY_PARAMS.injectionMaxTokens,
       includeHistory: false,
       scope: args.scope,
+      reinforce: true,
     });
-    if (result.items.length === 0) return { output: t('toolsV2.memoryGraph.noResults') };
+    if (result.items.length === 0) {
+      return { output: t('toolsV2.memoryGraph.noResults') };
+    }
     const lines = result.items.map(
       (item) => `- ${item.text} (${item.score.toFixed(3)}) [${item.id}]`,
     );
@@ -216,15 +228,23 @@ export class MemoryGraphTool implements IMemoryGraphTool {
     if (args.query === undefined || args.query.trim().length === 0) {
       return { output: t('toolsV2.memoryGraph.queryRequired'), isError: true };
     }
-    const trace = await this.memory.explain({
+    const explained = await this.memory.explain({
       cue: args.query,
       limit: undefined,
       maxTokens: undefined,
       includeHistory: false,
       scope: args.scope,
+      reinforce: true,
     });
-    if (trace.length === 0) return { output: t('toolsV2.memoryGraph.noTrace') };
-    const lines = trace.map((node) => `${node.kind} ${node.id} ${node.score.toFixed(3)}`);
+    if (explained.trace.length === 0 && explained.dropped.length === 0) {
+      return { output: t('toolsV2.memoryGraph.noTrace') };
+    }
+    const lines = explained.trace.map(
+      (node) => `${node.kind} ${node.id} ${node.score.toFixed(3)}`,
+    );
+    for (const drop of explained.dropped) {
+      lines.push(`- dropped ${drop.id} by rule ${drop.rule}`);
+    }
     return { output: lines.join('\n') };
   }
 

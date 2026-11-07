@@ -1,161 +1,80 @@
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { promises as fsp } from 'node:fs';
+import { describe, expect, it } from 'bun:test';
+import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import { join } from 'node:path';
 
 import { evaluateRecall, formatEvaluation } from '#/features/associativeMemory/eval';
-import { AssociativeMemoryService } from '#/features/associativeMemory/service';
 
-import { stubBootstrap } from '../../app/bootstrap/stubs';
+import {
+  EVAL_DISTRACTORS,
+  EVAL_HARD_DISTRACTORS,
+  EVAL_SPARSE_DISTRACTORS,
+  EVAL_TOPICS,
+  buildEvalService,
+} from './eval-corpus';
 
-interface Topic {
-  readonly name: string;
-  readonly cue: string;
-  readonly synonymCue: string;
-  readonly notes: readonly string[];
+const TIERS: readonly (readonly [string, readonly string[]])[] = [
+  ['easy', EVAL_DISTRACTORS],
+  ['clustered', [...EVAL_DISTRACTORS, ...EVAL_HARD_DISTRACTORS]],
+  ['per-topic-duplicates', [...EVAL_DISTRACTORS, ...EVAL_SPARSE_DISTRACTORS]],
+];
+
+interface TierReport {
+  readonly lexical: ReturnType<typeof evaluateRecall>;
+  readonly synonym: ReturnType<typeof evaluateRecall>;
 }
 
-const TOPICS: readonly Topic[] = [
-  {
-    name: 'auth',
-    cue: 'login session credential',
-    synonymCue: 'sign in',
-    notes: [
-      'the authentication service refreshes the session token twice before failing',
-      'session credentials expire after seven days',
-    ],
-  },
-  {
-    name: 'cache',
-    cue: 'redis ttl expiry',
-    synonymCue: 'in memory store',
-    notes: [
-      'the cache layer sets a 30 second ttl on entries',
-      'cache eviction runs every minute under memory pressure',
-    ],
-  },
-  {
-    name: 'deploy',
-    cue: 'release rollout revert',
-    synonymCue: 'ship a build',
-    notes: [
-      'the deploy rollout pauses on error rates',
-      'rollback reverts the previous artifact',
-    ],
-  },
-  {
-    name: 'billing',
-    cue: 'payment invoice charge',
-    synonymCue: 'charge the card',
-    notes: [
-      'the billing invoice proration rounds down',
-      'invoice generation runs at midnight',
-    ],
-  },
-  {
-    name: 'search',
-    cue: 'index shard query',
-    synonymCue: 'look things up',
-    notes: [
-      'the search index sharding splits by tenant',
-      'index rebuilds run offline',
-    ],
-  },
-  {
-    name: 'notify',
-    cue: 'email alert delivery',
-    synonymCue: 'ping the oncall',
-    notes: [
-      'the notification service retries email delivery twice',
-      'alert digests are sent every hour',
-    ],
-  },
-];
-
-const DISTRACTORS: readonly string[] = [
-  'the week starts on monday',
-  'the office kitchen is on the third floor',
-  'the team meets every tuesday afternoon',
-];
-
-describe('associative memory recall benchmark', () => {
-  let homeDir: string;
-
-  beforeAll(async () => {
-    homeDir = await fsp.mkdtemp(join(os.tmpdir(), 'associative-memory-eval-'));
-  });
-
-  afterAll(async () => {
-    await fsp.rm(homeDir, { recursive: true, force: true });
-  });
-
-  it('measures hit@k and mrr on a synthetic corpus', async () => {
-    const bootstrap = { ...stubBootstrap(homeDir), cwd: join(homeDir, 'project') };
-    const service = new (class extends AssociativeMemoryService {
-      constructor() {
-        super(
-          bootstrap as never,
-          { enabled: () => true } as never,
-          { debug() {}, info() {}, warn() {}, error() {} } as never,
-          { register: () => ({ dispose() {} }) } as never,
-          { get: () => [] } as never,
-        );
-      }
-      protected override now(): number {
-        return 1_000;
-      }
-    })();
-
-    for (const note of DISTRACTORS) await service.writeNote(note);
+async function evaluateTier(distractors: readonly string[]): Promise<TierReport> {
+  const homeDir = await mkdtemp(join(os.tmpdir(), 'associative-memory-bench-'));
+  const service = buildEvalService(homeDir);
+  try {
+    for (const note of distractors) await service.writeNote(note);
 
     const expected: string[][] = [];
-    for (const topic of TOPICS) {
-      const noteIds: string[] = [];
-      for (const note of topic.notes) {
-        const written = await service.writeNote(note);
-        noteIds.push(written.noteId);
-      }
-      expected.push(noteIds);
+    for (const topic of EVAL_TOPICS) {
+      const ids: string[] = [];
+      for (const note of topic.notes) ids.push((await service.writeNote(note)).noteId);
+      expected.push(ids);
     }
 
-    const results: string[][] = [];
-    for (const topic of TOPICS) {
-      const recalled = await service.recall({
+    const lexical: string[][] = [];
+    const synonym: string[][] = [];
+    for (const topic of EVAL_TOPICS) {
+      const cued = await service.recall({
         cue: topic.cue,
         limit: 5,
         maxTokens: undefined,
         includeHistory: false,
       });
-      results.push(recalled.items.map((item) => item.noteId));
-    }
-
-    const synonymResults: string[][] = [];
-    for (const topic of TOPICS) {
-      const recalled = await service.recall({
+      lexical.push(cued.items.map((item) => item.noteId));
+      const paraphrased = await service.recall({
         cue: topic.synonymCue,
         limit: 5,
         maxTokens: undefined,
         includeHistory: false,
       });
-      synonymResults.push(recalled.items.map((item) => item.noteId));
+      synonym.push(paraphrased.items.map((item) => item.noteId));
     }
 
-    console.log(`\nassociative memory recall benchmark (${String(TOPICS.length)} topics)`);
-    TOPICS.forEach((topic, index) => {
-      const single = evaluateRecall([results[index]!], [expected[index]!], 5);
-      console.log(`  ${topic.name.padEnd(8)} lexical  ${formatEvaluation(single)}`);
-    });
-    console.log(`  overall  lexical  ${formatEvaluation(evaluateRecall(results, expected, 5))}`);
-    console.log('  (synonym cues share no terms with the notes: sparse-only baseline,');
-    console.log('   external embeddings are expected to lift these)');
-    TOPICS.forEach((topic, index) => {
-      const single = evaluateRecall([synonymResults[index]!], [expected[index]!], 5);
-      console.log(`  ${topic.name.padEnd(8)} synonym  ${formatEvaluation(single)}`);
-    });
-    console.log(`  overall  synonym  ${formatEvaluation(evaluateRecall(synonymResults, expected, 5))}`);
+    return {
+      lexical: evaluateRecall(lexical, expected, 5),
+      synonym: evaluateRecall(synonym, expected, 5),
+    };
+  } finally {
+    service.dispose();
+    await rm(homeDir, { recursive: true, force: true });
+  }
+}
 
-    const overall = evaluateRecall(results, expected, 5);
-    expect(overall.queries).toBe(TOPICS.length);
-    expect(overall.hitAt5).toBeGreaterThan(0);
-  });
+describe('associative memory recall benchmark', () => {
+  for (const [name, distractors] of TIERS) {
+    it(`reports recall for the ${name} tier`, async () => {
+      const report = await evaluateTier(distractors);
+      console.log(`\n${name}`);
+      console.log(`  lexical  ${formatEvaluation(report.lexical)}`);
+      console.log(`  synonym  ${formatEvaluation(report.synonym)}`);
+      expect(report.lexical.queries).toBe(EVAL_TOPICS.length);
+      expect(report.lexical.hitAt5).toBeGreaterThan(0);
+    });
+  }
 });

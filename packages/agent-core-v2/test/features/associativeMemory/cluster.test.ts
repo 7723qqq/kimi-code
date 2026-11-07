@@ -9,7 +9,7 @@ function atom(id: string, vector: Record<string, number>): Atom {
     id,
     noteId: `n:${id}`,
     scopeKey: 'proj',
-    nodeType: 'atom',
+    nodeType: 'atom', spanStart: 0, spanEnd: 0,
     text: id,
     terms: Object.keys(vector),
     vector,

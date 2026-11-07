@@ -9,7 +9,7 @@ function atom(id: string, terms: string[], overrides: Partial<Atom> = {}): Atom 
     id,
     noteId: `n:${id}`,
     scopeKey: 'proj',
-    nodeType: 'atom',
+    nodeType: 'atom', spanStart: 0, spanEnd: 0,
     text: id,
     terms,
     vector: Object.fromEntries(terms.map((term) => [term, 1])),
