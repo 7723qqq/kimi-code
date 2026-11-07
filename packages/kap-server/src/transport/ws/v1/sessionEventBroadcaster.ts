@@ -15,6 +15,7 @@ import type {
 } from '@moonshot-ai/agent-core-v2';
 import {
   IAgentLifecycleService,
+  IAgentLoopService,
   IEventBus,
   IEventService,
   INTERACTION_TAG_SESSION_ID,
@@ -263,6 +264,31 @@ export class SessionEventBroadcaster {
       }
     }
     return false;
+  }
+
+  async abortSession(sessionId: string): Promise<boolean> {
+    let session: ISessionScopeHandle | undefined;
+    try {
+      session = await resumeSessionById(this.opts.core.accessor, sessionId);
+    } catch (error) {
+      this.opts.logger?.warn(
+        { sessionId, err: error instanceof Error ? error.message : String(error) },
+        'session abort resume failed',
+      );
+      return false;
+    }
+    if (session === undefined) return false;
+    try {
+      const agent = await ensureMainAgent(session);
+      agent.accessor.get(IAgentLoopService).cancel();
+      return true;
+    } catch (error) {
+      this.opts.logger?.warn(
+        { sessionId, err: error instanceof Error ? error.message : String(error) },
+        'session abort failed',
+      );
+      return false;
+    }
   }
 
   async flushTranscriptSeed(_sessionId: string, _target: BroadcastTarget): Promise<void> {}

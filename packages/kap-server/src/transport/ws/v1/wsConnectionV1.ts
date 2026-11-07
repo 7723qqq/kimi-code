@@ -7,7 +7,7 @@ import { ulid } from 'ulid';
 import type { RawData, WebSocket } from 'ws';
 
 import { SYSTEM_CLOCK, type Clock, type TimerHandle } from '../../../lib/clock';
-import { unsubscribeV2PayloadSchema, WS_PROTOCOL_VERSION } from '../../../protocol/ws-control';
+import { abortPayloadSchema, unsubscribeV2PayloadSchema, WS_PROTOCOL_VERSION } from '../../../protocol/ws-control';
 import type { CredentialValidator } from '../../../services/auth/credentials';
 import type { IConnectionRegistry } from '../connectionRegistry';
 import { buildAck, buildPing, buildResponse, buildServerHello } from './protocol';
@@ -183,9 +183,22 @@ export class WsConnectionV1 implements BroadcastTarget {
       case 'unsubscribe_v2':
         this.enqueueControl(frame.id, () => this.onUnsubscribeV2(frame));
         return;
+      case 'abort':
+        this.enqueueControl(frame.id, () => this.onAbort(frame));
+        return;
       default:
         return;
     }
+  }
+
+  private async onAbort(frame: InboundFrame): Promise<void> {
+    const parsed = abortPayloadSchema.safeParse(frame.payload ?? {});
+    if (!parsed.success) {
+      this.sendImmediateFrame(buildAck(frame.id ?? '', 1, 'invalid abort payload', {}));
+      return;
+    }
+    const aborted = await this.broadcaster.abortSession(parsed.data.session_id);
+    this.sendImmediateFrame(buildAck(frame.id ?? '', 0, 'success', { aborted }));
   }
 
   private enqueueControl(frameId: string | undefined, task: () => Promise<void>): void {

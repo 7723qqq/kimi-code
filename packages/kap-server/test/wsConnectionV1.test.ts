@@ -56,6 +56,7 @@ class FakeSocket {
 function makeBroadcaster(): SessionEventBroadcaster {
   return {
     subscribe: async () => true,
+    abortSession: async () => true,
     flushTranscriptSeed: async () => {},
     addGlobalTarget: () => {},
     removeGlobalTarget: () => {},
@@ -213,9 +214,11 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
     broadcaster: SessionEventBroadcaster;
     calls: SubscribeCall[];
     detaches: { sessionId: string; agentIds?: readonly string[] }[];
+    aborts: string[];
   } {
     const calls: SubscribeCall[] = [];
     const detaches: { sessionId: string; agentIds?: readonly string[] }[] = [];
+    const aborts: string[] = [];
     const broadcaster = {
       subscribe: async (
         sessionId: string,
@@ -225,6 +228,10 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
         opts?: { transcriptSince?: Record<string, number> },
       ) => {
         calls.push({ sessionId, filter, grades, opts });
+        return true;
+      },
+      abortSession: async (sessionId: string) => {
+        aborts.push(sessionId);
         return true;
       },
       unsubscribeTranscript: (
@@ -239,7 +246,7 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
       removeGlobalTarget: () => {},
       sendPendingInteractions: () => {},
     } as unknown as SessionEventBroadcaster;
-    return { broadcaster, calls, detaches };
+    return { broadcaster, calls, detaches, aborts };
   }
 
   function controlFrame(type: string, payload: Record<string, unknown>): string {
@@ -315,6 +322,19 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
     );
     const ack = socket.sent.map((f) => JSON.parse(f)).find((f) => f.type === 'ack');
     expect(ack).toMatchObject({ code: 0, payload: { accepted: ['s1'], not_found: [] } });
+    conn.close();
+  });
+
+  it('aborts a running prompt through the broadcaster and acks the abort frame', async () => {
+    const socket = new FakeSocket();
+    const { broadcaster, aborts } = makeCapturingBroadcaster();
+    const conn = makeConn(socket, { broadcaster });
+
+    socket.emit('message', controlFrame('abort', { session_id: 's1', prompt_id: 'p1' }));
+    await waitForAssertion(() => expect(aborts).toEqual(['s1']));
+
+    const ack = socket.sent.map((f) => JSON.parse(f)).find((f) => f.type === 'ack');
+    expect(ack).toMatchObject({ id: 'req-1', code: 0, payload: { aborted: true } });
     conn.close();
   });
 
