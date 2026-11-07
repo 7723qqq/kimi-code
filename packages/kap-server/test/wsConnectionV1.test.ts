@@ -338,6 +338,30 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
     conn.close();
   });
 
+  it('unsubscribes a session whose subscription was still in flight when the socket closed', async () => {
+    const socket = new FakeSocket();
+    let releaseSubscribe: (() => void) | undefined;
+    const unsubscribed: string[] = [];
+    const broadcaster = Object.assign(makeBroadcaster(), {
+      subscribe: () =>
+        new Promise<boolean>((resolve) => {
+          releaseSubscribe = () => resolve(true);
+        }),
+      unsubscribe: (sessionId: string) => {
+        unsubscribed.push(sessionId);
+      },
+    }) as unknown as SessionEventBroadcaster;
+    const conn = makeConn(socket, { broadcaster });
+
+    socket.emit('message', controlFrame('subscribe_v2', { session_id: 's1', transcript: { main: 'block' } }));
+    await waitForAssertion(() => expect(releaseSubscribe).toBeDefined());
+    conn.close();
+    releaseSubscribe?.();
+
+    await waitForAssertion(() => expect(unsubscribed).toEqual(['s1']));
+    expect(conn.subscriptions.has('s1')).toBe(false);
+  });
+
 
 
   it('acks (and logs) when a control-frame task rejects instead of leaving the client waiting', async () => {

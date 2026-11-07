@@ -298,6 +298,10 @@ export class WsConnectionV1 implements BroadcastTarget {
       notFound?.push(sid);
       return;
     }
+    if (this.closed) {
+      this.broadcaster.unsubscribe(sid, this);
+      return;
+    }
     this.subscriptions.set(sid, { agentFilter: filter, transcriptGrades });
     accepted.push(sid);
     await this.broadcaster.flushTranscriptSeed(sid, this);
