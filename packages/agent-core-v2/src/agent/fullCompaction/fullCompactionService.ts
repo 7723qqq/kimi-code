@@ -1,13 +1,8 @@
 import type { IDisposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
-import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { Emitter, type Event } from '#/_base/event';
 import { isAbortError } from '#/_base/utils/abort';
-import {
-  buildCompactionSummaryText,
-  isRealUserInput,
-} from '#/agent/contextMemory/compactionHandoff';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
@@ -31,7 +26,6 @@ import {
   isError2,
   toKimiErrorPayload,
 } from '#/errors';
-import { renderTodoList } from '#/features/todo/todoItem';
 import { IAgentTodoService } from '#/features/todo/todoService';
 import { IAgentTaskService } from '#/agent/task/task';
 import { IAssociativeMemoryService } from '#/features/associativeMemory/service';
@@ -43,13 +37,13 @@ import { ISessionRunGate } from '#/session/sessionActivity/sessionRunGate';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { defineState } from '#/state/state';
-import type { WireLineRange } from '#/wire/record';
 import { IWireService } from '#/wire/wire';
 import type { ToolDescription as Tool } from '#human/llm/message';
 import { inputTotal, type TokenUsage } from '#human/llm/usage';
 
 import { renderCompactionInstruction } from './compactionInstruction';
 import { generateCompactionSummary } from './compactionGeneration';
+import { applyCompactionRound, nonHistoryStateFingerprint } from './compactionApply';
 import {
   CompactionBlocked,
   CompactionCancelled,
@@ -61,7 +55,6 @@ import {
   FullCompactionComplete,
 } from './compactionOps';
 import { findAPIStatusError, takeRecentMessagesWithinTokenBudget } from './compactionUtils';
-import { renderContextRecoveryPointer } from './contextRecovery';
 import {
   IAgentFullCompactionService,
   type FullCompactionInput,
@@ -601,7 +594,16 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
   ): Promise<CompactionResult> {
     const startedAt = Date.now();
     const originalHistory = [...this.context.get()];
-    const nonHistoryStateBefore = this.nonHistoryStateFingerprint();
+    const applyDeps = {
+      context: this.context,
+      todo: this.todo,
+      task: this.task,
+      associativeMemory: this.associativeMemory,
+      wire: this.wire,
+      states: this.states,
+      estimateText: (text: string) => this.tokenCounting.estimateText(text),
+    };
+    const nonHistoryStateBefore = nonHistoryStateFingerprint(applyDeps);
     const tokensBefore = this.requestTokens(originalHistory);
     const generationState = { retryCount: 0 };
     let thinkingEffort = this.profile.data().thinkingLevel;
@@ -649,47 +651,33 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
       const attempt = generation.attempt;
       droppedCount = generation.droppedCount;
 
-      if (!historySafeToCompact(this.context.get(), originalHistory)) {
-        const active = this._compacting;
-        if (active !== null) {
-          this.cancelActive(active);
-        }
-        throw compactionCancelledReason(active);
-      }
-      if (this.nonHistoryStateFingerprint() !== nonHistoryStateBefore) {
-        const active = this._compacting;
-        if (active !== null) {
-          this.cancelActive(active);
-        }
-        throw compactionCancelledReason(active);
-      }
-
-      const summary = await this.postProcessSummary(attempt.summary);
-      const wireLines = await this.captureWireLines();
-      signal.throwIfAborted();
-      const recoveryFooter = this.renderRecoveryFooter(wireLines);
-      const summaryText = buildCompactionSummaryText(summary);
-      const result = this.context.applyCompaction({
-        summary,
-        contextSummary:
-          recoveryFooter === undefined ? summaryText : `${summaryText}\n\n${recoveryFooter}`,
-        compactedCount: originalHistory.length,
-        tokensBefore,
-        summaryOutputTokens:
-          attempt.usage === null
-            ? undefined
-            : attempt.usage.output +
-              (recoveryFooter === undefined ? 0 : this.tokenCounting.estimateText(recoveryFooter)),
-        requestOverheadTokens: this.requestTokens([]),
-        droppedCount: droppedCount === 0 ? undefined : droppedCount,
-        wireLines,
-      });
-
-      try {
-        await this.associativeMemory.writeNote(summary, 'project', 'external');
-      } catch (error) {
-        onUnexpectedError(error);
-      }
+      const apply = await applyCompactionRound(
+        applyDeps,
+        {
+          attemptSummary: attempt.summary,
+          attemptUsage: attempt.usage,
+          originalHistory,
+          nonHistoryStateBefore,
+          tokensBefore,
+          droppedCount,
+          requestOverheadTokens: this.requestTokens([]),
+        },
+        signal,
+        () => {
+          const active = this._compacting;
+          if (active !== null) {
+            this.cancelActive(active);
+          }
+          throw compactionCancelledReason(active);
+        },
+      );
+      const result = {
+        summary: apply.summary,
+        tokensBefore: apply.tokensBefore,
+        tokensAfter: apply.tokensAfter,
+        compactedCount: apply.compactedCount,
+        droppedCount: apply.droppedCount,
+      };
 
       const properties: CompactionFinishedEvent = {
         turn_id: active.originTurnId,
@@ -760,55 +748,9 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     return preShrunk.length === 0 ? history : preShrunk;
   }
 
-  private nonHistoryStateFingerprint(): string {
-    return JSON.stringify({
-      todos: this.todo.get(),
-      tasks: this.task.list(true),
-    });
-  }
-
-  private async postProcessSummary(summary: string): Promise<string> {
-    const todos = this.todo.get();
-    if (todos.length === 0) {
-      return summary;
-    }
-    return `${summary.trim()}\n\n${renderTodoList(todos, '## TODO List')}`;
-  }
-
-  private async captureWireLines(): Promise<WireLineRange | undefined> {
-    try {
-      await this.wire.flush();
-    } catch (error) {
-      onUnexpectedError(error);
-      return undefined;
-    }
-    const end = this.wire.lineCount();
-    const previous = this.states.get(fullCompactionWireRangesKey).at(-1);
-    const start = Math.max(previous?.end ?? 0, this.wire.lastContextClearLine() ?? 0) + 1;
-    if (end < start) return undefined;
-    return { start, end };
-  }
-
-  private renderRecoveryFooter(wireLines: WireLineRange | undefined): string | undefined {
-    if (wireLines === undefined) return undefined;
-    const journalPath = this.wire.journalPath();
-    if (journalPath === undefined) return undefined;
-    const windows = [...this.states.get(fullCompactionWireRangesKey), wireLines];
-    return renderContextRecoveryPointer({ journalPath, windows });
-  }
-
   private tokenCountWithPending(): number {
     return this.tokenCounting.get(agentContextOfScope(this.agent)).size;
   }
-}
-
-function historySafeToCompact(
-  current: readonly ContextMessage[],
-  original: readonly ContextMessage[],
-): boolean {
-  if (current.length < original.length) return false;
-  if (!original.every((message, index) => message === current[index])) return false;
-  return current.slice(original.length).every(isRealUserInput);
 }
 
 function usageTelemetry(usage: TokenUsage | null): CompactionTelemetryProperties {
