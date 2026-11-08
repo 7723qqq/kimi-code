@@ -21,6 +21,10 @@ export interface IMemoryStore {
 
   readonly revision: number;
 
+  readonly readOnly: boolean;
+
+  setReadOnly(value: boolean): void;
+
   get(path: string): Promise<MemoryEntry | undefined>;
 
   put(entry: MemoryEntry): Promise<void>;
@@ -45,6 +49,7 @@ export class MemoryStore extends Disposable implements IMemoryStore {
 
   private dbPromise: Promise<MiniDb> | undefined;
   private contentRevision = 0;
+  private readOnlyFlag = false;
   private seeded = false;
   private readonly dir: string;
   private readonly memoryBaseDir: string;
@@ -110,13 +115,27 @@ export class MemoryStore extends Disposable implements IMemoryStore {
     return this.contentRevision;
   }
 
+  get readOnly(): boolean {
+    return this.readOnlyFlag;
+  }
+
+  setReadOnly(value: boolean): void {
+    this.readOnlyFlag = value;
+  }
+
   async put(entry: MemoryEntry): Promise<void> {
+    if (this.readOnlyFlag) {
+      throw new Error('memory store is read-only: associative memory has absorbed it');
+    }
     this.contentRevision += 1;
     const db = await this.openDb();
     await db.set(entry.path, entry);
   }
 
   async delete(path: string): Promise<void> {
+    if (this.readOnlyFlag) {
+      throw new Error('memory store is read-only: associative memory has absorbed it');
+    }
     this.contentRevision += 1;
     const db = await this.openDb();
     await db.del(path);

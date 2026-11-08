@@ -64,6 +64,19 @@ describe('MemoryStore', () => {
     return host.app.accessor.get(IMemoryStore);
   }
 
+  it('refuses writes once the associative memory has absorbed it', async () => {
+    const dir = join(homeDir, 'memory', 'global');
+    await fsp.mkdir(dir, { recursive: true });
+    await fsp.writeFile(join(dir, 'alpha.md'), '# alpha\nbody', 'utf-8');
+    const store = build();
+    expect(store.readOnly).toBe(false);
+    store.setReadOnly(true);
+    expect(store.readOnly).toBe(true);
+    await expect(store.put(entry('global/b.md', 'other'))).rejects.toThrow(/read-only/);
+    await expect(store.delete('global/alpha.md')).rejects.toThrow(/read-only/);
+    await expect(store.get('global/alpha.md')).resolves.toBeDefined();
+  });
+
   it('indexes files written to disk, then lists and searches them', async () => {
     const dir = join(homeDir, 'memory', 'global');
     await fsp.mkdir(dir, { recursive: true });

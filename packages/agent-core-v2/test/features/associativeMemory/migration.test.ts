@@ -22,6 +22,7 @@ function buildService(homeDir: string, cwd: string): AssociativeMemoryService {
         { register: () => ({ dispose() {} }) } as never,
         { get: () => [] } as never,
         { cwd } as never,
+        { list: async () => [], get: async () => undefined, setReadOnly() {} } as never,
       );
     }
     protected override now(): number {

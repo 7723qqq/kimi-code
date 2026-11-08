@@ -11,6 +11,7 @@ import { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IFlagService } from '#/app/flag/flag';
 import { legacyProjectIdFromCwd, projectIdFromCwd } from '#/app/memory/memoryPaths';
+import { IMemoryStore } from '#/app/memory/memoryStore';
 import { LifecycleScope } from '#/app/scopes';
 import { alreadyRendered, markRendered } from '#/agent/injection/renderedLines';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
@@ -225,6 +226,7 @@ export class AssociativeMemoryService
   private codeMtimeMs = 0;
   private queue: Promise<unknown> = Promise.resolve();
   private migratedProjectScope = false;
+  private legacyMemoryImported = false;
   private embeddingsClient: EmbeddingsClient | undefined;
   private embeddingsResolved = false;
   private embeddingsResolvedAt = 0;
@@ -247,6 +249,7 @@ export class AssociativeMemoryService
     @IAgentReminderService private readonly reminders: IAgentReminderService,
     @IAgentContextMemoryService private readonly contextMemory: IAgentContextMemoryService,
     @ISessionContext private readonly session: ISessionContext,
+    @IMemoryStore private readonly memoryStore: IMemoryStore,
   ) {
     super();
     this.reminders.register('associative_memory_signal', ({ isNewTurn }) => {
@@ -269,6 +272,33 @@ export class AssociativeMemoryService
     return Date.now();
   }
 
+  private async importLegacyMemory(): Promise<void> {
+    if (this.legacyMemoryImported) return;
+    this.legacyMemoryImported = true;
+    if (!this.enabled()) return;
+    let paths: readonly string[];
+    try {
+      paths = await this.memoryStore.list();
+    } catch (error) {
+      this.log.warn('associativeMemory.importLegacy.failed', { error });
+      return;
+    }
+    for (const path of paths) {
+      try {
+        const entry = await this.memoryStore.get(path);
+        if (entry === undefined) continue;
+        await this.writeNote(
+          entry.body,
+          entry.scope === 'global' ? 'global' : 'project',
+          'legacy',
+        );
+      } catch (error) {
+        this.log.warn('associativeMemory.importLegacy.entryFailed', { path, error });
+      }
+    }
+    this.memoryStore.setReadOnly(true);
+  }
+
   async writeNote(
     text: string,
     scope: MemoryScopeSelector = 'project',
@@ -277,6 +307,7 @@ export class AssociativeMemoryService
     if (!this.enabled() || text.trim().length === 0) {
       return { noteId: '', atomIds: [], blockedByCode: false, scope, decision: 'noop' };
     }
+    await this.importLegacyMemory();
     const code = await this.ensureCode();
     const gate = applyWriteRules(text, code.rules);
     if (!gate.allowed) {
@@ -522,6 +553,7 @@ export class AssociativeMemoryService
 
   async recall(query: RecallQuery): Promise<RecallResult> {
     if (!this.enabled()) return { items: [], trace: [] };
+    await this.importLegacyMemory();
     const code = await this.ensureCode();
     const scoped = await this.storesFor(query.scope);
     await this.maybeMaintain(scoped);
@@ -738,6 +770,7 @@ export class AssociativeMemoryService
 
   async list(options: ListOptions): Promise<AssociativeMemoryList> {
     if (!this.enabled()) return { atoms: [], concepts: [], procedures: [] };
+    await this.importLegacyMemory();
     const scoped = await this.storesFor(options.scope);
     const limit = options.limit ?? ASSOCIATIVE_MEMORY_PARAMS.listLimit;
     const atoms =

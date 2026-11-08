@@ -22,6 +22,7 @@ import {
 import { IMemoryRepo } from '#/app/memory/memoryRepo';
 import { IMemoryStore } from '#/app/memory/memoryStore';
 import { GIT_MEMORY_FLAG_ID } from '#/features/gitMemory/flag';
+import { ASSOCIATIVE_MEMORY_FLAG_ID } from '#/features/associativeMemory/flag';
 import { IHostProcessService } from '#/os/interface/hostProcess';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
@@ -464,5 +465,7 @@ function buildRelPath(scope: MemoryScope, scopeId: string, fileName: string): st
 registerAgentToolService(IMemoryTool, MemoryTool, {
   name: 'Memory',
   domain: 'memory',
-  when: (accessor) => accessor.get(IAgentScopeContext).agentId === 'main',
+  when: (accessor) =>
+    accessor.get(IAgentScopeContext).agentId === 'main' &&
+    !accessor.get(IFlagService).enabled(ASSOCIATIVE_MEMORY_FLAG_ID),
 });

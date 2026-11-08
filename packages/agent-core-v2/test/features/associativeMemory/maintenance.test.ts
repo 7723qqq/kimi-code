@@ -29,6 +29,7 @@ function build(homeDir: string): Clocked {
         { register: () => ({ dispose() {} }) } as never,
         { get: () => [] } as never,
         { cwd: join(homeDir, 'project'), sessionId: homeDir } as never,
+        { list: async () => [], get: async () => undefined, setReadOnly() {} } as never,
       );
     }
     protected override now(): number {
@@ -56,6 +57,7 @@ function buildBudgeted(homeDir: string, atomBudget: number): Clocked {
         { register: () => ({ dispose() {} }) } as never,
         { get: () => [] } as never,
         { cwd: join(homeDir, 'project'), sessionId: homeDir } as never,
+        { list: async () => [], get: async () => undefined, setReadOnly() {} } as never,
       );
     }
     protected override atomBudget(): number {

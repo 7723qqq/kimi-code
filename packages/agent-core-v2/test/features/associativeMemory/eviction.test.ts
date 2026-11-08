@@ -18,6 +18,7 @@ function buildService(homeDir: string, atomBudget: number): AssociativeMemorySer
         { register: () => ({ dispose() {} }) } as never,
         { get: () => [] } as never,
         { cwd: join(homeDir, 'project') } as never,
+        { list: async () => [], get: async () => undefined, setReadOnly() {} } as never,
       );
     }
     protected override atomBudget(): number {

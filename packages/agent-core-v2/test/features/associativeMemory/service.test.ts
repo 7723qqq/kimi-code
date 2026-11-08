@@ -29,7 +29,15 @@ describe('AssociativeMemoryService', () => {
     await fsp.rm(homeDir, { recursive: true, force: true });
   });
 
-  function build(flagOn = true, messages: readonly unknown[] = []): Harness {
+  function build(
+    flagOn = true,
+    messages: readonly unknown[] = [],
+    memoryStore?: {
+      list(): Promise<readonly string[]>;
+      get(path: string): Promise<unknown>;
+      setReadOnly(value: boolean): void;
+    },
+  ): Harness {
     const registered: string[] = [];
     const providers = new Map<string, (context: { isNewTurn: boolean }) => unknown>();
     let now = 1_000;
@@ -50,6 +58,11 @@ describe('AssociativeMemoryService', () => {
           } as never,
           { get: () => messages } as never,
           { cwd: join(homeDir, 'project') } as never,
+          (memoryStore ?? {
+            list: async () => [],
+            get: async () => undefined,
+            setReadOnly() {},
+          }) as never,
           );
       }
       protected override now(): number {
@@ -65,6 +78,30 @@ describe('AssociativeMemoryService', () => {
       },
     };
   }
+
+  it('imports the legacy memory store once and marks it read-only', async () => {
+    const legacy = {
+      path: 'global/legacy.md',
+      scope: 'global' as const,
+      scopeId: '',
+      type: 'note' as const,
+      title: 'legacy',
+      body: 'a legacy memory body',
+      fingerprint: 'fp',
+      updatedAt: 1,
+    };
+    let readOnly = false;
+    const store = {
+      list: async () => [legacy.path],
+      get: async (path: string) => (path === legacy.path ? legacy : undefined),
+      setReadOnly: (value: boolean) => {
+        readOnly = value;
+      },
+    };
+    const harness = build(true, [], store);
+    await harness.service.writeNote('a fresh note', 'project');
+    expect(readOnly).toBe(true);
+  });
 
   it('registers the per-turn reminder', () => {
     const h = build();

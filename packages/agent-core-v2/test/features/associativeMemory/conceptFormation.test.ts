@@ -41,6 +41,7 @@ function buildSession(homeDir: string, sessionId: string): AssociativeMemoryServ
         { register: () => ({ dispose() {} }) } as never,
         { get: () => [] } as never,
         { cwd: join(homeDir, 'project'), sessionId } as never,
+        { list: async () => [], get: async () => undefined, setReadOnly() {} } as never,
       );
     }
     protected override now(): number {
