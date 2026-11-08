@@ -3,6 +3,11 @@ import { estimateTokensForMessage } from '#/llm/tokens';
 import type { TokenUsage } from '#/llm/usage';
 import { readTodoItems, type TodoItem } from '#/todo/todoItem';
 
+import {
+  buildCompactionContinuationText,
+  buildCompactionElisionText,
+} from '#/agent/contextMemory/compactionHandoff';
+
 import { V2WireError, type V2WireRecord } from './wire';
 
 const TOOL_INTERRUPTED_ON_RESUME_OUTPUT =
@@ -187,10 +192,6 @@ function replaceMessageText(message: V2ContextMessage, text: string): V2ContextM
   };
 }
 
-function wrapSystemReminder(content: string): string {
-  return `<system-reminder>\n${content.trim()}\n</system-reminder>`;
-}
-
 function createCompactionSummaryMessage(text: string): V2ContextMessage {
   return {
     role: 'user',
@@ -203,14 +204,7 @@ function createCompactionSummaryMessage(text: string): V2ContextMessage {
 function createCompactionElisionMessage(omittedTokens: number): V2ContextMessage {
   return {
     role: 'user',
-    content: [
-      {
-        type: 'text',
-        text: wrapSystemReminder(
-          `Some of this conversation's user messages were omitted here during compaction: the messages above this note are the oldest user input, the messages below are the most recent, and roughly ${String(omittedTokens)} tokens in between were dropped. The omitted content is covered by the compaction summary at the end of the conversation.`,
-        ),
-      },
-    ],
+    content: [{ type: 'text', text: buildCompactionElisionText(omittedTokens) }],
     toolCalls: [],
     origin: { kind: 'injection', variant: 'compaction_elision' },
   };
@@ -219,14 +213,7 @@ function createCompactionElisionMessage(omittedTokens: number): V2ContextMessage
 function createCompactionContinuationMessage(): V2ContextMessage {
   return {
     role: 'user',
-    content: [
-      {
-        type: 'text',
-        text: wrapSystemReminder(
-          'Context compaction is complete — continue the work that was in progress when it began.',
-        ),
-      },
-    ],
+    content: [{ type: 'text', text: buildCompactionContinuationText() }],
     toolCalls: [],
     origin: { kind: 'injection', variant: 'compaction_continuation' },
   };
