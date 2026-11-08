@@ -298,6 +298,50 @@ Every read-only tool below is auto-approved, like `Read` and `FetchURL`. Every w
 
 `GitHubCreateTree`, `GitHubCreateCommit`, and `GitHubUpdateRef` are the low-level Git Data API trio: together they push a multi-file commit through the API without a local clone, and `GitHubCreateBranch` covers the common single-ref case. Prefer `Bash` with `git` for ordinary local work — these tools exist for the cases where there is no clone to work in.
 
+## Tower
+
+Tower tools coordinate a [Tower multi-agent collaboration](../guides/tower.md) run. They register only while the `tower` experimental flag is on, and they are used by the tower worker and reviewer agents that `TowerSpawn` starts — not by the main agent driving the run. None of them is auto-approved, so each call asks unless a permission rule matches.
+
+| Tool | Default Approval | Description |
+| --- | --- | --- |
+| `TowerInit` | Requires approval | Initialize a tower workspace in the current repository |
+| `TowerStatus` | Requires approval | Show the tower dashboard |
+| `TowerMission` | Requires approval | Read or update a tower mission |
+| `TowerPlan` | Requires approval | Split the tower goal into missions |
+| `TowerSpawn` | Requires approval | Spawn a tower worker or reviewer |
+| `TowerReview` | Requires approval | Submit a review verdict for an assigned branch |
+| `TowerMerge` | Requires approval | Merge a mission branch into the base branch |
+| `TowerRebase` | Requires approval | Rebase a mission branch onto the base branch |
+| `TowerComplete` | Requires approval | Complete the calling worker's mission |
+| `TowerTeardown` | Requires approval | Tear down the tower workspace |
+| `TowerInbox` | Requires approval | Read the tower inbox |
+| `TowerSend` | Requires approval | Send an inbox message |
+| `TowerFinding` | Requires approval | File a structured finding |
+
+**`TowerInit`** initializes a tower multi-agent workspace in the current repository.
+
+**`TowerStatus`** shows the tower dashboard: missions with status and owner, the agent roster, each unmerged mission's merge-gate state, your inbox message count, and the last activity log lines. Use it for human-facing status or deeper diagnosis rather than mechanically after every wake, since wakes already carry a message reference and a gate digest.
+
+**`TowerMission`** reads or updates a tower mission.
+
+**`TowerPlan`** splits the tower goal into missions. Each mission gets an id (`M1`, `M2`, …), a branch (`feat/<slug>`), and an isolated git worktree.
+
+**`TowerSpawn`** spawns a tower worker or reviewer as a background subagent and registers it in the tower roster.
+
+**`TowerReview`** submits a review verdict for a branch you were assigned to review via `TowerSpawn review_target`.
+
+**`TowerMerge`** merges a tower mission branch into the base branch (`--no-ff`). **`TowerRebase`** rebases a mission branch onto the current base branch, inside the mission's own worktree.
+
+**`TowerComplete`** completes the mission owned by the calling tower worker and persists its completion notification in one locked protocol flow. The tower and reviewers cannot use it, and the store refuses a roster agent's own `TowerComplete` while unread messages wait.
+
+**`TowerTeardown`** tears down the tower workspace after all missions are merged or abandoned.
+
+**`TowerInbox`** reads your tower inbox — messages addressed to you plus broadcasts, newest first. Only messages actually returned are acknowledged, and the output reports how many unread messages remain, so keep reading until it reaches zero. Set `include_read=true` to look back through acknowledged history.
+
+**`TowerSend`** sends an inbox message to a roster agent by name, `tower` (the control tower), or `all` (broadcast).
+
+**`TowerFinding`** files a structured finding (bug / improve / vuln / idea) into `.tower/comms/findings/` for the tower to route.
+
 ## Next steps
 
 - [Agent & Sub-Agents](../customization/agents.md) — Scheduling mechanics and context isolation for the `Agent` tool

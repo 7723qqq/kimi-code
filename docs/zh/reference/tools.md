@@ -298,6 +298,50 @@ GitHub 工具直连 GitHub REST API，Agent 因此可以开 PR、读 diff、整�
 
 `GitHubCreateTree`、`GitHubCreateCommit`、`GitHubUpdateRef` 是底层的 Git Data API 三件套：合起来可以在没有本地克隆的情况下，通过 API 推一个多文件提交，`GitHubCreateBranch` 则覆盖只移动一个引用的常见情形。日常的本地改动仍优先用 `Bash` 调 `git`——这几个工具是为没有克隆可用的场景准备的。
 
+## Tower
+
+Tower 工具用于协调一次 [Tower 多 Agent 协作](../guides/tower.md)。它们只在开启 `tower` 实验开关后注册，并且由 `TowerSpawn` 启动的 tower worker 与 reviewer agent 使用——不是驱动整个流程的主 agent。它们都不在默认自动放行列表里，因此每次调用都需要审批，除非有匹配的权限规则。
+
+| 工具 | 默认审批 | 说明 |
+| --- | --- | --- |
+| `TowerInit` | 需审批 | 在当前仓库初始化 tower 工作区 |
+| `TowerStatus` | 需审批 | 显示 tower 仪表盘 |
+| `TowerMission` | 需审批 | 读取或更新 tower 任务 |
+| `TowerPlan` | 需审批 | 把 tower 目标拆成任务 |
+| `TowerSpawn` | 需审批 | 启动 tower worker 或 reviewer |
+| `TowerReview` | 需审批 | 为分配到的分支提交评审结论 |
+| `TowerMerge` | 需审批 | 把任务分支合并进基线分支 |
+| `TowerRebase` | 需审批 | 把任务分支变基到基线分支 |
+| `TowerComplete` | 需审批 | 完成调用方 worker 负责的任务 |
+| `TowerTeardown` | 需审批 | 拆除 tower 工作区 |
+| `TowerInbox` | 需审批 | 读取 tower 收件箱 |
+| `TowerSend` | 需审批 | 发送收件箱消息 |
+| `TowerFinding` | 需审批 | 提交一条结构化 finding |
+
+**`TowerInit`** 在当前仓库初始化一个 tower 多 Agent 工作区。
+
+**`TowerStatus`** 显示 tower 仪表盘：任务及其状态与负责人、agent 名单、每个未合并任务的合并门禁状态、你的收件箱未读数，以及最近的活跃日志。用于面向人类的状态汇报或更深入的诊断，不要每次唤醒后机械地调用——唤醒本身已带消息引用和门禁摘要。
+
+**`TowerMission`** 读取或更新一个 tower 任务。
+
+**`TowerPlan`** 把 tower 目标拆成任务。每个任务得到一个 id（`M1`、`M2`、…）、一个分支（`feat/<slug>`）和一个隔离的 git worktree。
+
+**`TowerSpawn`** 把一个 tower worker 或 reviewer 作为后台子 agent 启动，并登记到 tower 名单里。
+
+**`TowerReview`** 为通过 `TowerSpawn review_target` 分配给你评审的分支提交评审结论。
+
+**`TowerMerge`** 把一个 tower 任务分支合并进基线分支（`--no-ff`）。**`TowerRebase`** 在任务自己的 worktree 里把任务分支变基到当前基线分支。
+
+**`TowerComplete`** 完成调用方 tower worker 负责的任务，并在一次加锁的协议流程里持久化其完成通知。tower 与 reviewer 不能使用它；如果还有未读消息在等待，存储会拒绝名单 agent 自己的 `TowerComplete`。
+
+**`TowerTeardown`** 在所有任务合并或放弃之后拆除 tower 工作区。
+
+**`TowerInbox`** 读取你的 tower 收件箱——发给你的消息加上广播，最新在前。只有实际返回的消息才会被确认，输出会报告还剩多少未读，因此要持续读取直到归零。设置 `include_read=true` 可回看已确认的历史。
+
+**`TowerSend`** 向名单里的某个 agent、`tower`（控制塔）或 `all`（广播）发送收件箱消息。
+
+**`TowerFinding`** 提交一条结构化 finding（bug / improve / vuln / idea）到 `.tower/comms/findings/`，由 tower 分派。
+
 ## 下一步
 
 - [Agent 与 subagent](../customization/agents.md) — `Agent` 工具的调度机制与上下文隔离
