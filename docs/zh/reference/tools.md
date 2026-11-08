@@ -17,9 +17,9 @@
 | `Glob` | 自动放行 | 按 glob 模式查找文件 |
 | `RepoMap` | 自动放行 | 列出仓库子树中由 git 跟踪的路径 |
 | `Memory` | 需要审批 | 搜索并管理 `~/.kimi-code/memory` 下的 markdown 记忆 |
-| `Knowledge` | 自动放行 | 搜索并维护当前项目的本地知识库 |
+| `Knowledge` | 需审批 | 搜索并维护当前项目的本地知识库 |
 | `Workflow` | 需要审批 | 在后台运行多阶段 agent 工作流 |
-| `lsp` | 自动放行 | 通过语言服务器做语义导航（实验性） |
+| `lsp` | 需审批 | 通过语言服务器做语义导航（实验性） |
 | `MemoryGraph` | 需要审批 | 读写实验性关联记忆 |
 
 **`Read`** 接受文件路径（`path`）以及可选的 `line_offset`（起始行号，支持负数从末尾倒数）、`column_offset`（正向读取时，起始行内从 0 开始的位置）、`n_lines`（请求读取的源文件行数）和 `max_chars`（结果的字符上限，包含行号和状态信息）。省略 `n_lines` 时向文件末尾读取。默认上限与单次调用可申请的最大值都是 100,000 字符，并且单次调用还会在估算 token 数达到上限的四分之一时停止（默认约 25,000），因此中文等非 ASCII 字符较多的文本每次返回的字符更少；这两个值都可通过 [`read` 配置](../configuration/config-files.md#read) 修改。当调用指定了范围（使用 `n_lines` 或负数 `line_offset`），而在 `max_chars` 内容纳的行仍然超出 token 上限时，`Read` 会返回一个建议范围内可读行数的错误，而不是只返回其中一部分；只被 `max_chars` 截断的范围仍会返回带有 `Next Read` 参数的一页。字符数和列偏移按显示文本的 JavaScript 字符串长度计算，列偏移不包含行号前缀：常见字母和汉字各计 1，许多 emoji 计 2。
@@ -71,7 +71,7 @@
 
 | 工具 | 默认审批 | 说明 |
 | --- | --- | --- |
-| `session_query` | 自动放行 | 搜索历史会话、追溯 fork 谱系 |
+| `session_query` | 需审批 | 搜索历史会话、追溯 fork 谱系 |
 
 **`session_query`** 搜索本工作区自己的会话历史。仅主 agent 可用，接受一个 `operation`：
 

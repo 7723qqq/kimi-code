@@ -17,9 +17,9 @@ File tools handle reading, writing, and searching the local filesystem — the f
 | `Glob` | Auto-allow | Find files by glob pattern |
 | `RepoMap` | Auto-allow | List the paths tracked by git in a repository subtree |
 | `Memory` | Requires approval | Search and manage the markdown memory under `~/.kimi-code/memory` |
-| `Knowledge` | Auto-allow | Search and maintain the project's local knowledge base |
+| `Knowledge` | Requires approval | Search and maintain the project's local knowledge base |
 | `Workflow` | Requires approval | Run multi-phase agent workflows in the background |
-| `lsp` | Auto-allow | Semantic navigation through a language server (experimental) |
+| `lsp` | Requires approval | Semantic navigation through a language server (experimental) |
 | `MemoryGraph` | Requires approval | Read and write the experimental associative memory |
 
 **`Read`** accepts a file path (`path`) plus optional `line_offset` (starting line number; negative values count from the end), `column_offset` (zero-based position within the first line of a forward read), `n_lines` (requested number of source lines), and `max_chars` (maximum characters in the result, including line numbers and status). Omitting `n_lines` reads toward the end of the file. The default and the most a call can request are both 100,000 characters, and a call also stops at about a quarter of the maximum in estimated tokens (25,000 by default), so text with many non-ASCII characters, such as Chinese, returns fewer characters per call; both values can be changed in the [`read` configuration](../configuration/config-files.md#read). When a call names a range, with `n_lines` or a negative `line_offset`, and the lines that fit within `max_chars` still exceed the token limit, `Read` returns an error that suggests a range that fits instead of returning part of it; a range cut short only by `max_chars` still returns a page with `Next Read` arguments. Characters and column offsets use JavaScript string length in the displayed text, excluding the line-number prefix for column offsets: common letters and Chinese characters count as one, while many emoji count as two.
@@ -71,7 +71,7 @@ When the `git_memory` experimental flag is enabled, `write` additionally require
 
 | Tool | Default Approval | Description |
 | --- | --- | --- |
-| `session_query` | Auto-allow | Search prior session history and trace fork lineage |
+| `session_query` | Requires approval | Search prior session history and trace fork lineage |
 
 **`session_query`** searches the workspace's own session history. It is available to the main agent only, and takes one `operation`:
 
