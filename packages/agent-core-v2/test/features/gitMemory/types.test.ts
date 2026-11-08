@@ -14,7 +14,7 @@ import {
 } from '#/features/gitMemory/types';
 
 describe('git memory thresholds', () => {
-  it('pins the thresholds the spec fixes', () => {
+  it('pins the shipped thresholds', () => {
     expect(GIT_MEMORY_WINDOW).toBe(1500);
     expect(GIT_MEMORY_REPO_COMMITS).toBe(25);
     expect(GIT_MEMORY_FILE_COMMITS).toBe(8);
