@@ -35,6 +35,7 @@ import {
 } from '#/errors';
 import { renderTodoList } from '#/features/todo/todoItem';
 import { IAgentTodoService } from '#/features/todo/todoService';
+import { IAgentTaskService } from '#/agent/task/task';
 import { OrderedHookSlot } from '#/hooks';
 import {
   APIContextOverflowError,
@@ -146,6 +147,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     @IAgentToolSelectService private readonly toolSelect: IAgentToolSelectService,
     @IAgentScopeContext private readonly agent: IAgentScopeContext,
     @IAgentTodoService private readonly todo: IAgentTodoService,
+    @IAgentTaskService private readonly task: IAgentTaskService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
     @IEventBus private readonly eventBus: IEventBus,
@@ -613,6 +615,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
   ): Promise<CompactionResult> {
     const startedAt = Date.now();
     const originalHistory = [...this.context.get()];
+    const nonHistoryStateBefore = this.nonHistoryStateFingerprint();
     const tokensBefore = this.requestTokens(originalHistory);
     let retryCount = 0;
     let thinkingEffort = this.profile.data().thinkingLevel;
@@ -756,6 +759,13 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
         }
         throw compactionCancelledReason(active);
       }
+      if (this.nonHistoryStateFingerprint() !== nonHistoryStateBefore) {
+        const active = this._compacting;
+        if (active !== null) {
+          this.cancelActive(active);
+        }
+        throw compactionCancelledReason(active);
+      }
 
       const summary = await this.postProcessSummary(attempt.summary);
       const wireLines = await this.captureWireLines();
@@ -845,6 +855,13 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
       (message) => this.tokenCounting.estimateMessage(message),
     );
     return preShrunk.length === 0 ? history : preShrunk;
+  }
+
+  private nonHistoryStateFingerprint(): string {
+    return JSON.stringify({
+      todos: this.todo.get(),
+      tasks: this.task.list(true),
+    });
   }
 
   private async postProcessSummary(summary: string): Promise<string> {

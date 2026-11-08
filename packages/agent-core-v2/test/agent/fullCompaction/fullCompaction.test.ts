@@ -3721,6 +3721,51 @@ describe('FullCompaction', () => {
     });
     await ctx.expectResumeMatches();
   });
+
+  it('discards the summary when the todo store changes during compaction', async () => {
+    const ctx = testAgent();
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    await ctx.get(IAgentTodoService).replace([
+      { id: 't1', parentId: null, kind: 'task', title: 'Fix the auth bug', status: 'in_progress' },
+    ] as const);
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
+
+    const hook = ctx
+      .get(IAgentFullCompactionService)
+      .hooks.onWillCompact.register('test-todo-change', async (_task, next) => {
+        await ctx.get(IAgentTodoService).replace([
+          {
+            id: 't1',
+            parentId: null,
+            kind: 'task',
+            title: 'Fix the auth bug',
+            status: 'done',
+          },
+          {
+            id: 't2',
+            parentId: null,
+            kind: 'task',
+            title: 'A task added mid-compaction',
+            status: 'pending',
+          },
+        ] as const);
+        await next();
+      });
+
+    ctx.mockNextResponse({ type: 'text', text: 'Compacted summary.' });
+    void ctx.rpc.beginCompaction({});
+    const cancelled = ctx.once('compaction.cancelled');
+    await cancelled;
+    hook.dispose();
+
+    expect(ctx.context.get().at(-1)).not.toMatchObject({
+      origin: { kind: 'injection', variant: 'compaction_continuation' },
+    });
+  });
 });
 
 describe('FullCompaction context recovery pointer', () => {
