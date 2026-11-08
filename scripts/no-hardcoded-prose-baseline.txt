@@ -103,9 +103,6 @@ apps/vscode/webview-ui/src/components/ThinkingButton.tsx  3  544d6f9b00f7
 apps/vscode/webview-ui/src/components/ToolRenderers.tsx  4  71e0372e4be2
 apps/vscode/webview-ui/src/components/inputarea/InputArea.tsx  7  adbf5fbeebba
 apps/vscode/webview-ui/src/components/inputarea/hooks/useMediaUpload.ts  3  df191f9c6c7f
-apps/vscode/webview-ui/src/components/ui/combobox.tsx  1  7eab46ca08d0
-apps/vscode/webview-ui/src/components/ui/command.tsx  2  f7a2a1d455ba
-apps/vscode/webview-ui/src/components/ui/field.tsx  1  890d16fd5798
 apps/vscode/webview-ui/src/hooks/useAppInit.ts  1  aa02b1bc041c
 apps/vscode/webview-ui/src/hooks/useWelcomeHint.tsx  16  42a84501405f
 apps/vscode/webview-ui/src/lib/media-utils.ts  3  100f9c480185
