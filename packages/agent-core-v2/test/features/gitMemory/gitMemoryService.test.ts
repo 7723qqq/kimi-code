@@ -60,6 +60,7 @@ interface Harness {
   readonly events: readonly WarningIssued[];
   advance(ms: number): void;
   probeHead(): Promise<unknown>;
+  reminder(isNewTurn?: boolean): Promise<unknown>;
 }
 
 interface MemoryFixture {
@@ -128,6 +129,7 @@ function harness(
     registered: [] as string[],
     warnings: [] as { message: string; payload: unknown }[],
     events: [] as WarningIssued[],
+    providers: new Map<string, (context: { isNewTurn: boolean }) => unknown>(),
   };
   const defaultHead: RepoHeadResult =
     options.head !== undefined || options.stub !== undefined
@@ -202,8 +204,9 @@ function harness(
         } as never,
         { enabled: () => options.flagOn === true } as never,
         {
-          register: (variant: string) => {
+          register: (variant: string, provider: (context: { isNewTurn: boolean }) => unknown) => {
             state.registered.push(variant);
+            state.providers.set(variant, provider);
             return { dispose() {} };
           },
         } as never,
@@ -293,6 +296,11 @@ function harness(
       state.now += ms;
     },
     probeHead: () => service.probeHead(),
+    reminder: async (isNewTurn = true) => {
+      const provider = state.providers.get('git_memory_signal');
+      if (provider === undefined) throw new Error('git_memory_signal provider isn\'t registered');
+      return await provider({ isNewTurn });
+    },
   };
 }
 
@@ -615,5 +623,60 @@ describe('git memory with a broken memory store', () => {
     const block = await h.service.fileBlock('a.ts');
     expect(block).toContain('<file-memory path="a.ts">');
     expect(block).toContain('fix: middle');
+  });
+});
+
+describe('git memory turn signal reminder', () => {
+  const userMessage = (text: string) => ({ role: 'user', content: [{ type: 'text', text }] });
+
+  it('injects the signal block when the last user message names a path', async () => {
+    const h = harness({
+      flagOn: true,
+      stub: index,
+      messages: [userMessage('please look at a.ts before the release')],
+    });
+    const block = await h.reminder();
+    expect(block).toContain('<repo-memory signal="a.ts">');
+    expect(block).toContain('fix: middle');
+  });
+
+  it('stays silent when the last user message names no path', async () => {
+    const h = harness({
+      flagOn: true,
+      stub: index,
+      messages: [userMessage('hello there')],
+    });
+    expect(await h.reminder()).toBe('');
+  });
+
+  it('stays silent when the turn is not new', async () => {
+    const h = harness({
+      flagOn: true,
+      stub: index,
+      messages: [userMessage('please look at a.ts')],
+    });
+    expect(await h.reminder(false)).toBeUndefined();
+  });
+
+  it('reads the last user message rather than an assistant reply', async () => {
+    const h = harness({
+      flagOn: true,
+      stub: index,
+      messages: [
+        userMessage('nothing to see here'),
+        { role: 'assistant', content: [{ type: 'text', text: 'a.ts looks fine' }] },
+      ],
+    });
+    expect(await h.reminder()).toBe('');
+  });
+
+  it('stays silent when the flag is off', async () => {
+    const h = harness({
+      flagOn: false,
+      stub: index,
+      messages: [userMessage('please look at a.ts')],
+    });
+    expect(await h.reminder()).toBe('');
+    expect(h.spawns).toBe(0);
   });
 });

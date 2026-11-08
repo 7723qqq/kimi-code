@@ -270,6 +270,7 @@ R4 要求注入内容是 git 对象的原始投影，而"人自由写的散文�
 - 清单漂移已随代码同步（`gen:state-manifest` / `gen:wire-manifest`），生成差异**只含 environmentBinding 条目，不含本 feature 任何内容**——即本 feature 不改变 wire/state 契约。
 - 真仓库实测：1466 提交、约定词汇表、12 条不变量全部来自原始 git 对象，注入文本零统计量、零祈使句，每行可用 `git show <sha>` 复核。
 - 审计闭环实测：写入 → `git log` 可见 → `git show` 可看 diff → `revert` 可撤销，三步有单测覆盖。
+- **L2 reminder 通道**：`gitMemoryService.test.ts` 的 `git memory turn signal reminder` 一组用例直接调用注册的 provider（含 `isNewTurn`），验证「最后一条用户消息含路径 → 注入 signal 块」「不含路径 → 空」「非新 turn → 不注入」「assistant 回复不算用户消息」「flag 关闭 → 空」。
 
 ### 未验证
 
@@ -308,7 +309,6 @@ R4 要求注入内容是 git 对象的原始投影，而"人自由写的散文�
 ### 未验证（仍待办）
 
 - **flag 开/关的任务行为对照**：需要一批同类任务各跑多次，对比改动文件数、测试失败数、完成轮数。CommitDistill 的教训表明检索命中不等于任务变好，这个结论必须自己测。
-- **L2（reminder 通道）**：只在用户消息里出现路径时触发，本轮未构造这样的会话验证。
 
 
 ### 偏离 8 — R25 的"独立瘦索引文件"未实现（实施期自查发现）
