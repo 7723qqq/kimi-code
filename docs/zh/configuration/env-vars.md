@@ -97,6 +97,7 @@ KIMI_BASE_URL = "https://api.moonshot.ai/v1"
 | `KIMI_OAUTH_HOST` | OAuth 认证 host，作为上一个的 fallback | 未设时使用 `https://auth.kimi.com` |
 | `KIMI_CODE_BASE_URL` | OAuth 登录后的托管 API base URL | `https://api.kimi.com/coding/v1` |
 | `KIMI_CODE_REGION_MARKER` | 安装渠道标记和未登录时的本地区域推断 | 默认启用；设为 `off` 同时禁用并使用 `mainland-cn` 默认值 |
+| `KIMI_DISABLE_OAUTH_LOCK` | 完全跳过跨进程 OAuth token 锁；尽力而为的存储重读仍会做协调。仅用于其他进程留下的锁把登录卡住时 | `1` 表示跳过 |
 
 ::: warning
 `KIMI_CODE_BASE_URL`（OAuth 托管服务，指向 `kimi.com`）和 `KIMI_BASE_URL`（API 密钥直连，指向 `moonshot.ai`）是两个不同的变量，请按场景区分。
@@ -164,6 +165,8 @@ kimi
 | `KIMI_IMAGE_MAX_EDGE_PX` | 图片压缩的最长边上限（像素），优先级高于 `config.toml` 的 `[image] max_edge_px`（默认 `2000`） | 正整数；非法值被忽略 |
 | `KIMI_IMAGE_READ_BYTE_BUDGET` | 模型自行读图（`Read` 默认读取）的单图字节预算，优先级高于 `config.toml` 的 `[image] read_byte_budget`（默认 `262144`，即 256 KB） | 正整数；非法值被忽略 |
 | `KIMI_CODE_PLUGIN_MARKETPLACE_URL` | 覆盖 `/plugins` 加载的 plugin marketplace JSON，适合 dev loopback server、测试 CDN 文件或替换 marketplace 目录 | `https://code.kimi.com/kimi-code/plugins/marketplace.json`；也接受 `http://`、`file://` URL 和本地路径 |
+| `KIMI_CODE_SEARCH_H3` | 在 Bun 上用 HTTP/3（QUIC）抓取网页搜索页面；某个源走 HTTP/3 失败后会标记为 dead 并跳过 | `0` 关闭；不设置则开启 |
+| `KIMI_KNOWLEDGE_DB` | `Knowledge` 工具背后的 SQLite 数据库路径，覆盖默认位置 | 绝对路径 |
 | `KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY` | 限制 AgentSwarm 初始提升并发阶段可同时运行的 subagent 数量；不设置表示不限制 | 正整数；非法值会立即失败 |
 | `KIMI_CODE_SUBAGENT_SCOPE_CACHE_SIZE` | 保留在内存中的已完成 subagent scope 数量，超出后最旧的会被驱逐，恢复时从持久化状态按需重建（默认 `32`；`0` 或负数 = 不驱逐） | 整数；非法值会立即失败 |
 | `KIMI_CODE_SUBAGENT_SCOPE_EVICT_TIMEOUT_MS` | 单个 subagent scope 驱逐允许的最长时间（毫秒），超时后驱逐队列跳过它继续后续驱逐（默认 `15000`） | 正整数；非法值会立即失败 |
@@ -176,6 +179,7 @@ kimi
 | `KIMI_CODE_SESSION_LOCK` | 本进程是否使用跨进程会话锁，防止两个 Kimi Code 进程同时写同一会话。未设置时保持开启；关闭后回到加锁前的行为，多个进程同时写入时会话历史可能交错 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off`；其他值忽略 |
 | `KIMI_CODE_TEST_SCOPE_GUARD` | 从仓库根跑全量测试时，是否注入一条“先跑覆盖本次改动的测试”的提醒。默认启用；设为假值后不再注入 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_PERMISSION_MODE_REMINDER` | 是否向模型上下文注入自动权限模式提醒；设为 `0` 后不再注入 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
+| `KIMI_GUARDIAN` | 启用 guardian 安全审查：由独立模型在审批前审查工具执行。默认关闭，不设置时行为不变 | `1` 开启 |
 | `KIMI_CODE_TUI_FULL_SCREEN` | 启用实验性的 fullscreen 界面：可滚动 transcript、鼠标选择、可点击链接、Ctrl-Shift-F 搜索 | `1` 开启；其他值保持常规内联界面 |
 | `KIMI_CODE_EXPERIMENTAL_SUBAGENT_FORK` | 在 `Agent`/`AgentSwarm` 上启用实验性 `fork` 参数：以调用方对话历史快照而非空上下文启动 subagent | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_EXPERIMENTAL_TOOL_SELECT` | 启用实验性按需加载工具：标记 `deferred: true` 的 MCP server 工具不进入顶层工具列表，由模型经 `select_tools` 按需加载；还需模型声明 `dynamically_loaded_tools` 能力，详见 [MCP](../customization/mcp.md#按需加载工具) | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
@@ -212,7 +216,7 @@ kimi
 | `KIMI_SHELL_PATH` | Windows 上覆盖 Git Bash 路径（自动探测失败时使用） | 绝对路径 |
 | `KIMI_PWSH_PATH` | Windows 上固定 `PowerShell` 工具使用的 `pwsh.exe`（优先于系统 PowerShell 与内置 pwsh 载荷） | 绝对路径 |
 | `KIMI_DOWNLOAD_MIRROR` | `kimi shells provision` 下载使用的 GitHub Release 镜像前缀（与 `--mirror` 等效） | 非空 URL 前缀 |
-| `KIMI_MODEL_MAX_COMPLETION_TOKENS` | 单步 LLM 请求的 `max_completion_tokens` 硬上限，仅对 `kimi` 供应商生效 | 正整数；`0` 或负数禁用 clamp |
+| `KIMI_MODEL_MAX_COMPLETION_TOKENS` | 单步 LLM 请求的 `max_completion_tokens` 硬上限，仅对 `kimi` 供应商生效。`KIMI_MODEL_MAX_TOKENS` 是等价别名，只在本变量未设置时读取 | 正整数；`0` 或负数禁用 clamp |
 | `KIMI_MODEL_TEMPERATURE` | 每次请求的采样温度，仅对 `kimi` 供应商生效（全局生效，不依赖 `KIMI_MODEL_NAME`） | 数字，如 `0.3` |
 | `KIMI_MODEL_TOP_P` | 每次请求的核采样 `top_p`，仅对 `kimi` 供应商生效（全局生效） | 数字，如 `0.95` |
 | `KIMI_MODEL_THINKING_EFFORT` | 在线上强制使用指定的思考强度，绕过模型声明的 `support_efforts`；仅 `kimi` 供应商生效 | 思考强度值，如 `max` |

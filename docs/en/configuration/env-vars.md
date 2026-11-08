@@ -97,6 +97,7 @@ This group of variables redirects OAuth authentication and managed service endpo
 | `KIMI_OAUTH_HOST` | OAuth auth host; fallback for `KIMI_CODE_OAUTH_HOST` | Falls back to `https://auth.kimi.com` when unset |
 | `KIMI_CODE_BASE_URL` | Managed API base URL used after OAuth login | `https://api.kimi.com/coding/v1` |
 | `KIMI_CODE_REGION_MARKER` | Install-channel marker and logged-out local region inference | Enabled; set `off` to disable both and use the `mainland-cn` default |
+| `KIMI_DISABLE_OAUTH_LOCK` | Skip the cross-process OAuth token lock entirely; the best-effort storage re-read still coordinates. Escape hatch for a lock left behind by another process blocking login | `1` to skip |
 
 ::: warning
 `KIMI_CODE_BASE_URL` (OAuth-managed service, targeting `kimi.com`) and `KIMI_BASE_URL` (direct API key connection, targeting `moonshot.ai`) are two distinct variables. Use each one in its appropriate context.
@@ -164,6 +165,8 @@ Switches that control the behavior of subsystems such as telemetry, background t
 | `KIMI_IMAGE_MAX_EDGE_PX` | Longest-edge ceiling (px) for image compression; higher priority than `[image] max_edge_px` (default `2000`) | Positive integer; invalid values are ignored |
 | `KIMI_IMAGE_READ_BYTE_BUDGET` | Per-image byte budget for model-initiated image reads; higher priority than `[image] read_byte_budget` (default `262144`) | Positive integer; invalid values are ignored |
 | `KIMI_CODE_PLUGIN_MARKETPLACE_URL` | Override the marketplace JSON loaded by `/plugins`; default `https://code.kimi.com/kimi-code/plugins/marketplace.json` | Also accepts `http://`, `file://` URLs, and local paths |
+| `KIMI_CODE_SEARCH_H3` | Fetch web-search pages over HTTP/3 (QUIC) on Bun; an origin that fails over HTTP/3 is marked dead and skipped afterwards | `0` disables; unset keeps it on |
+| `KIMI_KNOWLEDGE_DB` | Path to the SQLite database backing the `Knowledge` tool, overriding the default location | Absolute path |
 | `KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY` | Cap on AgentSwarm subagents running concurrently during the initial ramp; unset = no cap | Positive integer; invalid values fail fast |
 | `KIMI_CODE_SUBAGENT_SCOPE_CACHE_SIZE` | How many completed subagent scopes stay resident for fast resume; older ones are evicted and rebuilt from persisted state on demand (default `32`; `0` or negative = never evict) | Integer; invalid values fail fast |
 | `KIMI_CODE_SUBAGENT_SCOPE_EVICT_TIMEOUT_MS` | Max wall-clock time (ms) a single subagent scope eviction may take before the eviction queue skips it and moves on (default `15000`) | Positive integer; invalid values fail fast |
@@ -176,6 +179,7 @@ Switches that control the behavior of subsystems such as telemetry, background t
 | `KIMI_CODE_SESSION_LOCK` | Whether this process takes the cross-process session lock that stops two Kimi Code processes from writing the same session at once. Unset keeps it on; turning it off brings back pre-lock behavior, so concurrent writers can interleave the session history | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off`; any other value is ignored |
 | `KIMI_CODE_TEST_SCOPE_GUARD` | Whether running the full test suite from the repository root injects a reminder to run the tests covering the current change first. On by default; a falsy value stops the injection | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
 | `KIMI_CODE_PERMISSION_MODE_REMINDER` | Whether the automatic permission-mode reminder is injected into the model context; `0` stops the injection | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
+| `KIMI_GUARDIAN` | Enable the guardian safety review: an independent model reviews tool executions before approval. Off by default, so nothing changes without it | `1` to enable |
 | `KIMI_CODE_TUI_FULL_SCREEN` | Enable the experimental fullscreen UI: scrollable transcript, mouse selection, clickable links, Ctrl-Shift-F search | `1` enables; other values keep the normal inline UI |
 | `KIMI_CODE_EXPERIMENTAL_SUBAGENT_FORK` | Experimental `fork` parameter on `Agent`/`AgentSwarm`: start the subagent from a snapshot of the caller's history instead of an empty context; `KIMI_CODE_EXPERIMENTAL_FLAG=1` also enables it | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
 | `KIMI_CODE_EXPERIMENTAL_TOOL_SELECT` | Experimental on-demand tool loading: tools of MCP servers marked `deferred: true` stay out of the top-level tool list and are loaded via `select_tools`; also requires the model to declare the `dynamically_loaded_tools` capability — see [MCP](../customization/mcp.md#loading-tools-on-demand) | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
@@ -212,7 +216,7 @@ Switches that control the behavior of subsystems such as telemetry, background t
 | `KIMI_SHELL_PATH` | Override the Git Bash path on Windows (used when auto-detection fails) | Absolute path |
 | `KIMI_PWSH_PATH` | Pin the `pwsh.exe` the `PowerShell` tool uses on Windows (higher priority than system PowerShell and the bundled pwsh payload) | Absolute path |
 | `KIMI_DOWNLOAD_MIRROR` | GitHub release mirror prefix used by `kimi shells provision` downloads (same effect as `--mirror`) | Non-blank URL prefix |
-| `KIMI_MODEL_MAX_COMPLETION_TOKENS` | Hard cap on `max_completion_tokens` per LLM step; applies to the `kimi` provider only | Positive integer; `0` or negative disables clamping |
+| `KIMI_MODEL_MAX_COMPLETION_TOKENS` | Hard cap on `max_completion_tokens` per LLM step; applies to the `kimi` provider only. `KIMI_MODEL_MAX_TOKENS` is an equivalent alias, read only when this one is unset | Positive integer; `0` or negative disables clamping |
 | `KIMI_MODEL_TEMPERATURE` | Sampling temperature for every request; `kimi` provider only (global, independent of `KIMI_MODEL_NAME`) | Number, e.g. `0.3` |
 | `KIMI_MODEL_TOP_P` | Nucleus-sampling `top_p` for every request; `kimi` provider only (global) | Number, e.g. `0.95` |
 | `KIMI_MODEL_THINKING_EFFORT` | Force a thinking effort (`thinking.effort`), bypassing the model's declared `support_efforts`; `kimi` provider only | An effort value, e.g. `max` |
