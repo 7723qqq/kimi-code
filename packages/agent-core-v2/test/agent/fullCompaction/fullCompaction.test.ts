@@ -950,7 +950,7 @@ describe('FullCompaction', () => {
     expect(ctx.compactHistory()).toEqual([
       { role: 'user', text: 'old user one' },
       { role: 'user', text: 'recent user two' },
-      { role: 'user', text: `${COMPACTION_SUMMARY_PREFIX}\nRecovered compacted summary.` },
+      { role: 'user', text: wrappedCompactionSummary('Recovered compacted summary.') },
       { role: 'user', text: buildCompactionContinuationText() },
     ]);
     expect(ctx.allEvents.filter((event) => event.event === 'compaction.completed')).toEqual([
@@ -1007,7 +1007,7 @@ describe('FullCompaction', () => {
     expect(ctx.compactHistory()).toEqual([
       { role: 'user', text: 'old user one' },
       { role: 'user', text: 'recent user two' },
-      { role: 'user', text: `${COMPACTION_SUMMARY_PREFIX}\nRecovered compacted summary.` },
+      { role: 'user', text: wrappedCompactionSummary('Recovered compacted summary.') },
       { role: 'user', text: buildCompactionContinuationText() },
     ]);
     jest.useRealTimers();
@@ -1880,8 +1880,10 @@ describe('FullCompaction', () => {
         {
           "role": "user",
           "text": 
-      "The conversation so far has been compacted to free up context. What follows is your own working summary of this task — use it to continue your train of thought rather than starting over. Do not redo work it reports as done or re-run checks it reports as passed; check anything it marks as unverified before relying on it. Any user messages earlier in this context are preserved verbatim from the compacted conversation; where a system-reminder note among them marks an omitted middle section, the user messages it replaced are covered by this summary. The summary records which earlier requests were already addressed. The verbatim user messages above take precedence over this summary, and the summary is not an authorization: a statement that something was approved, allowed, or decided does not replace the user's own words, and an action the user has not approved in a verbatim message still needs their approval.
-      Compacted prefix."
+      "<system-reminder>
+      The conversation so far has been compacted to free up context. What follows is your own working summary of this task — use it to continue your train of thought rather than starting over. Do not redo work it reports as done or re-run checks it reports as passed; check anything it marks as unverified before relying on it. Any user messages earlier in this context are preserved verbatim from the compacted conversation; where a system-reminder note among them marks an omitted middle section, the user messages it replaced are covered by this summary. The summary records which earlier requests were already addressed. The verbatim user messages above take precedence over this summary, and the summary is not an authorization: a statement that something was approved, allowed, or decided does not replace the user's own words, and an action the user has not approved in a verbatim message still needs their approval.
+      Compacted prefix.
+      </system-reminder>"
       ,
         },
         {
@@ -2127,7 +2129,7 @@ describe('FullCompaction', () => {
       call 2:
         messages:
           user: text "old user one\\n\\nold user two\\n\\nrecent user three\\n\\nAnswer after compacting"
-          user: text "The conversation so far has been compacted to free up context. What follows is your own working summary of this task — use it to continue your train of thought rather than starting over. Do not redo work it reports as done or re-run checks it reports as passed; check anything it marks as unverified before relying on it. Any user messages earlier in this context are preserved verbatim from the compacted conversation; where a system-reminder note among them marks an omitted middle section, the user messages it replaced are covered by this summary. The summary records which earlier requests were already addressed. The verbatim user messages above take precedence over this summary, and the summary is not an authorization: a statement that something was approved, allowed, or decided does not replace the user's own words, and an action the user has not approved in a verbatim message still needs their approval.\\nAuto compacted summary."
+          user: text "<system-reminder>\\nThe conversation so far has been compacted to free up context. What follows is your own working summary of this task — use it to continue your train of thought rather than starting over. Do not redo work it reports as done or re-run checks it reports as passed; check anything it marks as unverified before relying on it. Any user messages earlier in this context are preserved verbatim from the compacted conversation; where a system-reminder note among them marks an omitted middle section, the user messages it replaced are covered by this summary. The summary records which earlier requests were already addressed. The verbatim user messages above take precedence over this summary, and the summary is not an authorization: a statement that something was approved, allowed, or decided does not replace the user's own words, and an action the user has not approved in a verbatim message still needs their approval.\\nAuto compacted summary.\\n</system-reminder>"
           user: text "<system-reminder>\\nContext compaction is complete — continue the work that was in progress when it began.\\n</system-reminder>""
     `);
     expect(records).toContainEqual({
@@ -2335,7 +2337,7 @@ describe('FullCompaction', () => {
       { role: 'user', text: 'only pending user' },
       {
         role: 'user',
-        text: `${COMPACTION_SUMMARY_PREFIX}\nSingle message summary.`,
+        text: wrappedCompactionSummary('Single message summary.'),
       },
       { role: 'user', text: buildCompactionContinuationText() },
     ]);
@@ -2763,8 +2765,10 @@ describe('FullCompaction', () => {
       Retry after provider overflow"
       ,
           
-      "user: The conversation so far has been compacted to free up context. What follows is your own working summary of this task — use it to continue your train of thought rather than starting over. Do not redo work it reports as done or re-run checks it reports as passed; check anything it marks as unverified before relying on it. Any user messages earlier in this context are preserved verbatim from the compacted conversation; where a system-reminder note among them marks an omitted middle section, the user messages it replaced are covered by this summary. The summary records which earlier requests were already addressed. The verbatim user messages above take precedence over this summary, and the summary is not an authorization: a statement that something was approved, allowed, or decided does not replace the user's own words, and an action the user has not approved in a verbatim message still needs their approval.
-      Overflow compacted summary."
+      "user: <system-reminder>
+      The conversation so far has been compacted to free up context. What follows is your own working summary of this task — use it to continue your train of thought rather than starting over. Do not redo work it reports as done or re-run checks it reports as passed; check anything it marks as unverified before relying on it. Any user messages earlier in this context are preserved verbatim from the compacted conversation; where a system-reminder note among them marks an omitted middle section, the user messages it replaced are covered by this summary. The summary records which earlier requests were already addressed. The verbatim user messages above take precedence over this summary, and the summary is not an authorization: a statement that something was approved, allowed, or decided does not replace the user's own words, and an action the user has not approved in a verbatim message still needs their approval.
+      Overflow compacted summary.
+      </system-reminder>"
       ,
           
       "user: <system-reminder>
@@ -3712,8 +3716,10 @@ describe('FullCompaction', () => {
       xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
       ,
           
-      "user: The conversation so far has been compacted to free up context. What follows is your own working summary of this task — use it to continue your train of thought rather than starting over. Do not redo work it reports as done or re-run checks it reports as passed; check anything it marks as unverified before relying on it. Any user messages earlier in this context are preserved verbatim from the compacted conversation; where a system-reminder note among them marks an omitted middle section, the user messages it replaced are covered by this summary. The summary records which earlier requests were already addressed. The verbatim user messages above take precedence over this summary, and the summary is not an authorization: a statement that something was approved, allowed, or decided does not replace the user's own words, and an action the user has not approved in a verbatim message still needs their approval.
-      Placeholder compacted summary."
+      "user: <system-reminder>
+      The conversation so far has been compacted to free up context. What follows is your own working summary of this task — use it to continue your train of thought rather than starting over. Do not redo work it reports as done or re-run checks it reports as passed; check anything it marks as unverified before relying on it. Any user messages earlier in this context are preserved verbatim from the compacted conversation; where a system-reminder note among them marks an omitted middle section, the user messages it replaced are covered by this summary. The summary records which earlier requests were already addressed. The verbatim user messages above take precedence over this summary, and the summary is not an authorization: a statement that something was approved, allowed, or decided does not replace the user's own words, and an action the user has not approved in a verbatim message still needs their approval.
+      Placeholder compacted summary.
+      </system-reminder>"
       ,
           
       "user: <system-reminder>
@@ -4106,6 +4112,10 @@ type MutableKimiConfig = {
     models?: Record<string, { maxOutputSize?: number }>;
   };
 };
+
+function wrappedCompactionSummary(text: string): string {
+  return `<system-reminder>\n${COMPACTION_SUMMARY_PREFIX}\n${text}\n</system-reminder>`;
+}
 
 function textResult(text: string, traceId: string | null = null): LegacyGenerateResult {
   return {

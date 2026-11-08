@@ -2454,6 +2454,7 @@ function stripMessageId(message: ContextMessage): ContextMessage {
 
 function isSystemReminderMessage(message: ContextMessage): boolean {
   if (message.role !== 'user') return false;
+  if (message.origin?.kind === 'compaction_summary') return false;
   const text = message.content
     .map((part) => (part.type === 'text' ? part.text : ''))
     .join('')

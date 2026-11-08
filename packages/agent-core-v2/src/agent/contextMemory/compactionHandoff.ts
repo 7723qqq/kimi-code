@@ -137,7 +137,9 @@ export function buildContextCompactionShape(
 
 export function buildCompactionSummaryText(summary: string): string {
   const suffix = summary.trim();
-  return `${COMPACTION_SUMMARY_PREFIX}\n${suffix.length > 0 ? suffix : '(no summary available)'}`;
+  return wrapSystemReminder(
+    `${COMPACTION_SUMMARY_PREFIX}\n${suffix.length > 0 ? suffix : '(no summary available)'}`,
+  );
 }
 
 export function createCompactionSummaryMessage(text: string): ContextMessage {
