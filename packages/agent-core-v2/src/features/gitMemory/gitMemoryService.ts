@@ -5,7 +5,6 @@ import { createDecorator } from '#/_base/di/instantiation';
 import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
-import { errorMessage } from '#/_base/utils/errorMessage';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { WarningIssued } from '#/agent/profile/profileOps';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
@@ -21,17 +20,11 @@ import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { IHostProcessService } from '#/os/interface/hostProcess';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 
-import {
-  buildIndex,
-  cachePath,
-  readAnyIndex,
-  readIndex,
-  removeLegacyIndex,
-  writeIndex,
-} from './cache';
 import { GIT_MEMORY_FLAG_ID } from './flag';
-import { readGitHistory, readRepoHead, readRepoMap, readRepoTree } from './gitReader';
-import type { GitUnavailableReason, RepoHead, RepoHeadResult } from './gitReader';
+import { readRepoMap } from './gitReader';
+import type { GitUnavailableReason } from './gitReader';
+import { GitMemoryIndexLoader } from './gitMemoryIndexLoader';
+import type { GitMemoryIndexLoaderDeps } from './gitMemoryIndexLoader';
 import {
   projectFileBlock,
   projectMemoryBlock,
@@ -47,14 +40,11 @@ import {
   GIT_MEMORY_SIGNAL_COMMITS,
   GIT_MEMORY_SIGNAL_PATHS,
   GIT_MEMORY_TREE_DEPTH,
-  GIT_MEMORY_WINDOW,
 } from './types';
 import type { CommitRecord, GitMemoryIndex } from './types';
 
 const PATH_PATTERN =
   /[\w./\\-]+\.(?:ts|tsx|js|jsx|mjs|cjs|rs|go|py|java|kt|rb|vue|json|jsonc|md|yaml|yml|toml)/g;
-const TRANSIENT_FAILURE_COOLDOWN_MS = 10_000;
-const DETERMINISTIC_HEAD_FAILURE_TTL_MS = 60_000;
 
 export const GIT_MEMORY_REPO_MAP_MAX_LINES = 2000;
 
@@ -75,18 +65,8 @@ export const IGitMemoryService = createDecorator<IGitMemoryService>('gitMemorySe
 export class GitMemoryService extends Disposable implements IGitMemoryService {
   declare readonly _serviceBrand: undefined;
 
-  private index: GitMemoryIndex | undefined;
-  private indexLoaded = false;
-  private indexFailure: { readonly at: number } | undefined;
-  private loading: Promise<void> | undefined;
-  private refresh: Promise<void> | undefined;
-  private head: RepoHead | undefined;
-  private headLoaded = false;
-  private headFailure: { readonly reason: GitUnavailableReason; readonly at: number } | undefined;
-  private headLoading: Promise<void> | undefined;
   private unavailableNotified = false;
-  protected repoRoot = '';
-  protected pathPrefix = '';
+  protected indexLoader: GitMemoryIndexLoader;
   private readonly renderedPaths = new Set<string>();
   private readonly renderedCommits = new Set<string>();
   private readonly renderedMemories = new Set<string>();
@@ -94,7 +74,6 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
   private readonly memoryScopeCache = new Map<string, string[]>();
   private shaCache: { readonly revision: number; readonly map: Map<string, string> } | undefined;
   private readonly directoryHistory = new Map<string, readonly CommitRecord[]>();
-  private cleanedLegacyRoot = '';
   private entriesCache:
     | {
         readonly revision: number;
@@ -121,84 +100,37 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
     @ISessionContext private readonly session: ISessionContext,
   ) {
     super();
+    this.indexLoader = this.createIndexLoader();
     this.reminders.register('git_memory_signal', ({ isNewTurn }) =>
       isNewTurn ? this.signalBlock(this.lastUserText()) : undefined,
     );
   }
 
-  protected async loadIndex(): Promise<GitMemoryIndex | undefined> {
-    const head = await this.ensureHead();
-    if (head === undefined) return undefined;
-    await this.cleanLegacyIndex(head.repoRoot);
-
-    const path = cachePath(this.bootstrap.storeDir, head.repoRoot);
-    const cached = await readIndex(path, head.headSha, GIT_MEMORY_WINDOW);
-    if (cached.kind === 'hit') return cached.index;
-    if (cached.kind === 'miss') {
-      const stale = await readAnyIndex(path);
-      if (stale !== undefined) {
-        this.scheduleRefresh(head, path);
-        return stale;
-      }
-    } else {
-      this.log.warn('git memory cache was corrupted; rebuilding it');
-    }
-    return this.rebuild(head, path);
+  protected createIndexLoader(): GitMemoryIndexLoader {
+    return new GitMemoryIndexLoader(this.indexLoaderDeps());
   }
 
-  private async cleanLegacyIndex(repoRoot: string): Promise<void> {
-    if (this.cleanedLegacyRoot === repoRoot) return;
-    this.cleanedLegacyRoot = repoRoot;
-    const removed = await removeLegacyIndex(repoRoot);
-    if (removed) this.log.debug('git memory legacy cache removed', { repoRoot });
-  }
-
-  private scheduleRefresh(head: RepoHead, path: string): void {
-    if (this.refresh !== undefined) return;
-    this.refresh = this.rebuild(head, path)
-      .then((index) => {
-        if (index !== undefined) {
-          this.index = index;
-          this.resetDerivedState();
-        }
-      })
-      .catch((error) => {
-        this.log.warn('git memory refresh failed', { error });
-      })
-      .finally(() => {
-        this.refresh = undefined;
-      });
-  }
-
-  private async rebuild(head: RepoHead, path: string): Promise<GitMemoryIndex | undefined> {
-    const history = await readGitHistory(
-      this.process,
-      head.repoRoot,
-      GIT_MEMORY_WINDOW,
-      head.headSha,
-    );
-    if (history.kind !== 'ok') return undefined;
-    const dirs = await readRepoTree(this.process, head.repoRoot);
-    const index = buildIndex(
-      head.repoRoot,
-      history.headSha,
-      GIT_MEMORY_WINDOW,
-      history.commits,
-      new Date().toISOString(),
-      dirs ?? [],
-    );
-    const written = await writeIndex(path, index);
-    if (!written) {
-      this.log.warn('git memory cache could not be written; continuing without it');
-    }
-    return index;
+  protected indexLoaderDeps(): GitMemoryIndexLoaderDeps {
+    return {
+      process: this.process,
+      storeDir: this.bootstrap.storeDir,
+      cwd: this.bootstrap.cwd,
+      log: this.log,
+      now: () => this.now(),
+      onIndexChanged: () => {
+        this.resetDerivedState();
+      },
+      onHeadUnavailable: (reason) => {
+        this.notifyUnavailable(reason);
+      },
+    };
   }
 
   async repoBlock(): Promise<string> {
     if (!this.enabled()) return '';
     this.trimRenderState();
     try {
-      const index = await this.ensureIndex();
+      const index = await this.indexLoader.ensureIndex();
       if (index === undefined) return '';
       const commits = index.commits.slice(0, GIT_MEMORY_REPO_COMMITS);
       const unscoped = await this.safeMemories(() => this.unscopedMemories());
@@ -221,7 +153,7 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
     if (!this.enabled()) return '';
     this.trimRenderState();
     try {
-      const index = await this.ensureIndex();
+      const index = await this.indexLoader.ensureIndex();
       if (index === undefined) return '';
       const key = this.toRepoPath(path);
       if (this.renderedPaths.has(key)) return '';
@@ -251,7 +183,7 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
     try {
       const paths = this.extractPaths(message);
       if (paths.length === 0) return '';
-      const index = await this.ensureIndex();
+      const index = await this.indexLoader.ensureIndex();
       if (index === undefined) return '';
       const blocks: string[] = [];
       for (const path of paths) {
@@ -273,7 +205,7 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
   async repoMap(path: string | undefined, depth: number): Promise<string> {
     if (!this.enabled()) return '';
     try {
-      const head = await this.ensureHead();
+      const head = await this.indexLoader.ensureHead();
       if (head === undefined) return '';
       for (const candidate of this.repoPathCandidates(path)) {
         const entries = await readRepoMap(this.process, head.repoRoot, candidate);
@@ -299,10 +231,10 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
     if (path === undefined || path.length === 0) return [undefined];
     const normalized = path.replaceAll('\\', '/').replace(/^\.\//, '');
     const candidates: (string | undefined)[] = [normalized];
-    if (this.pathPrefix.length === 0) return candidates;
-    const prefixed = normalized.startsWith(this.pathPrefix)
+    if (this.indexLoader.pathPrefix.length === 0) return candidates;
+    const prefixed = normalized.startsWith(this.indexLoader.pathPrefix)
       ? normalized
-      : `${this.pathPrefix}${normalized}`;
+      : `${this.indexLoader.pathPrefix}${normalized}`;
     if (prefixed !== normalized) candidates.push(prefixed);
     return candidates;
   }
@@ -498,104 +430,20 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
     return map;
   }
 
-  private async ensureIndex(): Promise<GitMemoryIndex | undefined> {
-    if (this.indexLoaded) return this.index;
-    if (
-      this.indexFailure !== undefined &&
-      this.now() - this.indexFailure.at < TRANSIENT_FAILURE_COOLDOWN_MS
-    ) {
-      return undefined;
-    }
-    if (this.loading === undefined) {
-      this.loading = this.loadIndex()
-        .then((index) => {
-          if (index === undefined) {
-            if (this.head !== undefined) this.indexFailure = { at: this.now() };
-            return;
-          }
-          this.index = index;
-          this.resetDerivedState();
-          this.indexLoaded = true;
-          this.indexFailure = undefined;
-        })
-        .catch((error) => {
-          this.log.warn('git memory index load failed', { error });
-          if (this.head !== undefined) this.indexFailure = { at: this.now() };
-        })
-        .finally(() => {
-          this.loading = undefined;
-        });
-    }
-    await this.loading;
-    return this.index;
-  }
-
-  protected async ensureHead(): Promise<RepoHead | undefined> {
-    if (this.headLoaded) return this.head;
-    if (this.headFailure !== undefined) {
-      const cooldown =
-        this.headFailure.reason === 'timeout'
-          ? TRANSIENT_FAILURE_COOLDOWN_MS
-          : DETERMINISTIC_HEAD_FAILURE_TTL_MS;
-      if (this.now() - this.headFailure.at < cooldown) return undefined;
-    }
-    if (this.headLoading === undefined) {
-      this.headLoading = this.loadHead()
-        .then((result) => {
-          if (result.kind === 'ok') {
-            this.head = result.head;
-            this.headLoaded = true;
-            this.headFailure = undefined;
-            return;
-          }
-          this.headFailure = { reason: result.reason, at: this.now() };
-          this.log.warn('git memory head lookup failed', {
-            cwd: this.bootstrap.cwd,
-            reason: result.reason,
-            detail: result.detail,
-          });
-          this.notifyUnavailable(result.reason);
-        })
-        .catch((error) => {
-          const detail = errorMessage(error);
-          this.headFailure = { reason: 'timeout', at: this.now() };
-          this.log.warn('git memory head lookup failed', {
-            cwd: this.bootstrap.cwd,
-            reason: 'timeout',
-            detail,
-          });
-          this.notifyUnavailable('timeout');
-        })
-        .finally(() => {
-          this.headLoading = undefined;
-        });
-    }
-    await this.headLoading;
-    return this.head;
-  }
-
   protected now(): number {
     return Date.now();
   }
 
-  protected async loadHead(): Promise<RepoHeadResult> {
-    const result = await readRepoHead(this.process, this.bootstrap.cwd);
-    if (result.kind === 'unavailable') return result;
-    this.repoRoot = result.head.repoRoot;
-    this.pathPrefix = result.head.prefix;
-    return result;
-  }
-
   private toRepoPath(path: string): string {
     const normalized = path.replaceAll('\\', '/');
-    if (this.repoRoot.length > 0) {
-      const root = this.repoRoot.replaceAll('\\', '/').replace(/\/$/, '');
+    if (this.indexLoader.repoRoot.length > 0) {
+      const root = this.indexLoader.repoRoot.replaceAll('\\', '/').replace(/\/$/, '');
       if (normalized.startsWith(`${root}/`)) return normalized.slice(root.length + 1);
     }
     const relative = normalized.replace(/^\.\//, '');
-    if (this.pathPrefix.length === 0) return relative;
-    if (relative.startsWith(this.pathPrefix)) return relative;
-    return `${this.pathPrefix}${relative}`;
+    if (this.indexLoader.pathPrefix.length === 0) return relative;
+    if (relative.startsWith(this.indexLoader.pathPrefix)) return relative;
+    return `${this.indexLoader.pathPrefix}${relative}`;
   }
 
   private extractPaths(message: string): string[] {

@@ -5,6 +5,7 @@ import { getLocale, setLocale } from '@moonshot-ai/kimi-i18n';
 
 import { WarningIssued } from '#/agent/profile/profileOps';
 import { buildIndex } from '#/features/gitMemory/cache';
+import { GitMemoryIndexLoader } from '#/features/gitMemory/gitMemoryIndexLoader';
 import { GitMemoryService } from '#/features/gitMemory/gitMemoryService';
 import type { RepoHeadResult } from '#/features/gitMemory/gitReader';
 import type { CommitRecord, GitMemoryIndex } from '#/features/gitMemory/types';
@@ -185,9 +186,8 @@ function harness(
       };
     },
   };
+  const stubValue: { index: GitMemoryIndex | undefined } = { index: undefined };
   const service = new (class extends GitMemoryService {
-    private readonly stub: GitMemoryIndex | undefined;
-
     constructor() {
       super(
         process as never,
@@ -238,14 +238,18 @@ function harness(
         { agentId: 'main' } as never,
         { sessionId: 'session-test' } as never,
       );
-      this.stub = options.stub;
+      stubValue.index = options.stub;
     }
 
-    protected override async loadIndex(): Promise<GitMemoryIndex | undefined> {
-      const head = await this.ensureHead();
-      if (head === undefined) return undefined;
-      state.indexAttempts += 1;
-      return this.stub;
+    protected override createIndexLoader(): GitMemoryIndexLoader {
+      return new (class extends GitMemoryIndexLoader {
+        protected override async loadIndex(): Promise<GitMemoryIndex | undefined> {
+          const head = await this.ensureHead();
+          if (head === undefined) return undefined;
+          state.indexAttempts += 1;
+          return stubValue.index;
+        }
+      })(this.indexLoaderDeps());
     }
 
     protected override now(): number {
@@ -253,7 +257,7 @@ function harness(
     }
 
     probeHead(): Promise<unknown> {
-      return this.ensureHead();
+      return this.indexLoader.ensureHead();
     }
   })();
   return {
