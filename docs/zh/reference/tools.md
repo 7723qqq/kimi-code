@@ -67,12 +67,27 @@
 
 **`lsp`** 在文件的某个位置执行一次 Language Server Protocol 操作，并把结果以文本返回：`goToDefinition`、`findReferences`、`goToImplementation` 和 `hover`。位置从 1 开始计数（第 1 行是第一行，character 1 是该行的第一个 UTF-16 码元），文件必须在当前会话工作区内。需要在 `[lsp]` 配置小节里为该文件的扩展名配置语言服务器；没有时会返回如何配置的说明。该工具是实验性的，只在启用 `lsp` 实验开关后注册。
 
+## 会话历史
+
+| 工具 | 默认审批 | 说明 |
+| --- | --- | --- |
+| `session_query` | 自动放行 | 搜索历史会话、追溯 fork 谱系 |
+
+**`session_query`** 搜索本工作区自己的会话历史。仅主 agent 可用，接受一个 `operation`：
+
+- `session_search` —— 跨本工作区的会话做全文搜索。`query` 是字面短语，不是查询语法；结果按最强匹配事件给会话排序，并附上有界的片段。过滤条件：`session_ids`、`created_at_from` / `created_at_to`（含端点的 ISO 8601）、`parent_session_ids`、`include_root_sessions`、`availability`（`live` / `persisted`），以及事件范围 `event_seq_from` / `event_seq_to` / `event_time_from` / `event_time_to` / `event_types`。
+- `event_search` —— 在单个会话的事件内做全文搜索；省略 `session_id` 表示当前会话。查询语义相同，可选 `seq_from` / `seq_to` / `time_from` / `time_to` / `event_types` 范围。
+- `session_trace` —— 单个会话的 fork 谱系（省略 `session_id` 表示当前会话）：祖先链与后代树。
+
+每次调用最多返回 20 条；缩小查询范围或增加过滤条件以找到更多。
+
 ## Shell
 
 | 工具 | 默认审批 | 说明 |
 | --- | --- | --- |
 | `Bash` | 需审批 | 执行 Shell 命令 |
 | `PowerShell` | 需审批 | 原生执行 PowerShell 脚本（仅 Windows） |
+| `run_code` | 需审批 | 在隔离子进程中运行 TypeScript/JavaScript 程序 |
 
 **`Bash`** 是权限要求最严格的工具，也是功能最通用的工具。参数：
 
@@ -86,6 +101,8 @@
 前台模式会阻塞当前轮次，直到命令结束或超时；命令运行期间，TUI 会把 stdout 和 stderr 流式显示在正在运行的 `Bash` 工具卡片中。前台命令超时后默认不会被终止，而是转为后台任务继续运行（受 600 秒默认后台超时约束）；如需恢复超时即终止的行为，将 `[background]` 的 [`bash_auto_background_on_timeout`](../configuration/config-files.md#task) 设为 `false`。600 秒的默认后台超时可通过 [`bash_task_timeout_s`](../configuration/config-files.md#task) 配置（`0` = 无超时），且在 print 模式（`kimi -p`）下默认无超时。后台模式立即返回任务 ID，任务结束时自动通知 Agent。stdin 始终被关闭，交互式命令会立即收到 EOF。任务被停止或后台超时时采用两阶段终止策略（SIGTERM → 5 秒宽限期 → SIGKILL），确保进程可靠结束。Windows 上 shell 的解析顺序（内置 bash 载荷 `kimi shells provision --bash`、自动探测 Git Bash 或 MSYS2 bash，以及 `KIMI_SHELL_PATH` 覆盖项）见[环境变量](../configuration/env-vars.md)。Windows 上的 bash 调用会在 `PATH` 前注入 `/usr/local/bin:/usr/bin:/bin`，确保 MSYS2/Git Bash 工具始终可用。
 
 **`PowerShell`**（仅 Windows）以独立的 PowerShell 进程执行脚本——不经 bash 中转——因此非 ASCII 文本（含中文）的输出也始终是干净的 UTF-8。需要执行 PowerShell 脚本、或处理注册表、服务、winget 等 Windows 原生任务时，用它代替在 `Bash` 里调用 `powershell.exe` / `pwsh`。参数与 `Bash` 一致（`command`（必填）、`cwd`、`timeout`、`run_in_background`、`description`、`disable_timeout`），前台/后台超时默认值也相同。脚本以单个编码载荷传入，引号转义无需操心；每次调用都是全新的非交互进程（`-NoProfile -NonInteractive`）。可执行文件的解析顺序（含 `KIMI_PWSH_PATH` 覆盖项与内置 pwsh 载荷 `kimi shells provision --pwsh`）见[环境变量](../configuration/env-vars.md)。
+
+**`run_code`** 在隔离子进程中运行 TypeScript/JavaScript 程序，并返回其控制台输出和完成值。参数：`code`（必填；程序体作为 async 函数执行，因此顶层 `await` 和 `return` 都可用）和 `timeout_ms`（默认 `30000`，取值 `1000` 到 `120000`）。每次调用都会启动全新的子进程——调用之间不保留任何状态——子进程受内存上限约束。完成值必须可 JSON 序列化；函数、类和循环引用结构会失败。该子进程是软隔离边界，不是安全沙箱：对模型编写的代码要与 Bash 命令同信任级别对待；纯计算、数据转换和不需要 shell 特性的解析任务，优先用它而不是 Bash。
 
 ## 网络类
 

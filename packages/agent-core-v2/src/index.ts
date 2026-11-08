@@ -537,6 +537,8 @@ import '#/features/lsp/lspFeature';
 
 import '#/features/attachment/attachmentFeature';
 import '#/features/spill/spillFeature';
+import '#/features/sessionQuery/sessionQueryFeature';
+import '#/features/codeRuntime/codeRuntimeFeature';
 
 import '#/session/agentLifecycle/profile/profiles';
 export * from '#/session/agentLifecycle/agentLifecycle';

@@ -67,12 +67,27 @@ When the `git_memory` experimental flag is enabled, `write` additionally require
 
 **`lsp`** runs a Language Server Protocol operation at a position in a file and returns the result as text: `goToDefinition`, `findReferences`, `goToImplementation` and `hover`. Positions are one-based (line 1 is the first line, character 1 the first UTF-16 code unit) and the file must be inside the session workspace. A language server must be configured for the file's extension in the `[lsp]` config section; with none, the tool reports how to configure one. The tool is experimental and only registered when the `lsp` experimental flag is enabled.
 
+## Session History
+
+| Tool | Default Approval | Description |
+| --- | --- | --- |
+| `session_query` | Auto-allow | Search prior session history and trace fork lineage |
+
+**`session_query`** searches the workspace's own session history. It is available to the main agent only, and takes one `operation`:
+
+- `session_search` — full-text search across the workspace's sessions. `query` is a literal phrase, not query syntax; results rank sessions by the strongest matching event and include a bounded snippet. Filters: `session_ids`, `created_at_from` / `created_at_to` (inclusive ISO 8601), `parent_session_ids`, `include_root_sessions`, `availability` (`live` / `persisted`), and the event bounds `event_seq_from` / `event_seq_to` / `event_time_from` / `event_time_to` / `event_types`.
+- `event_search` — full-text search within one session's events; omit `session_id` for the current session. Same query semantics, with optional `seq_from` / `seq_to` / `time_from` / `time_to` / `event_types` bounds.
+- `session_trace` — fork lineage of one session (omit `session_id` for the current session): the ancestor chain and descendant trees.
+
+Results are capped at 20 entries per call; narrow the query or add filters to find more.
+
 ## Shell
 
 | Tool | Default Approval | Description |
 | --- | --- | --- |
 | `Bash` | Requires approval | Execute a shell command |
 | `PowerShell` | Requires approval | Execute a PowerShell script natively (Windows only) |
+| `run_code` | Requires approval | Run a TypeScript/JavaScript program in an isolated subprocess |
 
 **`Bash`** is the most permission-demanding tool and also the most general-purpose. Parameters:
 
@@ -86,6 +101,8 @@ When the `git_memory` experimental flag is enabled, `write` additionally require
 Foreground mode blocks the current turn until the command completes or times out, and the TUI streams stdout and stderr into the running `Bash` tool card while the command is still active. By default, a foreground command that hits its timeout is not killed — it keeps running as a background task (bounded by the 600s default background timeout); to restore kill-on-timeout, set [`bash_auto_background_on_timeout`](../configuration/config-files.md#task) to `false` under `[background]`. The 600s background default is configurable via [`bash_task_timeout_s`](../configuration/config-files.md#task) (`0` = no timeout) and defaults to no timeout in print mode (`kimi -p`). Background mode returns a task ID immediately and automatically notifies the Agent when the task finishes. stdin is always closed — interactive commands receive EOF immediately. A two-phase termination strategy (SIGTERM → 5-second grace period → SIGKILL) ensures reliable process cleanup when a task is stopped or hits its background timeout. On Windows, the shell resolution order — the bundled bash payload (`kimi shells provision --bash`), auto-detected Git Bash or MSYS2 bash, and the `KIMI_SHELL_PATH` override — is listed under [Environment Variables](../configuration/env-vars.md). Bash invocations on Windows prepend `/usr/local/bin:/usr/bin:/bin` to `PATH` so MSYS2/Git Bash tools are always found.
 
 **`PowerShell`** (Windows only) executes PowerShell scripts as a direct PowerShell process — not routed through bash — so output encoding stays clean UTF-8 even for non-ASCII text. Prefer it over invoking `powershell.exe` / `pwsh` from `Bash`, and for registry, services, winget, and other Windows-native tasks. Parameters mirror `Bash` (`command` (required), `cwd`, `timeout`, `run_in_background`, `description`, `disable_timeout`); foreground and background timeout defaults are the same. The script is passed as a single encoded payload, so quoting is handled for you; each call runs a fresh non-interactive process (`-NoProfile -NonInteractive`). The executable resolution order, including the `KIMI_PWSH_PATH` override and the bundled pwsh payload (`kimi shells provision --pwsh`), is listed under [Environment Variables](../configuration/env-vars.md).
+
+**`run_code`** runs a TypeScript/JavaScript program in an isolated subprocess and returns its console output and completion value. Parameters: `code` (required; the program body runs as an async function, so top-level `await` and `return` work) and `timeout_ms` (default `30000`, between `1000` and `120000`). Each call spawns a fresh subprocess — no state survives between calls — and the subprocess runs under a memory cap. The completion value must be JSON-serializable; functions, classes, and circular structures fail. The subprocess is a soft isolation boundary, not a security sandbox: treat model-written code with the same trust level as a Bash command, and prefer this tool over Bash for pure computation, data transformation, and parsing that does not need shell features.
 
 ## Web Tools
 

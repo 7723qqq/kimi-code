@@ -161,6 +161,8 @@ class ToolContributions {
 
 const SENT_ONLY_WITH_DYNAMIC_TOOL_LOADING: ReadonlySet<string> = new Set([SELECT_TOOLS_TOOL_NAME]);
 
+const MAIN_AGENT_ONLY_TOOLS: ReadonlySet<string> = new Set(['session_query']);
+
 const PARENT_SYSTEM_PROMPT = 'You are the parity probe parent.';
 const ACTIVE_TOOL_NAMES = ['Agent', 'Bash', 'Read'];
 const CHILD_FINAL_TEXT = 'The inherited task is done.';
@@ -279,7 +281,9 @@ describe('subagent task reminders and fork request parity', () => {
     expect(childReq.systemPrompt).toBe(parentReq.systemPrompt);
 
     expect(parentReq.tools.map((tool) => tool.name)).toEqual([...ACTIVE_TOOL_NAMES].toSorted());
-    expect(childReq.tools).toEqual(parentReq.tools);
+    expect(childReq.tools).toEqual(
+      parentReq.tools.filter((tool) => !MAIN_AGENT_ONLY_TOOLS.has(tool.name)),
+    );
 
     const prefix = childReq.history.slice(0, parentReq.history.length);
     expect(prefix).toEqual(parentReq.history);
@@ -440,7 +444,9 @@ describe('subagent task reminders and fork request parity', () => {
         .filter((name) => !SENT_ONLY_WITH_DYNAMIC_TOOL_LOADING.has(name))
         .toSorted(),
     );
-    expect(childReq.tools).toEqual(parentReq.tools);
+    expect(childReq.tools).toEqual(
+      parentReq.tools.filter((tool) => !MAIN_AGENT_ONLY_TOOLS.has(tool.name)),
+    );
 
     const prefix = childReq.history.slice(0, parentReq.history.length);
     expect(prefix).toEqual(parentReq.history);
@@ -490,7 +496,9 @@ describe('subagent task reminders and fork request parity', () => {
     expect(ctx.llmCalls).toHaveLength(3);
     const parentReq = ctx.llmCalls[0]!;
     const childReq = ctx.llmCalls[1]!;
-    expect(childReq.tools).toEqual(parentReq.tools);
+    expect(childReq.tools).toEqual(
+      parentReq.tools.filter((tool) => !MAIN_AGENT_ONLY_TOOLS.has(tool.name)),
+    );
 
     const tailText = childReq.history
       .slice(parentReq.history.length)
@@ -649,7 +657,9 @@ describe('subagent task reminders and fork request parity', () => {
   it('keeps btw system, tools and inherited history identical to main', async () => {
     createMainForkCtx();
     await ctx.get(IAgentProfileService).bind({ profile: 'agent', model: 'mock-model' });
-    ctx.get(IAgentProfileService).update({ activeToolNames: contributedToolNames() });
+    ctx.get(IAgentProfileService).update({
+      activeToolNames: contributedToolNames().filter((name) => !MAIN_AGENT_ONLY_TOOLS.has(name)),
+    });
     const lifecycle = ctx.get(IAgentLifecycleService);
     await runPrompt(lifecycle.handleOf('main')!);
     const childId = await ctx.get(ISessionBtwService).start();
@@ -660,7 +670,9 @@ describe('subagent task reminders and fork request parity', () => {
     const parentReq = ctx.llmCalls[0]!;
     const childReq = ctx.llmCalls[1]!;
     expect(parentReq.tools.some((tool) => tool.name === 'WaitFor')).toBe(true);
-    expect(childReq.tools).toEqual(parentReq.tools);
+    expect(childReq.tools).toEqual(
+      parentReq.tools.filter((tool) => !MAIN_AGENT_ONLY_TOOLS.has(tool.name)),
+    );
     expect(childReq.systemPrompt).toBe(parentReq.systemPrompt);
     expect(childReq.history.slice(0, parentReq.history.length)).toEqual(parentReq.history);
     expect(ctx.llmCalls).toHaveLength(2);
@@ -670,7 +682,9 @@ describe('subagent task reminders and fork request parity', () => {
     const telemetry: TelemetryRecord[] = [];
     createMainForkCtx(stubFlag(true), telemetry);
     await ctx.get(IAgentProfileService).bind({ profile: 'agent', model: 'mock-model' });
-    ctx.get(IAgentProfileService).update({ activeToolNames: contributedToolNames() });
+    ctx.get(IAgentProfileService).update({
+      activeToolNames: contributedToolNames().filter((name) => !MAIN_AGENT_ONLY_TOOLS.has(name)),
+    });
     const lifecycle = ctx.get(IAgentLifecycleService);
     const main = lifecycle.handleOf('main')!;
     await runPrompt(main);
