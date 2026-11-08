@@ -11,7 +11,7 @@ Spec: `specs/martian-manhunter-hawkman-stature/`　选定方案：**全部执行
 | T4 | ✅ | `Expandable` 能力 + `setUnhandledClick` 接线 |
 | T5 | ✅ | `+N done` ⇄ `−N done` 可双向切换 |
 | T6 | ✅ | 文档（中英）+ changeset 修订 |
-| T7 | 进行中 | 门禁已绿，正在构建部署 |
+| T7 | 进行中 | 门禁、`build`、`build:native:bun`、`test:native:smoke` 全绿；仅剩安装到 `~/.kimi-code/bin` 后的部署校验 |
 
 ## 各项实测记录
 
@@ -50,3 +50,13 @@ Spec: `specs/martian-manhunter-hawkman-stature/`　选定方案：**全部执行
 `check-locale-keys` / `check-locale-placeholders` / `check-t-call-coverage` 均 exit 0 ·
 `tools/review` 0 error / 6 warning / 0 info · `check:no-comments` OK ·
 **full cli 271 文件 / 4286 通过 / 4 跳过**（较改动前 4279 增加 7 条）。
+
+### 构建与 smoke（2026-11-08 复跑）
+
+`bun run build` exit 0（vis-web 单文件 490.48 kB / gzip 141.26 kB，tsdown 主包 + 12 个分块，
+pi-tui 原生预编译已拷贝，dist-web 528 项资源校验通过）·
+`bun run build:native:bun` exit 0（`dist-native/bin/win32-x64/kimi.exe`，182.2 MB，
+已签名并校验 sha256）· `bun run test:native:smoke` exit 0（exec-server 握手 100ms、ssh askpass）。
+
+**仍未做**：验收里"部署后 sha256sum 与构建产物一致、`~/.kimi-code/bin/kimi --version` 正常"
+这一步要把构建产物安装到 `~/.kimi-code/bin/kimi`（工作目录之外），未自行执行。
