@@ -1,8 +1,10 @@
 import { Agent, EnvHttpProxyAgent, type Dispatcher } from './undici-npm';
 
 export const LLM_HEADERS_TIMEOUT_ENV = 'KIMI_CODE_LLM_HEADERS_TIMEOUT_MS';
+export const LLM_BODY_TIMEOUT_ENV = 'KIMI_CODE_LLM_BODY_TIMEOUT_MS';
 
-const MAX_HEADERS_TIMEOUT_MS = 2 ** 31 - 1;
+const MAX_TIMEOUT_MS = 2 ** 31 - 1;
+const NO_TIMEOUT_MS = 0;
 
 type Env = Readonly<Record<string, string | undefined>>;
 
@@ -10,9 +12,21 @@ export function resolveLlmHeadersTimeoutMs(env: Env = process.env): number | und
   const raw = env[LLM_HEADERS_TIMEOUT_ENV];
   if (raw === undefined || raw.trim() === '') return undefined;
   const value = Number(raw);
-  if (!Number.isInteger(value) || value <= 0 || value > MAX_HEADERS_TIMEOUT_MS) {
+  if (!Number.isInteger(value) || value <= 0 || value > MAX_TIMEOUT_MS) {
     throw new Error(
-      `${LLM_HEADERS_TIMEOUT_ENV} must be a positive integer no greater than ${MAX_HEADERS_TIMEOUT_MS}, got ${JSON.stringify(raw)}.`,
+      `${LLM_HEADERS_TIMEOUT_ENV} must be a positive integer no greater than ${MAX_TIMEOUT_MS}, got ${JSON.stringify(raw)}.`,
+    );
+  }
+  return value;
+}
+
+export function resolveLlmBodyTimeoutMs(env: Env = process.env): number | undefined {
+  const raw = env[LLM_BODY_TIMEOUT_ENV];
+  if (raw === undefined || raw.trim() === '') return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < NO_TIMEOUT_MS || value > MAX_TIMEOUT_MS) {
+    throw new Error(
+      `${LLM_BODY_TIMEOUT_ENV} must be an integer between ${NO_TIMEOUT_MS} and ${MAX_TIMEOUT_MS}, got ${JSON.stringify(raw)}.`,
     );
   }
   return value;
@@ -72,12 +86,13 @@ let warnedSocksProxy = false;
 let warnedInvalidProxy = false;
 let cached: { readonly key: string; readonly dispatcher: Dispatcher | undefined } | undefined;
 
-export function getLlmHeadersTimeoutDispatcher(
-  timeoutMs: number,
-  env: Env = process.env,
-): Dispatcher | undefined {
+export function getLlmDispatcher(env: Env = process.env): Dispatcher | undefined {
+  const headersTimeoutMs = resolveLlmHeadersTimeoutMs(env);
+  const bodyTimeoutMs = resolveLlmBodyTimeoutMs(env);
+  if (headersTimeoutMs === undefined && bodyTimeoutMs === undefined) return undefined;
   const key = JSON.stringify([
-    timeoutMs,
+    headersTimeoutMs,
+    bodyTimeoutMs,
     env['http_proxy'],
     env['HTTP_PROXY'],
     env['https_proxy'],
@@ -90,20 +105,24 @@ export function getLlmHeadersTimeoutDispatcher(
   if (cached?.key === key) return cached.dispatcher;
   let dispatcher: Dispatcher | undefined;
   const httpProxyUrls = resolveHttpProxyUrls(env);
+  const timeouts: { headersTimeout?: number; bodyTimeout?: number } = {
+    ...(headersTimeoutMs === undefined ? {} : { headersTimeout: headersTimeoutMs }),
+    ...(bodyTimeoutMs === undefined ? {} : { bodyTimeout: bodyTimeoutMs }),
+  };
   if (httpProxyUrls !== undefined) {
     try {
       dispatcher = new EnvHttpProxyAgent({
         httpProxy: httpProxyUrls.httpProxy ?? '',
         httpsProxy: httpProxyUrls.httpsProxy ?? '',
         noProxy: resolveNoProxy(env),
-        headersTimeout: timeoutMs,
+        ...timeouts,
       });
     } catch (error) {
       if (!warnedInvalidProxy) {
         warnedInvalidProxy = true;
         const reason = error instanceof Error ? error.message : String(error);
         process.stderr.write(
-          `kimi: ${LLM_HEADERS_TIMEOUT_ENV}: ignoring invalid proxy configuration (${reason}); requests keep the default headers timeout\n`,
+          `kimi: ${LLM_HEADERS_TIMEOUT_ENV} / ${LLM_BODY_TIMEOUT_ENV}: ignoring invalid proxy configuration (${reason}); requests keep the default timeouts\n`,
         );
       }
       dispatcher = undefined;
@@ -112,12 +131,12 @@ export function getLlmHeadersTimeoutDispatcher(
     if (!warnedSocksProxy) {
       warnedSocksProxy = true;
       process.stderr.write(
-        `kimi: ${LLM_HEADERS_TIMEOUT_ENV} is not supported with SOCKS proxies; requests keep the default headers timeout\n`,
+        `kimi: ${LLM_HEADERS_TIMEOUT_ENV} / ${LLM_BODY_TIMEOUT_ENV} is not supported with SOCKS proxies; requests keep the default timeouts\n`,
       );
     }
     dispatcher = undefined;
   } else {
-    dispatcher = new Agent({ headersTimeout: timeoutMs });
+    dispatcher = new Agent(timeouts);
   }
   cached = { key, dispatcher };
   return dispatcher;

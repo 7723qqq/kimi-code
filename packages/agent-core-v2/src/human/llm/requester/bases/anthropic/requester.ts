@@ -19,10 +19,7 @@ import {
   type LlmRequestEvent,
   type ToolCallIdPolicy,
 } from '#/llm/requester/requester';
-import {
-  getLlmHeadersTimeoutDispatcher,
-  resolveLlmHeadersTimeoutMs,
-} from '#/llm/requester/timeout';
+import { getLlmDispatcher } from '#/llm/requester/timeout';
 import { toLlmSyntaxErrorMessage } from '#/llm/syntax-errors';
 import { ThinkingConfigError } from '#/llm/thinking';
 
@@ -94,9 +91,7 @@ function buildDefaultHeaders(
 }
 
 function createClient(model: LlmModel, headers: Record<string, string> | undefined): Anthropic {
-  const headersTimeoutMs = resolveLlmHeadersTimeoutMs();
-  const dispatcher =
-    headersTimeoutMs === undefined ? undefined : getLlmHeadersTimeoutDispatcher(headersTimeoutMs);
+  const dispatcher = getLlmDispatcher();
   return new Anthropic({
     apiKey: model.apiKey ?? 'unused',
     authToken: null,

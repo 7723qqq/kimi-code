@@ -7,7 +7,7 @@ import { createAnthropicRequester } from '#/llm/requester/bases/anthropic/reques
 import { createOpenAIResponsesRequester } from '#/llm/requester/bases/openai-responses/requester';
 import { createOpenAIRequester } from '#/llm/requester/bases/openai/requester';
 import type { LlmRequester, LlmRequestEvent } from '#/llm/requester/requester';
-import { LLM_HEADERS_TIMEOUT_ENV } from '#/llm/requester/timeout';
+import { LLM_BODY_TIMEOUT_ENV, LLM_HEADERS_TIMEOUT_ENV } from '#/llm/requester/timeout';
 
 import { setGlobal, restoreGlobals } from '../../../../test/helpers/stubs';
 
@@ -79,9 +79,14 @@ describe('default client headers timeout', () => {
       'NO_PROXY',
     ];
     const savedEnv = Object.fromEntries(
-      [LLM_HEADERS_TIMEOUT_ENV, ...proxyEnvKeys].map((key) => [key, process.env[key]]),
+      [LLM_HEADERS_TIMEOUT_ENV, LLM_BODY_TIMEOUT_ENV, ...proxyEnvKeys].map((key) => [
+        key,
+        process.env[key],
+      ]),
     );
-    for (const key of [LLM_HEADERS_TIMEOUT_ENV, ...proxyEnvKeys]) delete process.env[key];
+    for (const key of [LLM_HEADERS_TIMEOUT_ENV, LLM_BODY_TIMEOUT_ENV, ...proxyEnvKeys]) {
+      delete process.env[key];
+    }
     let currentSse = openAISse;
     const fetchStub = mock(
       async () =>
@@ -130,6 +135,23 @@ describe('default client headers timeout', () => {
       expect(fetchStub).toHaveBeenCalledTimes(calls);
       expect(fetchStub.mock.calls[calls - 1]?.[1]).not.toHaveProperty('dispatcher');
       delete process.env['ALL_PROXY'];
+
+      currentSse = openAISse;
+      process.env[LLM_BODY_TIMEOUT_ENV] = '600000';
+      const bodyEvents = await generate(createOpenAIRequester());
+      calls += 1;
+      expect(bodyEvents.at(-1)).toMatchObject({ type: 'llm.done' });
+      expect(fetchStub).toHaveBeenCalledTimes(calls);
+      expect(fetchStub.mock.calls[calls - 1]?.[1]).toHaveProperty('dispatcher');
+      delete process.env[LLM_BODY_TIMEOUT_ENV];
+
+      process.env[LLM_BODY_TIMEOUT_ENV] = '-1';
+      const invalidBodyEvents = await generate(createOpenAIRequester());
+      expect(invalidBodyEvents.at(-1)).toMatchObject({
+        type: 'llm.failed.remote',
+        error: { message: expect.stringContaining(LLM_BODY_TIMEOUT_ENV) },
+      });
+      delete process.env[LLM_BODY_TIMEOUT_ENV];
 
       process.env[LLM_HEADERS_TIMEOUT_ENV] = 'abc';
       let events = await generate(createOpenAIRequester());

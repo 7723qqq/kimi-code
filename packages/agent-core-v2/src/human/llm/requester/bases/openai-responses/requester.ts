@@ -18,10 +18,7 @@ import {
   type LlmRequestEvent,
   type ToolCallIdPolicy,
 } from '#/llm/requester/requester';
-import {
-  getLlmHeadersTimeoutDispatcher,
-  resolveLlmHeadersTimeoutMs,
-} from '#/llm/requester/timeout';
+import { getLlmDispatcher } from '#/llm/requester/timeout';
 import { toLlmSyntaxErrorMessage } from '#/llm/syntax-errors';
 import { encodeReasoningEffortFallback } from '#/llm/thinking';
 
@@ -50,9 +47,7 @@ const OPENAI_RESPONSES_TOOL_CALL_ID_POLICY: ToolCallIdPolicy = {
 };
 
 function createClient(model: LlmModel, headers: Record<string, string> | undefined): OpenAI {
-  const headersTimeoutMs = resolveLlmHeadersTimeoutMs();
-  const dispatcher =
-    headersTimeoutMs === undefined ? undefined : getLlmHeadersTimeoutDispatcher(headersTimeoutMs);
+  const dispatcher = getLlmDispatcher();
   return new OpenAI({
     apiKey: model.apiKey ?? 'unused',
     baseURL: model.baseUrl,
