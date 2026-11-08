@@ -4,7 +4,7 @@ This repository uses [changesets](https://github.com/changesets/changesets) to m
 
 ## Package Publishing Strategy
 
-This repository uses an **independent, manually-selected publishing** strategy. When generating a changeset, only select the publishable packages that this change actually affects. The repository's `.changeset/config.json` already filters out internal workspace packages via `ignore`, so only the publishable packages listed below should appear in the `bun run changeset` prompt.
+This repository uses an **independent, manually-selected publishing** strategy. When generating a changeset, only select the publishable packages that this change actually affects. Internal workspace packages are `private`, which changesets skips by default, so the prompt lists the packages below; `ignore` in `.changeset/config.json` covers the vis packages, and `@moonshot-ai/migration-legacy` is the one internal package that is not private and does appear.
 
 Current publishable packages:
 
