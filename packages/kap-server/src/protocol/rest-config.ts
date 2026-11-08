@@ -39,6 +39,9 @@ export const configResponseSchema = z
       })
       .optional(),
     sandbox: z.unknown().optional(),
+    attachment: z.unknown().optional(),
+    spill: z.unknown().optional(),
+    lsp: z.unknown().optional(),
     telemetry: z.boolean().optional(),
     disable_feedback_survey: z.boolean().optional(),
     default_workspace: z.unknown().optional(),
@@ -93,6 +96,9 @@ export const patchConfigRequestSchema = z
       })
       .optional(),
     sandbox: z.unknown().optional(),
+    attachment: z.unknown().optional(),
+    spill: z.unknown().optional(),
+    lsp: z.unknown().optional(),
     telemetry: z.boolean().optional(),
     disable_feedback_survey: z.boolean().optional(),
     workspace: z.unknown().optional(),
