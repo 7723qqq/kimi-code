@@ -1,4 +1,4 @@
-import {  } from '#/_base/di/scope';import { BugIndicatingError } from '#/_base/errors/errors';
+import { BugIndicatingError } from '#/_base/errors/errors';
 import {
   probeHostEnvironmentFromNode,
   ProbeShellNotFoundError,
