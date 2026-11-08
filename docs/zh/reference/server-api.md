@@ -1001,6 +1001,23 @@ schema 还接受 `agent_config` 内的 `system_prompt`、`tools`、`mcp_servers`
 | `session_id` | path | string | **必填。** 会话 id |
 | `file_id` | path | string | **必填。** 媒体文件 id |
 
+#### 会话 cron、环境、文件历史与评分
+
+与同名工具对应的会话级端点；三个 `cron` 端点是 `CronCreate` / `CronList` / `CronDelete` 工具的 REST 对应物。
+
+| 方法与路径 | 说明 |
+| --- | --- |
+| `GET /api/v1/sessions/{session_id}/cron` | 列出会话已计划的定时任务 |
+| `POST /api/v1/sessions/{session_id}/cron` | 为会话计划一个定时任务 |
+| `DELETE /api/v1/sessions/{session_id}/cron/{task_id}` | 从会话移除一个定时任务 |
+| `GET /api/v1/sessions/{session_id}/environment` | 获取 main agent 的环境绑定 |
+| `GET /api/v1/sessions/{session_id}/environments` | 列出会话可用的环境 |
+| `GET /api/v1/sessions/{session_id}/file-history/changes` | 列出某一轮次的文件变更（来自轮次级文件历史） |
+| `GET /api/v1/sessions/{session_id}/file-history/content` | 某文件在轮次文件历史检查点处捕获的内容 |
+| `POST /api/v1/sessions/{session_id}/rating` | 对最近完成的转录轮次评分，或返回已展示的评分及其最终答案 |
+
+`POST /api/v1/client_configs` 不属于会话级：它按名称获取云端控制的客户端配置（例如 `model_switch_confirm`），未注册的名称返回 `{ name, config: null }`。
+
 ### 消息与转录
 
 `messages` 端点分页返回 main agent 的扁平化消息历史，`transcript` 端点则提供按 Agent 组织的结构化转录——轮次、交互、附件——即 WebSocket [转录协议](#转录协议) 实时流式推送的内容。历史分页与补漏用这些端点，实时尾部用 WebSocket 订阅。

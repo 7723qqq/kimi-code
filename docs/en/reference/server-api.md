@@ -1003,6 +1003,23 @@ Downloads a prompt media file (an image or other attachment referenced by the se
 | `session_id` | path | string | **Required.** Session id |
 | `file_id` | path | string | **Required.** Media file id |
 
+#### Session cron, environment, file history, and rating
+
+Session-scoped companions to the tools of the same name; the three `cron` endpoints are the REST analogue of the `CronCreate` / `CronList` / `CronDelete` tools.
+
+| Method and path | Description |
+| --- | --- |
+| `GET /api/v1/sessions/{session_id}/cron` | List the cron tasks scheduled for a session |
+| `POST /api/v1/sessions/{session_id}/cron` | Schedule a cron task for a session |
+| `DELETE /api/v1/sessions/{session_id}/cron/{task_id}` | Remove a cron task from a session |
+| `GET /api/v1/sessions/{session_id}/environment` | Get the main agent's environment binding |
+| `GET /api/v1/sessions/{session_id}/environments` | List the environments available to the session |
+| `GET /api/v1/sessions/{session_id}/file-history/changes` | List one turn's file changes from the turn-level file history |
+| `GET /api/v1/sessions/{session_id}/file-history/content` | A file's content as captured at a turn's file-history checkpoint |
+| `POST /api/v1/sessions/{session_id}/rating` | Evaluate the latest completed transcript turn, or report a displayed rating and its final answer |
+
+`POST /api/v1/client_configs` is not session-scoped: it fetches a named cloud-controlled client configuration (for example `model_switch_confirm`) and answers `{ name, config: null }` for a name that is not registered.
+
 ### Messages and transcript
 
 The `messages` endpoints page the main agent's flattened message history, while the `transcript` endpoints serve the structured per-agent transcript — turns, interactions, attachments — that the WebSocket [Transcript protocol](#transcript-protocol) streams live. Use these endpoints for history paging and catch-up, and the WebSocket subscription for the live tail.
