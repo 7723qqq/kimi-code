@@ -150,6 +150,23 @@ A fourth file, `progress.md`, is a working note that records implementation prog
 
 In Never Ask mode the spec is submitted without an interactive review; the Agent is told explicitly that the user has not approved it.
 
+## Goal Mode
+
+| Tool | Default Approval | Description |
+| --- | --- | --- |
+| `CreateGoal` | Auto-allow | Start a durable goal the agent pursues across turns |
+| `GetGoal` | Auto-allow | Read the current goal |
+| `SetGoalBudget` | Auto-allow | Set a hard budget on the current goal |
+| `UpdateGoal` | Auto-allow | Change the current goal's status |
+
+**`CreateGoal`** starts a durable goal the runtime pursues across multiple turns. Call it only when the user explicitly asks to start a goal or work autonomously toward an outcome, or when a host goal-intake prompt asks for one — not for greetings, ordinary questions, or requests without a checkable end state. When the request is vague, ask for the missing completion criterion first; if the user insists after being warned that the wording is vague or risky, create the goal anyway. `objective` should be concise and reference a long task description by file path. Creating fails when a goal already exists; pass `replace: true` only when the user explicitly wants to abandon the current goal.
+
+**`GetGoal`** reads the current goal: objective, completion criterion, status, each budget with what remains, and the terminal reason once it has stopped. Returns `{ "goal": null }` when there is no current goal.
+
+**`SetGoalBudget`** sets a hard budget for the current goal, and only when the user clearly states one ("stop after 20 turns", "use no more than 500k tokens", "finish within 30 minutes"). Do not invent a limit, and do not set one for vague wording such as "spend some time". Convert a compound time to one unit first: "2 hours and 3 minutes" → `value: 123, unit: "minutes"`.
+
+**`UpdateGoal`** sets the current goal's status. `active` resumes a paused or blocked goal when the user explicitly asks to work on it again. `complete` and `blocked` end autonomous work. Do not call it merely because a slice of work finished — after `complete` or `blocked`, write the completion summary or the blocker explanation in the next message.
+
 ## State Management
 
 | Tool | Default Approval | Description |
