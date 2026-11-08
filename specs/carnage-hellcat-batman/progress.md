@@ -359,14 +359,25 @@ changeset：`.changeset/prompt-optimizer-rewrite-concrete.md`（新建）、
 
 ## 未完成项与偏离
 
-1. **R8 的脚本已落入 `scripts/prompt-optimizer/`**：`src/measure/measure.ts`，命令 `measure`
-   （`bun src/cli.ts measure [--model <name>] [--reps <n>] [--dry-run]`）。三轴、六个固定草稿、
-   `--reps` 取中位数、失败单独记录而不计入聚合、`--dry-run` 不触网并照样写报告，均已实现并有单测。
-   仍未做的是**一次新的真实跑**：它需要模型凭据，属于对外发送，未自行执行。§7.4 的基线数字
-   （旧 3.62 / 定稿 1.20，以及 v4 复跑的 1.76 / 1.28）已记录在案，可直接对照；
-   `--baseline <report>` 会把当前跑与一份旧报告的三轴均值逐项对照打印出来。
-2. **`test/features/goal/goal.test.ts` 有 1 项失败**，属另一会话（`session_0de4a015`）正在改的
-   `goal/errors.ts`，与本 spec 无关，未触碰。
-3. **未提交**。本 spec 的文件与另一会话在 `errors.ts` / `node-sdk/errors.ts` 上的改动同处一文件，
-   `git add` 会混入其未完成的错误码统一改动。已 `git reset` 撤销暂存，改为在
-   `specs/carnage-hellcat-batman/recovery/` 保存 8 个文件的恢复副本。
+1. **R8 的三轴真实跑已执行（2026-11-08），结论是它不能作为提示词效果的判决。**
+   命令 `bun src/cli.ts measure --model "MiniMax Token Plan/MiniMax-M3.1-Flash" --reps 5`，
+   报告 `scripts/prompt-optimizer/reports/measure-MiniMax-Token-Plan-MiniMax-M3.1-Flash-1794150068472.json`
+   （`reports/` 在 `.gitignore` 里，此文件是本地产物，不是仓库内容）。
+
+   30 次调用里 **14 次（47%）返回的不是改写**：MiniMax 的 Anthropic 端点把模型的工具调用意图
+   以纯文本泄漏进 `content`——形如 `]<]minimax[>[<tool_call>…`（模型想调 Glob 读仓库，而测量
+   脚本不声明任何工具，模型只能把内部标记当文本吐出）。剩下 16 次是真改写，但长度比中位数在
+   10–60 之间，远差于 §7.4 在 `workbuddy/deepseek-v4.1-flash` 上的 1.20。
+
+   因此三轴均值（16.40 / 0.11 / 2.33）同时受两层污染：**端点把未声明的工具调用泄漏成文本**，
+   以及**跨模型不可比**（基线是 deepseek 端点，本次是 MiniMax）。这两层都足以让均值失去意义，
+   所以本次跑**不改变** §7.4 的结论，也不构成对 v5 定稿的否证。
+
+   可复用的教训：`measure` 这个跑法测量的是「模型在拿不到工具时会不会乱来时是否仍然只输出改写」，
+   对会把工具调用标记漏进 `content` 的端点天然不友好。要得到可对照的判决，需要换一个在无工具
+   请求下仍只输出文本的端点重跑，并把那份报告作为 `--baseline` 的对照文件。
+
+   `--baseline <report>` 本次仍未使用：仓库里没有任何历史 `measure-*.json`，§7.4 的基线只存在于
+   本 spec 的散文里，不是可对照的报告文件。
+2. ~~`test/features/goal/goal.test.ts` 有 1 项失败~~ —— 已解决，该文件现在 126 pass / 0 fail。
+3. ~~未提交~~ —— 提示词定稿已提交（`7447ce4641`、`9de553713d`、`b977a6f6f6`）。
