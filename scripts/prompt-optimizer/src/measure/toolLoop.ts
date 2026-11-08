@@ -38,8 +38,12 @@ export type MeasureTurn = (
  *
  * Six was the first value and it truncated legitimate investigation: measured
  * on MiniMax M3.1 Flash, a draft whose referent the recent turns resolve took
- * eight rounds to return its rewrite. Twelve leaves room for that without
- * letting a model that never stops run indefinitely.
+ * eight rounds to return its rewrite, and another took twelve. Twelve leaves
+ * room for that without letting a model that never stops run indefinitely.
+ *
+ * The same model has also run past twenty rounds without producing anything,
+ * so the cap bounds the cost of a turn rather than guaranteeing one: a model
+ * that keeps reading is reported as a failure, not retried into a longer run.
  */
 export const MEASURE_MAX_TOOL_ROUNDS = 12;
 
