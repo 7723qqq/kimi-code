@@ -51,7 +51,11 @@ function gitHandler(headSha: string): (args: readonly string[]) => Spawn {
 }
 
 function unavailableHandler(): Spawn {
-  return { stdout: '', stderr: 'fatal: not a git repository (or any of the parent directories)', code: 1 };
+  return {
+    stdout: '',
+    stderr: 'fatal: not a git repository (or any of the parent directories)',
+    code: 1,
+  };
 }
 
 interface Harness {
@@ -77,7 +81,11 @@ function harness(storeDir: string, handle: (args: readonly string[]) => Spawn): 
         _serviceBrand: undefined as undefined,
         pid: 1,
         exitCode: outcome.code,
-        stdin: new Writable({ write(_chunk, _encoding, callback) { callback(); } }),
+        stdin: new Writable({
+          write(_chunk, _encoding, callback) {
+            callback();
+          },
+        }),
         stdout: Readable.from([outcome.stdout]),
         stderr: Readable.from([outcome.stderr]),
         wait: async () => outcome.code,
@@ -170,7 +178,13 @@ describe('git memory index loader', () => {
 
   it('serves a stale index and refreshes it in the background', async () => {
     const storeDir = await tempStore();
-    const stale = buildIndex('/repo', OTHER, 1500, [commit(OTHER, ['old.ts'], 'chore: stale')], 'x');
+    const stale = buildIndex(
+      '/repo',
+      OTHER,
+      1500,
+      [commit(OTHER, ['old.ts'], 'chore: stale')],
+      'x',
+    );
     expect(await writeIndex(cachePath(storeDir, '/repo'), stale)).toBe(true);
     const h = harness(storeDir, gitHandler(SHA));
     const first = await h.loader.ensureIndex();

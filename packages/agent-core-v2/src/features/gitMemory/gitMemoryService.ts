@@ -1,5 +1,4 @@
 import { t } from '@moonshot-ai/kimi-i18n';
-import picomatch from 'picomatch';
 
 import { createDecorator } from '#/_base/di/instantiation';
 import { Disposable } from '#/_base/di/lifecycle';
@@ -10,21 +9,21 @@ import { WarningIssued } from '#/agent/profile/profileOps';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IFlagService } from '#/app/flag/flag';
-import { parseAppliesTo } from '#/app/memory/memoryPaths';
 import { IMemoryRepo } from '#/app/memory/memoryRepo';
 import { IMemoryStore } from '#/app/memory/memoryStore';
 import { LifecycleScope } from '#/app/scopes';
-import { alreadyRendered, markRendered } from '#/agent/injection/renderedLines';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { IHostProcessService } from '#/os/interface/hostProcess';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 
 import { GIT_MEMORY_FLAG_ID } from './flag';
-import { readRepoMap } from './gitReader';
-import type { GitUnavailableReason } from './gitReader';
+import { GitMemoryEntries } from './gitMemoryEntries';
 import { GitMemoryIndexLoader } from './gitMemoryIndexLoader';
 import type { GitMemoryIndexLoaderDeps } from './gitMemoryIndexLoader';
+import { GitMemoryRenderState } from './gitMemoryRenderState';
+import { readRepoMap } from './gitReader';
+import type { GitUnavailableReason } from './gitReader';
 import {
   projectFileBlock,
   projectMemoryBlock,
@@ -32,7 +31,6 @@ import {
   projectRepoTree,
   projectSignalBlock,
 } from './projection';
-import type { MemoryEntryView } from './projection';
 import {
   GIT_MEMORY_DIR_COMMITS,
   GIT_MEMORY_FILE_COMMITS,
@@ -67,24 +65,8 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
 
   private unavailableNotified = false;
   protected indexLoader: GitMemoryIndexLoader;
-  private readonly renderedPaths = new Set<string>();
-  private readonly renderedCommits = new Set<string>();
-  private readonly renderedMemories = new Set<string>();
-  private memoryStoreWarned = false;
-  private readonly memoryScopeCache = new Map<string, string[]>();
-  private shaCache: { readonly revision: number; readonly map: Map<string, string> } | undefined;
-  private readonly directoryHistory = new Map<string, readonly CommitRecord[]>();
-  private entriesCache:
-    | {
-        readonly revision: number;
-        readonly entries: readonly {
-          path: string;
-          title: string;
-          body: string;
-          updatedAt: number;
-        }[];
-      }
-    | undefined;
+  private readonly renderState = new GitMemoryRenderState();
+  private readonly entries: GitMemoryEntries;
 
   constructor(
     @IHostProcessService private readonly process: IHostProcessService,
@@ -101,6 +83,7 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
   ) {
     super();
     this.indexLoader = this.createIndexLoader();
+    this.entries = new GitMemoryEntries(memoryStore, memoryRepo, session, log, this.renderState);
     this.reminders.register('git_memory_signal', ({ isNewTurn }) =>
       isNewTurn ? this.signalBlock(this.lastUserText()) : undefined,
     );
@@ -118,7 +101,7 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
       log: this.log,
       now: () => this.now(),
       onIndexChanged: () => {
-        this.resetDerivedState();
+        this.renderState.clear();
       },
       onHeadUnavailable: (reason) => {
         this.notifyUnavailable(reason);
@@ -128,12 +111,12 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
 
   async repoBlock(): Promise<string> {
     if (!this.enabled()) return '';
-    this.trimRenderState();
+    this.renderState.trim();
     try {
       const index = await this.indexLoader.ensureIndex();
       if (index === undefined) return '';
       const commits = index.commits.slice(0, GIT_MEMORY_REPO_COMMITS);
-      const unscoped = await this.safeMemories(() => this.unscopedMemories());
+      const unscoped = await this.entries.unscoped();
       const parts: string[] = [];
       const repo = projectRepoBlock(commits);
       if (repo.length > 0) parts.push(repo);
@@ -151,21 +134,27 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
 
   async fileBlock(path: string): Promise<string> {
     if (!this.enabled()) return '';
-    this.trimRenderState();
+    this.renderState.trim();
     try {
       const index = await this.indexLoader.ensureIndex();
       if (index === undefined) return '';
       const key = this.toRepoPath(path);
-      if (this.renderedPaths.has(key)) return '';
+      if (this.renderState.hasPath(key)) return '';
       const commits = this.commitsForPath(index, key);
-      const memories = await this.safeMemories(() => this.memoriesForPath(key));
+      const memories = await this.entries.forPath(key);
       const directory = directoryOf(key);
       const dirCommits = directory.length === 0 ? [] : this.commitsForDirectory(index, directory);
       if (commits.length === 0 && dirCommits.length === 0 && memories.length === 0) return '';
-      this.renderedPaths.add(key);
-      let block = projectFileBlock(key, commits, directory, dirCommits, this.renderedCommits);
-      for (const commit of commits) this.renderedCommits.add(commit.sha);
-      for (const commit of dirCommits) this.renderedCommits.add(commit.sha);
+      this.renderState.markPath(key);
+      let block = projectFileBlock(
+        key,
+        commits,
+        directory,
+        dirCommits,
+        this.renderState.renderedCommits,
+      );
+      for (const commit of commits) this.renderState.markCommit(commit.sha);
+      for (const commit of dirCommits) this.renderState.markCommit(commit.sha);
       if (memories.length > 0) {
         const rendered = memories.map((entry) => projectMemoryBlock(entry)).join('\n');
         block = block.length === 0 ? rendered : `${block}\n${rendered}`;
@@ -179,7 +168,7 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
 
   async signalBlock(message: string): Promise<string> {
     if (!this.enabled()) return '';
-    this.trimRenderState();
+    this.renderState.trim();
     try {
       const paths = this.extractPaths(message);
       if (paths.length === 0) return '';
@@ -189,10 +178,10 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
       for (const path of paths) {
         const commits = this.commitsForPath(index, path).slice(0, GIT_MEMORY_SIGNAL_COMMITS);
         if (commits.length === 0) continue;
-        const block = projectSignalBlock(path, commits, this.renderedCommits);
+        const block = projectSignalBlock(path, commits, this.renderState.renderedCommits);
         if (block.length === 0) continue;
         blocks.push(block);
-        for (const commit of commits) this.renderedCommits.add(commit.sha);
+        for (const commit of commits) this.renderState.markCommit(commit.sha);
       }
       if (blocks.length === 0) return '';
       return blocks.join('\n');
@@ -250,7 +239,7 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
   }
 
   private commitsForDirectory(index: GitMemoryIndex, directory: string): readonly CommitRecord[] {
-    const cached = this.directoryHistory.get(directory);
+    const cached = this.renderState.directoryCommits(directory);
     if (cached !== undefined) return cached;
     const prefix = `${directory}/`;
     const commits: CommitRecord[] = [];
@@ -259,112 +248,8 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
       commits.push(commit);
       if (commits.length >= GIT_MEMORY_DIR_COMMITS) break;
     }
-    this.directoryHistory.set(directory, commits);
+    this.renderState.setDirectoryCommits(directory, commits);
     return commits;
-  }
-
-  private async memoryEntries(): Promise<
-    readonly { path: string; title: string; body: string; updatedAt: number }[]
-  > {
-    const revision = this.memoryStore.revision;
-    if (this.entriesCache !== undefined && this.entriesCache.revision === revision) {
-      return this.entriesCache.entries;
-    }
-    if (this.entriesCache !== undefined) {
-        this.renderedMemories.clear();
-    }
-    const paths = await this.memoryStore.list();
-    const entries: { path: string; title: string; body: string; updatedAt: number }[] = [];
-    for (const path of paths) {
-      const entry = await this.memoryStore.get(path);
-      if (entry === undefined) continue;
-      entries.push({
-        path,
-        title: entry.title,
-        body: entry.body,
-        updatedAt: entry.updatedAt,
-      });
-    }
-    this.entriesCache = { revision, entries };
-    return entries;
-  }
-
-  private async safeMemories(load: () => Promise<MemoryEntryView[]>): Promise<MemoryEntryView[]> {
-    try {
-      return await load();
-    } catch (error) {
-      if (!this.memoryStoreWarned) {
-        this.memoryStoreWarned = true;
-        this.log.warn('git memory entries unavailable; injecting git history only', { error });
-      }
-      return [];
-    }
-  }
-
-  private async memoriesForPath(path: string): Promise<MemoryEntryView[]> {
-    const views: MemoryEntryView[] = [];
-    const shas = await this.commitShas();
-    let chars = 0;
-    for (const entry of await this.memoryEntries()) {
-      if (views.length >= MEMORY_BLOCK_MAX_ENTRIES) break;
-      if (chars >= MEMORY_BLOCK_MAX_CHARS) break;
-      const patterns = this.memoryScopes(entry.path, entry.body);
-      if (patterns.length === 0) continue;
-      if (!patterns.some((pattern) => picomatch.isMatch(path, pattern))) continue;
-      const sha = shas.get(entry.path);
-      if (sha === undefined) continue;
-      if (this.renderedMemories.has(sha)) continue;
-      this.renderedMemories.add(sha);
-      const view = this.memoryView(entry, sha);
-      const sessionKey = this.session.sessionId;
-      if (alreadyRendered(sessionKey, view.body)) continue;
-      markRendered(sessionKey, [view.body]);
-      chars += view.body.length;
-      views.push(view);
-    }
-    return views;
-  }
-
-  private async unscopedMemories(): Promise<MemoryEntryView[]> {
-    const views: MemoryEntryView[] = [];
-    const shas = await this.commitShas();
-    let chars = 0;
-    for (const entry of await this.memoryEntries()) {
-      if (views.length >= MEMORY_BLOCK_MAX_ENTRIES) break;
-      if (chars >= MEMORY_BLOCK_MAX_CHARS) break;
-      if (this.memoryScopes(entry.path, entry.body).length > 0) continue;
-      const sha = shas.get(entry.path);
-      if (sha === undefined) continue;
-      if (this.renderedMemories.has(sha)) continue;
-      this.renderedMemories.add(sha);
-      const view = this.memoryView(entry, sha);
-      const sessionKey = this.session.sessionId;
-      if (alreadyRendered(sessionKey, view.body)) continue;
-      markRendered(sessionKey, [view.body]);
-      chars += view.body.length;
-      views.push(view);
-    }
-    return views;
-  }
-
-  private memoryView(
-    entry: { title: string; body: string; updatedAt: number },
-    sha: string,
-  ): MemoryEntryView {
-    return {
-      sha,
-      date: new Date(entry.updatedAt).toISOString().slice(0, 10),
-      title: entry.title,
-      body: entry.body,
-    };
-  }
-
-  private memoryScopes(path: string, body: string): string[] {
-    const cached = this.memoryScopeCache.get(path);
-    if (cached !== undefined) return cached;
-    const parsed = parseAppliesTo(body);
-    this.memoryScopeCache.set(path, parsed);
-    return parsed;
   }
 
   private enabled(): boolean {
@@ -402,32 +287,6 @@ export class GitMemoryService extends Disposable implements IGitMemoryService {
         message,
       }),
     );
-  }
-
-  private trimRenderState(): void {
-    trimSet(this.renderedPaths);
-    trimSet(this.renderedCommits);
-    trimSet(this.renderedMemories);
-    trimMap(this.directoryHistory);
-    trimMap(this.memoryScopeCache);
-  }
-
-  private resetDerivedState(): void {
-    this.renderedPaths.clear();
-    this.renderedCommits.clear();
-    this.renderedMemories.clear();
-    this.memoryScopeCache.clear();
-    this.directoryHistory.clear();
-  }
-
-  private async commitShas(): Promise<Map<string, string>> {
-    const revision = this.memoryStore.revision;
-    if (this.shaCache !== undefined && this.shaCache.revision === revision) {
-      return this.shaCache.map;
-    }
-    const map = await this.memoryRepo.recentCommitShas(MEMORY_SHA_HISTORY);
-    this.shaCache = { revision, map };
-    return map;
   }
 
   protected now(): number {
@@ -484,27 +343,6 @@ function isWithinDepth(entry: string, base: string | undefined, depth: number): 
   const prefix = `${base}/`;
   if (!entry.startsWith(prefix)) return false;
   return entry.slice(prefix.length).split('/').length <= depth;
-}
-
-const RENDER_STATE_CAP = 512;
-const MEMORY_BLOCK_MAX_ENTRIES = 8;
-const MEMORY_SHA_HISTORY = 200;
-const MEMORY_BLOCK_MAX_CHARS = 4000;
-
-function trimSet(set: Set<string>): void {
-  while (set.size > RENDER_STATE_CAP) {
-    const oldest = set.values().next().value;
-    if (oldest === undefined) return;
-    set.delete(oldest);
-  }
-}
-
-function trimMap<K, V>(map: Map<K, V>): void {
-  while (map.size > RENDER_STATE_CAP) {
-    const oldest = map.keys().next().value;
-    if (oldest === undefined) return;
-    map.delete(oldest);
-  }
 }
 
 registerScopedService(
