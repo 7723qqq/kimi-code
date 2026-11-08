@@ -16,8 +16,8 @@ import {
 // rather than enforced by a single implementation. Same arrangement as
 // `cache-field-parity.test.ts` guarding the OpenAI usage rule.
 //
-// Scope note: only the registry module is compared. The sibling copies
-// (`errors.ts` / `serialize.ts`) cannot be imported here — they resolve their
+// Scope note: only the registry module is compared. The sibling copy
+// (`errors.ts`) cannot be imported here — it resolves its
 // own `#/errors` specifier through this package's tsconfig `paths`, which maps
 // it onto `kosong`'s `src/errors.ts` and shadows the engine's module. The
 // registry is also where the drift that motivated this file actually lived.
