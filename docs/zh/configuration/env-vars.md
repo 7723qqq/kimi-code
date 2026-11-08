@@ -184,6 +184,11 @@ kimi
 | `KIMI_CODE_ASSOCIATIVE_MEMORY_EMBEDDINGS_API_KEY` | 该 embeddings 端点的 API key | 任意非空字符串 |
 | `KIMI_CODE_ASSOCIATIVE_MEMORY_EMBEDDINGS_MODEL` | embeddings 模型名，默认 `text-embedding-3-small` | 模型名 |
 | `KIMI_CODE_EXPERIMENTAL_TOWER` | 启用实验性 [Tower 多 Agent 协作](../guides/tower.md) 和 `/tower` 命令，需在启动前设置。持久配置等价于在 `config.toml` 中设置 `[experimental] tower = true`；在运行中的 CLI 里修改该配置后，需要重启 Kimi Code。`KIMI_CODE_EXPERIMENTAL_FLAG=1` 仅在未显式配置 `[experimental] tower` 时启用 Tower；`tower = false` 会优先于总开关，而本变量可覆盖该配置 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
+| `KIMI_CODE_EXPERIMENTAL_MICRO_COMPACTION` | 实验性微压缩：prompt 缓存未命中后，把外发请求里较早的的超大工具结果替换成标记，让重建的前缀保持较小。仅本进程生效；持久配置等价于 `[experimental] micro_compaction = true`；`KIMI_CODE_EXPERIMENTAL_FLAG=1` 也会启用 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
+| `KIMI_CODE_EXPERIMENTAL_LSP` | 实验性 `lsp` 工具：通过 `[lsp]` 小节配置的语言服务器做转到定义、查找引用、实现与悬停查询。仅本进程生效；持久配置等价于 `[experimental] lsp = true`；`KIMI_CODE_EXPERIMENTAL_FLAG=1` 也会启用 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
+| `KIMI_CODE_EXPERIMENTAL_NOTIFY_USER` | 实验性 `NotifyUser` 工具：主 Agent 与子 Agent 的实时进度更新，在 TUI 的 Updates 面板以及桌面端和 Web 端的进度行中展示。仅本进程生效；持久配置等价于 `[experimental] notify_user = true`；`KIMI_CODE_EXPERIMENTAL_FLAG=1` 也会启用 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
+| `KIMI_CODE_EXPERIMENTAL_PROMPT_OPTIMIZER` | 实验性提示词优化器：输入框用当前模型改写草稿提示，可从 TUI 快捷键和会话 API 触达。仅本进程生效；持久配置等价于 `[experimental] prompt_optimizer = true`；`KIMI_CODE_EXPERIMENTAL_FLAG=1` 也会启用 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
+| `KIMI_CODE_EXPERIMENTAL_SUBAGENT_BACKENDS` | 实验性 `Agent` 工具的外部子 Agent 后端：`claude-code`、`codex` 与 `acp` 会启动外部 agent CLI，而不是进程内子 Agent。仅本进程生效；持久配置等价于 `[experimental] subagent_backends = true`；`KIMI_CODE_EXPERIMENTAL_FLAG=1` 也会启用 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_WATCH` | 是否挂文件系统 watch 以热更新配置和工作区文件，优先级高于 `[watch] enabled`（默认 `true`） | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_GLOBAL_SEARCH` | 是否构建全局全文搜索索引并提供 `POST /api/v1/search`，优先级高于 `[database] global_search`（默认 `false`） | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_SEARCH_WORKER` | 全局搜索开启时，在独立 worker 线程中运行索引，优先级高于 `[database] search`（默认 `true`） | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
