@@ -242,7 +242,7 @@ R4 要求注入内容是 git 对象的原始投影，而"人自由写的散文�
 | T7 L3 接线 | ✅ | `agent/tools/fileMemory.ts` + Read/Edit/Write 三处 |
 | T8 L2 接线 | ✅ | reminder variant `git_memory_signal` |
 | T9 门禁 | ✅ | `check:git-memory`、`check:no-comments`、`check:locale-keys`、`check:t-coverage`、typecheck |
-| T10 memory 仓库 | ⚠️ 部分 | `app/memory/memoryRepo.ts`：懒 `git init`，写入即提交，author 固定 `kimi-code memory <memory@local>`；条目落库时带 `sha`/`intent`/`applies_to`。**R25 要求的"独立瘦索引文件"未做**——见偏离 8 |
+| T10 memory 仓库 | ⚠️ 部分 | `app/memory/memoryRepo.ts`：懒 `git init`，写入即提交，author 固定 `kimi-code memory <memory@local>`；条目落库时带 `sha`/`intent`/`applies_to`。写入与删除的提交由**有界等待的独占锁**保护（取不到锁就跳过提交并在工具结果里如实报告，R22）。**R25 要求的"独立瘦索引文件"未做**——见偏离 8 |
 | T11 log / revert | ✅ | `Memory` 工具新增 `log` / `revert` 两个 action |
 | T12 applies_to | ✅ | `memoryPaths.parseAppliesTo` + `picomatch` 匹配，命中进 L3、未声明进 L1 |
 | T13 内容纪律 | ✅ | agent 写入必须引用一个已存在的 git 提交 sha，否则拒绝落盘 |

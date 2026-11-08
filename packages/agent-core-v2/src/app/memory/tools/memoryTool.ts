@@ -1,10 +1,11 @@
-import { LockFile } from '@moonshot-ai/minidb';
 import { t } from '@moonshot-ai/kimi-i18n';
-import { join } from 'pathe';
+import { LockFile } from '@moonshot-ai/minidb';
+import { dirname, join } from 'pathe';
 import { z } from 'zod';
 
 import { createDecorator } from '#/_base/di/instantiation';
 import { onUnexpectedError } from '#/_base/errors/unexpectedError';
+import { ILogService } from '#/_base/log/log';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
@@ -21,8 +22,8 @@ import {
 } from '#/app/memory/memoryPaths';
 import { IMemoryRepo } from '#/app/memory/memoryRepo';
 import { IMemoryStore } from '#/app/memory/memoryStore';
-import { GIT_MEMORY_FLAG_ID } from '#/features/gitMemory/flag';
 import { ASSOCIATIVE_MEMORY_FLAG_ID } from '#/features/associativeMemory/flag';
+import { GIT_MEMORY_FLAG_ID } from '#/features/gitMemory/flag';
 import { IHostProcessService } from '#/os/interface/hostProcess';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
@@ -31,6 +32,8 @@ import { ToolSideEffects, type AgentTool, type ToolExecution } from '#/tool/tool
 import DESCRIPTION from './memory.md?raw';
 
 const MAX_REFERENCE_CANDIDATES = 8;
+const MEMORY_LOCK_WAIT_MS = 2_000;
+const MEMORY_LOCK_RETRY_MS = 100;
 
 const MemoryActionSchema = z.enum(['search', 'read', 'write', 'list', 'delete', 'log', 'revert']);
 
@@ -80,6 +83,7 @@ export class MemoryTool implements IMemoryTool {
     @IMemoryRepo private readonly repo: IMemoryRepo,
     @IFlagService private readonly flags: IFlagService,
     @IHostProcessService private readonly process: IHostProcessService,
+    @ILogService private readonly log: ILogService,
   ) {}
 
   resolveExecution(args: MemoryToolInput): ToolExecution {
@@ -90,14 +94,14 @@ export class MemoryTool implements IMemoryTool {
       approvalRule: this.name,
       execute: async () => {
         if (action === 'write' || action === 'delete') {
-          return this.withMemoryLock(() => this.runAction(args));
+          return this.withMemoryLock((commitAllowed) => this.runAction(args, commitAllowed));
         }
-        return this.runAction(args);
+        return this.runAction(args, true);
       },
     };
   }
 
-  private async runAction(args: MemoryToolInput) {
+  private async runAction(args: MemoryToolInput, commitAllowed: boolean) {
     if (
       args.action === 'search' ||
       args.action === 'list' ||
@@ -113,30 +117,49 @@ export class MemoryTool implements IMemoryTool {
       case 'read':
         return this.handleRead(args);
       case 'write':
-        return this.handleWrite(args);
+        return this.handleWrite(args, commitAllowed);
       case 'list':
         return this.handleList(args);
       case 'delete':
-        return this.handleDelete(args);
+        return this.handleDelete(args, commitAllowed);
       case 'log':
         return this.handleLog(args);
       case 'revert':
         return this.handleRevert(args);
       default:
-        return { output: t('toolsV2.memory.unknownAction', { action: args.action }), isError: true };
+        return {
+          output: t('toolsV2.memory.unknownAction', { action: args.action }),
+          isError: true,
+        };
     }
   }
 
-  private async withMemoryLock<T>(task: () => Promise<T>): Promise<T> {
-    const lock = new LockFile(join(this.bootstrap.homeDir, 'locks', 'memory-write.lock'));
+  private async withMemoryLock<T>(task: (commitAllowed: boolean) => Promise<T>): Promise<T> {
+    const { mkdir } = await import('node:fs/promises');
+    const path = join(this.bootstrap.homeDir, 'locks', 'memory-write.lock');
+    await mkdir(dirname(path), { recursive: true });
+    const lock = new LockFile(path);
     let locked = false;
-    try {
-      locked = await lock.acquire();
-    } catch {
-      locked = false;
+    const deadline = Date.now() + MEMORY_LOCK_WAIT_MS;
+    for (;;) {
+      try {
+        locked = await lock.acquire();
+      } catch (error) {
+        this.log.warn('memory write lock could not be acquired; skipping the git commit', {
+          path,
+          error,
+        });
+        break;
+      }
+      if (locked) break;
+      if (Date.now() >= deadline) {
+        this.log.warn('memory write lock is held elsewhere; skipping the git commit', { path });
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, MEMORY_LOCK_RETRY_MS));
     }
     try {
-      return await task();
+      return await task(locked);
     } finally {
       if (locked) lock.releaseSync();
     }
@@ -210,7 +233,7 @@ export class MemoryTool implements IMemoryTool {
     return { output: lines.join('\n') };
   }
 
-  private async handleWrite(args: MemoryToolInput) {
+  private async handleWrite(args: MemoryToolInput, commitAllowed: boolean) {
     if (!args.path) {
       return { output: t('toolsV2.memory.writePathRequired'), isError: true };
     }
@@ -263,6 +286,16 @@ export class MemoryTool implements IMemoryTool {
     if (!this.gitMemoryEnabled()) {
       return {
         output: t('toolsV2.memory.written', {
+          path: relPath,
+          title: entry.title,
+          type: entry.type,
+        }),
+      };
+    }
+
+    if (!commitAllowed) {
+      return {
+        output: t('toolsV2.memory.writtenNotCommitted', {
           path: relPath,
           title: entry.title,
           type: entry.type,
@@ -406,7 +439,7 @@ export class MemoryTool implements IMemoryTool {
     return { output: lines.join('\n') };
   }
 
-  private async handleDelete(args: MemoryToolInput) {
+  private async handleDelete(args: MemoryToolInput, commitAllowed: boolean) {
     if (!args.path) {
       return { output: t('toolsV2.memory.deletePathRequired'), isError: true };
     }
@@ -434,8 +467,12 @@ export class MemoryTool implements IMemoryTool {
     }
 
     await this.store.delete(path);
-    if (!this.gitMemoryEnabled()) {
-      return { output: t('toolsV2.memory.deleted', { path }) };
+    if (!this.gitMemoryEnabled() || !commitAllowed) {
+      return {
+        output: t(commitAllowed ? 'toolsV2.memory.deleted' : 'toolsV2.memory.deletedNotCommitted', {
+          path,
+        }),
+      };
     }
     const committed = await this.repo.commit(`forget: ${entry.title}`);
     return {

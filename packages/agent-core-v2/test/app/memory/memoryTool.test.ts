@@ -4,12 +4,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { getLocale, setLocale } from '@moonshot-ai/kimi-i18n';
+import { LockFile } from '@moonshot-ai/minidb';
 
-import { MemoryRepo } from '#/app/memory/memoryRepo';
 import { legacyProjectIdFromCwd, projectIdFromCwd } from '#/app/memory/memoryPaths';
+import { MemoryRepo } from '#/app/memory/memoryRepo';
 import { MemoryTool, type MemoryToolInput } from '#/app/memory/tools/memoryTool';
 import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import type { IHostProcessService } from '#/os/interface/hostProcess';
+
+const logStub = { debug() {}, info() {}, warn() {}, error() {} } as never;
 
 const previousLocale = getLocale();
 beforeAll(() => setLocale('en'));
@@ -23,7 +26,10 @@ async function run(tool: MemoryTool, args: MemoryToolInput) {
 
 async function makeTool(homeDir: string, flagOn: boolean, repo: MemoryRepo) {
   const puts: { path: string; sha?: string; intent?: string; appliesTo?: readonly string[] }[] = [];
-  const entries = new Map<string, { sha?: string; intent?: string; appliesTo?: readonly string[] }>();
+  const entries = new Map<
+    string,
+    { sha?: string; intent?: string; appliesTo?: readonly string[] }
+  >();
   const store = {
     list: async () => [...entries.keys()],
     get: async (path: string) => entries.get(path),
@@ -49,6 +55,7 @@ async function makeTool(homeDir: string, flagOn: boolean, repo: MemoryRepo) {
     repo,
     { enabled: () => flagOn } as never,
     new HostProcessService() as unknown as IHostProcessService,
+    logStub,
   );
   return { tool, puts };
 }
@@ -156,6 +163,7 @@ describe('memory tool audit loop', () => {
       makeRepo(homeDir),
       { enabled: () => true } as never,
       process,
+      logStub,
     );
     const content = Array.from(
       { length: 20 },
@@ -197,6 +205,7 @@ describe('memory tool audit loop', () => {
       repo,
       { enabled: () => false } as never,
       new HostProcessService() as unknown as IHostProcessService,
+      logStub,
     );
     const { mkdir, writeFile } = await import('node:fs/promises');
     const dir = join(homeDir, 'memory', 'global');
@@ -247,14 +256,15 @@ describe('memory tool audit loop', () => {
       makeRepo(homeDir),
       { enabled: () => false } as never,
       new HostProcessService() as unknown as IHostProcessService,
+      logStub,
     );
 
     await run(tool, { action: 'list' });
 
     expect(reconciled).toBe(1);
-    expect(
-      await readFile(join(homeDir, 'memory', 'projects', next, 'note.md'), 'utf-8'),
-    ).toBe('# note');
+    expect(await readFile(join(homeDir, 'memory', 'projects', next, 'note.md'), 'utf-8')).toBe(
+      '# note',
+    );
     expect(await readFile(join(legacyDir, 'note.md'), 'utf-8').catch(() => null)).toBeNull();
   });
 
@@ -271,15 +281,60 @@ describe('memory tool audit loop', () => {
     const { tool } = await makeTool(homeDir, true, repo);
     const reference = `derived from ${seed!.sha}`;
     expect(
-      (await run(tool, { action: 'write', path: 'note.md', scope: 'global', content: `# note\n\n${reference}` })).isError,
+      (
+        await run(tool, {
+          action: 'write',
+          path: 'note.md',
+          scope: 'global',
+          content: `# note\n\n${reference}`,
+        })
+      ).isError,
     ).toBeFalsy();
     expect(
-      (await run(tool, { action: 'write', path: 'note.md', scope: 'global', content: `# note\n\n${reference}\n\nrevised` })).isError,
+      (
+        await run(tool, {
+          action: 'write',
+          path: 'note.md',
+          scope: 'global',
+          content: `# note\n\n${reference}\n\nrevised`,
+        })
+      ).isError,
     ).toBeFalsy();
 
     const commits = await repo.logCommits(10);
     expect(commits.some((c) => c.message === 'remember: note')).toBe(true);
     expect(commits.some((c) => c.message === 'update: note')).toBe(true);
+  });
+
+  it('skips the commit and reports it when the write lock is held elsewhere', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'memorytool-'));
+    const repo = makeRepo(homeDir);
+    const { mkdir, writeFile } = await import('node:fs/promises');
+    const memoryDir = join(homeDir, 'memory');
+    await mkdir(memoryDir, { recursive: true });
+    await writeFile(join(memoryDir, 'seed.md'), '# seed\n', 'utf-8');
+    await repo.commit('remember: seed');
+    const [seed] = await repo.logCommits(1);
+
+    const lockDir = join(homeDir, 'locks');
+    await mkdir(lockDir, { recursive: true });
+    const lock = new LockFile(join(lockDir, 'memory-write.lock'));
+    expect(await lock.acquire()).toBe(true);
+
+    const { tool } = await makeTool(homeDir, true, repo);
+    const result = await run(tool, {
+      action: 'write',
+      path: 'note.md',
+      scope: 'global',
+      content: `# note\n\nderived from ${seed!.sha}`,
+    });
+
+    lock.releaseSync();
+
+    expect(result.isError).toBeFalsy();
+    expect(result.output).toContain('NOT committed');
+    const commits = await repo.logCommits(10);
+    expect(commits.some((c) => c.message === 'remember: note')).toBe(false);
   });
 
   it('commits the deletion as forget when the flag is on', async () => {
@@ -313,6 +368,7 @@ describe('memory tool audit loop', () => {
       repo,
       { enabled: () => true } as never,
       new HostProcessService() as unknown as IHostProcessService,
+      logStub,
     );
     const { mkdir, writeFile } = await import('node:fs/promises');
     const dir = join(homeDir, 'memory', 'global');
@@ -357,6 +413,7 @@ describe('memory tool audit loop', () => {
       makeRepo(homeDir),
       { enabled: () => true } as never,
       new HostProcessService() as unknown as IHostProcessService,
+      logStub,
     );
 
     const result = await run(tool, { action: 'delete', path: 'global/note.md' });
