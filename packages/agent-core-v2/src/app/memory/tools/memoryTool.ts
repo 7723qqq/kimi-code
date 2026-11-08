@@ -257,6 +257,7 @@ export class MemoryTool implements IMemoryTool {
       fingerprint: `${statInfo.size}-${statInfo.mtimeMs}`,
       updatedAt: statInfo.mtimeMs,
     };
+    const existing = await this.store.get(relPath);
     await this.store.put(entry);
 
     if (!this.gitMemoryEnabled()) {
@@ -269,7 +270,9 @@ export class MemoryTool implements IMemoryTool {
       };
     }
 
-    const committed = await this.repo.commit(`remember: ${entry.title}`);
+    const committed = await this.repo.commit(
+      `${existing === undefined ? 'remember' : 'update'}: ${entry.title}`,
+    );
     if (!committed) {
       return {
         output: t('toolsV2.memory.writtenNotCommitted', {
@@ -431,7 +434,15 @@ export class MemoryTool implements IMemoryTool {
     }
 
     await this.store.delete(path);
-    return { output: t('toolsV2.memory.deleted', { path }) };
+    if (!this.gitMemoryEnabled()) {
+      return { output: t('toolsV2.memory.deleted', { path }) };
+    }
+    const committed = await this.repo.commit(`forget: ${entry.title}`);
+    return {
+      output: committed
+        ? t('toolsV2.memory.deleted', { path })
+        : t('toolsV2.memory.deletedNotCommitted', { path }),
+    };
   }
 
   private resolveScopeId(scope: MemoryScope): string {

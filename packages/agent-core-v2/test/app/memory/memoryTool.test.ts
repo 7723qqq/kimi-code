@@ -22,12 +22,22 @@ async function run(tool: MemoryTool, args: MemoryToolInput) {
 }
 
 async function makeTool(homeDir: string, flagOn: boolean, repo: MemoryRepo) {
-  const puts: { sha?: string; intent?: string; appliesTo?: readonly string[] }[] = [];
+  const puts: { path: string; sha?: string; intent?: string; appliesTo?: readonly string[] }[] = [];
+  const entries = new Map<string, { sha?: string; intent?: string; appliesTo?: readonly string[] }>();
   const store = {
-    list: async () => [] as string[],
-    get: async () => undefined,
-    put: async (entry: { sha?: string; intent?: string; appliesTo?: readonly string[] }) => {
+    list: async () => [...entries.keys()],
+    get: async (path: string) => entries.get(path),
+    put: async (entry: {
+      path: string;
+      sha?: string;
+      intent?: string;
+      appliesTo?: readonly string[];
+    }) => {
       puts.push(entry);
+      entries.set(entry.path, entry);
+    },
+    delete: async (path: string) => {
+      entries.delete(path);
     },
     reconcile: async () => {},
   };
@@ -158,6 +168,7 @@ describe('memory tool audit loop', () => {
 
   it('deletes from the root it writes to, not one derived from the session directory', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'memorytool-'));
+    const repo = makeRepo(homeDir);
     const entry = {
       path: 'global/old-note.md',
       scope: 'global' as const,
@@ -183,7 +194,7 @@ describe('memory tool audit loop', () => {
       { cwd: homeDir } as never,
       { agentId: 'main' } as never,
       { homeDir } as never,
-      makeRepo(homeDir),
+      repo,
       { enabled: () => false } as never,
       new HostProcessService() as unknown as IHostProcessService,
     );
@@ -197,6 +208,7 @@ describe('memory tool audit loop', () => {
     expect(result.isError).toBeFalsy();
     expect(deleted).toEqual(['global/old-note.md']);
     expect(await readFile(join(dir, 'old-note.md'), 'utf-8').catch(() => null)).toBeNull();
+    expect(await repo.logCommits(5)).toHaveLength(0);
   });
 
   it('moves a bucket written under the old path key onto the repository key', async () => {
@@ -244,5 +256,112 @@ describe('memory tool audit loop', () => {
       await readFile(join(homeDir, 'memory', 'projects', next, 'note.md'), 'utf-8'),
     ).toBe('# note');
     expect(await readFile(join(legacyDir, 'note.md'), 'utf-8').catch(() => null)).toBeNull();
+  });
+
+  it('labels a new entry as remember and an overwrite as update', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'memorytool-'));
+    const repo = makeRepo(homeDir);
+    const { mkdir, writeFile } = await import('node:fs/promises');
+    const memoryDir = join(homeDir, 'memory');
+    await mkdir(memoryDir, { recursive: true });
+    await writeFile(join(memoryDir, 'seed.md'), '# seed\n', 'utf-8');
+    await repo.commit('remember: seed');
+    const [seed] = await repo.logCommits(1);
+
+    const { tool } = await makeTool(homeDir, true, repo);
+    const reference = `derived from ${seed!.sha}`;
+    expect(
+      (await run(tool, { action: 'write', path: 'note.md', scope: 'global', content: `# note\n\n${reference}` })).isError,
+    ).toBeFalsy();
+    expect(
+      (await run(tool, { action: 'write', path: 'note.md', scope: 'global', content: `# note\n\n${reference}\n\nrevised` })).isError,
+    ).toBeFalsy();
+
+    const commits = await repo.logCommits(10);
+    expect(commits.some((c) => c.message === 'remember: note')).toBe(true);
+    expect(commits.some((c) => c.message === 'update: note')).toBe(true);
+  });
+
+  it('commits the deletion as forget when the flag is on', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'memorytool-'));
+    const repo = makeRepo(homeDir);
+    const entry = {
+      path: 'global/note.md',
+      scope: 'global' as const,
+      scopeId: '',
+      type: 'note' as const,
+      title: 'note',
+      body: '# note',
+      fingerprint: 'fp',
+      updatedAt: 1,
+    };
+    const deleted: string[] = [];
+    const store = {
+      list: async () => [entry.path],
+      get: async (p: string) => (p === entry.path ? entry : undefined),
+      put: async () => {},
+      delete: async (p: string) => {
+        deleted.push(p);
+      },
+      reconcile: async () => {},
+    };
+    const tool = new MemoryTool(
+      store as never,
+      { cwd: homeDir } as never,
+      { agentId: 'main' } as never,
+      { homeDir } as never,
+      repo,
+      { enabled: () => true } as never,
+      new HostProcessService() as unknown as IHostProcessService,
+    );
+    const { mkdir, writeFile } = await import('node:fs/promises');
+    const dir = join(homeDir, 'memory', 'global');
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'note.md'), '# note', 'utf-8');
+    await repo.commit('remember: note');
+
+    const result = await run(tool, { action: 'delete', path: 'global/note.md' });
+
+    expect(result.isError).toBeFalsy();
+    expect(deleted).toEqual(['global/note.md']);
+    const commits = await repo.logCommits(5);
+    expect(commits.some((c) => c.message === 'forget: note')).toBe(true);
+  });
+
+  it('reports a deletion that could not be committed', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'memorytool-'));
+    const { writeFile } = await import('node:fs/promises');
+    await writeFile(join(homeDir, 'memory'), 'not a directory', 'utf-8');
+    const entry = {
+      path: 'global/note.md',
+      scope: 'global' as const,
+      scopeId: '',
+      type: 'note' as const,
+      title: 'note',
+      body: '# note',
+      fingerprint: 'fp',
+      updatedAt: 1,
+    };
+    const store = {
+      list: async () => [entry.path],
+      get: async (p: string) => (p === entry.path ? entry : undefined),
+      put: async () => {},
+      delete: async () => {},
+      reconcile: async () => {},
+    };
+    const tool = new MemoryTool(
+      store as never,
+      { cwd: homeDir } as never,
+      { agentId: 'main' } as never,
+      { homeDir } as never,
+      makeRepo(homeDir),
+      { enabled: () => true } as never,
+      new HostProcessService() as unknown as IHostProcessService,
+    );
+
+    const result = await run(tool, { action: 'delete', path: 'global/note.md' });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.output).toContain('not committed');
   });
 });

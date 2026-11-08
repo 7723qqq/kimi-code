@@ -585,6 +585,7 @@ export const en = {
       written: 'Memory written to {{path}}\ntitle: {{title}}\ntype: {{type}}',
       notFound: 'Memory file not found: {{path}}',
       deleted: 'Deleted: {{path}}',
+      deletedNotCommitted: 'Deleted: {{path}} (not committed to the memory repo)',
       noFilesFound: 'No memory files found.',
       listHeader: 'Memory files ({{count}}):\n',
       writtenCommitted:
