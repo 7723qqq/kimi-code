@@ -329,7 +329,8 @@ R4 要求注入内容是 git 对象的原始投影，而"人自由写的散文�
 ### 偏离 9 — L1/L3 的载荷被放宽，未做召回对照
 
 **spec 写的**：L1（会话启动）只含最近 **5** 个提交（design §2、requirements R7，且 design §3 明确
-"这三组就是召回 0.463 的那个载荷"）；L3 的示例是每个文件 3 个提交。
+"这三组就是召回 0.463 的那个载荷"）；L3 的示例是每个文件 3 个提交。注意 spec 自身也不一致：
+design 的 D7 写的是"最近 **3** 个提交"。
 
 **代码实际**：`GIT_MEMORY_REPO_COMMITS = 25`、`GIT_MEMORY_FILE_COMMITS = 8`，另有 spec 里不存在的
 `GIT_MEMORY_DIR_COMMITS = 5`。三处都来自 `f6f0ce5716`（"add the RepoMap tool and widen the
