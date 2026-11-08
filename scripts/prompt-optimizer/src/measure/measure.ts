@@ -37,6 +37,17 @@ import {
 import { runMeasureTurn, type MeasureTurn } from './toolLoop';
 import { MEASURE_TOOLS } from './tools';
 
+/**
+ * The output budget one measurement turn requests.
+ *
+ * The measured prompt caps a rewrite at PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH
+ * characters, and the harness's default 2048-token request cap cut a rewrite
+ * off mid-generation — measured as `stop_reason=max_tokens` with 2048 output
+ * tokens billed and no text in the block. CJK runs near one token per
+ * character, so the budget has to cover the whole character cap.
+ */
+export const MEASURE_MAX_OUTPUT_TOKENS = 8192;
+
 export const MEASURE_DRAFTS: readonly string[] = [
   '请分析如何全部最优方案和最完整方案 减少打补丁和便宜',
   '请完整进行优化',

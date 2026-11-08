@@ -23,6 +23,15 @@ export interface RunnerConfig {
   apiBaseUrl: string;
   apiKey: string;
   concurrency: number;
+  /**
+   * Output tokens a single request may generate.
+   *
+   * Defaults to the harness's 2048, which suits a benchmark case's short
+   * answer. A measurement of the prompt optimizer needs more: the prompt it
+   * measures caps a rewrite at 8000 characters, and 2048 tokens cut one off
+   * mid-generation.
+   */
+  maxTokens?: number;
 }
 
 export interface ToolDefinition {

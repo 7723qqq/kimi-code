@@ -28,6 +28,7 @@ import { parseArgs, CliArgError, type CliArgs } from './cli-args';
 import { loadConfig } from './config';
 import { chatOnce, realCaller, resolveCredentials, resolveModel } from './llm-caller';
 import {
+  MEASURE_MAX_OUTPUT_TOKENS,
   compareMeasureReports,
   formatMeasureComparison,
   formatMeasureReport,
@@ -454,7 +455,7 @@ async function main(argv: readonly string[] = process.argv.slice(2)) {
               runnerConfig,
               tools,
             )
-          : chatOnce(messages, tools, runnerConfig);
+          : chatOnce(messages, tools, { ...runnerConfig, maxTokens: MEASURE_MAX_OUTPUT_TOKENS });
 
       const report = await runMeasurement({
         cwd,

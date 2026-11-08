@@ -235,6 +235,9 @@ export type WireMessage =
  */
 export const REQUEST_TIMEOUT_MS = 180_000;
 
+/** Output cap for a request that does not name one. */
+export const DEFAULT_MAX_OUTPUT_TOKENS = 2048;
+
 interface ChatCompletionResponse {
   choices: Array<{
     message: {
@@ -290,9 +293,9 @@ export async function chatOnce(
   }
 
   if (type === 'anthropic') {
-    return postAnthropic(messages, tools, apiKey, baseUrl, wireModel);
+    return postAnthropic(messages, tools, apiKey, baseUrl, wireModel, config.maxTokens);
   }
-  return postOpenAI(messages, tools, apiKey, baseUrl, wireModel);
+  return postOpenAI(messages, tools, apiKey, baseUrl, wireModel, config.maxTokens);
 }
 
 async function postOpenAI(
@@ -301,12 +304,13 @@ async function postOpenAI(
   apiKey: string,
   baseUrl: string,
   model: string,
+  maxTokens: number | undefined,
 ): Promise<ModelResponse> {
   const body: Record<string, unknown> = {
     model,
     messages: messages.map(toOpenAIMessage),
     temperature: 0.1,
-    max_tokens: 2048,
+    max_tokens: maxTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
   };
   if (tools?.length) {
     body.tools = tools.map((t) => ({
@@ -431,6 +435,7 @@ async function postAnthropic(
   apiKey: string,
   baseUrl: string,
   model: string,
+  maxTokens: number | undefined,
 ): Promise<ModelResponse> {
   const system = messages
     .filter((message) => message.role === 'system')
@@ -440,7 +445,7 @@ async function postAnthropic(
     model,
     system,
     messages: toAnthropicMessages(messages),
-    max_tokens: 2048,
+    max_tokens: maxTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
     temperature: 0.1,
   };
   if (tools?.length) {

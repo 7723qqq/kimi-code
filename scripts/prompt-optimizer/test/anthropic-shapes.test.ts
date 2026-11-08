@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import type { RunnerConfig } from '../src/benchmark/runner';
 import { resolveCredentials } from '../src/llm-caller';
 
 /**
@@ -193,6 +194,46 @@ describe('a provider that drops the response body', () => {
         base_resp: { status_code: 0, status_msg: 'rate limited' },
       }),
     ).rejects.toThrow(/provider said "rate limited"/);
+  });
+});
+
+async function captureAnthropicBody(config: RunnerConfig): Promise<Record<string, unknown>> {
+  process.env['KIMI_API_KEY'] = 'test-key';
+  let captured: Record<string, unknown> | undefined;
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    const raw = init?.body;
+    if (typeof raw !== 'string') throw new Error('expected a JSON string body');
+    captured = JSON.parse(raw) as Record<string, unknown>;
+    return new Response(JSON.stringify({ content: [{ type: 'text', text: 'ok' }], usage: USAGE }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as unknown as typeof fetch;
+  const { realCaller } = await import('../src/llm-caller');
+  await realCaller('system', ['user'], config);
+  return captured!;
+}
+
+describe('the output budget', () => {
+  test('a request that names none gets the harness default', async () => {
+    const body = await captureAnthropicBody({
+      model: 'MiniMax Token Plan/MiniMax-M3.1-Flash-Preview',
+      apiBaseUrl: '',
+      apiKey: '',
+      concurrency: 1,
+    });
+    expect(body['max_tokens']).toBe(2048);
+  });
+
+  test('a named budget reaches the request', async () => {
+    const body = await captureAnthropicBody({
+      model: 'MiniMax Token Plan/MiniMax-M3.1-Flash-Preview',
+      apiBaseUrl: '',
+      apiKey: '',
+      concurrency: 1,
+      maxTokens: 8192,
+    });
+    expect(body['max_tokens']).toBe(8192);
   });
 });
 
