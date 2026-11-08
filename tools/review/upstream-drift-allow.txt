@@ -161,3 +161,23 @@ apps/kimi-code/src/tui/components/index.ts
 # kosong/src/errors/errorMessage.ts, deleted in the same sweep; the engine's
 # `_base/errors/serialize.ts` is the copy actually in use.
 packages/kosong/src/errors/serialize.ts
+
+# Unimported VS Code webview scaffolding (901de7cf50, 95a24f22b9, 6ee91a39e3):
+# twelve shadcn primitives plus `input-group` that no file imports, and the
+# `components/index.ts` barrel — every consumer imports a component by name
+# (`@/components/ChatArea`). Upstream carries all of them, so a future sync that
+# touches the webview kit will want these entries revisited.
+apps/vscode/webview-ui/src/components/index.ts
+apps/vscode/webview-ui/src/components/ui/accordion.tsx
+apps/vscode/webview-ui/src/components/ui/badge.tsx
+apps/vscode/webview-ui/src/components/ui/card.tsx
+apps/vscode/webview-ui/src/components/ui/checkbox.tsx
+apps/vscode/webview-ui/src/components/ui/combobox.tsx
+apps/vscode/webview-ui/src/components/ui/command.tsx
+apps/vscode/webview-ui/src/components/ui/context-menu.tsx
+apps/vscode/webview-ui/src/components/ui/field.tsx
+apps/vscode/webview-ui/src/components/ui/input-group.tsx
+apps/vscode/webview-ui/src/components/ui/scroll-area.tsx
+apps/vscode/webview-ui/src/components/ui/select.tsx
+apps/vscode/webview-ui/src/components/ui/switch.tsx
+apps/vscode/webview-ui/src/components/ui/tabs.tsx
