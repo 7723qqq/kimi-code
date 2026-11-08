@@ -8,6 +8,18 @@
  * The draft set is the six from research-prompt-rewriting.md §7.4, pinned here
  * so a run today is comparable with the baseline recorded there.
  *
+ * A draft alone is not a well-posed input. Production passes the recent user
+ * turns beside it, and without them a model asked to rewrite "修一下登录那个
+ * bug" goes looking for the bug: measured here at 20 tool rounds without
+ * producing a rewrite. With turns that resolve what the draft refers to, the
+ * same model converged and returned a rewrite. `MEASURE_RECENT_TURNS` is that
+ * input, pinned so two runs of one variant are comparable.
+ *
+ * Those turns are reconstructed, not recovered: the §7.4 sessions are not in
+ * the local session logs, so the originals cannot be read back. Absolute
+ * numbers are therefore not comparable with §7.4's table — only the
+ * comparison between two runs of this harness is.
+ *
  * A failed call is recorded as a failure and left out of the aggregate rather
  * than counted as an empty rewrite: the first version of this measurement
  * conflated the two and produced a run of false negatives.
@@ -16,7 +28,11 @@
 import {
   PROMPT_OPTIMIZER_DRAFT_CLOSE,
   PROMPT_OPTIMIZER_DRAFT_OPEN,
+  PROMPT_OPTIMIZER_MAX_CONTEXT_LENGTH,
+  PROMPT_OPTIMIZER_MAX_CONTEXT_TURNS,
+  PROMPT_OPTIMIZER_MAX_CONTEXT_TURN_CHARS,
   PROMPT_OPTIMIZER_SYSTEM_PROMPT,
+  PROMPT_OPTIMIZER_TRUNCATION_MARKER,
 } from '../../../../packages/agent-core-v2/src/features/promptOptimizer/promptOptimizer';
 import { runMeasureTurn, type MeasureTurn } from './toolLoop';
 import { MEASURE_TOOLS } from './tools';
@@ -29,6 +45,44 @@ export const MEASURE_DRAFTS: readonly string[] = [
   '修一下登录那个 bug',
   'fix the auth thing',
 ];
+
+/**
+ * The recent user turns each draft was written against, oldest first.
+ *
+ * Kept under the production limits the optimizer itself applies: six turns,
+ * 400 characters each, 4000 for the block. A turn that only repeats the draft
+ * resolves nothing, so each names what the draft's vague reference points at.
+ */
+export const MEASURE_RECENT_TURNS: Readonly<Record<string, readonly string[]>> = {
+  '请分析如何全部最优方案和最完整方案 减少打补丁和便宜': [
+    '上一轮我把 i18n 硬编码的问题梳理完了，问题清单和分布在 specs/ 下面',
+    '现在想清楚整体怎么治，不要只补单个文件，也不要用临时兜底',
+  ],
+  '请完整进行优化': [
+    '你刚才那份 i18n 治理方案我看了，方向对但太碎，都是局部修补',
+    '我想让你把整件事完整做一遍，从头到尾落地',
+  ],
+  '开始完整推进 需要事后验收 提示词需要专业优质': [
+    '方案我确认了，可以开始推进',
+    '做完之后我要能验证，所以验收标准先写清楚，提示词本身也要专业',
+  ],
+  '最重要的问题是现在的提示词会从以前的详细变成现在的扩句一样': [
+    '你记得以前提示词改写的结果吗，会把那个 bug 的具体文件和修复范围都写出来',
+    '现在改完只剩扩句，细节全没了，这是最要紧的问题',
+  ],
+  '修一下登录那个 bug': [
+    '登录失败的 bug 我已经定位到了：是 packages/agent-core-v2/src/human/credentials/kimi-oauth.ts 里 refresh token 过期之后没有重新走授权码流程',
+    '你把它完整修掉',
+  ],
+  'fix the auth thing': [
+    'the login failure is in the oauth credential refresh path — packages/agent-core-v2/src/human/credentials/kimi-oauth.ts',
+    'fix it properly, the silent refresh has to fall back to the authorization code flow',
+  ],
+};
+
+function clampTurn(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max)}${PROMPT_OPTIMIZER_TRUNCATION_MARKER}`;
+}
 
 const STOPWORDS: ReadonlySet<string> = new Set([
   'the',
@@ -216,15 +270,43 @@ function clauses(text: string): string[] {
 }
 
 /**
- * The production input for a rewrite with no recent turns: the working
- * directory, then the draft inside its fence. `fenceSafe` in the engine escapes
- * a literal closing tag in the draft, and so does this.
+ * The production input for a rewrite: the working directory, then the recent
+ * user turns when there are any, then the draft inside its fence. The section
+ * order, heading and clamps are the optimizer's own, so a measurement turn is
+ * shaped exactly like the turn it measures.
+ *
+ * `fenceSafe` in the engine escapes a literal closing tag in the draft, and so
+ * does this.
  */
-export function buildMeasureInput(draft: string, cwd: string): string {
+export function buildMeasureInput(
+  draft: string,
+  cwd: string,
+  recentTurns?: readonly string[],
+): string {
   const fenced = draft
     .replaceAll(PROMPT_OPTIMIZER_DRAFT_CLOSE, '&lt;/draft&gt;')
     .replaceAll(PROMPT_OPTIMIZER_DRAFT_OPEN, '&lt;draft&gt;');
-  return `Working directory: ${cwd}\n\n${PROMPT_OPTIMIZER_DRAFT_OPEN}\n${fenced}\n${PROMPT_OPTIMIZER_DRAFT_CLOSE}`;
+  const sections = [`Working directory: ${cwd}`];
+  const turns = normalizedMeasureTurns(recentTurns);
+  if (turns !== undefined) {
+    const block = turns.map((turn) => `- ${turn}`).join('\n');
+    sections.push(
+      `Recent user turns, oldest first:\n${clampTurn(block, PROMPT_OPTIMIZER_MAX_CONTEXT_LENGTH)}`,
+    );
+  }
+  sections.push(`${PROMPT_OPTIMIZER_DRAFT_OPEN}\n${fenced}\n${PROMPT_OPTIMIZER_DRAFT_CLOSE}`);
+  return sections.join('\n\n');
+}
+
+/** The optimizer's own turn normalisation: trim, drop empties, keep the last six, clamp each. */
+function normalizedMeasureTurns(turns: readonly string[] | undefined): readonly string[] | undefined {
+  if (turns === undefined) return undefined;
+  const kept = turns
+    .map((turn) => turn.trim())
+    .filter((turn) => turn.length > 0)
+    .slice(-PROMPT_OPTIMIZER_MAX_CONTEXT_TURNS)
+    .map((turn) => clampTurn(turn, PROMPT_OPTIMIZER_MAX_CONTEXT_TURN_CHARS));
+  return kept.length === 0 ? undefined : kept;
 }
 
 export function lengthRatio(draft: string, output: string): number {
@@ -309,7 +391,7 @@ export async function runMeasurement(options: {
       try {
         const response = await runMeasureTurn({
           systemPrompt: PROMPT_OPTIMIZER_SYSTEM_PROMPT,
-          input: buildMeasureInput(draft, options.cwd),
+          input: buildMeasureInput(draft, options.cwd, MEASURE_RECENT_TURNS[draft]),
           tools: MEASURE_TOOLS,
           cwd: options.cwd,
           turn: options.turn,

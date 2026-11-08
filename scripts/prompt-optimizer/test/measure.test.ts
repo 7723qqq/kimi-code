@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import type { MeasureTurn } from '../src/measure/toolLoop';
 import {
   MEASURE_DRAFTS,
+  MEASURE_RECENT_TURNS,
   addedRequirementCount,
   aggregateMeasurements,
   buildMeasureInput,
@@ -37,6 +38,29 @@ describe('the R8 measurement drafts', () => {
   test('builds the production input shape: working directory, then the fenced draft', () => {
     const input = buildMeasureInput('fix the auth thing', '/repo');
     expect(input).toBe('Working directory: /repo\n\n<draft>\nfix the auth thing\n</draft>');
+  });
+
+  test('puts the recent turns between the working directory and the draft', () => {
+    const input = buildMeasureInput('fix the auth thing', '/repo', ['first turn', 'second turn']);
+    expect(input).toBe(
+      'Working directory: /repo\n\n' +
+        'Recent user turns, oldest first:\n- first turn\n- second turn\n\n' +
+        '<draft>\nfix the auth thing\n</draft>',
+    );
+  });
+
+  test('drops empty turns and keeps the last six, the way the optimizer does', () => {
+    const input = buildMeasureInput('fix the auth thing', '/repo', ['a', '   ', 'b', 'c', 'd', 'e', 'f', 'g']);
+    expect(input).toContain('- b\n- c\n- d\n- e\n- f\n- g');
+    expect(input).not.toContain('- a');
+  });
+
+  test('every pinned draft carries recent turns that resolve its referent', () => {
+    for (const draft of MEASURE_DRAFTS) {
+      const turns = MEASURE_RECENT_TURNS[draft];
+      expect(turns).toBeDefined();
+      expect(turns?.length, draft).toBeGreaterThan(0);
+    }
   });
 
   test('escapes a literal closing tag so the draft cannot end its own fence', () => {

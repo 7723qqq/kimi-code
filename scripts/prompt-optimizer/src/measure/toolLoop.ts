@@ -33,7 +33,15 @@ export type MeasureTurn = (
   tools: readonly ToolDefinition[],
 ) => Promise<ModelResponse>;
 
-export const MEASURE_MAX_TOOL_ROUNDS = 6;
+/**
+ * How many tool rounds a turn gets before it is reported as a failure.
+ *
+ * Six was the first value and it truncated legitimate investigation: measured
+ * on MiniMax M3.1 Flash, a draft whose referent the recent turns resolve took
+ * eight rounds to return its rewrite. Twelve leaves room for that without
+ * letting a model that never stops run indefinitely.
+ */
+export const MEASURE_MAX_TOOL_ROUNDS = 12;
 
 /**
  * The model spent every round on tool calls and never produced the rewrite.
