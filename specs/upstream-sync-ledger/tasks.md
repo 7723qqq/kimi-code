@@ -65,7 +65,7 @@
 
 ### D2 门槛总跑
 
-- [ ] 五包 `tsc`、`agent-core-v2` build、`check:no-comments`、`check:nix-workspace`、i18n 三项。
+- [x] 五包 `tsc`（根 `bun run typecheck`）、`agent-core-v2` build、`check:no-comments`、`check:nix-workspace`、i18n 三项 —— 2026-11-08 复跑全部 exit 0。
 - **判据**：全部退出码 0。
 
 ### D3 漂移策略决策
