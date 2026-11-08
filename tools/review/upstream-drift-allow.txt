@@ -150,3 +150,14 @@ packages/pi-tui/test/regression-sigwinch-kill-eacces.test.ts
 packages/agent-core-v2/src/_base/execEnv/globPattern.ts
 packages/agent-core-v2/src/_base/lifecycle/index.ts
 packages/agent-core-v2/src/agent/plugin/index.ts
+
+# Barrels upstream still carries; this fork's importers all reach the targets
+# directly (12d2a17aba).
+packages/kap-server/src/services/transcript/index.ts
+apps/kimi-code/src/constant/index.ts
+apps/kimi-code/src/tui/components/index.ts
+
+# kosong's wire-serialization copy. Its only importer was
+# kosong/src/errors/errorMessage.ts, deleted in the same sweep; the engine's
+# `_base/errors/serialize.ts` is the copy actually in use.
+packages/kosong/src/errors/serialize.ts
