@@ -32,6 +32,11 @@ export interface CliArgs {
    * a read-only profile ships a shorter prompt, so its sections are its own.
    */
   readonly readOnly: boolean;
+  /**
+   * Path to an earlier `measure` report to compare against. `measure` prints the
+   * per-axis delta; every other command ignores it.
+   */
+  readonly baseline?: string;
 }
 
 export const DEFAULT_REPS = 3;
@@ -46,6 +51,7 @@ const VALUE_FLAGS = [
   'out',
   'profile',
   'actual-global',
+  'baseline',
 ] as const;
 /** Flags that do not. */
 const BOOLEAN_FLAGS = ['dry-run', 'help', 'read-only'] as const;
@@ -143,5 +149,6 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     profile: parseProfile(firstValue(argv, 'profile')),
     actualGlobal: firstValue(argv, 'actual-global'),
     readOnly: argv.includes('--read-only'),
+    baseline: firstValue(argv, 'baseline'),
   };
 }

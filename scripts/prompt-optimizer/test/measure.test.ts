@@ -6,11 +6,15 @@ import {
   addedRequirementCount,
   aggregateMeasurements,
   buildMeasureInput,
+  compareMeasureReports,
+  formatMeasureComparison,
   formatMeasureReport,
   lengthRatio,
   measureDraft,
   originalWordRetention,
   runMeasurement,
+  type DraftMeasurement,
+  type MeasureReport,
 } from '../src/measure/measure';
 
 const RUNNER: RunnerConfig = {
@@ -141,5 +145,44 @@ describe('runMeasurement', () => {
     expect(formatted).toContain('dry-run');
     expect(formatted).toContain('len ratio');
     expect(formatted).toContain('mean');
+  });
+});
+
+function reportWith(drafts: readonly DraftMeasurement[]): MeasureReport {
+  return {
+    model: 'test-model',
+    dryRun: false,
+    repetitions: 1,
+    drafts,
+    runs: drafts,
+    failures: [],
+  };
+}
+
+describe('baseline comparison', () => {
+  test('reports the per-axis delta against an earlier report', () => {
+    const baseline = reportWith([measureDraft('fix the auth thing', 'a')]);
+    const current = reportWith([measureDraft('fix the auth thing', 'aaaa')]);
+    const comparison = compareMeasureReports(current, baseline);
+    expect(comparison).toHaveLength(3);
+    const ratio = comparison.find((entry) => entry.axis === 'lengthRatio');
+    expect(ratio?.baseline).toBeCloseTo(1 / 18);
+    expect(ratio?.current).toBeCloseTo(4 / 18);
+    expect(ratio?.delta).toBeCloseTo(3 / 18);
+  });
+
+  test('refuses to compare a run that produced no drafts', () => {
+    expect(compareMeasureReports(reportWith([]), reportWith([]))).toEqual([]);
+    expect(formatMeasureComparison([])).toContain('unavailable');
+  });
+
+  test('formats a signed delta for every axis', () => {
+    const text = formatMeasureComparison([
+      { axis: 'lengthRatio', label: 'len ratio', current: 1.2, baseline: 3.6, delta: -2.4 },
+      { axis: 'retention', label: 'retention', current: 0.9, baseline: 0.8, delta: 0.1 },
+    ]);
+    expect(text).toContain('len ratio');
+    expect(text).toContain('-2.40');
+    expect(text).toContain('+0.10');
   });
 });

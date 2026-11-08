@@ -363,7 +363,8 @@ changeset：`.changeset/prompt-optimizer-rewrite-concrete.md`（新建）、
    （`bun src/cli.ts measure [--model <name>] [--reps <n>] [--dry-run]`）。三轴、六个固定草稿、
    `--reps` 取中位数、失败单独记录而不计入聚合、`--dry-run` 不触网并照样写报告，均已实现并有单测。
    仍未做的是**一次新的真实跑**：它需要模型凭据，属于对外发送，未自行执行。§7.4 的基线数字
-   （旧 3.62 / 定稿 1.20，以及 v4 复跑的 1.76 / 1.28）已记录在案，可直接对照。
+   （旧 3.62 / 定稿 1.20，以及 v4 复跑的 1.76 / 1.28）已记录在案，可直接对照；
+   `--baseline <report>` 会把当前跑与一份旧报告的三轴均值逐项对照打印出来。
 2. **`test/features/goal/goal.test.ts` 有 1 项失败**，属另一会话（`session_0de4a015`）正在改的
    `goal/errors.ts`，与本 spec 无关，未触碰。
 3. **未提交**。本 spec 的文件与另一会话在 `errors.ts` / `node-sdk/errors.ts` 上的改动同处一文件，

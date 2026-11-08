@@ -7,10 +7,10 @@
  *   bun src/cli.ts prune [--model <model>] [--dry-run]
  *   bun src/cli.ts ab    [--model <model>] [--experiment <file>] [--dry-run]
  *   bun src/cli.ts probe [--model <model>] [--reps <n>] [--dry-run]
- *   bun src/cli.ts measure [--model <model>] [--reps <n>] [--dry-run]
+ *   bun src/cli.ts measure [--model <model>] [--reps <n>] [--dry-run] [--baseline <report>]
  */
 
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve, basename } from 'node:path';
 
 import { formatABReport, runABExperiment } from './ab-test/ab-test';
@@ -27,7 +27,13 @@ import {
 import { parseArgs, CliArgError, type CliArgs } from './cli-args';
 import { loadConfig } from './config';
 import { realCaller, resolveCredentials, resolveModel } from './llm-caller';
-import { formatMeasureReport, runMeasurement } from './measure/measure';
+import {
+  compareMeasureReports,
+  formatMeasureComparison,
+  formatMeasureReport,
+  runMeasurement,
+  type MeasureReport,
+} from './measure/measure';
 import { runProbe, formatProbeReport } from './probe/probe';
 import { loadPromptBundle, generateBaselineVariant, generatePruneVariant } from './prompt-parser';
 import { runPruner, formatPruneReport } from './pruner/pruner';
@@ -444,6 +450,11 @@ async function main(argv: readonly string[] = process.argv.slice(2)) {
 
       console.log('\n' + formatMeasureReport(report));
 
+      if (args.baseline !== undefined) {
+        const baseline = JSON.parse(readFileSync(resolve(args.baseline), 'utf8')) as MeasureReport;
+        console.log('\n' + formatMeasureComparison(compareMeasureReports(report, baseline)));
+      }
+
       const reportPath = resolve(outputDir, `measure-${slugifyModel(model)}-${Date.now()}.json`);
       writeFileSync(reportPath, JSON.stringify(report, null, 2));
       console.log(`\nFull report: ${reportPath}`);
@@ -469,6 +480,7 @@ Options:
   --variant <name>          Raw-template experiment: one prune variant (base | prune:<Section>)
   --dry-run                 Run without API calls (framework check, never a verdict)
   --reps <n>                Repetitions for probe and measure (default: 3)
+  --baseline <path>         measure: compare against an earlier measure report
 
 Prune scans the skeleton plus every section file it delegates to
 (coding.md, delivering-work.md, project-information.md), not system.md alone.

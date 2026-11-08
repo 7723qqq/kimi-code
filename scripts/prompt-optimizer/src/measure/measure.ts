@@ -346,6 +346,59 @@ function truncate(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }
 
+export interface MeasureAxisComparison {
+  readonly axis: 'lengthRatio' | 'retention' | 'addedRequirements';
+  readonly label: string;
+  readonly current: number;
+  readonly baseline: number;
+  readonly delta: number;
+}
+
+const COMPARISON_AXES = [
+  {
+    axis: 'lengthRatio',
+    label: 'len ratio',
+    pick: (draft: DraftMeasurement) => draft.lengthRatio,
+  },
+  {
+    axis: 'retention',
+    label: 'retention',
+    pick: (draft: DraftMeasurement) => draft.retention,
+  },
+  {
+    axis: 'addedRequirements',
+    label: 'added',
+    pick: (draft: DraftMeasurement) => draft.addedRequirements,
+  },
+] as const;
+
+export function compareMeasureReports(
+  current: MeasureReport,
+  baseline: MeasureReport,
+): readonly MeasureAxisComparison[] {
+  if (current.drafts.length === 0 || baseline.drafts.length === 0) return [];
+  return COMPARISON_AXES.map(({ axis, label, pick }) => {
+    const now = mean(current.drafts.map(pick));
+    const before = mean(baseline.drafts.map(pick));
+    return { axis, label, current: now, baseline: before, delta: now - before };
+  });
+}
+
+export function formatMeasureComparison(comparisons: readonly MeasureAxisComparison[]): string {
+  if (comparisons.length === 0) {
+    return 'against the baseline: unavailable (one side has no drafts)';
+  }
+  const lines = ['against the baseline:'];
+  for (const entry of comparisons) {
+    const sign = entry.delta >= 0 ? '+' : '';
+    lines.push(
+      `  ${entry.label.padEnd(10)} ${entry.current.toFixed(2)} vs ${entry.baseline.toFixed(2)}` +
+        `  (${sign}${entry.delta.toFixed(2)})`,
+    );
+  }
+  return lines.join('\n');
+}
+
 export function formatMeasureReport(report: MeasureReport): string {
   const lines: string[] = [
     `Prompt optimizer rewrite — three-axis measurement (model: ${report.model})`,

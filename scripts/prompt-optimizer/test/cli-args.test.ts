@@ -27,6 +27,13 @@ describe('parseArgs accepts known flags', () => {
     ]);
   });
 
+  test('reads --baseline as a path', () => {
+    expect(parseArgs(['measure', '--baseline', 'reports/measure-old.json']).baseline).toBe(
+      'reports/measure-old.json',
+    );
+    expect(parseArgs(['measure']).baseline).toBeUndefined();
+  });
+
   test('falls back to the default for a non-numeric or non-positive --reps', () => {
     expect(parseArgs(['probe', '--reps', 'abc']).reps).toBe(DEFAULT_REPS);
     expect(parseArgs(['probe', '--reps', '0']).reps).toBe(DEFAULT_REPS);
