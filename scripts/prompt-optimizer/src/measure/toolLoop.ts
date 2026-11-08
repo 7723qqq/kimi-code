@@ -15,6 +15,7 @@
 
 import type { WireMessage } from '../llm-caller';
 import type { ModelResponse, ToolDefinition } from '../benchmark/runner';
+import { callWithRetryFn } from '../benchmark/runner';
 
 import { executeMeasureTool } from './tools';
 
@@ -53,6 +54,8 @@ export async function runMeasureTurn(options: {
   readonly tools: readonly ToolDefinition[];
   readonly cwd: string;
   readonly turn: MeasureTurn;
+  /** Names the run in a retry message; the caller already knows the draft. */
+  readonly label: string;
 }): Promise<ModelResponse> {
   const messages: WireMessage[] = [
     { role: 'system', content: options.systemPrompt },
@@ -64,7 +67,13 @@ export async function runMeasureTurn(options: {
   let cacheReadTokens = 0;
 
   for (let round = 0; round < MEASURE_MAX_TOOL_ROUNDS; round += 1) {
-    const response = await options.turn(messages, options.tools);
+    // Retried per request, not per turn: a dropped body should not replay the
+    // rounds before it, and a turn that ended in a refusal is not a transport
+    // fault to retry.
+    const response = await callWithRetryFn(
+      () => options.turn(messages, options.tools),
+      `${options.label} round ${String(round + 1)}`,
+    );
     inputTokens += response.usage.input;
     outputTokens += response.usage.output;
     cacheReadTokens += response.usage.cacheRead ?? 0;

@@ -18,8 +18,6 @@ import {
   PROMPT_OPTIMIZER_DRAFT_OPEN,
   PROMPT_OPTIMIZER_SYSTEM_PROMPT,
 } from '../../../../packages/agent-core-v2/src/features/promptOptimizer/promptOptimizer';
-import type { LLMCaller, RunnerConfig } from '../benchmark/runner';
-import { callWithRetry } from '../benchmark/runner';
 import { runMeasureTurn, type MeasureTurn } from './toolLoop';
 import { MEASURE_TOOLS } from './tools';
 
@@ -297,7 +295,6 @@ export async function runMeasurement(options: {
   readonly cwd: string;
   readonly repetitions: number;
   readonly model: string;
-  readonly runner: RunnerConfig;
   /** One round of the conversation; see `toolLoop.ts` for why it is injected. */
   readonly turn: MeasureTurn;
   readonly dryRun: boolean;
@@ -305,26 +302,19 @@ export async function runMeasurement(options: {
   const drafts = options.drafts ?? MEASURE_DRAFTS;
   const runs: DraftMeasurement[] = [];
   const failures: MeasureFailure[] = [];
-  const loopCaller: LLMCaller = async (systemPrompt, userMessages) =>
-    runMeasureTurn({
-      systemPrompt,
-      input: userMessages[0] ?? '',
-      tools: MEASURE_TOOLS,
-      cwd: options.cwd,
-      turn: options.turn,
-    });
 
   for (const draft of drafts) {
     for (let repetition = 0; repetition < options.repetitions; repetition += 1) {
+      const label = `measure "${draft}" repetition ${String(repetition + 1)}`;
       try {
-        const response = await callWithRetry(
-          loopCaller,
-          PROMPT_OPTIMIZER_SYSTEM_PROMPT,
-          [buildMeasureInput(draft, options.cwd)],
-          options.runner,
-          undefined,
-          `measure "${draft}" repetition ${String(repetition + 1)}`,
-        );
+        const response = await runMeasureTurn({
+          systemPrompt: PROMPT_OPTIMIZER_SYSTEM_PROMPT,
+          input: buildMeasureInput(draft, options.cwd),
+          tools: MEASURE_TOOLS,
+          cwd: options.cwd,
+          turn: options.turn,
+          label,
+        });
         runs.push(measureDraft(draft, response.content));
       } catch (error) {
         failures.push({ draft, error: error instanceof Error ? error.message : String(error) });

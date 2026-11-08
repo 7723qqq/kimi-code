@@ -80,18 +80,18 @@ export const RETRY_DELAY_MS = 400;
  * for one provider, and independent between calls, so a retry almost always
  * succeeds. The label names what was being evaluated when it finally failed.
  */
-export async function callWithRetry(
-  caller: LLMCaller,
-  systemPrompt: string,
-  userMessages: string[],
-  config: RunnerConfig,
-  tools: readonly ToolDefinition[] | undefined,
-  label: string,
-): Promise<ModelResponse> {
+/**
+ * Run one call, retrying a transient provider fault.
+ *
+ * Exported as a plain function so a multi-turn caller can retry the request
+ * that failed without replaying the rounds before it — and without retrying a
+ * refusal, which is a model outcome rather than a transport fault.
+ */
+export async function callWithRetryFn<T>(fn: () => Promise<T>, label: string): Promise<T> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= CALL_ATTEMPTS; attempt++) {
     try {
-      return await caller(systemPrompt, userMessages, config, tools);
+      return await fn();
     } catch (error: unknown) {
       lastError = error;
       if (attempt < CALL_ATTEMPTS) {
@@ -100,10 +100,21 @@ export async function callWithRetry(
     }
   }
   throw new Error(
-    `${label} failed after ${CALL_ATTEMPTS} attempts: ` +
+    `${label} failed after ${String(CALL_ATTEMPTS)} attempts: ` +
       `${lastError instanceof Error ? lastError.message : String(lastError)}`,
     { cause: lastError },
   );
+}
+
+export async function callWithRetry(
+  caller: LLMCaller,
+  systemPrompt: string,
+  userMessages: string[],
+  config: RunnerConfig,
+  tools: readonly ToolDefinition[] | undefined,
+  label: string,
+): Promise<ModelResponse> {
+  return callWithRetryFn(() => caller(systemPrompt, userMessages, config, tools), label);
 }
 
 /**

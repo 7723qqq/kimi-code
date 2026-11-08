@@ -460,7 +460,6 @@ async function main(argv: readonly string[] = process.argv.slice(2)) {
         cwd,
         repetitions: args.reps,
         model,
-        runner: runnerConfig,
         turn,
         dryRun: dryRunHere,
       });

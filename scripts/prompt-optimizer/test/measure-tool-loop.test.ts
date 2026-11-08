@@ -54,6 +54,7 @@ const OPTIONS = {
   systemPrompt: 'rewrite the draft',
   input: 'Working directory: /repo\n\n<draft>\nfix it\n</draft>',
   tools: MEASURE_TOOLS,
+  label: 'measure "fix it" repetition 1',
 };
 
 describe('runMeasureTurn', () => {
@@ -118,6 +119,30 @@ describe('runMeasureTurn', () => {
     await expect(runMeasureTurn({ ...OPTIONS, cwd: root, turn: recorded.turn })).rejects.toBeInstanceOf(
       MeasureTurnExhaustedError,
     );
+  });
+
+  test('retries the request that failed without replaying earlier rounds', async () => {
+    const root = makeWorkspace();
+    const messageCounts: number[] = [];
+    let failedOnce = false;
+    const turn: MeasureTurn = async (messages) => {
+      messageCounts.push(messages.length);
+      if (messages.length === 4 && !failedOnce) {
+        failedOnce = true;
+        throw new Error('API 500: dropped body');
+      }
+      if (messages.length === 2) {
+        return responseOf('', [
+          { id: 'call_1', name: 'Glob', input: JSON.stringify({ pattern: '*.ts' }) },
+        ]);
+      }
+      return responseOf('Done.');
+    };
+
+    const response = await runMeasureTurn({ ...OPTIONS, cwd: root, turn });
+
+    expect(response.content).toBe('Done.');
+    expect(messageCounts).toEqual([2, 4, 4]);
   });
 
   test('caps the rounds instead of investigating forever', async () => {

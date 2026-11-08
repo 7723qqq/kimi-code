@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test';
 
-import type { RunnerConfig } from '../src/benchmark/runner';
 import type { MeasureTurn } from '../src/measure/toolLoop';
 import {
   MEASURE_DRAFTS,
@@ -17,13 +16,6 @@ import {
   type DraftMeasurement,
   type MeasureReport,
 } from '../src/measure/measure';
-
-const RUNNER: RunnerConfig = {
-  model: 'test-model',
-  apiBaseUrl: '',
-  apiKey: '',
-  concurrency: 1,
-};
 
 function turnReturning(content: string): MeasureTurn {
   return async () => ({
@@ -109,7 +101,6 @@ describe('runMeasurement', () => {
       cwd: '/repo',
       repetitions: 1,
       model: 'test-model',
-      runner: RUNNER,
       turn: async (messages) => {
         const input = messages.find((message) => message.role === 'user')?.content ?? '';
         if (!input.includes('auth')) throw new Error('provider down');
@@ -137,7 +128,6 @@ describe('runMeasurement', () => {
       cwd: '/repo',
       repetitions: 1,
       model: 'test-model',
-      runner: RUNNER,
       turn: turnReturning('rewritten'),
       dryRun: true,
     });
