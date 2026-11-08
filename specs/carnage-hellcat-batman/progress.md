@@ -359,25 +359,38 @@ changeset：`.changeset/prompt-optimizer-rewrite-concrete.md`（新建）、
 
 ## 未完成项与偏离
 
-1. **R8 的三轴真实跑已执行（2026-11-08），结论是它不能作为提示词效果的判决。**
-   命令 `bun src/cli.ts measure --model "MiniMax Token Plan/MiniMax-M3.1-Flash" --reps 5`，
-   报告 `scripts/prompt-optimizer/reports/measure-MiniMax-Token-Plan-MiniMax-M3.1-Flash-1794150068472.json`
-   （`reports/` 在 `.gitignore` 里，此文件是本地产物，不是仓库内容）。
+1. **R8 的三轴真实跑已执行两次（2026-11-08），两次都不能作为提示词效果的判决。
+   根因是测量脚本的缺陷，不是端点或提示词的问题。**
 
-   30 次调用里 **14 次（47%）返回的不是改写**：MiniMax 的 Anthropic 端点把模型的工具调用意图
-   以纯文本泄漏进 `content`——形如 `]<]minimax[>[<tool_call>…`（模型想调 Glob 读仓库，而测量
-   脚本不声明任何工具，模型只能把内部标记当文本吐出）。剩下 16 次是真改写，但长度比中位数在
-   10–60 之间，远差于 §7.4 在 `workbuddy/deepseek-v4.1-flash` 上的 1.20。
+   **根因**：`PROMPT_OPTIMIZER_SYSTEM_PROMPT` 明确写着
+   「You may use Read, Glob and Grep to confirm a path, file or symbol you are about to name」，
+   生产路径也确实给优化器子 agent 开了这三个工具（`PROMPT_OPTIMIZER_TOOLS`）。
+   但 `scripts/prompt-optimizer/src/measure/measure.ts` 直接调模型时传的是 `tools: undefined`
+   ——**测量的是一个「没有工具」的请求，被测的却是一段邀请用工具的提示词**。
+   模型于是想把工具调用当文本吐出来。
 
-   因此三轴均值（16.40 / 0.11 / 2.33）同时受两层污染：**端点把未声明的工具调用泄漏成文本**，
-   以及**跨模型不可比**（基线是 deepseek 端点，本次是 MiniMax）。这两层都足以让均值失去意义，
-   所以本次跑**不改变** §7.4 的结论，也不构成对 v5 定稿的否证。
+   **两次跑的结果**（`reports/` 在 `.gitignore` 里，两份报告都是本地产物）：
 
-   可复用的教训：`measure` 这个跑法测量的是「模型在拿不到工具时会不会乱来时是否仍然只输出改写」，
-   对会把工具调用标记漏进 `content` 的端点天然不友好。要得到可对照的判决，需要换一个在无工具
-   请求下仍只输出文本的端点重跑，并把那份报告作为 `--baseline` 的对照文件。
+   | 跑法 | 调用 | 返回工具调用标记 | 三轴均值（长度比 / 保留率 / 新增要求） |
+   | --- | --- | --- | --- |
+   | `MiniMax Token Plan/MiniMax-M3.1-Flash` | 30 | 14（47%） | 16.40 / 0.11 / 2.33 |
+   | `workbuddy/hy4free`（`display_name = "hy4正式版"`） | 29（1 次失败） | 全部 | 10.60 / 0.06 / 0.17 |
 
-   `--baseline <report>` 本次仍未使用：仓库里没有任何历史 `measure-*.json`，§7.4 的基线只存在于
-   本 spec 的散文里，不是可对照的报告文件。
+   两次的泄漏形态不同（MiniMax 用 `]<]minimax[>[<tool_call>…`，hy4 用
+   `<glob><pattern>…</pattern><path>D:\kimi\kimi-code</path></glob>`，还夹带
+   `</think:…>` 推理标记），但**原因相同**：模型想读仓库来确认路径，而请求里没有工具。
+   hy4 那次 6 个草稿全部以工具调用开头，所以它连「真改写」的样本都没有。
+
+   §7.4 的 1.20 基线是在 `workbuddy/deepseek-v4.1-flash` 上测的，那个模型没有去够工具，
+   所以基线本身有效；但**同一个脚本换一个模型就会产出垃圾**，这说明跑法不稳健，
+   而不是 v5 定稿退步了。
+
+   **要修的是脚本，不是提示词**：让 `measure` 像生产路径一样声明 Read/Glob/Grep，
+  并把工具调用当作一次需要继续的回合（或明确记为失败并从聚合中剔除），
+  而不是把工具调用标记当成改写文本量长度。这与 §7.4 的跑法不兼容，
+  修完之后基线需要重测——是否修、怎么修，需要单独决定。
+
+   `--baseline <report>` 两次都没用上：仓库里没有任何历史 `measure-*.json`，
+   §7.4 的基线只存在于本 spec 的散文里，不是可对照的报告文件。
 2. ~~`test/features/goal/goal.test.ts` 有 1 项失败~~ —— 已解决，该文件现在 126 pass / 0 fail。
 3. ~~未提交~~ —— 提示词定稿已提交（`7447ce4641`、`9de553713d`、`b977a6f6f6`）。
