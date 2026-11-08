@@ -16,6 +16,7 @@ File tools handle reading, writing, and searching the local filesystem — the f
 | `Grep` | Auto-allow | Full-text search powered by ripgrep |
 | `Glob` | Auto-allow | Find files by glob pattern |
 | `RepoMap` | Auto-allow | List the paths tracked by git in a repository subtree |
+| `Memory` | Requires approval | Search and manage the markdown memory under `~/.kimi-code/memory` |
 | `MemoryGraph` | Requires approval | Read and write the experimental associative memory |
 
 **`Read`** accepts a file path (`path`) plus optional `line_offset` (starting line number; negative values count from the end), `column_offset` (zero-based position within the first line of a forward read), `n_lines` (requested number of source lines), and `max_chars` (maximum characters in the result, including line numbers and status). Omitting `n_lines` reads toward the end of the file. The default and the most a call can request are both 100,000 characters, and a call also stops at about a quarter of the maximum in estimated tokens (25,000 by default), so text with many non-ASCII characters, such as Chinese, returns fewer characters per call; both values can be changed in the [`read` configuration](../configuration/config-files.md#read). When a call names a range, with `n_lines` or a negative `line_offset`, and the lines that fit within `max_chars` still exceed the token limit, `Read` returns an error that suggests a range that fits instead of returning part of it; a range cut short only by `max_chars` still returns a page with `Next Read` arguments. Characters and column offsets use JavaScript string length in the displayed text, excluding the line-number prefix for column offsets: common letters and Chinese characters count as one, while many emoji count as two.
@@ -52,6 +53,10 @@ Use `offset` (default 0) and `head_limit` (default 100) to page through matching
 - `rebuild` — replay every note to rebuild the graph from scratch.
 
 Writes default to the current project; `scope: "global"` records something that should hold across projects, and reads search both scopes by default. The tool is only available when the `associative_memory` experimental flag is enabled.
+
+**`Memory`** searches and manages the markdown memory under `~/.kimi-code/memory/`, organized by scope: `global` (cross-project knowledge), `project` (keyed by the repository, so it survives a re-clone or a move) and `session`. Actions: `search` (full-text; every project and session unless `scope` is given), `read`, `write` (defaults to `project`, never writes outside the scope you name), `list`, `delete`, `log` (the memory repository's recent commits, newest first) and `revert` (roll one commit back by the full `sha` that `log` reports; a short sha is rejected, and the search index is resynchronised before the call returns).
+
+When the `git_memory` experimental flag is enabled, `write` additionally requires the content to cite a real commit — a 7–40 character hex string that `git cat-file` resolves in the working directory or in the memory repository — and both writes and deletes are committed to that repository, which is what makes `log` and `revert` meaningful. The tool is available while the `associative_memory` experimental flag is off.
 
 ## Shell
 

@@ -81,7 +81,10 @@ repository without one keeps it when you work from any directory inside it.
 When the `git_memory` experiment is enabled, `write` additionally requires the
 content to cite a real commit: a 7–40 character hex string that `git cat-file`
 resolves in the session working directory or in the memory repository. A write
-without one is rejected. With the experiment off, no such requirement applies.
+without one is rejected. With the experiment on, every write and delete is
+committed to that repository (`remember:`, `update:`, `forget:`), which is what
+`log` lists and `revert` rolls back. With the experiment off, no such
+requirement applies and nothing is committed.
 
 ## When to use
 
