@@ -535,6 +535,9 @@ export * from '#/features/cron/tools/cron-delete/cron-delete';
 
 import '#/features/lsp/lspFeature';
 
+import '#/features/attachment/attachmentFeature';
+import '#/features/spill/spillFeature';
+
 import '#/session/agentLifecycle/profile/profiles';
 export * from '#/session/agentLifecycle/agentLifecycle';
 export * from '#/session/agentLifecycle/agentLifecycleService';

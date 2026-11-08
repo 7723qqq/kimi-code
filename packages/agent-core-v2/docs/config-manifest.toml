@@ -8,7 +8,8 @@
 # commented "# field: type" lines describe the remaining schema fields.
 # Values resolve as: default -> config.toml -> env overlay -> memory.
 
-# Index (38 sections · 3 overlay(s))
+# Index (40 sections · 3 overlay(s))
+#   attachment               src/features/attachment/configSection.ts
 #   background               src/agent/task/configSection.ts
 #   builtinProductSkills     src/features/skill/catalog/configSection.ts
 #   cron                     src/features/cron/configSection.ts
@@ -38,6 +39,7 @@
 #   sandbox                  src/workspace/sandbox/sandbox.ts
 #   secondaryModel           src/session/subagent/configSection.ts
 #   services                 src/app/auth/configSection.ts
+#   spill                    src/features/spill/configSection.ts
 #   subagent                 src/session/subagent/configSection.ts
 #   subagentBackend          src/session/subagent/backend/configSection.ts
 #   swarm                    src/features/swarm/configSection.ts
@@ -50,6 +52,19 @@
 #   (overlay) githubEnvOverlay  src/agent/tools/github/envOverlay.ts
 #   (overlay) servicesCredentialEnvOverlay  src/app/auth/configSection.ts
 #   (overlay) kimiModelEnvOverlay  src/app/kosongConfig/envOverlay.ts
+
+# ##########################################################################
+# attachment
+#   owner: src/features/attachment/configSection.ts
+#   scope: core
+# ##########################################################################
+
+[attachment]
+# root: string
+
+# [attachment.limits]
+  # max_image_bytes: integer
+  # max_image_pixels: integer
 
 # ##########################################################################
 # background
@@ -497,6 +512,15 @@ mode = "off"
     # key: string
     # oauth_host: string
   # custom_headers: record<string, string>
+
+# ##########################################################################
+# spill
+#   owner: src/features/spill/configSection.ts
+#   scope: core
+# ##########################################################################
+
+[spill]
+# root: string
 
 # ##########################################################################
 # subagent
