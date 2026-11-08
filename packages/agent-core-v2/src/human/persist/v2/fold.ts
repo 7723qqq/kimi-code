@@ -1,25 +1,20 @@
 import type { ContentPart, ToolCall } from '#/llm/message';
-import { estimateTokensForMessage } from '#/llm/tokens';
 import type { TokenUsage } from '#/llm/usage';
 import { readTodoItems, type TodoItem } from '#/todo/todoItem';
 
 import {
   buildCompactionContinuationText,
   buildCompactionElisionText,
+  COMPACT_USER_MESSAGE_HEAD_TOKENS,
+  COMPACT_USER_MESSAGE_MAX_TOKENS,
+  selectCompactionUserMessages,
 } from '#/agent/contextMemory/compactionHandoff';
-import {
-  extractText,
-  truncateTextToTokens,
-  truncateTextToTokensFromEnd,
-} from '#/agent/contextMemory/compactionText';
+import { extractText } from '#/agent/contextMemory/compactionText';
 
 import { V2WireError, type V2WireRecord } from './wire';
 
 const TOOL_INTERRUPTED_ON_RESUME_OUTPUT =
   'Tool execution was interrupted before its result was recorded. Do not assume the tool completed successfully.';
-
-const COMPACT_USER_MESSAGE_MAX_TOKENS = 20_000;
-const COMPACT_USER_MESSAGE_HEAD_TOKENS = 2_000;
 
 export interface V2PromptOrigin {
   kind: string;
@@ -130,21 +125,6 @@ function isPromptOwnedInjection(message: V2ContextMessage, prompt: V2ContextMess
   );
 }
 
-function isPreservedOverlayPart(part: ContentPart): boolean {
-  return (
-    part.type === 'text' &&
-    (part.meta?.source === 'user prompt submit hook' || part.meta?.source === 'skill activation')
-  );
-}
-
-function replaceMessageText(message: V2ContextMessage, text: string): V2ContextMessage {
-  return {
-    ...message,
-    content: [...message.content.filter(isPreservedOverlayPart), { type: 'text', text }],
-    toolCalls: [],
-  };
-}
-
 function createCompactionSummaryMessage(text: string): V2ContextMessage {
   return {
     role: 'user',
@@ -230,72 +210,6 @@ function readCompactionShapeInput(record: V2WireRecord): CompactionShapeInput {
     legacyTail:
       typeof legacyTailField === 'boolean' ? legacyTailField : keptUserMessageCount === undefined,
   };
-}
-
-function selectCompactionUserMessages(
-  messages: readonly V2ContextMessage[],
-  maxTokens: number,
-  headTokens: number,
-): { head: V2ContextMessage[]; tail: V2ContextMessage[]; elided: boolean; omittedTokens: number } {
-  let totalTokens = 0;
-  for (const message of messages) {
-    totalTokens += estimateTokensForMessage(message);
-  }
-  if (totalTokens <= maxTokens) {
-    return { head: [], tail: [...messages], elided: false, omittedTokens: 0 };
-  }
-  const headBudget = Math.min(Math.max(headTokens, 0), maxTokens);
-  const tailBudget = maxTokens - headBudget;
-  const tail: V2ContextMessage[] = [];
-  let tailRemaining = tailBudget;
-  let headEndExclusive = messages.length;
-  let tailBoundaryDroppedPrefix: V2ContextMessage | null = null;
-  for (let i = messages.length - 1; i >= 0 && tailRemaining > 0; i--) {
-    const message = messages[i] as V2ContextMessage;
-    const tokens = estimateTokensForMessage(message);
-    if (tokens <= tailRemaining) {
-      tail.push(message);
-      tailRemaining -= tokens;
-      headEndExclusive = i;
-      continue;
-    }
-    const fullText = extractText(message.content);
-    const keptSuffix = truncateTextToTokensFromEnd(fullText, tailRemaining);
-    tail.push(replaceMessageText(message, keptSuffix));
-    headEndExclusive = i;
-    const droppedPrefix = fullText.slice(0, fullText.length - keptSuffix.length);
-    if (droppedPrefix.length > 0) {
-      tailBoundaryDroppedPrefix = replaceMessageText(message, droppedPrefix);
-    }
-    break;
-  }
-  tail.reverse();
-  const headCandidates = messages.slice(0, headEndExclusive);
-  if (tailBoundaryDroppedPrefix !== null) {
-    headCandidates.push(tailBoundaryDroppedPrefix);
-  }
-  const head: V2ContextMessage[] = [];
-  let headRemaining = headBudget;
-  for (const message of headCandidates) {
-    if (headRemaining <= 0) break;
-    const tokens = estimateTokensForMessage(message);
-    if (tokens <= headRemaining) {
-      head.push(message);
-      headRemaining -= tokens;
-      continue;
-    }
-    head.push(
-      replaceMessageText(
-        message,
-        truncateTextToTokens(extractText(message.content), headRemaining),
-      ),
-    );
-    break;
-  }
-  let keptTokens = 0;
-  for (const message of head) keptTokens += estimateTokensForMessage(message);
-  for (const message of tail) keptTokens += estimateTokensForMessage(message);
-  return { head, tail, elided: true, omittedTokens: Math.max(0, totalTokens - keptTokens) };
 }
 
 function buildCompactionMessages(

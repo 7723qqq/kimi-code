@@ -5,6 +5,7 @@ import {
   estimateTokensForMessages,
 } from '#/llm-adapter/contract/tokens';
 import { isSkillActivationPart } from '#human/agent/origin';
+import type { ContentPart, ToolCall } from '#human/llm/message';
 
 import summaryPrefixTemplate from './compaction-summary-prefix.md?raw';
 import { extractText, truncateTextToTokens, truncateTextToTokensFromEnd } from './compactionText';
@@ -239,7 +240,9 @@ export function selectRecentUserMessages<T extends MessageLike>(
   return selected;
 }
 
-export function selectCompactionUserMessages<T extends MessageLike>(
+export function selectCompactionUserMessages<
+  T extends { role: string; content: ContentPart[]; toolCalls?: readonly ToolCall[] },
+>(
   messages: readonly T[],
   maxTokens: number = COMPACT_USER_MESSAGE_MAX_TOKENS,
   headTokens: number = COMPACT_USER_MESSAGE_HEAD_TOKENS,
@@ -308,7 +311,9 @@ function usesLegacyTailShape(input: ContextCompactionShapeInput): boolean {
   return input.legacyTail === true;
 }
 
-function replaceMessageText<T extends MessageLike>(message: T, text: string): T {
+export function replaceMessageText<
+  T extends { content: ContentPart[]; toolCalls?: readonly ToolCall[] },
+>(message: T, text: string): T {
   return {
     ...message,
     content: [
@@ -321,6 +326,8 @@ function replaceMessageText<T extends MessageLike>(message: T, text: string): T 
   } as unknown as T;
 }
 
-function truncateUserMessage<T extends MessageLike>(message: T, maxTokens: number): T {
+function truncateUserMessage<
+  T extends { role: string; content: ContentPart[]; toolCalls?: readonly ToolCall[] },
+>(message: T, maxTokens: number): T {
   return replaceMessageText(message, truncateTextToTokens(extractText(message.content), maxTokens));
 }
