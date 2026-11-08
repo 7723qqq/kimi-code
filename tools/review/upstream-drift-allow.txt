@@ -141,3 +141,12 @@ packages/agent-core-v2/scripts/generate-webp-dec-wasm.mjs
 # dimensions instead (8151cc7949; replacement coverage in
 # terminal-resume-refresh.test.ts).
 packages/pi-tui/test/regression-sigwinch-kill-eacces.test.ts
+
+# Unreferenced in this fork and deleted (7a8f504623): `globPatternToRegex` lost
+# its only caller when the kaos package was removed, and the two barrels
+# re-export files that every importer reaches directly. Upstream still carries
+# all three, so a future sync that touches them will want these entries
+# revisited.
+packages/agent-core-v2/src/_base/execEnv/globPattern.ts
+packages/agent-core-v2/src/_base/lifecycle/index.ts
+packages/agent-core-v2/src/agent/plugin/index.ts
