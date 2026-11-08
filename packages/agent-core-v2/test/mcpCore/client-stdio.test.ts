@@ -3,20 +3,19 @@ import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
-import { deserializeMessage } from '@modelcontextprotocol/sdk/shared/stdio.js';import { join } from 'pathe';
+import { deserializeMessage } from '@modelcontextprotocol/sdk/shared/stdio.js';
+import { join } from 'pathe';
 
+import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment/environment';
 import type { EnvironmentLease, EnvironmentStatus } from '#/environment/environment';
 import { EnvironmentError, environmentIsReady } from '#/environment/environmentRegistry';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
-import {
-  mergeStdioEnv,
-  StdioMcpClient,
-  type StdioMcpClientOptions,
-} from '#/mcpCore/client-stdio';
+import { mergeStdioEnv, StdioMcpClient, type StdioMcpClientOptions } from '#/mcpCore/client-stdio';
+import { StdioFrameBuffer } from '#/mcpCore/client-stdio';
+import { BoundedTail } from '#/mcpCore/client-stdio';
 import type { McpServerStdioConfig } from '#/mcpCore/config-schema';
 import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import type { IHostProcessService } from '#/os/interface/hostProcess';
-import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment/environment';
 
 import {
   crashAfterConnectFixture,
@@ -24,8 +23,6 @@ import {
   stderrThenExitFixture,
   stdioFixture,
 } from './stubs';
-import { StdioFrameBuffer } from '#/mcpCore/client-stdio';
-import { BoundedTail } from '#/mcpCore/client-stdio';
 
 function createClient(
   config: McpServerStdioConfig,
@@ -34,7 +31,10 @@ function createClient(
   const environment = Object.assign(
     new FakeEnvironment(
       { environmentId: 'local', generation: 'test' },
-      { capabilities: ['process'] },
+      {
+        capabilities: ['process'],
+        pathClass: process.platform === 'win32' ? 'win32' : 'posix',
+      },
     ),
     { process: new HostProcessService() },
   );
@@ -93,6 +93,7 @@ function createEnvironmentClient(
     {
       capabilities: ['process'],
       status: options.status ?? 'ready',
+      pathClass: process.platform === 'win32' ? 'win32' : 'posix',
       host: options.host ?? { homeDir: process.cwd() },
     },
   );
@@ -149,14 +150,23 @@ function isPostCloseTransportError(error: unknown): boolean {
 
 describe('StdioMcpClient', () => {
   it('rejects a removed executor value instead of silently running on local', async () => {
-    const client = createClient({ transport: 'stdio', command: process.execPath, executor: 'kaos' });
+    const client = createClient({
+      transport: 'stdio',
+      command: process.execPath,
+      executor: 'kaos',
+    });
     await expect(client.connect()).rejects.toThrowError(
       expect.objectContaining({ code: 'not_implemented' }),
     );
   });
 
   it('accepts executor local for backward compatibility', async () => {
-    const client = createClient({ transport: 'stdio', command: process.execPath, args: [stdioFixture], executor: 'local' });
+    const client = createClient({
+      transport: 'stdio',
+      command: process.execPath,
+      args: [stdioFixture],
+      executor: 'local',
+    });
     try {
       await client.connect();
       const result = await client.callTool('echo', { text: 'hello' });
@@ -293,7 +303,11 @@ describe('StdioMcpClient', () => {
     const cases = [
       { config: {}, host: { homeDir: remoteHome, cwd: remoteCwd }, expected: remoteCwd },
       { config: {}, host: { homeDir: remoteHome }, expected: remoteHome },
-      { config: { cwd: explicitCwd }, host: { homeDir: remoteHome, cwd: remoteCwd }, expected: explicitCwd },
+      {
+        config: { cwd: explicitCwd },
+        host: { homeDir: remoteHome, cwd: remoteCwd },
+        expected: explicitCwd,
+      },
     ];
     const harnesses = cases.map(({ config, host }) =>
       createEnvironmentClient(
@@ -307,7 +321,8 @@ describe('StdioMcpClient', () => {
         const result = await harness.client.callTool('get_cwd', {});
         const text = (result.content[0] as { type: 'text'; text: string }).text;
         expect(realpathSync(text)).toBe(realpathSync(cases[index]!.expected));
-        expect(harness.spawnCwds).toEqual([cases[index]!.expected]);
+        const expectedCwd = cases[index]!.expected.replaceAll('\\', '/');
+        expect(harness.spawnCwds.map((cwd) => cwd?.replaceAll('\\', '/'))).toEqual([expectedCwd]);
       }
     } finally {
       for (const harness of harnesses) await harness.client.close();
@@ -538,14 +553,18 @@ describe('StdioMcpClient', () => {
     expect(closes).toEqual([]);
   }, 15000);
 
-  function createTrackingClient(
-    config: McpServerStdioConfig,
-  ): { client: StdioMcpClient; tracked: Array<{ sessionId?: string; disposed: boolean }> } {
+  function createTrackingClient(config: McpServerStdioConfig): {
+    client: StdioMcpClient;
+    tracked: Array<{ sessionId?: string; disposed: boolean }>;
+  } {
     const tracked: Array<{ sessionId?: string; disposed: boolean }> = [];
     const environment = Object.assign(
       new FakeEnvironment(
         { environmentId: 'local', generation: 'test' },
-        { capabilities: ['process'] },
+        {
+          capabilities: ['process'],
+          pathClass: process.platform === 'win32' ? 'win32' : 'posix',
+        },
       ),
       { process: new HostProcessService() },
     );

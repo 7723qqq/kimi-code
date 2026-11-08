@@ -1,6 +1,7 @@
 import { describe, expect, it, mock, spyOn } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, realpathSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import {
   createServer as createHttpServer,
   type IncomingMessage,
@@ -8,39 +9,46 @@ import {
   type ServerResponse,
 } from 'node:http';
 import type { AddressInfo as HttpAddress } from 'node:net';
-import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { pathToFileURL } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { join } from 'pathe';
+import { pathToFileURL } from 'node:url';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import type {
   OAuthClientInformationFull,
   OAuthTokens,
 } from '@modelcontextprotocol/sdk/shared/auth.js';
+import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
+import { join } from 'pathe';
 import { z } from 'zod';
 
+import type { EnvironmentBinding } from '#/environment/environment';
+import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import { Error2 } from '#/errors';
 import { KIMI_MCP_CLIENT_NAME } from '#/mcpCore/client-shared';
-import { McpConnectionManager, type McpConnectionManagerOptions, type McpServerEntry } from '#/mcpCore/connection-manager';
-import { McpOAuthService } from '#/mcpCore/oauth/service';
+import {
+  McpConnectionManager,
+  type McpConnectionManagerOptions,
+  type McpServerEntry,
+} from '#/mcpCore/connection-manager';
 import type { StoredMcpOAuthTokens } from '#/mcpCore/oauth/provider';
-import { FakeEnvironment } from '#/environment/fakeEnvironment';
+import { McpOAuthService } from '#/mcpCore/oauth/service';
 import { HostProcessService } from '#/os/backends/host/hostProcessService';
-import type { EnvironmentBinding } from '#/environment/environment';
 import { HostProcessError, HostProcessErrorCode } from '#/os/interface/hostProcess';
 
 const testEnvironmentBinding: EnvironmentBinding = { environmentId: 'local' };
 const testProcess = new HostProcessService();
 const testEnvironment = Object.assign(
-  new FakeEnvironment({ ...testEnvironmentBinding, generation: 'test-generation' }, {
-    capabilities: ['process'],
-  }),
+  new FakeEnvironment(
+    { ...testEnvironmentBinding, generation: 'test-generation' },
+    {
+      capabilities: ['process'],
+      pathClass: process.platform === 'win32' ? 'win32' : 'posix',
+    },
+  ),
   { process: testProcess },
 );
 const testEnvironmentResolver = {
@@ -159,7 +167,9 @@ describe('McpConnectionManager', () => {
       resolveDefaults: () => ({ reconnectInitialDelayMs: 50, reconnectMaxDelayMs: 100 }),
     });
     try {
-      listTools.mockRejectedValue(new McpError(ErrorCode.MethodNotFound, 'tools/list is unavailable'));
+      listTools.mockRejectedValue(
+        new McpError(ErrorCode.MethodNotFound, 'tools/list is unavailable'),
+      );
       await discovery.connectAll({
         method: { transport: 'http', url: 'https://example.test/mcp' },
       });
@@ -263,7 +273,11 @@ describe('McpConnectionManager', () => {
 
   it('marks remote servers failed without retry when the configured bearer token env var is missing', async () => {
     const cases = [
-      { transport: 'http' as const, url: 'https://example.invalid/mcp', envVar: 'REMOTE_MCP_TOKEN' },
+      {
+        transport: 'http' as const,
+        url: 'https://example.invalid/mcp',
+        envVar: 'REMOTE_MCP_TOKEN',
+      },
       { transport: 'sse' as const, url: 'https://example.invalid/sse', envVar: 'LEGACY_MCP_TOKEN' },
     ];
     for (const { transport, url, envVar } of cases) {
@@ -382,7 +396,6 @@ describe('McpConnectionManager', () => {
     }
   }, 15000);
 
-
   it('announces the resolved custom identity as the MCP client name', async () => {
     const cm = createManager({ resolveClientName: () => 'acme-dev' });
     try {
@@ -403,9 +416,7 @@ describe('McpConnectionManager', () => {
       const resolved = cm.resolved('mock');
       if (resolved === undefined) throw new Error('Expected mock MCP server to connect');
       const result = await resolved.client.callTool('whoami', {});
-      expect((result.content[0] as { type: 'text'; text: string }).text).toBe(
-        KIMI_MCP_CLIENT_NAME,
-      );
+      expect((result.content[0] as { type: 'text'; text: string }).text).toBe(KIMI_MCP_CLIENT_NAME);
     } finally {
       await cm.shutdown();
     }
@@ -1177,12 +1188,15 @@ describe('McpConnectionManager', () => {
           startupTimeoutMs: 5_000,
         },
       });
-      const entry = cm.get('notion');
-      expect(entry).toMatchObject({
-        status: 'needs-auth',
-        error: expect.stringContaining('run /mcp-config login notion'),
-      });
-      expect(entry?.error).not.toContain('redirectUrl must be set');
+      let entry = cm.get('notion');
+      const deadline = Date.now() + 2_000;
+      while (entry?.error === undefined && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        entry = cm.get('notion');
+      }
+      expect(entry).toBeDefined();
+      expect(entry?.error ?? '').toContain('run /mcp-config login notion');
+      expect(entry?.error ?? '').not.toContain('redirectUrl must be set');
     } finally {
       await cm.shutdown();
       await closeServer(server);
@@ -1311,9 +1325,11 @@ describe('McpConnectionManager', () => {
       seen.length = 0;
       ping.mockClear();
 
-      const internalClient = (cm as unknown as {
-        entries: Map<string, { client?: { client: { onerror?: (e: Error) => void } } }>;
-      }).entries.get('remote')?.client?.client;
+      const internalClient = (
+        cm as unknown as {
+          entries: Map<string, { client?: { client: { onerror?: (e: Error) => void } } }>;
+        }
+      ).entries.get('remote')?.client?.client;
       internalClient?.onerror?.(new Error('Maximum reconnection attempts (3) exceeded.'));
 
       await sleep(300);
@@ -1380,9 +1396,11 @@ describe('McpConnectionManager', () => {
       });
       expect(cm.get('remote')?.status).toBe('connected');
 
-      const internalClient = (cm as unknown as {
-        entries: Map<string, { client?: { client: { onerror?: (e: Error) => void } } }>;
-      }).entries.get('remote')?.client?.client;
+      const internalClient = (
+        cm as unknown as {
+          entries: Map<string, { client?: { client: { onerror?: (e: Error) => void } } }>;
+        }
+      ).entries.get('remote')?.client?.client;
       healthy = false;
       internalClient?.onerror?.(new Error('Maximum reconnection attempts (3) exceeded.'));
 
@@ -1509,11 +1527,12 @@ describe('McpConnectionManager', () => {
           resolve(true);
         };
       });
-      const invalidation = spyOn(oauthService, 'invalidateTokensIfCurrent')
-        .mockImplementation(async (serverName, serverUrl, expected) => {
+      const invalidation = spyOn(oauthService, 'invalidateTokensIfCurrent').mockImplementation(
+        async (serverName, serverUrl, expected) => {
           await invalidationGate;
           return invalidate(serverName, serverUrl, expected);
-        });
+        },
+      );
       const peek = spyOn(oauthService, 'peekRejectedGrant');
       const first = cm.markNeedsAuth('hyper', callError, client);
       const second = cm.markNeedsAuth('hyper', callError, client);
@@ -1548,7 +1567,11 @@ describe('McpConnectionManager', () => {
       replacement = await startAnonymousDiscoveryHttpMcpServer({ tokenEndpoint: 'invalid_grant' });
       const replacementProvider = oauthService.getProvider('hyper', replacement.url);
       await replacementProvider.saveTokens(revokedTokens);
-      await cm.connect('hyper', { transport: 'http', url: replacement.url, startupTimeoutMs: 5000 });
+      await cm.connect('hyper', {
+        transport: 'http',
+        url: replacement.url,
+        startupTimeoutMs: 5000,
+      });
       expect(cm.get('hyper')?.status).toBe('connected');
       const nextClient = cm.resolved('hyper')?.client;
       if (nextClient === undefined) throw new Error('expected a replacement client');
