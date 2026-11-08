@@ -332,6 +332,7 @@ k3-max = "同一模型的 max Thinking 档位。适合最难的子任务。"
 | --- | --- | --- | --- |
 | `enabled` | `boolean` | `true` | 新会话是否默认开启 Thinking，设为 `false` 可强制关闭 |
 | `effort` | `string` | — | Thinking 强度：`low`/`medium`/`high`/`xhigh`/`max`；不在模型支持列表时回落默认档 |
+| `forced_effort` | `string` | — | 强制本次会话的思考强度，覆盖 `effort` 并绕过模型声明的 `support_efforts`；仅 `kimi` 供应商生效。可被 `KIMI_MODEL_THINKING_EFFORT` 覆盖 |
 | `keep` | `string` | `"all"` | 保留思考透传；`kimi` 以 `thinking.keep` 发送，`anthropic` 以 `clear_thinking_20251015` 编辑发送（走 beta API）；关值可禁用；Thinking 开启时注入，可被 `KIMI_MODEL_THINKING_KEEP` 覆盖 |
 
 <details><summary>已废弃字段</summary>
