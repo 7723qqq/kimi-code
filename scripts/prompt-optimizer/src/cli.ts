@@ -26,7 +26,7 @@ import {
 } from './benchmark/runner';
 import { parseArgs, CliArgError, type CliArgs } from './cli-args';
 import { loadConfig } from './config';
-import { realCaller, resolveCredentials, resolveModel } from './llm-caller';
+import { chatOnce, realCaller, resolveCredentials, resolveModel } from './llm-caller';
 import {
   compareMeasureReports,
   formatMeasureComparison,
@@ -34,6 +34,7 @@ import {
   runMeasurement,
   type MeasureReport,
 } from './measure/measure';
+import type { MeasureTurn } from './measure/toolLoop';
 import { runProbe, formatProbeReport } from './probe/probe';
 import { loadPromptBundle, generateBaselineVariant, generatePruneVariant } from './prompt-parser';
 import { runPruner, formatPruneReport } from './pruner/pruner';
@@ -435,17 +436,33 @@ async function main(argv: readonly string[] = process.argv.slice(2)) {
       // names is the repository root rather than wherever the command was run
       // from; otherwise the path-leakage axis would measure the caller's cwd.
       const cwd = resolve(import.meta.dirname, '../../..');
+      const dryRunHere = isDryRun || !hasApiKey;
       console.log(
-        `Running rewrite measurement (model: ${model}, reps: ${args.reps}, dry-run: ${isDryRun})`,
+        `Running rewrite measurement (model: ${model}, reps: ${args.reps}, dry-run: ${dryRunHere})`,
       );
+
+      // The prompt under measurement grants Read, Glob and Grep, so a real run
+      // declares them and lets the model use them; the dry-run caller answers
+      // without tool calls and ends the turn after one round.
+      const turn: MeasureTurn = (messages, tools) =>
+        dryRunHere
+          ? dryRunCaller(
+              messages.find((message) => message.role === 'system')?.content ?? '',
+              messages
+                .filter((message) => message.role !== 'system')
+                .map((message) => message.content),
+              runnerConfig,
+              tools,
+            )
+          : chatOnce(messages, tools, runnerConfig);
 
       const report = await runMeasurement({
         cwd,
         repetitions: args.reps,
         model,
         runner: runnerConfig,
-        caller,
-        dryRun: isDryRun || !hasApiKey,
+        turn,
+        dryRun: dryRunHere,
       });
 
       console.log('\n' + formatMeasureReport(report));

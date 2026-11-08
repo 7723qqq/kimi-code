@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
-import type { LLMCaller, RunnerConfig } from '../src/benchmark/runner';
+import type { RunnerConfig } from '../src/benchmark/runner';
+import type { MeasureTurn } from '../src/measure/toolLoop';
 import {
   MEASURE_DRAFTS,
   addedRequirementCount,
@@ -24,7 +25,7 @@ const RUNNER: RunnerConfig = {
   concurrency: 1,
 };
 
-function callerReturning(content: string): LLMCaller {
+function turnReturning(content: string): MeasureTurn {
   return async () => ({
     content,
     toolCalls: [],
@@ -109,8 +110,9 @@ describe('runMeasurement', () => {
       repetitions: 1,
       model: 'test-model',
       runner: RUNNER,
-      caller: async (_system, messages) => {
-        if (messages[0]?.includes('auth') !== true) throw new Error('provider down');
+      turn: async (messages) => {
+        const input = messages.find((message) => message.role === 'user')?.content ?? '';
+        if (!input.includes('auth')) throw new Error('provider down');
         return {
           content: 'Fix the authentication issue.',
           toolCalls: [],
@@ -136,7 +138,7 @@ describe('runMeasurement', () => {
       repetitions: 1,
       model: 'test-model',
       runner: RUNNER,
-      caller: callerReturning('rewritten'),
+      turn: turnReturning('rewritten'),
       dryRun: true,
     });
     expect(report.dryRun).toBe(true);

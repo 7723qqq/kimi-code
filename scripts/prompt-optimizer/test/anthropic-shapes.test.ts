@@ -114,11 +114,22 @@ describe('a provider that drops the response body', () => {
   // blocks, so every `tool-called` assertion judged an always-empty list.
   test('a tool_use block is reported as a tool call', async () => {
     const result = await callAnthropicToolCalls({
+      content: [{ type: 'tool_use', id: 'toolu_test', name: 'Read', input: { path: 'a.ts' } }],
+      usage: USAGE,
+      stop_reason: 'tool_use',
+    });
+    expect(result.toolCalls).toEqual([
+      { id: 'toolu_test', name: 'Read', input: '{"path":"a.ts"}' },
+    ]);
+  });
+
+  test('a tool_use block with no id reports an empty one rather than dropping the call', async () => {
+    const result = await callAnthropicToolCalls({
       content: [{ type: 'tool_use', name: 'Read', input: { path: 'a.ts' } }],
       usage: USAGE,
       stop_reason: 'tool_use',
     });
-    expect(result.toolCalls).toEqual([{ name: 'Read', input: '{"path":"a.ts"}' }]);
+    expect(result.toolCalls).toEqual([{ id: '', name: 'Read', input: '{"path":"a.ts"}' }]);
   });
 
   test('text and a tool call in one response are both kept', async () => {

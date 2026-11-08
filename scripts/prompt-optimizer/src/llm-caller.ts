@@ -198,16 +198,48 @@ export function resolveCredentials(config: RunnerConfig): {
   return { apiKey, baseUrl, model, wireModel, type };
 }
 
-interface ChatMessage {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
+/**
+ * One tool call as a provider returns it.
+ *
+ * `id` is required by both wire formats: OpenAI matches it with `tool_call_id`,
+ * Anthropic with `tool_use_id`. `arguments` stays a string because that is what
+ * both providers put on the wire.
+ */
+export interface WireToolCall {
+  id: string;
+  name: string;
+  arguments: string;
 }
+
+/**
+ * The conversation as the harness holds it, before a provider's shape is chosen.
+ *
+ * `tool` messages are the harness's neutral spelling of a tool result; the
+ * Anthropic translation folds a run of them into one `user` message of
+ * `tool_result` blocks, which is what that API requires.
+ */
+export type WireMessage =
+  | { readonly role: 'system'; readonly content: string }
+  | { readonly role: 'user'; readonly content: string }
+  | {
+      readonly role: 'assistant';
+      readonly content: string;
+      readonly toolCalls?: readonly WireToolCall[];
+    }
+  | { readonly role: 'tool'; readonly content: string; readonly toolCallId: string };
+
+/**
+ * A provider that accepts a request and never answers would hang a run
+ * forever, so every call carries a deadline. Three minutes is far above any
+ * observed response for these prompts and still bounded.
+ */
+export const REQUEST_TIMEOUT_MS = 180_000;
 
 interface ChatCompletionResponse {
   choices: Array<{
     message: {
       content: string | null;
-      tool_calls?: Array<{ function: { name: string; arguments: string } }>;
+      tool_calls?: Array<{ id?: string; function: { name: string; arguments: string } }>;
     };
   }>;
   usage?: {
@@ -225,8 +257,29 @@ export const realCaller: LLMCaller = async (
   systemPrompt: string,
   userMessages: string[],
   config: RunnerConfig,
-  tools?: ToolDefinition[],
-): Promise<ModelResponse> => {
+  tools?: readonly ToolDefinition[],
+): Promise<ModelResponse> =>
+  chatOnce(
+    [
+      { role: 'system', content: systemPrompt },
+      ...userMessages.map((content) => ({ role: 'user' as const, content })),
+    ],
+    tools,
+    config,
+  );
+
+/**
+ * One request against the configured provider, in the harness's neutral message
+ * shape.
+ *
+ * Single-turn callers and the measure tool loop share this, so the two cannot
+ * drift into declaring different tools or rendering different messages.
+ */
+export async function chatOnce(
+  messages: readonly WireMessage[],
+  tools: readonly ToolDefinition[] | undefined,
+  config: RunnerConfig,
+): Promise<ModelResponse> {
   const { apiKey, baseUrl, wireModel, type } = resolveCredentials(config);
 
   if (!apiKey) {
@@ -237,24 +290,24 @@ export const realCaller: LLMCaller = async (
   }
 
   if (type === 'anthropic') {
-    return callAnthropic(systemPrompt, userMessages, apiKey, baseUrl, wireModel, tools);
+    return postAnthropic(messages, tools, apiKey, baseUrl, wireModel);
   }
-  return callOpenAI(systemPrompt, userMessages, apiKey, baseUrl, wireModel, tools);
-};
+  return postOpenAI(messages, tools, apiKey, baseUrl, wireModel);
+}
 
-async function callOpenAI(
-  systemPrompt: string,
-  userMessages: string[],
+async function postOpenAI(
+  messages: readonly WireMessage[],
+  tools: readonly ToolDefinition[] | undefined,
   apiKey: string,
   baseUrl: string,
   model: string,
-  tools?: ToolDefinition[],
 ): Promise<ModelResponse> {
-  const messages: ChatMessage[] = [
-    { role: 'system', content: systemPrompt },
-    ...userMessages.map((m) => ({ role: 'user' as const, content: m })),
-  ];
-  const body: Record<string, unknown> = { model, messages, temperature: 0.1, max_tokens: 2048 };
+  const body: Record<string, unknown> = {
+    model,
+    messages: messages.map(toOpenAIMessage),
+    temperature: 0.1,
+    max_tokens: 2048,
+  };
   if (tools?.length) {
     body.tools = tools.map((t) => ({
       type: 'function',
@@ -270,6 +323,7 @@ async function callOpenAI(
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   const latencyMs = Date.now() - start;
   if (!response.ok) {
@@ -280,7 +334,8 @@ async function callOpenAI(
   if (!choice) throw new Error('No choices in API response');
   return {
     content: choice.message.content ?? '',
-    toolCalls: (choice.message.tool_calls ?? []).map((tc) => ({
+    toolCalls: (choice.message.tool_calls ?? []).map((tc, index) => ({
+      id: tc.id ?? `call_${String(index)}`,
       name: tc.function.name,
       input: tc.function.arguments,
     })),
@@ -293,19 +348,98 @@ async function callOpenAI(
   };
 }
 
-async function callAnthropic(
-  systemPrompt: string,
-  userMessages: string[],
+function toOpenAIMessage(message: WireMessage): Record<string, unknown> {
+  if (message.role === 'tool') {
+    return { role: 'tool', tool_call_id: message.toolCallId, content: message.content };
+  }
+  if (message.role === 'assistant') {
+    const toolCalls = message.toolCalls ?? [];
+    if (toolCalls.length === 0) return { role: 'assistant', content: message.content };
+    return {
+      role: 'assistant',
+      content: message.content,
+      tool_calls: toolCalls.map((call) => ({
+        id: call.id,
+        type: 'function',
+        function: { name: call.name, arguments: call.arguments },
+      })),
+    };
+  }
+  return { role: message.role, content: message.content };
+}
+
+function parseToolArguments(raw: string): Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Translate the neutral conversation into Anthropic's content-block shape.
+ *
+ * `system` is lifted out to the top-level field, and a run of `tool` messages
+ * folds into one `user` message of `tool_result` blocks: that API has no
+ * standalone tool role, and a `tool_result` block must sit in a user turn that
+ * follows the assistant turn carrying the matching `tool_use`.
+ */
+function toAnthropicMessages(messages: readonly WireMessage[]): Array<Record<string, unknown>> {
+  const out: Array<Record<string, unknown>> = [];
+  let toolResults: Array<Record<string, unknown>> = [];
+  const flushToolResults = (): void => {
+    if (toolResults.length === 0) return;
+    out.push({ role: 'user', content: toolResults });
+    toolResults = [];
+  };
+
+  for (const message of messages) {
+    if (message.role === 'system') continue;
+    if (message.role === 'tool') {
+      toolResults.push({
+        type: 'tool_result',
+        tool_use_id: message.toolCallId,
+        content: message.content,
+      });
+      continue;
+    }
+    flushToolResults();
+    if (message.role === 'user') {
+      out.push({ role: 'user', content: [{ type: 'text', text: message.content }] });
+      continue;
+    }
+    const blocks: Array<Record<string, unknown>> = [];
+    if (message.content.length > 0) blocks.push({ type: 'text', text: message.content });
+    for (const call of message.toolCalls ?? []) {
+      blocks.push({
+        type: 'tool_use',
+        id: call.id,
+        name: call.name,
+        input: parseToolArguments(call.arguments),
+      });
+    }
+    out.push({ role: 'assistant', content: blocks });
+  }
+  flushToolResults();
+  return out;
+}
+
+async function postAnthropic(
+  messages: readonly WireMessage[],
+  tools: readonly ToolDefinition[] | undefined,
   apiKey: string,
   baseUrl: string,
   model: string,
-  tools?: ToolDefinition[],
 ): Promise<ModelResponse> {
-  const messages = userMessages.map((m) => ({ role: 'user' as const, content: m }));
+  const system = messages
+    .filter((message) => message.role === 'system')
+    .map((message) => message.content)
+    .join('\n\n');
   const body: Record<string, unknown> = {
     model,
-    system: systemPrompt,
-    messages,
+    system,
+    messages: toAnthropicMessages(messages),
     max_tokens: 2048,
     temperature: 0.1,
   };
@@ -325,6 +459,7 @@ async function callAnthropic(
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   const latencyMs = Date.now() - start;
   if (!response.ok) {
@@ -341,7 +476,7 @@ async function callAnthropic(
 
   // Handle normal JSON response
   const data = (await response.json()) as {
-    content?: Array<{ type: string; text?: string; name?: string; input?: unknown }> | null;
+    content?: Array<{ type: string; id?: string; text?: string; name?: string; input?: unknown }> | null;
     usage?: {
       input_tokens: number;
       output_tokens: number;
@@ -380,6 +515,7 @@ async function callAnthropic(
   const toolCalls = data.content
     .filter((b) => b.type === 'tool_use' && typeof b.name === 'string')
     .map((b) => ({
+      id: b.id ?? '',
       name: b.name as string,
       input: typeof b.input === 'string' ? b.input : JSON.stringify(b.input ?? {}),
     }));
@@ -416,7 +552,8 @@ function parseAnthropicSSE(raw: string, latencyMs: number): ModelResponse {
   let inputTokens = 0;
   let outputTokens = 0;
   let cacheReadTokens = 0;
-  const toolCalls: { name: string; input: string }[] = [];
+  const toolCalls: { id: string; name: string; input: string }[] = [];
+  let currentToolId = '';
   let currentToolName = '';
   let currentToolInput = '';
 
@@ -432,6 +569,7 @@ function parseAnthropicSSE(raw: string, latencyMs: number): ModelResponse {
       }
       // Tool use start
       if (event.type === 'content_block_start' && event.content_block?.type === 'tool_use') {
+        currentToolId = event.content_block.id ?? '';
         currentToolName = event.content_block.name ?? '';
         currentToolInput = '';
       }
@@ -441,7 +579,8 @@ function parseAnthropicSSE(raw: string, latencyMs: number): ModelResponse {
       }
       // Tool use end
       if (event.type === 'content_block_stop' && currentToolName) {
-        toolCalls.push({ name: currentToolName, input: currentToolInput });
+        toolCalls.push({ id: currentToolId, name: currentToolName, input: currentToolInput });
+        currentToolId = '';
         currentToolName = '';
         currentToolInput = '';
       }

@@ -20,6 +20,8 @@ import {
 } from '../../../../packages/agent-core-v2/src/features/promptOptimizer/promptOptimizer';
 import type { LLMCaller, RunnerConfig } from '../benchmark/runner';
 import { callWithRetry } from '../benchmark/runner';
+import { runMeasureTurn, type MeasureTurn } from './toolLoop';
+import { MEASURE_TOOLS } from './tools';
 
 export const MEASURE_DRAFTS: readonly string[] = [
   '请分析如何全部最优方案和最完整方案 减少打补丁和便宜',
@@ -296,18 +298,27 @@ export async function runMeasurement(options: {
   readonly repetitions: number;
   readonly model: string;
   readonly runner: RunnerConfig;
-  readonly caller: LLMCaller;
+  /** One round of the conversation; see `toolLoop.ts` for why it is injected. */
+  readonly turn: MeasureTurn;
   readonly dryRun: boolean;
 }): Promise<MeasureReport> {
   const drafts = options.drafts ?? MEASURE_DRAFTS;
   const runs: DraftMeasurement[] = [];
   const failures: MeasureFailure[] = [];
+  const loopCaller: LLMCaller = async (systemPrompt, userMessages) =>
+    runMeasureTurn({
+      systemPrompt,
+      input: userMessages[0] ?? '',
+      tools: MEASURE_TOOLS,
+      cwd: options.cwd,
+      turn: options.turn,
+    });
 
   for (const draft of drafts) {
     for (let repetition = 0; repetition < options.repetitions; repetition += 1) {
       try {
         const response = await callWithRetry(
-          options.caller,
+          loopCaller,
           PROMPT_OPTIMIZER_SYSTEM_PROMPT,
           [buildMeasureInput(draft, options.cwd)],
           options.runner,

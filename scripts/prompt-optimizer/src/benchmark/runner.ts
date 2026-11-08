@@ -33,7 +33,7 @@ export interface ToolDefinition {
 
 export interface ModelResponse {
   content: string;
-  toolCalls: { name: string; input: string }[];
+  toolCalls: { id: string; name: string; input: string }[];
   /**
    * Token accounting as the provider reports it.
    *
@@ -52,7 +52,7 @@ export type LLMCaller = (
   systemPrompt: string,
   userMessages: string[],
   config: RunnerConfig,
-  tools?: ToolDefinition[],
+  tools?: readonly ToolDefinition[],
 ) => Promise<ModelResponse>;
 
 /**
@@ -85,7 +85,7 @@ export async function callWithRetry(
   systemPrompt: string,
   userMessages: string[],
   config: RunnerConfig,
-  tools: ToolDefinition[] | undefined,
+  tools: readonly ToolDefinition[] | undefined,
   label: string,
 ): Promise<ModelResponse> {
   let lastError: unknown;
@@ -461,7 +461,7 @@ export function aggregateResults(results: BenchmarkResult[]): {
 
 function computeToolAccuracy(
   benchCase: BenchmarkCase,
-  toolCalls: { name: string; input: string }[],
+  toolCalls: { id: string; name: string; input: string }[],
 ): number {
   const toolEvals = benchCase.evaluators.filter(
     (e) => e.type === 'tool-called' || e.type === 'tool-not-called',
