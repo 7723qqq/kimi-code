@@ -453,6 +453,8 @@ If a provider ID already exists, it is removed and re-created. The default model
 
 Remove the specified provider and all its model aliases. If the removed provider is the one referenced by `default_model`, `default_model` is also cleared.
 
+The provider that `/login` and `/logout` own is refused, because removing it would strand the stored account; pass `--force` to remove it anyway.
+
 ```sh
 kimi provider remove kohub
 ```

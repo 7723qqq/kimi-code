@@ -115,6 +115,17 @@ Every `create` option:
 | `--default-effort <name>` | Optional default effort; must be one of `--support-efforts` |
 | `--off-effort <name>` | Optional effort value that means "thinking off" on the wire |
 | `--adaptive-thinking` / `--no-adaptive-thinking` | Optional — write `adaptive_thinking = true`, or omit it; without either flag a new row omits it |
+| `--clear-adaptive-thinking` | Optional — delete the stored `adaptive_thinking` key; wins over the two above |
+| `--protocol <wire>` | Optional — per-model wire override: `none` drops the stored one back to the provider's type, the other two values write it; omitted keeps what was stored |
+| `--beta-api` / `--no-beta-api` | Optional — write `beta_api = true` or `false`; omitted keeps the stored value. Only the Anthropic transport reads it, so the shared rules refuse `true` under any other protocol |
+| `--clear-beta-api` | Optional — delete the stored `beta_api` key; wins over the two above |
+| `--reasoning-key <key>` | Optional — name the wire field carrying reasoning content; an explicitly blank value clears it |
+| `--model-base-url <url>` | Optional — override this model's endpoint; an explicitly blank value clears it |
+| `--clear-overrides` | Optional — drop the alias's stored `overrides`, which the engine applies over every field above |
+| `--api-key-env <name>` | Optional — store the NAME of the environment variable holding the credential instead of an inline key; an explicit empty value drops it. Cannot be combined with `--api-key` |
+| `--provider-default-model <modelId>` | Optional — point this provider's own default at one of its model rows, written as `${id}/${model}` and refused when it names no row; an explicit empty value drops it. The top-level `default_model` is `--default`'s field |
+| `--custom-header <k=v>` | Optional, repeatable — extra header, merged over the stored map, so naming one keeps every header this line does not mention; `--clear-custom-headers` drops the map |
+| `--env <k=v>` | Optional, repeatable — extra environment variable, merged the same way; `--clear-env` drops the map |
 | `--default` | Optional — also set `default_model` to `<id>/<model>` |
 | `--json` | Optional — print the resulting `providers` and `models` as JSON, with API key plaintext stripped |
 

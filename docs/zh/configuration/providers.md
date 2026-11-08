@@ -115,6 +115,17 @@ Kimi Code CLI 支持同时接入多家模型供应商服务，模型在供应商
 | `--default-effort <name>` | 可选，默认档位，必须是 `--support-efforts` 之一 |
 | `--off-effort <name>` | 可选，表示线上「关闭思考」的档位值 |
 | `--adaptive-thinking` / `--no-adaptive-thinking` | 可选——写 `adaptive_thinking = true`，或省略该键；两个都不给时新行省略 |
+| `--clear-adaptive-thinking` | 可选——删除已存储的 `adaptive_thinking` 键；优先级高于上面两个 |
+| `--protocol <wire>` | 可选——按模型覆盖 wire 协议：`none` 丢弃已存储的值、回落到供应商的 type，另外两个值写入；不传保持已存储的值 |
+| `--beta-api` / `--no-beta-api` | 可选——写 `beta_api = true` 或 `false`；不传保持已存储的值。只有 Anthropic 传输读它，因此共享规则拒绝其它协议下的 `true` |
+| `--clear-beta-api` | 可选——删除已存储的 `beta_api` 键；优先级高于上面两个 |
+| `--reasoning-key <key>` | 可选——指定承载推理内容的 wire 字段名；显式留空则清除 |
+| `--model-base-url <url>` | 可选——覆盖该模型的端点；显式留空则清除 |
+| `--clear-overrides` | 可选——丢弃该别名的 `overrides`，引擎会把它应用到上面每一个字段之上 |
+| `--api-key-env <name>` | 可选——存储承载凭据的环境变量**名**，而不是内联密钥；显式留空则丢弃。不能与 `--api-key` 共用 |
+| `--provider-default-model <modelId>` | 可选——把该供应商自己的默认指向它的某个模型行，写成 `${id}/${model}`，指向不存在的行会被拒绝；显式留空则丢弃。顶层 `default_model` 是 `--default` 的字段 |
+| `--custom-header <k=v>` | 可选，可重复——额外请求头，合并到已存储的映射上，因此只写一个会保留本行没提到的每个头；`--clear-custom-headers` 丢弃整个映射 |
+| `--env <k=v>` | 可选，可重复——额外环境变量，合并方式相同；`--clear-env` 丢弃整个映射 |
 | `--default` | 可选，同时把 `default_model` 设为 `<id>/<model>` |
 | `--json` | 可选，以 JSON 输出写入后的 `providers` 与 `models`，其中已去掉 API 密钥明文 |
 
@@ -151,6 +162,19 @@ kimi provider create \
 | `--default-effort <name>` | 配合 `--model` 使用；必须是该行 `--support-efforts` 之一 |
 | `--off-effort <name>` | 配合 `--model` 使用 |
 | `--adaptive-thinking` / `--no-adaptive-thinking` | 配合 `--model` 使用；`--no-adaptive-thinking` 表示省略该键 |
+| `--clear-adaptive-thinking` | 删除已存储的 `adaptive_thinking` 键；优先级高于上面两个 |
+| `--protocol <wire>` | 按模型覆盖 wire 协议：`none` 回落到供应商 type，另外两个值写入 |
+| `--beta-api` / `--no-beta-api` | 写 `beta_api = true` 或 `false`；只有 Anthropic 传输读它 |
+| `--clear-beta-api` | 删除已存储的 `beta_api` 键 |
+| `--reasoning-key <key>` | 指定承载推理内容的 wire 字段名；显式留空则清除 |
+| `--model-base-url <url>` | 覆盖该模型的端点；显式留空则清除 |
+| `--clear-overrides` | 丢弃该别名已存储的 `overrides` |
+| `--api-key-env <name>` | 存储承载凭据的环境变量名而不是内联密钥；显式留空则丢弃。不能与 `--api-key` 共用 |
+| `--provider-default-model <modelId>` | 把该供应商自己的默认指向它的某个模型行；显式留空则丢弃 |
+| `--custom-header <k=v>` | 可重复；合并到已存储的映射上 |
+| `--env <k=v>` | 可重复；合并到已存储的映射上 |
+| `--clear-custom-headers` | 丢弃已存储的请求头映射 |
+| `--clear-env` | 丢弃已存储的环境变量映射 |
 | `--default` | 把 `default_model` 指向本次的模型（未给 `--model` 时是第一条） |
 | `--json` | 以 JSON 输出写入后的配置，其中已去掉 API 密钥明文 |
 

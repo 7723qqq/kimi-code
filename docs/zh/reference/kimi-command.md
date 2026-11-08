@@ -453,6 +453,8 @@ kimi provider add https://registry.example.com/v1/models/api.json
 
 删除指定供应商及其所有模型 alias。如果被删除的供应商正好是 `default_model` 所属，则同时清空 `default_model`。
 
+`/login` 与 `/logout` 持有的那个供应商会被拒绝删除——删掉它会让已存储的账号失去归属；确实要删时传 `--force`。
+
 ```sh
 kimi provider remove kohub
 ```
