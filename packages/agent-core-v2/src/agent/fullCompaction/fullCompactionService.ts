@@ -34,6 +34,7 @@ import {
 import { renderTodoList } from '#/features/todo/todoItem';
 import { IAgentTodoService } from '#/features/todo/todoService';
 import { IAgentTaskService } from '#/agent/task/task';
+import { IAssociativeMemoryService } from '#/features/associativeMemory/service';
 import { OrderedHookSlot } from '#/hooks';
 import { APIContextOverflowError } from '#/llm-adapter/contract/errors';
 import { createUserMessage, type Message } from '#/llm-adapter/contract/message';
@@ -139,6 +140,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     @IAgentStateService private readonly states: IAgentStateService,
     @IWireService private readonly wire: IWireService,
     @ISessionRunGate private readonly runGate: ISessionRunGate,
+    @IAssociativeMemoryService private readonly associativeMemory: IAssociativeMemoryService,
   ) {
     super();
     this.states.contributeState(fullCompactionKey);
@@ -682,6 +684,12 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
         droppedCount: droppedCount === 0 ? undefined : droppedCount,
         wireLines,
       });
+
+      try {
+        await this.associativeMemory.writeNote(summary, 'project', 'external');
+      } catch (error) {
+        onUnexpectedError(error);
+      }
 
       const properties: CompactionFinishedEvent = {
         turn_id: active.originTurnId,
