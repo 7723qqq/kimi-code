@@ -32,10 +32,10 @@
 
 ### B0 修复根级 `typecheck`
 
-- [ ] 定位 `build:packages` 在 node-sdk 处的失败点。
-- [ ] 根因是未跟踪的 `packages/runtime-shared/src/cache-breakpoints.ts` 进入构建图。
-- [ ] 修好使 `bun run typecheck` 可整跑。
-- **判据**：`bun run typecheck` 退出码 0。
+- [x] 定位：失败点不在 node-sdk，而在 `packages/klient` 的 `typecheck:examples`（`tsconfig.examples.json`）。
+- [x] 根因不是未跟踪文件（`packages/runtime-shared/src/cache-breakpoints.ts` 现已跟踪）：该 tsconfig 把 `../agent-core-v2/src` 拉进程序，却不映射 `#/`，于是 human kernel 里的 `#/agent/contextMemory/*` 按 `src/human/package.json` 的 imports 规则解析成 human 内部的同名文件，而它不存在。
+- [x] 修法：给该程序加上与 `agent-core-v2/tsconfig.json` 相同的 `#/*` 映射（`../agent-core-v2/src/*.ts`、`../agent-core-v2/src/human/*.ts`）。
+- **判据**：`bun run typecheck` 退出码 0 —— 2026-11-08 复跑 exit 0。
 
 ## 阶段 C — 按批次推进（61 条）
 
@@ -60,7 +60,7 @@
 
 ### D1 全量台账复核
 
-- [ ] `--verify` 全跑，剩余量为 0。
+- [x] `--verify` 全跑，剩余量为 0（`--report` 输出 `STATUS: clear`、`remaining=0`，2026-11-08 复跑）。
 - **判据**：`--report` 输出 `STATUS: clear`。
 
 ### D2 门槛总跑

@@ -326,8 +326,8 @@ class EnvironmentStdioTransport implements Transport {
   }
 
   private finish(): void {
-    if (this.closed) return;
-    this.closed = true;
+    if (this.closed || this.finished) return;
+    this.finished = true;
     const process = this.process;
     this.process = undefined;
     void process?.dispose();

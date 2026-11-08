@@ -454,6 +454,29 @@ describe('StdioMcpClient', () => {
     }
   }, 15000);
 
+  it('fails a pending connect promptly when the child exits without speaking MCP', async () => {
+    const probeCwd = mkdtempSync(join(tmpdir(), 'kimi-stdio-probe-'));
+    const client = createClient({
+      transport: 'stdio',
+      command: process.execPath,
+      args: ['--version'],
+      cwd: probeCwd,
+      startupTimeoutMs: 10_000,
+    });
+    const startedAt = Date.now();
+    let failure: unknown;
+    try {
+      await client.connect();
+    } catch (error) {
+      failure = error;
+    } finally {
+      await client.close();
+      await rm(probeCwd, { recursive: true, force: true });
+    }
+    expect(failure).toBeDefined();
+    expect(Date.now() - startedAt).toBeLessThan(2_000);
+  });
+
   it('buffers an early close and replays it on listener registration', async () => {
     const banner = `kimi-test-early-${Date.now()}`;
     const client = createClient({
