@@ -95,15 +95,37 @@ describe('Glob', () => {
 });
 
 describe('Grep', () => {
-  test('reports path, line number and the matching line', async () => {
+  test('defaults to listing the matching files, like the production tool', async () => {
     const root = makeWorkspace();
     const output = await executeMeasureTool(
       'Grep',
       JSON.stringify({ pattern: 'alpha', path: 'src' }),
       root,
     );
+    expect(output).toBe('src/alpha.ts\nsrc/beta.md');
+  });
+
+  test('content mode reports path, line number and the matching line', async () => {
+    const root = makeWorkspace();
+    const output = await executeMeasureTool(
+      'Grep',
+      JSON.stringify({ pattern: 'alpha', path: 'src', output_mode: 'content' }),
+      root,
+    );
     expect(output).toContain('src/alpha.ts:1:export const alpha = 1;');
     expect(output).toContain('src/beta.md:3:alpha mentions beta.');
+  });
+
+  test('count_matches mode reports per-file counts and an aggregate', async () => {
+    const root = makeWorkspace();
+    const output = await executeMeasureTool(
+      'Grep',
+      JSON.stringify({ pattern: 'alpha', path: 'src', output_mode: 'count_matches' }),
+      root,
+    );
+    expect(output).toContain('matches in 2 files');
+    expect(output).toContain('src/alpha.ts:1');
+    expect(output).toContain('src/beta.md:1');
   });
 
   test('skips node_modules and dot directories', async () => {
@@ -120,7 +142,7 @@ describe('Grep', () => {
       root,
     );
     expect(output).not.toContain('alpha.ts');
-    expect(output).toContain('beta.md');
+    expect(output).toBe('src/beta.md');
   });
 
   test('an invalid expression is reported, not thrown', async () => {

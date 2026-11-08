@@ -49,6 +49,16 @@ export const MEASURE_TOOLS: readonly ToolDefinition[] = [
         pattern: { type: 'string', description: 'Regular expression to search for.' },
         path: { type: 'string', description: 'File or directory to search. Defaults to the working directory.' },
         glob: { type: 'string', description: 'Optional file-name glob to narrow the search.' },
+        output_mode: {
+          type: 'string',
+          enum: ['files_with_matches', 'content', 'count_matches'],
+          description:
+            'Shape of the result. Defaults to files_with_matches, which lists only the paths of files that contain a match.',
+        },
+        head_limit: {
+          type: 'number',
+          description: 'Limit output to the first N lines or entries. Defaults to 250. Pass 0 for unlimited.',
+        },
       },
       required: ['pattern'],
     },
@@ -57,7 +67,7 @@ export const MEASURE_TOOLS: readonly ToolDefinition[] = [
 
 const READ_LIMIT_CHARS = 64_000;
 const GLOB_LIMIT_ENTRIES = 200;
-const GREP_LIMIT_MATCHES = 100;
+const GREP_DEFAULT_HEAD_LIMIT = 250;
 const GREP_LIMIT_FILE_BYTES = 1_000_000;
 
 const SKIPPED_DIRECTORY = 'node_modules';
@@ -147,6 +157,15 @@ async function collectFiles(root: string, glob: string | undefined): Promise<str
   return files;
 }
 
+interface FileHits {
+  readonly relativePath: string;
+  readonly lines: string[];
+  readonly count: number;
+}
+
+const GREP_MODES = ['files_with_matches', 'content', 'count_matches'] as const;
+type GrepMode = (typeof GREP_MODES)[number];
+
 async function executeGrep(input: Record<string, unknown>, cwd: string): Promise<string> {
   const pattern = input['pattern'];
   if (typeof pattern !== 'string' || pattern.length === 0) {
@@ -158,6 +177,19 @@ async function executeGrep(input: Record<string, unknown>, cwd: string): Promise
   } catch (error) {
     throw new Error(`invalid regular expression: ${error instanceof Error ? error.message : String(error)}`);
   }
+
+  const modeValue = input['output_mode'];
+  const mode: GrepMode =
+    typeof modeValue === 'string' && (GREP_MODES as readonly string[]).includes(modeValue)
+      ? (modeValue as GrepMode)
+      : 'files_with_matches';
+  const headLimitValue = input['head_limit'];
+  const headLimit =
+    typeof headLimitValue === 'number' && Number.isInteger(headLimitValue) && headLimitValue > 0
+      ? headLimitValue
+      : headLimitValue === 0
+        ? Number.POSITIVE_INFINITY
+        : GREP_DEFAULT_HEAD_LIMIT;
 
   const rootValue = input['path'];
   const root = resolveInside(cwd, typeof rootValue === 'string' && rootValue.length > 0 ? rootValue : '.');
@@ -172,7 +204,7 @@ async function executeGrep(input: Record<string, unknown>, cwd: string): Promise
     throw new Error(`cannot search "${root}": ${error instanceof Error ? error.message : String(error)}`);
   }
 
-  const matches: string[] = [];
+  const hits: FileHits[] = [];
   for (const file of files) {
     let text: string;
     try {
@@ -180,19 +212,35 @@ async function executeGrep(input: Record<string, unknown>, cwd: string): Promise
     } catch {
       continue;
     }
-    expression.lastIndex = 0;
+    const lines: string[] = [];
     for (const [lineNumber, line] of text.split('\n').entries()) {
       expression.lastIndex = 0;
       if (!expression.test(line)) continue;
-      matches.push(`${segmentsOf(path.relative(cwd, file)).join('/')}:${String(lineNumber + 1)}:${line.trim()}`);
-      if (matches.length >= GREP_LIMIT_MATCHES) break;
+      lines.push(`${String(lineNumber + 1)}:${line.trim()}`);
+      if (mode === 'content' && lines.length >= headLimit) break;
     }
-    if (matches.length >= GREP_LIMIT_MATCHES) break;
+    if (lines.length > 0) {
+      hits.push({ relativePath: segmentsOf(path.relative(cwd, file)).join('/'), lines, count: lines.length });
+    }
+    if (mode === 'files_with_matches' && hits.length >= headLimit) break;
   }
 
-  if (matches.length === 0) return 'No matches.';
-  const listed = matches.slice(0, GREP_LIMIT_MATCHES);
-  const notice = matches.length > listed.length ? `\n…(${String(matches.length - listed.length)} more not shown)` : '';
+  if (hits.length === 0) return 'No matches.';
+
+  if (mode === 'count_matches') {
+    const total = hits.reduce((sum, hit) => sum + hit.count, 0);
+    return `${String(total)} matches in ${String(hits.length)} files\n${hits
+      .map((hit) => `${hit.relativePath}:${String(hit.count)}`)
+      .join('\n')}`;
+  }
+
+  if (mode === 'files_with_matches') {
+    return hits.map((hit) => hit.relativePath).join('\n');
+  }
+
+  const lines = hits.flatMap((hit) => hit.lines.map((line) => `${hit.relativePath}:${line}`));
+  const listed = lines.slice(0, headLimit);
+  const notice = lines.length > listed.length ? `\n…(${String(lines.length - listed.length)} more not shown)` : '';
   return `${listed.join('\n')}${notice}`;
 }
 
