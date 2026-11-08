@@ -27,8 +27,10 @@ All flags are optional — run `kimi` directly to enter an interactive session:
 | `--agent <name>` | | Start a new session with the specified agent as the main Agent. Cannot be combined with `--session`/`--continue` |
 | `--agent-file <path>` | | Load a custom agent from a Markdown file for the new session and select it. Cannot be repeated or combined with `--agent`, `--session`, or `--continue` |
 | `--add-dir <dir>` | | Add an extra workspace directory for this session. Relative paths resolve against the current working directory. Can be repeated |
+| `--environment <id>` | | Bind the new session to a configured remote environment. Hidden from help; see [Remote environments](../guides/remote-environment.md) |
+| `--environment-cwd <path>` | | Set the working directory on the environment selected by `--environment`. Creation-only, and cannot be combined with `--session`/`--continue` |
 
-`-r` / `--resume` is a hidden alias for `--session`; `-C` is a hidden alias for `--continue`; `--yes` and `--auto-approve` are hidden aliases for `--yolo`. None of them are shown in help output.
+`-r` / `--resume` is a hidden alias for `--session`; `-C` is a hidden alias for `--continue`; `--yes` and `--auto-approve` are hidden aliases for `--yolo`; `--environment` and `--environment-cwd` are creation-only flags kept out of help. None of them are shown in help output.
 
 ::: warning
 `--yolo` skips human approval for regular tool calls, including file writes and shell command execution. Use it only in trusted working directories. Plan mode exit approval is not bypassed by `--yolo`; `Bash` inside Plan mode is handled under the regular allow rules.

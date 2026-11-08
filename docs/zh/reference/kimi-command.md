@@ -27,8 +27,10 @@ kimi <subcommand> [options]
 | `--agent <name>` | | 以指定 Agent 作为 main agent 启动新会话。不能与 `--session`/`--continue` 同时使用 |
 | `--agent-file <path>` | | 从 Markdown 文件加载自定义 Agent 并为新会话选中它。不可重复传入，也不能与 `--agent`、`--session` 或 `--continue` 同时使用 |
 | `--add-dir <dir>` | | 为本次会话添加额外的工作目录。相对路径按当前工作目录解析。可重复传入 |
+| `--environment <id>` | | 把新会话绑定到已配置的远程环境。不在帮助信息中显示；见[远程环境](../guides/remote-environment.md) |
+| `--environment-cwd <path>` | | 设置 `--environment` 所选环境上的工作目录。仅在创建会话时有效，不能与 `--session`/`--continue` 共用 |
 
-`-r` / `--resume` 是 `--session` 的隐藏别名；`-C` 是 `--continue` 的隐藏别名；`--yes` 和 `--auto-approve` 是 `--yolo` 的隐藏别名，均不在帮助信息中显示。
+`-r` / `--resume` 是 `--session` 的隐藏别名；`-C` 是 `--continue` 的隐藏别名；`--yes` 和 `--auto-approve` 是 `--yolo` 的隐藏别名；`--environment` 与 `--environment-cwd` 是只在创建会话时有效的隐藏选项，均不在帮助信息中显示。
 
 ::: warning 注意
 `--yolo` 会跳过普通工具调用的人工确认，包括文件写入和 Shell 命令执行，请只在受信任的工作目录下使用。Plan 模式的退出审批不会被 `--yolo` 跳过；Plan 模式下的 `Bash` 按普通放行规则处理。
