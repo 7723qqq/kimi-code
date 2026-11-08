@@ -8,7 +8,7 @@ issue	area	priority	title	why_useful	local_check	added	status
 4231	tools-mcp	P0	[Bug] Normal prompt and /update-config fail with 400 tools.function.parameters schema exceeds maximum allowed size	工具 schema 体积超限直接 400，影响所有会话	mitigated	2026-10-15	mitigated
 1610	tools-mcp	P1	400 error: "tools.function.parameters is not a valid moonshot flavored json schema" when using custom API endpoint with MCP tools	MCP 工具在自定义端点下 schema 校验失败（与 #4231 同族）	mitigated	2026-11-07	mitigated
 4370	server-api	P1	[Bug] Closed WebSocket connections remain in memory when subscription is pending	pending 订阅的连接泄漏，长跑会累积	fixed	2026-11-07	done
-3704	tools-mcp	P1	MCP server routing fails when multiple servers share the same name prefix	同名前缀 MCP server 路由串线	needs-design	2026-09-10	needs-design
+3704	tools-mcp	P1	MCP server routing fails when multiple servers share the same name prefix	同名前缀 MCP server 路由串线	model-behavior	2026-09-10	model-behavior
 3383	tools-mcp	P1	Read.line_offset: anyOf integer 参数在第三方模型下 100% 失败（同版本数字形态正常，附Windows + Qwen3.8-Flash 复现）	read 工具 schema 形态在第三方模型下稳定复现	fixed	2026-09-16	done
 3382	tools-mcp	P1	[Bug]: renderToolResultForModel treats a whitespace-only error text part as non-empty output	纯空白错误文本被当非空输出；本地代码确认仍存在（single.length === 0 判断）	fixed	2026-08-31	done
 3380	tools-mcp	P1	[Bug]: ReadMediaFileTool reports stale stat size instead of actual attached media bytes	媒体字节数报错	likely-fixed	2026-09-06	likely-fixed
