@@ -2,7 +2,8 @@
 
 ## 状态
 
-**T1–T6 完成，T7 进行中。** 三份计划文档与调研材料见同目录。
+**T1–T7 完成，T8 完成。** 三份计划文档与调研材料见同目录。T7 的测量脚本已落入
+`scripts/prompt-optimizer/`（命令 `measure`），唯一未做的是需要模型凭据的一次新真实跑。
 
 ---
 
@@ -358,9 +359,11 @@ changeset：`.changeset/prompt-optimizer-rewrite-concrete.md`（新建）、
 
 ## 未完成项与偏离
 
-1. **R8 的脚本未落入 `scripts/prompt-optimizer/`**（验收要求的位置）。测量在 `/tmp/po-ab2/`
-   完成，逻辑已验证但未产品化。偏离原因：测量脚本仍在快速迭代（三个版本、两次自身缺陷修正），
-   过早固化会把已验证的缺陷一起写进去。**这是本 spec 唯一未达成的验收项。**
+1. **R8 的脚本已落入 `scripts/prompt-optimizer/`**：`src/measure/measure.ts`，命令 `measure`
+   （`bun src/cli.ts measure [--model <name>] [--reps <n>] [--dry-run]`）。三轴、六个固定草稿、
+   `--reps` 取中位数、失败单独记录而不计入聚合、`--dry-run` 不触网并照样写报告，均已实现并有单测。
+   仍未做的是**一次新的真实跑**：它需要模型凭据，属于对外发送，未自行执行。§7.4 的基线数字
+   （旧 3.62 / 定稿 1.20，以及 v4 复跑的 1.76 / 1.28）已记录在案，可直接对照。
 2. **`test/features/goal/goal.test.ts` 有 1 项失败**，属另一会话（`session_0de4a015`）正在改的
    `goal/errors.ts`，与本 spec 无关，未触碰。
 3. **未提交**。本 spec 的文件与另一会话在 `errors.ts` / `node-sdk/errors.ts` 上的改动同处一文件，

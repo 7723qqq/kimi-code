@@ -7,6 +7,7 @@
  *   bun src/cli.ts prune [--model <model>] [--dry-run]
  *   bun src/cli.ts ab    [--model <model>] [--experiment <file>] [--dry-run]
  *   bun src/cli.ts probe [--model <model>] [--reps <n>] [--dry-run]
+ *   bun src/cli.ts measure [--model <model>] [--reps <n>] [--dry-run]
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -26,6 +27,7 @@ import {
 import { parseArgs, CliArgError, type CliArgs } from './cli-args';
 import { loadConfig } from './config';
 import { realCaller, resolveCredentials, resolveModel } from './llm-caller';
+import { formatMeasureReport, runMeasurement } from './measure/measure';
 import { runProbe, formatProbeReport } from './probe/probe';
 import { loadPromptBundle, generateBaselineVariant, generatePruneVariant } from './prompt-parser';
 import { runPruner, formatPruneReport } from './pruner/pruner';
@@ -422,6 +424,32 @@ async function main(argv: readonly string[] = process.argv.slice(2)) {
       break;
     }
 
+    case 'measure': {
+      // The drafts concern this repository, so the working directory the input
+      // names is the repository root rather than wherever the command was run
+      // from; otherwise the path-leakage axis would measure the caller's cwd.
+      const cwd = resolve(import.meta.dirname, '../../..');
+      console.log(
+        `Running rewrite measurement (model: ${model}, reps: ${args.reps}, dry-run: ${isDryRun})`,
+      );
+
+      const report = await runMeasurement({
+        cwd,
+        repetitions: args.reps,
+        model,
+        runner: runnerConfig,
+        caller,
+        dryRun: isDryRun || !hasApiKey,
+      });
+
+      console.log('\n' + formatMeasureReport(report));
+
+      const reportPath = resolve(outputDir, `measure-${slugifyModel(model)}-${Date.now()}.json`);
+      writeFileSync(reportPath, JSON.stringify(report, null, 2));
+      console.log(`\nFull report: ${reportPath}`);
+      break;
+    }
+
     default:
       console.log(`Prompt Optimizer — Data-driven prompt optimization for kimi-code
 
@@ -430,6 +458,7 @@ Commands:
   prune   Scan the assembled prompt for removable sections
   ab      A/B test assembled-prompt variants
   probe   Profile model capabilities and weaknesses
+  measure Measure the rewrite on three axes over the fixed §7.4 draft set
 
 Options:
   --model <name>            Model to test (default: ${config.defaultModel || 'config.toml default_model'})
@@ -439,7 +468,7 @@ Options:
   --compare <a,b>           Raw-template experiment: compare prune variants
   --variant <name>          Raw-template experiment: one prune variant (base | prune:<Section>)
   --dry-run                 Run without API calls (framework check, never a verdict)
-  --reps <n>                Repetitions for probe (default: 3)
+  --reps <n>                Repetitions for probe and measure (default: 3)
 
 Prune scans the skeleton plus every section file it delegates to
 (coding.md, delivering-work.md, project-information.md), not system.md alone.

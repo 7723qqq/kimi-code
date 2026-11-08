@@ -9,6 +9,7 @@
     "prune": "bun src/cli.ts prune",
     "ab": "bun src/cli.ts ab",
     "probe": "bun src/cli.ts probe",
+    "measure": "bun src/cli.ts measure",
     "test": "bun test"
   },
   "dependencies": {}
