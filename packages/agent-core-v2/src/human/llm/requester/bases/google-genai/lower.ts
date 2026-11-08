@@ -95,10 +95,9 @@ export function lowerMessage(message: Message, lower: GoogleGenAILowerContext): 
             functionResponse: {
               name: toolCallIdToName(message.toolCallId, toolNameById),
               response: { output: textOutput },
-              parts: [],
+              parts: mediaParts,
             },
           },
-          ...mediaParts,
         ],
       },
     ];

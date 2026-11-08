@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import { UNKNOWN_CAPABILITY } from '#/llm/capability';
-import { createUserMessage } from '#/llm/message';
+import { createToolMessage, createUserMessage } from '#/llm/message';
 import type { LlmModel } from '#/llm/model';
 import { createGoogleGenAIRequester } from '#/llm/requester/bases/google-genai/requester';
 import type { LlmRequestEvent } from '#/llm/requester/requester';
@@ -80,6 +80,46 @@ async function settlesWithin(promise: Promise<unknown>, ms: number): Promise<boo
 async function nextTick(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
+
+describe('google genai tool result media', () => {
+  it('nests media inside functionResponse.parts instead of leaving it a sibling part', async () => {
+    const client = createStuckStreamClient();
+    const requester = createGoogleGenAIRequester({
+      clientFactory: client.clientFactory as never,
+    });
+    const controller = new AbortController();
+    const generate = requester.generate(
+      { model },
+      {
+        messages: [
+          createUserMessage('read it'),
+          createToolMessage('call_1', [
+            { type: 'text', text: 'shot taken' },
+            { type: 'image_url', imageUrl: { url: 'data:image/png;base64,AAAA' } },
+          ]),
+        ],
+      },
+      { signal: controller.signal },
+    );
+    await nextTick();
+
+    const contents = client.captured.at(0)?.['contents'] as Array<{
+      role: string;
+      parts: Array<Record<string, any>>;
+    }>;
+    const last = contents.at(-1)!;
+    expect(last.role).toBe('user');
+    expect(last.parts).toHaveLength(1);
+    const functionResponse = last.parts[0]?.['functionResponse'] as {
+      parts: Array<Record<string, unknown>>;
+    };
+    expect(functionResponse.parts).toHaveLength(1);
+    expect(functionResponse.parts[0]?.['inlineData']).toMatchObject({ mimeType: 'image/png' });
+
+    controller.abort();
+    expect(await settlesWithin(generate, 1000)).toBe(true);
+  });
+});
 
 describe('google genai abort propagation', () => {
   it('hands the request signal to the SDK so a stuck stream is cancelled', async () => {

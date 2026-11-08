@@ -3,7 +3,7 @@ issue	area	priority	title	why_useful	local_check	added	status
 4420	agent-session	P0	[Bug] Static permission deny rules are not enforced in `kimi -p` mode (CLI 2.3.2)	非交互模式绕过静态 deny 规则，属权限边界漏洞	fixed	2026-10-26	done
 4173	agent-session	P0	Session titles require a Kimi account even for local/self-hosted setups — no local fallback, and it fails silently	本地/自托管部署被账号依赖阻塞且静默失败	feature	2026-10-11	feature
 4339	tui-cli	P0	输入框输入的对话文字，点击发送到排队队列，提示报错，然后输入框的对话也没有了，输入半天的文字丢失了	排队失败丢失用户输入，属数据丢失类体验缺陷	likely-fixed	2026-10-22	likely-fixed
-3274	tools-mcp	P0	[BUG] Gemini 3+ 工具结果包含图片时,后续请求失败("Requests ending with a model turn are not supported")	带图工具结果触发协议级后续请求失败	needs-investigation	2026-10-30	needs-investigation
+3274	tools-mcp	P0	[BUG] Gemini 3+ 工具结果包含图片时,后续请求失败("Requests ending with a model turn are not supported")	带图工具结果触发协议级后续请求失败	fixed	2026-10-30	done
 4594	agent-session	P0	`EnterPlanMode` always fails under an ACP client: fatal read of a not-yet-created plan file	ACP 客户端下 plan 模式完全不可用	not-applicable	2026-11-02	not-applicable
 4231	tools-mcp	P0	[Bug] Normal prompt and /update-config fail with 400 tools.function.parameters schema exceeds maximum allowed size	工具 schema 体积超限直接 400，影响所有会话	mitigated	2026-10-15	mitigated
 1610	tools-mcp	P1	400 error: "tools.function.parameters is not a valid moonshot flavored json schema" when using custom API endpoint with MCP tools	MCP 工具在自定义端点下 schema 校验失败（与 #4231 同族）	mitigated	2026-11-07	mitigated
