@@ -535,8 +535,6 @@ export * from '#/features/cron/tools/cron-delete/cron-delete';
 
 import '#/features/lsp/lspFeature';
 
-import '#/features/attachment/attachmentFeature';
-import '#/features/spill/spillFeature';
 import '#/features/sessionQuery/sessionQueryFeature';
 import '#/features/codeRuntime/codeRuntimeFeature';
 

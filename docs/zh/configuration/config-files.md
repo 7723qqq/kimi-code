@@ -501,28 +501,6 @@ max_chars = 100000
 
 `max_edge_px` 可被环境变量 `KIMI_IMAGE_MAX_EDGE_PX` 覆盖，`read_byte_budget` 可被 `KIMI_IMAGE_READ_BYTE_BUDGET` 覆盖，优先级均高于配置文件。
 
-## `attachment`
-
-`attachment` 配置图片附件的存储位置以及接受哪些图片。
-
-| 字段 | 类型 | 默认值 | 说明 |
-| --- | --- | --- | --- |
-| `root` | `string` | — | 存放已保存图片的目录。默认为进程创建的私有临时目录 |
-| `limits.max_image_bytes` | `integer` | `20971520`（20 MiB） | 接受的最大图片字节数；超过则拒绝 |
-| `limits.max_image_pixels` | `integer` | `40000000` | 接受的最大图片像素数；超过则拒绝，而不是缩小 |
-
-接受的媒体类型为 `image/png`、`image/jpeg`、`image/webp` 和 `image/gif`。每张图片在保存前都会被完整解码，因此声明类型与实际字节不符的文件会被拒绝。
-
-## `spill`
-
-`spill` 配置工具输出超大时转储（spill）的位置。
-
-| 字段 | 类型 | 默认值 | 说明 |
-| --- | --- | --- | --- |
-| `root` | `string` | — | 存放转储输出的目录。默认为进程创建的私有临时目录 |
-
-每个会话在 `root` 下写入自己的子目录，该目录以 `0700` 权限创建。
-
 ## `database`
 
 `database` 控制会话索引和全局搜索背后的嵌入式存储引擎。会话索引默认开启；全局全文搜索索引默认关闭，开启后才会在后台扫描历史会话并提供 `POST /api/v1/search`。

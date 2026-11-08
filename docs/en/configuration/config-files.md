@@ -501,28 +501,6 @@ Both values must be positive integers. A call's `max_chars` overrides the defaul
 
 `max_edge_px` can be overridden by the `KIMI_IMAGE_MAX_EDGE_PX` environment variable and `read_byte_budget` by `KIMI_IMAGE_READ_BYTE_BUDGET`; both take higher priority than `config.toml`.
 
-## `attachment`
-
-`attachment` configures where image attachments are stored and which images are accepted.
-
-| Field | Type | Default | Description |
-| --- | --- | --- | --- |
-| `root` | `string` | — | Directory holding stored images. Defaults to a private temporary directory created for the process |
-| `limits.max_image_bytes` | `integer` | `20971520` (20 MiB) | Largest accepted image in bytes; a larger one is rejected |
-| `limits.max_image_pixels` | `integer` | `40000000` | Largest accepted image in pixels; a larger one is rejected rather than downscaled |
-
-Accepted media types are `image/png`, `image/jpeg`, `image/webp`, and `image/gif`. Every image is fully decoded before it is stored, so a file whose declared type does not match its bytes is rejected.
-
-## `spill`
-
-`spill` configures where oversized tool output is written when a tool spills it.
-
-| Field | Type | Default | Description |
-| --- | --- | --- | --- |
-| `root` | `string` | — | Directory holding spilled output. Defaults to a private temporary directory created for the process |
-
-Each session writes under its own subdirectory of `root`, created with `0700` permissions.
-
 ## `database`
 
 `database` controls the embedded storage engines behind session indexing and global search. Session indexing is on by default; the global full-text search index is off by default and, once enabled, scans past sessions in the background and serves `POST /api/v1/search`.
