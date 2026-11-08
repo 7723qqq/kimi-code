@@ -33,6 +33,7 @@ export interface CompactionApplyInput {
   readonly tokensBefore: number;
   readonly droppedCount: number;
   readonly requestOverheadTokens: number;
+  readonly inFlightTurn: readonly ContextMessage[];
 }
 
 export interface CompactionApplyResult {
@@ -61,6 +62,7 @@ export async function applyCompactionRound(
     contextSummary: recoveryFooter === undefined ? summaryText : `${summaryText}\n\n${recoveryFooter}`,
     compactedCount: input.originalHistory.length,
     tokensBefore: input.tokensBefore,
+    inFlightTurn: input.inFlightTurn,
     summaryOutputTokens:
       input.attemptUsage === null
         ? undefined

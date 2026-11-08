@@ -763,6 +763,38 @@ describe('Agent context', () => {
       expect(truncated[0]?.content).toHaveLength(2);
     });
 
+    it('keeps the in-flight turn ahead of the summary', () => {
+      const inFlight = {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'in-flight reply' }],
+        toolCalls: [],
+      } as ContextMessage;
+      const history = [
+        userMessage('u1'),
+        {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'a1' }],
+          toolCalls: [],
+        } as ContextMessage,
+        userMessage('u2'),
+        inFlight,
+      ];
+
+      const shape = buildContextCompactionShape(
+        history,
+        { summary: 'summary', compactedCount: 4, tokensBefore: 0, inFlightTurn: [inFlight] },
+        zero,
+      );
+
+      expect(shape.messages.map((m) => m.role)).toEqual(['user', 'user', 'assistant', 'user', 'user']);
+      expect(shape.messages[2]).toBe(inFlight);
+      expect(shape.messages[3]?.origin?.kind).toBe('compaction_summary');
+      expect(shape.messages[4]?.origin).toEqual({
+        kind: 'injection',
+        variant: 'compaction_continuation',
+      });
+    });
+
     it('falls back to a zero tokensAfter', () => {
       const history = [
         userMessage('u1'),

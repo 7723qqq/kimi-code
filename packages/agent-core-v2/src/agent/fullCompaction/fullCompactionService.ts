@@ -4,6 +4,8 @@ import { Service } from '#/_base/di/service';
 import { Emitter, type Event } from '#/_base/event';
 import { isAbortError } from '#/_base/utils/abort';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { isRealUserInput } from '#/agent/contextMemory/compactionHandoff';
+import { closeTrailingOpenToolExchange } from '#/agent/contextMemory/openToolExchange';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
 import { IAgentLoopService, type LoopErrorContext } from '#/agent/loop/loop';
@@ -661,6 +663,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
           tokensBefore,
           droppedCount,
           requestOverheadTokens: this.requestTokens([]),
+          inFlightTurn: this.inFlightTurnOf(this.context.get()),
         },
         signal,
         () => {
@@ -746,6 +749,19 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
       (message) => this.tokenCounting.estimateMessage(message),
     );
     return preShrunk.length === 0 ? history : preShrunk;
+  }
+
+  private inFlightTurnOf(history: readonly ContextMessage[]): ContextMessage[] {
+    if (this.loopService.snapshot().state !== 'running') return [];
+    let lastUserIndex = -1;
+    for (let i = history.length - 1; i >= 0; i--) {
+      if (isRealUserInput(history[i]!)) {
+        lastUserIndex = i;
+        break;
+      }
+    }
+    if (lastUserIndex === -1) return [];
+    return closeTrailingOpenToolExchange(history.slice(lastUserIndex + 1));
   }
 
   private tokenCountWithPending(): number {

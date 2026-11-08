@@ -7,6 +7,7 @@ import type { ContextMessage } from './types';
 export interface ContextCompactionInput {
   readonly summary: string;
   readonly contextSummary?: string;
+  readonly inFlightTurn?: readonly ContextMessage[];
   readonly compactedCount: number;
   readonly tokensBefore: number;
   readonly tokensAfter?: number;

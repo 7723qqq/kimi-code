@@ -43,6 +43,7 @@ export interface ContextCompactionShapeInput {
   readonly summary: string;
   readonly legacySummaryMessage?: ContextMessage;
   readonly contextSummary?: string;
+  readonly inFlightTurn?: readonly ContextMessage[];
   readonly compactedCount: number;
   readonly tokensBefore: number;
   readonly tokensAfter?: number;
@@ -105,11 +106,12 @@ export function buildContextCompactionShape(
       : [...selection.head, elisionMessage, ...selection.tail];
   const contextSummary = input.contextSummary ?? input.summary;
   const continuationMessage = createCompactionContinuationMessage();
+  const inFlightTurn = input.inFlightTurn ?? [];
   const tokensAfter =
     input.tokensAfter ??
     (input.requestOverheadTokens ?? 0) +
       (input.summaryOutputTokens ?? estimate.text(contextSummary)) +
-      estimate.messages([...keptMessages, continuationMessage]);
+      estimate.messages([...keptMessages, ...inFlightTurn, continuationMessage]);
   const keptUserMessageCount =
     input.keptUserMessageCount ?? selection.head.length + selection.tail.length;
   const keptHeadUserMessageCount =
@@ -126,6 +128,7 @@ export function buildContextCompactionShape(
     droppedCount: input.droppedCount,
     messages: [
       ...keptMessages,
+      ...inFlightTurn,
       createCompactionSummaryMessage(contextSummary),
       continuationMessage,
     ],
