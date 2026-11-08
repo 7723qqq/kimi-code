@@ -16,6 +16,7 @@ import {
   type OAuthRef,
   type ProviderConfig,
 } from '#/llm-adapter/provider/provider';
+import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
 import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
 import { isUntitled } from '#/session/sessionMetadata/promptMetadata';
@@ -152,6 +153,8 @@ describe('SessionTitleService', () => {
   let turnExcerpt: TitleTurnExcerpt;
   let digestExcerpt: TitleDigestExcerpt;
   let tokenCalls: boolean[];
+  let localTitle: string;
+  let localRequestCalls: number;
 
   beforeEach(() => {
     tokenError = undefined;
@@ -162,6 +165,8 @@ describe('SessionTitleService', () => {
     turnExcerpt = {};
     digestExcerpt = { turns: [] };
     tokenCalls = [];
+    localTitle = '本地生成的标题';
+    localRequestCalls = 0;
     providers = { 'managed:kimi-code': MANAGED_PROVIDER };
     metadata = new FakeSessionMetadata();
     events = new FakeEventService();
@@ -195,10 +200,31 @@ describe('SessionTitleService', () => {
           firstTurnExcerpt: async () => turnExcerpt,
           digestExcerpt: async () => digestExcerpt,
         };
+        const localRequester: IAgentLLMRequesterService = {
+          _serviceBrand: undefined,
+          prepareTurnConfig: () => undefined,
+          currentCredentialProvider: () => undefined,
+          credentialProviderForTurn: () => undefined,
+          lastTurnRequest: () => undefined,
+          request: async (_overrides, onPart) => {
+            localRequestCalls += 1;
+            void onPart?.({ type: 'text', text: localTitle });
+            return {
+              message: { role: 'assistant', content: [], toolCalls: [] },
+              usage: { inputOther: 0, output: 0, inputCacheRead: 0, inputCacheCreation: 0 },
+            };
+          },
+          start: () => {
+            throw new Error('not used by the title service');
+          },
+        };
         const mainAgent: IAgentScopeHandle = {
           id: MAIN_AGENT_ID,
           kind: LifecycleScope.Agent,
-          accessor: { get: <T>() => promptSource as T },
+          accessor: {
+            get: <T>(token: unknown) =>
+              (token === IAgentLLMRequesterService ? localRequester : promptSource) as T,
+          },
           dispose: () => undefined,
         };
         reg.definePartialInstance(IAgentLifecycleService, {
@@ -294,11 +320,16 @@ describe('SessionTitleService', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('does nothing without a managed OAuth provider', async () => {
+  it('falls back to a locally generated title without a managed OAuth provider', async () => {
     delete providers['managed:kimi-code'];
     titlePrompts = ['hello'];
+    localTitle = '本地生成的标题';
+    localRequestCalls = 0;
 
-    await expect(ix.get(ISessionTitleService).generateTitle()).resolves.toBeUndefined();
+    await expect(ix.get(ISessionTitleService).generateTitle()).resolves.toBe('本地生成的标题');
+    expect(metadata.meta.title).toBe('本地生成的标题');
+    expect(metadata.meta.titleKind).toBe('generated');
+    expect(localRequestCalls).toBe(1);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
