@@ -181,8 +181,8 @@ kimi
 | `KIMI_CODE_PERMISSION_MODE_REMINDER` | 是否向模型上下文注入自动权限模式提醒；设为 `0` 后不再注入 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_GUARDIAN` | 启用 guardian 安全审查：由独立模型在审批前审查工具执行。默认关闭，不设置时行为不变 | `1` 开启 |
 | `KIMI_CODE_TUI_FULL_SCREEN` | 启用实验性的 fullscreen 界面：可滚动 transcript、鼠标选择、可点击链接、Ctrl-Shift-F 搜索 | `1` 开启；其他值保持常规内联界面 |
-| `KIMI_CODE_EXPERIMENTAL_SUBAGENT_FORK` | 在 `Agent`/`AgentSwarm` 上启用实验性 `fork` 参数：以调用方对话历史快照而非空上下文启动 subagent | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
-| `KIMI_CODE_EXPERIMENTAL_TOOL_SELECT` | 启用实验性按需加载工具：标记 `deferred: true` 的 MCP server 工具不进入顶层工具列表，由模型经 `select_tools` 按需加载；还需模型声明 `dynamically_loaded_tools` 能力，详见 [MCP](../customization/mcp.md#按需加载工具) | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
+| `KIMI_CODE_EXPERIMENTAL_SUBAGENT_FORK` | 在 `Agent`/`AgentSwarm` 上启用实验性 `fork` 参数：以调用方对话历史快照而非空上下文启动 subagent。仅本进程生效；持久配置等价于 `[experimental] subagent_fork = true` | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
+| `KIMI_CODE_EXPERIMENTAL_TOOL_SELECT` | 启用实验性按需加载工具：标记 `deferred: true` 的 MCP server 工具不进入顶层工具列表，由模型经 `select_tools` 按需加载。仅本进程生效；持久配置等价于 `[experimental] tool_select = true`；还需模型声明 `dynamically_loaded_tools` 能力，详见 [MCP](../customization/mcp.md#按需加载工具) | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_EXPERIMENTAL_GIT_MEMORY` | 启用实验性 Git Memory，将本地 git 历史提炼为结构化事实并注入 Agent 上下文。本变量按进程生效，不跨窗口；在全局 `config.toml` 中设置 `[experimental] git_memory = true` 可持久化并跨窗口使用；`KIMI_CODE_EXPERIMENTAL_FLAG=1` 也可启用。仅在 git 仓库目录内可用，不可用时给出一次性警告 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_EXPERIMENTAL_ASSOCIATIVE_MEMORY` | 启用实验性关联记忆：你写入的内容会被编码为原子单元，系统学习它们之间的关联，并在每轮把相关记忆注入上下文。仅对当前进程生效；持久配置等价于在全局 `config.toml` 中设置 `[experimental] associative_memory = true`；`KIMI_CODE_EXPERIMENTAL_FLAG=1` 也能启用它。通过 `MemoryGraph` 工具读写 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_ASSOCIATIVE_MEMORY_EMBEDDINGS_URL` | 用于为关联记忆补充稠密向量的 OpenAI 兼容 embeddings 端点地址。需要下面的 API key；不设置时记忆只使用本地词项向量 | 端点地址，例如 `https://api.example.com/v1` |
@@ -195,7 +195,7 @@ kimi
 | `KIMI_CODE_EXPERIMENTAL_PROMPT_OPTIMIZER` | 实验性提示词优化器：输入框用当前模型改写草稿提示，可从 TUI 快捷键和会话 API 触达。仅本进程生效；持久配置等价于 `[experimental] prompt_optimizer = true`；`KIMI_CODE_EXPERIMENTAL_FLAG=1` 也会启用 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_EXPERIMENTAL_SUBAGENT_BACKENDS` | 实验性 `Agent` 工具的外部子 Agent 后端：`claude-code`、`codex` 与 `acp` 会启动外部 agent CLI，而不是进程内子 Agent。仅本进程生效；持久配置等价于 `[experimental] subagent_backends = true`；`KIMI_CODE_EXPERIMENTAL_FLAG=1` 也会启用 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_EXPERIMENTAL_WAIT_FOR` | 实验性 `WaitFor` 工具：让模型在当前轮次内等待后台任务，而不是结束轮次后再次被调用。默认开启，因此这个变量用来关闭它；持久配置等价于 `[experimental] wait_for = false` | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
-| `KIMI_CODE_EXPERIMENTAL_XUNFEI_CODING_PLAN` | 在 `/settings` 显示 Astron 供应商设置并启用 Astron 登录流程；无论该开关如何，`[providers]` 下的 `astron` 条目都可用。默认开启，因此这个变量用来隐藏它 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
+| `KIMI_CODE_EXPERIMENTAL_XUNFEI_CODING_PLAN` | 在 `/settings` 显示 Astron 供应商设置并启用 Astron 登录流程；无论该开关如何，`[providers]` 下的 `astron` 条目都可用。默认开启，因此这个变量——或 `[experimental] xunfei_coding_plan = false`——用来隐藏它 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_WATCH` | 是否挂文件系统 watch 以热更新配置和工作区文件，优先级高于 `[watch] enabled`（默认 `true`） | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_GLOBAL_SEARCH` | 是否构建全局全文搜索索引并提供 `POST /api/v1/search`，优先级高于 `[database] global_search`（默认 `false`） | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_SEARCH_WORKER` | 全局搜索开启时，在独立 worker 线程中运行索引，优先级高于 `[database] search`（默认 `true`） | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
