@@ -152,6 +152,7 @@ Switches that control the behavior of subsystems such as telemetry, background t
 | Variable | Purpose | Valid values |
 | --- | --- | --- |
 | `KIMI_DISABLE_TELEMETRY` | Disable anonymous telemetry reporting | `1`, `true`, `yes`, `y` (case-insensitive) |
+| `KIMI_LANG` | Pin the terminal UI language that startup would otherwise auto-detect; only the detection step reads it, and a `locale` set in `tui.toml` still wins | `zh`, `en` |
 | `KIMI_CODE_PASSWORD` | Parallel auth credential for `kimi web`, recommended when binding beyond loopback (see [Security notes](../guides/web.md#security-notes)) | Any non-empty string; when unset, only the token is valid |
 | `KIMI_CODE_SESSION_IDLE_RECLAIM_MS` | How long (ms) a `kimi web` session may stay idle before it is unloaded from memory; the session resumes transparently on next access (default `1800000`; `0` = never unload) | Non-negative integer; invalid values fail fast |
 | `KIMI_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT` | Keep background tasks when the session closes; higher priority than `config.toml` (default: stop them on exit) | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
@@ -173,6 +174,9 @@ Switches that control the behavior of subsystems such as telemetry, background t
 | `KIMI_CODE_BUILTIN_PRODUCT_SKILLS` | Offer the built-in skills documenting Kimi Code itself to the model; higher priority than `builtin_product_skills` | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
 | `KIMI_CODE_REPEAT_BREAKER` | Whether repeating the same tool call many times in a row injects reminders and eventually force-stops the turn. Unset keeps this on | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off`; any other value is ignored |
 | `KIMI_CODE_SESSION_LOCK` | Whether this process takes the cross-process session lock that stops two Kimi Code processes from writing the same session at once. Unset keeps it on; turning it off brings back pre-lock behavior, so concurrent writers can interleave the session history | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off`; any other value is ignored |
+| `KIMI_CODE_TEST_SCOPE_GUARD` | Whether running the full test suite from the repository root injects a reminder to run the tests covering the current change first. On by default; a falsy value stops the injection | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
+| `KIMI_CODE_PERMISSION_MODE_REMINDER` | Whether the automatic permission-mode reminder is injected into the model context; `0` stops the injection | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
+| `KIMI_CODE_TUI_FULL_SCREEN` | Enable the experimental fullscreen UI: scrollable transcript, mouse selection, clickable links, Ctrl-Shift-F search | `1` enables; other values keep the normal inline UI |
 | `KIMI_CODE_EXPERIMENTAL_SUBAGENT_FORK` | Experimental `fork` parameter on `Agent`/`AgentSwarm`: start the subagent from a snapshot of the caller's history instead of an empty context; `KIMI_CODE_EXPERIMENTAL_FLAG=1` also enables it | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
 | `KIMI_CODE_EXPERIMENTAL_TOOL_SELECT` | Experimental on-demand tool loading: tools of MCP servers marked `deferred: true` stay out of the top-level tool list and are loaded via `select_tools`; also requires the model to declare the `dynamically_loaded_tools` capability — see [MCP](../customization/mcp.md#loading-tools-on-demand) | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
 | `KIMI_CODE_EXPERIMENTAL_GIT_MEMORY` | Enable experimental Git Memory, distilling local git history into structured facts for the agent context. This variable applies per process and does not carry across windows. For persistent cross-window use, set `[experimental] git_memory = true` in the global `config.toml`; `KIMI_CODE_EXPERIMENTAL_FLAG=1` also enables it. Available only inside a git repository directory; otherwise a one-time warning is shown | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
@@ -218,6 +222,18 @@ Switches that control the behavior of subsystems such as telemetry, background t
 | `KIMI_CODE_NO_AUTO_UPDATE` | Fully disable the update preflight: no check, background install, or prompt. Legacy alias `KIMI_CLI_NO_AUTO_UPDATE` also honored | Truthy: `1`/`true`/`yes`/`on` |
 | `KIMI_CODE_UPDATE_CHANNEL` | Release channel the update preflight and `kimi upgrade` follow: `stable` or `canary`. Unset follows the channel of the installed build, so a canary build keeps updating from canary; an unusable value warns and keeps the installed channel | `stable` or `canary` |
 | `KIMI_DISABLE_CRON` | Disable the scheduled-task tool (`CronCreate` rejects new schedules; existing tasks do not fire) | `1` to disable |
+| `KIMI_CRON_DEBUG` | Write cron scheduler diagnostics to stderr | `1` enables |
+| `KIMI_CRON_NO_JITTER` | Turn off the anti-congestion jitter on scheduled fire times | `1` disables |
+| `KIMI_CRON_NO_STALE` | Stop marking repeated tasks stale, so they do not expire after 7 days | `1` disables staleness |
+| `KIMI_CRON_MANUAL_TICK` | Drive the scheduler from an external tick instead of its own timer | `1` enables |
+| `KIMI_CRON_CLOCK` | Replace the scheduler's wall clock; `system` (default) uses the real clock, `file:<path>` reads a Unix millisecond timestamp from the first line of a file | `system` or `file:<path>`; other values fall back to the system clock |
+| `KIMI_CRON_POLL_INTERVAL_MS` | Scheduler poll interval (ms, default `1000`); `null` or `0` turns polling off | Non-negative integer or `null`; invalid values are ignored |
+| `KIMI_CODE_DANGEROUS_COMMAND_GUARD` | Toggle the built-in dangerous-command policy; higher priority than `[permission] dangerous_command_guard` in `config.toml` (default `true`) | `true` or `false`; other values are ignored |
+| `KIMI_CODE_SEARCH_SYNC_SESSION_CAP` | Maximum sessions written to the search index per sync pass; higher priority than `[database] search_sync_session_cap` (default `500`) | Integer; invalid values are ignored |
+| `KIMI_CODE_SEARCH_SYNC_DEBOUNCE_MS` | Debounce before a pending search-index sync starts (ms); higher priority than `[database] search_sync_debounce_ms` (default `2000`) | Integer; invalid values are ignored |
+| `KIMI_LLM_REQUEST_BYTE_BUDGET` | Byte budget for a single LLM request body; higher priority than `[llm_requester] request_byte_budget` (default `33554432`, i.e. 32 MB) | Positive integer; invalid values are ignored |
+| `KIMI_CODE_MODEL_CATALOG_REFRESH_INTERVAL_MS` | Provider model catalog refresh interval (ms); higher priority than `[model_catalog] refresh_interval_ms` (default `21600000`, i.e. 6 hours); `0` turns scheduled refresh off. Read by the server process (`kimi web`) | Non-negative number; invalid values fall back to the config or default |
+| `KIMI_CODE_MODEL_CATALOG_REFRESH_ON_START` | Whether to refresh the provider model catalog at startup; higher priority than `[model_catalog] refresh_on_start` (on by default). Read by the server process (`kimi web`) | `1`, `true` or `yes` enables; other values disable |
 
 The `KIMI_CODE_INFINITE_RETRY`, `KIMI_CODE_IDENTITY_*`, and `KIMI_CODE_BUILTIN_PRODUCT_SKILLS` variables are read by the `agent-core-v2` engine.
 
