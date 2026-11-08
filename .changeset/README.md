@@ -19,7 +19,7 @@ Current publishable packages:
 > release is cut, and the OIDC prerequisite and workflow steps 4–5 below describe
 > the upstream process rather than what happens here.
 
-All other workspace packages are private internal packages and are not published to npm. Which ones changesets excludes is defined solely by `ignore` in `.changeset/config.json`; read that file rather than a copy here.
+All other workspace packages are internal and are not published to npm. Changesets skips a package that is private or listed in `ignore` in `.changeset/config.json` — read that file rather than a copy here.
 
 Version impact from internal dependencies must be judged manually. The published artifacts for CLI and SDK bundle internal workspace packages into the artifact itself; runtime `dependencies` of published packages must not include any `@moonshot-ai/*` internal workspace packages.
 
