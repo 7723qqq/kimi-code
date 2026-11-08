@@ -4,7 +4,6 @@ import { Service } from '#/_base/di/service';
 import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { Emitter, type Event } from '#/_base/event';
 import { isAbortError } from '#/_base/utils/abort';
-import { retryBackoffDelay, sleepForRetry } from '#/_base/utils/retry';
 import {
   buildCompactionSummaryText,
   isRealUserInput,
@@ -31,21 +30,14 @@ import {
   isCodedError,
   isError2,
   toKimiErrorPayload,
-  unwrapErrorCause,
 } from '#/errors';
 import { renderTodoList } from '#/features/todo/todoItem';
 import { IAgentTodoService } from '#/features/todo/todoService';
 import { IAgentTaskService } from '#/agent/task/task';
 import { OrderedHookSlot } from '#/hooks';
-import {
-  APIContextOverflowError,
-  APIEmptyResponseError,
-  isRetryableGenerateError,
-} from '#/llm-adapter/contract/errors';
+import { APIContextOverflowError } from '#/llm-adapter/contract/errors';
 import { createUserMessage, type Message } from '#/llm-adapter/contract/message';
 import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
-import { estimateTokensForMessage } from '#/llm-adapter/contract/tokens';
-import { runWithCredentialRecovery } from '#/llm-adapter/model/credential-recovery';
 import { ISessionRunGate } from '#/session/sessionActivity/sessionRunGate';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 import { IEventDispatcher } from '#/state/eventDispatcher';
@@ -56,6 +48,7 @@ import type { ToolDescription as Tool } from '#human/llm/message';
 import { inputTotal, type TokenUsage } from '#human/llm/usage';
 
 import { renderCompactionInstruction } from './compactionInstruction';
+import { generateCompactionSummary } from './compactionGeneration';
 import {
   CompactionBlocked,
   CompactionCancelled,
@@ -66,14 +59,7 @@ import {
   FullCompactionCancel,
   FullCompactionComplete,
 } from './compactionOps';
-import {
-  collectSummary,
-  COMPACTION_OVERFLOW_SHRINK_RATIOS,
-  CompactionTruncatedError,
-  type CompactionAttemptResult,
-  findAPIStatusError,
-  snipLargeToolResults,
-} from './compactionUtils';
+import { findAPIStatusError, takeRecentMessagesWithinTokenBudget } from './compactionUtils';
 import { renderContextRecoveryPointer } from './contextRecovery';
 import {
   IAgentFullCompactionService,
@@ -86,9 +72,7 @@ import { type CompactionBeginData, type CompactionResult } from './types';
 export const MAX_COMPACTION_RETRY_ATTEMPTS = 5;
 const DEFAULT_COMPACTION_MAX_COMPLETION_TOKENS = 128 * 1024;
 const OVERFLOW_CONTEXT_SAFETY_RATIO = 0.85;
-const COMPLETION_BUDGET_ESTIMATE_MARGIN_RATIO = 0.02;
 const OVERFLOW_STATUS_RECOVERY_RATIO = 0.5;
-const MAX_COMPACTION_OVERFLOW_SHRINK_ATTEMPTS = 3;
 const EMPTY_TOOL_PARAMETERS: Record<string, unknown> = {
   type: 'object',
   properties: {},
@@ -617,7 +601,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     const originalHistory = [...this.context.get()];
     const nonHistoryStateBefore = this.nonHistoryStateFingerprint();
     const tokensBefore = this.requestTokens(originalHistory);
-    let retryCount = 0;
+    const generationState = { retryCount: 0 };
     let thinkingEffort = this.profile.data().thinkingLevel;
 
     try {
@@ -638,119 +622,30 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
       const instruction = renderCompactionInstruction({ customInstruction: data.instruction });
 
       const maxAttempts = resolvedModel.compactionMaxAttempts ?? MAX_COMPACTION_RETRY_ATTEMPTS;
-      let attempt: CompactionAttemptResult | undefined;
-      let historyForModel: readonly ContextMessage[] = originalHistory;
       let droppedCount = 0;
-      let overflowShrinkCount = 0;
-      let requestAttempts = 0;
-      let cacheProbePending = true;
-      const preShrunkHistory = this.preShrinkHistoryToWindowBudget(
-        historyForModel,
+      const generation = await generateCompactionSummary({
+        state: generationState,
+        history: originalHistory,
         instruction,
+        signal,
+        maxAttempts,
         compactionMaxOutputSize,
-      );
-      droppedCount += historyForModel.length - preShrunkHistory.length;
-      historyForModel = preShrunkHistory;
-      while (true) {
-        const messagesToCompact = historyForModel;
-        const snipped = snipLargeToolResults(messagesToCompact);
-        const messages: Message[] = [...snipped, createUserMessage(instruction)];
-        const estimatedCompactionRequestTokens = this.requestTokens(messages);
-        const effectiveMaxTokens = this.getEffectiveMaxContextTokens();
-        const usedContextTokens =
-          effectiveMaxTokens > 0
-            ? estimatedCompactionRequestTokens +
-              Math.ceil(effectiveMaxTokens * COMPLETION_BUDGET_ESTIMATE_MARGIN_RATIO)
-            : undefined;
-        requestAttempts += 1;
-
-        try {
-          const runRequest = async () => {
-            const request = this.llmRequester.start(
-              {
-                messages,
-                maxOutputSize: compactionMaxOutputSize,
-                usedContextTokens,
-                promptCacheProbe: cacheProbePending ? 'compaction' : undefined,
-                source: {
-                  type: 'operation',
-                  turnId: active.originTurnId,
-                  requestKind: 'full_compaction',
-                  logFields: { droppedCount },
-                },
-              },
-              undefined,
-              signal,
-            );
-            active.trace = request.trace;
-            return request.result;
-          };
-          const result = await runWithCredentialRecovery(
-            this.llmRequester.currentCredentialProvider(),
-            runRequest,
-            signal,
-          );
-          cacheProbePending = false;
-          attempt = collectSummary(result);
-          break;
-        } catch (error) {
-          const isContextOverflow = this.shouldRecoverFromContextOverflow(
-            error,
-            estimatedCompactionRequestTokens,
-          );
-          if (isContextOverflow) {
-            this.observeContextOverflow(estimatedCompactionRequestTokens);
-            overflowShrinkCount += 1;
-            if (
-              overflowShrinkCount > MAX_COMPACTION_OVERFLOW_SHRINK_ATTEMPTS ||
-              requestAttempts >= maxAttempts ||
-              messagesToCompact.length <= 1
-            ) {
-              throw error;
-            }
-            const before = messagesToCompact.length;
-            historyForModel = shrinkCompactionHistoryAfterOverflow(
-              messagesToCompact,
-              overflowShrinkCount,
-              (message) => this.tokenCounting.estimateMessage(message),
-            );
-            if (historyForModel.length === 0) throw error;
-            droppedCount += before - historyForModel.length;
-            retryCount = 0;
-            continue;
-          }
-          const unwrappedError = unwrapErrorCause(error);
-          if (
-            (error instanceof CompactionTruncatedError ||
-              (unwrappedError instanceof APIEmptyResponseError &&
-                unwrappedError.finishReason !== 'filtered')) &&
-            messagesToCompact.length > 1
-          ) {
-            if (requestAttempts >= maxAttempts) {
-              throw error;
-            }
-            const reduced = dropOldestMessageAndLeadingToolResults(messagesToCompact);
-            droppedCount += messagesToCompact.length - reduced.length;
-            historyForModel = reduced;
-            retryCount = 0;
-            continue;
-          }
-          if (!isRetryableGenerateError(unwrappedError)) {
-            throw error;
-          }
-          if (requestAttempts >= maxAttempts) {
-            throw error;
-          }
-          await sleepForRetry(retryBackoffDelay(retryCount), signal);
-          retryCount += 1;
-        }
-      }
-
-      if (attempt === undefined) {
-        throw new APIEmptyResponseError(
-          'The compaction response did not contain a usable summary.',
-        );
-      }
+        originTurnId: active.originTurnId,
+        requestTokens: (messages) => this.requestTokens(messages),
+        estimateMessage: (message) => this.tokenCounting.estimateMessage(message),
+        getEffectiveMaxContextTokens: () => this.getEffectiveMaxContextTokens(),
+        llmRequester: this.llmRequester,
+        preShrinkHistory: (history, instruction, maxOutputSize) =>
+          this.preShrinkHistoryToWindowBudget(history, instruction, maxOutputSize),
+        shouldRecoverFromContextOverflow: (error, estimatedTokens) =>
+          this.shouldRecoverFromContextOverflow(error, estimatedTokens),
+        observeContextOverflow: (estimatedTokens) => this.observeContextOverflow(estimatedTokens),
+        setTrace: (trace) => {
+          active.trace = trace;
+        },
+      });
+      const attempt = generation.attempt;
+      droppedCount = generation.droppedCount;
 
       if (!historySafeToCompact(this.context.get(), originalHistory)) {
         const active = this._compacting;
@@ -796,7 +691,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
         duration_ms: Date.now() - startedAt,
         compacted_count: result.compactedCount,
         dropped_count: result.droppedCount,
-        retry_count: retryCount,
+        retry_count: generationState.retryCount,
         round: 1,
         thinking_effort: thinkingEffort,
         trace_id: attempt.traceId,
@@ -812,7 +707,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
         tokens_before: tokensBefore,
         duration_ms: Date.now() - startedAt,
         round: 1,
-        retry_count: retryCount,
+        retry_count: generationState.retryCount,
         thinking_effort: thinkingEffort,
         error_type: error instanceof Error ? error.name : 'Unknown',
         trace_id: findAPIStatusError(error)?.traceId ?? active.traceId,
@@ -906,54 +801,6 @@ function historySafeToCompact(
   if (current.length < original.length) return false;
   if (!original.every((message, index) => message === current[index])) return false;
   return current.slice(original.length).every(isRealUserInput);
-}
-
-function shrinkCompactionHistoryAfterOverflow<T extends Message>(
-  messages: readonly T[],
-  attempt: number,
-  estimateMessage: (message: T) => number = estimateTokensForMessage,
-): T[] {
-  if (messages.length <= 1) return messages.slice();
-  const ratio =
-    COMPACTION_OVERFLOW_SHRINK_RATIOS[
-      Math.min(attempt - 1, COMPACTION_OVERFLOW_SHRINK_RATIOS.length - 1)
-    ]!;
-  let totalTokens = 0;
-  for (const message of messages) totalTokens += estimateMessage(message);
-  const tokenBudget = Math.floor(totalTokens * ratio);
-  return takeRecentMessagesWithinTokenBudget(messages, tokenBudget, estimateMessage);
-}
-
-function takeRecentMessagesWithinTokenBudget<T extends Message>(
-  messages: readonly T[],
-  tokenBudget: number,
-  estimateMessage: (message: T) => number = estimateTokensForMessage,
-): T[] {
-  let start = messages.length;
-  let tokens = 0;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const messageTokens = estimateMessage(messages[i]!);
-    if (tokens + messageTokens > tokenBudget) break;
-    tokens += messageTokens;
-    start = i;
-  }
-  if (start === 0) start = 1;
-  return dropLeadingToolResults(messages.slice(start));
-}
-
-function dropOldestMessageAndLeadingToolResults<T extends { readonly role: string }>(
-  messages: readonly T[],
-): T[] {
-  if (messages.length <= 1) return messages.slice();
-  return dropLeadingToolResults(messages.slice(1));
-}
-
-function dropLeadingToolResults<T extends { readonly role: string }>(messages: readonly T[]): T[] {
-  let start = 0;
-  while (start < messages.length && messages[start]!.role === 'tool') {
-    start += 1;
-  }
-  return messages.slice(start);
 }
 
 function usageTelemetry(usage: TokenUsage | null): CompactionTelemetryProperties {

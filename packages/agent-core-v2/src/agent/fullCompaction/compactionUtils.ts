@@ -4,7 +4,7 @@ import type { AgentLLMRequestFinish } from '#/agent/llmRequester/llmRequester';
 import { APIEmptyResponseError, APIStatusError } from '#/app/llmProtocol/errors';
 import type { Message } from '#/app/llmProtocol/message';
 import type { TokenUsage } from '#/app/llmProtocol/usage';
-import { estimateTokensForMessage, estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
+import { estimateTokensForMessage } from '#/llm-adapter/contract/tokens';
 
 export const COMPACTION_OVERFLOW_SHRINK_RATIOS = [0.7, 0.5, 0.35] as const;
 
@@ -61,24 +61,28 @@ export function historySafeToCompact(
 export function shrinkCompactionHistoryAfterOverflow<T extends Message>(
   messages: readonly T[],
   attempt: number,
+  estimateMessage: (message: T) => number = estimateTokensForMessage,
 ): T[] {
   if (messages.length <= 1) return messages.slice();
   const ratio =
     COMPACTION_OVERFLOW_SHRINK_RATIOS[
       Math.min(attempt - 1, COMPACTION_OVERFLOW_SHRINK_RATIOS.length - 1)
     ]!;
-  const tokenBudget = Math.floor(estimateTokensForMessages(messages) * ratio);
-  return takeRecentMessagesWithinTokenBudget(messages, tokenBudget);
+  let totalTokens = 0;
+  for (const message of messages) totalTokens += estimateMessage(message);
+  const tokenBudget = Math.floor(totalTokens * ratio);
+  return takeRecentMessagesWithinTokenBudget(messages, tokenBudget, estimateMessage);
 }
 
-function takeRecentMessagesWithinTokenBudget<T extends Message>(
+export function takeRecentMessagesWithinTokenBudget<T extends Message>(
   messages: readonly T[],
   tokenBudget: number,
+  estimateMessage: (message: T) => number = estimateTokensForMessage,
 ): T[] {
   let start = messages.length;
   let tokens = 0;
   for (let i = messages.length - 1; i >= 0; i--) {
-    const messageTokens = estimateTokensForMessage(messages[i]!);
+    const messageTokens = estimateMessage(messages[i]!);
     if (tokens + messageTokens > tokenBudget) break;
     tokens += messageTokens;
     start = i;
