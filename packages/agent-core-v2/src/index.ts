@@ -533,6 +533,8 @@ export * from '#/features/cron/tools/cron-create/cron-create';
 export * from '#/features/cron/tools/cron-list/cron-list';
 export * from '#/features/cron/tools/cron-delete/cron-delete';
 
+import '#/features/lsp/lspFeature';
+
 import '#/session/agentLifecycle/profile/profiles';
 export * from '#/session/agentLifecycle/agentLifecycle';
 export * from '#/session/agentLifecycle/agentLifecycleService';
