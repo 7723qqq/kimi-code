@@ -10,7 +10,7 @@ import {
 } from '@moonshot-ai/agent-core-v2';
 
 import { RPCError } from '../src/core/errors.js';
-import { createMemoryDispatcher } from '../src/transports/memory/dispatcher.js';
+import { createMemoryDispatcher, type ScopeLike } from '../src/transports/memory/dispatcher.js';
 import { createKlient } from '../src/transports/memory/index.js';
 import { defineKlientConformance } from './helpers/conformance.js';
 import { cleanupEngine, makeEngine } from './helpers/engine.js';
@@ -278,5 +278,36 @@ describe('memory dispatcher specifics', () => {
       await klient.close();
       await cleanupEngine({ homeDir, app });
     }
+  });
+
+  it('forwards caller cancellation to the model stream producer', async () => {
+    const seen: AbortSignal[] = [];
+    const stub = {
+      generate: (_id: string, _input: unknown, signal: AbortSignal, _params: unknown) => {
+        seen.push(signal);
+        return {
+          [Symbol.asyncIterator]() {
+            return {
+              next: () => new Promise<IteratorResult<unknown>>(() => {}),
+              return: () => Promise.resolve({ done: true as const, value: undefined }),
+            };
+          },
+        };
+      },
+    };
+    const root = { accessor: { get: () => stub } } as unknown as ScopeLike;
+    const dispatcher = createMemoryDispatcher(root);
+    const ac = new AbortController();
+    const iterator = dispatcher.stream({}, 'modelResolver', 'generate', ['m1', {}, {}], {
+      signal: ac.signal,
+    })[Symbol.asyncIterator]();
+    void iterator.next();
+    for (let i = 0; i < 50 && seen.length === 0; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.aborted).toBe(false);
+    ac.abort();
+    expect(seen[0]?.aborted).toBe(true);
   });
 });

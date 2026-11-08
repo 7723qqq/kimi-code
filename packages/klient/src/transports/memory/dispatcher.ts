@@ -536,7 +536,7 @@ export function createMemoryDispatcher(root: ScopeLike): MemoryDispatcher {
       }
     },
 
-    stream(scope, service, method, args, _options?): AsyncIterable<unknown> {
+    stream(scope, service, method, args, options?): AsyncIterable<unknown> {
       // Special case: modelResolver.generate routes to IModelCatalog.generate
       // (which owns credential recovery); the dispatcher only supplies the
       // abort signal so client cancellation still reaches the request.
@@ -545,7 +545,19 @@ export function createMemoryDispatcher(root: ScopeLike): MemoryDispatcher {
           [Symbol.asyncIterator]() {
             let source: AsyncIterator<unknown> | undefined;
             let started: Promise<void> | undefined;
+            let settled = false;
             const controller = new AbortController();
+            const signal = options?.signal;
+            const onAbort = (): void => {
+              controller.abort();
+            };
+            if (signal !== undefined) {
+              if (signal.aborted) controller.abort();
+              else signal.addEventListener('abort', onAbort, { once: true });
+            }
+            const detachSignal = (): void => {
+              signal?.removeEventListener('abort', onAbort);
+            };
 
             const ensureStarted = (): Promise<void> => {
               started ??= (async () => {
@@ -575,13 +587,26 @@ export function createMemoryDispatcher(root: ScopeLike): MemoryDispatcher {
             return {
               async next() {
                 await ensureStarted();
-                const result = await source!.next();
-                if (result.done) return { done: true, value: undefined };
-                return { done: false, value: wireClone(result.value) };
+                try {
+                  const result = await source!.next();
+                  if (result.done) {
+                    settled = true;
+                    detachSignal();
+                    return { done: true, value: undefined };
+                  }
+                  return { done: false, value: wireClone(result.value) };
+                } catch (error) {
+                  detachSignal();
+                  throw error;
+                }
               },
               async return(value?: unknown) {
-                controller.abort();
-                await source?.return?.(value);
+                if (!settled) {
+                  settled = true;
+                  detachSignal();
+                  controller.abort();
+                  await source?.return?.(value);
+                }
                 return { done: true as const, value: undefined };
               },
             };

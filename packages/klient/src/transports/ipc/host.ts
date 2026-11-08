@@ -267,6 +267,7 @@ export async function serveKlientIpc(options: ServeKlientIpcOptions): Promise<Kl
             String(frame.service),
             String(frame.method),
             args,
+            { signal: ac.signal },
           );
           void (async () => {
             try {

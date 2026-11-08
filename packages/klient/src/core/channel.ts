@@ -20,6 +20,13 @@ export interface CallOptions {
    * engine-side wait; transports without a timeout (memory) ignore it.
    */
   readonly timeoutMs?: number;
+  /**
+   * Cancellation signal. The ipc host aborts its own controller when a client
+   * sends `stream_cancel`; transports that own a producer (the memory
+   * dispatcher's model stream) forward it so the upstream request is aborted
+   * too, not just the local read loop.
+   */
+  readonly signal?: AbortSignal;
 }
 
 /** Scope coordinates of a call/subscription. Empty object = core (app) scope. */

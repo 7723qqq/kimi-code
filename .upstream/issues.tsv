@@ -23,4 +23,4 @@ issue	area	priority	title	why_useful	local_check	added	status
 928	platform-build	P2	Linux single-binary fails on CentOS 7 with glibc 2.17 due to GLIBC_2.27/2.28/2.25 requirement	旧 glibc 单文件二进制不可用	needs-investigation	2026-07-23	needs-investigation
 3923	server-api	P2	kap-server: WS 'abort' control frame declared in protocol but never dispatched — silently dropped (still present in 0.43.1)	协议声明了 abort 帧但从未派发	fixed	2026-09-20	done
 4175	server-api	P2	Streaming chat completions are aborted after ~5 minutes on slow OpenAI-compatible endpoints	慢端点 5 分钟被中止	needs-design	2026-10-11	needs-design
-4464	server-api	P1	[Bug] Cancelling an active IPC model stream leaves its producer and HTTP response alive	取消后 producer/HTTP response 泄漏	needs-design	2026-10-27	needs-design
+4464	server-api	P1	[Bug] Cancelling an active IPC model stream leaves its producer and HTTP response alive	取消后 producer/HTTP response 泄漏	fixed	2026-10-27	done
