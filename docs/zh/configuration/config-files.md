@@ -501,6 +501,35 @@ max_chars = 100000
 
 `max_edge_px` 可被环境变量 `KIMI_IMAGE_MAX_EDGE_PX` 覆盖，`read_byte_budget` 可被 `KIMI_IMAGE_READ_BYTE_BUDGET` 覆盖，优先级均高于配置文件。
 
+## `lsp`
+
+`lsp` 配置实验性 [`lsp` 工具](../reference/tools.md) 背后的语言服务器。该工具只在开启 `lsp` 实验开关后注册；某个文件的扩展名没有配置服务器时，工具会返回如何配置的说明。
+
+| 字段 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `servers` | `record<string, object>` | — | 语言服务器表，按 provider id 为键 |
+
+`servers` 下的每个条目接受：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `command` | `string` | 是 | 以 stdio 启动语言服务器的命令（在 `PATH` 上解析） |
+| `args` | `array<string>` | 否 | 传给命令的额外参数，如 `["--stdio"]` |
+| `env` | `record<string, string>` | 否 | 合并进服务器进程的额外环境变量 |
+| `extensionToLanguage` | `record<string, string>` | 是 | 文件扩展名（不带点）到 LSP `languageId` 的映射，如 `{ ts = "typescript" }` |
+| `initializationOptions` | `unknown` | 否 | 在 initialize 请求中转发的任意选项 |
+| `shutdownTimeoutMs` | `integer` | 否 | shutdown 请求的宽限期，超时后强制杀死（默认 `5000`） |
+| `killGraceMs` | `integer` | 否 | SIGTERM 之后、SIGKILL 之前的宽限期（默认 `2000`） |
+| `initializeTimeoutMs` | `integer` | 否 | initialize 握手的截止时限，超时后杀死服务器（默认 `10000`） |
+| `cancelGraceMs` | `integer` | 否 | 请求被取消后、杀死服务器进程之前的宽限期（默认 `2000`） |
+
+```toml
+[lsp.servers.typescript]
+command = "typescript-language-server"
+args = ["--stdio"]
+extensionToLanguage = { ts = "typescript", tsx = "typescriptreact" }
+```
+
 ## `database`
 
 `database` 控制会话索引和全局搜索背后的嵌入式存储引擎。会话索引默认开启；全局全文搜索索引默认关闭，开启后才会在后台扫描历史会话并提供 `POST /api/v1/search`。

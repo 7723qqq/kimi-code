@@ -501,6 +501,35 @@ Both values must be positive integers. A call's `max_chars` overrides the defaul
 
 `max_edge_px` can be overridden by the `KIMI_IMAGE_MAX_EDGE_PX` environment variable and `read_byte_budget` by `KIMI_IMAGE_READ_BYTE_BUDGET`; both take higher priority than `config.toml`.
 
+## `lsp`
+
+`lsp` configures the language servers behind the experimental [`lsp` tool](../reference/tools.md). The tool registers only while the `lsp` experimental flag is on; with no server configured for a file's extension, the tool reports how to configure one.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `servers` | `record<string, object>` | — | Language server table keyed by provider id |
+
+Each entry under `servers` accepts:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `command` | `string` | Yes | Command that starts the language server over stdio (resolved on `PATH`) |
+| `args` | `array<string>` | No | Extra arguments passed to the command, e.g. `["--stdio"]` |
+| `env` | `record<string, string>` | No | Extra environment variables merged into the server process |
+| `extensionToLanguage` | `record<string, string>` | Yes | File extension (without dot) to LSP `languageId`, e.g. `{ ts = "typescript" }` |
+| `initializationOptions` | `unknown` | No | Arbitrary options forwarded in the initialize request |
+| `shutdownTimeoutMs` | `integer` | No | Grace period for the shutdown request before force-killing (default `5000`) |
+| `killGraceMs` | `integer` | No | Grace period after SIGTERM before SIGKILL (default `2000`) |
+| `initializeTimeoutMs` | `integer` | No | Deadline for the initialize handshake before the server is killed (default `10000`) |
+| `cancelGraceMs` | `integer` | No | Grace period after a cancelled request before the server process is killed (default `2000`) |
+
+```toml
+[lsp.servers.typescript]
+command = "typescript-language-server"
+args = ["--stdio"]
+extensionToLanguage = { ts = "typescript", tsx = "typescriptreact" }
+```
+
 ## `database`
 
 `database` controls the embedded storage engines behind session indexing and global search. Session indexing is on by default; the global full-text search index is off by default and, once enabled, scans past sessions in the background and serves `POST /api/v1/search`.
