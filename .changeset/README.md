@@ -13,6 +13,12 @@ Current publishable packages:
 | `@moonshot-ai/kimi-code` | `apps/kimi-code` | CLI / TUI application — provides the `kimi` command after install |
 | `@moonshot-ai/kimi-code-sdk` | `packages/node-sdk` | Public TypeScript SDK |
 
+> **This fork does not run the release pipeline.** The changesets action in
+> `release.yml` is disabled: versions follow upstream and nothing is published
+> to npm independently. Changesets accumulate on `main` until a standalone
+> release is cut, and the OIDC prerequisite and workflow steps 4–5 below describe
+> the upstream process rather than what happens here.
+
 All other workspace packages are private internal packages and are not published to npm. Which ones changesets excludes is defined solely by `ignore` in `.changeset/config.json`; read that file rather than a copy here.
 
 Version impact from internal dependencies must be judged manually. The published artifacts for CLI and SDK bundle internal workspace packages into the artifact itself; runtime `dependencies` of published packages must not include any `@moonshot-ai/*` internal workspace packages.
