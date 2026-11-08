@@ -17,6 +17,8 @@
 | `Glob` | 自动放行 | 按 glob 模式查找文件 |
 | `RepoMap` | 自动放行 | 列出仓库子树中由 git 跟踪的路径 |
 | `Memory` | 需要审批 | 搜索并管理 `~/.kimi-code/memory` 下的 markdown 记忆 |
+| `Knowledge` | 自动放行 | 搜索并维护当前项目的本地知识库 |
+| `Workflow` | 需要审批 | 在后台运行多阶段 agent 工作流 |
 | `MemoryGraph` | 需要审批 | 读写实验性关联记忆 |
 
 **`Read`** 接受文件路径（`path`）以及可选的 `line_offset`（起始行号，支持负数从末尾倒数）、`column_offset`（正向读取时，起始行内从 0 开始的位置）、`n_lines`（请求读取的源文件行数）和 `max_chars`（结果的字符上限，包含行号和状态信息）。省略 `n_lines` 时向文件末尾读取。默认上限与单次调用可申请的最大值都是 100,000 字符，并且单次调用还会在估算 token 数达到上限的四分之一时停止（默认约 25,000），因此中文等非 ASCII 字符较多的文本每次返回的字符更少；这两个值都可通过 [`read` 配置](../configuration/config-files.md#read) 修改。当调用指定了范围（使用 `n_lines` 或负数 `line_offset`），而在 `max_chars` 内容纳的行仍然超出 token 上限时，`Read` 会返回一个建议范围内可读行数的错误，而不是只返回其中一部分；只被 `max_chars` 截断的范围仍会返回带有 `Next Read` 参数的一页。字符数和列偏移按显示文本的 JavaScript 字符串长度计算，列偏移不包含行号前缀：常见字母和汉字各计 1，许多 emoji 计 2。
@@ -57,6 +59,10 @@
 **`Memory`** 搜索并管理 `~/.kimi-code/memory/` 下的 markdown 记忆，按 scope 组织：`global`（跨项目知识）、`project`（按仓库为键，重新克隆或移动后仍然有效）和 `session`。操作：`search`（全文；未给 `scope` 时覆盖所有项目和会话）、`read`、`write`（默认 `project`，绝不写入你指定的 scope 之外）、`list`、`delete`、`log`（memory 仓库的最近提交，新的在前）和 `revert`（按 `log` 给出的完整 `sha` 回滚一次提交；短 sha 会被拒绝，调用返回前会重新同步搜索索引）。
 
 开启 `git_memory` 实验开关后，`write` 额外要求正文引用一个真实提交——一个 7–40 位的十六进制字符串，且能被工作目录或 memory 仓库里的 `git cat-file` 解析——并且写入和删除都会提交到该仓库，`log` 与 `revert` 因此才有意义。当 `associative_memory` 实验开关关闭时该工具可用。
+
+**`Knowledge`** 操作当前项目的本地知识库——编码规范、陷阱、架构决策和工作流规则。每轮开始前它会被自动查询以注入相关规范，而它的操作让你直接维护：`search`（按查询、文件路径或标签）、`add`（记录你在工作中发现的规范或陷阱）、`confirm`（把 AI 学到的条目升级为已确认）和 `reject`（移除错误或过时的条目）。它用于项目特有的规则，不用于通用知识、单次会话的偏好，或 `AGENTS.md` 里已有的内容。
+
+**`Workflow`** 运行多阶段编排的 agent 工作流。`run` 启动一个——用 `name` 指定已注册的工作流，或用内联 `script`——并立即返回 `run_id`，结果在工作流结束时以通知送达；脚本默认有 30 分钟的截止时限，从启动算起、覆盖整个脚本，`deadline_ms` 可为单次运行调高或调低。`status` 查看进度，`wait` 阻塞到运行结束，`cancel` 停止它。
 
 ## Shell
 
