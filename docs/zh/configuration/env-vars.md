@@ -194,6 +194,8 @@ kimi
 | `KIMI_CODE_EXPERIMENTAL_NOTIFY_USER` | 实验性 `NotifyUser` 工具：主 Agent 与子 Agent 的实时进度更新，在 TUI 的 Updates 面板以及桌面端和 Web 端的进度行中展示。仅本进程生效；持久配置等价于 `[experimental] notify_user = true`；`KIMI_CODE_EXPERIMENTAL_FLAG=1` 也会启用 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_EXPERIMENTAL_PROMPT_OPTIMIZER` | 实验性提示词优化器：输入框用当前模型改写草稿提示，可从 TUI 快捷键和会话 API 触达。仅本进程生效；持久配置等价于 `[experimental] prompt_optimizer = true`；`KIMI_CODE_EXPERIMENTAL_FLAG=1` 也会启用 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_EXPERIMENTAL_SUBAGENT_BACKENDS` | 实验性 `Agent` 工具的外部子 Agent 后端：`claude-code`、`codex` 与 `acp` 会启动外部 agent CLI，而不是进程内子 Agent。仅本进程生效；持久配置等价于 `[experimental] subagent_backends = true`；`KIMI_CODE_EXPERIMENTAL_FLAG=1` 也会启用 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
+| `KIMI_CODE_EXPERIMENTAL_WAIT_FOR` | 实验性 `WaitFor` 工具：让模型在当前轮次内等待后台任务，而不是结束轮次后再次被调用。默认开启，因此这个变量用来关闭它；持久配置等价于 `[experimental] wait_for = false` | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
+| `KIMI_CODE_EXPERIMENTAL_XUNFEI_CODING_PLAN` | 在 `/settings` 显示 Astron 供应商设置并启用 Astron 登录流程；无论该开关如何，`[providers]` 下的 `astron` 条目都可用。默认开启，因此这个变量用来隐藏它 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_WATCH` | 是否挂文件系统 watch 以热更新配置和工作区文件，优先级高于 `[watch] enabled`（默认 `true`） | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_GLOBAL_SEARCH` | 是否构建全局全文搜索索引并提供 `POST /api/v1/search`，优先级高于 `[database] global_search`（默认 `false`） | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_SEARCH_WORKER` | 全局搜索开启时，在独立 worker 线程中运行索引，优先级高于 `[database] search`（默认 `true`） | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
