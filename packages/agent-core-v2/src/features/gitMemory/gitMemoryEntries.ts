@@ -12,7 +12,6 @@ import type { MemoryEntryView } from './projection';
 
 const MEMORY_BLOCK_MAX_ENTRIES = 8;
 const MEMORY_SHA_HISTORY = 200;
-const MEMORY_BLOCK_MAX_CHARS = 4000;
 
 interface MemoryRecord {
   readonly path: string;
@@ -59,10 +58,8 @@ export class GitMemoryEntries {
   private async collect(matches: (patterns: string[]) => boolean): Promise<MemoryEntryView[]> {
     const views: MemoryEntryView[] = [];
     const shas = await this.commitShas();
-    let chars = 0;
     for (const entry of await this.entries()) {
       if (views.length >= MEMORY_BLOCK_MAX_ENTRIES) break;
-      if (chars >= MEMORY_BLOCK_MAX_CHARS) break;
       const patterns = this.scopes(entry.path, entry.body);
       if (!matches(patterns)) continue;
       const sha = shas.get(entry.path);
@@ -73,7 +70,6 @@ export class GitMemoryEntries {
       const sessionKey = this.session.sessionId;
       if (alreadyRendered(sessionKey, view.body)) continue;
       markRendered(sessionKey, [view.body]);
-      chars += view.body.length;
       views.push(view);
     }
     return views;

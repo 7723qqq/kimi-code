@@ -298,7 +298,7 @@ function harness(
     probeHead: () => service.probeHead(),
     reminder: async (isNewTurn = true) => {
       const provider = state.providers.get('git_memory_signal');
-      if (provider === undefined) throw new Error('git_memory_signal provider isn\'t registered');
+      if (provider === undefined) throw new Error("git_memory_signal provider isn't registered");
       return await provider({ isNewTurn });
     },
   };
@@ -567,6 +567,30 @@ describe('git memory written entries', () => {
     h.revision = 1;
     await h.service.repoBlock();
     expect(h.listCalls).toBe(afterFirst + 1);
+  });
+
+  it('injects every matching memory even after an earlier one is far past any char budget', async () => {
+    const h = harness({
+      flagOn: true,
+      stub: index,
+      memories: [
+        {
+          path: 'global/big.md',
+          title: 'Big note',
+          body: `---\napplies_to: ["apps/tui/**"]\n---\n# Big note\n${'x'.repeat(5000)}`,
+          updatedAt: Date.parse('2026-10-20T00:00:00.000Z'),
+        },
+        {
+          path: 'global/small.md',
+          title: 'Small note',
+          body: '---\napplies_to: ["apps/tui/**"]\n---\n# Small note\nshort',
+          updatedAt: Date.parse('2026-10-21T00:00:00.000Z'),
+        },
+      ],
+    });
+    const block = await h.service.fileBlock('apps/tui/panel.ts');
+    expect(block).toContain('Big note');
+    expect(block).toContain('Small note');
   });
 });
 
