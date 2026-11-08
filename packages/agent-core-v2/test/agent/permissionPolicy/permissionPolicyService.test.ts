@@ -20,6 +20,7 @@ import {
   type PermissionRule,
 } from '#/agent/permissionRules/permissionRules';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { EnvironmentError } from '#/environment/environmentRegistry';
 import { IConfigService } from '#/app/config/config';
@@ -72,6 +73,7 @@ describe('AgentPermissionPolicyService chain', () => {
     dangerousCommandGuardEnabled = true;
     ix = createServices(disposables, {
       additionalServices: (reg) => {
+        reg.defineInstance(IAgentContextMemoryService, { get: () => [] } as unknown as IAgentContextMemoryService);
         reg.defineInstance(
           IAgentPermissionModeService,
           stubPermissionModeService(() => mode),
@@ -568,6 +570,7 @@ describe('AgentPermissionPolicyService git cwd write approval', () => {
     workspace = workspaceStub(workspaceDir);
     ix = createServices(disposables, {
       additionalServices: (reg) => {
+        reg.defineInstance(IAgentContextMemoryService, { get: () => [] } as unknown as IAgentContextMemoryService);
         reg.defineInstance(
           IAgentPermissionModeService,
           stubPermissionModeService(() => mode),
