@@ -1,4 +1,4 @@
-import {  } from '#/app/scopes';import { IHostClock } from '#/os/interface/hostClock';
+import { IHostClock } from '#/os/interface/hostClock';
 
 export class HostClockService implements IHostClock {
   declare readonly _serviceBrand: undefined;

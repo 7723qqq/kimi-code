@@ -4,7 +4,8 @@ import { stat } from 'node:fs/promises';
 import { Readable, Writable } from 'node:stream';
 
 import { BufferedReadable } from '#/_base/execEnv/bufferedReadable';
-import { HostTimersService } from '#/os/backends/host/hostTimersService';import {
+import { HostTimersService } from '#/os/backends/host/hostTimersService';
+import {
   HostProcessError,
   HostProcessErrorCode,
   IHostProcessService,
