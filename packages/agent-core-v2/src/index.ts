@@ -767,6 +767,7 @@ export * from '#/agent/microCompaction/microCompactionOps';
 export * from '#/agent/microCompaction/microCompactionService';
 export * from '#/agent/checkpoint/checkpointService';
 export * from '#/agent/progressTrack/progressTrackerService';
+export * from '#/agent/goal/judge/goalJudgeService';
 export * from '#/agent/fullCompaction/contextRecovery';
 export * from '#/agent/fullCompaction/compactionInstruction';
 export * from '#/agent/llmRequester/llmRequester';

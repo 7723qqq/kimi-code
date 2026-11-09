@@ -19,6 +19,7 @@ import {
   WIRE_MIN_READER_VERSION,
   EVENT2_REGISTRY,
   IAgentContextMemoryService,
+  IAgentGoalJudgeService,
   IAgentGoalService,
   IProgressTrackerService,
   type ContextMessage,
@@ -531,6 +532,10 @@ describe('AgentRecords persistence metadata', () => {
 
   it('wires the progress tracker, whose registration only runs when index.ts imports it', () => {
     expect(ctx.get(IProgressTrackerService)).toBeDefined();
+  });
+
+  it('wires the goal judge, whose registration only runs when index.ts imports it', () => {
+    expect(ctx.get(IAgentGoalJudgeService)).toBeDefined();
   });
 
   it('restores forked records as fork boundaries that clear copied goals', async () => {

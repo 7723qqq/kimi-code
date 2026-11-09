@@ -51,6 +51,7 @@ packages/agent-core-v2/src/_base/log/fileLog.ts  2
 packages/agent-core-v2/src/_base/log/formatter.ts  1
 packages/agent-core-v2/src/_base/utils/fs.ts  3
 packages/agent-core-v2/src/agent/agentsMdReminder/agentsMdReminderService.ts  1
+packages/agent-core-v2/src/agent/goal/judge/goalJudgeService.ts  2
 packages/agent-core-v2/src/agent/knowledge/knowledgeService.ts  1
 packages/agent-core-v2/src/agent/llmRequester/llmRequesterService.ts  3
 packages/agent-core-v2/src/agent/media/image-compress.ts  2
