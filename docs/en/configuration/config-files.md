@@ -108,12 +108,13 @@ Fields in the config file fall into two categories: **top-level scalars** that d
 | [`providers`](#providers) | `table` | `{}` | API provider table |
 | [`models`](#models) | `table` | — | Model alias table |
 | [`secondary_model`](#secondary-model) | `table` | — | Subagent model pool and default binding |
-| [`prompt_optimizer`](#prompt_optimizer) | `table` | — | The Ctrl+P rewrite: thinking effort and time budget |
+| [`prompt_optimizer`](#prompt-optimizer) | `table` | — | The Ctrl+P rewrite: thinking effort and time budget |
 | [`thinking`](#thinking) | `table` | — | Default parameters for Thinking mode |
 | [`loop_control`](#loop-control) | `table` | — | Agent loop control parameters |
 | [`token_counting`](#token-counting) | `table` | — | Which context token count is reported externally |
 | [`task`](#task) | `table` | — | Background task runtime parameters (legacy name: `[background]`) |
 | [`subagent`](#subagent) | `table` | — | `Agent` subagent runtime parameters |
+| [`subagent_backend`](#subagent-backend) | `table` | — | Experimental external subagent backends |
 | [`swarm`](#swarm) | `table` | — | `AgentSwarm` subagent runtime parameters |
 | [`mcp`](#mcp) | `table` | — | Global MCP connection and tool-call timeouts |
 | [`tools`](#tools) | `table` | — | Global tool switch |
@@ -123,6 +124,7 @@ Fields in the config file fall into two categories: **top-level scalars** that d
 | [`watch`](#watch) | `table` | — | Filesystem watchers for config and workspace files |
 | [`llm_requester`](#llm-requester) | `table` | — | Byte budget for a single LLM request body |
 | [`model_catalog`](#model-catalog) | `table` | — | Provider-model catalog refresh schedule |
+| [`model_overrides`](#model-overrides) | `table` | — | Default sampling and completion limits applied to every request |
 | [`experimental`](#experimental) | `table` | — | Persistent overrides for experimental-feature flags |
 | [`services`](#services) | `table` | — | Built-in external service configuration |
 | [`github`](#github) | `table` | — | Built-in GitHub tools |
@@ -405,6 +407,22 @@ In print mode (`kimi -p "<prompt>"`), Kimi Code stays alive after the main agent
 
 `timeout_ms` can be overridden by the `KIMI_SUBAGENT_TIMEOUT_MS` environment variable, which takes higher priority than `config.toml`.
 
+## `subagent_backend`
+
+`subagent_backend` configures the experimental external subagent backends the `Agent` tool can dispatch to instead of spawning an in-process subagent. The feature is off unless the `subagent_backends` flag is enabled (`KIMI_CODE_EXPERIMENTAL_SUBAGENT_BACKENDS=1`, or `[experimental] subagent_backends = true`).
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `claude_code.command` | `string` | `claude` (resolved on `PATH`) | Path to the claude CLI |
+| `claude_code.model` | `string` | — | Model to run Claude Code with; defaults to the CLI's own |
+| `codex.command` | `string` | `codex` (resolved on `PATH`) | Path to the codex CLI |
+| `codex.model` | `string` | — | Model to run Codex with; defaults to the CLI's own |
+| `acp.command` | `string` | — | **Required** for the `acp` backend: the command that starts the ACP server |
+| `acp.args` | `array<string>` | — | Extra arguments passed to the ACP server command |
+| `acp.env` | `object` | — | Extra environment variables merged into the ACP server process |
+
+Selecting a backend that has no `command` configured is an error. A subagent dispatched to an external backend runs as a separate process outside the tool boundary, so `[sandbox]` refuses it outright unless `mode` is `off`.
+
 ## `swarm`
 
 `swarm` controls how subagents launched by the `AgentSwarm` tool run, independently of `[subagent]`.
@@ -593,7 +611,6 @@ mode = "read-only"
 
 Enforcement is a policy check at the tool boundary, not OS-level isolation. Approval prompts never override a sandbox refusal. Two explicit gaps: a subagent dispatched to an external backend (`[subagent_backend]`) runs as a separate process outside the tool boundary and is refused outright when `mode` is not `off`; and the plan file Kimi Code writes for its own bookkeeping in plan mode is exempt.
 
-<!--
 ## `llm_requester`
 
 `llm_requester` bounds the size of a single LLM request body. When the assembled request exceeds the budget, older content is trimmed before the request is sent.
@@ -615,7 +632,18 @@ Enforcement is a policy check at the tool boundary, not OS-level isolation. Appr
 
 Both fields can be overridden by `KIMI_CODE_MODEL_CATALOG_REFRESH_INTERVAL_MS` and `KIMI_CODE_MODEL_CATALOG_REFRESH_ON_START`, which take higher priority than `config.toml`.
 
--->
+## `model_overrides`
+
+`model_overrides` sets default sampling and completion limits that apply to every model request. A request can still override any of them per call.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `temperature` | `number` | — | Default sampling temperature |
+| `top_p` | `number` | — | Default nucleus-sampling probability mass |
+| `thinking_keep` | `string` | — | Default thinking-keep behaviour; takes precedence over `[thinking] keep` |
+| `max_completion_tokens` | `integer` | — | Caps the completion length of every request |
+
+`thinking_keep` resolves in this order: `model_overrides.thinking_keep`, then `[thinking] keep`, then `all` — and the value is ignored entirely when thinking effort is `off`.
 
 ## `experimental`
 

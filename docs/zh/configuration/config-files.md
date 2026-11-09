@@ -108,12 +108,13 @@ timeout = 5
 | [`providers`](#providers) | `table` | `{}` | API 供应商表 |
 | [`models`](#models) | `table` | — | 模型别名表 |
 | [`secondary_model`](#secondary-model) | `table` | — | subagent 模型池与默认绑定 |
-| [`prompt_optimizer`](#prompt_optimizer) | `table` | — | Ctrl+P 重写的思考等级与时间预算 |
+| [`prompt_optimizer`](#prompt-optimizer) | `table` | — | Ctrl+P 重写的思考等级与时间预算 |
 | [`thinking`](#thinking) | `table` | — | Thinking 模式默认参数 |
 | [`loop_control`](#loop-control) | `table` | — | Agent 循环控制参数 |
 | [`token_counting`](#token-counting) | `table` | — | 对外上报的上下文 token 计数策略 |
 | [`task`](#task) | `table` | — | 后台任务运行参数（旧名 `[background]`） |
 | [`subagent`](#subagent) | `table` | — | `Agent` subagent 运行参数 |
+| [`subagent_backend`](#subagent-backend) | `table` | — | 实验性外部 subagent 后端 |
 | [`swarm`](#swarm) | `table` | — | `AgentSwarm` subagent 运行参数 |
 | [`mcp`](#mcp) | `table` | — | MCP 全局连接与工具调用超时 |
 | [`tools`](#tools) | `table` | — | 全局工具开关 |
@@ -123,6 +124,7 @@ timeout = 5
 | [`watch`](#watch) | `table` | — | 配置与工作区文件的文件系统 watch |
 | [`llm_requester`](#llm-requester) | `table` | — | 单次 LLM 请求体的字节预算 |
 | [`model_catalog`](#model-catalog) | `table` | — | 供应商模型目录的刷新计划 |
+| [`model_overrides`](#model-overrides) | `table` | — | 作用于每次请求的默认采样与生成长度上限 |
 | [`experimental`](#experimental) | `table` | — | 实验功能 flag 的持久化覆盖 |
 | [`services`](#services) | `table` | — | 内置外部服务配置 |
 | [`github`](#github) | `table` | — | 内置 GitHub 工具 |
@@ -405,6 +407,22 @@ k3-max = "同一模型的 max Thinking 档位。适合最难的子任务。"
 
 `timeout_ms` 可被环境变量 `KIMI_SUBAGENT_TIMEOUT_MS` 覆盖，优先级高于配置文件。
 
+## `subagent_backend`
+
+`subagent_backend` 配置 `Agent` 工具可以分派过去的实验性外部 subagent 后端——用外部 agent CLI 替代进程内 subagent。该功能默认关闭，需要开启 `subagent_backends` 开关（`KIMI_CODE_EXPERIMENTAL_SUBAGENT_BACKENDS=1`，或 `[experimental] subagent_backends = true`）。
+
+| 字段 | 类型 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `claude_code.command` | `string` | `claude`（在 `PATH` 上解析） | claude CLI 的路径 |
+| `claude_code.model` | `string` | — | 运行 Claude Code 用的模型；默认用 CLI 自身的默认值 |
+| `codex.command` | `string` | `codex`（在 `PATH` 上解析） | codex CLI 的路径 |
+| `codex.model` | `string` | — | 运行 Codex 用的模型；默认用 CLI 自身的默认值 |
+| `acp.command` | `string` | — | `acp` 后端**必填**：启动 ACP server 的命令 |
+| `acp.args` | `array<string>` | — | 传给 ACP server 命令的额外参数 |
+| `acp.env` | `object` | — | 合并进 ACP server 进程的额外环境变量 |
+
+选择某个未配置 `command` 的后端会报错。分派到外部后端的 subagent 是独立进程、处于工具边界之外，因此除非 `[sandbox]` 的 `mode` 为 `off`，否则一律拒绝。
+
 ## `swarm`
 
 `swarm` 控制 `AgentSwarm` 工具启动的 subagent 的运行方式，与 `[subagent]` 相互独立、互不影响。
@@ -593,7 +611,6 @@ mode = "read-only"
 
 这是工具边界上的策略检查，不是操作系统级隔离。审批提示永远不会覆盖沙箱拒绝。有两个明确的缺口：分派到外部后端（`[subagent_backend]`）的子代理是独立进程、处于工具边界之外，因此 `mode` 非 `off` 时整体拒绝；plan 模式下 Kimi Code 为自身记账写入的 plan 文件豁免。
 
-<!--
 ## `llm_requester`
 
 `llm_requester` 限制单次 LLM 请求体的大小。当组装出的请求超出预算时，会在发送前裁剪较早的内容。
@@ -615,7 +632,18 @@ mode = "read-only"
 
 两个字段均可被 `KIMI_CODE_MODEL_CATALOG_REFRESH_INTERVAL_MS` 与 `KIMI_CODE_MODEL_CATALOG_REFRESH_ON_START` 覆盖，优先级高于 `config.toml`。
 
--->
+## `model_overrides`
+
+`model_overrides` 设置作用于每一次模型请求的默认采样与生成长度上限。单次请求仍可按调用覆盖其中任意一项。
+
+| 字段 | 类型 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `temperature` | `number` | — | 默认采样温度 |
+| `top_p` | `number` | — | 默认核采样概率质量 |
+| `thinking_keep` | `string` | — | 默认 thinking-keep 行为；优先级高于 `[thinking] keep` |
+| `max_completion_tokens` | `integer` | — | 限制每次请求的补全长度 |
+
+`thinking_keep` 的解析顺序是：`model_overrides.thinking_keep`，其次 `[thinking] keep`，最后 `all`；当 thinking effort 为 `off` 时该值完全不起作用。
 
 ## `experimental`
 
