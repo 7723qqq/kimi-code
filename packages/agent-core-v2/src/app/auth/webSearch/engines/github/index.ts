@@ -1,1 +1,0 @@
-export { fetchGithubReadme } from './github';
