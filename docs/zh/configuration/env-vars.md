@@ -166,6 +166,9 @@ kimi
 | `KIMI_IMAGE_READ_BYTE_BUDGET` | 模型自行读图（`Read` 默认读取）的单图字节预算，优先级高于 `config.toml` 的 `[image] read_byte_budget`（默认 `262144`，即 256 KB） | 正整数；非法值被忽略 |
 | `KIMI_CODE_PLUGIN_MARKETPLACE_URL` | 覆盖 `/plugins` 加载的 plugin marketplace JSON，适合 dev loopback server、测试 CDN 文件或替换 marketplace 目录 | `https://code.kimi.com/kimi-code/plugins/marketplace.json`；也接受 `http://`、`file://` URL 和本地路径 |
 | `KIMI_CODE_SEARCH_H3` | 在 Bun 上用 HTTP/3（QUIC）抓取网页搜索页面；某个源走 HTTP/3 失败后会标记为 dead 并跳过 | `0` 关闭；不设置则开启 |
+| `KIMI_CODE_SEARCH_ENGINE` | 首选的本地网页搜索引擎；未设置或名称不是已注册的引擎时用 `bing` | 已注册的引擎名：`baidu`、`bing`、`brave`、`csdn`、`duckduckgo`、`exa`、`juejin`、`linuxdo`、`sogou`、`startpage`、`zhihu` |
+| `KIMI_CODE_ALLOWED_SEARCH_ENGINES` | 本地网页搜索引擎的逗号分隔白名单，按顺序尝试；首选引擎始终排在最前 | 逗号分隔的引擎名；不设置或留空表示所有已注册引擎 |
+| `KIMI_CODE_SEARCH_RESULTS` | 本地网页搜索返回的结果条数（默认 `10`） | 整数 1–20；其余值回退为 `10` |
 | `KIMI_KNOWLEDGE_DB` | `Knowledge` 工具背后的 SQLite 数据库路径，覆盖默认位置 | 绝对路径 |
 | `KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY` | 限制 AgentSwarm 初始提升并发阶段可同时运行的 subagent 数量；不设置表示不限制 | 正整数；非法值会立即失败 |
 | `KIMI_CODE_SUBAGENT_SCOPE_CACHE_SIZE` | 保留在内存中的已完成 subagent scope 数量，超出后最旧的会被驱逐，恢复时从持久化状态按需重建（默认 `32`；`0` 或负数 = 不驱逐） | 整数；非法值会立即失败 |

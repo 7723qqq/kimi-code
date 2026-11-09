@@ -166,6 +166,9 @@ Switches that control the behavior of subsystems such as telemetry, background t
 | `KIMI_IMAGE_READ_BYTE_BUDGET` | Per-image byte budget for model-initiated image reads; higher priority than `[image] read_byte_budget` (default `262144`) | Positive integer; invalid values are ignored |
 | `KIMI_CODE_PLUGIN_MARKETPLACE_URL` | Override the marketplace JSON loaded by `/plugins`; default `https://code.kimi.com/kimi-code/plugins/marketplace.json` | Also accepts `http://`, `file://` URLs, and local paths |
 | `KIMI_CODE_SEARCH_H3` | Fetch web-search pages over HTTP/3 (QUIC) on Bun; an origin that fails over HTTP/3 is marked dead and skipped afterwards | `0` disables; unset keeps it on |
+| `KIMI_CODE_SEARCH_ENGINE` | Preferred local web-search engine; `bing` is used when unset or when the name is not a registered engine | A registered engine name: `baidu`, `bing`, `brave`, `csdn`, `duckduckgo`, `exa`, `juejin`, `linuxdo`, `sogou`, `startpage`, `zhihu` |
+| `KIMI_CODE_ALLOWED_SEARCH_ENGINES` | Comma-separated allowlist of local web-search engines tried in order; the preferred engine always goes first | Comma-separated engine names; unset or empty means every registered engine |
+| `KIMI_CODE_SEARCH_RESULTS` | How many results a local web search returns (default `10`) | Integer 1–20; anything else falls back to `10` |
 | `KIMI_KNOWLEDGE_DB` | Path to the SQLite database backing the `Knowledge` tool, overriding the default location | Absolute path |
 | `KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY` | Cap on AgentSwarm subagents running concurrently during the initial ramp; unset = no cap | Positive integer; invalid values fail fast |
 | `KIMI_CODE_SUBAGENT_SCOPE_CACHE_SIZE` | How many completed subagent scopes stay resident for fast resume; older ones are evicted and rebuilt from persisted state on demand (default `32`; `0` or negative = never evict) | Integer; invalid values fail fast |
