@@ -76,7 +76,7 @@ describe('shadowing and name resolution', () => {
       ].join('\n'),
     });
     expect(output['src/a.ts']).toContain('readFile(');
-    expect(output['src/a.ts']).toContain('new Bun.CryptoHasher');
+    expect(output['src/a.ts']).toContain('Bun.CryptoHasher');
   });
 
   it('does not mistake a property access for the builtin', () => {
@@ -202,7 +202,7 @@ describe('shadowing and name resolution', () => {
         '',
       ].join('\n'),
     });
-    expect(output['src/a.ts']).toContain('new Bun.CryptoHasher');
+    expect(output['src/a.ts']).toContain('Bun.CryptoHasher');
     expect(output['src/a.ts']).toContain('Bun.gzipSync');
   });
 
@@ -268,7 +268,7 @@ describe('import shapes', () => {
       'src/a.ts':
         "import { createHash as ch } from 'node:crypto';\nexport const a = ch('sha256').update('x').digest('hex');\n",
     });
-    expect(output['src/a.ts']).toContain('new Bun.CryptoHasher');
+    expect(output['src/a.ts']).toContain('Bun.CryptoHasher');
   });
 
   it('handles two builtins from one module', () => {
@@ -280,7 +280,7 @@ describe('import shapes', () => {
         '',
       ].join('\n'),
     });
-    expect(output['src/a.ts'].match(/new Bun\.CryptoHasher/g)?.length).toBe(2);
+    expect(output['src/a.ts'].match(/Bun\.CryptoHasher/g)?.length).toBe(2);
   });
 
   it('skips a module imported with a bare specifier that is not node:', () => {
@@ -487,7 +487,7 @@ describe('CommonJS require bindings', () => {
       'src/a.cjs':
         "const { createHash } = require('node:crypto');\nmodule.exports = (t) => createHash('sha256').update(t).digest('hex');\n",
     });
-    expect(output['src/a.cjs']).toContain('new Bun.CryptoHasher');
+    expect(output['src/a.cjs']).toContain('Bun.CryptoHasher');
   });
 
   it('removes the require binding the rewrite made dead', () => {

@@ -137,6 +137,47 @@ function digestTextEncoding(call) {
   return;
 }
 
+/**
+ * The one-shot shape `createHash(alg).update(input).digest(output?)`, which one
+ * static call can replace.
+ *
+ * Only this shape qualifies: exactly one `update` with a single argument, then
+ * one `digest` with at most one. Two updates cannot be expressed as a single
+ * static call, and `update(input, encoding)` decodes the string before hashing
+ * while the static call would hash its UTF-8 bytes. A hasher bound to a local
+ * and consumed in separate statements is not this shape and returns undefined.
+ */
+function oneShotHashChain(site) {
+  let current = site.call;
+  let updateCall;
+  for (;;) {
+    const parent = current.parent;
+    if (!parent) return;
+    if (ts.isPropertyAccessExpression(parent) && parent.expression === current) {
+      const callNode = parent.parent;
+      if (callNode === undefined || !ts.isCallExpression(callNode) || callNode.expression !== parent) {
+        return;
+      }
+      if (parent.name.text === 'update') {
+        if (updateCall || argCount(callNode) !== 1) return;
+        updateCall = callNode;
+        current = callNode;
+        continue;
+      }
+      if (parent.name.text === 'digest') {
+        if (updateCall === undefined || argCount(callNode) > 1) return;
+        return { input: firstArg(updateCall), encodingNode: firstArg(callNode), digest: callNode };
+      }
+      return;
+    }
+    if (ts.isCallExpression(parent) && parent.expression === current) {
+      current = parent;
+      continue;
+    }
+    return;
+  }
+}
+
 function chainText(site) {
   const end = outermostCall(site.call);
   return site.sourceFile.text.slice(site.call.getStart(), end.getEnd());
@@ -217,7 +258,7 @@ export const PAIRINGS = [
     bunExpression: 'Bun.CryptoHasher',
     effect: SPEED,
     summary:
-      'createHash(alg) -> new Bun.CryptoHasher(alg), measured 1.2x-1.9x faster across 16 B to 1 MB and 4 algorithms; only rewritten when the same expression digests once',
+      'createHash(alg).update(input).digest(output) -> Bun.CryptoHasher.hash(alg, input, output) for a one-shot chain, else new Bun.CryptoHasher(alg); measured 1.4x-3.1x over createHash and parity from 100 KB',
     condition:
       'the algorithm is one this Bun implements, a text digest pins an encoding it supports, and the call is chained to a single digest()',
     check(site) {
@@ -259,7 +300,17 @@ export const PAIRINGS = [
       return;
     },
     build(site, helpers) {
+      const oneShot = oneShotHashChain(site);
+      if (oneShot) {
+        const encoding = oneShot.encodingNode ? `, ${helpers.text(oneShot.encodingNode)}` : '';
+        return `Bun.CryptoHasher.hash(${helpers.text(firstArg(site.call))}, ${helpers.text(oneShot.input)}${encoding})`;
+      }
       return `new Bun.CryptoHasher(${helpers.text(firstArg(site.call))})`;
+    },
+    replaceRange(site) {
+      const oneShot = oneShotHashChain(site);
+      if (!oneShot) return;
+      return { start: site.call.getStart(), end: oneShot.digest.getEnd() };
     },
   },
   {
@@ -584,16 +635,15 @@ export const PAIRINGS = [
     from: 'node:url',
     exportName: 'fileURLToPath',
     bunExpression: 'Bun.fileURLToPath',
-    effect: SPEED,
-    summary: 'fileURLToPath(u) -> Bun.fileURLToPath(u), about 2.6x faster',
-    condition: 'single argument; both reject a non-absolute file URL the same way',
-    check(site) {
-      if (argCount(site.call) !== 1) return 'fileURLToPath takes exactly one argument';
-      return;
+    effect: REPORT_ONLY,
+    summary:
+      'fileURLToPath(u) -> Bun.fileURLToPath(u), measured at parity rather than faster',
+    condition:
+      'never applied: identical result on every input tried, but no speed win — Bun is 0.98x-1.02x for a string URL and 0.85x-0.92x for a URL object, so there is nothing to gain',
+    check() {
+      return `measured on Bun ${Bun.version}: parity for a string argument, slightly slower for a URL object, so the rewrite would not buy anything`;
     },
-    build(site, helpers) {
-      return `Bun.fileURLToPath(${helpers.text(firstArg(site.call))})`;
-    },
+    build() {},
   },
   {
     id: 'url-pathToFileURL',

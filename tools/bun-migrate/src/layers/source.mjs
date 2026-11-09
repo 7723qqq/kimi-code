@@ -98,7 +98,11 @@ export function applySourceLayer(project, journal) {
       /**
        * A rewrite replaces the call, and one that is already the operand of `await`
        * replaces the `await` too — otherwise `await Bun.x()` becomes
-       * `await await Bun.x()`.
+       * `await await Bun.x()`. A rule may declare a wider span through
+       * `replaceRange`: `createHash(...)` rewritten to a one-shot
+       * `Bun.CryptoHasher.hash(...)` has to consume the `.update().digest()`
+       * chain around it, or the surviving `.digest()` would run on the finished
+       * digest.
        *
        * There was a `needsAwait` branch here that prefixed `await` for rules that
        * needed one. No pairing ever set the flag, and it cannot be correct under the
@@ -106,9 +110,10 @@ export function applySourceLayer(project, journal) {
        * expression, so a rule that needed `await` would be async-only and could not
        * stay portable. Removed rather than kept as a hook nothing uses.
        */
-      let start = call.getStart();
-      const end = call.getEnd();
-      if (call.parent && ts.isAwaitExpression(call.parent)) {
+      const range = pairing.replaceRange ? pairing.replaceRange(site) : undefined;
+      let start = range ? range.start : call.getStart();
+      const end = range ? range.end : call.getEnd();
+      if (!range && call.parent && ts.isAwaitExpression(call.parent)) {
         start = call.parent.getStart();
       }
       edits.push({

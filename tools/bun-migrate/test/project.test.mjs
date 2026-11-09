@@ -84,7 +84,7 @@ describe('apply on a legacy pnpm project', () => {
     expect(manifest.scripts.lint).toBe('bunx eslint .');
     expect(manifest.workspaces.packages).toContain('packages/*');
 
-    expect(readFileSync(join(root, 'src/hash.ts'), 'utf8')).toContain('new Bun.CryptoHasher');
+    expect(readFileSync(join(root, 'src/hash.ts'), 'utf8')).toContain('Bun.CryptoHasher');
     expect(readFileSync(join(root, 'src/hash.test.ts'), 'utf8')).toContain("from 'bun:test'");
     expect(readFileSync(join(root, 'src/hash.test.ts'), 'utf8')).toContain('expect');
 
@@ -128,7 +128,7 @@ describe('per-project exceptions', () => {
     });
     expect(run('apply', '--root', root, '--allow-dirty').code).toBe(0);
     expect(readFileSync(join(root, 'packages/browser/src/h.ts'), 'utf8')).toContain('createHash(');
-    expect(readFileSync(join(root, 'src/hash.ts'), 'utf8')).toContain('new Bun.CryptoHasher');
+    expect(readFileSync(join(root, 'src/hash.ts'), 'utf8')).toContain('Bun.CryptoHasher');
   });
 
   it('honours auto-source = false by leaving all node: calls alone', () => {
@@ -266,7 +266,7 @@ describe('safety rails', () => {
 
       const allowed = run('apply', '--root', root, '--allow-dirty');
       expect(allowed.code).toBe(0);
-      expect(readFileSync(join(root, 'src/a.ts'), 'utf8')).toContain('new Bun.CryptoHasher');
+      expect(readFileSync(join(root, 'src/a.ts'), 'utf8')).toContain('Bun.CryptoHasher');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

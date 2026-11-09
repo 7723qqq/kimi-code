@@ -72,7 +72,7 @@ describe('property: hash digests agree on arbitrary input', () => {
       );
       const migrated = run(
         'bun',
-        `console.log(new Bun.CryptoHasher(${JSON.stringify(testCase.algorithm)}).update(${escaped}).digest(${JSON.stringify(testCase.encoding)}));`,
+        `console.log(Bun.CryptoHasher.hash(${JSON.stringify(testCase.algorithm)}, ${escaped}, ${JSON.stringify(testCase.encoding)}));`,
       );
       expect(original.ok).toBe(true);
       expect(migrated.ok).toBe(true);

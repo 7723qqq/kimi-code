@@ -106,9 +106,49 @@ describe('crypto pairing', () => {
     expect(reason).toContain('no CryptoHasher support');
   });
 
-  it('builds the Bun form from the original arguments', () => {
+  it('builds the one-shot static form for a single-update chain', () => {
     const { site } = check(
       "import { createHash } from 'node:crypto';\ncreateHash('sha256').update('a').digest('hex');\n",
+    );
+    expect(pairing.build(site, helpers)).toBe("Bun.CryptoHasher.hash('sha256', 'a', 'hex')");
+  });
+
+  it('builds the static form without an encoding', () => {
+    const { site } = check(
+      "import { createHash } from 'node:crypto';\ncreateHash('sha512').update('abc').digest().length;\n",
+    );
+    expect(pairing.build(site, helpers)).toBe("Bun.CryptoHasher.hash('sha512', 'abc')");
+  });
+
+  it('declares the whole chain as the replacement range for a one-shot hash', () => {
+    const source =
+      "import { createHash } from 'node:crypto';\ncreateHash('sha256').update('a').digest('hex');\n";
+    const { site } = check(source);
+    const range = pairing.replaceRange(site);
+    expect(source.slice(range.start, range.end)).toBe(
+      "createHash('sha256').update('a').digest('hex')",
+    );
+  });
+
+  it('keeps the constructor form when a second update isn\'t one shot', () => {
+    const { site } = check(
+      "import { createHash } from 'node:crypto';\ncreateHash('sha256').update('a').update('b').digest('hex');\n",
+    );
+    expect(pairing.build(site, helpers)).toBe("new Bun.CryptoHasher('sha256')");
+    expect(pairing.replaceRange(site)).toBeUndefined();
+  });
+
+  it('keeps the constructor form when update decodes its input', () => {
+    const { site } = check(
+      "import { createHash } from 'node:crypto';\ncreateHash('sha256').update('68656c6c6f', 'hex').digest('hex');\n",
+    );
+    expect(pairing.build(site, helpers)).toBe("new Bun.CryptoHasher('sha256')");
+    expect(pairing.replaceRange(site)).toBeUndefined();
+  });
+
+  it('builds the constructor form for a hasher consumed in statements', () => {
+    const { site } = check(
+      "import { createHash } from 'node:crypto';\nconst h = createHash('sha256');\nh.update('a');\nh.digest('hex');\n",
     );
     expect(pairing.build(site, helpers)).toBe("new Bun.CryptoHasher('sha256')");
   });

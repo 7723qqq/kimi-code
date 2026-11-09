@@ -131,13 +131,23 @@ implementations rather than two process start-ups:
 | `zstdCompressSync` -> `Bun.zstdCompressSync`       | 1.4x at 100 KB up to 8.3x at 16 B                   | frames are byte-identical, unlike gzip                                  |
 | `zstdDecompressSync` -> `Bun.zstdDecompressSync`   | 1.6x at 100 KB up to 80.7x at 16 B                  |                                                                         |
 | `globSync` -> `Bun.Glob`                           | 2.0x-5.3x                                           | wider with directory size                                               |
-| `createHash` / `createHmac` -> `Bun.CryptoHasher`  | 1.3x-1.8x for sha256/sha1, 1.0x-1.2x for sha512/md5 | 2.0x under 4 worker threads                                             |
-| `fileURLToPath` -> `Bun.fileURLToPath`             | ~2.6x                                               |                                                                         |
+| `createHash` one-shot -> `Bun.CryptoHasher.hash`   | 1.4x-3.1x, parity from 100 KB                       | the emitted form for `createHash(alg).update(x).digest(enc)`            |
+| `createHash` / `createHmac` -> `Bun.CryptoHasher`  | 1.3x-1.8x for sha256/sha1, 1.0x-1.2x for sha512/md5 | 2.0x under 4 worker threads; the constructor form, used for streaming and HMAC |
+
+`fileURLToPath` sat in this table as "~2.6x". Re-measured on Bun 1.4.4 it is
+parity for a string argument (0.98x-1.02x) and slower for a URL object
+(0.85x-0.92x), with identical results on every input tried, so the rule is
+`report-only` and the claim is dropped rather than rounded down.
 
 `createHmac` is rewritten only when the key is provably a string, `Buffer`/typed
 array/`ArrayBuffer`/`DataView`. Node also accepts a `KeyObject` or `CryptoKey`;
 `Bun.CryptoHasher` throws `ERR_INVALID_ARG_TYPE` for those, so a key variable of
 unknown type is reported instead of guessed at.
+
+A one-shot `createHash(alg).update(input).digest(output)` is rewritten to the
+static `Bun.CryptoHasher.hash(alg, input, output)` instead, which hashes in one
+call. The constructor form is kept for a streaming hasher, for a hasher copied
+before its digest, and for HMAC.
 
 `createHash`/`createHmac` are also rewritten only when a local hasher reaches
 exactly one `digest()` with no `update()` after it, and no `copy()` after it. After
@@ -178,9 +188,9 @@ Full matrices — every algorithm, size and operation, with the iteration count 
 each row — are in [`PERFORMANCE.md`](PERFORMANCE.md).
 
 **The intent is that a rule cannot claim "faster" without a row there. It is not
-met yet.** Measured against the current rule table, eleven `speed` rules have no
+met yet.** Measured against the current rule table, twelve `speed` rules have no
 row in `PERFORMANCE.md`: `crypto-createHmac`, `zlib-zstdCompressSync`,
-`zlib-zstdDecompressSync`, `zlib-inflateRawSync`, `url-fileURLToPath`,
+`zlib-zstdDecompressSync`, `zlib-inflateRawSync`,
 `fs-globSync` (a Glob section exists, but its rows are not tied to this rule), and
 the seven npm package rules (`yaml`, `js-yaml`, `smol-toml`, `json5`, `strip-ansi`,
 `string-width`, `which`). The zstd row in the table above comes from a one-off run

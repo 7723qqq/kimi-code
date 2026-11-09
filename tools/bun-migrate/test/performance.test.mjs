@@ -16,6 +16,27 @@ import { join } from 'node:path';
 
 const nodeAvailable = (() => Bun.spawnSync(['node', '--version']).exitCode === 0)();
 
+/**
+ * The object entry containing a marker line, from that line through the closing
+ * `},`.
+ *
+ * A note qualifying a pairing sits on a different line from its `bun:` key, so
+ * searching line by line finds the key and misses the note — the assertion that
+ * the rule table states interoperability instead of byte equality failed on a
+ * correct table for exactly that reason.
+ */
+function entryText(source, marker) {
+  const lines = source.split('\n');
+  const start = lines.findIndex((line) => line.includes(marker));
+  if (start < 0) return '';
+  const out = [lines[start]];
+  for (let index = start + 1; index < lines.length; index += 1) {
+    out.push(lines[index]);
+    if (/^\s*\},?\s*$/.test(lines[index])) break;
+  }
+  return out.join('\n');
+}
+
 function median(values) {
   const sorted = values.toSorted((a, b) => a - b);
   return sorted[Math.floor(sorted.length / 2)];
@@ -50,8 +71,18 @@ describe('speed claims hold', () => {
       () => require('node:crypto').createHash('sha256').update(text).digest('hex'),
       400,
     );
-    const bunPer = benchSync(() => new Bun.CryptoHasher('sha256').update(text).digest('hex'), 400);
+    const bunPer = benchSync(() => Bun.CryptoHasher.hash('sha256', text, 'hex'), 400);
     expect(nodePer / bunPer).toBeGreaterThan(1.1);
+  });
+
+  it('the one-shot static form beats the constructor chain it replaces', () => {
+    const text = 'x'.repeat(256);
+    const classPer = benchSync(
+      () => new Bun.CryptoHasher('sha256').update(text).digest('hex'),
+      400,
+    );
+    const staticPer = benchSync(() => Bun.CryptoHasher.hash('sha256', text, 'hex'), 400);
+    expect(classPer / staticPer).toBeGreaterThan(1.1);
   });
 
   it('Bun.gzipSync beats gzipSync', () => {
@@ -143,7 +174,7 @@ describe('the speed evidence is measured the way it is documented', () => {
       'for (let i = 0; i < 300; i += 1) createHash("sha256").update(buf).digest("hex");',
       'const nodePer = (Bun.nanoseconds() - t) / 300;',
       't = Bun.nanoseconds();',
-      'for (let i = 0; i < 300; i += 1) new Bun.CryptoHasher("sha256").update(buf).digest("hex");',
+      'for (let i = 0; i < 300; i += 1) Bun.CryptoHasher.hash("sha256", buf, "hex");',
       'const bunPer = (Bun.nanoseconds() - t) / 300;',
       'process.stdout.write(JSON.stringify({ nodePer, bunPer }));',
     ].join('\n');
@@ -170,7 +201,7 @@ describe('the speed evidence is measured the way it is documented', () => {
       'for (const algo of ["sha512", "md5"]) {',
       '  const buf = "x".repeat(64);',
       '  const n = bench(() => createHash(algo).update(buf).digest("hex"), 3000, 5);',
-      '  const b = bench(() => new Bun.CryptoHasher(algo).update(buf).digest("hex"), 3000, 5);',
+      '  const b = bench(() => Bun.CryptoHasher.hash(algo, buf, "hex"), 3000, 5);',
       '  out[algo] = n / b;',
       '}',
       'process.stdout.write(JSON.stringify(out));',
@@ -278,7 +309,6 @@ describe('gzip output is interoperable, not byte-identical', () => {
       .find((line) => line.includes('gzipSync(data) -> Buffer.from(Bun.gzipSync(data))'));
     expect(gzipSummary?.includes('byte identical')).toBe(false);
     expect(gzipSummary?.includes('not byte-identical')).toBe(true);
-    const gzipNote = surface.split('\n').find((line) => line.includes("bun: 'Bun.gzipSync'"));
-    expect(gzipNote?.includes('not to a stream produced by Node')).toBe(true);
+    expect(entryText(surface, "bun: 'Bun.gzipSync'")).toContain('not to a stream produced by Node');
   });
 });

@@ -23,7 +23,7 @@ const CASES = [
       module.exports = createHash('sha256').update('hello world').digest('hex');
     `,
     migrated: `
-      module.exports = new Bun.CryptoHasher('sha256').update('hello world').digest('hex');
+      module.exports = Bun.CryptoHasher.hash('sha256', 'hello world', 'hex');
     `,
   },
   {
@@ -34,7 +34,7 @@ const CASES = [
       module.exports = createHash('sha256').update('hello world').digest('base64');
     `,
     migrated: `
-      module.exports = new Bun.CryptoHasher('sha256').update('hello world').digest('base64');
+      module.exports = Bun.CryptoHasher.hash('sha256', 'hello world', 'base64');
     `,
   },
   {
@@ -45,7 +45,7 @@ const CASES = [
       module.exports = createHash('sha512').update('abc').digest().length;
     `,
     migrated: `
-      module.exports = new Bun.CryptoHasher('sha512').update('abc').digest().length;
+      module.exports = Bun.CryptoHasher.hash('sha512', 'abc').length;
     `,
   },
   {
@@ -641,7 +641,6 @@ describe('measured performance decides speed claims', () => {
       'gunzipSync',
       'inflateRawSync',
       'stripVTControlCharacters',
-      'fileURLToPath',
       'globSync',
     ];
     for (const name of fast) {
@@ -660,6 +659,7 @@ describe('measured performance decides speed claims', () => {
       'inflateSync',
       'deflateRawSync',
       'isDeepStrictEqual',
+      'fileURLToPath',
     ];
     for (const name of slow) {
       const found = PAIRINGS.find((pairing) => pairing.exportName === name);

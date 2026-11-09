@@ -52,6 +52,26 @@ with no case below 1.0 — that is the evidence behind "never slower".
 Under 4 worker threads the gap widens to 2.0x (47 ms vs 23 ms for 4 x 20 000
 hashes), because the native path releases the loop better.
 
+### The one-shot form: `Bun.CryptoHasher.hash`
+
+`createHash(alg).update(input).digest(output)` is rewritten to the static
+`Bun.CryptoHasher.hash(alg, input, output)`, which hashes in one call instead of
+constructing a hasher, updating it and digesting it. The constructor form stays
+for a hasher consumed in statements, for `copy()`, and for HMAC.
+
+Same process, median of three rounds, 300 iterations per round (30 for 1 MB):
+
+| static form vs node `createHash` | 16 B    | 1 KB    | 100 KB  | 1 MB  |
+| -------------------------------- | ------- | ------- | ------- | ----- |
+| `Bun.CryptoHasher.hash` hex      | 2.7x-3.1x | 2.0x-2.9x | 1.4x-1.5x | 1.7x |
+| `Bun.CryptoHasher.hash` buffer   | 2.8x-3.1x | 2.2x-2.4x | 1.5x   | 1.5x |
+
+The static form's edge over the constructor form it replaces is 1.3x-2.4x below
+1 KB and parity from 100 KB: at small sizes the constructor and the two method
+calls cost more than the hashing, and that overhead vanishes into the hash at
+large ones. The buffer rows return a `Buffer`, matching `digest()`; the hex rows
+return a string, matching `digest('hex')`.
+
 ## gzip: `gzipSync` / `gunzipSync` -> `Bun.gzipSync` / `Bun.gunzipSync`
 
 Median of three runs, 300 iterations per round (20 for sizes above 200 KB):
