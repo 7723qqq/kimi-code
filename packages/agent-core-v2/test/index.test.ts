@@ -20,6 +20,7 @@ import {
   EVENT2_REGISTRY,
   IAgentContextMemoryService,
   IAgentGoalService,
+  IProgressTrackerService,
   type ContextMessage,
   type WireRecord,
 } from '#/index';
@@ -526,6 +527,10 @@ describe('AgentRecords persistence metadata', () => {
       tokensUsed: 5,
       terminalReason: 'needs credentials',
     });
+  });
+
+  it('wires the progress tracker, whose registration only runs when index.ts imports it', () => {
+    expect(ctx.get(IProgressTrackerService)).toBeDefined();
   });
 
   it('restores forked records as fork boundaries that clear copied goals', async () => {
