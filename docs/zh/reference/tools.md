@@ -244,6 +244,16 @@ Spec 模式要求三份文档，任何一份缺失或为空时 `ExitSpecMode` �
 
 **`CronDelete`** 只接受一个 `id`。对周期任务，未来所有触发立即停止；对一次性任务，挂起的那次触发会被取消。已触发的一次性任务会自动删除，因此对已触发过的一次性任务调用 `CronDelete` 会返回 `No cron job with id ...`。删除不可撤销，需要还原时只能再次 `CronCreate`。`CronDelete` 在 Plan 模式下同样会被拦截。
 
+## 动态工具加载
+
+开启 `tool_select` 实验开关后，被标记为 `deferred: true` 的 MCP 服务器工具不会进入顶层工具列表，而是按需加载。本工具只在该模式下存在，详见 [MCP — 按需加载工具](../customization/mcp.md#按需加载工具)。
+
+| 工具 | 默认审批 | 说明 |
+| --- | --- | --- |
+| `select_tools` | 自动放行 | 按精确名称加载被延迟的 MCP 工具，或在名称未知时按能力搜索 |
+
+`select_tools` 接受 `names`（要加载的精确工具名）或 `query`（在所有可加载工具中按能力搜索）之一。搜索只返回候选，因此需要再用精确名称调用一次，工具才可被调用。可加载的名称来自系统上下文里最新一条 `<tools_added>` / `<tools_removed>` / `<tools_relevant>` 公告。
+
 ## GitHub
 
 GitHub 工具直连 GitHub REST API，Agent 因此可以开 PR、读 diff、整理 issue，你不用离开终端。这些工具**只在配好 token 时**才出现在工具列表里——在 `config.toml` 的 `[github]` 段设置 `token`，或导出 `GITHUB_TOKEN` / `GH_TOKEN`，详见[配置文件](../configuration/config-files.md#github)。没有 token 时，下面这些工具一个都不存在，Agent 也无从访问 GitHub。

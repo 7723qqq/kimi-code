@@ -244,6 +244,16 @@ To prevent all users from firing at the same time on the hour, the scheduler app
 
 **`CronDelete`** accepts a single `id`. For recurring tasks, all future fires stop immediately; for one-time tasks, the pending fire is cancelled. One-time tasks that have already fired are auto-deleted, so calling `CronDelete` on an already-fired one-time task returns `No cron job with id ...`. Deletion is irreversible — use `CronCreate` again to restore. `CronDelete` is also blocked in Plan mode.
 
+## Dynamic Tool Loading
+
+With the `tool_select` experimental flag on, tools of MCP servers marked `deferred: true` stay out of the top-level tool list and are loaded on demand instead. This tool exists only in that mode; see [MCP — Loading tools on demand](../customization/mcp.md#loading-tools-on-demand).
+
+| Tool | Default Approval | Description |
+| --- | --- | --- |
+| `select_tools` | Auto-allow | Load deferred MCP tools by exact name, or search them by capability when the name is unknown |
+
+`select_tools` takes either `names` (exact tool names to load) or `query` (a capability search across every loadable tool). A search returns candidates only, so a second call with the exact names is needed before the tools can be called. The loadable names come from the latest `<tools_added>` / `<tools_removed>` / `<tools_relevant>` announcement in the system context.
+
 ## GitHub
 
 The GitHub tools talk to the GitHub REST API directly, so the agent can open a pull request, read a diff, or triage issues without you leaving the terminal. They appear in the tool list **only when a token is configured** — set `token` in the `[github]` section of `config.toml`, or export `GITHUB_TOKEN` / `GH_TOKEN`; see [Configuration files](../configuration/config-files.md#github). Without a token, none of the tools below exist and the agent has no way to reach GitHub.
