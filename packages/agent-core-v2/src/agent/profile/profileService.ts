@@ -32,7 +32,7 @@ import {
 } from '#/app/agentProfileCatalog/profile-shared';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
-import { THINKING_SECTION } from '#/app/kosongConfig/configSection';
+import { MODEL_OVERRIDES_SECTION, THINKING_SECTION } from '#/app/kosongConfig/configSection';
 import { IProviderDiscoveryService } from '#/app/kosongConfig/discovery';
 import { IPluginService } from '#/app/plugin/plugin';
 import { LifecycleScope } from '#/app/scopes';
@@ -569,7 +569,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     const model = this.tryResolveRawModel();
     const thinking = this.resolveThinkingState(model);
     const thinkingConfig = this.config.get<ThinkingConfig>(THINKING_SECTION);
-    const overrides = this.config.get<ModelOverrides>('modelOverrides');
+    const overrides = this.config.get<ModelOverrides>(MODEL_OVERRIDES_SECTION);
     const sampling: SamplingOptions = {
       temperature: overrides?.temperature,
       topP: overrides?.topP,

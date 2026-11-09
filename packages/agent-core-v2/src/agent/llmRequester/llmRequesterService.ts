@@ -51,7 +51,7 @@ import type { ModelOverrides } from '#/llm-adapter/model/model.types';
 import { IModelService } from '#/llm-adapter/model/model';
 import { completionBudgetParams, resolveCompletionBudget } from '#/llm-adapter/model/completion-budget';
 import { resolveThinkingKeep, type ThinkingConfig } from '#/llm-adapter/model/thinking';
-import { THINKING_SECTION } from '#/app/kosongConfig/configSection';
+import { MODEL_OVERRIDES_SECTION, THINKING_SECTION } from '#/app/kosongConfig/configSection';
 import type { Protocol } from '#/llm-adapter/protocol/protocol';
 import type {
   ApiErrorEvent,
@@ -881,7 +881,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     const baseParams = turnConfig?.params ?? this.profile.resolveRequestParams();
     const requester = this.modelCatalog.getRequester(resolved.modelAlias);
     const maxCompletionTokensCap =
-      this.config.get<ModelOverrides>('modelOverrides')?.maxCompletionTokens;
+      this.config.get<ModelOverrides>(MODEL_OVERRIDES_SECTION)?.maxCompletionTokens;
     const usedContextTokens =
       overrides.usedContextTokens ??
       (overrides.messages === undefined
@@ -979,7 +979,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     }
 
     const systemPromptHash = fingerprint(input.systemPrompt);
-    const overrides = this.config.get<ModelOverrides>('modelOverrides');
+    const overrides = this.config.get<ModelOverrides>(MODEL_OVERRIDES_SECTION);
     const thinkingConfig = this.config.get<ThinkingConfig>(THINKING_SECTION);
     const modelConfig =
       input.modelAlias === undefined ? undefined : this.modelService.get(input.modelAlias);
