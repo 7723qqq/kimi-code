@@ -66,7 +66,7 @@ Tower 可能把未提交和未跟踪的文件快照到 worker branch 中；创�
 
 4. **验收合并结果。** 检查 `git status`、base branch 的提交历史和最终 diff，并运行你关心的测试或验收命令。这些检查只能作为基础保障，不能替代人工验收。
 
-5. **清理并退出。** 所有 mission 都已合并或放弃后，先输入 `/tower teardown` 清理可以移除的 mission worktree，再输入 `/tower off` 退出 Tower。不同操作的区别见 [停止、清理与重启](#停止清理与重启)。
+5. **清理并退出。** 所有 mission 都已合并或放弃后，先输入 `/tower teardown` 清理可以移除的 mission worktree，再输入 `/tower off` 退出 Tower。不同操作的区别见 [停止、清理与重启](#停止、清理与重启)。
 
 ## 查看状态并干预
 
