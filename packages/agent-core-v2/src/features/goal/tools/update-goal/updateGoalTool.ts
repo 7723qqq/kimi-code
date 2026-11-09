@@ -1,3 +1,4 @@
+import { IAgentGoalJudgeService } from '#/agent/goal/judge/goalJudgeService';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { GOAL_MAIN_AGENT_ONLY, mainAgentOnlyExecution } from '#/agent/tools/mainAgentOnly';
 import { GOAL_OBJECTIVE_EDITED_TOOL_RESULT, IAgentGoalService } from '#/features/goal/goalService';
@@ -24,6 +25,7 @@ export class UpdateGoalTool implements IUpdateGoalTool {
 
   constructor(
     @IAgentGoalService private readonly goal: IAgentGoalService,
+    @IAgentGoalJudgeService private readonly judge: IAgentGoalJudgeService,
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
   ) {}
 
@@ -64,6 +66,21 @@ export class UpdateGoalTool implements IUpdateGoalTool {
           return { output: GOAL_OBJECTIVE_EDITED_TOOL_RESULT };
         }
         if (status === 'complete') {
+          const verdict = await this.judge.evaluate(goalAtExecution);
+          if (!verdict.ok) {
+            if (verdict.impossible) {
+              const blocked = await this.goal.markBlocked({ reason: verdict.reason }, 'model');
+              if (blocked === null) {
+                return { output: 'Goal not blocked: no active goal.' };
+              }
+              return { output: buildGoalBlockedReasonPrompt(blocked), stopTurn: true };
+            }
+            return {
+              output:
+                `Goal completion rejected by judge: ${verdict.reason}\n` +
+                'Continue working toward the goal objective.',
+            };
+          }
           const completed = await this.goal.markComplete({}, 'model');
           if (completed === null) {
             return { output: 'Goal not completed: no active goal.' };

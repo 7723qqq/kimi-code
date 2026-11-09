@@ -33,6 +33,7 @@ import { GoalErrors } from '#/features/goal/errors';
 import { IGoalDeadlineScheduler } from '#/features/goal/goalDeadlineScheduler';
 import { GoalUpdate, GoalUpdated } from '#/features/goal/goalOps';
 import { AgentGoalService, IAgentGoalService } from '#/features/goal/goalService';
+import { IAgentGoalJudgeService } from '#/agent/goal/judge/goalJudgeService';
 import { UpdateGoalToolInputSchema } from '#/features/goal/tools/update-goal/update-goal';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
 import { APIConnectionError, APIStatusError } from '#/llm-adapter/contract/errors';
@@ -68,7 +69,7 @@ import {
   type TestAgentServiceOverride,
   wireRecordPersistenceServices,
 } from '../../harness';
-import { stubAgentSwarm } from './stubs';
+import { stubAgentSwarm, stubGoalJudge } from './stubs';
 
 function createUnrestoredTestAgent(
   ...inputs: readonly (TestAgentServiceOverride | TestAgentOptions)[]
@@ -79,7 +80,10 @@ function createUnrestoredTestAgent(
 function createTestAgent(
   ...inputs: readonly (TestAgentServiceOverride | TestAgentOptions)[]
 ): TestAgentContext {
-  const context = createUnrestoredTestAgent(...inputs);
+  const context = createUnrestoredTestAgent(
+    agentService(IAgentGoalJudgeService, stubGoalJudge()),
+    ...inputs,
+  );
   return context;
 }
 

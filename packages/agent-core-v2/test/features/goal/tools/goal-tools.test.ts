@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { USER_PROMPT_ORIGIN } from '#/agent/contextMemory/types';
+import {
+  type IAgentGoalJudgeService,
+  type JudgeVerdict,
+} from '#/agent/goal/judge/goalJudgeService';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { TurnStarted } from '#/agent/loop/turnEvents';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
@@ -37,8 +41,15 @@ describe('goal tools', () => {
   let toolExecutor: IAgentToolExecutorService;
   let setGoalBudgetTool: SetGoalBudgetTool;
   let updateGoalTool: UpdateGoalTool;
+  let judgeVerdict: JudgeVerdict;
+
+  const judgeStub: IAgentGoalJudgeService = {
+    _serviceBrand: undefined,
+    evaluate: async () => judgeVerdict,
+  };
 
   beforeEach(async () => {
+    judgeVerdict = { ok: true, reason: '' };
     loopService = stubLoopWithHooks({ hasActiveTurn: true });
     ctx = createTestAgent(
       agentService(IAgentLoopService, loopService),
@@ -51,7 +62,7 @@ describe('goal tools', () => {
     toolExecutor = ctx.get(IAgentToolExecutorService);
     const scope = ctx.get(IAgentScopeContext);
     setGoalBudgetTool = new SetGoalBudgetTool(goals, scope);
-    updateGoalTool = new UpdateGoalTool(goals, scope);
+    updateGoalTool = new UpdateGoalTool(goals, judgeStub, scope);
   });
 
   afterEach(async () => {
@@ -285,6 +296,30 @@ describe('goal tools', () => {
     expect(result.output).toContain('Goal blocked.');
     expect(result.output).toContain('Worked');
     expect(result.output).toContain('concrete blocker');
+  });
+
+  it('UpdateGoal keeps the goal active when the judge rejects completion', async () => {
+    await goals.createGoal({ objective: 'ship it' });
+    judgeVerdict = { ok: false, reason: 'the tests were never run' };
+    const execution = updateGoalTool.resolveExecution({ status: 'complete' });
+    if (execution.isError === true) throw new Error('execution should not be an error');
+    const result = await execution.execute({ turnId: 0, toolCallId: 'call_c', signal });
+
+    expect(result.stopTurn).toBeUndefined();
+    expect(result.output).toContain('Goal completion rejected by judge: the tests were never run');
+    expect(goals.getGoal().goal?.status).toBe('active');
+  });
+
+  it('UpdateGoal marks the goal blocked when the judge calls it impossible', async () => {
+    await goals.createGoal({ objective: 'ship it' });
+    judgeVerdict = { ok: false, impossible: true, reason: 'the objective contradicts itself' };
+    const execution = updateGoalTool.resolveExecution({ status: 'complete' });
+    if (execution.isError === true) throw new Error('execution should not be an error');
+    const result = await execution.execute({ turnId: 0, toolCallId: 'call_c', signal });
+
+    expect(result.stopTurn).toBe(true);
+    expect(result.output).toContain('Goal blocked.');
+    expect(goals.getGoal().goal?.status).toBe('blocked');
   });
 
   it('UpdateGoal does not apply a delayed outcome to a replacement goal', async () => {
