@@ -14,12 +14,14 @@ import { IFlagService } from '#/app/flag/flag';
 import { LifecycleScope } from '#/app/scopes';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { defineState } from '#/state/state';
-import { isMcpToolName, type ToolInfo } from '#/tool/toolContract';
+import { isMcpToolName, toolDefinitionSchemaSignature, type ToolInfo } from '#/tool/toolContract';
 import type { ToolDescription as Tool } from '#human/llm/message';
 
 import {
+  collectLoadedDynamicTools,
   collectLoadedDynamicToolNames,
   foldAnnouncedToolNames,
+  isDynamicToolSchemaMessage,
   isLoadableToolsAnnouncement,
   isRetrievedToolsAnnouncement,
   renderLoadableToolsAnnouncement,
@@ -86,7 +88,7 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
 
   private dropPendingLoadedNotLanded(): void {
     if (this.pendingLoaded.size === 0) return;
-    const landed = collectLoadedDynamicToolNames(this.context.get());
+    const landed = collectLoadedDynamicToolNames(this.context.get(), this.toolRegistry.list());
     for (const name of this.pendingLoaded) {
       if (!landed.has(name)) this.pendingLoaded.delete(name);
     }
@@ -122,9 +124,13 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
     return shaped;
   }
 
-  shapeHistory(messages: readonly ContextMessage[]): readonly ContextMessage[] {
+  shapeHistory(
+    messages: readonly ContextMessage[],
+    tools?: readonly Tool[],
+  ): readonly ContextMessage[] {
     if (this.enabled()) {
-      return stripStaleRetrievedToolsAnnouncements(this.shapeActiveHistory(messages));
+      const currentTools = tools ?? this.shapeTools(this.toolRegistry.list());
+      return stripStaleRetrievedToolsAnnouncements(this.shapeActiveHistory(messages, currentTools));
     }
     return stripDynamicToolContext(messages);
   }
@@ -132,6 +138,7 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
   load(names: readonly string[]): LoadToolsResult {
     const loadable = new Set(this.loadableToolNames());
     const loaded = this.loadedToolNames();
+    const historicallyLoaded = this.historicallyLoadedToolNames();
     const registryInfos = this.toolRegistry.list();
     this.resetFailuresIfToolsChanged(registryInfos);
     const toLoad: string[] = [];
@@ -152,7 +159,7 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
         else toLoad.push(name);
       } else if (this.isStaticCallable(name, registryInfos)) {
         alreadyCallable.push(name);
-      } else if (loaded.has(name)) {
+      } else if (historicallyLoaded.has(name)) {
         staleLoaded.push(name);
       } else {
         unknown.push(name);
@@ -304,7 +311,7 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
   private describeMissingTool(name: string): string | undefined {
     if (!this.enabled()) return undefined;
     if (this.toolRegistry.resolve(name) !== undefined) return undefined;
-    if (!this.loadedToolNames().has(name)) return undefined;
+    if (!this.historicallyLoadedToolNames().has(name)) return undefined;
     if (isMcpToolName(name)) {
       return (
         `Tool "${name}" was loaded but its MCP server is currently disconnected. ` +
@@ -348,7 +355,17 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
   }
 
   private loadedToolNames(): Set<string> {
-    const names = collectLoadedDynamicToolNames(this.context.get());
+    const names = collectLoadedDynamicToolNames(this.context.get(), this.toolRegistry.list());
+    for (const name of this.pendingLoaded) names.add(name);
+    return names;
+  }
+
+  private historicallyLoadedToolNames(): Set<string> {
+    const names = new Set<string>();
+    for (const message of this.context.get()) {
+      if (!isDynamicToolSchemaMessage(message)) continue;
+      for (const tool of message.tools ?? []) names.add(tool.name);
+    }
     for (const name of this.pendingLoaded) names.add(name);
     return names;
   }
@@ -363,16 +380,18 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
 
   private isInactiveLoadedTool(name: string): boolean {
     if (!this.enabled()) return false;
-    return this.loadedToolNames().has(name) && !this.isLoadedToolActive(name);
+    return this.historicallyLoadedToolNames().has(name) && !this.isLoadedToolActive(name);
   }
 
   private isLoadedToolActive(name: string): boolean {
     const info = this.toolRegistry.list().find((entry) => entry.name === name);
     if (info !== undefined) {
-      return this.isDynamicallyLoadable(info) && this.toolPolicy.isToolActive(name, info.source);
+      return (
+        this.toolPolicy.isToolActive(name, info.source) &&
+        (!this.isDynamicallyLoadable(info) || this.loadedToolNames().has(name))
+      );
     }
-    if (isMcpToolName(name)) return this.toolPolicy.isToolActive(name, 'mcp');
-    return false;
+    return isMcpToolName(name) && this.toolPolicy.isToolActive(name, 'mcp');
   }
 
   private isDynamicallyLoadable(info: ToolInfo): boolean {
@@ -391,11 +410,17 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
       : this.toolPolicy.isToolActive(info.name, info.source);
   }
 
-  private shapeActiveHistory(messages: readonly ContextMessage[]): readonly ContextMessage[] {
+  private shapeActiveHistory(
+    messages: readonly ContextMessage[],
+    tools: readonly Pick<Tool, 'name' | 'deferred'>[],
+  ): readonly ContextMessage[] {
+    const inlineNames = new Set(
+      tools.filter((tool) => tool.deferred !== true).map((tool) => tool.name),
+    );
     let shaped: ContextMessage[] | undefined;
     for (let i = 0; i < messages.length; i += 1) {
       const message = messages[i]!;
-      const next = this.shapeActiveMessage(message);
+      const next = this.shapeActiveMessage(message, inlineNames);
       if (next === message) {
         if (shaped !== undefined) shaped.push(message);
         continue;
@@ -406,14 +431,35 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
     return shaped ?? messages;
   }
 
-  private shapeActiveMessage(message: ContextMessage): ContextMessage | undefined {
+  private shapeActiveMessage(
+    message: ContextMessage,
+    inlineNames: ReadonlySet<string>,
+  ): ContextMessage | undefined {
+    if (message.role !== 'system') return message;
     const tools = message.tools;
     if (tools === undefined || tools.length === 0) return message;
 
+    const current = this.toolRegistry.list();
+    const loaded = collectLoadedDynamicTools(this.context.get(), current);
     let kept: Tool[] | undefined;
     for (let i = 0; i < tools.length; i += 1) {
       const tool = tools[i]!;
-      if (this.isLoadedToolActive(tool.name)) {
+      const info = current.find((entry) => entry.name === tool.name);
+      const active =
+        info === undefined
+          ? isMcpToolName(tool.name) && this.toolPolicy.isToolActive(tool.name, 'mcp')
+          : this.toolPolicy.isToolActive(info.name, info.source);
+      const loadedSchema = loaded.get(tool.name);
+      const keep =
+        !inlineNames.has(tool.name) &&
+        (isMcpToolName(tool.name)
+          ? this.toolPolicy.isToolActive(tool.name, 'mcp') &&
+            (loadedSchema === undefined ||
+              toolDefinitionSchemaSignature(loadedSchema) === toolDefinitionSchemaSignature(tool))
+          : active &&
+            loadedSchema !== undefined &&
+            toolDefinitionSchemaSignature(loadedSchema) === toolDefinitionSchemaSignature(tool));
+      if (keep) {
         if (kept !== undefined) kept.push(tool);
         continue;
       }

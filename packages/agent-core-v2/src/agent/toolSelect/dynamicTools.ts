@@ -1,4 +1,6 @@
 import type { ContextMessage } from '#/agent/contextMemory/types';
+import { isMcpToolName, toolDefinitionSchemaSignature, type ToolInfo } from '#/tool/toolContract';
+import type { ToolDescription } from '#human/llm/message';
 
 export const DYNAMIC_TOOL_SCHEMA_VARIANT = 'dynamic_tool_schema';
 
@@ -47,15 +49,39 @@ export function stripDynamicToolContext(
   return out;
 }
 
-export function collectLoadedDynamicToolNames(history: readonly ContextMessage[]): Set<string> {
-  const names = new Set<string>();
+export function collectLoadedDynamicTools(
+  history: readonly ContextMessage[],
+  current: readonly ToolInfo[],
+): ReadonlyMap<string, ToolDescription> {
+  const loaded = new Map<string, ToolDescription>();
   for (const message of history) {
-    if (message.tools === undefined) continue;
-    for (const tool of message.tools) {
-      names.add(tool.name);
+    if (isLoadableToolsAnnouncement(message)) {
+      const text = message.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
+      for (const name of matchToolNameBlocks(text, TOOLS_REMOVED_BLOCK)) loaded.delete(name);
+      continue;
+    }
+    if (!isDynamicToolSchemaMessage(message)) continue;
+    for (const tool of message.tools ?? []) loaded.set(tool.name, tool);
+  }
+  const currentByName = new Map(current.map((tool) => [tool.name, tool]));
+  for (const [name, schema] of loaded) {
+    const currentTool = currentByName.get(name);
+    if (
+      (currentTool === undefined && !isMcpToolName(name)) ||
+      (currentTool !== undefined &&
+        toolDefinitionSchemaSignature(schema) !== toolDefinitionSchemaSignature(currentTool))
+    ) {
+      loaded.delete(name);
     }
   }
-  return names;
+  return loaded;
+}
+
+export function collectLoadedDynamicToolNames(
+  history: readonly ContextMessage[],
+  current: readonly ToolInfo[],
+): Set<string> {
+  return new Set(collectLoadedDynamicTools(history, current).keys());
 }
 
 const TOOLS_ADDED_BLOCK = /<tools_added>\n?([\s\S]*?)\n?<\/tools_added>/g;

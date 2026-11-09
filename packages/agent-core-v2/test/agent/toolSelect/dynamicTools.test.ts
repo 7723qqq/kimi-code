@@ -10,6 +10,7 @@ import {
   renderLoadableToolsAnnouncement,
   stripDynamicToolContext,
 } from '#/agent/toolSelect/dynamicTools';
+import { type ToolInfo } from '#/tool/toolContract';
 
 function announcement(added: readonly string[], removed: readonly string[]): ContextMessage {
   const text = `<system-reminder>\n${renderLoadableToolsAnnouncement(added, removed).trim()}\n</system-reminder>`;
@@ -33,6 +34,16 @@ function schemaMessage(names: readonly string[]): ContextMessage {
 
 function userMessage(text: string): ContextMessage {
   return { role: 'user', content: [{ type: 'text', text }], toolCalls: [] };
+}
+
+function currentTools(names: readonly string[]): ToolInfo[] {
+  return names.map((name) => ({
+    name,
+    description: `${name} desc`,
+    parameters: {},
+    source: 'builtin',
+    disclosure: 'deferred',
+  }));
 }
 
 describe('foldAnnouncedToolNames', () => {
@@ -146,17 +157,19 @@ describe('predicates and ledger scan', () => {
 
   it('collects the union of loaded names across schema messages', () => {
     const history = [schemaMessage(['a', 'b']), userMessage('x'), schemaMessage(['b', 'c'])];
-    expect([...collectLoadedDynamicToolNames(history)].toSorted()).toEqual(['a', 'b', 'c']);
+    expect(
+      [...collectLoadedDynamicToolNames(history, currentTools(['a', 'b', 'c']))].toSorted(),
+    ).toEqual(['a', 'b', 'c']);
   });
 
   it('returns an empty set when there are no schema messages in history', () => {
     const history = [userMessage('a'), userMessage('b')];
-    expect([...collectLoadedDynamicToolNames(history)]).toEqual([]);
+    expect([...collectLoadedDynamicToolNames(history, currentTools([]))]).toEqual([]);
   });
 
   it('handles empty tool name arrays in schema messages', () => {
     const history = [schemaMessage([]), userMessage('x')];
-    expect([...collectLoadedDynamicToolNames(history)]).toEqual([]);
+    expect([...collectLoadedDynamicToolNames(history, currentTools([]))]).toEqual([]);
   });
 
   it('stripDynamicToolContext returns the identical array when there are no tools or announcements', () => {

@@ -404,7 +404,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       this.microCompaction !== undefined
         ? this.microCompaction.compact(request.messages)
         : request.messages;
-    const shaped = this.toolSelect.shapeHistory(compacted);
+    const shaped = this.toolSelect.shapeHistory(compacted, request.tools);
     const recoveredMedia = this.recoveredMedia(request);
     let policy: ProjectionPolicy | undefined =
       recoveredMedia === undefined ? undefined : { media: recoveredMedia };
