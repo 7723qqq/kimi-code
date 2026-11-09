@@ -161,7 +161,12 @@ class ToolContributions {
 
 const SENT_ONLY_WITH_DYNAMIC_TOOL_LOADING: ReadonlySet<string> = new Set([SELECT_TOOLS_TOOL_NAME]);
 
-const MAIN_AGENT_ONLY_TOOLS: ReadonlySet<string> = new Set(['session_query']);
+const MAIN_AGENT_ONLY_TOOLS: ReadonlySet<string> = new Set([
+  'Knowledge',
+  'Memory',
+  'Workflow',
+  'session_query',
+]);
 
 const PARENT_SYSTEM_PROMPT = 'You are the parity probe parent.';
 const ACTIVE_TOOL_NAMES = ['Agent', 'Bash', 'Read'];
