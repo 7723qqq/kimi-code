@@ -11,7 +11,7 @@ import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender';
 import { degradeLeadingMediaParts } from '#/agent/contextProjector/mediaProjection';
 import { mcpResultToExecutableOutput } from '#/agent/mcp/output';
-import { detectFileType } from '#/agent/media/file-type';
+import { detectFileType, sniffImageDimensions } from '#/agent/media/file-type';
 import { parseDaemonFileUrl } from '#/agent/media/mediaRef';
 import { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
 import { SessionMediaStoreService } from '#/agent/media/sessionMediaStoreService';
@@ -322,6 +322,7 @@ describe('SessionMediaStoreService', () => {
     const bytes = Buffer.from(
       await new Jimp({ width: 32, height: 32, color: 0x3366ccff }).getBuffer('image/png'),
     );
+    const materialize = spyOn(store, 'materialize');
     const result = await mcpResultToExecutableOutput(
       {
         isError: false,
@@ -331,6 +332,9 @@ describe('SessionMediaStoreService', () => {
       { attachmentStore: store },
     );
     const content = renderToolResultForModel(result);
+    const reference = JSON.parse(/Attachment reference: ("[^\n]+")/.exec(modelText(result))![1]!) as string;
+    expect(content).toContainEqual({ type: 'image_url', imageUrl: { url: reference } });
+    expect(materialize).toHaveBeenCalledTimes(1);
     const messages: Message[] = [
       { role: 'tool', toolCallId: 'image', content, toolCalls: [] },
       {
@@ -364,15 +368,18 @@ describe('SessionMediaStoreService', () => {
       'mcp__example__image',
       { attachmentStore: store },
     );
-    const text = renderToolResultForModel(result)
-      .map((part) => (part.type === 'text' ? part.text : ''))
-      .join('\n');
+    const content = renderToolResultForModel(result);
+    const text = modelText(result);
     expect(text).toContain('Image compressed');
     const relative = /Session-relative attachment: ("[^\n]+")/.exec(text)?.[1];
     expect(relative).toBeDefined();
     expect((await readFile(join(sessionDir, JSON.parse(relative!) as string))).equals(bytes)).toBe(
       true,
     );
+    const image = content.find((part) => part.type === 'image_url');
+    expect(image?.imageUrl.url).toMatch(/^kimi-file:\/\//);
+    const final = await store.read(parseDaemonFileUrl(image!.imageUrl.url)!.fileId);
+    expect(sniffImageDimensions(final!.data)).toMatchObject({ width: 2000, height: 1000 });
   });
 
   it.each([

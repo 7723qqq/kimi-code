@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 
+import { Jimp } from 'jimp';
+
 import { DisposableStore } from '#/_base/di/lifecycle';
 import {
   ScopeActivation,
@@ -11,9 +13,11 @@ import {
   registerScopedService,
 } from '#/_base/di/scope';
 import { createScopedTestHost, createServices, stubPair } from '#/_base/di/test';
+import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender';
 import { buildKimiFileUrl } from '#/agent/media/kimiFileUrl';
 import { IAgentMediaResolverService } from '#/agent/media/mediaResolver';
 import { AgentMediaResolverService } from '#/agent/media/mediaResolverService';
+import { mcpResultToExecutableOutput } from '#/agent/mcp/output';
 import { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
@@ -880,6 +884,49 @@ describe('AgentMediaResolverService image strategy', () => {
 });
 
 describe('AgentMediaResolverService image upload', () => {
+  it('uploads an MCP image once and reuses its reference on later resolves', async () => {
+    const screenshot = await new Jimp({ width: 32, height: 32, color: 0x3366ccff }).getBuffer(
+      'image/png',
+    );
+    const mediaStore = stubMediaStore(sessionDir);
+    const materialize = mock(async ({ fileId }: { fileId: string }) =>
+      join(sessionDir, 'media', `${fileId}.png`),
+    );
+    mediaStore.materialize = materialize;
+    mediaStore.read = async () => ({ data: screenshot, name: 'screenshot.png' });
+    const result = await mcpResultToExecutableOutput(
+      {
+        isError: false,
+        content: [
+          { type: 'image', mimeType: 'image/png', data: screenshot.toString('base64') },
+        ],
+      },
+      'mcp__example__screenshot',
+      { attachmentStore: mediaStore, providerType: 'kimi' },
+    );
+    const message: Message = {
+      role: 'tool',
+      toolCallId: 'call_1',
+      content: renderToolResultForModel(result),
+      toolCalls: [],
+    };
+    const upload = mock(async (): Promise<ImageURLPart> => msImagePart('uploaded-screenshot'));
+    const res = resolver(new Map(), sessionDir, mediaStore);
+    const req = requester({ uploadImage: upload });
+
+    const first = await res.resolve([message], req);
+    const second = await res.resolve([message], req);
+
+    for (const resolved of [first, second]) {
+      expect(resolved[0]?.content).toContainEqual({
+        type: 'image_url',
+        imageUrl: { url: 'ms://uploaded-screenshot', id: 'uploaded-screenshot' },
+      });
+    }
+    expect(upload).toHaveBeenCalledTimes(1);
+    expect(materialize).toHaveBeenCalledTimes(1);
+  });
+
   it('uploads an image once and serves later resolves from the cached reference', async () => {
     const upload = mock(async (): Promise<ImageURLPart> => msImagePart('img-1'));
     const res = resolver(new Map([[FILE_ID, { name: 'pic.png', bytes: PNG_BYTES }]]));
