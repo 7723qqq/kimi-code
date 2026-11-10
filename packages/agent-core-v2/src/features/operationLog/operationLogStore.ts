@@ -64,9 +64,18 @@ function isOperationView(value: unknown): value is StoredOperationView {
   }
   if (!Object.values(candidate.refs).every((target) => typeof target === 'string')) return false;
   const head = candidate.head;
-  if (head.kind === 'detached') return typeof head.target === 'string';
-  if (head.kind === 'unborn') return typeof head.ref === 'string';
-  return head.kind === 'branch' && typeof head.ref === 'string' && typeof head.target === 'string';
+  const validHead =
+    head.kind === 'detached'
+      ? typeof head.target === 'string'
+      : head.kind === 'unborn'
+        ? typeof head.ref === 'string'
+        : head.kind === 'branch' && typeof head.ref === 'string' && typeof head.target === 'string';
+  return (
+    validHead &&
+    (candidate.unfinishedOperation === undefined ||
+      candidate.unfinishedOperation === 'merge' ||
+      candidate.unfinishedOperation === 'rebase')
+  );
 }
 
 function isOperationRecord(value: unknown): value is OperationRecord {
@@ -407,6 +416,9 @@ export class OperationLogStore {
       head: parsed.head,
       refs: parsed.refs,
       indexTree: parsed.indexTree,
+      ...(parsed.unfinishedOperation === undefined
+        ? {}
+        : { unfinishedOperation: parsed.unfinishedOperation }),
     };
   }
 

@@ -19,6 +19,7 @@ export interface OperationView {
   readonly head: OperationGitHead;
   readonly refs: Readonly<Record<string, string>>;
   readonly indexTree: string;
+  readonly unfinishedOperation?: 'merge' | 'rebase';
 }
 
 export type OperationKind = 'capture' | 'undo' | 'redo' | 'restore';
@@ -69,11 +70,14 @@ export type OperationLogErrorCode =
   | 'not-found'
   | 'nothing-to-undo'
   | 'nothing-to-redo'
-  | 'retention-exceeded';
+  | 'retention-exceeded'
+  | 'staged-changes'
+  | 'unfinished-operation';
 
 export interface OperationLogErrorDetails {
   readonly limit?: 'operations' | 'age' | 'bytes';
   readonly maximum?: number;
+  readonly operation?: 'merge' | 'rebase';
 }
 
 export class OperationLogError extends Error {
