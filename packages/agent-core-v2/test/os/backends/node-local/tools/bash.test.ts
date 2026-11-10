@@ -32,6 +32,8 @@ import { type BashInput, BashInputSchema } from '#/agent/tools/os/bash/bash';
 import { BashTool } from '#/agent/tools/os/bash/bashTool';
 import { ProcessTask } from '#/agent/tools/os/bash/process-task';
 import type { IConfigService } from '#/app/config/config';
+import type { IFlagService } from '#/app/flag/flag';
+import { OPERATION_LOG_FLAG_ID } from '#/features/operationLog/flag';
 import { HostTimersService } from '#/os/backends/host/hostTimersService';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
@@ -845,6 +847,7 @@ function bashTool(
   background: IAgentTaskService = createFakeTaskService().service,
   toolPolicy: IAgentToolPolicyService = stubToolPolicy(),
   config: IConfigService = stubConfig(),
+  flags?: IFlagService,
 ): BashTool {
   const processService: IHostProcessService = {
     _serviceBrand: undefined,
@@ -862,7 +865,7 @@ function bashTool(
     },
   );
   const environment = stubAgentEnvironment(backend, { workDir: ctx.cwd });
-  return new BashTool(environment, ctx, stubWorkspaceContext(ctx.cwd), background, toolPolicy, config);
+  return new BashTool(environment, ctx, stubWorkspaceContext(ctx.cwd), background, toolPolicy, config, flags);
 }
 
 describe('BashTool', () => {
@@ -1616,6 +1619,37 @@ describe('BashTool', () => {
       45_000,
     );
     await expect(detachTimeoutMsFor({ task: { bashTaskTimeoutS: 0 } })).resolves.toBe(0);
+  });
+});
+
+describe('BashTool operation log integration', () => {
+  it('disables explicit, timeout and manual background execution', async () => {
+    const background = createFakeTaskService();
+    const { runner, exec } = createTestRunner(processWithOutput());
+    const flags = {
+      enabled: (id: string) => id === OPERATION_LOG_FLAG_ID,
+    } as unknown as IFlagService;
+    const tool = bashTool(
+      runner,
+      createTestEnv(),
+      createTestCtx(),
+      background.service,
+      stubToolPolicy(),
+      stubConfig(),
+      flags,
+    );
+
+    const rejected = await executeTool(
+      tool,
+      context({ command: 'watch', run_in_background: true, description: 'watch' }),
+    );
+    expect(rejected.output).toContain('Background execution is not available');
+    expect(exec).not.toHaveBeenCalled();
+
+    await executeTool(tool, context({ command: 'echo ok' }));
+    const options = [...background.tasks.values()].map((entry) => entry.options);
+    expect(options).toHaveLength(1);
+    expect(options[0]).toMatchObject({ autoBackgroundOnTimeout: false, detachable: false });
   });
 });
 

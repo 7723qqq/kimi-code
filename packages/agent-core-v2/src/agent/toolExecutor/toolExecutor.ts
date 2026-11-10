@@ -3,6 +3,7 @@ import type { IDisposable } from '#/_base/di/lifecycle';
 import type { Event } from '#/_base/event';
 import type {
   BeforeToolExecuteEvent,
+  ResolvedToolExecutionHookContext,
   ToolDidExecuteContext,
   WillExecuteToolEvent,
 } from '#/agent/toolExecutor/toolHooks';
@@ -57,6 +58,7 @@ export interface IAgentToolExecutorService {
   readonly onWillExecuteTool: Event<WillExecuteToolEvent>;
 
   readonly hooks: {
+    readonly onExecuteTool: OrderedHookSlot<ResolvedToolExecutionHookContext>;
     readonly onDidExecuteTool: OrderedHookSlot<ToolDidExecuteContext>;
   };
 

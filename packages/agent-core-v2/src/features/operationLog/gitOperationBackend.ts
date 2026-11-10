@@ -2,11 +2,18 @@ import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
 
 import { dirname, join, resolve } from 'pathe';
 
-import { OperationLogError, type OperationGitHead, type OperationView } from './operationLog';
+import {
+  operationGitHeadsEqual,
+  operationRefsEqual,
+  operationViewsEqual,
+  OperationLogError,
+  type OperationGitHead,
+  type OperationView,
+} from './operationLog';
 
 interface GitOperationBackendOptions {
   readonly repoRoot: string;
-  readonly storageRoot: string;
+  readonly storageRoot?: string;
 }
 
 interface GitResult {
@@ -31,37 +38,6 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
-function sameHead(left: OperationGitHead, right: OperationGitHead): boolean {
-  if (left.kind !== right.kind) return false;
-  if (left.kind === 'unborn') return right.kind === 'unborn' && left.ref === right.ref;
-  if (left.kind === 'detached') {
-    return right.kind === 'detached' && left.target === right.target;
-  }
-  return right.kind === 'branch' && left.ref === right.ref && left.target === right.target;
-}
-
-function sameRefs(
-  left: Readonly<Record<string, string>>,
-  right: Readonly<Record<string, string>>,
-): boolean {
-  const leftNames = Object.keys(left).toSorted();
-  const rightNames = Object.keys(right).toSorted();
-  return (
-    leftNames.length === rightNames.length &&
-    leftNames.every((name, index) => name === rightNames[index] && left[name] === right[name])
-  );
-}
-
-function sameView(left: OperationView, right: OperationView): boolean {
-  return (
-    left.tree === right.tree &&
-    left.indexTree === right.indexTree &&
-    left.unfinishedOperation === right.unfinishedOperation &&
-    sameHead(left.head, right.head) &&
-    sameRefs(left.refs, right.refs)
-  );
-}
-
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -82,6 +58,7 @@ export class GitOperationBackend {
   private constructor(
     private readonly repoRoot: string,
     private readonly gitDir: string,
+    readonly storageRoot: string,
     private readonly actualObjectDir: string,
     private readonly shadowIndexPath: string,
     private readonly shadowObjectDir: string,
@@ -90,13 +67,15 @@ export class GitOperationBackend {
 
   static async open(options: GitOperationBackendOptions): Promise<GitOperationBackend> {
     const repoRoot = resolve(options.repoRoot);
-    const storageRoot = resolve(options.storageRoot);
     const rootResult = await runGit(repoRoot, ['rev-parse', '--show-toplevel']);
     const gitDirResult = await runGit(repoRoot, [
       'rev-parse',
       '--path-format=absolute',
       '--absolute-git-dir',
     ]);
+    const storageRoot = resolve(
+      options.storageRoot ?? join(gitDirResult.stdout.trim(), 'kimi-operation-log'),
+    );
     const objectDirResult = await runGit(repoRoot, [
       'rev-parse',
       '--path-format=absolute',
@@ -106,6 +85,7 @@ export class GitOperationBackend {
     return new GitOperationBackend(
       rootResult.stdout.trim(),
       gitDirResult.stdout.trim(),
+      storageRoot,
       objectDirResult.stdout.trim(),
       join(storageRoot, 'index'),
       join(storageRoot, 'objects'),
@@ -121,7 +101,7 @@ export class GitOperationBackend {
   async restoreView(expected: OperationView, target: OperationView): Promise<void> {
     const current = await this.captureView();
     await this.assertRestorable(target);
-    if (!sameView(current, expected)) {
+    if (!operationViewsEqual(current, expected)) {
       throw new OperationLogError(
         'view-mismatch',
         'The repository changed after the expected view was captured',
@@ -210,7 +190,7 @@ export class GitOperationBackend {
       await this.git(['read-tree', current.tree]);
       await this.git(['read-tree', '--reset', '-u', target.tree]);
     }
-    if (!sameHead(current.head, target.head)) {
+    if (!operationGitHeadsEqual(current.head, target.head)) {
       if (target.head.kind === 'detached') {
         const oldTarget = current.head.kind === 'unborn' ? '0'.repeat(40) : current.head.target;
         await this.git(['update-ref', '--no-deref', 'HEAD', target.head.target, oldTarget], {
@@ -220,7 +200,8 @@ export class GitOperationBackend {
         await this.git(['symbolic-ref', 'HEAD', target.head.ref], { shadowIndex: false });
       }
     }
-    if (!sameRefs(current.refs, target.refs)) await this.updateRefs(current.refs, target.refs);
+    if (!operationRefsEqual(current.refs, target.refs))
+      await this.updateRefs(current.refs, target.refs);
     if (current.indexTree !== target.indexTree) {
       await this.git(
         ['read-tree', ...(target.head.kind === 'unborn' ? ['--empty'] : [target.head.target])],

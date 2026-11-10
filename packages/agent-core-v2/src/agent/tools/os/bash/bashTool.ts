@@ -5,6 +5,7 @@ import { IAgentTaskService } from '#/agent/task/task';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { IConfigService } from '#/app/config/config';
+import { IFlagService } from '#/app/flag/flag';
 import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
@@ -17,6 +18,7 @@ import {
   pinnedGeneration,
 } from '#/agent/environmentBinding/agentEnvironment';
 import { EnvironmentWorkspaceView } from '#/environment/environmentWorkspaceView';
+import { OPERATION_LOG_FLAG_ID } from '#/features/operationLog/flag';
 import {
   DEFAULT_TOOL_RESULT_MAX_CHARS,
   ToolSideEffects,
@@ -64,6 +66,7 @@ export class BashTool implements IBashTool {
     @IAgentTaskService private readonly tasks: IAgentTaskService,
     @IAgentToolPolicyService private readonly toolPolicy: IAgentToolPolicyService,
     @IConfigService private readonly config: IConfigService,
+    @IFlagService private readonly flags?: IFlagService,
   ) {
     this.results = new ShellToolResults(this.tasks, () => this.allowBackground());
   }
@@ -72,6 +75,7 @@ export class BashTool implements IBashTool {
 
   private allowBackground(): boolean {
     return (
+      this.flags?.enabled(OPERATION_LOG_FLAG_ID) !== true &&
       this.toolPolicy.isToolActive('TaskList') &&
       this.toolPolicy.isToolActive('TaskOutput') &&
       this.toolPolicy.isToolActive('TaskStop')
@@ -79,6 +83,7 @@ export class BashTool implements IBashTool {
   }
 
   private autoBackgroundOnTimeout(): boolean {
+    if (this.flags?.enabled(OPERATION_LOG_FLAG_ID) === true) return false;
     return resolveAgentTaskConfig(this.config)?.bashAutoBackgroundOnTimeout ?? true;
   }
 
@@ -234,6 +239,7 @@ export class BashTool implements IBashTool {
         ),
         {
           detached: startsInBackground,
+          detachable: this.flags?.enabled(OPERATION_LOG_FLAG_ID) !== true,
           timeoutMs,
           detachTimeoutMs: this.detachTimeoutMs(),
           autoBackgroundOnTimeout: this.allowBackground() && this.autoBackgroundOnTimeout(),

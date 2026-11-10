@@ -312,6 +312,14 @@ describe('AgentTaskService', () => {
     expect(records.filter((record) => record['type'] === 'task.output')).toEqual([]);
   });
 
+  it('does not detach a task registered as non-detachable', async () => {
+    const svc = ix.get(IAgentTaskService);
+    const taskId = svc.registerTask(fakeProcessTask(), { detached: false, detachable: false });
+
+    expect(svc.detach(taskId)?.detached).toBe(false);
+    expect(svc.getTask(taskId)?.detached).toBe(false);
+  });
+
   it('task.output is not published for foreground tasks', async () => {
     const svc = ix.get(IAgentTaskService);
     const outputs: TaskOutput[] = [];

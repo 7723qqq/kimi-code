@@ -8,8 +8,10 @@ import { IAgentTaskService } from '#/agent/task/task';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { IConfigService } from '#/app/config/config';
-import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
+import { IFlagService } from '#/app/flag/flag';
 import { EnvironmentWorkspaceView } from '#/environment/environmentWorkspaceView';
+import { OPERATION_LOG_FLAG_ID } from '#/features/operationLog/flag';
+import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
@@ -90,6 +92,7 @@ export class PowerShellTool implements IPowerShellTool {
     @IAgentToolPolicyService private readonly toolPolicy: IAgentToolPolicyService,
     @IConfigService private readonly config: IConfigService,
     private readonly overrides: PowerShellToolOverrides = {},
+    @IFlagService private readonly flags?: IFlagService,
   ) {
     this.results = new ShellToolResults(this.tasks, () => this.allowBackground());
   }
@@ -98,6 +101,7 @@ export class PowerShellTool implements IPowerShellTool {
 
   private allowBackground(): boolean {
     return (
+      this.flags?.enabled(OPERATION_LOG_FLAG_ID) !== true &&
       this.toolPolicy.isToolActive('TaskList') &&
       this.toolPolicy.isToolActive('TaskOutput') &&
       this.toolPolicy.isToolActive('TaskStop')
@@ -105,6 +109,7 @@ export class PowerShellTool implements IPowerShellTool {
   }
 
   private autoBackgroundOnTimeout(): boolean {
+    if (this.flags?.enabled(OPERATION_LOG_FLAG_ID) === true) return false;
     return resolveAgentTaskConfig(this.config)?.bashAutoBackgroundOnTimeout ?? true;
   }
 
@@ -250,6 +255,7 @@ export class PowerShellTool implements IPowerShellTool {
         ),
         {
           detached: startsInBackground,
+          detachable: this.flags?.enabled(OPERATION_LOG_FLAG_ID) !== true,
           timeoutMs,
           detachTimeoutMs: this.detachTimeoutMs(),
           autoBackgroundOnTimeout: this.allowBackground() && this.autoBackgroundOnTimeout(),

@@ -8,7 +8,7 @@
 # commented "# field: type" lines describe the remaining schema fields.
 # Values resolve as: default -> config.toml -> env overlay -> memory.
 
-# Index (38 sections · 3 overlay(s))
+# Index (39 sections · 3 overlay(s))
 #   background               src/agent/task/configSection.ts
 #   builtinProductSkills     src/features/skill/catalog/configSection.ts
 #   cron                     src/features/cron/configSection.ts
@@ -31,6 +31,7 @@
 #   modelCatalog             src/app/kosongConfig/configSection.ts
 #   modelOverrides           src/app/kosongConfig/configSection.ts
 #   models                   src/app/kosongConfig/configSection.ts
+#   operationLog             src/features/operationLog/configSection.ts
 #   permission               src/agent/permissionRules/configSection.ts
 #   promptOptimizer          src/features/promptOptimizer/configSection.ts
 #   providers                src/app/kosongConfig/configSection.ts
@@ -378,6 +379,22 @@ merge_all_available_skills = true
     # support_efforts: string[]
     # default_effort: string
     # off_effort: string
+
+# ##########################################################################
+# operationLog (config.toml: operation_log)
+#   owner: src/features/operationLog/configSection.ts
+#   scope: core
+#   hooks: stripEnv
+#   env:
+#     max_operations <- KIMI_CODE_OPERATION_LOG_MAX_OPERATIONS (custom parse)
+#     max_age_ms <- KIMI_CODE_OPERATION_LOG_MAX_AGE_MS (custom parse)
+#     max_total_bytes <- KIMI_CODE_OPERATION_LOG_MAX_TOTAL_BYTES (custom parse)
+# ##########################################################################
+
+[operation_log]
+# max_operations: integer
+# max_age_ms: integer
+# max_total_bytes: integer
 
 # ##########################################################################
 # permission

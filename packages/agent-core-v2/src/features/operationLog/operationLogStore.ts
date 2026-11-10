@@ -133,13 +133,18 @@ export class OperationLogStore {
     }
   }
 
-  capture(view: OperationView, input: OperationActionInput): Promise<OperationRecord> {
+  capture(
+    view: OperationView,
+    input: OperationActionInput,
+    beforeView?: OperationView,
+  ): Promise<OperationRecord> {
     return this.withLock(async () => {
       const head = await this.readHead();
       const parent = head === undefined ? undefined : await this.readOperation(head.operationId);
       return this.append({
         kind: 'capture',
         view,
+        beforeView,
         parent,
         input,
         nextHead: (operation) => ({
@@ -261,6 +266,7 @@ export class OperationLogStore {
   private async append(input: {
     readonly kind: OperationRecord['kind'];
     readonly view: OperationView;
+    readonly beforeView?: OperationView;
     readonly parent: OperationRecord | undefined;
     readonly input: OperationActionInput;
     readonly targetId?: string;
@@ -275,10 +281,26 @@ export class OperationLogStore {
     };
     const viewRaw = encoded(storedView);
     const viewId = sha256(viewRaw);
+    let beforeViewRaw: string | undefined;
+    let beforeViewId: string | undefined;
+    if (input.beforeView !== undefined) {
+      if (!isOperationView({ version: OPERATION_LOG_RECORD_VERSION, ...input.beforeView })) {
+        throw new OperationLogError('invalid', 'Invalid operation before view');
+      }
+      beforeViewRaw = encoded({ version: OPERATION_LOG_RECORD_VERSION, ...input.beforeView });
+      beforeViewId = sha256(beforeViewRaw);
+      if (input.parent !== undefined && input.parent.viewId !== beforeViewId) {
+        throw new OperationLogError(
+          'view-mismatch',
+          'The capture before view differs from the operation head view',
+        );
+      }
+    }
+    const effectiveBeforeViewId = input.parent?.viewId ?? beforeViewId;
     const content: Omit<OperationRecord, 'id'> = {
       version: OPERATION_LOG_RECORD_VERSION,
       parents: input.parent === undefined ? [] : [input.parent.id],
-      ...(input.parent === undefined ? {} : { beforeViewId: input.parent.viewId }),
+      ...(effectiveBeforeViewId === undefined ? {} : { beforeViewId: effectiveBeforeViewId }),
       viewId,
       kind: input.kind,
       ...(input.targetId === undefined ? {} : { targetId: input.targetId }),
@@ -289,7 +311,10 @@ export class OperationLogStore {
     };
     const withId: OperationRecord = { id: sha256(encoded(content)), ...content };
     const operationRaw = encoded(withId);
-    await this.assertRetention(withId, operationRaw, viewRaw, input.input.at);
+    await this.assertRetention(withId, operationRaw, viewRaw, input.input.at, beforeViewRaw);
+    if (beforeViewId !== undefined && beforeViewRaw !== undefined) {
+      await this.writeImmutable(this.viewPath(beforeViewId), beforeViewRaw);
+    }
     await this.writeImmutable(this.viewPath(viewId), viewRaw);
     await this.writeImmutable(this.operationPath(withId.id), operationRaw);
     await this.writeAtomic(this.headPath, encoded(input.nextHead(withId)));
@@ -301,6 +326,7 @@ export class OperationLogStore {
     operationRaw: string,
     viewRaw: string,
     at: Date,
+    beforeViewRaw?: string,
   ): Promise<void> {
     const documents = await this.operationDocuments();
     if (documents.length >= this.retention.maxOperations) {
@@ -318,19 +344,29 @@ export class OperationLogStore {
         { limit: 'age', maximum: this.retention.maxAgeMs },
       );
     }
-    const viewIds = new Set(documents.map((document) => document.operation.viewId));
+    const viewIds = new Set(
+      documents.flatMap((document) => [
+        document.operation.viewId,
+        ...(document.operation.beforeViewId === undefined ? [] : [document.operation.beforeViewId]),
+      ]),
+    );
     let totalBytes = documents.reduce(
       (total, document) => total + Buffer.byteLength(document.raw),
       0,
     );
-    const countedViews = new Set<string>();
-    for (const viewId of viewIds) {
-      if (countedViews.has(viewId)) continue;
-      countedViews.add(viewId);
-      totalBytes += await this.fileSize(this.viewPath(viewId));
-    }
+    for (const viewId of viewIds) totalBytes += await this.fileSize(this.viewPath(viewId));
     totalBytes += Buffer.byteLength(operationRaw);
-    if (!viewIds.has(operation.viewId)) totalBytes += Buffer.byteLength(viewRaw);
+    if (!viewIds.has(operation.viewId)) {
+      totalBytes += Buffer.byteLength(viewRaw);
+      viewIds.add(operation.viewId);
+    }
+    if (
+      beforeViewRaw !== undefined &&
+      operation.beforeViewId !== undefined &&
+      !viewIds.has(operation.beforeViewId)
+    ) {
+      totalBytes += Buffer.byteLength(beforeViewRaw);
+    }
     if (totalBytes > this.retention.maxTotalBytes) {
       throw new OperationLogError(
         'retention-exceeded',

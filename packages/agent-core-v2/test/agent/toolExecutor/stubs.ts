@@ -27,7 +27,10 @@ export function stubToolExecutorEvents(): ToolExecutorEventStubs {
     execute: async function* () {},
     onBeforeExecuteTool: beforeEmitter.event,
     onWillExecuteTool: willEmitter.event,
-    hooks: { onDidExecuteTool: didExecuteSlot },
+    hooks: {
+      onExecuteTool: new OrderedHookSlot<ResolvedToolExecutionHookContext>(),
+      onDidExecuteTool: didExecuteSlot,
+    },
     recordDupType: () => {},
     registerToolCallGuard: () => ({ dispose() {} }),
     registerUnavailableToolDescriber: () => ({ dispose() {} }),

@@ -22,6 +22,37 @@ export interface OperationView {
   readonly unfinishedOperation?: 'merge' | 'rebase';
 }
 
+export function operationGitHeadsEqual(left: OperationGitHead, right: OperationGitHead): boolean {
+  if (left.kind !== right.kind) return false;
+  if (left.kind === 'unborn') return right.kind === 'unborn' && left.ref === right.ref;
+  if (left.kind === 'detached') {
+    return right.kind === 'detached' && left.target === right.target;
+  }
+  return right.kind === 'branch' && left.ref === right.ref && left.target === right.target;
+}
+
+export function operationRefsEqual(
+  left: Readonly<Record<string, string>>,
+  right: Readonly<Record<string, string>>,
+): boolean {
+  const leftNames = Object.keys(left).toSorted();
+  const rightNames = Object.keys(right).toSorted();
+  return (
+    leftNames.length === rightNames.length &&
+    leftNames.every((name, index) => name === rightNames[index] && left[name] === right[name])
+  );
+}
+
+export function operationViewsEqual(left: OperationView, right: OperationView): boolean {
+  return (
+    left.tree === right.tree &&
+    left.indexTree === right.indexTree &&
+    left.unfinishedOperation === right.unfinishedOperation &&
+    operationGitHeadsEqual(left.head, right.head) &&
+    operationRefsEqual(left.refs, right.refs)
+  );
+}
+
 export type OperationKind = 'capture' | 'undo' | 'redo' | 'restore';
 
 export interface OperationOrigin {

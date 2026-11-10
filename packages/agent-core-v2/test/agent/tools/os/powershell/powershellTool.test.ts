@@ -18,6 +18,8 @@ import {
 } from '#/agent/tools/os/powershell/powershell';
 import { PowerShellTool } from '#/agent/tools/os/powershell/powershellTool';
 import type { IConfigService } from '#/app/config/config';
+import type { IFlagService } from '#/app/flag/flag';
+import { OPERATION_LOG_FLAG_ID } from '#/features/operationLog/flag';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
@@ -132,6 +134,7 @@ function createTestCtx(cwd = 'C:\\workspace'): ISessionContext {
 function powerShellTool(
   spawn: IHostProcessService['spawn'],
   resolveExecutable: (deps: PowerShellResolveDeps) => Promise<PowerShellExecutable>,
+  flags?: IFlagService,
 ): PowerShellTool {
   const processService: IHostProcessService = {
     _serviceBrand: undefined,
@@ -172,6 +175,7 @@ function powerShellTool(
     toolPolicy,
     config,
     { resolveExecutable },
+    flags,
   );
 }
 
@@ -329,6 +333,24 @@ describe('PowerShellTool', () => {
     if (execution.isError === true) throw new Error('unexpected error result');
     expect(execution.display?.kind).toBe('command');
     expect(execution.approvalRule).toBeDefined();
+  });
+
+  it('disables background execution while operation log capture is enabled', async () => {
+    const spawn = mock().mockResolvedValue(processWithOutput({}));
+    const flags = {
+      enabled: (id: string) => id === OPERATION_LOG_FLAG_ID,
+    } as unknown as IFlagService;
+    const tool = powerShellTool(spawn, async () => ({ path: 'C:\\pwsh.exe', kind: 'pwsh' }), flags);
+
+    const result = await executeTool(tool, {
+      command: 'Get-Date',
+      run_in_background: true,
+      description: 'watch',
+    });
+
+    expect(result.output).toContain('Background execution is not available');
+    expect(spawn).not.toHaveBeenCalled();
+    expect(tool.description).toContain('Background execution is disabled');
   });
 
   it('spawns the resolved executable with encoded args and returns clean UTF-8 output', async () => {

@@ -144,6 +144,31 @@ describe('OperationLogStore', () => {
     expect(undoneRestore.viewId).toBe(second.viewId);
   });
 
+  it('records a before view on the first changed operation so it can be undone', async () => {
+    const root = await tempRoot();
+    const store = new OperationLogStore(root);
+
+    const captured = await store.capture(view('tree-b'), action(2_000), view('tree-a'));
+    const beforeViewId = captured.beforeViewId;
+    if (beforeViewId === undefined) throw new Error('Missing before view id');
+    expect(await store.view(beforeViewId)).toEqual(view('tree-a'));
+
+    const undone = await store.undo(action(3_000));
+    expect(undone.viewId).toBe(beforeViewId);
+    expect(await store.view(undone.viewId)).toEqual(view('tree-a'));
+  });
+
+  it('rejects a capture whose before view differs from the current head view', async () => {
+    const root = await tempRoot();
+    const store = new OperationLogStore(root);
+    await store.capture(view('tree-b'), action(1_000), view('tree-a'));
+
+    expect(
+      await rejectionOf(store.capture(view('tree-d'), action(2_000), view('tree-c'))),
+    ).toMatchObject({ code: 'view-mismatch' });
+    expect(await store.list()).toHaveLength(1);
+  });
+
   it('rejects an operation beyond the count limit without deleting history', async () => {
     const root = await tempRoot();
     const store = new OperationLogStore(root, { maxOperations: 2 });

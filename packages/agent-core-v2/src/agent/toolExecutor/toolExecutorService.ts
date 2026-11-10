@@ -118,6 +118,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
   readonly onWillExecuteTool: Event<WillExecuteToolEvent> = this.willExecuteEmitter.event;
 
   readonly hooks = {
+    onExecuteTool: new OrderedHookSlot<ResolvedToolExecutionHookContext>(),
     onDidExecuteTool: new OrderedHookSlot<ToolDidExecuteContext>(),
   };
 
@@ -504,6 +505,52 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
   }
 
   private async runSingleExecution(
+    call: RunnableToolCall,
+    execution: RunnableToolExecution,
+    metadata: unknown,
+    options: ToolExecutorExecuteOptions,
+    signal: AbortSignal,
+  ): Promise<ToolExecutionRunResult> {
+    let executed = false;
+    let completed: ToolExecutionRunResult | undefined;
+    const context: ResolvedToolExecutionHookContext = {
+      turnId: options.turnId,
+      signal: options.signal,
+      trace: options.trace,
+      toolCall: call.toolCall,
+      toolCalls: [call.toolCall],
+      tool: call.tool,
+      args: call.args,
+      execution,
+    };
+    try {
+      await this.hooks.onExecuteTool.run(context, async () => {
+        executed = true;
+        completed = await this.runSingleExecutionInner(call, execution, metadata, options, signal);
+      });
+    } catch (error) {
+      const aborted = isAbortError(error) || signal.aborted;
+      const output = aborted
+        ? `Tool "${call.toolName}" aborted during onExecuteTool hook.`
+        : `onExecuteTool hook failed for "${call.toolName}": ${errorMessage(error)}`;
+      return {
+        result: { output, isError: true },
+        outcome: executed ? 'executed' : 'hook-failed',
+      };
+    }
+    if (completed === undefined) {
+      return {
+        result: {
+          output: `onExecuteTool hook failed for "${call.toolName}": the execution chain did not run the tool`,
+          isError: true,
+        },
+        outcome: 'hook-failed',
+      };
+    }
+    return completed;
+  }
+
+  private async runSingleExecutionInner(
     call: RunnableToolCall,
     execution: RunnableToolExecution,
     metadata: unknown,

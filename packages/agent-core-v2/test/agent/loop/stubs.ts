@@ -63,6 +63,7 @@ import type { MachineEngine, MachineEngineAttachBundle } from '#/agent/loop/mach
 import type { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import type {
   BeforeToolExecuteEvent,
+  ResolvedToolExecutionHookContext,
   ToolDidExecuteContext,
   WillExecuteToolEvent,
 } from '#/agent/toolExecutor/toolHooks';
@@ -339,7 +340,10 @@ export function stubToolExecutor(): IAgentToolExecutorService {
     execute: async function* () {},
     onBeforeExecuteTool: Event.None as Event<BeforeToolExecuteEvent>,
     onWillExecuteTool: Event.None as Event<WillExecuteToolEvent>,
-    hooks: { onDidExecuteTool: new OrderedHookSlot<ToolDidExecuteContext>() },
+    hooks: {
+      onExecuteTool: new OrderedHookSlot<ResolvedToolExecutionHookContext>(),
+      onDidExecuteTool: new OrderedHookSlot<ToolDidExecuteContext>(),
+    },
     recordDupType: () => {},
     registerToolCallGuard: () => ({ dispose() {} }),
     registerUnavailableToolDescriber: () => ({ dispose() {} }),

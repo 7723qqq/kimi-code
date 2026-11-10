@@ -47,6 +47,7 @@ export type ToolExecutionOutcome =
   | 'resolution-failed'
   | 'vetoed'
   | 'aborted'
+  | 'hook-failed'
   | 'synthetic'
   | 'skipped';
 

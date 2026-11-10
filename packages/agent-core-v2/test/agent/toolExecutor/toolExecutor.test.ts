@@ -771,6 +771,45 @@ describe('AgentToolExecutorService', () => {
     ]);
   });
 
+  it('onExecuteTool wraps the actual tool execution', async () => {
+    const order: string[] = [];
+    const tool = new TestTool('echo', {
+      execute: async () => {
+        order.push('execute');
+        return { output: 'done' };
+      },
+    });
+    registry.register(tool);
+    executor.hooks.onExecuteTool.register('capture', async (_ctx, next) => {
+      order.push('before');
+      await next();
+      order.push('after');
+    });
+
+    const results = await execute([toolCall('call_echo', 'echo', {})]);
+
+    expect(results).toEqual([expect.objectContaining({ output: 'done' })]);
+    expect(order).toEqual(['before', 'execute', 'after']);
+  });
+
+  it('onExecuteTool failure before execution blocks the tool with an explicit error', async () => {
+    const tool = new TestTool('echo');
+    registry.register(tool);
+    executor.hooks.onExecuteTool.register('capture', async () => {
+      throw new Error('capture crashed');
+    });
+
+    const results = await execute([toolCall('call_echo', 'echo', {})]);
+
+    expect(results).toEqual([
+      expect.objectContaining({
+        output: 'onExecuteTool hook failed for "echo": capture crashed',
+        isError: true,
+      }),
+    ]);
+    expect(tool.calls).toEqual([]);
+  });
+
   it('onDidExecuteTool failures replace the raw output with a hook error', async () => {
     const tool = new TestTool('echo');
     registry.register(tool);
