@@ -1,0 +1,41 @@
+src/_base/di/test.ts  test-helper  DI test host used by the engine suites
+src/_base/di/testInstantiationService.ts  test-helper  instantiation service used by src/_base/di tests
+src/_base/lifecycle/keyedResource.ts  test-only  reached only by upstream and local session todo tests
+src/_base/lifecycle/lifecycleMachine.ts  test-only  reached only by its upstream and local unit tests
+src/_base/utils/types.ts  test-only  type helpers reached only by upstream and local test harnesses
+src/environment/fakeEnvironment.ts  test-helper  fake host used by the workspace suites
+src/features/associativeMemory/eval.ts  harness  fork-only recall evaluation driven by its eval tests and bench; absent upstream
+src/human/credentials/index.ts  upstream-dead  barrel re-exported only by human/index.ts on both sides, with no product or test chain
+src/human/credentials/kimi-oauth.ts  test-only  exercised directly by its upstream and local credential tests
+src/human/eventStore/index.ts  upstream-dead  re-exported by human/index.ts on both sides but otherwise unused
+src/human/index.ts  upstream-dead  kernel barrel retained to match upstream; nothing imports it
+src/human/llm-kimi/media.ts  upstream-deleted  removed upstream in b12d13e53c (#4352); the fork keeps it for the requester media tests
+src/human/llm-kimi/provider.ts  upstream-deleted  removed upstream in b12d13e53c (#4352); request trait fixtures still import it
+src/human/llm/media/cache.ts  upstream-deleted  removed upstream in b12d13e53c (#4352); upload-cache spec for the requester media tests
+src/human/llm/media/degrade.ts  upstream-deleted  removed upstream in b12d13e53c (#4352); degrade-on-413 spec in human/test/agent/turn.test.ts
+src/human/llm/media/index.ts  upstream-deleted  removed upstream in b12d13e53c (#4352); barrel for the retained media-upload modules
+src/human/llm/media/mime.ts  upstream-deleted  removed upstream in b12d13e53c (#4352); MIME helpers pinned by requester media tests
+src/human/llm/media/ref.ts  upstream-deleted  removed upstream in b12d13e53c (#4352); media reference contract pinned by requester media tests
+src/human/llm/media/resolver.ts  upstream-deleted  removed upstream in b12d13e53c (#4352); ref resolver used by the requester media tests
+src/human/llm/media/source.ts  upstream-deleted  removed upstream in b12d13e53c (#4352); in-memory media source used by the requester media tests
+src/human/llm/media/store.ts  upstream-deleted  removed upstream in b12d13e53c (#4352); media store contract retained for requester media tests
+src/human/llm/provider/providers/standard.ts  upstream-deleted  removed upstream in b12d13e53c (#4352); provider fixtures still import it
+src/human/persist/open.ts  upstream-deleted  removed upstream in 805f4beb1b (#4706); retained for local fold parity and migration tests
+src/human/persist/v2/convert.ts  upstream-deleted  removed upstream in 805f4beb1b (#4706); retained for local fold parity and migration tests
+src/human/persist/v2/fold.ts  upstream-deleted  removed upstream in 805f4beb1b (#4706); pinned by v2FoldCompactionParity.test.ts
+src/human/persist/v2/migrate.ts  upstream-deleted  removed upstream in 805f4beb1b (#4706); retained for the local migrate-v2 test
+src/human/persist/v2/wire.ts  upstream-deleted  removed upstream in 805f4beb1b (#4706); types imported by the fold parity test
+src/human/plugin.ts  test-only  kernel plugin seam exercised directly by upstream and local tests
+src/human/session/events.ts  test-only  reached by upstream and local session store tests
+src/human/session/slices.ts  test-only  reached through session/stores.ts in upstream and local tests
+src/human/session/stores.ts  test-only  reached by upstream and local session store tests
+src/human/store/backend/memory.ts  test-only  in-memory store used by upstream and local kernel machine tests
+src/human/store/backend/node.ts  upstream-dead  re-exported by human/store/index.ts on both sides, with no product or test chain
+src/human/store/index.ts  upstream-dead  re-exported by human/index.ts on both sides but otherwise unused
+src/human/store/store.ts  test-only  kernel tree store used by upstream and local kernel machine tests
+src/human/todo/todoItem.ts  upstream-deleted  removed upstream in 805f4beb1b (#4706); retained because human/persist/v2/fold.ts reads it
+src/human/tool-select/plugin.ts  test-only  kernel tool-select seam exercised directly by upstream and local tests
+src/human/tool-select/resolver.ts  test-only  exercised by upstream and local tool-select plugin tests
+src/human/tool-select/state.ts  test-only  exercised by upstream and local tool-select plugin tests
+src/human/tool-select/tool.ts  test-only  exercised by upstream and local tool-select plugin tests
+src/human/tool/wait-for.ts  test-only  kernel wait-for helper imported by upstream and local machine tests
