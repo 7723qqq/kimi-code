@@ -49,7 +49,6 @@ import {
 import { TowerModeInjection } from './injection/towerModeInjection';
 import {
   BROADCAST_NAME,
-  STATE_FILE,
   TOWER_NAME,
   TowerStore,
   WORKTREES_DIR,
@@ -398,7 +397,7 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
         const command = (args as { readonly command?: unknown }).command;
         if (typeof command !== 'string' || !commandNeedsTowerGuard(command)) return;
         const mainCheckout = resolveTowerRepoRoot(this.sessionCtx.cwd);
-        if (!(await towerWorkspaceOwned(join(mainCheckout, STATE_FILE)))) return;
+        if (!(await towerWorkspaceOwned(new TowerStore(mainCheckout)))) return;
         const cwdArg = (args as { readonly cwd?: unknown }).cwd;
         const cwd =
           typeof cwdArg === 'string'

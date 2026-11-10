@@ -1,9 +1,10 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, jest } from 'bun:test';
 import { execFile } from 'node:child_process';
 import {
   cp,
   mkdir,
   mkdtemp,
+  open,
   readdir,
   readFile,
   rm,
@@ -3628,13 +3629,86 @@ describe('concurrent state writes', () => {
     expect(comms.filter((name) => name.startsWith('state.json.'))).toEqual([]);
   }
 
+  it.skipIf(process.platform !== 'win32')(
+    'serializes state replacement behind an in-flight protocol read on Windows',
+    async () => {
+      const statePath = store.abs(STATE_FILE);
+      const ioLockPath = `${statePath}.io.lock`;
+      let markReadOpen!: () => void;
+      const readOpen = new Promise<void>((resolve) => {
+        markReadOpen = resolve;
+      });
+      let releaseRead!: () => void;
+      const readGate = new Promise<void>((resolve) => {
+        releaseRead = resolve;
+      });
+      const originalFile = Bun.file;
+      let holdStateRead = true;
+      const fileSpy = jest.spyOn(Bun, 'file').mockImplementation(((path: any, ...args: any[]) => {
+        if (path !== statePath || !holdStateRead) return originalFile(path, ...args);
+        holdStateRead = false;
+        return {
+          text: async () => {
+            const handle = await open(statePath, 'r');
+            try {
+              const raw = await handle.readFile('utf8');
+              markReadOpen();
+              await readGate;
+              return raw;
+            } finally {
+              await handle.close();
+            }
+          },
+        };
+      }) as typeof Bun.file);
+      type LockDriver = {
+        tryAcquireStateLock: (lockPath: string, token: string) => Promise<boolean>;
+      };
+      const driver = store as unknown as LockDriver;
+      const originalTryAcquire = driver.tryAcquireStateLock;
+      let markWriterBlocked!: () => void;
+      const writerBlocked = new Promise<void>((resolve) => {
+        markWriterBlocked = resolve;
+      });
+      driver.tryAcquireStateLock = async (lockPath, token) => {
+        const acquired = await originalTryAcquire.call(store, lockPath, token);
+        if (lockPath === ioLockPath && !acquired) markWriterBlocked();
+        return acquired;
+      };
+
+      try {
+        const reading = store.load();
+        await readOpen;
+        const writing = store.updateMission('tower', 'M1', { note: 'after-read' });
+        const settled = writing.then(
+          () => ({}) as { error?: unknown },
+          (error: unknown) => ({ error }),
+        );
+        const first = await Promise.race([
+          writerBlocked.then(() => 'blocked' as const),
+          settled.then(() => 'settled' as const),
+        ]);
+        releaseRead();
+        const [, writeResult] = await Promise.all([reading, settled]);
+        if (writeResult.error !== undefined) throw writeResult.error;
+        expect(first).toBe('blocked');
+        expect((await store.load()).missions[0]?.notes).toContain('after-read');
+        await expectNoLockOrTmpLeftovers();
+      } finally {
+        releaseRead();
+        driver.tryAcquireStateLock = originalTryAcquire;
+        fileSpy.mockRestore();
+      }
+    },
+  );
+
   it('serializes same-process concurrent updateMission calls without lost updates or a torn state file', async () => {
     const notes = Array.from({ length: 8 }, (_, i) => `note-${String(i)}`);
     let reading = true;
     const reader = (async () => {
       for (;;) {
         if (!reading) return;
-        JSON.parse(await readFile(store.abs(STATE_FILE), 'utf8'));
+        await store.load();
       }
     })();
 

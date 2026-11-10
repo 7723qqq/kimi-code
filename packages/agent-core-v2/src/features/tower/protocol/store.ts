@@ -408,6 +408,10 @@ export class TowerStore {
     return this.withProtocolLock(`${this.abs(STATE_FILE)}.lock`, 'state', fn);
   }
 
+  private async withStateIoLock<T>(fn: () => Promise<T>): Promise<T> {
+    return this.withProtocolLock(`${this.abs(STATE_FILE)}.io.lock`, 'state I/O', fn);
+  }
+
   private async withInboxPublicationLock<T>(fn: () => Promise<T>): Promise<T> {
     return this.withProtocolLock(`${this.abs(INBOX_DIR)}.lock`, 'inbox publication', fn);
   }
@@ -418,7 +422,7 @@ export class TowerStore {
 
   private async withProtocolLock<T>(
     lockPath: string,
-    kind: 'state' | 'inbox publication',
+    kind: 'state' | 'state I/O' | 'inbox publication',
     fn: () => Promise<T>,
   ): Promise<T> {
     const deadline = Date.now() + this.stateLockTimeoutMs;
@@ -438,13 +442,15 @@ export class TowerStore {
           holder = ` — held by ${content}`;
           sameProcess = Number(/^pid=(\d+)\b/.exec(content)?.[1]) === process.pid;
         } catch {}
+        const action =
+          kind === 'state'
+            ? 'writing state.json'
+            : kind === 'state I/O'
+              ? 'reading or writing state.json'
+              : 'publishing an inbox message';
         const explanation = sameProcess
-          ? kind === 'state'
-            ? 'another tower tool call in this process is writing state.json; wait for it to finish'
-            : 'another tower tool call in this process is publishing an inbox message; wait for it to finish'
-          : kind === 'state'
-            ? 'another tower process may be writing state.json; a confirmed dead holder is reclaimed automatically, so inspect the holder if this persists'
-            : 'another tower process may be publishing an inbox message; a confirmed dead holder is reclaimed automatically, so inspect the holder if this persists';
+          ? `another tower tool call in this process is ${action}; wait for it to finish`
+          : `another tower process may be ${action}; a confirmed dead holder is reclaimed automatically, so inspect the holder if this persists`;
         throw new TowerProtocolError(
           `timed out after ${String(this.stateLockTimeoutMs)}ms waiting for the tower ${kind} lock "${lockPath}"${holder} — ${explanation}`,
         );
@@ -605,7 +611,7 @@ export class TowerStore {
     }
   }
 
-  async isInitialized(): Promise<boolean> {
+  private async isInitializedUnlocked(): Promise<boolean> {
     try {
       await Bun.file(this.abs(STATE_FILE)).text();
       return true;
@@ -614,13 +620,18 @@ export class TowerStore {
     }
   }
 
+  async isInitialized(): Promise<boolean> {
+    if (!existsSync(this.abs(STATE_FILE))) return false;
+    return this.withStateIoLock(() => this.isInitializedUnlocked());
+  }
+
   async isStateLost(): Promise<boolean> {
     if (await this.isInitialized()) return false;
     return existsSync(this.abs(TOWER_ROOT));
   }
 
   private async stateMissingError(): Promise<TowerProtocolError> {
-    if (await this.isStateLost()) {
+    if (!(await this.isInitializedUnlocked()) && existsSync(this.abs(TOWER_ROOT))) {
       return new TowerProtocolError(
         'tower state was lost: .tower/comms/state.json is missing but the .tower/ directory still exists — the tower was initialized here and its comms state was deleted (e.g. by git clean), so all recorded mission, roster, and review history is gone. This operation is refused instead of silently running against an empty history; TowerStatus reports the loss, and TowerSend/TowerComplete recover a minimal state (stamped recoveredAt) automatically',
       );
@@ -808,8 +819,9 @@ export class TowerStore {
   }
 
   async adopt(sessionId: string): Promise<readonly string[]> {
+    if (!existsSync(this.abs(STATE_FILE))) return [];
     try {
-      await Bun.file(this.abs(STATE_FILE)).text();
+      await this.withStateIoLock(() => Bun.file(this.abs(STATE_FILE)).text());
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
       throw error;
@@ -852,17 +864,19 @@ export class TowerStore {
   }
 
   private async loadSnapshot(): Promise<TowerStateSnapshot> {
-    let raw: string;
-    try {
-      raw = await Bun.file(this.abs(STATE_FILE)).text();
-    } catch {
-      throw await this.stateMissingError();
-    }
-    const state = JSON.parse(raw) as TowerState;
-    for (const mission of state.missions) {
-      mission.kind ??= 'build';
-    }
-    return { raw, state };
+    return this.withStateIoLock(async () => {
+      let raw: string;
+      try {
+        raw = await Bun.file(this.abs(STATE_FILE)).text();
+      } catch {
+        throw await this.stateMissingError();
+      }
+      const state = JSON.parse(raw) as TowerState;
+      for (const mission of state.missions) {
+        mission.kind ??= 'build';
+      }
+      return { raw, state };
+    });
   }
 
   private async assertPreparationCurrent(
@@ -987,15 +1001,17 @@ export class TowerStore {
   }
 
   private async save(state: TowerState): Promise<void> {
-    const file = this.abs(STATE_FILE);
-    const tmp = `${file}.tmp-${String(process.pid)}-${randomUUID()}`;
-    try {
-      await writeFile(tmp, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
-      await rename(tmp, file);
-    } catch (error) {
-      await rm(tmp, { force: true });
-      throw error;
-    }
+    return this.withStateIoLock(async () => {
+      const file = this.abs(STATE_FILE);
+      const tmp = `${file}.tmp-${String(process.pid)}-${randomUUID()}`;
+      try {
+        await writeFile(tmp, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+        await rename(tmp, file);
+      } catch (error) {
+        await rm(tmp, { force: true });
+        throw error;
+      }
+    });
   }
 
   async appendLog(

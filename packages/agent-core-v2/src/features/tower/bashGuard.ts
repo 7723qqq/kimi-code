@@ -4,21 +4,17 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { BashParseResult, BashSyntaxNode } from '#/app/bashParser/bashParser';
 
 import { COMMS_DIR, TOWER_ROOT, WORKTREES_DIR } from './protocol/paths';
+import type { TowerStore } from './protocol/store';
 
 export const TOWER_BASH_GUARD_PARSE_OPTIONS = { timeoutMs: 500, maxNodes: 10_000 } as const;
 
 export type TowerBashGuardParse = (source: string) => BashParseResult;
 
-export async function towerWorkspaceOwned(stateFile: string): Promise<boolean> {
-  return Bun.file(stateFile)
-    .text()
-    .then(
-      (raw) => {
-        const sessionId = (JSON.parse(raw) as { sessionId?: unknown }).sessionId;
-        return typeof sessionId === 'string' && sessionId.length > 0;
-      },
-      () => false,
-    );
+export async function towerWorkspaceOwned(store: TowerStore): Promise<boolean> {
+  return store.load().then(
+    (state) => typeof state.sessionId === 'string' && state.sessionId.length > 0,
+    () => false,
+  );
 }
 
 export interface TowerBashGuardTarget {
