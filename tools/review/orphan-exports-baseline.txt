@@ -23,7 +23,6 @@ buildHookSpawnOptions  packages/agent-core-v2/src/features/externalHooks/interna
 clearHighlightCache  apps/kimi-code/src/tui/components/media/code-highlight.ts
 connectPlugins  packages/agent-core-v2/src/human/plugin.ts
 containsUsableMessage  packages/migration-legacy/src/sessions/translator.ts
-createHttpTokenCounter  packages/agent-core-v2/src/agent/tokenCounting/tokenCounter.ts
 createKimiOAuthCredentialProvider  packages/agent-core-v2/src/human/credentials/kimi-oauth.ts
 createMediaDegradeRecovery  packages/agent-core-v2/src/human/llm/media/degrade.ts
 createMediaRefResolver  packages/agent-core-v2/src/human/llm/media/resolver.ts
@@ -33,14 +32,9 @@ createMemoryProviderCatalogStore  packages/agent-core-v2/src/human/llm/provider-
 createNode  packages/tree-sitter-bash/src/node.ts
 createProviderCatalog  packages/agent-core-v2/src/human/llm/provider-catalog.ts
 createScopedTestHost  packages/agent-core-v2/src/_base/di/test.ts
-createSidecarTokenCounter  packages/agent-core-v2/src/agent/tokenCounting/tokenCounter.ts
-createTimingPlugin  packages/agent-core-v2/src/human/timing/plugin.ts
-createTodoPlugin  packages/agent-core-v2/src/human/todo/plugin.ts
-createTokenCounter  packages/agent-core-v2/src/agent/tokenCounting/tokenCounter.ts
 createToolSelectMessageResolver  packages/agent-core-v2/src/human/tool-select/resolver.ts
 createToolSelectPlugin  packages/agent-core-v2/src/human/tool-select/plugin.ts
 createToolSelectState  packages/agent-core-v2/src/human/tool-select/state.ts
-createUsagePlugin  packages/agent-core-v2/src/human/usage/plugin.ts
 decodeBatchOps  packages/minidb/src/codec.ts
 deferTool  packages/agent-core-v2/src/human/tool-select/tool.ts
 deleteImported  apps/vis/server/src/lib/import-store.ts

@@ -44,10 +44,6 @@
       "types": "./src/message.ts",
       "default": "./src/message.ts"
     },
-    "./message-helpers": {
-      "types": "./src/message-helpers.ts",
-      "default": "./src/message-helpers.ts"
-    },
     "./tool": {
       "types": "./src/tool.ts",
       "default": "./src/tool.ts"
