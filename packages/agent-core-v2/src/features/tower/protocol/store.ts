@@ -3252,7 +3252,7 @@ export class TowerStore {
       }
     };
     for (const mission of state.missions) {
-      const rel = join(WORKTREES_DIR, mission.worktree);
+      const rel = posix.join(WORKTREES_DIR, mission.worktree);
       const absPath = this.abs(rel);
       const wasExcluded = excluded.delete(mission.worktree);
       if (!(await isRegisteredWorktree(this.repoRoot, absPath))) {
