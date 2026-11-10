@@ -21,6 +21,35 @@ POSIX and Windows targets are supported. Windows targets require Git for Windows
 [Remote Control](./remote-control.md) is the opposite direction: it lets another device (like your phone) watch and steer sessions that run on **this** machine. A remote environment does the reverse — this machine's CLI drives tool execution on **another** machine or container.
 :::
 
+## Quick start
+
+This example uses `dev-box`, a machine you can already sign in to over SSH.
+
+1. Install Kimi Code CLI on the target machine:
+
+   ```sh
+   ssh dev-box 'curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash'
+   ```
+
+2. Add the following to `~/.kimi-code/config.toml` on your machine:
+
+   ```toml
+   [environments.dev-box]
+   type = "ssh"
+   host = "dev-box"
+   defaultCwd = "/home/me/projects"
+   ```
+
+3. Start a session:
+
+   ```sh
+   kimi --environment dev-box
+   ```
+
+   Once the session opens, the footer shows `dev-box` before the working directory. From then on, the files the agent reads and writes and the commands it runs are on `dev-box`.
+
+To start every new session on `dev-box` by default, see [Setting a default environment](#setting-a-default-environment); for Docker containers and other connection methods, see [Declaring environments](#declaring-environments).
+
 ## Declaring environments
 
 Environments are declared in the `[environments]` section of `config.toml`. Three kinds of entries are available: SSH hosts, Docker-compatible containers, and custom launcher commands for anything else (OrbStack machines, `kubectl exec`, Apple Container, managed sandboxes, and so on).
@@ -51,9 +80,12 @@ Key rules:
 
 - `type` and `command` are mutually exclusive within one entry: `type = "ssh"` and `type = "docker"` are built-in launchers, while `command` + `args` is the generic form (same shape as stdio entries in `.mcp.json`). For the generic form, Kimi Code appends `<remoteBin> exec-server` (default `~/.kimi-code/bin/kimi`) after `args` unless `args` already invokes `exec-server`; launchers that pass arguments straight through without a shell, such as `kubectl exec`, need an absolute `remoteBin` because `~` is not expanded. `env` sets the launcher process's environment on your machine; it is **not** propagated into commands the agent runs on the target.
 - `defaultCwd` is used when a session is created on the environment unless `--environment-cwd` overrides it. It must be an absolute POSIX path, or a Windows drive path such as `C:\work\project` on a Windows target; relative paths, `~`, and UNC paths are not supported. Repeated separators, `.` and `..` are normalized before checking that directory on the target, and the normalized path is saved in the binding. Symlink names are preserved, not rewritten with realpath; `symlink/..` therefore uses the lexical parent, not the symlink target's physical parent.
-- The optional top-level `default` names the environment a session binds to when creation does not specify one — a cold start, print mode, or an API create. The entry it points at must set `defaultCwd`. Without a `default`, those sessions start on the `local` environment. In the TUI, `/new` instead keeps the current session's environment and working directory. If no session exists yet, `/new` uses `--environment` when the process was started with it, otherwise the resolved default.
 - If the configuration file cannot be read or the `[environments]` section is invalid, session creation fails with `config.invalid` instead of treating this as no default. Explicitly selecting `local` still creates a local session.
 - The environment id is the entry's key: at most 64 characters, no leading or trailing whitespace; `local` and `default` are reserved words.
+
+### Setting a default environment
+
+The optional top-level `default` names the environment a session binds to when creation does not specify one — a cold start, print mode, or an API create. The entry it points at must set `defaultCwd`. Without a `default`, those sessions start on the `local` environment. In the TUI, `/new` instead keeps the current session's environment and working directory. If no session exists yet, `/new` uses `--environment` when the process was started with it, otherwise the resolved default.
 
 With file watching enabled, declaration edits are applied without a restart. Removing an environment does not silently rebind a session to `local`; subsequent tool calls fail with `environment.not_found` or `environment.unavailable`.
 
@@ -63,7 +95,29 @@ Environment IDs are process-wide: sessions bound to the same ID share one connec
 
 For the full field reference, see [`environments`](../configuration/config-files.md#environments).
 
-### Windows targets
+### Other launchers
+
+Use `command` and `args` to configure other environments, such as `kubectl exec`, WSL, Apple Container, or managed sandboxes:
+
+```toml
+[environments.k8s-pod]
+command = "kubectl"
+args = ["exec", "-i", "my-pod", "--"]
+remoteBin = "/root/.kimi-code/bin/kimi"
+defaultCwd = "/app"
+
+[environments.wsl]
+command = 'C:\Program Files\WSL\wsl.exe'
+args = ["--exec"]
+remoteBin = "/home/me/.kimi-code/bin/kimi"
+defaultCwd = "/home/me/projects"
+```
+
+- Commands such as `kubectl exec` and `wsl --exec` pass arguments through without a shell, so `~` is not expanded. Set `remoteBin` to the absolute path of Kimi Code on the target.
+- Wrap Windows paths that contain backslashes in single quotes so TOML does not treat `\` as an escape.
+- Credentials the launcher command needs can go in `env`, for example `env = { SANDBOX_TOKEN = "..." }`. These variables are given only to the launcher command on your machine and are not passed to commands the agent runs on the target.
+
+### Windows target environments
 
 Windows targets use Git Bash for the `Bash` tool, matching local Windows sessions. Install [Git for Windows](https://gitforwindows.org/) and the Windows `kimi` binary on the target. Native PowerShell tool commands and Windows Docker containers are not supported.
 
@@ -83,7 +137,9 @@ Custom command launchers also need the Windows executor and Git Bash on the targ
 
 The environment binding is per session: it records which environment the session's tools execute on, plus the working directory on that environment. Different sessions in the same workspace may bind different environments, and subagents inherit their parent agent's binding. Creating a remote session records a persisted reminder with the environment id, OS and architecture, shell, and working directory so the model knows where its tools run. Creating a session on `local` records nothing.
 
-### `kimi --environment` and `--environment-cwd`
+## Picking an environment for one launch
+
+Pass `--environment` at startup to choose the new session's environment, and `--environment-cwd` to override its working directory. Only Kimi Code CLI can pick an environment for one launch. Sessions created from other clients such as the Web UI use the [default environment](#setting-a-default-environment), and run on your machine when no default is set.
 
 The hidden `--environment <id>` flag binds a new session to a configured environment, overriding the `[environments]` default for that creation. The hidden `--environment-cwd <path>` flag overrides the selected entry's `defaultCwd` and must be used together with `--environment`:
 

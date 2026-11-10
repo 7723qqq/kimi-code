@@ -21,6 +21,35 @@ Kimi Code 把 Agent 循环、模型请求、凭据、审批和会话状态全部
 [远程控制](./remote-control.md) 是相反方向：它让另一台设备（比如手机）查看和操控运行在**本机**的会话。远程环境则相反——由本机的 CLI 驱动工具在**另一台**机器或容器里执行。
 :::
 
+## 快速开始
+
+以一台 SSH 能直接登录的机器 `dev-box` 为例。
+
+1. 在目标机器上安装 Kimi Code CLI：
+
+   ```sh
+   ssh dev-box 'curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash'
+   ```
+
+2. 在本机的 `~/.kimi-code/config.toml` 中加入：
+
+   ```toml
+   [environments.dev-box]
+   type = "ssh"
+   host = "dev-box"
+   defaultCwd = "/home/me/projects"
+   ```
+
+3. 启动会话：
+
+   ```sh
+   kimi --environment dev-box
+   ```
+
+   会话打开后，底部状态栏的工作目录前会显示 `dev-box`。之后 Agent 读写的文件、执行的命令都在 `dev-box` 上。
+
+想让每个新会话都默认在 `dev-box` 上启动，见 [设为默认环境](#设为默认环境)；Docker 容器和其他接入方式见 [声明环境](#声明环境)。
+
 ## 声明环境
 
 环境声明在 `config.toml` 的 `[environments]` 节中。共有三类条目：SSH 主机、Docker 兼容容器，以及用于其他环境的自定义启动命令（OrbStack 机器、`kubectl exec`、Apple Container、受管沙箱等）。
@@ -51,9 +80,12 @@ defaultCwd = "/home/me/kimi-code"
 
 - `type` 与 `command` 在同一条目内互斥：`type = "ssh"` 和 `type = "docker"` 是内置启动器，`command` + `args` 是通用形式（与 `.mcp.json` 的 stdio 条目形态一致）。通用形式下，Kimi Code 会在 `args` 之后追加 `<remoteBin> exec-server`（默认 `~/.kimi-code/bin/kimi`），`args` 已经调用 `exec-server` 时不追加；`kubectl exec` 这类不经 shell、原样传递参数的启动器不会展开 `~`，需要把 `remoteBin` 设为绝对路径。`env` 设置的是本机启动器进程的环境，**不会**传播到 Agent 在目标环境执行的命令里。
 - `defaultCwd` 是在该环境上创建会话时使用的工作目录，可被 `--environment-cwd` 覆盖。它必须是目标环境上的 POSIX 绝对路径，或 Windows 目标上的盘符路径（如 `C:\work\project`）；相对路径、`~` 与 UNC 路径均不支持。系统先规范化重复分隔符、`.` 和 `..`，再在目标环境上校验目录，并保存同一个规范化路径。符号链接名称会保留，不会用 realpath 改写；因此 `symlink/..` 使用路径拼写中的父目录，而不是符号链接目标的物理父目录。
-- 可选的顶层 `default` 指定创建会话时未显式给出绑定时使用的环境——冷启动、print 模式，或 API 创建。它指向的条目必须设置 `defaultCwd`。未设置 `default` 时，这些会话从 `local` 开始。TUI 里的 `/new` 不属于这种情况：它保留当前会话的环境和工作目录。还没有会话时，`/new` 使用进程启动时的 `--environment`；没有该参数时才用解析后的 default。
 - 配置文件无法读取或 `[environments]` 节无效时，创建会话会以 `config.invalid` 失败，不会将其视为未设置 default。显式选择 `local` 仍可创建本地会话。
 - 环境 id 即条目的键名：不超过 64 个字符，首尾不能有空白；`local` 和 `default` 是保留字。
+
+### 设为默认环境
+
+可选的顶层 `default` 指定创建会话时未显式给出绑定时使用的环境——冷启动、print 模式，或 API 创建。它指向的条目必须设置 `defaultCwd`。未设置 `default` 时，这些会话从 `local` 开始。TUI 里的 `/new` 不属于这种情况：它保留当前会话的环境和工作目录。还没有会话时，`/new` 使用进程启动时的 `--environment`；没有该参数时才用解析后的 default。
 
 启用[文件监听](../configuration/config-files.md#watch)后，声明文件的修改无需重启即可生效。删除环境不会把会话静默改绑到 `local`；后续工具调用会以 `environment.not_found` 或 `environment.unavailable` 失败。
 
@@ -63,7 +95,29 @@ defaultCwd = "/home/me/kimi-code"
 
 完整字段参考见 [`environments`](../configuration/config-files.md#environments)。
 
-## Windows 目标
+### 其他启动方式
+
+可以通过 `command` 和 `args` 配置其他环境，例如 `kubectl exec`、WSL、Apple Container、受管沙箱，例如：
+
+```toml
+[environments.k8s-pod]
+command = "kubectl"
+args = ["exec", "-i", "my-pod", "--"]
+remoteBin = "/root/.kimi-code/bin/kimi"
+defaultCwd = "/app"
+
+[environments.wsl]
+command = 'C:\Program Files\WSL\wsl.exe'
+args = ["--exec"]
+remoteBin = "/home/me/.kimi-code/bin/kimi"
+defaultCwd = "/home/me/projects"
+```
+
+- `kubectl exec`、`wsl --exec` 这类不经 Shell、原样传递参数的命令不会展开 `~`，需要用 `remoteBin` 写出 Kimi Code 在目标上的绝对路径。
+- 含反斜杠的 Windows 路径用单引号包裹，TOML 不会转义其中的 `\`。
+- 启动命令需要的凭据可以写在 `env` 里，例如 `env = { SANDBOX_TOKEN = "..." }`。这些变量只提供给本机的启动命令，不会传到 Agent 在目标上执行的命令中。
+
+## Windows 目标环境
 
 Windows 目标上的 `Bash` 工具使用 Git Bash，与本地 Windows 会话一致。请在目标上安装 [Git for Windows](https://gitforwindows.org/) 与 Windows 版 `kimi`。原生的 PowerShell 工具命令与 Windows Docker 容器不受支持。
 
@@ -83,7 +137,9 @@ defaultCwd = 'C:\work\project'
 
 环境绑定是会话级的：记录该会话的工具在哪个环境上执行，以及在该环境上的工作目录。同一工作区的不同会话可以绑定不同的环境，subagent 继承父 Agent 的绑定。创建远程会话时会记录一条持久提醒，包含环境 id、OS 与架构、Shell 和工作目录，让模型知道工具运行在何处。在 `local` 上创建会话则不记录。
 
-### `kimi --environment` 与 `--environment-cwd`
+## 临时指定环境
+
+在启动时用 `--environment` 指定这次新会话的环境，用 `--environment-cwd` 覆盖工作目录。目前只有 Kimi Code CLI 支持临时指定环境。Web UI 等其他客户端新建的会话使用[默认环境](#设为默认环境)，未设置默认环境时在本机运行。
 
 隐藏标志 `--environment <id>` 让新会话直接绑定到已配置的环境，相当于对 `[environments]` 默认配置的一次性覆盖。隐藏标志 `--environment-cwd <path>` 覆盖所选条目的 `defaultCwd`，必须与 `--environment` 一起使用：
 
