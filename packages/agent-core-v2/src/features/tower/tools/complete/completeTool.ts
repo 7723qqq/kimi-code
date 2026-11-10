@@ -41,7 +41,11 @@ export class TowerCompleteTool implements ITowerCompleteTool {
             await store.loadOrRecover(),
             this.scopeContext.agentId,
           );
-          const result = await store.complete(resolved.caller, args.report.trim());
+          const result = await store.complete(
+            resolved.caller,
+            args.report.trim(),
+            args.key_artifacts,
+          );
           const delivery =
             result.message !== undefined
               ? deliverTowerMessage(

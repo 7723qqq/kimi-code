@@ -17,6 +17,7 @@ import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { TurnStarted } from '#/agent/loop/turnEvents';
 import { TurnEnded } from '#/agent/loop/turnOps';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { PromptSubmitted } from '#/agent/prompt/promptEvents';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
@@ -34,6 +35,7 @@ import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
 import { IBashParserService } from '#/app/bashParser/bashParser';
 import { BashParserService } from '#/app/bashParser/bashParserService';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { IEventBus, ISessionEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
@@ -3145,6 +3147,14 @@ describe('AgentTowerService', () => {
                 }
               : undefined,
         } as unknown as IAgentLifecycleService,
+        {
+          _serviceBrand: undefined,
+          mode: 'manual',
+        } as unknown as IAgentPermissionModeService,
+        {
+          _serviceBrand: undefined,
+          args: { requestHeaders: {}, nonInteractive: false },
+        } as unknown as IBootstrapService,
       );
 
       const result = await executeTool(tool, {
@@ -4413,6 +4423,13 @@ describe('TowerModeInjection', () => {
     expect(text).toContain('with `TowerInbox` only when it is needed');
     expect(text).toContain('structured reason and recovery details');
     expect(text).toContain('per reviewer');
+    expect(text).toContain('Normal merge-bound build reviews require this independent path');
+    expect(text).toContain('Surveys do not need review');
+    expect(text).toContain('kind: "artifact"');
+    expect(text).toContain('acceptance-request');
+    expect(text).toContain('explicit user approval');
+    expect(text).toContain('auto or noninteractive mode');
+    expect(text).toContain('never self-approve or substitute an independent review');
     expect(text).toContain('merged or abandoned');
     expect(text).toContain('background execution is unavailable');
     expect(text).toContain('break-glass');
