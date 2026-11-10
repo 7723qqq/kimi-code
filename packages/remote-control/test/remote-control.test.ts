@@ -16,7 +16,7 @@ import {
   type TokenInfo,
 } from '@moonshot-ai/kimi-code-oauth';
 import { getLocale, setLocale } from '@moonshot-ai/kimi-i18n';
-import { WebSocketServer, type RawData, type WebSocket } from 'ws';
+import { WebSocket, WebSocketServer, type RawData } from 'ws';
 
 import { RemoteControlDeviceClient, type RemoteControlDevice } from '../src/device-client';
 import { remoteControlLockPath } from '../src/lock';
@@ -931,30 +931,57 @@ describe('Remote Control tunnel', () => {
   });
 
   it('reconnects the tunnel pair after the relay drops it', async () => {
-    const scenario = await startTunnelScenario();
+    const originalOnce = WebSocket.prototype.once;
+    const earlyFrame = tunnelRequestFrame('request-20', probeRawRequest(), true);
+    let httpOpens = 0;
+    const openSpy = jest.spyOn(WebSocket.prototype, 'once').mockImplementation(function (
+      this: WebSocket,
+      event: string,
+      listener: (...args: any[]) => void,
+    ) {
+      if (event === 'open' && this.url.includes('/v1/remote/http')) {
+        httpOpens += 1;
+        if (httpOpens === 2) {
+          return originalOnce.call(this, event, function (this: WebSocket, ...args: any[]) {
+            this.emit('message', Buffer.from(earlyFrame), false);
+            listener.apply(this, args);
+          });
+        }
+      }
+      return originalOnce.call(this, event, listener);
+    } as typeof WebSocket.prototype.once);
 
-    scenario.httpConnections[0]!.terminate();
-    await waitFor(
-      () => scenario.registrations.length === 2 && scenario.httpConnections.length === 2,
-      4000,
-    );
-    expect(scenario.httpCapabilities).toEqual([
-      'request_chunk,response_chunk,abort',
-      'request_chunk,response_chunk,abort',
-    ]);
-    const reconnectResponsePromise = nextJsonMessage(scenario.httpConnections[1]!);
-    scenario.httpConnections[1]!.send(tunnelRequestFrame('request-20', probeRawRequest(), true));
-    const reconnectResponse = frameBody(await reconnectResponsePromise).toString();
-    expect(reconnectResponse).toContain('HTTP/1.1 200 OK');
+    try {
+      const scenario = await startTunnelScenario();
+      scenario.httpConnections[0]!.terminate();
+      await waitFor(
+        () => scenario.registrations.length === 2 && scenario.httpConnections.length === 2,
+        4000,
+      );
+      expect(scenario.httpCapabilities).toEqual([
+        'request_chunk,response_chunk,abort',
+        'request_chunk,response_chunk,abort',
+      ]);
+      await waitFor(
+        () => scenario.httpMessages.some((message) => message['request_id'] === 'request-20'),
+        10_000,
+      );
+      const reconnectResponse = scenario.httpMessages.find(
+        (message) => message['request_id'] === 'request-20',
+      )!;
+      expect(frameBody(reconnectResponse).toString()).toContain('HTTP/1.1 200 OK');
 
-    await scenario.handle.close();
-    await waitFor(() =>
-      scenario.managementMessages.some(
-        (value) =>
-          (value as { type?: string; payload?: { reason?: string } }).type === 'disconnect' &&
-          (value as { payload?: { reason?: string } }).payload?.reason === 'local_server_stopped',
-      ),
-    );
+      await scenario.handle.close();
+      await waitFor(() =>
+        scenario.managementMessages.some(
+          (value) =>
+            (value as { type?: string; payload?: { reason?: string } }).type === 'disconnect' &&
+            (value as { payload?: { reason?: string } }).payload?.reason === 'local_server_stopped',
+        ),
+      );
+    } finally {
+      openSpy.mockRestore();
+    }
   });
 
   it('reconnects when the relay goes silent without closing the sockets', async () => {
@@ -1953,6 +1980,7 @@ interface TunnelScenario {
   managementConnections: WebSocket[];
   managementMessages: unknown[];
   httpConnections: WebSocket[];
+  httpMessages: Array<Record<string, unknown>>;
   streamConnections: WebSocket[];
   streamMessages: string[];
   uploadBodyBytes: Map<string, number>;
@@ -2093,6 +2121,7 @@ async function startTunnelScenario(
   const relayServer = createServer();
   const managementConnections: WebSocket[] = [];
   const httpConnections: WebSocket[] = [];
+  const httpMessages: Array<Record<string, unknown>> = [];
   const streamConnections: WebSocket[] = [];
   const registrations: unknown[] = [];
   const managementMessages: unknown[] = [];
@@ -2110,7 +2139,12 @@ async function startTunnelScenario(
       }
     });
   });
-  httpTunnelServer.on('connection', (ws) => httpConnections.push(ws));
+  httpTunnelServer.on('connection', (ws) => {
+    httpConnections.push(ws);
+    ws.on('message', (data) => {
+      httpMessages.push(JSON.parse(rawDataText(data)) as Record<string, unknown>);
+    });
+  });
   streamServer.on('connection', (ws) => {
     streamConnections.push(ws);
     ws.on('message', (data) => streamMessages.push(rawDataText(data)));
@@ -2155,6 +2189,7 @@ async function startTunnelScenario(
     managementConnections,
     managementMessages,
     httpConnections,
+    httpMessages,
     streamConnections,
     streamMessages,
     uploadBodyBytes,
