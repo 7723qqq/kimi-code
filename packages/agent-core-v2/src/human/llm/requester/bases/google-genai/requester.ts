@@ -77,6 +77,24 @@ export function prepareGoogleGenAIRequest(
   return encodeGoogleGenAIRequest(finalParams);
 }
 
+const GEMINI_API_VERSION = 'v1beta';
+const VERTEX_API_VERSION = 'v1beta1';
+
+function sdkHttpBase(baseUrl: string, vertexai: boolean): string {
+  const version = vertexai ? VERTEX_API_VERSION : GEMINI_API_VERSION;
+  let url: URL;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    return baseUrl;
+  }
+  const segments = url.pathname.split('/').filter((segment) => segment.length > 0);
+  if (segments.at(-1) !== version) return baseUrl;
+  segments.pop();
+  url.pathname = segments.length > 0 ? `/${segments.join('/')}` : '/';
+  return url.toString();
+}
+
 function createClient(
   model: LlmModel,
   headers: Record<string, string> | undefined,
@@ -87,7 +105,7 @@ function createClient(
     httpOptions.headers = headers;
   }
   if (model.baseUrl !== undefined) {
-    httpOptions.baseUrl = model.baseUrl;
+    httpOptions.baseUrl = sdkHttpBase(model.baseUrl, vertexai);
   }
   return new GenAIClient({
     apiKey: model.apiKey,
