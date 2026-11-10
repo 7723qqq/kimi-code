@@ -275,21 +275,15 @@ describe('TowerSpawnTool', () => {
     expect(tool.description).toContain('Available models (pass via model):');
     expect(tool.description).toContain('- cheap/fast [default]: fast and cheap');
     expect(tool.description).toContain('- smart/slow: careful and thorough');
-    expect(tool.description).toContain(
-      '- primary (= kimi-code): your current model and thinking level',
-    );
-    expect(tool.description).toContain(
-      'The [default] marker is the worker pool default, not the reviewer default.',
-    );
+    expect(tool.description).not.toContain('- primary');
 
     secondaryModel = undefined;
     expect(properties()).not.toHaveProperty('model');
     expect(tool.description).not.toContain('Available models');
 
     secondaryModel = { model: 'cheap/fast' };
-    expect(properties()['model']?.type).toBe('string');
-    expect(tool.description).toContain('- cheap/fast [default]');
-    expect(tool.description).toContain('- primary (= kimi-code): your current model and thinking level');
+    expect(properties()).not.toHaveProperty('model');
+    expect(tool.description).not.toContain('Available models');
   });
 
   it('refuses when tower mode is not active', async () => {
@@ -565,30 +559,6 @@ describe('TowerSpawnTool', () => {
     },
   );
 
-  it.each(['worker', 'reviewer'] as const)(
-    'binds a %s to primary when explicitly requested and reports the actual model',
-    async (kind) => {
-      secondaryModel = {
-        defaultModel: 'cheap/fast',
-        defaultEffort: 'low',
-        models: { 'cheap/fast': 'fast and cheap', 'smart/slow': 'careful and thorough' },
-      };
-
-      const result = await execute(argsFor(kind, 'primary'));
-
-      expect(result.isError).toBeUndefined();
-      expect(result.output).toContain('model: kimi-code');
-      expect(createAgent).toHaveBeenCalledWith({
-        binding: { profile: 'tower-worker', model: 'kimi-code', thinking: 'off' },
-        labels: { parentAgentId: 'main' },
-      });
-      const task = registerTask.mock.calls[0]?.[0] as SubagentTask;
-      expect(task.model).toBe('kimi-code');
-      const activityLog = await readFile(join(repo, '.tower/comms/log/activity.log'), 'utf8');
-      expect(activityLog).toMatch(/spawn .*model=kimi-code/);
-    },
-  );
-
   it('carries the configured secondary model into the registered task info', async () => {
     secondaryModel = { model: 'cheap/fast' };
 
@@ -670,8 +640,11 @@ describe('TowerSpawnTool', () => {
     expect(activityLog).toMatch(/spawn .*model=kimi-code/);
   });
 
-  it('binds reviewers to the tower model even when the secondary model is configured', async () => {
-    secondaryModel = { model: 'cheap/fast' };
+  it('binds reviewers to the configured pool default', async () => {
+    secondaryModel = {
+      defaultModel: 'cheap/fast',
+      models: { 'cheap/fast': 'fast and cheap', 'smart/slow': 'careful and thorough' },
+    };
 
     const result = await execute({
       name: 'reviewer-a',
@@ -680,21 +653,18 @@ describe('TowerSpawnTool', () => {
     });
 
     expect(result.isError).toBeUndefined();
-    expect(result.output).toContain('model: kimi-code');
+    expect(result.output).toContain('model: cheap/fast');
     expect(createAgent).toHaveBeenCalledWith({
-      binding: { profile: 'tower-worker', model: 'kimi-code', thinking: 'off' },
+      binding: { profile: 'tower-worker', model: 'cheap/fast', thinking: undefined },
       labels: { parentAgentId: 'main' },
     });
   });
 
-  it('accepts an explicit primary choice without a secondary pool', async () => {
+  it('rejects an explicit primary choice without a secondary pool', async () => {
     const result = await execute({ ...WORKER_ARGS, model: 'primary' });
 
-    expect(result.isError).toBeUndefined();
-    expect(createAgent).toHaveBeenCalledWith({
-      binding: { profile: 'tower-worker', model: 'kimi-code', thinking: 'off' },
-      labels: { parentAgentId: 'main' },
-    });
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('no [secondary_model] pool is configured');
   });
 
   it('rejects a catalog-resolvable alias outside the secondary pool before any spawn side effect', async () => {
@@ -708,12 +678,12 @@ describe('TowerSpawnTool', () => {
 
     expect(result.isError).toBe(true);
     expect(result.output).toContain(
-      'Invalid model "other/valid". Available models: cheap/fast, smart/slow, primary.',
+      'Invalid model "other/valid". Available models: cheap/fast, smart/slow.',
     );
     await expectNoWorkerSpawnSideEffects();
   });
 
-  it('rejects a non-primary explicit model without a secondary pool before any spawn side effect', async () => {
+  it('rejects an explicit model without a secondary pool before any spawn side effect', async () => {
     const result = await execute({ ...WORKER_ARGS, model: 'cheap/fast' });
 
     expect(result.isError).toBe(true);
@@ -721,16 +691,19 @@ describe('TowerSpawnTool', () => {
     await expectNoWorkerSpawnSideEffects();
   });
 
-  it('accepts an explicit primary choice for workers when a secondary model is configured', async () => {
-    secondaryModel = { model: 'cheap/fast' };
+  it('rejects an alias outside the pool before any spawn side effect', async () => {
+    secondaryModel = {
+      defaultModel: 'cheap/fast',
+      models: { 'cheap/fast': 'fast and cheap', 'smart/slow': 'careful and thorough' },
+    };
 
     const result = await execute({ ...WORKER_ARGS, model: 'primary' });
 
-    expect(result.isError).toBeUndefined();
-    expect(createAgent).toHaveBeenCalledWith({
-      binding: { profile: 'tower-worker', model: 'kimi-code', thinking: 'off' },
-      labels: { parentAgentId: 'main' },
-    });
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain(
+      'Invalid model "primary". Available models: cheap/fast, smart/slow.',
+    );
+    await expectNoWorkerSpawnSideEffects();
   });
 
   it('rejects an explicit model when the caller has no model alias instead of ignoring it', async () => {

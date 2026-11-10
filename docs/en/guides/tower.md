@@ -103,16 +103,16 @@ After Kimi Code restarts, if another session takes over the current project, the
 
 Tower is mutually exclusive with Goal, Plan, and swarm modes. Entering Tower exits Plan or swarm and pauses the active goal; activating a goal or entering Plan or swarm also exits Tower. Tower state remains on disk, and you can return later with `/tower on`.
 
-Workers and reviewers follow different default model-selection rules. Without `[secondary_model]`, both use Tower's current primary model. Once it is configured, newly spawned workers use `default_model`, while **reviewers continue to use the primary model**. The pool default is therefore the worker default, not the reviewer default. See [Subagent model pool](../configuration/config-files.md#subagent-model-pool) for configuration details.
+Workers and reviewers follow the same model-selection rules as Agent and AgentSwarm. Without `[secondary_model]`, both inherit Tower's current model. Once it is configured, newly spawned workers and reviewers use `default_model`. See [Subagent model pool](../configuration/config-files.md#subagent-model-pool) for configuration details.
 
 You can explicitly choose the model for an individual new spawn in a normal message. For example, assuming `smart/slow` is configured in the pool:
 
 - "Spawn the worker agent-docs with smart/slow."
-- "Use primary for the reviewer of feat/build-gemm."
+- "Use smart/slow for the reviewer of feat/build-gemm."
 
-The only allowed choices are `primary` (Tower's current primary model) and the pool aliases (`[secondary_model.models]` keys, or a lone `default_model`); aliases that exist only in `[models]` are not accepted. The choice applies only to that new agent: it does not change running or resumed agents and is not saved for future spawns.
+The only allowed choices are the pool aliases (`[secondary_model.models]` keys, or a lone `default_model`); aliases that exist only in `[models]` are not accepted. The `model` parameter is available only when the pool has two or more entries. The choice applies only to that new agent: it does not change running or resumed agents and is not saved for future spawns.
 
-To control token costs, you can assign workers a cheaper secondary model. Reviewers remain on the primary model by default, preserving budget for independent review; ask for a pool alias explicitly to run a reviewer on a cheaper model.
+To control token costs, set the pool default to a cheaper model; workers and reviewers use it by default, and an explicit pool alias can override it for one spawn.
 
 ## Safety and resource cost
 

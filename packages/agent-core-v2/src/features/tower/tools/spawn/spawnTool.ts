@@ -30,10 +30,9 @@ import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/
 import { subagentLabels } from '#/session/agentLifecycle/subagentMetadata';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import {
-  buildSubagentModelDescriptionsWithPrimary,
-  PRIMARY_SUBAGENT_MODEL_CHOICE,
-  resolveSubagentBindingWithPrimary,
-  resolveSubagentModelPool,
+  buildSubagentModelDescriptions,
+  exposesSubagentModelChoice,
+  resolveSubagentBinding,
   resolveSubagentThinking,
   resolveSubagentTimeoutMs,
   stripSubagentModelParameter,
@@ -53,7 +52,7 @@ import { newTowerStore, TOWER_MAIN_AGENT_ONLY, TOWER_MODE_USER_ENABLED_ONLY } fr
 import { ITowerSpawnTool, TowerSpawnToolInputSchema, type TowerSpawnToolInput } from './spawn';
 import DESCRIPTION from './spawn.md?raw';
 
-type SubagentBinding = ReturnType<typeof resolveSubagentBindingWithPrimary>;
+type SubagentBinding = ReturnType<typeof resolveSubagentBinding>;
 
 const TOWER_SPAWN_PARAMETERS = toInputJsonSchema(TowerSpawnToolInputSchema);
 const TOWER_SPAWN_PARAMETERS_NO_MODEL = stripSubagentModelParameter(TOWER_SPAWN_PARAMETERS);
@@ -86,15 +85,12 @@ export class TowerSpawnTool implements ITowerSpawnTool {
   readonly sideEffect = ToolSideEffects.read;
 
   get description(): string {
-    const modelLines = buildSubagentModelDescriptionsWithPrimary(
-      this.config,
-      this.profile.data().modelAlias,
-    );
+    const modelLines = buildSubagentModelDescriptions(this.config);
     return modelLines === undefined ? DESCRIPTION : `${DESCRIPTION}\n\n${modelLines}`;
   }
 
   get parameters(): Record<string, unknown> {
-    return resolveSubagentModelPool(this.config) !== undefined
+    return exposesSubagentModelChoice(this.config)
       ? TOWER_SPAWN_PARAMETERS
       : TOWER_SPAWN_PARAMETERS_NO_MODEL;
   }
@@ -216,11 +212,10 @@ export class TowerSpawnTool implements ITowerSpawnTool {
         binding =
           own.modelAlias === undefined
             ? undefined
-            : resolveSubagentBindingWithPrimary(
+            : resolveSubagentBinding(
                 this.config,
                 { modelAlias: own.modelAlias, thinkingLevel: own.thinkingLevel },
-                args.model ??
-                  (args.kind === 'reviewer' ? PRIMARY_SUBAGENT_MODEL_CHOICE : undefined),
+                args.model,
               );
       } catch (error) {
         return {

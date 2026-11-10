@@ -1,6 +1,5 @@
 import {
   ErrorCodes,
-  PRIMARY_SUBAGENT_MODEL_CHOICE,
   type ExperimentalFeatureState,
   type ModelAlias,
   type PermissionMode,
@@ -302,15 +301,6 @@ export async function handleSecondaryModelCommand(
   const alias = args.trim();
   await refreshModelsForPicker(host);
   const models = pickerModelsForHost(host);
-  // The pool reserves `primary` for Tower spawn's symbolic "tower's own model"
-  // choice — a user alias with that name can never be the subagent default.
-  delete models[PRIMARY_SUBAGENT_MODEL_CHOICE];
-  if (alias === PRIMARY_SUBAGENT_MODEL_CHOICE) {
-    host.showError(
-      `"${PRIMARY_SUBAGENT_MODEL_CHOICE}" is reserved by the subagent model pool — rename the [models] alias to use it here.`,
-    );
-    return;
-  }
   if (Object.keys(models).length === 0) {
     host.showNotice(
       t('tui.statusMessages.noModelsConfigured'),
