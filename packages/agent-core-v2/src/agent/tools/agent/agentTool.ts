@@ -37,6 +37,7 @@ import {
   registerAgentToolService,
 } from '#/agent/toolRegistry/toolContribution';
 import { IAgentToolRegistryService, type ToolReference } from '#/agent/toolRegistry/toolRegistry';
+import { READ_MEDIA_FILE_TOOL_NAME } from '#/agent/tools/read-media-file/read-media-file';
 import { type AgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import {
   subagentAllowlistFor,
@@ -110,7 +111,6 @@ import { BACKENDS_EXPERIMENTAL_UNAVAILABLE } from '#/session/subagent/backend/co
 
 const SUBAGENT_TOOL_PARAMETERS = toInputJsonSchema(SubagentToolInputSchema);
 const SUBAGENT_TOOL_PARAMETERS_NO_MODEL = stripSubagentModelParameter(SUBAGENT_TOOL_PARAMETERS);
-const READ_MEDIA_FILE_TOOL_NAME = 'ReadMediaFile';
 const MCP_GLOB_MAGIC = /[*?[\]{}!@+()]/;
 
 function isToolNamePattern(name: string): boolean {

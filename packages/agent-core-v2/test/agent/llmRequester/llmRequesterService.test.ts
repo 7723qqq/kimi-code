@@ -315,6 +315,7 @@ function createService(
     readonly timers?: FakeHostTimers;
     readonly modelAlias?: () => string;
     readonly prefixRevision?: () => number;
+    readonly toolSelect?: Partial<IAgentToolSelectService>;
   } = {},
 ) {
   const ix = disposables.add(new TestInstantiationService());
@@ -378,8 +379,11 @@ function createService(
   const telemetry = recordingTelemetry(telemetryRecords);
   const toolSelect: Partial<IAgentToolSelectService> = {
     enabled: () => false,
+    prepareForRequest: async () => {},
+    defaultTools: () => [],
     shapeTools: (entries) => entries,
     shapeHistory: (messages) => messages,
+    ...options.toolSelect,
   };
   const testSnapshot = Object.freeze({}) as MediaStripSnapshot;
   const events: Event2[] = [];
@@ -642,6 +646,91 @@ describe('AgentLLMRequesterService infinite retry', () => {
     await expect(service.request()).rejects.toMatchObject({ statusCode: 400 });
     expect(calls.value).toBe(1);
   });
+});
+
+describe('AgentLLMRequesterService media capability policy', () => {
+  it.each([false, true])(
+    'replaces hidden ReadMediaFile results with omission notices (image_in: %s)',
+    async (imageIn) => {
+      const attemptInputs: ModelRequestInput[] = [];
+      const base = createRequester({ value: 0 }, null, [], attemptInputs);
+      const mediaRequester = {
+        ...base,
+        model: {
+          ...base.model,
+          capabilities: { ...base.model.capabilities, image_in: imageIn },
+        },
+      };
+      const mediaTool = { name: 'ReadMediaFile', description: 'read media', parameters: {} };
+      const otherTool = { name: 'other', description: 'other', parameters: {} };
+      const { service } = createService(mediaRequester, undefined, {
+        contextMessages: [
+          {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'calling tools' }],
+            toolCalls: [
+              { type: 'function', id: 'media', name: 'ReadMediaFile', arguments: '{}' },
+              { type: 'function', id: 'media2', name: 'ReadMediaFile', arguments: '{}' },
+              { type: 'function', id: 'other', name: 'other', arguments: '{}' },
+            ],
+          },
+          {
+            role: 'tool',
+            toolCallId: 'media',
+            content: [
+              { type: 'text', text: '<image path="/tmp/pic.png">' },
+              { type: 'image_url', imageUrl: { url: 'kimi-file://media' } },
+              { type: 'text', text: '</image>' },
+            ],
+            toolCalls: [],
+          },
+          {
+            role: 'tool',
+            toolCallId: 'media2',
+            content: [{ type: 'text', text: 'media result' }],
+            toolCalls: [],
+          },
+          {
+            role: 'tool',
+            toolCallId: 'other',
+            content: [{ type: 'text', text: 'other result' }],
+            toolCalls: [],
+          },
+          { role: 'user', content: [{ type: 'text', text: 'continue' }], toolCalls: [] },
+        ],
+        toolSelect: { defaultTools: () => [mediaTool, otherTool] },
+      });
+
+      await service.request();
+
+      const input = attemptInputs[0]!;
+      expect(input.tools).toEqual(imageIn ? [mediaTool, otherTool] : [otherTool]);
+      expect(
+        input.messages
+          .flatMap((message) => (message.role === 'assistant' ? message.toolCalls : []))
+          .map((call) => call.name),
+      ).toEqual(imageIn ? ['ReadMediaFile', 'ReadMediaFile', 'other'] : ['other']);
+      expect(
+        input.messages.flatMap((message) =>
+          message.role === 'tool' ? [message.toolCallId] : [],
+        ),
+      ).toEqual(imageIn ? ['media', 'media2', 'other'] : ['other']);
+      const omissions = input.messages.flatMap((message) =>
+        message.role === 'user'
+          ? message.content.flatMap((part) =>
+              part.type === 'text' && part.text.includes('omitted:') ? [part.text] : [],
+            )
+          : [],
+      );
+      expect(omissions).toEqual(
+        imageIn
+          ? []
+          : [
+              '[image omitted: a ReadMediaFile tool result was hidden because the current model does not support image input; use a model with image input capability to view it]\n<image path="/tmp/pic.png"></image>',
+            ],
+      );
+    },
+  );
 });
 
 describe('AgentLLMRequesterService media-stripped resend', () => {

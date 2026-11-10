@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import { type ContextMessage } from '#/agent/contextMemory/types';
-import { collectLoadedDynamicToolNames } from '#/agent/toolSelect/dynamicTools';
+import { collectLoadedDynamicTools } from '#/agent/toolSelect/dynamicTools';
 import {
   foldAnnouncedToolNames,
   isDynamicToolSchemaMessage,
@@ -124,7 +124,7 @@ describe('stripDynamicToolContext', () => {
     expect(stripDynamicToolContext(history)).toBe(history);
   });
 
-  it('drops announcements and content-free schema messages, keeps everything else', () => {
+  it('converts announcements to runtime reminders and drops content-free schemas', () => {
     const history = [
       userMessage('a'),
       announcement(['t'], []),
@@ -132,7 +132,11 @@ describe('stripDynamicToolContext', () => {
       userMessage('b'),
     ];
     const stripped = stripDynamicToolContext(history);
-    expect(stripped.map((m) => m.role)).toEqual(['user', 'user']);
+    expect(stripped.map((m) => m.role)).toEqual(['user', 'user', 'user']);
+    expect(stripped[1]?.content[0]).toMatchObject({
+      type: 'text',
+      text: expect.stringContaining('The available tools changed during this session.'),
+    });
   });
 
   it('strips only the tools field from a message that also has content', () => {
@@ -158,18 +162,18 @@ describe('predicates and ledger scan', () => {
   it('collects the union of loaded names across schema messages', () => {
     const history = [schemaMessage(['a', 'b']), userMessage('x'), schemaMessage(['b', 'c'])];
     expect(
-      [...collectLoadedDynamicToolNames(history, currentTools(['a', 'b', 'c']))].toSorted(),
+      [...collectLoadedDynamicTools(history, currentTools(['a', 'b', 'c'])).keys()].toSorted(),
     ).toEqual(['a', 'b', 'c']);
   });
 
   it('returns an empty set when there are no schema messages in history', () => {
     const history = [userMessage('a'), userMessage('b')];
-    expect([...collectLoadedDynamicToolNames(history, currentTools([]))]).toEqual([]);
+    expect([...collectLoadedDynamicTools(history, currentTools([])).keys()]).toEqual([]);
   });
 
   it('handles empty tool name arrays in schema messages', () => {
     const history = [schemaMessage([]), userMessage('x')];
-    expect([...collectLoadedDynamicToolNames(history, currentTools([]))]).toEqual([]);
+    expect([...collectLoadedDynamicTools(history, currentTools([])).keys()]).toEqual([]);
   });
 
   it('stripDynamicToolContext returns the identical array when there are no tools or announcements', () => {

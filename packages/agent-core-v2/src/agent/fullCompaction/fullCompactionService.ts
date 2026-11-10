@@ -15,7 +15,6 @@ import { AgentErrorEvent } from '#/agent/mcp/mcpEvents';
 import { IAgentProfileService, type ProfileModelContext } from '#/agent/profile/profile';
 import { agentContextOfScope, IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
 import { IEventBus } from '#/app/event/eventBus';
 import { LifecycleScope } from '#/app/scopes';
@@ -69,10 +68,6 @@ export const MAX_COMPACTION_RETRY_ATTEMPTS = 5;
 const DEFAULT_COMPACTION_MAX_COMPLETION_TOKENS = 128 * 1024;
 const OVERFLOW_CONTEXT_SAFETY_RATIO = 0.85;
 const OVERFLOW_STATUS_RECOVERY_RATIO = 0.5;
-const EMPTY_TOOL_PARAMETERS: Record<string, unknown> = {
-  type: 'object',
-  properties: {},
-};
 
 type CompactionTelemetryProperties = Pick<
   CompactionFinishedEvent,
@@ -123,7 +118,6 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     @ISessionTokenCountingService private readonly tokenCounting: ISessionTokenCountingService,
     @IAgentLLMRequesterService private readonly llmRequester: IAgentLLMRequesterService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
-    @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
     @IAgentToolSelectService private readonly toolSelect: IAgentToolSelectService,
     @IAgentScopeContext private readonly agent: IAgentScopeContext,
     @IAgentTodoService private readonly todo: IAgentTodoService,
@@ -270,12 +264,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
   }
 
   private defaultTools(): readonly Tool[] {
-    return this.toolSelect.shapeTools(this.toolRegistry.list()).map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.parameters ?? EMPTY_TOOL_PARAMETERS,
-      deferred: tool.deferred,
-    }));
+    return this.toolSelect.defaultTools();
   }
 
   private shouldRecoverFromContextOverflow(

@@ -1,6 +1,7 @@
 import type { VideoUploadInput as ProviderVideoUploadInput } from '#human/llm/media/upload';
 import type { VideoURLPart } from '#human/llm/message';
 
+export const READ_MEDIA_FILE_TOOL_NAME = 'ReadMediaFile';
 export const MAX_MEDIA_MEGABYTES = 100;
 export const MAX_MEDIA_BYTES = MAX_MEDIA_MEGABYTES * 1024 * 1024;
 

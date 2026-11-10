@@ -19,9 +19,14 @@ import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTok
 import { resolveRequestByteBudget } from './configSection';
 import { IAgentProfileService, type ProfileModelContext } from '#/agent/profile/profile';
 import { IAgentStateService } from '#/agent/state/agentState';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
 import { IAgentMediaResolverService } from '#/agent/media/mediaResolver';
+import {
+  buildMediaPathTag,
+  matchMediaPathTags,
+  type MediaPathTag,
+} from '#/agent/media/mediaRef';
+import { READ_MEDIA_FILE_TOOL_NAME } from '#/agent/tools/read-media-file/read-media-file';
 import { ISessionUsageService } from '#/session/usage/sessionUsage';
 import { IConfigService } from '#/app/config/config';
 import {
@@ -95,11 +100,6 @@ import {
   sleepForRetry,
 } from '#/_base/utils/retry';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-
-const EMPTY_TOOL_PARAMETERS: Record<string, unknown> = {
-  type: 'object',
-  properties: {},
-};
 
 const noopOnPart: AgentLLMRequestPartHandler = () => {};
 
@@ -196,7 +196,6 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentContextProjectorService private readonly projector: IAgentContextProjectorService,
     @ISessionTokenCountingService private readonly tokenCounting: ISessionTokenCountingService,
-    @IAgentToolRegistryService private readonly tools: IAgentToolRegistryService,
     @IAgentToolSelectService private readonly toolSelect: IAgentToolSelectService,
     @IAgentMediaResolverService private readonly mediaResolver: IAgentMediaResolverService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
@@ -301,7 +300,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     const sizeProbe: { bytes?: number } = {};
     try {
       return await this.runRequest(
-        this.resolveRequest(overrides, promptCacheProbe),
+        await this.resolveRequest(overrides, promptCacheProbe, signal),
         onPart,
         signal,
         setTrace,
@@ -404,7 +403,13 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       this.microCompaction !== undefined
         ? this.microCompaction.compact(request.messages)
         : request.messages;
-    const shaped = this.toolSelect.shapeHistory(compacted, request.tools);
+    const shapedHistory = this.toolSelect.shapeHistory(compacted, undefined, request.tools);
+    const hideReadMedia =
+      !request.model.capabilities.image_in && !request.model.capabilities.video_in;
+    const shaped = hideReadMedia ? hideReadMediaFile(shapedHistory) : shapedHistory;
+    const tools = hideReadMedia
+      ? request.tools.filter((tool) => tool.name !== READ_MEDIA_FILE_TOOL_NAME)
+      : request.tools;
     const recoveredMedia = this.recoveredMedia(request);
     let policy: ProjectionPolicy | undefined =
       recoveredMedia === undefined ? undefined : { media: recoveredMedia };
@@ -443,7 +448,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       previousMediaPolicy = policy?.media;
       const input = {
         systemPrompt: request.systemPrompt,
-        tools: request.tools,
+        tools,
         messages: await this.mediaResolver.resolve(projected, request.requester, signal),
       };
       const estimatedBytes = estimateLlmRequestBytes(input.messages);
@@ -872,10 +877,12 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     });
   }
 
-  private resolveRequest(
+  private async resolveRequest(
     overrides: AgentLLMRequestOverrides,
     promptCacheProbe: ResolvedLLMRequest['promptCacheProbe'],
-  ): ResolvedLLMRequest {
+    signal: AbortSignal | undefined,
+  ): Promise<ResolvedLLMRequest> {
+    await this.toolSelect.prepareForRequest(signal);
     const turnConfig = this.resolveTurnConfig(overrides.source);
     const resolved = turnConfig?.resolved ?? this.profile.resolveModelContext();
     const baseParams = turnConfig?.params ?? this.profile.resolveRequestParams();
@@ -1039,14 +1046,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
   }
 
   private defaultTools(): readonly Tool[] {
-    return this.toolSelect
-      .shapeTools(this.tools.list())
-      .map((tool) => ({
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.parameters ?? EMPTY_TOOL_PARAMETERS,
-        deferred: tool.deferred,
-      }));
+    return this.toolSelect.defaultTools();
   }
 }
 
@@ -1081,6 +1081,70 @@ function requestKindForTelemetry(source: AgentLLMRequestSource | undefined): str
   if (source?.type === 'turn') return 'turn';
   if (source?.type === 'operation') return source.requestKind ?? 'operation';
   return undefined;
+}
+
+function mediaTagOf(message: Message): MediaPathTag | undefined {
+  const text = message.content
+    .flatMap((part) => (part.type === 'text' ? [part.text] : []))
+    .join('\n');
+  return matchMediaPathTags(text).find((entry) => entry.kind === 'image' || entry.kind === 'video');
+}
+
+function omittedReadMediaResult(tag: MediaPathTag): Message {
+  const hint =
+    `[${tag.kind} omitted: a ReadMediaFile tool result was hidden because the current model does not support ${tag.kind} input; ` +
+    `use a model with ${tag.kind} input capability to view it]`;
+  return {
+    role: 'user',
+    content: [{ type: 'text', text: `${hint}\n${buildMediaPathTag(tag.kind, tag.path)}` }],
+    toolCalls: [],
+  };
+}
+
+function hideReadMediaFile(messages: readonly Message[]): readonly Message[] {
+  const readMediaCallIds = new Set<string>();
+  for (const message of messages) {
+    if (message.role !== 'assistant') continue;
+    for (const call of message.toolCalls) {
+      if (call.name === READ_MEDIA_FILE_TOOL_NAME) readMediaCallIds.add(call.id);
+    }
+  }
+  if (readMediaCallIds.size === 0) return messages;
+  const mediaTags = new Map<string, MediaPathTag>();
+  for (const message of messages) {
+    if (
+      message.role !== 'tool' ||
+      message.toolCallId === undefined ||
+      !readMediaCallIds.has(message.toolCallId)
+    ) {
+      continue;
+    }
+    const tag = mediaTagOf(message);
+    if (tag !== undefined) mediaTags.set(message.toolCallId, tag);
+  }
+  const out: Message[] = [];
+  for (const message of messages) {
+    if (message.role === 'tool') {
+      if (message.toolCallId === undefined || !readMediaCallIds.has(message.toolCallId)) {
+        out.push(message);
+        continue;
+      }
+      const tag = mediaTags.get(message.toolCallId);
+      if (tag !== undefined) out.push(omittedReadMediaResult(tag));
+      continue;
+    }
+    if (message.role !== 'assistant') {
+      out.push(message);
+      continue;
+    }
+    const toolCalls = message.toolCalls.filter((call) => call.name !== READ_MEDIA_FILE_TOOL_NAME);
+    if (toolCalls.length === message.toolCalls.length) {
+      out.push(message);
+      continue;
+    }
+    if (toolCalls.length > 0 || message.content.length > 0) out.push({ ...message, toolCalls });
+  }
+  return out;
 }
 
 function providerVisibleTools(tools: readonly Tool[]): readonly Tool[] {

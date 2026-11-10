@@ -7,6 +7,7 @@ import {
 import { interruptionReminderKey } from '#/agent/interruptionReminder/interruptionReminderOps';
 import { llmRequestTraceKey } from '#/agent/llmRequester/llmRequestOps';
 import { turnKey } from '#/agent/loop/turnOps';
+import { toolSelectKey } from '#/agent/toolSelect/toolSelectOps';
 import { mcpDiscoveryKey } from '#/agent/mcp/mcpDiscoveryOps';
 import { mcpFailureKey } from '#/agent/mcp/mcpFailureOps';
 import { microCompactionKey } from '#/agent/microCompaction/microCompactionOps';
@@ -36,6 +37,7 @@ export const BUILTIN_REPLAYABLE_STATE_KEYS: readonly ReplayableStateKey<any>[] =
   interruptionReminderKey,
   llmRequestTraceKey,
   turnKey,
+  toolSelectKey,
   mcpDiscoveryKey,
   mcpFailureKey,
   microCompactionKey,
