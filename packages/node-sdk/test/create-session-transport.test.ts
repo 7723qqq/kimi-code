@@ -34,7 +34,7 @@ const toPosix = (p: string): string => p.replaceAll('\\', '/');
 // `session_started` row (see SDKRpcClientV2.enabledExperimentalFlags), so the
 // clean-env expectation carries the default-enabled set next to the
 // attribution / canonical fields.
-const DEFAULT_EXPERIMENTAL_FLAGS = 'tool_select,wait_for';
+const DEFAULT_EXPERIMENTAL_FLAGS = 'tool_select,wait_for,xunfei_coding_plan';
 
 const tempDirs: string[] = [];
 

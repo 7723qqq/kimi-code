@@ -29,6 +29,8 @@ const TOWER_WORKER_TOOLS = [
   'Grep',
   'Read',
   'RepoMap',
+  'run_code',
+  'lsp',
   'Skill',
   'SnapshotList',
   'TaskList',
