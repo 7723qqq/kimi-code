@@ -1013,6 +1013,29 @@ describe('SessionEventBroadcaster', () => {
     expect(globalView.deliveries).toEqual(['immediate']);
   });
 
+  it('fans out event.session.restored to every connection, including for cold sessions', async () => {
+    const globalView = collectingTarget();
+    bc.addGlobalTarget(globalView.target);
+
+    eventBus.emit({
+      type: 'event.session.restored',
+      payload: { sessionId: 'cold-1', workspaceId: 'wd_cold' },
+    });
+
+    await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
+    expect(globalView.envelopes[0]).toMatchObject({
+      type: 'event.session.restored',
+      session_id: '__global__',
+      payload: {
+        type: 'event.session.restored',
+        agentId: 'main',
+        sessionId: 'cold-1',
+        workspace_id: 'wd_cold',
+      },
+    });
+    expect(globalView.deliveries).toEqual(['immediate']);
+  });
+
   it('fans out event.session.deleted to every connection, including for cold sessions', async () => {
     const globalView = collectingTarget();
     bc.addGlobalTarget(globalView.target);
@@ -2838,6 +2861,19 @@ describe('sessionEventMessageSchema', () => {
         }),
       ).success,
     ).toBe(true);
+  });
+
+  it('accepts restored session envelopes and validates workspace ids', () => {
+    expect(
+      sessionEventMessageSchema.safeParse(
+        envelope({ type: 'event.session.restored', workspace_id: 'wd_cold' }),
+      ).success,
+    ).toBe(true);
+    expect(
+      sessionEventMessageSchema.safeParse(
+        envelope({ type: 'event.session.restored', workspace_id: '' }),
+      ).success,
+    ).toBe(false);
   });
 
   it('rejects malformed config and model catalog event envelopes', () => {

@@ -18,7 +18,7 @@ import {
   legacySessionMetaScopeOf,
   workspacePersistenceScope,
 } from './internal/addressing';
-import { SessionArchived } from './sessionLifecycleEvents';
+import { SessionArchived, SessionRestored } from './sessionLifecycleEvents';
 
 export type ColdSessionArchiveOutcome = 'updated' | 'not_found';
 
@@ -66,10 +66,11 @@ export async function setColdSessionArchived(
         lastTurnReason: nextMeta.lastTurnReason,
       }),
     );
+    const payload = { sessionId, workspaceId: summary.workspaceId };
     if (archived) {
-      accessor
-        .get(IEventService)
-        .publish(new SessionArchived({ payload: { sessionId, workspaceId: summary.workspaceId } }));
+      accessor.get(IEventService).publish(new SessionArchived({ payload }));
+    } else if (persisted.archived) {
+      accessor.get(IEventService).publish(new SessionRestored({ payload }));
     }
     return 'updated';
   } finally {

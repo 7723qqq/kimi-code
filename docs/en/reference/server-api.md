@@ -867,7 +867,7 @@ On success, `data` is `{ archived: true }`.
 
 #### `POST /api/v1/sessions/{session_id}:restore`
 
-Un-archives the session and resumes it.
+Un-archives the session and resumes it. When the session was archived, the server broadcasts the global `event.session.restored` event.
 
 On success, `data` is [the session object](#the-session-object) with `archived: false`.
 
@@ -2377,7 +2377,7 @@ Clients send JSON frames `{ "type", "id"?, "payload" }`; every request frame get
 
 Event frames look like `{ "type", "seq", "epoch"?, "volatile"?, "offset"?, "session_id"?, "timestamp", "payload" }`, where `type` is the event type itself. Two delivery scopes:
 
-- **Global events**: sent to every established connection, no subscription needed — `session.meta.updated`, `event.session.created`, `event.session.archived`, `event.session.work_changed`, `event.session.status_changed`, `event.workspace.*`, `event.config.*`, `event.model_catalog.*`.
+- **Global events**: sent to every established connection, no subscription needed — `session.meta.updated`, `event.session.created`, `event.session.archived`, `event.session.restored`, `event.session.work_changed`, `event.session.status_changed`, `event.workspace.*`, `event.config.*`, `event.model_catalog.*`.
 - **Session frames**: sent only to connections subscribed to that session with `subscribe_v2` — `transcript.reset` / `transcript.ops` (see [Transcript protocol](#transcript-protocol)), `task.list`, `task`, `agent`, `usage`, `goal`, `todo`, and `interaction`. `task.output` goes only to connections watching that task with `task.watch`.
 
 | Family | Main events |
@@ -2390,7 +2390,7 @@ Event frames look like `{ "type", "seq", "epoch"?, "volatile"?, "offset"?, "sess
 | Background | `task.started` / `terminated`, `shell.started` / `output` / `completed` |
 | Misc | `compaction.*`, `skill.activated`, `goal.updated`, `prompt.*`, `error`, `warning` |
 
-Three global lifecycle events keep a cross-workspace overview fresh without polling per workspace. `event.session.archived` fires on both the live and the cold archive path; its envelope `session_id` is the global watermark `__global__` and the real session id rides in the payload: `{ "type": "event.session.archived", "workspace_id": "wd_...", "sessionId": "session_..." }` (payload keys `workspace_id` / `sessionId`). `event.workspace.created` / `updated` carry the full workspace object (`{ id, root, name, created_at, last_opened_at, session_count }` — an `updated` also fires when a session creation touches the workspace), and `event.workspace.deleted` carries `{ "workspace_id", "root" }`. These events only cover changes made inside this server process; changes from other processes (for example a CLI writing to the same home) surface through the index reconciliation (about a minute), so overview clients should keep a low-frequency fallback poll. There is no session-deleted event.
+Several global lifecycle events keep a cross-workspace overview fresh without polling per workspace. `event.session.archived` fires on both the live and the cold archive path; its envelope `session_id` is the global watermark `__global__` and the real session id rides in the payload: `{ "type": "event.session.archived", "workspace_id": "wd_...", "sessionId": "session_..." }` (payload keys `workspace_id` / `sessionId`). `event.session.restored` fires when an archived session is restored, on the same paths and with the same envelope and payload keys. `event.workspace.created` / `updated` carry the full workspace object (`{ id, root, name, created_at, last_opened_at, session_count }` — an `updated` also fires when a session creation touches the workspace), and `event.workspace.deleted` carries `{ "workspace_id", "root" }`. These events only cover changes made inside this server process; changes from other processes (for example a CLI writing to the same home) surface through the index reconciliation (about a minute), so overview clients should keep a low-frequency fallback poll. There is no session-deleted event.
 
 Events also split into durable and volatile: durable events carry a strictly increasing `seq`, are journaled, and can be replayed; volatile events (the `*.delta` family, `tool.progress`, `shell.*`, and similar) are marked `volatile: true` and never replayed. When consuming a volatile text stream, compare `offset` (the cumulative character offset within the turn) against your locally accumulated text: below the local length means a duplicate frame; above means a gap that needs snapshot recovery.
 
