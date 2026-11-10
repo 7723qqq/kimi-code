@@ -6,6 +6,7 @@ import {
 import {
   isAbortError,
   toLlmErrorMessage,
+  isTransientHttpStatus,
   toLlmStatusErrorMessage,
   toLlmStreamErrorMessage,
   type LlmRemoteErrorMessage,
@@ -345,15 +346,18 @@ export function convertGoogleGenAIError(
       };
     }
     if (source === 'stream') {
+      const businessCode = typeof code === 'number' ? code : error.status;
       return toLlmStreamErrorMessage({
-        businessCode: typeof code === 'number' ? code : error.status,
+        businessCode,
         message,
+        retryable: businessCode === undefined || isTransientHttpStatus(businessCode),
         retryAfterMs,
       });
     }
     return toLlmStatusErrorMessage({
       statusCode: error.status,
       message: message.length > 0 ? message : error.message,
+      retryable: isTransientHttpStatus(error.status),
       retryAfterMs,
     });
   }
@@ -368,9 +372,17 @@ export function convertGoogleGenAIError(
     const code = (error as { code?: number }).code;
     if (typeof code === 'number') {
       if (source === 'stream') {
-        return toLlmStreamErrorMessage({ businessCode: code, message: msg });
+        return toLlmStreamErrorMessage({
+          businessCode: code,
+          message: msg,
+          retryable: isTransientHttpStatus(code),
+        });
       }
-      return toLlmStatusErrorMessage({ statusCode: code, message: msg });
+      return toLlmStatusErrorMessage({
+        statusCode: code,
+        message: msg,
+        retryable: isTransientHttpStatus(code),
+      });
     }
     return { kind: 'provider', message: `GoogleGenAI error: ${msg}`, retryable: true };
   }

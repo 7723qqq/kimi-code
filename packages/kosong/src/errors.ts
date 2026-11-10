@@ -10,9 +10,12 @@ export interface ChatProviderErrorOptions {
  * Base error for all chat provider errors.
  */
 export class ChatProviderError extends Error {
-  constructor(message: string, options?: ChatProviderErrorOptions) {
+  readonly retryable: boolean;
+
+  constructor(message: string, options?: ChatProviderErrorOptions, retryable = true) {
     super(message, options?.cause === undefined ? undefined : { cause: options.cause });
     this.name = 'ChatProviderError';
+    this.retryable = retryable;
   }
 }
 
@@ -60,11 +63,12 @@ export class APIStatusError extends ChatProviderError {
   constructor(
     statusCode: number,
     message: string,
+    retryable: boolean,
     requestId?: string | null,
     retryAfterMs?: number | null,
     traceId?: string | null,
   ) {
-    super(message);
+    super(message, undefined, retryable);
     this.name = 'APIStatusError';
     this.statusCode = statusCode;
     this.requestId = requestId ?? null;
@@ -85,7 +89,7 @@ export class APIContextOverflowError extends APIStatusError {
     retryAfterMs?: number | null,
     traceId?: string | null,
   ) {
-    super(statusCode, message, requestId, retryAfterMs, traceId);
+    super(statusCode, message, false, requestId, retryAfterMs, traceId);
     this.name = 'APIContextOverflowError';
   }
 }
@@ -104,7 +108,7 @@ export class APIRequestTooLargeError extends APIStatusError {
     retryAfterMs?: number | null,
     traceId?: string | null,
   ) {
-    super(statusCode, message, requestId, retryAfterMs, traceId);
+    super(statusCode, message, false, requestId, retryAfterMs, traceId);
     this.name = 'APIRequestTooLargeError';
   }
 }
@@ -120,7 +124,7 @@ export class APIProviderRateLimitError extends APIStatusError {
     retryAfterMs?: number | null,
     traceId?: string | null,
   ) {
-    super(429, message, requestId, retryAfterMs, traceId);
+    super(429, message, true, requestId, retryAfterMs, traceId);
     this.name = 'APIProviderRateLimitError';
   }
 }
@@ -147,7 +151,7 @@ export class APIProviderQuotaExhaustedError extends APIStatusError {
     retryAfterMs?: number | null,
     traceId?: string | null,
   ) {
-    super(429, message, requestId, retryAfterMs, traceId);
+    super(429, message, false, requestId, retryAfterMs, traceId);
     this.name = 'APIProviderQuotaExhaustedError';
   }
 }
@@ -166,7 +170,7 @@ export class APIEmptyResponseError extends ChatProviderError {
       readonly rawFinishReason?: string | null;
     } = {},
   ) {
-    super(message);
+    super(message, undefined, options.finishReason !== 'filtered');
     this.name = 'APIEmptyResponseError';
     this.finishReason = options.finishReason ?? null;
     this.rawFinishReason = options.rawFinishReason ?? null;
@@ -215,40 +219,8 @@ export function throwIfAbortError(error: unknown): void {
 }
 
 export function isRetryableGenerateError(error: unknown): boolean {
-  if (error instanceof APIConnectionError || error instanceof APITimeoutError) {
-    return true;
-  }
-  if (error instanceof APIEmptyResponseError) {
-    // A filtered response is deterministic: replaying the same request just
-    // re-triggers the provider's safety filter, so fail fast and surface the
-    // filter notice instead of burning the whole step-retry budget.
-    return error.finishReason !== 'filtered';
-  }
-  if (error instanceof APIStatusError) {
-    // Quota/balance exhaustion is a 429 but deterministic until the account
-    // is recharged — retrying can never succeed, so it fails fast instead of
-    // burning the whole retry budget (~2-3 minutes of backoff).
-    if (error instanceof APIProviderQuotaExhaustedError) {
-      return false;
-    }
-    // Transient statuses worth retrying: 408 (request timeout), 409
-    // (lock/conflict timeout), 429 (rate limit), 5xx (server errors) and 529
-    // (provider overloaded — the "engine is currently overloaded" case).
-    return [408, 409, 429, 500, 502, 503, 504, 529].includes(error.statusCode);
-  }
-  // Fallback safety net: an unclassified provider failure — typically an
-  // upstream gateway that forwards the original error only as text, with no
-  // usable HTTP status (e.g. llmproxy embedding `status_code=429` in the
-  // message) — lands here as a base `ChatProviderError`. Retrying beats
-  // failing the run on the first transient blip. Typed `APIStatusError`
-  // instances are deliberately excluded above: deterministic 4xx
-  // (400/401/403/404/422) and the recovery-owned context-overflow /
-  // request-too-large subclasses keep their dedicated handling instead of
-  // burning retries first. Image-format rejections are likewise excluded:
-  // they are deterministic per history and recovered by the media-stripped
-  // resend (see isImageFormatError), so retrying the identical request first
-  // would only burn the retry budget.
-  return error instanceof ChatProviderError && !isImageFormatError(error);
+  if (isAbortError(error)) return false;
+  return error instanceof ChatProviderError && error.retryable;
 }
 
 // Client-side image rejections thrown before the request is sent (kosong's
@@ -423,6 +395,24 @@ export function isContextOverflowErrorCode(code: string | null | undefined): boo
   return code === 'context_length_exceeded';
 }
 
+export function isTransientHttpStatus(statusCode: number | undefined): boolean {
+  switch (statusCode) {
+    case 408:
+    case 409:
+    case 429:
+    case 500:
+    case 502:
+    case 503:
+    case 504:
+    case 529:
+      return true;
+    case undefined:
+      return false;
+    default:
+      return false;
+  }
+}
+
 export function normalizeAPIStatusError(
   statusCode: number,
   message: string,
@@ -444,6 +434,7 @@ export function normalizeAPIStatusError(
   return new APIStatusError(
     statusCode,
     appendThinkingEffortConfigHint(statusCode, message),
+    isTransientHttpStatus(statusCode),
     requestId,
     retryAfterMs,
     traceId,
@@ -636,7 +627,7 @@ export class APIProviderOverloadedError extends ChatProviderError {
  */
 export class VideoUploadUnsupportedError extends ChatProviderError {
   constructor(message: string) {
-    super(message);
+    super(message, undefined, false);
     this.name = 'VideoUploadUnsupportedError';
   }
 }

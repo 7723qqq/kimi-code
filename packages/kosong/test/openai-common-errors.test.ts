@@ -97,7 +97,7 @@ describe('convertOpenAIError: base APIError mapping', () => {
 });
 describe('convertOpenAIError: existing provider errors', () => {
   it('preserves an existing ChatProviderError instance', () => {
-    const err = new APIStatusError(401, 'Unauthorized', 'req-401');
+    const err = new APIStatusError(401, 'Unauthorized', false, 'req-401');
 
     expect(convertOpenAIError(err)).toBe(err);
   });

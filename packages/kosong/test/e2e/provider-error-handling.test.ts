@@ -6,6 +6,7 @@ import {
   APIStatusError,
   APITimeoutError,
   ChatProviderError,
+  isTransientHttpStatus,
 } from '#/errors';
 import { generate } from '#/generate';
 import type { StreamedMessagePart, ToolCall } from '#/message';
@@ -153,7 +154,7 @@ describe('e2e: provider error handling (extended)', () => {
 
     for (const { status, requestId, label } of cases) {
       it(`${label} (${status}) propagates through step() with statusCode and requestId intact`, async () => {
-        const err = new APIStatusError(status, `HTTP ${status}`, requestId);
+        const err = new APIStatusError(status, `HTTP ${status}`, isTransientHttpStatus(status), requestId);
         const provider = createThrowingProvider(err);
 
         try {
@@ -170,7 +171,7 @@ describe('e2e: provider error handling (extended)', () => {
     }
 
     it('APIStatusError with null requestId normalises correctly', async () => {
-      const err = new APIStatusError(500, 'boom');
+      const err = new APIStatusError(500, 'boom', true);
       expect(err.requestId).toBeNull();
 
       const provider = createThrowingProvider(err);

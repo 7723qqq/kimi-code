@@ -13,6 +13,7 @@ import {
   isAbortError,
   parseRetryAfterMs,
   toLlmErrorMessage,
+  isTransientHttpStatus,
   toLlmStatusErrorMessage,
   toLlmStreamErrorMessage,
   toLlmTransportErrorMessage,
@@ -364,14 +365,25 @@ export function convertAnthropicError(
       return toLlmStatusErrorMessage({
         statusCode,
         message: message.length > 0 ? message : error.message,
+        retryable: isTransientHttpStatus(statusCode),
         ...statusInfo,
       });
     }
     if (body !== undefined) {
-      return toLlmStreamErrorMessage({ businessCode: error.status, message, ...statusInfo });
+      return toLlmStreamErrorMessage({
+        businessCode: error.status,
+        message,
+        retryable: error.status === undefined || isTransientHttpStatus(error.status),
+        ...statusInfo,
+      });
     }
     if (source === 'stream') {
-      return toLlmStreamErrorMessage({ businessCode: error.status, message: '', ...statusInfo });
+      return toLlmStreamErrorMessage({
+        businessCode: error.status,
+        message: '',
+        retryable: error.status === undefined || isTransientHttpStatus(error.status),
+        ...statusInfo,
+      });
     }
   }
   if (error instanceof Error) {

@@ -774,7 +774,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     });
 
     const message = '<html><title>Backend title</title><body>Backend body</body></html>\r\n';
-    expect(toKimiErrorPayload(new APIStatusError(502, message))).toMatchObject({
+    expect(toKimiErrorPayload(new APIStatusError(502, message, true))).toMatchObject({
       code: ErrorCodes.PROVIDER_API_ERROR,
       message,
     });

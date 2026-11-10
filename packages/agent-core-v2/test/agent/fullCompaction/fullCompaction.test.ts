@@ -583,7 +583,7 @@ describe('FullCompaction', () => {
       async (_provider, _system, _tools, _history, _callbacks, options) => {
         authKeys.push(options?.auth?.apiKey ?? '<missing>');
         if (authKeys.length <= 2) {
-          throw new APIStatusError(401, 'Unauthorized', 'req-compact-401');
+          throw new APIStatusError(401, 'Unauthorized', false, 'req-compact-401');
         }
         return textResult('Recovered compacted summary.');
       },
@@ -781,8 +781,8 @@ describe('FullCompaction', () => {
     let attempts = 0;
     const generate: GenerateFn = requesterFromGenerateFn(async () => {
       attempts += 1;
-      if (attempts === 1) throw new APIStatusError(400, 'endpoint broken', null, 1);
-      if (attempts === 2) throw new APIStatusError(404, 'model not found', null, 1);
+      if (attempts === 1) throw new APIStatusError(400, 'endpoint broken', false, null, 1);
+      if (attempts === 2) throw new APIStatusError(404, 'model not found', false, null, 1);
       return textResult('Recovered compacted summary.');
     });
     const ctx = testAgent({ generate });
@@ -841,7 +841,7 @@ describe('FullCompaction', () => {
         );
         if (hasMedia) {
           sawMedia = true;
-          throw new APIStatusError(400, 'unsupported image format: image/avif');
+          throw new APIStatusError(400, 'unsupported image format: image/avif', false);
         }
         sawStrippedResend = true;
         return textResult('Recovered compacted summary.');
@@ -1025,7 +1025,7 @@ describe('FullCompaction', () => {
         inputs.push(inputHistorySnapshot(history));
         if (attempts === 1) {
           firstAttemptFailed.resolve();
-          throw new APIStatusError(413, 'Request Entity Too Large', 'req-compact-plain-413');
+          throw new APIStatusError(413, 'Request Entity Too Large', false, 'req-compact-plain-413');
         }
         return textResult('Recovered compacted summary.');
       },
@@ -1233,7 +1233,7 @@ describe('FullCompaction', () => {
       if (attempts === 1) {
         firstAttemptFailed.resolve();
       }
-      throw new APIStatusError(429, 'rate limited', null, null, 'trace-compact-retry');
+      throw new APIStatusError(429, 'rate limited', true, null, null, 'trace-compact-retry');
     });
     const ctx = testAgent({ generate, telemetry: recordingTelemetry(records) });
     ctx.configure({
@@ -1332,7 +1332,7 @@ describe('FullCompaction', () => {
   it('attaches the failed request trace id to compaction_failed', async () => {
     const records: TelemetryRecord[] = [];
     const generate: GenerateFn = requesterFromGenerateFn(async () => {
-      throw new APIStatusError(400, 'Bad request', null, null, 'trace-compact-fail');
+      throw new APIStatusError(400, 'Bad request', false, null, null, 'trace-compact-fail');
     });
     const ctx = testAgent({ generate, telemetry: recordingTelemetry(records) });
     ctx.configure({
@@ -1399,7 +1399,7 @@ describe('FullCompaction', () => {
     let attempts = 0;
     const generate: GenerateFn = requesterFromGenerateFn(async () => {
       attempts += 1;
-      throw new APIStatusError(400, 'Bad request');
+      throw new APIStatusError(400, 'Bad request', false);
     });
     const ctx = testAgent({ generate });
     ctx.configure({
@@ -3023,7 +3023,7 @@ describe('FullCompaction', () => {
       async (_provider, _system, _tools, _history, callbacks) => {
         callCount += 1;
         if (callCount === 1) {
-          throw new APIStatusError(413, 'Request Entity Too Large', 'req-plain-413');
+          throw new APIStatusError(413, 'Request Entity Too Large', false, 'req-plain-413');
         }
         if (callCount === 2) {
           return textResult('Plain 413 compacted summary.');
@@ -3077,7 +3077,7 @@ describe('FullCompaction', () => {
 
   it('does not compact plain 413 when estimated request is small', async () => {
     const generate: GenerateFn = requesterFromGenerateFn(async () => {
-      throw new APIStatusError(413, 'Request Entity Too Large', 'req-small-413');
+      throw new APIStatusError(413, 'Request Entity Too Large', false, 'req-small-413');
     });
     const ctx = testAgent({ generate });
     ctx.configure({
@@ -5227,7 +5227,7 @@ describe('FullCompaction prompt-cache prefix', () => {
         error:
           media === 'media-degraded'
             ? new APIRequestTooLargeError(413, 'Request Entity Too Large')
-            : new APIStatusError(400, 'unsupported image format: image/avif is not supported'),
+            : new APIStatusError(400, 'unsupported image format: image/avif is not supported', false),
       });
     }
     if (loadSchema) {

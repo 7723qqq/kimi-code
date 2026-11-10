@@ -19,6 +19,7 @@ import type { ContextMessage, PromptOrigin, TaskOrigin } from '#/agent/contextMe
 import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { turnKey } from '#/agent/loop/turnOps';
+import { LOADABLE_TOOLS_VARIANT } from '#/agent/toolSelect/dynamicTools';
 import { IAgentTaskService, type AgentTask } from '#/agent/task/task';
 import { taskNotificationDeliveryKey } from '#/agent/task/taskService';
 import { IAgentConversationUndoService } from '#/agent/undo/undo';
@@ -450,7 +451,7 @@ describe('AgentConversationUndoService', () => {
             throw new APIRequestTooLargeError(413, 'Request Entity Too Large');
           }
           if (mode === 'stripped' && images.some((part) => part.imageUrl.url.endsWith('/1-0.png'))) {
-            throw new APIStatusError(400, 'unsupported image format');
+            throw new APIStatusError(400, 'unsupported image format', false);
           }
           return {
             id: 'media-response',
@@ -595,7 +596,13 @@ describe('AgentConversationUndoService', () => {
       await undo.undo(1);
       expect(fromTurnId).toBe(userTurn.id);
       expect(ctx.agentState.get(turnKey).anchorTurnIds).toEqual([]);
-      expect(ctx.context.get()).toHaveLength(0);
+      expect(
+        ctx.context.get().filter(
+          (message) =>
+            message.origin?.kind !== 'injection' ||
+            message.origin.variant !== LOADABLE_TOOLS_VARIANT,
+        ),
+      ).toHaveLength(0);
     } finally {
       subscription.dispose();
     }

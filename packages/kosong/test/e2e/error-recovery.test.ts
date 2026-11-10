@@ -105,7 +105,7 @@ function createMockProvider(stream: StreamedMessage): ChatProvider {
 describe('e2e: error recovery', () => {
   describe('provider generate() throws', () => {
     it('APIStatusError propagates through step()', async () => {
-      const error = new APIStatusError(429, 'Rate limited', 'req-123');
+      const error = new APIStatusError(429, 'Rate limited', true, 'req-123');
       const provider = createThrowingProvider(error);
       const toolset = new SimpleToolset();
 
