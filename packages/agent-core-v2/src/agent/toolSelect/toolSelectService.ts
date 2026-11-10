@@ -475,7 +475,7 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
   private capableTools(includeRuntime: boolean): readonly ToolSelectTool[] {
     const initial = this.initialTools();
     const initialNames = new Set(initial.map((tool) => tool.name));
-    const current = this.currentTools();
+    const current = includeRuntime ? this.currentTools() : this.liveTools('initial');
     const currentByName = new Map(current.map((tool) => [tool.name, tool]));
     return [
       ...initial.map((tool) => currentByName.get(tool.name) ?? tool),
