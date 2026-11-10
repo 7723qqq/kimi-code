@@ -256,7 +256,11 @@ export class BtwPanelController {
         : prompt;
       lease = this.staging.create(
         [
-          ...new Set([...extraction.imageAttachmentIds, ...extraction.videoAttachmentIds]),
+          ...new Set([
+            ...extraction.imageAttachmentIds,
+            ...extraction.videoAttachmentIds,
+            ...extraction.documentAttachmentIds,
+          ]),
           ...prepared.mediaAttachmentIds,
         ],
         prepared.stagingPaths,
@@ -272,7 +276,11 @@ export class BtwPanelController {
         if (prepared !== undefined) this.host.releaseSkillArgumentMedia(prepared);
         if (extraction !== undefined) {
           this.staging.releaseMedia(
-            [...extraction.imageAttachmentIds, ...extraction.videoAttachmentIds],
+            [
+              ...extraction.imageAttachmentIds,
+              ...extraction.videoAttachmentIds,
+              ...extraction.documentAttachmentIds,
+            ],
             [],
           );
         }

@@ -58,6 +58,7 @@ export interface SendMessageOptions {
   readonly parts?: readonly PromptPart[];
   readonly imageAttachmentIds?: readonly number[];
   readonly videoAttachmentIds?: readonly number[];
+  readonly documentAttachmentIds?: readonly number[];
   readonly mediaSnapshots?: readonly MediaAttachment[];
   readonly hasMedia?: boolean;
   /**
@@ -167,8 +168,13 @@ export class MessageDispatchController {
       // yields when a path actually has to be read.
       const extracted =
         preExtracted ??
-        extractMediaAttachments(text, this.imageStore, (attachment, bytes, mime, width, height) =>
-          this.host.editorKeyboard.prepareImageAttachment(attachment, bytes, mime, width, height),
+        extractMediaAttachments(
+          text,
+          this.imageStore,
+          (attachment, bytes, mime, width, height) =>
+            this.host.editorKeyboard.prepareImageAttachment(attachment, bytes, mime, width, height),
+          (attachment, mime, path) =>
+            this.host.editorKeyboard.prepareDocumentAttachment(attachment, mime, path),
         );
       extraction = extracted instanceof Promise ? await extracted : extracted;
       if (preExtracted !== undefined) {
@@ -199,7 +205,13 @@ export class MessageDispatchController {
     const stagingLease = this.staging.create(
       // One retain per unique id per extraction: dedupe repeated placeholder
       // occurrences so the lease's id multiplicity matches the retain count.
-      [...new Set([...extraction.imageAttachmentIds, ...extraction.videoAttachmentIds])],
+      [
+        ...new Set([
+          ...extraction.imageAttachmentIds,
+          ...extraction.videoAttachmentIds,
+          ...extraction.documentAttachmentIds,
+        ]),
+      ],
       [],
       'user',
       extraction.hasMedia && this.host.state.appState.goal?.status !== 'active'
@@ -235,6 +247,7 @@ export class MessageDispatchController {
         parts: extraction.parts,
         imageAttachmentIds: extraction.imageAttachmentIds,
         videoAttachmentIds: extraction.videoAttachmentIds,
+        documentAttachmentIds: extraction.documentAttachmentIds,
         lease: stagingLease,
       });
     } else {
@@ -284,8 +297,13 @@ export class MessageDispatchController {
     try {
       const extracted =
         preExtracted ??
-        extractMediaAttachments(text, this.imageStore, (attachment, bytes, mime, width, height) =>
-          this.host.editorKeyboard.prepareImageAttachment(attachment, bytes, mime, width, height),
+        extractMediaAttachments(
+          text,
+          this.imageStore,
+          (attachment, bytes, mime, width, height) =>
+            this.host.editorKeyboard.prepareImageAttachment(attachment, bytes, mime, width, height),
+          (attachment, mime, path) =>
+            this.host.editorKeyboard.prepareDocumentAttachment(attachment, mime, path),
         );
       extraction = extracted instanceof Promise ? await extracted : extracted;
     } catch (error) {
@@ -298,7 +316,11 @@ export class MessageDispatchController {
     }
     if (!this.validateMediaCapabilities(extraction)) {
       this.staging.releaseMedia(
-        [...extraction.imageAttachmentIds, ...extraction.videoAttachmentIds],
+        [
+          ...extraction.imageAttachmentIds,
+          ...extraction.videoAttachmentIds,
+          ...extraction.documentAttachmentIds,
+        ],
         [],
       );
       return;
@@ -311,7 +333,11 @@ export class MessageDispatchController {
       session = await this.host.ensureSession();
       if (session === undefined) {
         this.staging.releaseMedia(
-          [...extraction.imageAttachmentIds, ...extraction.videoAttachmentIds],
+          [
+            ...extraction.imageAttachmentIds,
+            ...extraction.videoAttachmentIds,
+            ...extraction.documentAttachmentIds,
+          ],
           [],
         );
         return;
@@ -331,6 +357,7 @@ export class MessageDispatchController {
               parts: extraction.parts,
               imageAttachmentIds: extraction.imageAttachmentIds,
               videoAttachmentIds: extraction.videoAttachmentIds,
+              documentAttachmentIds: extraction.documentAttachmentIds,
               mediaSnapshots: extraction.mediaSnapshots,
               inlineSkillActivations: activations,
             }
@@ -377,7 +404,11 @@ export class MessageDispatchController {
     } catch (error) {
       if (prepared !== undefined) this.host.releaseSkillArgumentMedia(prepared);
       this.staging.releaseMedia(
-        [...extraction.imageAttachmentIds, ...extraction.videoAttachmentIds],
+        [
+          ...extraction.imageAttachmentIds,
+          ...extraction.videoAttachmentIds,
+          ...extraction.documentAttachmentIds,
+        ],
         [],
       );
       this.failSessionRequest(
@@ -392,7 +423,11 @@ export class MessageDispatchController {
     // each skill arg rewrite retains its own), never across them.
     const stagingLease = this.staging.create(
       [
-        ...new Set([...extraction.imageAttachmentIds, ...extraction.videoAttachmentIds]),
+        ...new Set([
+          ...extraction.imageAttachmentIds,
+          ...extraction.videoAttachmentIds,
+          ...extraction.documentAttachmentIds,
+        ]),
         ...prepared.mediaAttachmentIds,
       ],
       prepared.stagingPaths,
@@ -465,7 +500,9 @@ export class MessageDispatchController {
     hasMedia: boolean;
     imageAttachmentIds: readonly number[];
     videoAttachmentIds: readonly number[];
+    documentAttachmentIds?: readonly number[];
     imageSnapshots?: readonly unknown[];
+    mediaSnapshots?: readonly MediaAttachment[];
   }): boolean {
     if (!extraction.hasMedia) return true;
     if (
@@ -480,6 +517,14 @@ export class MessageDispatchController {
       !this.supportsCurrentModelCapability('video_in')
     ) {
       this.host.showError(t('tui.statusMessages.modelNoVideoInput'));
+      return false;
+    }
+    if (
+      ((extraction.documentAttachmentIds?.length ?? 0) > 0 ||
+        extraction.mediaSnapshots?.some((snapshot) => snapshot.kind === 'document')) &&
+      !this.supportsCurrentModelCapability('pdf_in')
+    ) {
+      this.host.showError(t('tui.statusMessages.modelNoPdfInput'));
       return false;
     }
     return true;
@@ -504,6 +549,7 @@ export class MessageDispatchController {
     this.staging.releaseRecalled([
       ...(prompt?.imageAttachmentIds ?? []),
       ...(prompt?.videoAttachmentIds ?? []),
+      ...(prompt?.documentAttachmentIds ?? []),
     ]);
     return last;
   }
@@ -519,6 +565,7 @@ export class MessageDispatchController {
     this.staging.releaseRecalled([
       ...extraction.imageAttachmentIds,
       ...extraction.videoAttachmentIds,
+      ...extraction.documentAttachmentIds,
     ]);
   }
 
@@ -550,6 +597,7 @@ export class MessageDispatchController {
       parts: options?.parts,
       imageAttachmentIds: nonEmptyIds(options?.imageAttachmentIds),
       videoAttachmentIds: nonEmptyIds(options?.videoAttachmentIds),
+      documentAttachmentIds: nonEmptyIds(options?.documentAttachmentIds),
       mode,
       mediaSnapshots: options?.mediaSnapshots,
       inlineSkillActivations: options?.inlineSkillActivations,
@@ -623,6 +671,8 @@ export class MessageDispatchController {
           prompt.imageAttachmentIds !== undefined ? [...prompt.imageAttachmentIds] : [],
         videoAttachmentIds:
           prompt.videoAttachmentIds !== undefined ? [...prompt.videoAttachmentIds] : [],
+        documentAttachmentIds:
+          prompt.documentAttachmentIds !== undefined ? [...prompt.documentAttachmentIds] : [],
         imageSnapshots: [],
       }).catch((error: unknown) => {
         this.failSessionRequest(
@@ -644,6 +694,7 @@ export class MessageDispatchController {
         parts,
         imageAttachmentIds: prompt?.imageAttachmentIds,
         videoAttachmentIds: prompt?.videoAttachmentIds,
+        documentAttachmentIds: prompt?.documentAttachmentIds,
       });
     });
   }
@@ -694,6 +745,7 @@ export class MessageDispatchController {
     const stagingIds = [
       ...(options?.imageAttachmentIds ?? []),
       ...(options?.videoAttachmentIds ?? []),
+      ...(options?.documentAttachmentIds ?? []),
     ];
     const stagingLease =
       options?.lease ??
@@ -1104,7 +1156,11 @@ export class MessageDispatchController {
     // shared medium once, so the batch's id multiplicity is the retain count.
     // A skill arg rewrite retains its own ids, so `prepared`'s stay additive.
     const mediaAttachmentIds = input.flatMap((item) => [
-      ...new Set([...(item.imageAttachmentIds ?? []), ...(item.videoAttachmentIds ?? [])]),
+      ...new Set([
+        ...(item.imageAttachmentIds ?? []),
+        ...(item.videoAttachmentIds ?? []),
+        ...(item.documentAttachmentIds ?? []),
+      ]),
     ]);
     const stagingLease = this.staging.create(
       [...mediaAttachmentIds, ...(prepared?.mediaAttachmentIds ?? [])],
@@ -1362,6 +1418,7 @@ function toSteerInputItem(message: QueuedMessage): SteerInputItem {
     parts: prompt?.parts,
     imageAttachmentIds: prompt?.imageAttachmentIds,
     videoAttachmentIds: prompt?.videoAttachmentIds,
+    documentAttachmentIds: prompt?.documentAttachmentIds,
     mediaSnapshots: prompt?.mediaSnapshots,
     inlineSkillActivations: prompt?.inlineSkillActivations,
   };

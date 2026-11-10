@@ -1,5 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { basename } from 'node:path';
 
 import type { FileMeta, KimiHarness, Session } from '@moonshot-ai/kimi-code-sdk';
 import { compressImageForModel } from '@moonshot-ai/kimi-code-sdk';
@@ -9,9 +10,10 @@ import { t } from '#/i18n';
 import {
   ClipboardMediaError,
   readClipboardMedia,
+  type ClipboardDocument,
   type ClipboardVideo,
 } from '#/utils/clipboard/clipboard-image';
-import { parseImageMeta } from '#/utils/image/image-mime';
+import { documentMimeFromPath, parseImageMeta } from '#/utils/image/image-mime';
 import { editInExternalEditor, resolveEditorCommand } from '#/utils/process/external-editor';
 import {
   SYSTEM_RENDER_CLOCK,
@@ -33,6 +35,7 @@ import type { TUIState } from '../state';
 import type { QueuedMessage } from '../types';
 import { formatErrorMessage } from '../utils/event-payload';
 import type {
+  DocumentAttachment,
   ImageAttachment,
   ImageAttachmentStore,
   VideoAttachment,
@@ -70,6 +73,7 @@ export interface EditorKeyboardHost {
     hasMedia: boolean;
     imageAttachmentIds: readonly number[];
     videoAttachmentIds: readonly number[];
+    documentAttachmentIds: readonly number[];
   }): boolean;
   releaseStagingMedia(mediaAttachmentIds: readonly number[]): void;
   recallLastQueued(): QueuedMessage | undefined;
@@ -451,7 +455,7 @@ export class EditorKeyboardController {
 
     editor.onPasteImage = async () => this.handleClipboardImagePaste();
 
-    editor.onPasteImagePath = (path: string) => this.handlePastedImagePath(path);
+    editor.onPasteMediaPath = (path: string) => this.handlePastedMediaPath(path);
   }
 
   /**
@@ -485,6 +489,7 @@ export class EditorKeyboardController {
         this.imageStore,
         (attachment, bytes, mime, width, height) =>
           this.prepareImageAttachment(attachment, bytes, mime, width, height),
+        (attachment, mime, path) => this.prepareDocumentAttachment(attachment, mime, path),
       );
     } catch (error) {
       host.showError(
@@ -517,6 +522,7 @@ export class EditorKeyboardController {
       host.releaseStagingMedia([
         ...extraction.imageAttachmentIds,
         ...extraction.videoAttachmentIds,
+        ...extraction.documentAttachmentIds,
       ]);
       return;
     }
@@ -524,6 +530,7 @@ export class EditorKeyboardController {
       host.releaseStagingMedia([
         ...extraction.imageAttachmentIds,
         ...extraction.videoAttachmentIds,
+        ...extraction.documentAttachmentIds,
       ]);
       host.showError(getLlmNotSetMessage());
       return;
@@ -543,6 +550,8 @@ export class EditorKeyboardController {
         extraction.imageAttachmentIds.length > 0 ? extraction.imageAttachmentIds : undefined,
       videoAttachmentIds:
         extraction.videoAttachmentIds.length > 0 ? extraction.videoAttachmentIds : undefined,
+      documentAttachmentIds:
+        extraction.documentAttachmentIds.length > 0 ? extraction.documentAttachmentIds : undefined,
       inlineSkillActivations: activations.length > 0 ? activations : undefined,
     });
     editor.setText('');
@@ -633,8 +642,34 @@ export class EditorKeyboardController {
    * Returns false when the path is not a readable image, so the caller
    * falls through to plain-text insertion.
    */
-  private handlePastedImagePath(path: string): boolean {
+  private handlePastedMediaPath(path: string): boolean {
     if (this.host.state.editor.inputMode === 'bash') return false;
+
+    // A PDF never becomes inline bytes: it is uploaded to the daemon file
+    // store and travels as a `document_url` reference, exactly like a
+    // pasted one.
+    const documentMime = documentMimeFromPath(path);
+    if (documentMime !== null) {
+      try {
+        if (!statSync(path).isFile()) return false;
+      } catch {
+        return false;
+      }
+      const mimeType = documentMime;
+      const filename = basename(path);
+      const attachment = this.imageStore.addDocument(mimeType, path, filename);
+      this.host.state.editor.insertTextAtCursor?.(`${attachment.placeholder} `);
+      this.host.state.ui.requestRender();
+      this.host.track('shortcut_paste', { kind: 'document' });
+      attachment.pending = this.finishClipboardDocumentPaste(attachment, {
+        kind: 'document',
+        mimeType,
+        filename,
+        sourcePath: path,
+      });
+      return true;
+    }
+
     let bytes: Uint8Array;
     try {
       bytes = readFileSync(path);
@@ -668,6 +703,13 @@ export class EditorKeyboardController {
         this.host.showError(error.message);
         return true;
       }
+      // An unexpected failure is still a failure: without this the paste
+      // silently degrades to a text paste that has nothing to insert.
+      this.host.showError(
+        t('tui.statusMessages.clipboardImageReadFailed', {
+          error: formatErrorMessage(error),
+        }),
+      );
       return false;
     }
     if (media === null) return false;
@@ -685,6 +727,29 @@ export class EditorKeyboardController {
       this.host.state.ui.requestRender();
       this.host.track('shortcut_paste', { kind: 'video' });
       attachment.pending = this.finishClipboardVideoPaste(attachment, media).catch(
+        (error: unknown) => {
+          this.host.showError(
+            t('tui.statusMessages.failedToPrepareMediaAttachment', {
+              error: formatErrorMessage(error),
+            }),
+          );
+        },
+      );
+      return true;
+    }
+
+    if (media.kind === 'document') {
+      // Same shape as the video flow above: a PDF has no inline fallback
+      // form, so submit refuses the paste until the daemon upload lands.
+      const attachment = this.imageStore.addDocument(
+        media.mimeType,
+        media.sourcePath,
+        media.filename,
+      );
+      this.host.state.editor.insertTextAtCursor?.(`${attachment.placeholder} `);
+      this.host.state.ui.requestRender();
+      this.host.track('shortcut_paste', { kind: 'document' });
+      attachment.pending = this.finishClipboardDocumentPaste(attachment, media).catch(
         (error: unknown) => {
           this.host.showError(
             t('tui.statusMessages.failedToPrepareMediaAttachment', {
@@ -834,12 +899,16 @@ export class EditorKeyboardController {
    * without a `fileId` — submit-time expansion then refuses the submission,
    * since a video has no inline fallback form.
    */
-  private async uploadVideoToDaemonFileStore(media: ClipboardVideo): Promise<FileMeta | undefined> {
+  private async uploadSourceToDaemonFileStore(
+    mime: string,
+    sourcePath: string,
+    filename: string,
+  ): Promise<FileMeta | undefined> {
     const harness = this.host.harness;
     if (harness === undefined) return undefined;
     let bytes: Uint8Array;
     try {
-      bytes = await readFile(media.sourcePath);
+      bytes = await readFile(sourcePath);
     } catch {
       // The source (e.g. a clipboard temp file) vanished before the upload
       // could read it — same outcome as a failed upload.
@@ -847,8 +916,8 @@ export class EditorKeyboardController {
     }
     try {
       return await harness.uploadFile(bytes, {
-        name: media.filename,
-        mimeType: media.mimeType,
+        name: filename,
+        mimeType: mime,
         expiresInSec: MEDIA_STAGING_TTL_SECONDS,
       });
     } catch {
@@ -860,8 +929,50 @@ export class EditorKeyboardController {
     attachment: VideoAttachment,
     media: ClipboardVideo,
   ): Promise<void> {
-    const uploaded = await this.uploadVideoToDaemonFileStore(media);
+    const uploaded = await this.uploadSourceToDaemonFileStore(
+      media.mimeType,
+      media.sourcePath,
+      media.filename,
+    );
     const completed = this.imageStore.completeVideo(attachment, {
+      fileId: uploaded?.id,
+      fileExpiresAt: parseExpiry(uploaded),
+    });
+    if (completed === undefined && uploaded !== undefined) {
+      await this.host.harness?.deleteFile(uploaded.id).catch(() => undefined);
+    }
+    this.host.state.ui.requestRender();
+  }
+
+  private async finishClipboardDocumentPaste(
+    attachment: DocumentAttachment,
+    media: ClipboardDocument,
+  ): Promise<void> {
+    await this.finishDocumentPaste(attachment, media.mimeType, media.sourcePath, media.filename);
+  }
+
+  /**
+   * Path-attach twin of the clipboard document paste: upload the file to the
+   * daemon file store, then `completeDocument`. Passed as the
+   * `extractMediaAttachments` document ingester, so a PDF referenced by path
+   * is uploaded during extraction rather than at submit.
+   */
+  async prepareDocumentAttachment(
+    attachment: DocumentAttachment,
+    mime: string,
+    sourcePath: string,
+  ): Promise<void> {
+    await this.finishDocumentPaste(attachment, mime, sourcePath, basename(sourcePath));
+  }
+
+  private async finishDocumentPaste(
+    attachment: DocumentAttachment,
+    mime: string,
+    sourcePath: string,
+    filename: string,
+  ): Promise<void> {
+    const uploaded = await this.uploadSourceToDaemonFileStore(mime, sourcePath, filename);
+    const completed = this.imageStore.completeDocument(attachment, {
       fileId: uploaded?.id,
       fileExpiresAt: parseExpiry(uploaded),
     });

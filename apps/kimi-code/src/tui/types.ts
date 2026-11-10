@@ -380,6 +380,7 @@ export interface QueuedPromptMessage extends QueuedEntryBase {
   readonly parts?: readonly PromptPart[];
   readonly imageAttachmentIds?: readonly number[];
   readonly videoAttachmentIds?: readonly number[];
+  readonly documentAttachmentIds?: readonly number[];
   readonly mediaSnapshots?: readonly MediaAttachment[];
   /** Skills to activate together with this queued message's prompt. */
   readonly inlineSkillActivations?: readonly InlineSkillActivation[];
@@ -442,6 +443,7 @@ export interface SteerInputItem {
   readonly parts?: readonly PromptPart[];
   readonly imageAttachmentIds?: readonly number[];
   readonly videoAttachmentIds?: readonly number[];
+  readonly documentAttachmentIds?: readonly number[];
   readonly mediaSnapshots?: readonly MediaAttachment[];
   readonly inlineSkillActivations?: readonly InlineSkillActivation[];
 }

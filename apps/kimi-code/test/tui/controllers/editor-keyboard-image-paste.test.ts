@@ -571,8 +571,8 @@ describe('drag & drop image path attachment', () => {
       const editor = harness.editor as unknown as {
         insertTextAtCursor: Mock<(...args: any[]) => any>;
       };
-      const handler = harness.editor['onPasteImagePath'] as (path: string) => boolean;
-      if (handler === undefined) throw new Error('onPasteImagePath handler not installed');
+      const handler = harness.editor['onPasteMediaPath'] as (path: string) => boolean;
+      if (handler === undefined) throw new Error('onPasteMediaPath handler not installed');
 
       const handled = handler(file);
       expect(handled).toBe(true);
@@ -588,6 +588,38 @@ describe('drag & drop image path attachment', () => {
     }
   });
 
+  it('attaches and uploads a dropped PDF', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'kimi-drop-doc-'));
+    try {
+      const file = join(dir, 'report.pdf');
+      await writeFile(file, '%PDF-1.4\n');
+      const uploadFile = uploadFileMock('file-dropped-pdf');
+      const harness = createPasteHarness({ uploadFile });
+      const handler = harness.editor['onPasteMediaPath'] as (path: string) => boolean;
+      if (handler === undefined) throw new Error('onPasteMediaPath handler not installed');
+
+      expect(handler(file)).toBe(true);
+
+      const att = harness.store.get(1);
+      if (att?.kind !== 'document') throw new Error('expected document attachment');
+      if (att.pending !== undefined) await att.pending;
+      expect(att.fileId).toBe('file-dropped-pdf');
+      expect(att.placeholder).toBe('[document #1 report.pdf]');
+      expect(uploadFile).toHaveBeenCalledTimes(1);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('returns false for a missing PDF instead of inserting an attachment', () => {
+    const harness = createPasteHarness();
+    const handler = harness.editor['onPasteMediaPath'] as (path: string) => boolean;
+    if (handler === undefined) throw new Error('onPasteMediaPath handler not installed');
+
+    expect(handler(join(tmpdir(), 'does-not-exist.pdf'))).toBe(false);
+    expect(harness.store.size()).toBe(0);
+  });
+
   it('returns false for a non-image file so the path stays as text', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'kimi-drop-img-'));
     try {
@@ -595,8 +627,8 @@ describe('drag & drop image path attachment', () => {
       await writeFile(file, 'hello');
 
       const harness = createPasteHarness();
-      const handler = harness.editor['onPasteImagePath'] as (path: string) => boolean;
-      if (handler === undefined) throw new Error('onPasteImagePath handler not installed');
+      const handler = harness.editor['onPasteMediaPath'] as (path: string) => boolean;
+      if (handler === undefined) throw new Error('onPasteMediaPath handler not installed');
 
       expect(handler(file)).toBe(false);
       expect(harness.store.size()).toBe(0);
@@ -607,8 +639,8 @@ describe('drag & drop image path attachment', () => {
 
   it('returns false for a missing file', () => {
     const harness = createPasteHarness();
-    const handler = harness.editor['onPasteImagePath'] as (path: string) => boolean;
-    if (handler === undefined) throw new Error('onPasteImagePath handler not installed');
+    const handler = harness.editor['onPasteMediaPath'] as (path: string) => boolean;
+    if (handler === undefined) throw new Error('onPasteMediaPath handler not installed');
 
     expect(handler(join(tmpdir(), 'does-not-exist.png'))).toBe(false);
     expect(harness.store.size()).toBe(0);
@@ -624,8 +656,8 @@ describe('drag & drop image path attachment', () => {
       const harness = createPasteHarness();
       const editor = harness.editor as unknown as { inputMode: 'prompt' | 'bash' };
       editor.inputMode = 'bash';
-      const handler = harness.editor['onPasteImagePath'] as (path: string) => boolean;
-      if (handler === undefined) throw new Error('onPasteImagePath handler not installed');
+      const handler = harness.editor['onPasteMediaPath'] as (path: string) => boolean;
+      if (handler === undefined) throw new Error('onPasteMediaPath handler not installed');
 
       expect(handler(file)).toBe(false);
       expect(harness.store.size()).toBe(0);

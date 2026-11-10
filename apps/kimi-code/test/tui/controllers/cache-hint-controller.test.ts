@@ -101,6 +101,7 @@ function uploadedExtraction(fileId: string, byte: number): ExtractionResult {
     hasMedia: true,
     imageAttachmentIds: [1],
     videoAttachmentIds: [],
+    documentAttachmentIds: [],
     imageSnapshots: [{ bytes: new Uint8Array([byte]), mime: 'image/png', width: 640, height: 480 }],
   };
 }

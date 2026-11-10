@@ -375,6 +375,7 @@ interface SendMessageOptions {
   readonly parts?: readonly PromptPart[];
   readonly imageAttachmentIds?: readonly number[];
   readonly videoAttachmentIds?: readonly number[];
+  readonly documentAttachmentIds?: readonly number[];
   readonly mediaSnapshots?: readonly MediaAttachment[];
   readonly hasMedia?: boolean;
   /**
@@ -1626,8 +1627,13 @@ export class KimiTUI {
       // yields when a path actually has to be read.
       const extracted =
         preExtracted ??
-        extractMediaAttachments(text, this.imageStore, (attachment, bytes, mime, width, height) =>
-          this.editorKeyboard.prepareImageAttachment(attachment, bytes, mime, width, height),
+        extractMediaAttachments(
+          text,
+          this.imageStore,
+          (attachment, bytes, mime, width, height) =>
+            this.editorKeyboard.prepareImageAttachment(attachment, bytes, mime, width, height),
+          (attachment, mime, path) =>
+            this.editorKeyboard.prepareDocumentAttachment(attachment, mime, path),
         );
       extraction = extracted instanceof Promise ? await extracted : extracted;
       if (preExtracted !== undefined) {
@@ -1658,7 +1664,13 @@ export class KimiTUI {
     const stagingLease = this.staging.create(
       // One retain per unique id per extraction: dedupe repeated placeholder
       // occurrences so the lease's id multiplicity matches the retain count.
-      [...new Set([...extraction.imageAttachmentIds, ...extraction.videoAttachmentIds])],
+      [
+        ...new Set([
+          ...extraction.imageAttachmentIds,
+          ...extraction.videoAttachmentIds,
+          ...extraction.documentAttachmentIds,
+        ]),
+      ],
       [],
       'user',
       extraction.hasMedia && this.state.appState.goal?.status !== 'active'
@@ -1693,6 +1705,7 @@ export class KimiTUI {
         parts: extraction.parts,
         imageAttachmentIds: extraction.imageAttachmentIds,
         videoAttachmentIds: extraction.videoAttachmentIds,
+        documentAttachmentIds: extraction.documentAttachmentIds,
         lease: stagingLease,
       });
     } else {
@@ -1735,7 +1748,11 @@ export class KimiTUI {
         this.imageStore.retainFileIds(rewrite.videoAttachmentIds);
         prepared.skills.push({ name: activation.skillName, args: rewrite.text });
         prepared.mediaAttachmentIds.push(
-          ...new Set([...rewrite.imageAttachmentIds, ...rewrite.videoAttachmentIds]),
+          ...new Set([
+            ...rewrite.imageAttachmentIds,
+            ...rewrite.videoAttachmentIds,
+            ...rewrite.documentAttachmentIds,
+          ]),
         );
         prepared.stagingPaths.push(...rewrite.stagingPaths);
         prepared.cachedVideos.push(...rewrite.cachedVideos);
@@ -1774,7 +1791,11 @@ export class KimiTUI {
     } catch (error) {
       if (prepared !== undefined) this.releaseSkillArgumentMedia(prepared);
       this.staging.releaseMedia(
-        [...extraction.imageAttachmentIds, ...extraction.videoAttachmentIds],
+        [
+          ...extraction.imageAttachmentIds,
+          ...extraction.videoAttachmentIds,
+          ...extraction.documentAttachmentIds,
+        ],
         [],
       );
       this.failSessionRequest(
@@ -1786,7 +1807,11 @@ export class KimiTUI {
     }
     const stagingLease = this.staging.create(
       [
-        ...new Set([...extraction.imageAttachmentIds, ...extraction.videoAttachmentIds]),
+        ...new Set([
+          ...extraction.imageAttachmentIds,
+          ...extraction.videoAttachmentIds,
+          ...extraction.documentAttachmentIds,
+        ]),
         ...prepared.mediaAttachmentIds,
       ],
       prepared.stagingPaths,
@@ -1818,6 +1843,7 @@ export class KimiTUI {
           this.staging.releaseRecalled([
             ...extraction.imageAttachmentIds,
             ...extraction.videoAttachmentIds,
+            ...extraction.documentAttachmentIds,
           ]);
           this.restoreInputText(text);
         },
@@ -1852,6 +1878,7 @@ export class KimiTUI {
     hasMedia: boolean;
     imageAttachmentIds: readonly number[];
     videoAttachmentIds: readonly number[];
+    documentAttachmentIds?: readonly number[];
     imageSnapshots?: readonly unknown[];
     mediaSnapshots?: readonly MediaAttachment[];
   }): boolean {
@@ -1870,6 +1897,15 @@ export class KimiTUI {
     ) {
       this.showError(t('tui.statusMessages.modelNoVideoInput'));
       return false;
+    }
+    if (
+      (extraction.documentAttachmentIds?.length ?? 0) > 0 ||
+      extraction.mediaSnapshots?.some((snapshot) => snapshot.kind === 'document')
+    ) {
+      if (!this.supportsCurrentModelCapability('pdf_in')) {
+        this.showError(t('tui.statusMessages.modelNoPdfInput'));
+        return false;
+      }
     }
     return true;
   }
@@ -1920,6 +1956,7 @@ export class KimiTUI {
     this.staging.releaseRecalled([
       ...(prompt?.imageAttachmentIds ?? []),
       ...(prompt?.videoAttachmentIds ?? []),
+      ...(prompt?.documentAttachmentIds ?? []),
     ]);
     return last;
   }
@@ -1935,6 +1972,7 @@ export class KimiTUI {
     this.staging.releaseRecalled([
       ...extraction.imageAttachmentIds,
       ...extraction.videoAttachmentIds,
+      ...extraction.documentAttachmentIds,
     ]);
   }
 
@@ -1978,6 +2016,10 @@ export class KimiTUI {
       videoAttachmentIds:
         options?.videoAttachmentIds !== undefined && options.videoAttachmentIds.length > 0
           ? options.videoAttachmentIds
+          : undefined,
+      documentAttachmentIds:
+        options?.documentAttachmentIds !== undefined && options.documentAttachmentIds.length > 0
+          ? options.documentAttachmentIds
           : undefined,
       mode: undefined,
       mediaSnapshots: options?.mediaSnapshots,
@@ -2132,6 +2174,8 @@ export class KimiTUI {
           prompt.imageAttachmentIds !== undefined ? [...prompt.imageAttachmentIds] : [],
         videoAttachmentIds:
           prompt.videoAttachmentIds !== undefined ? [...prompt.videoAttachmentIds] : [],
+        documentAttachmentIds:
+          prompt.documentAttachmentIds !== undefined ? [...prompt.documentAttachmentIds] : [],
         imageSnapshots: [],
         mediaSnapshots: prompt.mediaSnapshots,
       };
@@ -2157,6 +2201,7 @@ export class KimiTUI {
         parts,
         imageAttachmentIds: prompt?.imageAttachmentIds,
         videoAttachmentIds: prompt?.videoAttachmentIds,
+        documentAttachmentIds: prompt?.documentAttachmentIds,
         occupiedRetry: prompt?.occupiedRetry,
       });
     });
@@ -2266,6 +2311,7 @@ export class KimiTUI {
     const stagingIds = [
       ...(options?.imageAttachmentIds ?? []),
       ...(options?.videoAttachmentIds ?? []),
+      ...(options?.documentAttachmentIds ?? []),
     ];
     const stagingLease =
       options?.lease ??
@@ -2688,7 +2734,11 @@ export class KimiTUI {
     }));
     for (const entry of steeredEntries) this.appendTranscriptEntry(entry);
     const mediaAttachmentIds = input.flatMap((item) => [
-      ...new Set([...(item.imageAttachmentIds ?? []), ...(item.videoAttachmentIds ?? [])]),
+      ...new Set([
+        ...(item.imageAttachmentIds ?? []),
+        ...(item.videoAttachmentIds ?? []),
+        ...(item.documentAttachmentIds ?? []),
+      ]),
     ]);
     const stagingLease = this.staging.create(
       [...mediaAttachmentIds, ...(prepared?.mediaAttachmentIds ?? [])],
@@ -5062,6 +5112,7 @@ function toSteerInputItem(message: SteerableQueuedMessage): SteerInputItem {
     parts: prompt?.parts,
     imageAttachmentIds: prompt?.imageAttachmentIds,
     videoAttachmentIds: prompt?.videoAttachmentIds,
+    documentAttachmentIds: prompt?.documentAttachmentIds,
     mediaSnapshots: prompt?.mediaSnapshots,
     inlineSkillActivations: prompt?.inlineSkillActivations,
   };

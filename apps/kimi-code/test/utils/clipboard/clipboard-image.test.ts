@@ -218,12 +218,12 @@ describe('readClipboardMedia', () => {
       if (command === 'powershell.exe') {
         powerShellCalls += 1;
         const env = options?.env ?? {};
-        expect(env['KIMI_WSL_CLIPBOARD_IMAGE_PATH']).toBe('C:\\Users\\test\\clip.png');
+        expect(env['KIMI_CLIPBOARD_IMAGE_PATH']).toBe('C:\\Users\\test\\clip.png');
         expect(env['KIMI_INJECTED_ENV']).toBe('1');
         // Exactly the injected env plus the temp path: no host variable leaks in.
         expect(Object.keys(env).toSorted()).toEqual([
+          'KIMI_CLIPBOARD_IMAGE_PATH',
           'KIMI_INJECTED_ENV',
-          'KIMI_WSL_CLIPBOARD_IMAGE_PATH',
           'WSL_DISTRO_NAME',
         ]);
         if (tmpFile === '') throw new Error('wslpath must run before powershell.exe');
@@ -248,5 +248,111 @@ describe('readClipboardMedia', () => {
       mimeType: 'image/png',
     });
     expect(powerShellCalls).toBe(1);
+  });
+});
+
+describe('readClipboardMedia on Windows', () => {
+  it('falls back to PowerShell when the native binding cannot hand back the image', async () => {
+    const imageBytes = png(5, 9);
+    const runCommand: RunCommand = (command, _args, options) => {
+      if (command === 'powershell.exe') {
+        const target = options?.env?.['KIMI_CLIPBOARD_IMAGE_PATH'] ?? '';
+        expect(target.length).toBeGreaterThan(0);
+        writeFileSync(target, imageBytes);
+        return { stdout: Buffer.from('ok\n'), ok: true };
+      }
+      return { stdout: Buffer.alloc(0), ok: false };
+    };
+    const clip = fakeClipboard({
+      availableFormats: () => ['CF_DIB', 'CF_BITMAP'],
+      hasImage: () => true,
+      getImageBinary: async () => {
+        throw new Error('Get image error, code = OSError(0)');
+      },
+    });
+
+    const media = await readClipboardMedia({ platform: 'win32', clipboard: clip, runCommand });
+
+    expect(media).toEqual({ kind: 'image', bytes: imageBytes, mimeType: 'image/png' });
+  });
+
+  it('reports a read failure instead of silently returning null when every path fails', async () => {
+    const runCommand: RunCommand = () => ({ stdout: Buffer.from('empty\n'), ok: true });
+    const clip = fakeClipboard({
+      availableFormats: () => ['CF_DIB'],
+      hasImage: () => true,
+      getImageBinary: async () => {
+        throw new Error('Get image error, code = OSError(0)');
+      },
+    });
+
+    await expect(
+      readClipboardMedia({ platform: 'win32', clipboard: clip, runCommand }),
+    ).rejects.toBeInstanceOf(ClipboardMediaError);
+  });
+
+  it('reads a file-drop clipboard through PowerShell when the native getText fails', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kimi-code-clip-'));
+    try {
+      const imagePath = join(dir, 'shot.png');
+      const imageBytes = png(8, 8);
+      writeFileSync(imagePath, imageBytes);
+      let powerShellCalls = 0;
+      const runCommand: RunCommand = (command) => {
+        if (command === 'powershell.exe') {
+          powerShellCalls += 1;
+          return { stdout: Buffer.from(`${imagePath}\n`), ok: true };
+        }
+        return { stdout: Buffer.alloc(0), ok: false };
+      };
+      const clip = fakeClipboard({
+        availableFormats: () => ['CF_HDROP', 'FileNameW'],
+        hasText: () => false,
+        getText: async () => {
+          throw new Error('Get text error, code = OSError(1168)');
+        },
+        hasImage: () => false,
+      });
+
+      const media = await readClipboardMedia({ platform: 'win32', clipboard: clip, runCommand });
+
+      expect(media).toEqual({ kind: 'image', bytes: imageBytes, mimeType: 'image/png' });
+      expect(powerShellCalls).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('reads a PDF from a file-drop clipboard through PowerShell', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kimi-code-clip-'));
+    try {
+      const pdfPath = join(dir, 'report.pdf');
+      writeFileSync(pdfPath, '%PDF-1.4\n');
+      const runCommand: RunCommand = (command) => {
+        if (command === 'powershell.exe') {
+          return { stdout: Buffer.from(`${pdfPath}\n`), ok: true };
+        }
+        return { stdout: Buffer.alloc(0), ok: false };
+      };
+      const clip = fakeClipboard({
+        availableFormats: () => ['CF_HDROP', 'FileNameW'],
+        hasText: () => false,
+        getText: async () => {
+          throw new Error('Get text error, code = OSError(1168)');
+        },
+        hasImage: () => false,
+      });
+
+      const media = await readClipboardMedia({ platform: 'win32', clipboard: clip, runCommand });
+
+      expect(media).toEqual({
+        kind: 'document',
+        mimeType: 'application/pdf',
+        filename: 'report.pdf',
+        sourcePath: pdfPath,
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

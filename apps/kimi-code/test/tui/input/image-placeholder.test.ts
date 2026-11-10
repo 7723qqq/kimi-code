@@ -55,6 +55,14 @@ function makeTempDir(): string {
 
 type VideoUrlPart = { type: 'video_url'; videoUrl: { url: string } };
 
+type DocumentUrlPart = {
+  type: 'document_url';
+  documentUrl: { url: string; mimeType: string; name?: string };
+};
+
+const documentPartOf = (parts: readonly PromptPart[]): DocumentUrlPart =>
+  parts.find((part) => part.type === 'document_url') as DocumentUrlPart;
+
 // Prompt-attached videos are emitted as a `video_url` part whose url is a
 // bare `kimi-file://` daemon reference (the paste was uploaded at paste
 // time); pull the url out for assertions.
@@ -574,6 +582,113 @@ describe('extractMediaAttachments: bare image paths', () => {
       expect(store.size()).toBe(1);
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('extractMediaAttachments: document attachments', () => {
+  it('emits a bare kimi-file document_url part for an uploaded PDF', async () => {
+    const store = new ImageAttachmentStore();
+    const att = store.addDocument('application/pdf', '/tmp/report.pdf', 'report.pdf');
+    store.completeDocument(att, { fileId: 'file-d1' });
+
+    const r = await extractMediaAttachments(att.placeholder, store);
+
+    expect(r.hasMedia).toBe(true);
+    expect(r.documentAttachmentIds).toEqual([1]);
+    const part = documentPartOf(r.parts);
+    expect(part.type).toBe('document_url');
+    expect(part.documentUrl.mimeType).toBe('application/pdf');
+    expect(part.documentUrl.name).toBe('report.pdf');
+    expect(parseDaemonFileUrl(part.documentUrl.url)).toEqual({ fileId: 'file-d1' });
+  });
+
+  it('refuses a document whose upload is still in flight', async () => {
+    const store = new ImageAttachmentStore();
+    const att = store.addDocument('application/pdf', '/tmp/report.pdf', 'report.pdf');
+    att.pending = new Promise<void>(() => undefined); // never settles
+    await expect(extractRejection(att.placeholder, store)).rejects.toThrow(/still uploading/);
+  });
+
+  it('refuses a document whose upload failed or is missing', async () => {
+    const store = new ImageAttachmentStore();
+    const att = store.addDocument('application/pdf', '/tmp/report.pdf', 'report.pdf');
+    await expect(extractRejection(att.placeholder, store)).rejects.toThrow(/could not be uploaded/);
+  });
+
+  it('keeps a typed-by-hand document placeholder as literal text', async () => {
+    const store = new ImageAttachmentStore();
+    const r = await extractMediaAttachments('see [document #9 report.pdf]', store);
+    expect(r.hasMedia).toBe(false);
+    expect(r.parts).toEqual([]);
+  });
+});
+
+describe('extractMediaAttachments: bare document paths', () => {
+  it('attaches a PDF path through the document ingester', async () => {
+    const srcDir = makeTempDir();
+    try {
+      const pdf = join(srcDir, 'report.pdf');
+      writeFileSync(pdf, '%PDF-1.4\n');
+      const store = new ImageAttachmentStore();
+      const seen: string[] = [];
+
+      const r = await extractMediaAttachments(
+        `read ${pdf}`,
+        store,
+        undefined,
+        (attachment, mime, path) => {
+          seen.push(path);
+          expect(mime).toBe('application/pdf');
+          store.completeDocument(attachment, { fileId: 'file-d2' });
+          return Promise.resolve();
+        },
+      );
+
+      expect(seen).toEqual([pdf]);
+      expect(r.hasMedia).toBe(true);
+      expect(r.documentAttachmentIds).toEqual([1]);
+      expect(parseDaemonFileUrl(documentPartOf(r.parts).documentUrl.url)).toEqual({
+        fileId: 'file-d2',
+      });
+    } finally {
+      rmSync(srcDir, { recursive: true, force: true });
+    }
+  });
+
+  it('surfaces document ingester failures', async () => {
+    const srcDir = makeTempDir();
+    try {
+      const pdf = join(srcDir, 'report.pdf');
+      writeFileSync(pdf, '%PDF-1.4\n');
+      const store = new ImageAttachmentStore();
+
+      await expect(
+        extractMediaAttachments(`read ${pdf}`, store, undefined, async () => {
+          throw new Error('upload failed');
+        }),
+      ).rejects.toThrow('upload failed');
+    } finally {
+      rmSync(srcDir, { recursive: true, force: true });
+    }
+  });
+
+  it('leaves a PDF path as literal text when no ingester is available', async () => {
+    const srcDir = makeTempDir();
+    try {
+      const pdf = join(srcDir, 'report.pdf');
+      writeFileSync(pdf, '%PDF-1.4\n');
+      const store = new ImageAttachmentStore();
+
+      const r = await extractMediaAttachments(`read ${pdf}`, store);
+
+      // Without an ingester nothing would upload the file, and a document has
+      // no inline fallback — attaching it would guarantee a refused submit.
+      expect(r.hasMedia).toBe(false);
+      expect(r.parts).toEqual([]);
+      expect(store.size()).toBe(0);
+    } finally {
+      rmSync(srcDir, { recursive: true, force: true });
     }
   });
 });

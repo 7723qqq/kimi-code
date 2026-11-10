@@ -784,6 +784,7 @@ export default {
       exportMd: 'Export current session as a Markdown file',
       exportDebugZip: 'Export current session as a debug ZIP archive',
       copy: 'Copy the last assistant message to the clipboard',
+      clipboard: 'Diagnose clipboard paste',
       importSessions: 'Import recent Claude Code and Codex sessions',
       web: 'Open the current session in the Web UI and exit the terminal',
       remoteControl: 'Open the current session through Kimi Remote Control (experimental)',
@@ -1908,6 +1909,7 @@ export default {
       failedToCancelShellCommand: 'Failed to cancel shell command: {{error}}',
       modelNoImageInput: 'Current model does not support image input.',
       modelNoVideoInput: 'Current model does not support video input.',
+      modelNoPdfInput: 'Current model does not support PDF input.',
       permissionModeChanged: 'Permission mode: {{mode}}',
       permissionModeUnchanged: 'Permission mode unchanged: {{mode}}.',
       skillFailed: 'Skill "{{name}}" failed: {{error}}',
@@ -1918,6 +1920,9 @@ export default {
       videoStillUploading: 'Video "{{label}}" is still uploading; try again in a moment.',
       videoExpired: 'Video "{{label}}" expired before it was sent; paste it again.',
       videoUploadFailed: 'Video "{{label}}" could not be uploaded; paste it again.',
+      documentStillUploading: 'Document "{{label}}" is still uploading; try again in a moment.',
+      documentExpired: 'Document "{{label}}" expired before it was sent; paste it again.',
+      documentUploadFailed: 'Document "{{label}}" could not be uploaded; paste it again.',
       alreadyOnSession: 'Already on this session.',
       cannotSwitchWhileStreaming:
         'Cannot switch sessions while streaming — press Esc or Ctrl-C first.',
@@ -2475,6 +2480,7 @@ export default {
       noClipboardCommandAvailable: 'No clipboard command is available.',
       // utils/clipboard/clipboard-image.ts
       videoExceedsMaxSize: 'Video is {{size}} MB; maximum supported size is {{max}} MB.',
+      clipboardImageReadFailed: 'Could not read the image from the clipboard: {{error}}',
       // utils/process/fd-detect.ts
       fdDownloadEmptyResponse: 'Failed to download fd: empty response body',
       // main.ts
@@ -3046,6 +3052,17 @@ export default {
       tasksStopReasonUserInitiated: 'User initiated stop',
       // tui/controllers/clipboard-image-hint.ts
       clipboardImageHint: 'Image in clipboard · {{shortcut}} to paste',
+      // tui/commands/clipboard.ts
+      clipboardReport:
+        'platform: {{platform}}\nnative: {{native}}\nformats: {{formats}}\nhasImage: {{hasImage}}\nread: {{read}}',
+      clipboardNativeLoaded: 'loaded',
+      clipboardNativeMissing: 'unavailable',
+      clipboardNoFormats: '(none)',
+      clipboardReadEmpty: 'null (no media)',
+      clipboardReadImage: 'image {{mime}} {{bytes}}B',
+      clipboardReadVideo: 'video {{mime}} {{name}}',
+      clipboardReadDocument: 'document {{mime}} {{name}}',
+      clipboardProbeFailed: 'error: {{error}}',
       // tui/controllers/cache-hint-controller.ts
       // tui/controllers/streaming-ui.ts
       streamingTaskComplete: 'Kimi Code task complete',

@@ -57,7 +57,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 
 import type { PromptPart, Session } from '@moonshot-ai/kimi-code-sdk';
 import {
@@ -68,18 +68,19 @@ import {
 } from '@moonshot-ai/kimi-code-sdk';
 
 import { t } from '#/i18n';
-import { parseImageMeta } from '#/utils/image/image-mime';
+import { documentMimeFromPath, parseImageMeta } from '#/utils/image/image-mime';
 import { getCacheDir } from '#/utils/paths';
 
 import { MEDIA_FILE_REF_MIN_REMAINING_MS } from '../constant/media';
 import type {
+  DocumentAttachment,
   ImageAttachment,
   ImageAttachmentStore,
   MediaAttachment,
   VideoAttachment,
 } from './image-attachment-store';
 
-const PLACEHOLDER_REGEX = /\[(image|video) #(\d+) (?:(\(\d+×\d+\))|([^\]]+))\]/g;
+const PLACEHOLDER_REGEX = /\[(image|video|document) #(\d+) (?:(\(\d+×\d+\))|([^\]]+))\]/g;
 
 export interface ExtractionResult {
   /** Flat list of parts in input order; empty array when no media matched. */
@@ -93,6 +94,8 @@ export interface ExtractionResult {
   imageAttachmentIds: number[];
   /** Video attachment ids matched, in the order they appeared. */
   videoAttachmentIds: number[];
+  /** Document attachment ids matched, in the order they appeared. */
+  documentAttachmentIds: number[];
   /**
    * Image bytes captured while extracting the prompt. A cache-hint resend can
    * outlive the attachment store and daemon file ids, so it uses these
@@ -128,6 +131,10 @@ export interface ImageResendSnapshot {
 const IMAGE_PATH_REGEX =
   /"([^"\n]+[\\/][^"\n]+?\.(?:png|jpe?g|gif|webp|bmp))"|((?:[A-Za-z]:)?[\\/][^\s"']+\.(?:png|jpe?g|gif|webp|bmp))/gi;
 
+// PDFs are the only document type the engine carries, so the path form is
+// just as narrow.
+const DOCUMENT_PATH_REGEX = /"([^"\n]+[\\/][^"\n]+?\.pdf)"|((?:[A-Za-z]:)?[\\/][^\s"']+\.pdf)/gi;
+
 const MAX_PATH_ATTACH_BYTES = 20 * 1024 * 1024;
 const MAX_PATH_ATTACHMENTS_PER_SUBMIT = 10;
 
@@ -145,6 +152,18 @@ export type PathImageIngester = (
   mime: string,
   width: number,
   height: number,
+) => Promise<void>;
+
+/**
+ * Background-free ingestion twin for a PDF that arrived as a bare path:
+ * upload it to the daemon file store, then `completeDocument`. A document
+ * has no inline fallback, so a caller without an ingester must not attach
+ * one — the path stays literal text and the model reads it instead.
+ */
+export type PathDocumentIngester = (
+  attachment: DocumentAttachment,
+  mime: string,
+  path: string,
 ) => Promise<void>;
 
 async function attachFromImagePath(
@@ -213,10 +232,74 @@ async function rewriteImageFilePaths(
   return out + text.slice(cursor);
 }
 
+async function attachFromDocumentPath(
+  raw: string,
+  store: ImageAttachmentStore,
+  seen: Map<string, string>,
+  ingest?: PathDocumentIngester,
+): Promise<string | undefined> {
+  const cached = seen.get(raw);
+  if (cached !== undefined) return cached;
+  const withoutQuotes = raw.startsWith('"') && raw.endsWith('"') ? raw.slice(1, -1) : raw;
+  const candidates = [withoutQuotes];
+  // Same WSL `/mnt/<drive>` translation the image path uses.
+  const drive = /^([A-Za-z]):[\\/](.*)$/.exec(withoutQuotes);
+  if (drive?.[1] !== undefined && drive?.[2] !== undefined) {
+    candidates.push(`/mnt/${drive[1].toLowerCase()}/${drive[2].replaceAll('\\', '/')}`);
+  }
+  for (const candidate of candidates) {
+    try {
+      if (!statSync(candidate).isFile()) continue;
+      const mimeType = documentMimeFromPath(candidate);
+      if (mimeType === null) continue;
+      // Without an ingester nothing would upload the file, and a document has
+      // no inline fallback — leave the path as text for the model to read.
+      if (ingest === undefined) continue;
+      const attachment = store.addDocument(mimeType, candidate, basename(candidate));
+      await ingest(attachment, mimeType, candidate);
+      const placeholder = `${attachment.placeholder} `;
+      seen.set(raw, placeholder);
+      return placeholder;
+    } catch (error) {
+      const code = (error as { readonly code?: unknown }).code;
+      if (code !== 'ENOENT' && code !== 'EACCES' && code !== 'EPERM') throw error;
+    }
+  }
+  return undefined;
+}
+
+async function rewriteDocumentFilePaths(
+  text: string,
+  store: ImageAttachmentStore,
+  ingest?: PathDocumentIngester,
+): Promise<string> {
+  let conversions = 0;
+  const seen = new Map<string, string>();
+  let out = '';
+  let cursor = 0;
+  DOCUMENT_PATH_REGEX.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = DOCUMENT_PATH_REGEX.exec(text)) !== null) {
+    if (conversions >= MAX_PATH_ATTACHMENTS_PER_SUBMIT) break;
+    out += text.slice(cursor, match.index);
+    const placeholder = await attachFromDocumentPath(
+      match[1] ?? match[2] ?? match[0],
+      store,
+      seen,
+      ingest,
+    );
+    out += placeholder ?? match[0];
+    if (placeholder !== undefined) conversions++;
+    cursor = match.index + match[0].length;
+  }
+  return out + text.slice(cursor);
+}
+
 function extractMediaAttachmentsSync(text: string, store: ImageAttachmentStore): ExtractionResult {
   const parts: PromptPart[] = [];
   const imageAttachmentIds: number[] = [];
   const videoAttachmentIds: number[] = [];
+  const documentAttachmentIds: number[] = [];
   const imageSnapshots: ImageResendSnapshot[] = [];
   const mediaSnapshots: MediaAttachment[] = [];
   let cursor = 0;
@@ -226,7 +309,7 @@ function extractMediaAttachmentsSync(text: string, store: ImageAttachmentStore):
   let match: RegExpExecArray | null;
   while ((match = PLACEHOLDER_REGEX.exec(text)) !== null) {
     const [literal, kind, idStr] = match;
-    if (kind !== 'image' && kind !== 'video') continue;
+    if (kind !== 'image' && kind !== 'video' && kind !== 'document') continue;
     if (idStr === undefined) continue;
     const id = Number.parseInt(idStr, 10);
     const attachment = store.get(id);
@@ -243,6 +326,13 @@ function extractMediaAttachmentsSync(text: string, store: ImageAttachmentStore):
       // expired): a video has no inline fallback.
       parts.push(videoPartForAttachment(attachment));
       videoAttachmentIds.push(id);
+    } else if (attachment.kind === 'document') {
+      // Same shape as video: the PDF was uploaded to the daemon file store
+      // in the background and travels as a `kimi-file://` document part.
+      // Throws when the upload is unusable — a document has no inline
+      // fallback either.
+      parts.push(documentPartForAttachment(attachment));
+      documentAttachmentIds.push(id);
     } else {
       const original = attachment.original;
       imageSnapshots.push({
@@ -283,7 +373,7 @@ function extractMediaAttachmentsSync(text: string, store: ImageAttachmentStore):
   const tail = text.slice(cursor);
   pushText(parts, tail);
 
-  store.retainFileIds([...imageAttachmentIds, ...videoAttachmentIds]);
+  store.retainFileIds([...imageAttachmentIds, ...videoAttachmentIds, ...documentAttachmentIds]);
   const freshParts = refreshExpiringImageFileRefs(parts, imageAttachmentIds, store);
   return {
     // Text-only submissions drop the synthesised parts array — the
@@ -294,6 +384,7 @@ function extractMediaAttachmentsSync(text: string, store: ImageAttachmentStore):
     hasMedia,
     imageAttachmentIds,
     videoAttachmentIds,
+    documentAttachmentIds,
     imageSnapshots,
     mediaSnapshots: mediaSnapshots.length > 0 ? mediaSnapshots : undefined,
     mediaGeneration: store.generation,
@@ -304,8 +395,13 @@ async function extractMediaAttachmentsAsync(
   text: string,
   store: ImageAttachmentStore,
   ingest?: PathImageIngester,
+  ingestDocument?: PathDocumentIngester,
 ): Promise<ExtractionResult> {
-  return extractMediaAttachmentsSync(await rewriteImageFilePaths(text, store, ingest), store);
+  const withImages = await rewriteImageFilePaths(text, store, ingest);
+  return extractMediaAttachmentsSync(
+    await rewriteDocumentFilePaths(withImages, store, ingestDocument),
+    store,
+  );
 }
 
 /**
@@ -319,12 +415,16 @@ export function extractMediaAttachments(
   text: string,
   store: ImageAttachmentStore,
   ingest?: PathImageIngester,
+  ingestDocument?: PathDocumentIngester,
 ): ExtractionResult | Promise<ExtractionResult> {
   IMAGE_PATH_REGEX.lastIndex = 0;
   const hasImagePath = IMAGE_PATH_REGEX.test(text);
   IMAGE_PATH_REGEX.lastIndex = 0;
-  if (!hasImagePath) return extractMediaAttachmentsSync(text, store);
-  return extractMediaAttachmentsAsync(text, store, ingest);
+  DOCUMENT_PATH_REGEX.lastIndex = 0;
+  const hasDocumentPath = DOCUMENT_PATH_REGEX.test(text);
+  DOCUMENT_PATH_REGEX.lastIndex = 0;
+  if (!hasImagePath && !hasDocumentPath) return extractMediaAttachmentsSync(text, store);
+  return extractMediaAttachmentsAsync(text, store, ingest, ingestDocument);
 }
 
 /**
@@ -348,7 +448,7 @@ export function pendingMediaIngestions(
   let match: RegExpExecArray | null;
   while ((match = PLACEHOLDER_REGEX.exec(text)) !== null) {
     const [, kind, idStr] = match;
-    if (kind !== 'image' && kind !== 'video') continue;
+    if (kind !== 'image' && kind !== 'video' && kind !== 'document') continue;
     if (idStr === undefined) continue;
     const attachment = store.get(Number.parseInt(idStr, 10));
     if (attachment?.kind === kind && attachment.pending !== undefined) {
@@ -488,6 +588,7 @@ export interface MediaTagRewriteResult {
   hasMedia: boolean;
   imageAttachmentIds: number[];
   videoAttachmentIds: number[];
+  documentAttachmentIds: number[];
   stagingPaths: string[];
   cachedVideos: VideoAttachment[];
 }
@@ -522,6 +623,7 @@ export function rewriteMediaPlaceholders(
 ): MediaTagRewriteResult {
   const imageAttachmentIds: number[] = [];
   const videoAttachmentIds: number[] = [];
+  const documentAttachmentIds: number[] = [];
   const stagingPaths: string[] = [];
   const cachedVideos: VideoAttachment[] = [];
   let cursor = 0;
@@ -532,7 +634,7 @@ export function rewriteMediaPlaceholders(
     let match: RegExpExecArray | null;
     while ((match = PLACEHOLDER_REGEX.exec(text)) !== null) {
       const [literal, kind, idStr] = match;
-      if (kind !== 'image' && kind !== 'video') continue;
+      if (kind !== 'image' && kind !== 'video' && kind !== 'document') continue;
       if (idStr === undefined) continue;
       const id = Number.parseInt(idStr, 10);
       const attachment =
@@ -542,7 +644,15 @@ export function rewriteMediaPlaceholders(
       if (attachment === undefined) continue;
       if (attachment.kind !== kind) continue;
       out += text.slice(cursor, match.index);
-      if (attachment.kind === 'video') {
+      if (attachment.kind === 'document') {
+        const path = materializeDocumentToCache(attachment, style === 'plain');
+        stagingPaths.push(path);
+        out +=
+          style === 'plain'
+            ? formatMediaReference('document', path)
+            : buildMediaPathTag('document', path);
+        if (store.get(id) === attachment) documentAttachmentIds.push(id);
+      } else if (attachment.kind === 'video') {
         const path = materializeVideoToCache(attachment, style === 'plain');
         stagingPaths.push(path);
         out +=
@@ -564,12 +674,13 @@ export function rewriteMediaPlaceholders(
     }
 
     const hasMedia = stagingPaths.length > 0;
-    store.retainFileIds(imageAttachmentIds);
+    store.retainFileIds([...imageAttachmentIds, ...documentAttachmentIds]);
     return {
       text: hasMedia ? out + text.slice(cursor) : text,
       hasMedia,
       imageAttachmentIds,
       videoAttachmentIds,
+      documentAttachmentIds,
       stagingPaths,
       cachedVideos,
     };
@@ -673,6 +784,38 @@ function videoPartForAttachment(att: VideoAttachment): PromptPart {
 }
 
 /**
+ * A `document_url` prompt part referencing the paste's daemon upload by a
+ * bare `kimi-file://` url — the engine's prompt intake materializes the
+ * session copy before the part reaches the model or the persisted history.
+ * Throws when the upload is unusable: document bytes have no inline
+ * fallback, so the submission is refused with an actionable message instead.
+ */
+function documentPartForAttachment(att: DocumentAttachment): PromptPart {
+  const fileId = att.fileId;
+  const expired =
+    att.fileExpiresAt !== undefined &&
+    att.fileExpiresAt - Date.now() <= MEDIA_FILE_REF_MIN_REMAINING_MS;
+  if (fileId !== undefined && !expired) {
+    return {
+      type: 'document_url',
+      documentUrl: {
+        url: buildDaemonFileUrl(fileId),
+        mimeType: att.mime,
+        name: att.label,
+      },
+    };
+  }
+  if (att.pending !== undefined) {
+    throw new Error(t('tui.statusMessages.documentStillUploading', { label: att.label }));
+  }
+  throw new Error(
+    expired
+      ? t('tui.statusMessages.documentExpired', { label: att.label })
+      : t('tui.statusMessages.documentUploadFailed', { label: att.label }),
+  );
+}
+
+/**
  * Copy a pasted video into the shared cache for the slash-command args
  * channel (`rewriteMediaPlaceholders`): command args are plain text, so the
  * model reaches the video through `Read` on the cache copy — the
@@ -684,6 +827,15 @@ function materializeVideoToCache(att: VideoAttachment, escapeProofName = false):
   // The label permits XML boundary chars (`<>&"`); plain references go
   // through skill-arg escaping, where they would no longer match the file
   // on disk, so strip them from the cache name in that mode.
+  const label = escapeProofName ? att.label.replaceAll(/[<>&"]/g, '_') : att.label;
+  const target = join(cacheDir, `${randomUUID()}-${label}`);
+  copyFileSync(att.sourcePath, target);
+  return target;
+}
+
+function materializeDocumentToCache(att: DocumentAttachment, escapeProofName = false): string {
+  const cacheDir = getCacheDir();
+  mkdirSync(cacheDir, { recursive: true });
   const label = escapeProofName ? att.label.replaceAll(/[<>&"]/g, '_') : att.label;
   const target = join(cacheDir, `${randomUUID()}-${label}`);
   copyFileSync(att.sourcePath, target);
@@ -878,6 +1030,6 @@ function originalImageTempDir(): string {
  * cache names — see materializeVideoToCache) so it survives
  * `escapeXml`/`escapeXmlTags` untouched.
  */
-function formatMediaReference(kind: 'image' | 'video', path: string): string {
+function formatMediaReference(kind: 'image' | 'video' | 'document', path: string): string {
   return `Attached ${kind} file: ${path} (open it with Read)`;
 }

@@ -166,6 +166,21 @@ export function contentToCoreParts(content: WireContent): ContentPart[] {
           name: part.name,
         },
       });
+    else if (part.type === 'file') {
+      const fileId = part.file_id;
+      const path = part.path;
+      if (fileId !== undefined || path !== undefined) {
+        parts.push({
+          type: 'document_url',
+          documentUrl: {
+            url: fileId !== undefined ? buildDaemonFileUrl(fileId) : (path as string),
+            mimeType: part.media_type ?? 'application/pdf',
+            id: fileId,
+            name: part.name,
+          },
+        });
+      }
+    }
   }
   return parts;
 }

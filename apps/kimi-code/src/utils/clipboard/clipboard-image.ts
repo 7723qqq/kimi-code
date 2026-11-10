@@ -23,7 +23,7 @@ import { tmpdir } from 'node:os';
 import { basename, isAbsolute, join } from 'node:path';
 
 import { t } from '#/i18n';
-import { parseImageMeta } from '#/utils/image/image-mime';
+import { documentMimeFromPath, parseImageMeta } from '#/utils/image/image-mime';
 
 import {
   DEFAULT_LIST_TIMEOUT_MS,
@@ -54,13 +54,24 @@ export interface ClipboardVideo {
   sourcePath: string;
 }
 
-export type ClipboardMedia = ClipboardImage | ClipboardVideo;
+export interface ClipboardDocument {
+  kind: 'document';
+  mimeType: string;
+  filename: string;
+  sourcePath: string;
+}
+
+export type ClipboardMedia = ClipboardImage | ClipboardVideo | ClipboardDocument;
 
 export class ClipboardMediaError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'ClipboardMediaError';
   }
+}
+
+function formatClipboardError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
@@ -219,10 +230,25 @@ function readVideoPath(path: string): ClipboardVideo | null {
   };
 }
 
+function readDocumentPath(path: string): ClipboardDocument | null {
+  const mimeType = documentMimeFromPath(path);
+  if (mimeType === null) return null;
+  let stat: ReturnType<typeof statSync>;
+  try {
+    stat = statSync(path);
+  } catch {
+    return null;
+  }
+  if (!stat.isFile()) return null;
+  return { kind: 'document', mimeType, filename: basename(path), sourcePath: path };
+}
+
 function readMediaPath(path: string): ClipboardMedia | null {
   // Video files are never opened as images.
   const video = readVideoPath(path);
   if (video !== null) return video;
+  const document = readDocumentPath(path);
+  if (document !== null) return document;
   return readImagePath(path);
 }
 
@@ -313,35 +339,36 @@ function readClipboardImageViaXclip(run: RunCommand): ClipboardImage | null {
 }
 
 /**
- * Windows clipboard images (Win+Shift+S) don't bridge into the WSL
- * Linux clipboard. PowerShell reaches the Windows clipboard directly;
- * we round-trip via a temp PNG because binary stdout is unreliable
- * across the WSL interop boundary.
+ * Read the clipboard image through PowerShell's `Clipboard.GetImage()`.
+ *
+ * Used on WSL, where a Windows clipboard image does not bridge into the Linux
+ * one, and on Windows itself when the native binding reports an image it then
+ * fails to hand back (several screenshot tools put an in-memory DIB on the
+ * clipboard that `@mariozechner/clipboard` cannot decode — it answers
+ * `hasImage() == true` and then throws). The round-trip goes through a temp PNG
+ * because binary stdout is unreliable across the WSL interop boundary.
  */
 function readClipboardImageViaPowerShell(
   run: RunCommand,
   env: NodeJS.ProcessEnv,
+  resolveWinPath: (tempPath: string) => string | null,
 ): ClipboardImage | null {
-  const tmpFile = join(tmpdir(), `kimi-wsl-clip-${randomUUID()}.png`);
+  const tmpFile = join(tmpdir(), `kimi-clip-${randomUUID()}.png`);
   try {
-    const winPathResult = run('wslpath', ['-w', tmpFile], {
-      timeoutMs: DEFAULT_LIST_TIMEOUT_MS,
-    });
-    if (!winPathResult.ok) return null;
-    const winPath = winPathResult.stdout.toString('utf-8').trim();
-    if (winPath.length === 0) return null;
+    const winPath = resolveWinPath(tmpFile);
+    if (winPath === null) return null;
 
     const psScript = [
       'Add-Type -AssemblyName System.Windows.Forms',
       'Add-Type -AssemblyName System.Drawing',
-      '$path = $env:KIMI_WSL_CLIPBOARD_IMAGE_PATH',
+      '$path = $env:KIMI_CLIPBOARD_IMAGE_PATH',
       '$img = [System.Windows.Forms.Clipboard]::GetImage()',
       "if ($img) { $img.Save($path, [System.Drawing.Imaging.ImageFormat]::Png); Write-Output 'ok' } else { Write-Output 'empty' }",
     ].join('; ');
 
     const result = run('powershell.exe', ['-NoProfile', '-Command', psScript], {
       timeoutMs: DEFAULT_POWERSHELL_TIMEOUT_MS,
-      env: { ...env, KIMI_WSL_CLIPBOARD_IMAGE_PATH: winPath },
+      env: { ...env, KIMI_CLIPBOARD_IMAGE_PATH: winPath },
     });
     if (!result.ok) return null;
     if (result.stdout.toString('utf-8').trim() !== 'ok') return null;
@@ -358,6 +385,32 @@ function readClipboardImageViaPowerShell(
       // ignore cleanup errors
     }
   }
+}
+
+/** WSL: the temp dir is a Linux path, and PowerShell needs the Windows one. */
+function wslWinPath(run: RunCommand, tempPath: string): string | null {
+  const result = run('wslpath', ['-w', tempPath], { timeoutMs: DEFAULT_LIST_TIMEOUT_MS });
+  if (!result.ok) return null;
+  const winPath = result.stdout.toString('utf-8').trim();
+  return winPath.length > 0 ? winPath : null;
+}
+
+/**
+ * Windows: read a file-drop clipboard (a file copied in Explorer, or an image
+ * a browser handed over as a URL). The native binding's `getText()` fails on
+ * `CF_HDROP`, so PowerShell is the only reader.
+ */
+function readClipboardFilePathsViaPowerShell(run: RunCommand): string[] {
+  const psScript = [
+    'Add-Type -AssemblyName System.Windows.Forms',
+    '$paths = [System.Windows.Forms.Clipboard]::GetFileDropList()',
+    'if ($paths) { $paths | ForEach-Object { Write-Output $_ } }',
+  ].join('; ');
+  const result = run('powershell.exe', ['-NoProfile', '-Command', psScript], {
+    timeoutMs: DEFAULT_POWERSHELL_TIMEOUT_MS,
+  });
+  if (!result.ok) return [];
+  return parseClipboardPaths(result.stdout.toString('utf-8'));
 }
 
 function readClipboardFilePathsViaMacOs(run: RunCommand): string[] {
@@ -387,25 +440,33 @@ async function readClipboardFileMediaViaNativeText(
   }
 }
 
+type NativeImageRead =
+  | { readonly kind: 'image'; readonly image: ClipboardImage }
+  | { readonly kind: 'empty' }
+  | { readonly kind: 'error'; readonly error: unknown };
+
 async function readClipboardImageViaNative(
   clip: ClipboardModule | null = clipboard,
-): Promise<ClipboardImage | null> {
-  if (clip === null) return null;
+): Promise<NativeImageRead> {
+  if (clip === null) return { kind: 'empty' };
 
   let hasImage = false;
   try {
     hasImage = clip.hasImage();
   } catch {
-    return null;
+    return { kind: 'empty' };
   }
-  if (!hasImage) return null;
+  if (!hasImage) return { kind: 'empty' };
 
   try {
     const data = await clip.getImageBinary();
-    if (data.length === 0) return null;
-    return { kind: 'image', bytes: Uint8Array.from(data), mimeType: 'image/png' };
-  } catch {
-    return null;
+    if (data.length === 0) return { kind: 'empty' };
+    return {
+      kind: 'image',
+      image: { kind: 'image', bytes: Uint8Array.from(data), mimeType: 'image/png' },
+    };
+  } catch (error) {
+    return { kind: 'error', error };
   }
 }
 
@@ -436,13 +497,14 @@ export async function readClipboardMedia(options?: {
       image = readClipboardImageViaWlPaste(run) ?? readClipboardImageViaXclip(run);
     }
     if (image === null && wsl) {
-      image = readClipboardImageViaPowerShell(run, env);
+      image = readClipboardImageViaPowerShell(run, env, (tmp) => wslWinPath(run, tmp));
     }
     if (image === null && !wayland) {
       const nativeFileMedia = await readClipboardFileMediaViaNativeText(clip);
       if (nativeFileMedia.media !== null) return nativeFileMedia.media;
       if (nativeFileMedia.lookedFileLike) return null;
-      image = await readClipboardImageViaNative(clip);
+      const nativeImage = await readClipboardImageViaNative(clip);
+      image = nativeImage.kind === 'image' ? nativeImage.image : null;
     }
   } else {
     if (platform === 'darwin') {
@@ -460,7 +522,32 @@ export async function readClipboardMedia(options?: {
       return null;
     }
 
-    image = await readClipboardImageViaNative(clip);
+    const nativeImage = await readClipboardImageViaNative(clip);
+    image = nativeImage.kind === 'image' ? nativeImage.image : null;
+
+    // A file copied in Explorer (or an image a browser handed over as a URL)
+    // arrives as a CF_HDROP clipboard, where the native `getText()` fails.
+    // Read the file list through PowerShell and treat it like a pasted path.
+    if (image === null && platform === 'win32' && nativeFileMedia.lookedFileLike) {
+      const fileMedia = readMediaFromPaths(readClipboardFilePathsViaPowerShell(run));
+      if (fileMedia !== null) return fileMedia;
+    }
+
+    // Windows: the native binding can report an image it then fails to hand
+    // back. Several screenshot tools put an in-memory DIB on the clipboard,
+    // which `@mariozechner/clipboard` cannot decode — `hasImage()` answers
+    // true and `getImageBinary()` throws. PowerShell reads the same clipboard
+    // through a different path, so it is the fallback here.
+    if (image === null && platform === 'win32') {
+      image = readClipboardImageViaPowerShell(run, env, (tmp) => tmp);
+      if (image === null && nativeImage.kind === 'error') {
+        throw new ClipboardMediaError(
+          t('tui.statusMessages.clipboardImageReadFailed', {
+            error: formatClipboardError(nativeImage.error),
+          }),
+        );
+      }
+    }
   }
 
   if (image === null) return null;

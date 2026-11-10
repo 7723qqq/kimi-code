@@ -50,6 +50,17 @@ function videoOutput(path: string, mime = 'video/mp4'): string {
   ]);
 }
 
+function documentOutput(path: string, b64 = 'JVBERi0xLjQK', mime = 'application/pdf'): string {
+  return JSON.stringify([
+    { type: 'text', text: `<document path="${path}">` },
+    {
+      type: 'document_url',
+      documentUrl: { url: `data:${mime};base64,${b64}`, mimeType: mime, name: path },
+    },
+    { type: 'text', text: '</document>' },
+  ]);
+}
+
 describe('parseReadMediaOutput', () => {
   it('extracts kind, path, mime type, and bytes from an image data URL', () => {
     const m = parseReadMediaOutput(imageOutput('/tmp/a.png'));
@@ -189,5 +200,53 @@ describe('parseReadMediaOutput memo', () => {
       parseReadMediaOutput(imageOutput(`/tmp/memo-bound-${String(i)}.png`));
     }
     expect(parseReadMediaOutput(imageOutput('/tmp/memo-bound-0.png'))).not.toBe(first);
+  });
+});
+
+describe('parseReadMediaOutput: documents', () => {
+  it('extracts kind, path, mime type and size from a document_url part', () => {
+    const m = parseReadMediaOutput(documentOutput('/tmp/report.pdf'));
+    expect(m).not.toBeNull();
+    expect(m?.kind).toBe('document');
+    expect(m?.path).toBe('/tmp/report.pdf');
+    expect(m?.mimeType).toBe('application/pdf');
+    expect(m?.bytes).toBeGreaterThan(0);
+  });
+
+  it('never carries the document payload — a PDF has no inline render', () => {
+    const m = parseReadMediaOutput(documentOutput('/tmp/report.pdf'));
+    expect(m?.base64).toBeUndefined();
+    expect(m?.url).toBeUndefined();
+  });
+
+  it('measures a large document payload without copying it', () => {
+    const big = 'A'.repeat(400_000);
+    const m = parseReadMediaOutput(documentOutput('/tmp/big.pdf', big));
+    expect(m?.bytes).toBe(300_000);
+  });
+});
+
+describe('readMediaChip/summary: documents', () => {
+  it('names the document and its meta on the chip', () => {
+    const text = strip(
+      readMediaChip(call('ReadMediaFile'), result(documentOutput('/tmp/report.pdf'))),
+    );
+    expect(text).toContain('document');
+    expect(text).toContain('application/pdf');
+  });
+
+  it('renders path + meta when expanded, never the base64 blob', () => {
+    const out = strip(
+      joinRender(
+        readMediaSummary(
+          call('ReadMediaFile'),
+          result(documentOutput('/tmp/report.pdf')),
+          expandedCtx,
+        ),
+      ),
+    );
+    expect(out).toContain('/tmp/report.pdf');
+    expect(out).toContain('application/pdf');
+    expect(out).not.toContain('JVBERi0xLjQK');
   });
 });

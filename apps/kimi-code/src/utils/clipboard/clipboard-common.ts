@@ -247,6 +247,8 @@ export function isFileLikeNativeFormat(format: string): boolean {
     f.includes('file url') ||
     f.includes('nsfilenames') ||
     f.includes('com.apple.finder') ||
+    f.includes('cf_hdrop') ||
+    f.includes('filename') ||
     base === 'text/uri-list' ||
     base === 'public.url'
   );

@@ -25,6 +25,7 @@ import type {
 import { formatErrorMessage } from '../utils/event-payload';
 import { handleLoginCommand, handleLogoutCommand } from './auth';
 import { handleBtwCommand } from './btw';
+import { handleClipboardCommand } from './clipboard';
 import {
   handleCompactCommand,
   handleEditorCommand,
@@ -82,6 +83,7 @@ import { handleWorkflowCommand } from './workflow';
 export { handleLoginCommand, handleLogoutCommand } from './auth';
 export { handleBtwCommand } from './btw';
 export { handleCopyCommand } from './copy';
+export { handleClipboardCommand } from './clipboard';
 export { handleImportSessionsCommand } from './import-sessions';
 export { handleDesktopCommand } from './desktop';
 import { handleAddDirCommand } from './add-dir';
@@ -581,6 +583,9 @@ async function handleBuiltInSlashCommand(
       return;
     case 'copy':
       await handleCopyCommand(host);
+      return;
+    case 'clipboard':
+      await handleClipboardCommand(host);
       return;
     case 'import-sessions':
       handleImportSessionsCommand(host);

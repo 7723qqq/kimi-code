@@ -26,7 +26,7 @@ import { renderTruncated } from './truncated';
 import { memoizeBounded, type ResultRenderer } from './types';
 
 export interface ReadMediaSummary {
-  kind: 'image' | 'video';
+  kind: 'image' | 'video' | 'document';
   path?: string;
   mimeType?: string;
   bytes?: number;
@@ -34,7 +34,9 @@ export interface ReadMediaSummary {
   /**
    * Inline base64 payload for images delivered as data URLs. Kept out of
    * the chip/summary text (never dumped into the transcript); used to
-   * render the actual thumbnail.
+   * render the actual thumbnail. Never set for video or documents —
+   * neither has an inline render, and a PDF's data URL carries the whole
+   * file.
    */
   base64?: string;
 }
@@ -49,13 +51,39 @@ function bytesFromBase64(b64: string): number {
   return Math.floor((len * 3) / 4) - padding;
 }
 
+/**
+ * Byte length of a `data:…;base64,` payload, derived from the URL length so a
+ * multi-megabyte document payload is measured without copying it.
+ */
+function dataUrlByteLength(url: string): number | undefined {
+  const marker = ';base64,';
+  const index = url.indexOf(marker);
+  if (index === -1) return undefined;
+  const length = url.length - index - marker.length;
+  if (length === 0) return 0;
+  const padding = url.endsWith('==') ? 2 : url.endsWith('=') ? 1 : 0;
+  return Math.floor((length * 3) / 4) - padding;
+}
+
 // The chip, the glance and the card header each parse the same envelope during
 // one rebuild, and the JSON carries the whole base64 payload; the latest
 // parses are kept (and older ones evicted) so the envelope is read once.
 const mediaSummaryMemo = new Map<string, ReadMediaSummary | null>();
 
 export function parseReadMediaOutput(output: string): ReadMediaSummary | null {
-  return memoizeBounded(mediaSummaryMemo, output, () => parseReadMediaOutputUncached(output));
+  return memoizeBounded(mediaSummaryMemo, memoKey(output), () =>
+    parseReadMediaOutputUncached(output),
+  );
+}
+
+/**
+ * A Read output carries the whole base64 payload, so the memo is keyed by a
+ * digest rather than the string itself — keying by the raw output would pin
+ * the largest payloads the cache was ever asked about.
+ */
+function memoKey(output: string): string {
+  const hash = new Bun.CryptoHasher('sha256').update(output).digest('hex').slice(0, 16);
+  return `${output.length}:${hash}`;
 }
 
 function parseReadMediaOutputUncached(output: string): ReadMediaSummary | null {
@@ -67,7 +95,7 @@ function parseReadMediaOutputUncached(output: string): ReadMediaSummary | null {
   }
   if (!Array.isArray(parsed)) return null;
 
-  let kind: 'image' | 'video' | undefined;
+  let kind: 'image' | 'video' | 'document' | undefined;
   let path: string | undefined;
   let mimeType: string | undefined;
   let bytes: number | undefined;
@@ -89,21 +117,33 @@ function parseReadMediaOutputUncached(output: string): ReadMediaSummary | null {
       continue;
     }
 
-    if (type === 'image_url' || type === 'video_url') {
+    if (type === 'image_url' || type === 'video_url' || type === 'document_url') {
       foundMedia = true;
-      kind = type === 'image_url' ? 'image' : 'video';
-      const holder = part[type === 'image_url' ? 'imageUrl' : 'videoUrl'];
+      kind = type === 'image_url' ? 'image' : type === 'video_url' ? 'video' : 'document';
+      const holder =
+        part[type === 'image_url' ? 'imageUrl' : type === 'video_url' ? 'videoUrl' : 'documentUrl'];
       if (typeof holder === 'object' && holder !== null) {
         const h = holder as Record<string, unknown>;
         const u = h['url'];
         if (typeof u === 'string') {
-          const data = DATA_URL_RE.exec(u);
-          if (data && data[1] !== undefined && data[2] !== undefined) {
-            mimeType = data[1];
-            bytes = bytesFromBase64(data[2]);
-            if (kind === 'image') base64 = data[2];
+          if (kind === 'document') {
+            // No inline render exists for a document, so keep only where it is
+            // and what it is — the data URL carries the entire file.
+            const declared = h['mimeType'];
+            if (typeof declared === 'string') mimeType = declared;
+            const name = h['name'];
+            if (typeof name === 'string') path = name;
+            const size = dataUrlByteLength(u);
+            if (size !== undefined) bytes = size;
           } else {
-            url = u;
+            const data = DATA_URL_RE.exec(u);
+            if (data && data[1] !== undefined && data[2] !== undefined) {
+              mimeType = data[1];
+              bytes = bytesFromBase64(data[2]);
+              if (kind === 'image') base64 = data[2];
+            } else {
+              url = u;
+            }
           }
         }
       }

@@ -571,6 +571,14 @@ export const BUILTIN_SLASH_COMMANDS = [
     priority: 40,
   },
   {
+    name: 'clipboard',
+    aliases: [],
+    get description() {
+      return t('tui.slashCommands.clipboard');
+    },
+    priority: 40,
+  },
+  {
     name: 'import-sessions',
     aliases: [],
     get description() {

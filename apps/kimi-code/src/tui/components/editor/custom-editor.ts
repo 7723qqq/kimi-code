@@ -28,23 +28,24 @@ const ANSI_SGR = /\u001B\[[0-9;]*m/g;
 
 const PASTE_MARKER_RE = /\[paste #(\d+)(?: (?:\+\d+ lines|\d+ chars))?\]/g;
 
-/** Image extensions accepted for drag & drop attachment (case-insensitive). */
-const DROP_IMAGE_EXT_RE = /\.(?:png|jpe?g|gif|webp|bmp)$/i;
+/** Media extensions accepted for drag & drop attachment (case-insensitive). */
+const DROP_MEDIA_EXT_RE = /\.(?:png|jpe?g|gif|webp|bmp|pdf)$/i;
 
 /**
- * When terminal input is exactly one image file path (drag & drop inserts
+ * When terminal input is exactly one media file path (drag & drop inserts
  * the path as a single chunk; a pasted path arrives the same way), return
  * the path. Quoted paths (`"C:\a\b.png"`) and bare paths without spaces
  * (`C:\a\b.png`, `/a/b.png`) are recognized; anything else — multi-token
- * text, relative names, or a path that is not an image — returns undefined.
+ * text, relative names, or a path that is not a supported media file —
+ * returns undefined.
  */
-function extractSingleImagePath(input: string): string | undefined {
+function extractSingleMediaPath(input: string): string | undefined {
   const trimmed = input.trim();
   if (trimmed.length === 0) return undefined;
   const quoted = /^"([^"\n]+)"$/.exec(trimmed);
   const candidate = quoted?.[1] ?? trimmed;
   if (!/[\\/]/.test(candidate)) return undefined;
-  if (!DROP_IMAGE_EXT_RE.test(candidate)) return undefined;
+  if (!DROP_MEDIA_EXT_RE.test(candidate)) return undefined;
   if (quoted === null && /\s/.test(candidate)) return undefined;
   return candidate;
 }
@@ -242,12 +243,12 @@ export class CustomEditor extends Editor {
    */
   public onPasteImage?: () => Promise<boolean>;
   /**
-   * Called when a single image file path arrives as terminal input (drag &
+   * Called when a single media file path arrives as terminal input (drag &
    * drop into the terminal, or a pasted path). Return `true` to consume the
-   * input (the path was attached as an image); return `false` to fall
-   * through so the path is inserted as plain text.
+   * input (the path was attached as media); return `false` to fall through
+   * so the path is inserted as plain text.
    */
-  public onPasteImagePath?: (path: string) => boolean;
+  public onPasteMediaPath?: (path: string) => boolean;
 
   private consumingPaste = false;
   private consumeBuffer = '';
@@ -706,13 +707,13 @@ export class CustomEditor extends Editor {
     const emptyPromptBeforeInput = this.inputMode === 'prompt' && this.getText().length === 0;
 
     // Drag & drop (and pasted paths): terminals insert the dropped file's
-    // path as a single chunk of input. When that chunk is exactly one image
-    // path, attach the image immediately (placeholder in the editor) instead
-    // of leaving a bare path that only converts on submit. Falls through to
-    // plain text when the path is not a readable image.
-    if (this.onPasteImagePath !== undefined) {
-      const imagePath = extractSingleImagePath(normalized);
-      if (imagePath !== undefined && this.onPasteImagePath(imagePath)) {
+    // path as a single chunk of input. When that chunk is exactly one media
+    // path, attach it immediately (placeholder in the editor) instead of
+    // leaving a bare path that only converts on submit. Falls through to
+    // plain text when the path is not a readable media file.
+    if (this.onPasteMediaPath !== undefined) {
+      const mediaPath = extractSingleMediaPath(normalized);
+      if (mediaPath !== undefined && this.onPasteMediaPath(mediaPath)) {
         return;
       }
     }

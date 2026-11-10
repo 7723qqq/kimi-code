@@ -758,6 +758,7 @@ export default {
       exportMd: '将会话导出为 Markdown 文件',
       exportDebugZip: '将会话导出为调试 ZIP 归档',
       copy: '复制最后一条助手消息到剪贴板',
+      clipboard: '诊断剪贴板粘贴',
       importSessions: '导入最近的 Claude Code 与 Codex 会话',
       web: '在 Web UI 中打开当前会话并退出终端',
       remoteControl: '通过 Kimi Remote Control 打开当前会话（实验性）',
@@ -1826,6 +1827,7 @@ export default {
       failedToCancelShellCommand: '取消 Shell 命令失败：{{error}}',
       modelNoImageInput: '当前模型不支持图片输入。',
       modelNoVideoInput: '当前模型不支持视频输入。',
+      modelNoPdfInput: '当前模型不支持 PDF 输入。',
       permissionModeChanged: '权限模式：{{mode}}',
       permissionModeUnchanged: '权限模式未更改：{{mode}}。',
       skillFailed: '技能 "{{name}}" 执行失败：{{error}}',
@@ -1835,6 +1837,9 @@ export default {
       videoStillUploading: '视频「{{label}}」仍在上传，请稍后重试。',
       videoExpired: '视频「{{label}}」在发送前已过期，请重新粘贴。',
       videoUploadFailed: '视频「{{label}}」上传失败，请重新粘贴。',
+      documentStillUploading: '文档「{{label}}」仍在上传，请稍后重试。',
+      documentExpired: '文档「{{label}}」在发送前已过期，请重新粘贴。',
+      documentUploadFailed: '文档「{{label}}」上传失败，请重新粘贴。',
       alreadyOnSession: '已在此会话上。',
       cannotSwitchWhileStreaming: '无法在流式传输时切换会话——请先按 Esc 或 Ctrl-C。',
       cannotSwitchWhileReplaying: '无法在回放历史时切换会话。',
@@ -2375,6 +2380,7 @@ export default {
       noClipboardCommandAvailable: '没有可用的剪贴板命令。',
       // utils/clipboard/clipboard-image.ts
       videoExceedsMaxSize: '视频为 {{size}} MB，超出支持的最大大小 {{max}} MB。',
+      clipboardImageReadFailed: '无法从剪切板读取图片：{{error}}',
       // utils/process/fd-detect.ts
       fdDownloadEmptyResponse: '下载 fd 失败：响应体为空',
       // main.ts
@@ -2939,6 +2945,17 @@ export default {
       tasksStopReasonUserInitiated: '用户主动停止',
       // tui/controllers/clipboard-image-hint.ts
       clipboardImageHint: '剪贴板中有图片 · {{shortcut}} 粘贴',
+      // tui/commands/clipboard.ts
+      clipboardReport:
+        '平台：{{platform}}\n原生模块：{{native}}\n格式：{{formats}}\nhasImage：{{hasImage}}\n读取：{{read}}',
+      clipboardNativeLoaded: '已加载',
+      clipboardNativeMissing: '不可用',
+      clipboardNoFormats: '（无）',
+      clipboardReadEmpty: 'null（没有媒体）',
+      clipboardReadImage: '图片 {{mime}} {{bytes}}B',
+      clipboardReadVideo: '视频 {{mime}} {{name}}',
+      clipboardReadDocument: '文档 {{mime}} {{name}}',
+      clipboardProbeFailed: '错误：{{error}}',
       // tui/controllers/cache-hint-controller.ts
       // tui/controllers/streaming-ui.ts
       streamingTaskComplete: 'Kimi Code 任务完成',

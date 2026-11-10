@@ -916,6 +916,14 @@ function normalizePromptInput(input: string | PromptInput): PromptInput {
           );
         }
         break;
+      case 'document_url':
+        if (part.documentUrl.url.trim().length === 0) {
+          throw new KimiError(
+            ErrorCodes.REQUEST_PROMPT_INPUT_EMPTY,
+            'Prompt input cannot contain empty document URLs',
+          );
+        }
+        break;
     }
   }
   return input;

@@ -159,6 +159,7 @@ interface MessageDriver {
   btwPanelController: KimiTUI['btwPanelController'];
   surveyController: SurveyController;
   streamingUI: StreamingUIController;
+  messageDispatch: KimiTUI['messageDispatch'];
   sessionReplay: SessionReplayRenderer;
   pluginCommandMap: Map<string, string>;
   sessionEventHandler: {
@@ -704,9 +705,11 @@ function emitTurn(
 
 function sessionEventEmitter(session: ReturnType<typeof makeSession>) {
   const listeners = new Set<(event: unknown) => void>();
-  (session.onEvent as unknown as {
-    mockImplementation: (fn: (listener: (event: unknown) => void) => () => void) => void;
-  }).mockImplementation((listener) => {
+  (
+    session.onEvent as unknown as {
+      mockImplementation: (fn: (listener: (event: unknown) => void) => () => void) => void;
+    }
+  ).mockImplementation((listener) => {
     listeners.add(listener);
     return () => {
       listeners.delete(listener);
@@ -2266,7 +2269,12 @@ describe('KimiTUI message flow', () => {
     await waitForAssertion(() => expect(session.compact).toHaveBeenCalledWith({}));
 
     const result = { summary: 's', compactedCount: 1, tokensBefore: 10, tokensAfter: 5 };
-    emitSessionEvent({ type: 'compaction.completed', agentId: 'child-1', sessionId: 'ses-1', result });
+    emitSessionEvent({
+      type: 'compaction.completed',
+      agentId: 'child-1',
+      sessionId: 'ses-1',
+      result,
+    });
     await new Promise((resolve) => setImmediate(resolve));
     expect(session.setModel).not.toHaveBeenCalled();
 
@@ -4332,6 +4340,59 @@ command = "vim"
     });
     expect(attachment.fileId).toBeUndefined();
     expect(attachment.bytes).toEqual(new Uint8Array([0xaa, 0xbb]));
+  });
+
+  it('keeps a document staging upload until the consuming turn ends', async () => {
+    const { driver, session, harness } = await makeDriver();
+    const imageStore = (driver as unknown as { imageStore: ImageAttachmentStore }).imageStore;
+    const attachment = imageStore.addDocument('application/pdf', '/tmp/report.pdf');
+    attachment.fileId = 'file-document';
+
+    driver.handleUserInput(attachment.placeholder);
+
+    await waitForAssertion(() => {
+      expect(session.prompt).toHaveBeenCalledWith(
+        [
+          {
+            type: 'document_url',
+            documentUrl: {
+              url: 'kimi-file://file-document',
+              mimeType: 'application/pdf',
+              name: 'report.pdf',
+            },
+          },
+        ],
+        { promptId: expect.any(String) },
+      );
+    });
+    emitTurn(driver, 1, () => {
+      expect(harness.deleteFile).not.toHaveBeenCalled();
+    });
+    await waitForAssertion(() => {
+      expect(harness.deleteFile).toHaveBeenCalledWith('file-document');
+    });
+    expect(attachment.fileId).toBeUndefined();
+  });
+
+  it('rejects document media when the active model lacks pdf_in', async () => {
+    const { driver } = await makeDriver();
+    driver.state.appState.availableModels = {
+      k2: {
+        provider: 'kimi',
+        model: 'k2',
+        maxContextSize: 1000,
+        capabilities: ['image_in', 'video_in'],
+      },
+    };
+
+    expect(
+      driver.messageDispatch.validateMediaCapabilities({
+        hasMedia: true,
+        imageAttachmentIds: [],
+        videoAttachmentIds: [],
+        documentAttachmentIds: [1],
+      }),
+    ).toBe(false);
   });
 
   it('keeps a bundled-skill staging upload until the consuming turn ends', async () => {

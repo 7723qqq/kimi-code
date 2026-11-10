@@ -276,6 +276,14 @@ describe('StagingLeaseTracker', () => {
       expect(deleted.fileIds).toEqual(['file-1', 'file-2']);
       expect(deleted.paths).toEqual(['/cache/a', '/cache/b']);
     });
+
+    it('releases document uploads discarded from the queue', () => {
+      const { tracker, deleted } = makeTracker();
+
+      tracker.releaseQueued([{ text: 'q', agentId: 'main', documentAttachmentIds: [3] }]);
+
+      expect(deleted.fileIds).toEqual(['file-3']);
+    });
   });
 
   describe('queue recall', () => {

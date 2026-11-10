@@ -15,6 +15,10 @@ describe('Session.prompt input normalization', () => {
       { type: 'text', text: 'describe these' },
       { type: 'image_url', imageUrl: { url: 'data:image/png;base64,AAAA' } },
       { type: 'video_url', videoUrl: { url: 'ms://file-123', id: 'file-123' } },
+      {
+        type: 'document_url',
+        documentUrl: { url: 'kimi-file://file-456', mimeType: 'application/pdf' },
+      },
     ] as const;
 
     await session.prompt(input);
@@ -23,6 +27,25 @@ describe('Session.prompt input normalization', () => {
       sessionId: 'ses_multimodal_prompt',
       input,
     });
+  });
+
+  it('rejects an empty document URL before calling RPC', async () => {
+    const prompt = mock(async () => {});
+    const session = new Session({
+      id: 'ses_empty_document_url',
+      workDir: '/tmp/work',
+      rpc: { prompt } as unknown as SDKRpcClientBase,
+    });
+
+    await expect(
+      session.prompt([
+        {
+          type: 'document_url',
+          documentUrl: { url: '', mimeType: 'application/pdf' },
+        },
+      ]),
+    ).rejects.toThrow('Prompt input cannot contain empty document URLs');
+    expect(prompt).not.toHaveBeenCalled();
   });
 
   it('forwards a caller-chosen promptId to the core RPC client', async () => {

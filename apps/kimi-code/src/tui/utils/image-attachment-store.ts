@@ -102,7 +102,29 @@ export interface VideoAttachment {
   readonly placeholder: string;
 }
 
-export type MediaAttachment = ImageAttachment | VideoAttachment;
+export interface DocumentAttachment {
+  readonly id: number;
+  readonly kind: 'document';
+  readonly mime: string;
+  readonly filename: string;
+  readonly sourcePath: string;
+  readonly label: string;
+  /**
+   * Daemon file-store id, set when the source file was uploaded at paste
+   * time. Submit-time expansion emits a `kimi-file://` document reference;
+   * absent means the upload failed or is still in flight (`pending`), and
+   * expansion refuses the submission — a document has no inline fallback.
+   */
+  fileId?: string;
+  /** Epoch milliseconds when the daemon staging upload expires. */
+  fileExpiresAt?: number;
+  /** Background upload still in flight (see `ImageAttachment.pending`). */
+  pending?: Promise<void>;
+  /** Rendered placeholder string, e.g. `[document #1 report.pdf]`. */
+  readonly placeholder: string;
+}
+
+export type MediaAttachment = ImageAttachment | VideoAttachment | DocumentAttachment;
 
 type MutableImageAttachment = {
   -readonly [Property in keyof ImageAttachment]: ImageAttachment[Property];
@@ -211,6 +233,46 @@ export class ImageAttachmentStore {
   ): VideoAttachment | undefined {
     const current = this.byId.get(attachment.id);
     if (current !== attachment || attachment.kind !== 'video') return undefined;
+    attachment.fileId = input.fileId;
+    attachment.fileExpiresAt = input.fileExpiresAt;
+    attachment.pending = undefined;
+    return attachment;
+  }
+
+  addDocument(mime: string, sourcePath: string, filename?: string | undefined): DocumentAttachment {
+    const id = this.nextId;
+    this.nextId += 1;
+    const normalizedFilename = basenameLike(
+      filename !== undefined && filename !== '' ? filename : sourcePath,
+    );
+    const label = sanitizeVideoLabel(normalizedFilename.length > 0 ? normalizedFilename : mime);
+    const attachment: DocumentAttachment = {
+      id,
+      kind: 'document',
+      mime,
+      filename: normalizedFilename,
+      sourcePath,
+      label,
+      placeholder: formatDocumentPlaceholder(id, label),
+    };
+    this.byId.set(id, attachment);
+    return attachment;
+  }
+
+  /**
+   * Complete a document whose background daemon upload finished. Returns
+   * undefined when the attachment was cleared while the upload was in
+   * flight — the caller then deletes the orphaned upload.
+   */
+  completeDocument(
+    attachment: DocumentAttachment,
+    input: {
+      fileId?: string;
+      fileExpiresAt?: number;
+    },
+  ): DocumentAttachment | undefined {
+    const current = this.byId.get(attachment.id);
+    if (current !== attachment || attachment.kind !== 'document') return undefined;
     attachment.fileId = input.fileId;
     attachment.fileExpiresAt = input.fileExpiresAt;
     attachment.pending = undefined;
@@ -345,6 +407,10 @@ export function formatPlaceholder(id: number, width: number, height: number): st
 
 export function formatVideoPlaceholder(id: number, label: string): string {
   return `[video #${String(id)} ${sanitizeVideoLabel(label)}]`;
+}
+
+export function formatDocumentPlaceholder(id: number, label: string): string {
+  return `[document #${String(id)} ${sanitizeVideoLabel(label)}]`;
 }
 
 function sanitizeVideoLabel(raw: string): string {

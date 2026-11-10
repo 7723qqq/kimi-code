@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import {
+  isFileLikeNativeFormat,
   runCommandAsync,
   type CommandChild,
   type CommandSpawn,
@@ -140,5 +141,18 @@ describe('runCommandAsync', () => {
     expect(clock.activeTimers).toBe(0);
     clock.advance(1_000);
     expect(child.killed).toBe(false);
+  });
+});
+
+describe('isFileLikeNativeFormat', () => {
+  it('treats Windows file-drop formats as file-like', () => {
+    expect(isFileLikeNativeFormat('CF_HDROP')).toBe(true);
+    expect(isFileLikeNativeFormat('FileNameW')).toBe(true);
+  });
+
+  it('leaves image formats alone', () => {
+    expect(isFileLikeNativeFormat('CF_DIB')).toBe(false);
+    expect(isFileLikeNativeFormat('CF_BITMAP')).toBe(false);
+    expect(isFileLikeNativeFormat('image/png')).toBe(false);
   });
 });

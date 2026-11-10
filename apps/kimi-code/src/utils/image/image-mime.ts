@@ -25,6 +25,20 @@ export function parseImageMeta(bytes: Uint8Array): ImageMeta | null {
   return null;
 }
 
+/**
+ * Document MIME by file extension. The engine's media pipeline carries
+ * exactly one document type — PDF — so this is the whole table.
+ */
+export const DOCUMENT_MIME_BY_SUFFIX: Readonly<Record<string, string>> = Object.freeze({
+  '.pdf': 'application/pdf',
+});
+
+export function documentMimeFromPath(path: string): string | null {
+  const dot = path.lastIndexOf('.');
+  if (dot < 0) return null;
+  return DOCUMENT_MIME_BY_SUFFIX[path.slice(dot).toLowerCase()] ?? null;
+}
+
 // ── PNG ─────────────────────────────────────────────────────────────
 
 function isPng(b: Uint8Array): boolean {

@@ -240,12 +240,15 @@ export class StagingLeaseTracker {
   }
 
   releaseQueued(items: readonly QueuedMessage[]): void {
-    const fileIds = items.filter(isPromptQueuedMessage).flatMap((item) =>
-      this.effects.takeFileIds([
-        ...(item.imageAttachmentIds ?? []),
-        ...(item.videoAttachmentIds ?? []),
-      ]),
-    );
+    const fileIds = items
+      .filter(isPromptQueuedMessage)
+      .flatMap((item) =>
+        this.effects.takeFileIds([
+          ...(item.imageAttachmentIds ?? []),
+          ...(item.videoAttachmentIds ?? []),
+          ...(item.documentAttachmentIds ?? []),
+        ]),
+      );
     this.deleteStaged(fileIds, []);
   }
 

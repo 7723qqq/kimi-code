@@ -268,7 +268,10 @@ export interface EditGoalObjectiveInput {
 }
 
 export type TextPromptPart = Extract<ContentPart, { type: 'text' }>;
-export type PromptPart = Extract<ContentPart, { type: 'text' | 'image_url' | 'video_url' }>;
+export type PromptPart = Extract<
+  ContentPart,
+  { type: 'text' | 'image_url' | 'video_url' | 'document_url' }
+>;
 
 export type PromptInput = readonly PromptPart[];
 
