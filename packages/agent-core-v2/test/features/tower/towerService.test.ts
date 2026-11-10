@@ -4024,6 +4024,10 @@ describe('AgentTowerService', () => {
       await rm(repo, { recursive: true, force: true });
     });
 
+    function quoteBash(value: string): string {
+      return `'${value.replaceAll("'", "'\\''")}'`;
+    }
+
     function bashHookContext(command: string, cwd?: string): ResolvedToolExecutionHookContext {
       const call = toolCall('Bash', 'call_bash');
       return {
@@ -4089,7 +4093,9 @@ describe('AgentTowerService', () => {
     it('vetoes git clean targeting the main checkout from outside via git -C', async () => {
       ix.get(IAgentTowerService);
 
-      const decision = await fire(bashHookContext(`git -C ${repo} clean -fdx`, tmpdir()));
+      const decision = await fire(
+        bashHookContext(`git -C ${quoteBash(repo)} clean -fdx`, tmpdir()),
+      );
 
       expect(decision?.veto?.isError).toBe(true);
       expect(permissionGateRan).toBe(false);
@@ -4122,16 +4128,16 @@ describe('AgentTowerService', () => {
       ix.get(IAgentTowerService);
 
       for (const command of [
-        `cd ${slot} && git clean -fdx`,
-        `cd ${slot} && git clean -fdx .`,
-        `cd ${slot} && git clean -fdx ./`,
-        `cd ${slot} && git clean -fdx -- .`,
-        `cd ${slot} && git clean -fdx node_modules`,
-        `cd ${join(slot, 'pkg')} && git clean -fdx ..`,
-        `git -C ${slot} clean -fdx`,
-        `git -C ${slot} clean -fdx .`,
-        `cd ${slot} && git reset --hard`,
-        `git -C ${slot} reset --hard HEAD~1`,
+        `cd ${quoteBash(slot)} && git clean -fdx`,
+        `cd ${quoteBash(slot)} && git clean -fdx .`,
+        `cd ${quoteBash(slot)} && git clean -fdx ./`,
+        `cd ${quoteBash(slot)} && git clean -fdx -- .`,
+        `cd ${quoteBash(slot)} && git clean -fdx node_modules`,
+        `cd ${quoteBash(join(slot, 'pkg'))} && git clean -fdx ..`,
+        `git -C ${quoteBash(slot)} clean -fdx`,
+        `git -C ${quoteBash(slot)} clean -fdx .`,
+        `cd ${quoteBash(slot)} && git reset --hard`,
+        `git -C ${quoteBash(slot)} reset --hard HEAD~1`,
       ]) {
         const decision = await fire(bashHookContext(command));
 
@@ -4157,7 +4163,7 @@ describe('AgentTowerService', () => {
       for (const command of [
         'git clean -fdx .tower/worktrees/wt-1',
         'git clean -ffdx .tower/worktrees/wt-1',
-        `git clean -fdx ${slot}`,
+        `git clean -fdx ${quoteBash(slot)}`,
       ]) {
         const decision = await fire(bashHookContext(command));
 
@@ -4168,7 +4174,9 @@ describe('AgentTowerService', () => {
     it('still vetoes git clean whose pathspec escapes a worktree slot into tower protocol paths', async () => {
       ix.get(IAgentTowerService);
 
-      const decision = await fire(bashHookContext(`cd ${slot} && git clean -fdx ../../comms`));
+      const decision = await fire(
+        bashHookContext(`cd ${quoteBash(slot)} && git clean -fdx ../../comms`),
+      );
 
       expect(decision?.veto?.isError).toBe(true);
       expect(decision?.veto?.output).toContain('.tower/comms');
@@ -4203,7 +4211,7 @@ describe('AgentTowerService', () => {
     it('vetoes git -C reset --hard whose target is the main checkout even from a worktree cwd', async () => {
       ix.get(IAgentTowerService);
 
-      const decision = await fire(bashHookContext(`git -C ${repo} reset --hard`, slot));
+      const decision = await fire(bashHookContext(`git -C ${quoteBash(repo)} reset --hard`, slot));
 
       expect(decision?.veto?.isError).toBe(true);
       expect(permissionGateRan).toBe(false);
@@ -4228,7 +4236,7 @@ describe('AgentTowerService', () => {
     it('vetoes recursive rm of the main checkout root (an ancestor of .tower)', async () => {
       ix.get(IAgentTowerService);
 
-      const decision = await fire(bashHookContext(`rm -rf ${repo}`));
+      const decision = await fire(bashHookContext(`rm -rf ${quoteBash(repo)}`));
 
       expect(decision?.veto?.isError).toBe(true);
       expect(permissionGateRan).toBe(false);
@@ -4249,7 +4257,9 @@ describe('AgentTowerService', () => {
     it('allows rm -rf inside a worktree slot', async () => {
       ix.get(IAgentTowerService);
 
-      const decision = await fire(bashHookContext(`rm -rf ${join(slot, 'node_modules')}`));
+      const decision = await fire(
+        bashHookContext(`rm -rf ${quoteBash(join(slot, 'node_modules'))}`),
+      );
 
       expect(decision).toBeUndefined();
       expect(permissionGateRan).toBe(true);
