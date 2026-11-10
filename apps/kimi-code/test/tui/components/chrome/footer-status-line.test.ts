@@ -326,11 +326,19 @@ describe('FooterComponent status_line command', () => {
       ...baseState,
       statusLine: { items: null, command: 'exit 1' },
     };
+
+    // A failing command yields no line, so there is nothing for the runner to
+    // cache and the footer has to fall back. Await the same spawn's verdict
+    // instead of sleeping: that ends when the command actually exits, not when
+    // a fixed delay expires on a machine that may still be spawning it.
+    expect(await runStatusLineCommand('exit 1', payload)).toBeNull();
+
     const footer = new FooterComponent(state);
-
-    await new Promise((resolve) => setTimeout(resolve, 200));
-
-    expect(plain(footer.render(120)[0]!)).toContain('kimi-k2');
+    try {
+      expect(plain(footer.render(120)[0]!)).toContain('kimi-k2');
+    } finally {
+      footer.dispose();
+    }
   });
 });
 

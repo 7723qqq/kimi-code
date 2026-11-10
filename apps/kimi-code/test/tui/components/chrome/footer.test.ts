@@ -10,6 +10,7 @@ import { currentTheme, darkColors, lightColors } from '#/tui/theme';
 import type { AppState } from '#/tui/types';
 import { createEmptySessionStats } from '#/tui/utils/session-stats';
 import * as actualGitStatus from '#/utils/git/git-status';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 const gitStatusMocks = (() => ({
   createGitStatusCache: jest.fn(),
@@ -432,9 +433,20 @@ describe('FooterComponent ctrl+o hint with a status_line command', () => {
     });
     footer.setExpandHintProvider(() => 'expand');
     footer.render(120);
-    await new Promise((resolve) => setTimeout(resolve, 200));
 
-    const [line1, line2] = footer.render(120).map((line) => line.replaceAll(/\[[0-9;]*m/g, ''));
+    // The line only exists once the spawned command exits, and a run may take
+    // the full 300ms ceiling on a loaded machine before the next render starts
+    // another. Poll renders instead of sleeping: each render advances the
+    // runner past its throttle, so the assertion observes the async result
+    // rather than racing it with a fixed delay.
+    await waitForAssertion(
+      () => {
+        expect(stripAnsi(footer.render(120)[0] ?? '')).toContain('my-custom-status');
+      },
+      { timeout: 2_000, interval: 25 },
+    );
+
+    const [line1, line2] = footer.render(120).map((line) => stripAnsi(line));
     expect(line1).toContain('my-custom-status');
     expect(line1).not.toContain('ctrl+o');
     expect(line2).toContain('ctrl+o expand');
