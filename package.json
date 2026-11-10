@@ -41,6 +41,7 @@
     "lint:pkg": "(cd apps/kimi-code && publint) && (cd apps/kimi-code && npm_config_cache=${TMPDIR:-/tmp}/kimi-code-npm-cache attw --pack . --profile node16)",
     "sherif": "sherif -i @agentclientprotocol/sdk -r packages-without-package-json",
     "test": "bun scripts/run-tests.mjs",
+    "snapshot": "bun --import ./build/register-raw-text-loader.mjs ./apps/kimi-code/src/main.ts snapshot",
     "test:scripts": "bun scripts/run-package-tests.mjs --package=. --root=scripts/test --root=scripts/prompt-optimizer/test",
     "test:watch": "bun scripts/run-tests.mjs --watch",
     "test:coverage": "bun scripts/run-tests.mjs --coverage --coverage-reporter=lcov",

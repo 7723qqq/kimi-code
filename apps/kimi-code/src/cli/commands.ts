@@ -20,6 +20,7 @@ import { registerLoginCommand } from './sub/login';
 import { registerProviderCommand } from './sub/provider';
 import { registerSessionCommand } from './sub/session';
 import { registerShellsCommand } from './sub/shells';
+import { registerSnapshotCommand } from './v2/snapshot';
 import { registerVisCommand } from './sub/vis';
 import { registerWebCommand } from './sub/web';
 
@@ -131,6 +132,7 @@ export function createProgram(
   registerProviderCommand(program);
   registerSessionCommand(program);
   registerShellsCommand(program);
+  registerSnapshotCommand(program);
   registerAcpCommand(program);
   registerWebCommand(program);
   registerLoginCommand(program);

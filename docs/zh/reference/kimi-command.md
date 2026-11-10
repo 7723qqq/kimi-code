@@ -364,6 +364,50 @@ kimi session list
 kimi session list --all --json
 ```
 
+### `kimi snapshot`
+
+查看并恢复 `Write`、`Edit` 覆盖过的文件版本。每次破坏性写入之前，工具会把即将被替换的内容按 SHA-256 存到 `~/.kimi-code/store/snapshots/`，每条记录带会话、agent、工具与时间。存储不在仓库内，也不会进入会话导出。
+
+```sh
+kimi snapshot list <path> [--limit <n>]
+kimi snapshot restore <path> (--previous | --hash <hash|id>)
+kimi snapshot agents <session-id>
+kimi snapshot prune [--max-per-path <n>] [--max-age-days <n>]
+```
+
+| 选项 | 说明 |
+| --- | --- |
+| `--limit <n>` | `list` 最多打印的行数，默认 20 |
+| `--previous` | 恢复最近一次写入所替换的版本 |
+| `--hash <hash\|id>` | 恢复指定版本；哈希或记录 id 的唯一前缀即可 |
+| `--max-per-path <n>` | `prune` 每个文件保留的版本数，默认 100 |
+| `--max-age-days <n>` | `prune` 版本保留天数，默认 30 |
+
+`list` 每次覆盖打印一行，按时间倒序。`destroyed-by` 是覆盖该文件的 agent；`content-from` 是写下这一行可恢复内容的那次写入的 agent。每条记录同时保存该次写入落盘后的内容哈希，这个归属只按精确证据解析：写入它的那次操作不在日志里时显示 `unknown`，而不是猜一个。文件若被工具之外的手段改动（手动编辑或 `Bash`），不会留下对应的记录，内容仍可按哈希取回。
+
+记录按工具写入时的路径拼写建索引，因此通过符号链接访问同一个文件会另起一条历史；内容仍可从任一条链按哈希取回。
+
+```sh
+# 这个文件被谁覆盖过
+kimi snapshot list src/agent/loop.ts
+
+# 把最近一次写入替换掉的版本放回去
+kimi snapshot restore src/agent/loop.ts --previous
+
+# 按 list 打印出的哈希前缀恢复指定版本
+kimi snapshot restore src/agent/loop.ts --hash 76c16383
+
+# 这个会话里跑过哪些 swarm 子 agent
+kimi snapshot agents ses_01HZ
+
+# 立即回收磁盘，不必等每小时一次的清扫
+kimi snapshot prune --max-per-path 20
+```
+
+保留策略为每个路径保留最近 100 个版本、超过 30 天的丢弃，但每个路径的最新一条始终保留。`prune` 随后回收无人引用的对象，并跳过最近一分钟内写入的对象，避免并发写入刚存下的内容被清扫掉。超过 4 MiB 的文件只记录一条 skipped 记录、不存内容；`append` 不记录，因为它不销毁任何东西。
+
+恢复本身也是一次破坏性写入：它在写盘之前先把即将被替换的内容记下来，所以恢复错了版本还能用同样的方式退回。存储以仅属主可访问的权限创建（目录 0700、文件 0600），因为它保存的是可能包含密钥的文件内容；它位于仓库之外，因此这些副本不受仓库忽略规则的保护。
+
 ### `kimi migrate`
 
 将旧版 kimi-cli 的本地数据迁移到 kimi-code，包括历史会话和配置文件。不带参数时打开迁移界面，迁移完成后退出。

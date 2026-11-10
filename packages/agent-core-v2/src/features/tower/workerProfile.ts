@@ -30,6 +30,7 @@ const TOWER_WORKER_TOOLS = [
   'Read',
   'RepoMap',
   'Skill',
+  'SnapshotList',
   'TaskList',
   'TaskOutput',
   'TaskStop',

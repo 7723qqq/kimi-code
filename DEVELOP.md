@@ -460,6 +460,21 @@ bun run version               # Apply changesets (bump versions)
 bun run publish               # Full publish pipeline
 ```
 
+#### Recovering an overwritten file
+
+Every destructive write from the `Write` and `Edit` tools records the content it is about to replace, keyed by SHA-256 and attributed to the session, agent, tool and time. Records live under `~/.kimi-code/store/snapshots/`, never inside the repository, so `git status` stays clean; each overwrite writes its own JSON file in a directory keyed by the path, so concurrent writers cannot overwrite each other's record.
+
+```sh
+bun run snapshot list <path>                     # newest first, with who destroyed what
+bun run snapshot restore <path> --previous      # the version the latest write replaced
+bun run snapshot restore <path> --hash <sha|id> # a specific version; a unique prefix is enough
+bun run snapshot agents <session-id>            # swarm subagents that started in this session
+```
+
+On a record, `destroyed-by` names the agent that overwrote the file and `content-from` names the agent whose write produced the saved content, which the log derives from the next older record. A change made outside the tools — by hand in an editor, or by `Bash` — breaks that inference; the content is still recoverable by hash.
+
+Limits: files over 4 MiB are recorded as `skipped=max-size` without content, `append` writes are not recorded because they destroy nothing, and the store is local to this machine and is not included in session exports.
+
 ### Makefile targets
 
 ```sh

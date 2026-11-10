@@ -364,6 +364,50 @@ kimi session list
 kimi session list --all --json
 ```
 
+### `kimi snapshot`
+
+Inspect and restore the file versions that the `Write` and `Edit` tools overwrote. Each destructive write records the content it is about to replace, keyed by SHA-256 and attributed to the session, agent, tool and time, under `~/.kimi-code/store/snapshots/`. The store stays outside the repository and is not included in session exports.
+
+```sh
+kimi snapshot list <path> [--limit <n>]
+kimi snapshot restore <path> (--previous | --hash <hash|id>)
+kimi snapshot agents <session-id>
+kimi snapshot prune [--max-per-path <n>] [--max-age-days <n>]
+```
+
+| Option | Description |
+| --- | --- |
+| `--limit <n>` | Rows to print for `list`. Defaults to 20 |
+| `--previous` | Restore the version the latest write replaced |
+| `--hash <hash\|id>` | Restore a specific version. A unique hash or record-id prefix is enough |
+| `--max-per-path <n>` | Versions to keep per file for `prune`. Defaults to 100 |
+| `--max-age-days <n>` | Days to keep a version for `prune`. Defaults to 30 |
+
+`list` prints one row per overwrite, newest first. `destroyed-by` names the agent that overwrote the file; `content-from` names the agent whose write produced the content that row can restore. Each record also stores the hash of what its write left behind, and that attribution resolves only from exact evidence: a version whose producing write is not in the log reports `unknown` instead of a guess. A change made outside the tools — by hand in an editor, or by `Bash` — leaves no record of its own, and the content is still recoverable by hash.
+
+Records are keyed by the path spelling the tool wrote, so reaching one file through a symlink starts a second history; the content is still recoverable from either chain by hash.
+
+```sh
+# What was overwritten in this file, and by whom
+kimi snapshot list src/agent/loop.ts
+
+# Put back the version the last write replaced
+kimi snapshot restore src/agent/loop.ts --previous
+
+# Restore a version printed by `list`, by its hash prefix
+kimi snapshot restore src/agent/loop.ts --hash 76c16383
+
+# Which swarm subagents ran in this session
+kimi snapshot agents ses_01HZ
+
+# Reclaim disk now instead of waiting for the hourly sweep
+kimi snapshot prune --max-per-path 20
+```
+
+Retention keeps the newest 100 versions per path and drops anything older than 30 days, always keeping a path's newest record. `prune` then reclaims the objects no surviving record references, skipping objects written in the last minute so a concurrent write cannot lose its blob. Files over 4 MiB are recorded as skipped without content, and `append` writes are not recorded because they destroy nothing.
+
+A restore is itself a destructive write: it records the content it is about to replace before writing, so restoring the wrong version can be undone the same way. The store is created owner-only (0700 directories, 0600 files) because it holds file contents that may include secrets; it lives outside the repository, so those copies are not covered by the repository's ignore rules.
+
 ### `kimi migrate`
 
 Migrate local data from a legacy kimi-cli installation to kimi-code, including session history and configuration files. Without flags it opens the migration screen and exits when the migration finishes.
