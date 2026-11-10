@@ -601,6 +601,7 @@ describe('CLI options parsing', () => {
         'provider',
         'session',
         'shells',
+        'snapshot',
         'acp',
         'web',
         'server',
