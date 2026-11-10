@@ -194,6 +194,23 @@ describe('GitOperationBackend', () => {
     });
   });
 
+  it('reads file metadata, binary blobs and changed paths from captured views', async () => {
+    const { repo, storage } = await createRepo();
+    const backend = await open(repo, storage);
+    const before = await backend.captureView();
+    const bytes = new Uint8Array([0, 1, 2, 255, 254]);
+    await writeFile(join(repo, 'a.txt'), bytes);
+    await writeFile(join(repo, 'new.txt'), 'new\n');
+    const after = await backend.captureView();
+
+    const file = await backend.fileAt(after, 'a.txt');
+    expect(file).toBeDefined();
+    expect(file!.size).toBe(bytes.byteLength);
+    expect(await backend.readBlob(file!.hash)).toEqual(bytes);
+    expect(await backend.fileAt(after, 'missing.txt')).toBeUndefined();
+    expect(await backend.changedFiles(before, after)).toEqual(['a.txt', 'new.txt']);
+  });
+
   it('restores the complete tree, HEAD and refs while preserving ignored files', async () => {
     const { repo, storage } = await createRepo();
     const backend = await open(repo, storage);

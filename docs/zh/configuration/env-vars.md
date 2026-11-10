@@ -193,6 +193,10 @@ kimi
 | `KIMI_CODE_ASSOCIATIVE_MEMORY_EMBEDDINGS_MODEL` | embeddings 模型名，默认 `text-embedding-3-small` | 模型名 |
 | `KIMI_CODE_EXPERIMENTAL_TOWER` | 启用实验性 [Tower 多 Agent 协作](../guides/tower.md) 和 `/tower` 命令，需在启动前设置。持久配置等价于在 `config.toml` 中设置 `[experimental] tower = true`；在运行中的 CLI 里修改该配置后，需要重启 Kimi Code。`KIMI_CODE_EXPERIMENTAL_FLAG=1` 仅在未显式配置 `[experimental] tower` 时启用 Tower；`tower = false` 会优先于总开关，而本变量可覆盖该配置 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_EXPERIMENTAL_MICRO_COMPACTION` | 实验性微压缩：prompt 缓存未命中后，把外发请求里较早的的超大工具结果替换成标记，让重建的前缀保持较小。仅本进程生效；持久配置等价于 `[experimental] micro_compaction = true`；`KIMI_CODE_EXPERIMENTAL_FLAG=1` 也会启用 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
+| `KIMI_CODE_EXPERIMENTAL_OPERATION_LOG` | 启用实验性 Operation Log：在本地 Git 仓库中记录前台工具操作，启用 `/operation`，并允许 `/undo` 恢复仓库视图。仅本进程生效；持久配置等价于 `[experimental] operation_log = true`；`KIMI_CODE_EXPERIMENTAL_FLAG=1` 也会启用 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
+| `KIMI_CODE_OPERATION_LOG_MAX_OPERATIONS` | 最大操作数，优先级高于 `[operationLog] maxOperations`（默认 `1000`）。超限追加会失败，不会淘汰历史 | 正整数；非法值被忽略 |
+| `KIMI_CODE_OPERATION_LOG_MAX_AGE_MS` | 追加时已有操作的最大年龄，优先级高于 `[operationLog] maxAgeMs`（默认 `2592000000`，即 30 天） | 非负整数；非法值被忽略 |
+| `KIMI_CODE_OPERATION_LOG_MAX_TOTAL_BYTES` | 操作记录与视图的最大总字节数，优先级高于 `[operationLog] maxTotalBytes`（默认 `1073741824`，即 1 GiB） | 正整数；非法值被忽略 |
 | `KIMI_CODE_EXPERIMENTAL_LSP` | 实验性 `lsp` 工具：通过 `[lsp]` 小节配置的语言服务器做转到定义、查找引用、实现与悬停查询。仅本进程生效；持久配置等价于 `[experimental] lsp = true`；`KIMI_CODE_EXPERIMENTAL_FLAG=1` 也会启用 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_EXPERIMENTAL_NOTIFY_USER` | 实验性 `NotifyUser` 工具：主 Agent 与子 Agent 的实时进度更新，在 TUI 的 Updates 面板以及桌面端和 Web 端的进度行中展示。仅本进程生效；持久配置等价于 `[experimental] notify_user = true`；`KIMI_CODE_EXPERIMENTAL_FLAG=1` 也会启用 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_EXPERIMENTAL_PROMPT_OPTIMIZER` | 实验性提示词优化器：输入框用当前模型改写草稿提示，可从 TUI 快捷键和会话 API 触达。仅本进程生效；持久配置等价于 `[experimental] prompt_optimizer = true`；`KIMI_CODE_EXPERIMENTAL_FLAG=1` 也会启用 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |

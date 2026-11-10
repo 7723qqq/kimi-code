@@ -7,6 +7,9 @@ import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import type { WillExecuteToolEvent } from '#/agent/toolExecutor/toolHooks';
 import { IEventBus } from '#/app/event/eventBus';
+import { IFlagService } from '#/app/flag/flag';
+import { OPERATION_LOG_FLAG_ID } from '#/features/operationLog/flag';
+import { OperationSnapshotStore } from '#/features/operationLog/operationSnapshotStore';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { isHostFsNotFound } from '#/os/interface/hostFsErrors';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
@@ -55,6 +58,7 @@ export class AgentFileHistoryService extends Service implements IAgentFileHistor
 
   private queue: Promise<void> = Promise.resolve();
   private activeTurnId: number | undefined;
+  private readonly operationStore?: OperationSnapshotStore;
   private orphanSweepDone = false;
 
   constructor(
@@ -70,9 +74,14 @@ export class AgentFileHistoryService extends Service implements IAgentFileHistor
     @IAtomicDocumentStore private readonly docs: IAtomicDocumentStore,
     @IHostFileSystem private readonly hostFs: IHostFileSystem,
     @IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService,
+    @IFlagService private readonly flags?: IFlagService,
   ) {
     super();
     this.agentState.contributeState(fileHistoryKey);
+    if (this.flags?.enabled(OPERATION_LOG_FLAG_ID) === true) {
+      this.operationStore = new OperationSnapshotStore(workspaceCtx.workDir);
+      return;
+    }
     if (this.agentCtx.agentId !== MAIN_AGENT_ID) {
       this._register(
         toolExecutor.onWillExecuteTool((event) => this.onSubagentWillExecuteTool(event)),
@@ -106,10 +115,16 @@ export class AgentFileHistoryService extends Service implements IAgentFileHistor
   }
 
   changes(turnId: number): Promise<FileHistoryChange[]> {
+    if (this.operationStore !== undefined) return this.operationChanges(turnId);
     return this.enqueueValue(() => this.readChanges(turnId));
   }
 
   turnRecorded(turnId: number): Promise<boolean> {
+    if (this.operationStore !== undefined) {
+      return this.operationStore
+        .operations(turnId, this.agentCtx.agentId)
+        .then((operations) => operations.length > 0);
+    }
     return this.enqueueValue(async () => {
       const state = this.history();
       const index = state.checkpoints.findIndex(
@@ -134,6 +149,31 @@ export class AgentFileHistoryService extends Service implements IAgentFileHistor
       }
       return true;
     });
+  }
+
+  private async operationChanges(turnId: number): Promise<FileHistoryChange[]> {
+    if (this.operationStore === undefined) return [];
+    const operations = await this.operationStore.operations(turnId, this.agentCtx.agentId);
+    const first = operations.at(-1);
+    const latest = operations[0];
+    if (first?.beforeViewId === undefined || latest === undefined) return [];
+    const before = await this.operationStore.view(first.beforeViewId);
+    const after = await this.operationStore.view(latest.viewId);
+    const changes: FileHistoryChange[] = [];
+    const lcsBudget = { remaining: LCS_AGGREGATE_CELL_BUDGET };
+    for (const path of await this.operationStore.changedFiles(before, after)) {
+      const [beforeFile, afterFile] = await Promise.all([
+        this.operationStore.fileAt(before, path),
+        this.operationStore.fileAt(after, path),
+      ]);
+      const [beforeBytes, afterBytes] = await Promise.all([
+        beforeFile === undefined ? undefined : this.operationStore.content(beforeFile.hash),
+        afterFile === undefined ? undefined : this.operationStore.content(afterFile.hash),
+      ]);
+      const change = diffChange(path, beforeBytes, afterBytes, lcsBudget);
+      if (change !== undefined) changes.push(change);
+    }
+    return changes;
   }
 
   private async readChanges(turnId: number): Promise<FileHistoryChange[]> {
@@ -231,7 +271,29 @@ export class AgentFileHistoryService extends Service implements IAgentFileHistor
     path: string,
     phase: FileHistoryCheckpointPhase = 'start',
   ): Promise<FileHistoryContent | undefined> {
+    if (this.operationStore !== undefined) return this.operationContentAt(turnId, path, phase);
     return this.enqueueValue(() => this.readContentAt(turnId, path, phase));
+  }
+
+  private async operationContentAt(
+    turnId: number,
+    path: string,
+    phase: FileHistoryCheckpointPhase,
+  ): Promise<FileHistoryContent | undefined> {
+    if (this.operationStore === undefined) return undefined;
+    const operations = await this.operationStore.operations(turnId, this.agentCtx.agentId);
+    const operation = phase === 'start' ? operations.at(-1) : operations[0];
+    if (operation === undefined) return undefined;
+    const viewId = phase === 'start' ? operation.beforeViewId : operation.viewId;
+    if (viewId === undefined) return undefined;
+    const view = await this.operationStore.view(viewId);
+    const file = await this.operationStore.fileAt(view, path);
+    const version = Date.parse(operation.at);
+    if (file === undefined) return { version };
+    const bytes = await this.operationStore.content(file.hash);
+    if (bytes === undefined) return { version, binary: true };
+    const content = decodeText(bytes);
+    return content === undefined ? { version, binary: true } : { version, content };
   }
 
   private async readContentAt(

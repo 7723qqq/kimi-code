@@ -125,6 +125,7 @@ Fields in the config file fall into two categories: **top-level scalars** that d
 | [`llm_requester`](#llm-requester) | `table` | — | Byte budget for a single LLM request body |
 | [`model_catalog`](#model-catalog) | `table` | — | Provider-model catalog refresh schedule |
 | [`model_overrides`](#model-overrides) | `table` | — | Default sampling and completion limits applied to every request |
+| [`operationLog`](#operationlog) | `table` | — | Operation Log retention limits |
 | [`experimental`](#experimental) | `table` | — | Persistent overrides for experimental-feature flags |
 | [`services`](#services) | `table` | — | Built-in external service configuration |
 | [`github`](#github) | `table` | — | Built-in GitHub tools |
@@ -651,6 +652,19 @@ Both fields can be overridden by `KIMI_CODE_MODEL_CATALOG_REFRESH_INTERVAL_MS` a
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `micro_compaction` | `boolean` | `false` | After a prompt-cache miss, replace old oversized tool results in the outgoing request with a marker so the rebuilt prefix stays small |
+| `operation_log` | `boolean` | `false` | Record foreground tool operations in local Git repositories and enable `/operation` plus repository restoration from `/undo`; see [Operation Log](../reference/slash-commands.md#operation-log-experimental) |
+
+## `operationLog`
+
+`operationLog` sets the retention limits for the experimental [Operation Log](../reference/slash-commands.md#operation-log-experimental). These limits apply only when `[experimental] operation_log = true` (or `KIMI_CODE_EXPERIMENTAL_OPERATION_LOG=1`) enables the feature.
+
+| Field | Type | Default | Environment override | Description |
+| --- | --- | --- | --- | --- |
+| `maxOperations` | `integer` | `1000` | `KIMI_CODE_OPERATION_LOG_MAX_OPERATIONS` | Maximum number of operations; must be positive |
+| `maxAgeMs` | `integer` | `2592000000` (30 days) | `KIMI_CODE_OPERATION_LOG_MAX_AGE_MS` | Maximum age of existing entries when a new operation is appended; `0` rejects every entry older than the new operation |
+| `maxTotalBytes` | `integer` | `1073741824` (1 GiB) | `KIMI_CODE_OPERATION_LOG_MAX_TOTAL_BYTES` | Maximum total bytes of operation records and views; must be positive |
+
+The first exceeded limit rejects the append. Operation Log never silently evicts old history to make room.
 
 ## `services`
 

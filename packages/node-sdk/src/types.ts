@@ -51,6 +51,11 @@ export interface SessionEnvironmentsInfo {
 }
 
 export type { RemoteEnvironmentEntry };
+export type {
+  OperationKind,
+  OperationOrigin,
+  OperationRecord,
+} from '@moonshot-ai/agent-core-v2/features/operationLog/operationLog';
 
 export type { CapabilityInstallOptions, CapabilityStatus } from '@moonshot-ai/agent-core-v2/app/capability/types';
 

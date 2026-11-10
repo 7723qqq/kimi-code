@@ -776,6 +776,7 @@ export default {
       status: '显示当前会话和运行时状态',
       feedback: '发送反馈以帮助改进 Kimi Code',
       undo: '从记录中撤回最后一条提示',
+      operation: '列出、撤销、重做或恢复仓库操作',
       editor: '设置外部编辑器（Ctrl-G）',
       theme: '设置终端 UI 主题',
       logout: '登出已配置的供应商',
@@ -1328,6 +1329,10 @@ export default {
             title: 'NotifyUser 工具',
             description:
               '展示主代理和子代理的实时进度更新：TUI 中的 Updates 面板，以及桌面端和 Web 端的进度行。',
+          },
+          operation_log: {
+            title: 'Operation Log',
+            description: '记录前台工具操作，并通过 /operation 和 /undo 撤销、重做及恢复仓库视图。',
           },
           prompt_optimizer: {
             title: '提示词优化器',
@@ -2039,6 +2044,11 @@ export default {
       undoUserMessage: '用户消息',
       undoUserMessageWithImage: '用户消息（{{count}} 张图片）',
       undoSkillUnknown: '技能：未知',
+      // tui/commands/operation.ts
+      operationUsage: '用法：/operation [list] | undo | redo | restore <operation-id>。',
+      operationEmpty: '尚未记录任何操作。',
+      operationListTitle: '操作记录（{{count}}）',
+      operationFailed: '操作失败：{{message}}',
       // commands/web.ts
       failedToStartServer: '启动服务器失败：{{error}}',
       failedToStartRemoteControl: '启动远程控制失败：{{error}}',

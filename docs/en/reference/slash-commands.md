@@ -34,7 +34,10 @@ Some commands are only available in the idle state. Executing these commands whi
 | `/fork` | — | Fork a new session from the current one, preserving the full conversation history; you stay in the current session | No |
 | `/title [<text>]` | `/rename` | Without arguments, display the current session title; with an argument, set a new title (max 200 characters) | Yes |
 | `/compact [<instruction>]` | — | Compact the current conversation context to free up token usage; an optional custom instruction can hint to the model what to preserve; when used while the agent is busy, the command joins the message queue and runs in order; it is skipped if the context was auto-compacted while it waited | Yes |
-| `/undo [<count>]` | — | Undo recent prompts from the active context. Without a count, opens a selector; with a count, undoes that many prompts. Prompts before the last compaction cannot be undone. Undoing also rolls back the todo list and plan mode state produced by those prompts (code changes are not reverted) | No |
+| `/undo [<count>]` | — | Undo recent prompts from the active context. Without a count, opens a selector; with a count, undoes that many prompts. Prompts before the last compaction cannot be undone. Undoing also rolls back the todo list and plan mode state produced by those prompts. Code changes are reverted only when [Operation Log](#operation-log-experimental) is enabled | No |
+| `/operation [list]` | `/op` | List recorded repository operations newest first, including their full operation ids; requires [Operation Log](#operation-log-experimental) | No |
+| `/operation undo` or `/operation redo` | `/op` | Undo or redo one repository operation without changing the conversation; requires [Operation Log](#operation-log-experimental) | No |
+| `/operation restore <operation-id>` | `/op` | Restore the repository view recorded by an arbitrary operation; requires [Operation Log](#operation-log-experimental) | No |
 | `/reload` | — | Reload the current session and apply the latest `config.toml` settings (providers, models, etc.) and `tui.toml` UI preferences, without restarting the CLI; the agent is also notified of external changes to AGENTS.md files, skills, and subagent profiles or models | No |
 | `/reload-tui` | — | Reload only the `tui.toml` UI preferences (theme, editor, notifications, etc.) without rebuilding the session | Yes |
 | `/init` | — | Analyze the current codebase and generate `AGENTS.md` | No |
@@ -47,6 +50,16 @@ Some commands are only available in the idle state. Executing these commands whi
 | `/desktop` | `/install-desktop` | Open the Kimi Code desktop app page in your browser (URL follows the active region: `https://www.kimi.com/code` or `https://www.kimi.ai/code`). See [`kimi install-desktop`](./kimi-command.md#kimi-install-desktop) | Yes |
 | `/remote-control` | `/rc` | Open the current session through Kimi Remote Control. See [Remote Control](../guides/remote-control.md) | Yes |
 | `/import-sessions` | — | Import recent Claude Code and Codex sessions | No |
+
+### Operation Log (experimental)
+
+Operation Log records each foreground tool call that changes a local Git repository as one operation, including its before and after repository views. A tool call that leaves the repository unchanged creates no operation. The recorded view covers the file tree plus Git `HEAD` and refs; conversation history is not part of an operation.
+
+Enable it through `/experiments`, or set `[experimental] operation_log = true` in `config.toml`. `/operation list` shows full operation ids for use with `restore`; `undo` and `redo` move through consecutive operations, while `restore` selects any recorded view. `/undo` keeps its turn-based conversation semantics and delegates repository restoration to Operation Log for the removed turns.
+
+Restoration is rejected when the current or target view contains staged changes, a merge or rebase is in progress, or the repository contains writes that Operation Log cannot attribute. Capture failures stop the tool call instead of silently skipping the record. Background or detached-process writes are not tracked as recoverable operations, and Tower missions are not rolled back as one unit.
+
+Operation data lives in `.git/kimi-operation-log` inside the repository. By default, the log accepts at most 1000 operations, entries from the last 30 days, and 1 GiB total data, whichever limit is reached first; appending beyond a limit fails instead of silently deleting history. See [Operation Log configuration](../configuration/config-files.md#operationlog) and [repository operation data](../configuration/data-locations.md#repository-operation-data).
 
 ## Modes & Run Control
 

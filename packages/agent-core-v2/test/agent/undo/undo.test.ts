@@ -26,8 +26,11 @@ import { IAgentConversationUndoService } from '#/agent/undo/undo';
 import { ContextUndone } from '#/agent/undo/undoService';
 import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
 import { IEventBus } from '#/app/event/eventBus';
+import { IFlagService } from '#/app/flag/flag';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ErrorCodes } from '#/errors';
+import { OPERATION_LOG_FLAG_ID } from '#/features/operationLog/flag';
+import { IAgentOperationService } from '#/features/operationLog/operationService';
 import { IAgentPlanService } from '#/features/plan/plan';
 import { planKey } from '#/features/plan/planOps';
 import type { TodoItem } from '#/features/todo/todoItem';
@@ -41,8 +44,11 @@ import { WIRE_PROTOCOL_VERSION } from '#/wire/migration/migration';
 import type { WireRecord } from '#/wire/record';
 import { IWireService } from '#/wire/wire';
 
+import { stubFlag } from '../../app/flag/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import {
+  agentService,
+  appService,
   createTestAgent,
   execEnvServices,
   telemetryServices,
@@ -50,6 +56,7 @@ import {
   requesterFromGenerateFn,
   type TestAgentOptions,
   type TestAgentContext,
+  type TestAgentServiceOverride,
 } from '../../harness';
 import { createFakeHostFs } from '../../tools/fixtures/fake-exec';
 import { submitPromptTurn } from '../loop/stubs';
@@ -66,10 +73,14 @@ describe('AgentConversationUndoService', () => {
     }
   });
 
-  async function setup(options: TestAgentOptions = {}) {
+  async function setup(
+    options: TestAgentOptions = {},
+    overrides: readonly TestAgentServiceOverride[] = [],
+  ) {
     records = [];
     ctx = createTestAgent(
       options,
+      ...overrides,
       telemetryServices(recordingTelemetry(records)),
       execEnvServices({ hostFs: createFakeHostFs({ mkdir: async () => {} }) }),
     );
@@ -120,6 +131,69 @@ describe('AgentConversationUndoService', () => {
     await ctx.get(IAgentConversationUndoService).undo(1);
     expect(observed).toEqual(['flushed']);
     flush.mockRestore();
+  });
+
+  it('restores the repository before switching the conversation branch', async () => {
+    const order: string[] = [];
+    const removedTurnIds: number[] = [];
+    const operations = {
+      restoreBeforeTurn: async (turnId: number) => {
+        removedTurnIds.push(turnId);
+        order.push('restore');
+        return undefined;
+      },
+    } as unknown as IAgentOperationService;
+    await setup({}, [
+      appService(IFlagService, stubFlag((id) => id === OPERATION_LOG_FLAG_ID)),
+      agentService(IAgentOperationService, operations),
+    ]);
+    ctx.mockNextResponse({ type: 'text', text: 'answer' });
+    const { turn } = submitPromptTurn(ctx.get(IAgentLoopService), {
+      message: { role: 'user', content: [{ type: 'text', text: 'work' }] },
+      meta: { origin: { kind: 'user' } },
+    });
+    await expect(turn.result).resolves.toMatchObject({ type: 'completed' });
+    if (turn.id === undefined) throw new Error('Expected an engine turn id');
+    const wire = ctx.get(IWireService);
+    const originalSwitch = wire.switchBranch.bind(wire);
+    const switchBranch = spyOn(wire, 'switchBranch').mockImplementation(async (input) => {
+      order.push('switch');
+      return originalSwitch(input);
+    });
+
+    try {
+      await ctx.get(IAgentConversationUndoService).undo(1);
+      expect(removedTurnIds).toEqual([turn.id]);
+      expect(order).toEqual(['restore', 'switch']);
+    } finally {
+      switchBranch.mockRestore();
+    }
+  });
+
+  it('does not switch the conversation branch when repository restoration fails', async () => {
+    const failure = new Error('repository restore failed');
+    const operations = {
+      restoreBeforeTurn: async () => {
+        throw failure;
+      },
+    } as unknown as IAgentOperationService;
+    await setup({}, [
+      appService(IFlagService, stubFlag((id) => id === OPERATION_LOG_FLAG_ID)),
+      agentService(IAgentOperationService, operations),
+    ]);
+    ctx.mockNextResponse({ type: 'text', text: 'answer' });
+    const { turn } = submitPromptTurn(ctx.get(IAgentLoopService), {
+      message: { role: 'user', content: [{ type: 'text', text: 'work' }] },
+      meta: { origin: { kind: 'user' } },
+    });
+    await expect(turn.result).resolves.toMatchObject({ type: 'completed' });
+    const history = ctx.context.get();
+
+    await expect(ctx.get(IAgentConversationUndoService).undo(1)).rejects.toBe(failure);
+    expect(ctx.context.get()).toBe(history);
+    expect((await ctx.persistedWireRecords()).some((record) => record.type === 'agent.switched')).toBe(
+      false,
+    );
   });
 
   it('exposes availability from context history', async () => {

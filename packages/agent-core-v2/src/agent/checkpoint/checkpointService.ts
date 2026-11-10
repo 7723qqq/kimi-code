@@ -11,7 +11,9 @@ import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import type { ToolDidExecuteContext } from '#/agent/toolExecutor/toolHooks';
 import { Event2 } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
+import { IFlagService } from '#/app/flag/flag';
 import { LifecycleScope } from '#/app/scopes';
+import { OPERATION_LOG_FLAG_ID } from '#/features/operationLog/flag';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
@@ -71,9 +73,11 @@ export class AgentCheckpointService extends Disposable implements IAgentCheckpoi
     @IFileSystemStorageService private readonly storage: IFileSystemStorageService,
     @IHostFileSystem private readonly fs: IHostFileSystem,
     @IEventBus private readonly eventBus: IEventBus,
+    @IFlagService private readonly flags: IFlagService,
   ) {
     super();
     this.storageScope = agent.scope('checkpoints');
+    if (this.flags.enabled(OPERATION_LOG_FLAG_ID)) return;
     this._register(
       toolExecutor.onWillExecuteTool((event) => {
         const writePaths = collectWritePaths(event.execution.accesses);

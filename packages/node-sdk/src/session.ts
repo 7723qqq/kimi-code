@@ -32,6 +32,7 @@ import type {
   McpServerConfig,
   McpServerInfo,
   McpStartupMetrics,
+  OperationRecord,
   PermissionMode,
   PluginInfo,
   PluginSummary,
@@ -480,6 +481,26 @@ export class Session {
   async undoHistory(count: number = 1): Promise<void> {
     this.ensureOpen();
     await this.rpc.undoHistory({ sessionId: this.id, count });
+  }
+
+  async listOperations(limit?: number): Promise<readonly OperationRecord[]> {
+    this.ensureOpen();
+    return this.rpc.listOperations({ sessionId: this.id, limit });
+  }
+
+  async undoOperation(): Promise<OperationRecord> {
+    this.ensureOpen();
+    return this.rpc.undoOperation({ sessionId: this.id });
+  }
+
+  async redoOperation(): Promise<OperationRecord> {
+    this.ensureOpen();
+    return this.rpc.redoOperation({ sessionId: this.id });
+  }
+
+  async restoreOperation(targetId: string): Promise<OperationRecord> {
+    this.ensureOpen();
+    return this.rpc.restoreOperation({ sessionId: this.id, targetId });
   }
 
   /**

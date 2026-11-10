@@ -3,16 +3,21 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { IAgentCheckpointService } from '#/agent/checkpoint/checkpointService';
+import { IAgentConversationUndoParticipantRegistry } from '#/agent/contextMemory/conversationUndoParticipants';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IEventBus } from '#/app/event/eventBus';
+import { IFlagService } from '#/app/flag/flag';
+import { OPERATION_LOG_FLAG_ID } from '#/features/operationLog/flag';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
 import type { ExecutableTool } from '#/tool/toolContract';
 import { ToolAccesses } from '#/tool/toolContract';
 
-import { execEnvServices, permissionModeServices, testAgent } from '../../harness';
+import { stubFlag } from '../../app/flag/stubs';
+import { appService, execEnvServices, permissionModeServices, testAgent } from '../../harness';
 
 let workDir: string;
 
@@ -56,6 +61,22 @@ afterEach(async () => {
 });
 
 describe('file checkpoints', () => {
+  it('does not register legacy capture or restore while Operation Log is enabled', async () => {
+    const ctx = testAgent(
+      appService(IFlagService, stubFlag((id) => id === OPERATION_LOG_FLAG_ID)),
+      permissionModeServices('yolo'),
+    );
+    ctx.get(IAgentCheckpointService);
+
+    expect(
+      ctx
+        .get(IAgentConversationUndoParticipantRegistry)
+        .list()
+        .some((participant) => participant.id === 'checkpoint'),
+    ).toBe(false);
+    await ctx.dispose();
+  });
+
   it('captures preimages and restores them on undo', async () => {
     await writeFile(join(workDir, 'a.txt'), 'original', 'utf8');
     const ctx = testAgent(permissionModeServices('yolo'));

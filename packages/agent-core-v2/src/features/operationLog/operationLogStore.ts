@@ -231,6 +231,31 @@ export class OperationLogStore {
     });
   }
 
+  restoreBefore(targetId: string, input: OperationActionInput): Promise<OperationRecord> {
+    assertId(targetId);
+    return this.withLock(async () => {
+      const head = await this.requireHead();
+      const parent = await this.readOperation(head.operationId);
+      const target = await this.readOperation(targetId);
+      if (target.beforeViewId === undefined) {
+        throw new OperationLogError('invalid', 'The operation has no before view');
+      }
+      const view = await this.readView(target.beforeViewId);
+      return this.append({
+        kind: 'restore',
+        view,
+        parent,
+        input,
+        targetId,
+        nextHead: (operation) => ({
+          operationId: operation.id,
+          undoTargetId: operation.id,
+          redoStack: [],
+        }),
+      });
+    });
+  }
+
   head(): Promise<OperationLogHead | undefined> {
     return this.withLock(() => this.readHead());
   }

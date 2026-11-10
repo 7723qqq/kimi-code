@@ -73,6 +73,7 @@ import type { SkillListSession } from './skills';
 import { handleSwarmCommand } from './swarm';
 import { handleTowerCommand } from './tower';
 import { handleUndoCommand } from './undo';
+import { handleOperationCommand } from './operation';
 import { handleRemoteControlCommand, handleWebCommand } from './web';
 import { handleWorkflowCommand } from './workflow';
 
@@ -117,6 +118,7 @@ export {
   handleTitleCommand,
 } from './session';
 export { handleUndoCommand } from './undo';
+export { handleOperationCommand } from './operation';
 export { handleRemoteControlCommand, handleWebCommand } from './web';
 
 // ---------------------------------------------------------------------------
@@ -608,6 +610,9 @@ async function handleBuiltInSlashCommand(
       return;
     case 'undo':
       await handleUndoCommand(host, args);
+      return;
+    case 'operation':
+      await handleOperationCommand(host, args);
       return;
     case 'web':
       await handleWebCommand(host);

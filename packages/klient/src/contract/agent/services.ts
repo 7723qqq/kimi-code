@@ -22,6 +22,7 @@ import {
   promptWithSkillsResultSchema,
   runShellCommandPayloadSchema,
   environmentBindingSchema,
+  operationRecordSchema,
   setModelResultSchema,
   shellCommandResultSchema,
   steerPayloadSchema,
@@ -122,6 +123,16 @@ export const fullCompactionInputSchema = z.object({
 
 export const agentFullCompactionContract = {
   begin: { input: z.tuple([fullCompactionInputSchema]), output: z.boolean() },
+} satisfies ServiceContract;
+
+export const agentOperationContract = {
+  listOperations: {
+    input: z.tuple([z.number().optional()]),
+    output: z.array(operationRecordSchema),
+  },
+  undoOperation: { input: z.tuple([]), output: operationRecordSchema },
+  redoOperation: { input: z.tuple([]), output: operationRecordSchema },
+  restoreOperation: { input: z.tuple([z.string()]), output: operationRecordSchema },
 } satisfies ServiceContract;
 
 export const agentTaskContract = {

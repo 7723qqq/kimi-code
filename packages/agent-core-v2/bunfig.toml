@@ -13,6 +13,7 @@ pathIgnorePatterns = [
   "test/app/git/gitService.test.ts",
   "test/features/operationLog/gitOperationBackend.test.ts",
   "test/features/operationLog/operationService.test.ts",
+  "test/features/operationLog/operationProjection.test.ts",
   # Real child processes and sockets: the cases spawn a runtime and wait out
   # connection timeouts.
   "test/mcpCore/connection-manager.test.ts",

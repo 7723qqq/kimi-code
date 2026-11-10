@@ -802,6 +802,7 @@ export default {
       status: 'Show current session and runtime status',
       feedback: 'Send feedback to make Kimi Code better',
       undo: 'Withdraw the last prompt from the transcript',
+      operation: 'List, undo, redo, or restore repository operations',
       editor: 'Set the external editor for Ctrl-G',
       theme: 'Set the terminal UI theme',
       logout: 'Log out of a configured provider',
@@ -1361,6 +1362,11 @@ export default {
             title: 'NotifyUser tool',
             description:
               'Show live progress updates from the main agent and subagents: the Updates panel in the TUI and progress rows in desktop and web.',
+          },
+          operation_log: {
+            title: 'Operation Log',
+            description:
+              'Record foreground tool operations and enable repository view undo, redo, and restore through /operation and /undo.',
           },
           prompt_optimizer: {
             title: 'Prompt optimizer',
@@ -2133,6 +2139,11 @@ export default {
       undoUserMessage: 'User message',
       undoUserMessageWithImage: 'User message ({{count}} images)',
       undoSkillUnknown: 'Skill: unknown',
+      // tui/commands/operation.ts
+      operationUsage: 'Usage: /operation [list] | undo | redo | restore <operation-id>.',
+      operationEmpty: 'No operations recorded.',
+      operationListTitle: 'Operations ({{count}})',
+      operationFailed: 'Operation failed: {{message}}',
       // commands/web.ts
       failedToStartServer: 'Failed to start server: {{error}}',
       failedToStartRemoteControl: 'Failed to start Remote Control: {{error}}',

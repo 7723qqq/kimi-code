@@ -94,6 +94,12 @@ $KIMI_CODE_HOME  （默认 ~/.kimi-code）
 - **`tasks/`**：后台任务持久化。`tasks/<task_id>.json` 保存状态/pid/退出码，`tasks/<task_id>/output.log` 保存输出。
 - **`cron/`**：定时任务持久化，用 `kimi --session` 恢复会话时重新加载到调度器。详见[定时任务](../reference/tools.md#定时任务)。
 
+## 仓库操作数据
+
+开启 [Operation Log](../reference/slash-commands.md#operation-log实验性) 后，每个本地 Git 仓库把操作历史保存在 `.git/kimi-operation-log`。该目录包含不可变操作记录和仓库视图、隔离的 Git index 与 object 目录，以及恢复中断时使用的 recovery 标记，不包含会话 `wire.jsonl` 历史。
+
+这些仓库内数据不会随 `KIMI_CODE_HOME` 移动。删除 `.git/kimi-operation-log` 会清除操作历史及其 undo/redo 状态，但不会恢复或修改工作区文件树、`HEAD` 或 refs。
+
 ## 内置工具缓存
 
 `Grep` 工具第一次需要 ripgrep 时，CLI 可自动下载 `rg` 并缓存到 `bin/rg`（Windows 为 `bin/rg.exe`）。终端界面的文件引用补全使用 `fd`；需要时 CLI 会在后台自动下载并缓存到 `bin/fd`（Windows 为 `bin/fd.exe`）。之后的运行会直接复用缓存的二进制。`rg` 优先使用系统 `PATH`，再使用缓存；`fd` 优先检查托管缓存，再回退到系统 `fd` / `fdfind`。删除 `bin/` 目录会在下次需要时触发重新下载。
@@ -120,6 +126,7 @@ $KIMI_CODE_HOME  （默认 ~/.kimi-code）
 | 重置配置 | 删除 `~/.kimi-code/config.toml` |
 | 重置终端界面偏好 | 删除 `~/.kimi-code/tui.toml` |
 | 清理所有会话 | 删除 `~/.kimi-code/sessions/` 和 `session_index.jsonl` |
+| 重置某个仓库的 Operation Log | 删除 `<repository>/.git/kimi-operation-log`；工作区文件树、`HEAD` 和 refs 不变 |
 | 清理诊断日志 | 删除 `~/.kimi-code/logs/` |
 | 清理输入历史 | 删除 `~/.kimi-code/user-history/` |
 | 重置更新状态 | 删除 `~/.kimi-code/updates/latest.json` |

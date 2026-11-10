@@ -39,6 +39,7 @@ describe('built-in slash command registry', () => {
     expect(findBuiltInSlashCommand('bug')?.name).toBe('feedback');
     expect(findBuiltInSlashCommand('btw')?.name).toBe('btw');
     expect(findBuiltInSlashCommand('mcp')?.name).toBe('mcp');
+    expect(findBuiltInSlashCommand('op')?.name).toBe('operation');
     expect(findBuiltInSlashCommand('status')?.name).toBe('status');
     expect(findBuiltInSlashCommand('usage')?.aliases).not.toContain('status');
     expect(findBuiltInSlashCommand('unknown')).toBeUndefined();
@@ -186,6 +187,7 @@ describe('built-in slash command registry', () => {
         'mcp',
         'model',
         'new',
+        'operation',
         'permission',
         'plan',
         'reload',
@@ -227,6 +229,14 @@ describe('built-in slash command registry', () => {
     const command = findBuiltInSlashCommand('tower');
     expect(command).toBeDefined();
     expect((command as KimiSlashCommand).experimentalFlag).toBe('tower');
+  });
+
+  it('gates operation commands behind the Operation Log experiment', () => {
+    const command = findBuiltInSlashCommand('operation');
+    expect(command).toBeDefined();
+    expect(command?.aliases).toEqual(['op']);
+    expect((command as KimiSlashCommand).experimentalFlag).toBe('operation_log');
+    expect(resolveSlashCommandAvailability(command!, 'list')).toBe('idle-only');
   });
 
   it('keeps every tower subcommand always available, including objectives', () => {

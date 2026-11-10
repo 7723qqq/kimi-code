@@ -26,6 +26,7 @@ import type { IAgentShellCommandService } from '@moonshot-ai/agent-core-v2/agent
 import type { IAgentSkillService } from '@moonshot-ai/agent-core-v2/features/skill/skillService';
 import type { ContentPart } from '@moonshot-ai/agent-core-v2/human/llm/message';
 import type { PlanData } from '@moonshot-ai/agent-core-v2/features/plan/plan';
+import type { IAgentOperationService } from '@moonshot-ai/agent-core-v2/features/operationLog/operationService';
 import type { UsageStatus } from '@moonshot-ai/agent-core-v2/agent/usage/usage';
 import type { SkillSummary } from '@moonshot-ai/agent-core-v2/features/skill/catalog/types';
 import type { McpServerEntry } from '@moonshot-ai/agent-core-v2/mcpCore/connection-manager';
@@ -172,6 +173,7 @@ import {
   emptyPayloadSchema,
   getTaskOutputPayloadSchema,
   getTasksPayloadSchema,
+  operationRecordSchema,
   planDataSchema,
   promptLaunchResultSchema,
   promptPartSchema,
@@ -581,6 +583,7 @@ type EnvironmentBinding = IAgentEnvironmentBindingService['current'];
 type RunShellCommandPayload = Parameters<IAgentShellCommandService['run']>[0];
 type ShellCommandResult = Awaited<ReturnType<IAgentShellCommandService['run']>>;
 type SetModelResult = Awaited<ReturnType<IAgentProfileService['setModel']>>;
+type OperationRecord = Awaited<ReturnType<IAgentOperationService['undoOperation']>>;
 type TokenUsage = NonNullable<UsageStatus['total']>;
 type PromptPart = Extract<ContentPart, { type: 'text' | 'image_url' | 'video_url' }>;
 
@@ -644,6 +647,7 @@ const _agentCommandInfo: AssertWire<typeof agentCommandInfoSchema, AgentCommandI
 const _environmentBinding: AssertWire<typeof environmentBindingSchema, EnvironmentBinding> = true;
 const _runCommandPayload: AssertWire<typeof runCommandPayloadSchema, RunCommandPayload> = true;
 const _planData: AssertWire<typeof planDataSchema, PlanData> = true;
+const _operationRecord: AssertWire<typeof operationRecordSchema, OperationRecord> = true;
 const _cancelPlanPayload: AssertWire<typeof cancelPlanPayloadSchema, CancelPlanPayload> = true;
 const _getTasksPayload: AssertWire<typeof getTasksPayloadSchema, GetTasksPayload> = true;
 // The wire task union mirrors the protocol `TaskInfo`; the engine's

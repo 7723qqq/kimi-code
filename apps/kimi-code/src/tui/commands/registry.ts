@@ -513,6 +513,17 @@ export const BUILTIN_SLASH_COMMANDS = [
     availability: 'idle-only',
   },
   {
+    name: 'operation',
+    aliases: ['op'],
+    get description() {
+      return t('tui.slashCommands.operation');
+    },
+    priority: 80,
+    argumentHint: '[list] | undo | redo | restore <operation-id>',
+    availability: 'idle-only',
+    experimentalFlag: 'operation_log',
+  },
+  {
     name: 'editor',
     aliases: [],
     get description() {

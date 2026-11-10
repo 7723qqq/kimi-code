@@ -35,6 +35,7 @@ import {
   IAgentContextMemoryService,
   IAgentTodoService,
   IAgentLifecycleService,
+  IAgentOperationService,
   IAgentProfileService,
   IAgentConversationUndoService,
   IAgentFullCompactionService,
@@ -2319,6 +2320,49 @@ key = "${titleOAuthRef.key}"
       await expect(client.getTodos({ sessionId: 'ses_missing' })).rejects.toMatchObject({
         code: ErrorCodes.SESSION_NOT_FOUND,
       });
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('serves operation list, undo, redo, and restore through the agent operation service', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-'));
+    tempDirs.push(homeDir);
+    const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-work-'));
+    tempDirs.push(workDir);
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+    try {
+      await client.createSession({ id: 'ses_operations', workDir });
+      const handle = getLiveSessionById(client.engineAccessor, 'ses_operations');
+      const manager = handle!.accessor.get(IAgentLifecycleService);
+      await manager.create({ agentId: 'main' });
+      const service = manager.handleOf('main')!.accessor.get(IAgentOperationService);
+      const operation = {
+        version: 1,
+        id: 'op-1',
+        parents: [],
+        viewId: 'view-1',
+        kind: 'capture' as const,
+        at: '2026-01-01T00:00:00.000Z',
+        description: 'Write',
+        nonce: 'nonce-1',
+      };
+      const list = jest.spyOn(service, 'listOperations').mockResolvedValue([operation]);
+      const undo = jest.spyOn(service, 'undoOperation').mockResolvedValue(operation);
+      const redo = jest.spyOn(service, 'redoOperation').mockResolvedValue(operation);
+      const restore = jest.spyOn(service, 'restoreOperation').mockResolvedValue(operation);
+
+      const listed = await client.listOperations({ sessionId: 'ses_operations', limit: 25 });
+      expect(listed).toEqual([operation]);
+      await expect(client.undoOperation({ sessionId: 'ses_operations' })).resolves.toEqual(operation);
+      await expect(client.redoOperation({ sessionId: 'ses_operations' })).resolves.toEqual(operation);
+      await expect(
+        client.restoreOperation({ sessionId: 'ses_operations', targetId: 'op-1' }),
+      ).resolves.toEqual(operation);
+      expect(list).toHaveBeenCalledWith(25);
+      expect(undo).toHaveBeenCalledTimes(1);
+      expect(redo).toHaveBeenCalledTimes(1);
+      expect(restore).toHaveBeenCalledWith('op-1');
     } finally {
       await client.close();
     }

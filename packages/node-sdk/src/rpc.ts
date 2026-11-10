@@ -54,6 +54,7 @@ import type {
   McpServerInfo,
   McpStartupMetrics,
   McpTestResult,
+  OperationRecord,
   PermissionMode,
   PluginInfo,
   PluginSummary,
@@ -465,6 +466,16 @@ export abstract class SDKRpcClientBase {
   abstract getTodos(input: SessionIdRpcInput): Promise<readonly SessionTodoItem[]>;
 
   abstract undoHistory(input: SessionIdRpcInput & { count: number }): Promise<void>;
+
+  abstract listOperations(
+    input: SessionIdRpcInput & { limit?: number },
+  ): Promise<readonly OperationRecord[]>;
+
+  abstract undoOperation(input: SessionIdRpcInput): Promise<OperationRecord>;
+
+  abstract redoOperation(input: SessionIdRpcInput): Promise<OperationRecord>;
+
+  abstract restoreOperation(input: SessionIdRpcInput & { targetId: string }): Promise<OperationRecord>;
 
   abstract takeOverSessionLock(input: SessionIdRpcInput): Promise<void>;
 

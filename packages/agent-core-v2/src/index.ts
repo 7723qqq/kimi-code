@@ -416,6 +416,7 @@ export * from '#/features/operationLog/gitOperationBackend';
 export * from '#/features/operationLog/operationLog';
 export * from '#/features/operationLog/operationLogStore';
 export * from '#/features/operationLog/operationService';
+export * from '#/features/operationLog/operationSnapshotStore';
 import '#/features/operationLog/flag';
 import '#/features/operationLog/operationFeature';
 export * from '#/features/externalHooks/configSection';

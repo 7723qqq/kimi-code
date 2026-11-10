@@ -233,3 +233,25 @@ export const getTaskOutputPayloadSchema = z.object({
   taskId: z.string(),
   tail: z.number().optional(),
 });
+
+export const operationRecordSchema = z.object({
+  version: z.number(),
+  id: z.string(),
+  parents: z.array(z.string()),
+  beforeViewId: z.string().optional(),
+  viewId: z.string(),
+  kind: z.enum(['capture', 'undo', 'redo', 'restore']),
+  targetId: z.string().optional(),
+  at: z.string(),
+  description: z.string(),
+  nonce: z.string(),
+  origin: z
+    .object({
+      sessionId: z.string().optional(),
+      agentId: z.string().optional(),
+      turnId: z.number().optional(),
+      toolCallId: z.string().optional(),
+      toolName: z.string().optional(),
+    })
+    .optional(),
+});

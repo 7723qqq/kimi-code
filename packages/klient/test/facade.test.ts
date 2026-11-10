@@ -232,6 +232,59 @@ describe('agent profile routing', () => {
   });
 });
 
+describe('agent operation routing', () => {
+  it('forwards list, undo, redo, and restore through the operation service contract', async () => {
+    const channel = new FakeChannel();
+    const klient = createKlientFromChannel(channel);
+    const agent = klient.session('s1').agent('main');
+    const operation = {
+      version: 1,
+      id: 'op-1',
+      parents: [],
+      viewId: 'view-1',
+      kind: 'capture' as const,
+      at: '2026-01-01T00:00:00.000Z',
+      description: 'Write',
+      nonce: 'nonce-1',
+      origin: { sessionId: 's1', agentId: 'main', turnId: 3, toolName: 'Write' },
+    };
+
+    channel.result = [operation];
+    await expect(agent.listOperations(25)).resolves.toEqual([operation]);
+    channel.result = operation;
+    await expect(agent.undoOperation()).resolves.toEqual(operation);
+    await expect(agent.redoOperation()).resolves.toEqual(operation);
+    await expect(agent.restoreOperation('op-1')).resolves.toEqual(operation);
+
+    expect(channel.calls).toEqual([
+      {
+        scope: { sessionId: 's1', agentId: 'main' },
+        service: 'agentOperationService',
+        method: 'listOperations',
+        args: [25],
+      },
+      {
+        scope: { sessionId: 's1', agentId: 'main' },
+        service: 'agentOperationService',
+        method: 'undoOperation',
+        args: [],
+      },
+      {
+        scope: { sessionId: 's1', agentId: 'main' },
+        service: 'agentOperationService',
+        method: 'redoOperation',
+        args: [],
+      },
+      {
+        scope: { sessionId: 's1', agentId: 'main' },
+        service: 'agentOperationService',
+        method: 'restoreOperation',
+        args: ['op-1'],
+      },
+    ]);
+  });
+});
+
 describe('agent skill routing', () => {
   it('promptWithSkills routes to agentSkillService.promptWithSkills with the agent scope', async () => {
     const channel = new FakeChannel();

@@ -8,6 +8,7 @@ import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import type { WillExecuteToolEvent } from '#/agent/toolExecutor/toolHooks';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IEventBus } from '#/app/event/eventBus';
+import { IFlagService } from '#/app/flag/flag';
 import type { EnvironmentLease } from '#/environment/environment';
 import { EnvironmentError } from '#/environment/environmentRegistry';
 import { IHostClock } from '#/os/interface/hostClock';
@@ -17,6 +18,9 @@ import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { SubagentSpawned } from '#/session/subagent/mirrorAgentRun';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { resolveWorkspacePath } from '#/session/workspaceContext/workspacePaths';
+
+import { OPERATION_LOG_FLAG_ID } from '#/features/operationLog/flag';
+import { OperationSnapshotStore } from '#/features/operationLog/operationSnapshotStore';
 
 import { FileSnapshotStore, snapshotContentHash, snapshotPathKey } from './fileSnapshotStore';
 import {
@@ -75,8 +79,13 @@ export class SnapshotService extends Service implements ISnapshotService {
     @IHostClock private readonly clock: IHostClock,
     @IAgentToolExecutorService private readonly toolExecutor: IAgentToolExecutorService,
     @IEventBus eventBus: IEventBus,
+    @IFlagService private readonly flags?: IFlagService,
   ) {
     super();
+    if (this.flags?.enabled(OPERATION_LOG_FLAG_ID) === true) {
+      this.store = new OperationSnapshotStore(workspaceCtx.workDir);
+      return;
+    }
     this.store = new FileSnapshotStore(join(bootstrap.storeDir, SNAPSHOT_DIR_NAME));
     this._register(
       toolExecutor.onWillExecuteTool((event) => {

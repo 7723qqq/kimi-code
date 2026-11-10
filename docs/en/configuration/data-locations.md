@@ -94,6 +94,12 @@ Inside each session directory:
 - **`tasks/`**: background task persistence. `tasks/<task_id>.json` stores status/pid/exit code; `tasks/<task_id>/output.log` stores output.
 - **`cron/`**: scheduled task persistence; reloaded into the scheduler when the session is resumed with `kimi --session`. See [Scheduled tasks](../reference/tools.md#scheduled-tasks).
 
+## Repository operation data
+
+With [Operation Log](../reference/slash-commands.md#operation-log-experimental) enabled, each local Git repository stores its operation history under `.git/kimi-operation-log`. This directory contains immutable operation records and repository views, an isolated Git index and object directory, and the recovery marker used if a restore is interrupted. It does not contain session `wire.jsonl` history.
+
+This repository-local data does not move with `KIMI_CODE_HOME`. Deleting `.git/kimi-operation-log` clears the operation history and its undo/redo state; it does not restore or otherwise modify the working tree, `HEAD`, or refs.
+
 ## Built-in tool cache
 
 The first time the `Grep` tool needs ripgrep, the CLI can automatically download `rg` and cache it at `bin/rg` (`bin/rg.exe` on Windows). File-reference completion in the terminal UI uses `fd`; the CLI downloads and caches it at `bin/fd` (`bin/fd.exe` on Windows) in the background when needed. Subsequent runs reuse the cached binaries. `rg` prefers the system `PATH` before the cache, while `fd` checks the managed cache before falling back to system `fd` / `fdfind`. Deleting the `bin/` directory triggers a fresh download on the next use.
@@ -120,6 +126,7 @@ Deleting the data root directory (`~/.kimi-code/` or the path set by `KIMI_CODE_
 | Reset configuration | Delete `~/.kimi-code/config.toml` |
 | Reset terminal UI preferences | Delete `~/.kimi-code/tui.toml` |
 | Clear all sessions | Delete `~/.kimi-code/sessions/` and `session_index.jsonl` |
+| Reset a repository's Operation Log | Delete `<repository>/.git/kimi-operation-log`; the working tree, `HEAD`, and refs are unchanged |
 | Clear diagnostic logs | Delete `~/.kimi-code/logs/` |
 | Clear input history | Delete `~/.kimi-code/user-history/` |
 | Reset update state | Delete `~/.kimi-code/updates/latest.json` |

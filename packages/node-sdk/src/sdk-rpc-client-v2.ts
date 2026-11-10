@@ -244,6 +244,7 @@ import type {
   McpStartupMetrics,
   McpTestResult,
   OAuthRefreshOutcome,
+  OperationRecord,
   PluginCommandDef,
   PluginInfo,
   PluginSummary,
@@ -2289,6 +2290,30 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       },
       false,
     );
+  }
+
+  override async listOperations(
+    input: SessionIdRpcInput & { limit?: number },
+  ): Promise<readonly OperationRecord[]> {
+    const agent = await this.agentFacade(input.sessionId);
+    return agent.listOperations(input.limit);
+  }
+
+  override async undoOperation(input: SessionIdRpcInput): Promise<OperationRecord> {
+    const agent = await this.agentFacade(input.sessionId);
+    return agent.undoOperation();
+  }
+
+  override async redoOperation(input: SessionIdRpcInput): Promise<OperationRecord> {
+    const agent = await this.agentFacade(input.sessionId);
+    return agent.redoOperation();
+  }
+
+  override async restoreOperation(
+    input: SessionIdRpcInput & { targetId: string },
+  ): Promise<OperationRecord> {
+    const agent = await this.agentFacade(input.sessionId);
+    return agent.restoreOperation(input.targetId);
   }
 
   override async takeOverSessionLock(input: SessionIdRpcInput): Promise<void> {

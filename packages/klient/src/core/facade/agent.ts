@@ -14,6 +14,7 @@ import type { IAgentEnvironmentBindingService } from '@moonshot-ai/agent-core-v2
 
 import type { ISessionTokenCountingService } from '@moonshot-ai/agent-core-v2/session/tokenCounting/sessionTokenCounting';
 import type { IAgentPlanService } from '@moonshot-ai/agent-core-v2/features/plan/plan';
+import type { IAgentOperationService } from '@moonshot-ai/agent-core-v2/features/operationLog/operationService';
 import type { IAgentProfileService } from '@moonshot-ai/agent-core-v2/agent/profile/profile';
 import type { IAgentShellCommandService } from '@moonshot-ai/agent-core-v2/agent/shellCommand/shellCommand';
 import type { IAgentSkillService } from '@moonshot-ai/agent-core-v2/features/skill/skillService';
@@ -45,6 +46,7 @@ export type AgentContextData = {
 export type AgentCommandInfo = Awaited<ReturnType<IAgentCommandService['list']>>[number];
 export type EnvironmentBinding = IAgentEnvironmentBindingService['current'];
 export type PlanData = Awaited<ReturnType<IAgentPlanService['status']>>;
+export type OperationRecord = Awaited<ReturnType<IAgentOperationService['listOperations']>>[number];
 export type AgentTaskInfo = Awaited<ReturnType<IAgentTaskService['list']>>[number];
 export type McpServerEntry = ReturnType<IAgentMcpService['list']>[number];
 
@@ -84,6 +86,10 @@ export interface AgentFacade {
   getPlan(): Promise<PlanData>;
   enterPlan(): Promise<void>;
   clearPlan(): Promise<void>;
+  listOperations(limit?: number): Promise<readonly OperationRecord[]>;
+  undoOperation(): Promise<OperationRecord>;
+  redoOperation(): Promise<OperationRecord>;
+  restoreOperation(targetId: string): Promise<OperationRecord>;
   cancelPlan(input?: { id?: string }): Promise<void>;
   getTasks(input?: { activeOnly?: boolean; limit?: number }): Promise<readonly AgentTaskInfo[]>;
   stopTask(input: { taskId: string; reason?: string }): Promise<void>;
@@ -160,6 +166,16 @@ export function createAgentFacade(call: ScopedCaller, scope: ScopeRef): AgentFac
     getPlan: () => call(scope, 'agentPlanService', 'status', []) as Promise<PlanData>,
     enterPlan: () => call(scope, 'agentPlanService', 'enter', []) as Promise<void>,
     clearPlan: () => call(scope, 'agentPlanService', 'clear', []) as Promise<void>,
+    listOperations: (limit) =>
+      call(scope, 'agentOperationService', 'listOperations', [limit]) as Promise<
+        readonly OperationRecord[]
+      >,
+    undoOperation: () =>
+      call(scope, 'agentOperationService', 'undoOperation', []) as Promise<OperationRecord>,
+    redoOperation: () =>
+      call(scope, 'agentOperationService', 'redoOperation', []) as Promise<OperationRecord>,
+    restoreOperation: (targetId) =>
+      call(scope, 'agentOperationService', 'restoreOperation', [targetId]) as Promise<OperationRecord>,
     cancelPlan: (input) => call(scope, 'agentPlanService', 'cancel', [input?.id]) as Promise<void>,
     getTasks: (input) =>
       call(scope, 'agentTaskService', 'list', [

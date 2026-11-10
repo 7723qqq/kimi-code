@@ -60,6 +60,7 @@ export interface OperationOrigin {
   readonly agentId?: string;
   readonly turnId?: number;
   readonly toolCallId?: string;
+  readonly toolName?: string;
 }
 
 export interface OperationRecord {

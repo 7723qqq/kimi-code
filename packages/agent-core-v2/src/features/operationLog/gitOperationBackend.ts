@@ -98,6 +98,30 @@ export class GitOperationBackend {
     return this.captureCurrentView();
   }
 
+  async fileAt(
+    view: OperationView,
+    path: string,
+  ): Promise<{ readonly hash: string; readonly size: number } | undefined> {
+    const result = await this.git(['ls-tree', '-z', view.tree, '--', path]);
+    if (result.stdout === '') return undefined;
+    const separator = result.stdout.indexOf('\t');
+    const metadata = result.stdout.slice(0, separator).split(' ');
+    const type = metadata[1];
+    const hash = metadata[2];
+    if (type !== 'blob' || hash === undefined) return undefined;
+    const size = Number((await this.git(['cat-file', '-s', hash])).stdout.trim());
+    return { hash, size };
+  }
+
+  readBlob(hash: string): Promise<Uint8Array> {
+    return runGitBytes(this.repoRoot, ['cat-file', 'blob', hash], this.gitEnv(true));
+  }
+
+  async changedFiles(before: OperationView, after: OperationView): Promise<readonly string[]> {
+    const result = await this.git(['diff', '--name-only', '-z', before.tree, after.tree]);
+    return result.stdout.split('\0').filter((path) => path !== '');
+  }
+
   async restoreView(expected: OperationView, target: OperationView): Promise<void> {
     const current = await this.captureView();
     await this.assertRestorable(target);
@@ -313,14 +337,18 @@ export class GitOperationBackend {
   }
 
   private git(args: readonly string[], options: GitRunOptions = {}): Promise<GitResult> {
+    return runGit(this.repoRoot, args, this.gitEnv(options.shadowIndex !== false), options);
+  }
+
+  private gitEnv(shadowIndex: boolean): Record<string, string> {
     const env: Record<string, string> = {
       ...process.env,
       GIT_TERMINAL_PROMPT: '0',
       GIT_OBJECT_DIRECTORY: this.shadowObjectDir,
       GIT_ALTERNATE_OBJECT_DIRECTORIES: this.actualObjectDir,
     };
-    if (options.shadowIndex !== false) env['GIT_INDEX_FILE'] = this.shadowIndexPath;
-    return runGit(this.repoRoot, args, env, options);
+    if (shadowIndex) env['GIT_INDEX_FILE'] = this.shadowIndexPath;
+    return env;
   }
 }
 
@@ -355,4 +383,28 @@ async function runGit(
     throw new GitOperationError(args, stderr, exitCode);
   }
   return result;
+}
+
+async function runGitBytes(
+  cwd: string,
+  args: readonly string[],
+  env: Record<string, string>,
+): Promise<Uint8Array> {
+  const proc = Bun.spawn({
+    cmd: ['git', ...args],
+    cwd,
+    env,
+    stdin: 'ignore',
+    stdout: 'pipe',
+    stderr: 'pipe',
+    windowsHide: true,
+    timeout: 60_000,
+  });
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).arrayBuffer(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  if (exitCode !== 0) throw new GitOperationError(args, stderr, exitCode);
+  return new Uint8Array(stdout);
 }

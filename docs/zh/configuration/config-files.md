@@ -125,6 +125,7 @@ timeout = 5
 | [`llm_requester`](#llm-requester) | `table` | — | 单次 LLM 请求体的字节预算 |
 | [`model_catalog`](#model-catalog) | `table` | — | 供应商模型目录的刷新计划 |
 | [`model_overrides`](#model-overrides) | `table` | — | 作用于每次请求的默认采样与生成长度上限 |
+| [`operationLog`](#operationlog) | `table` | — | Operation Log 保留上限 |
 | [`experimental`](#experimental) | `table` | — | 实验功能 flag 的持久化覆盖 |
 | [`services`](#services) | `table` | — | 内置外部服务配置 |
 | [`github`](#github) | `table` | — | 内置 GitHub 工具 |
@@ -651,6 +652,19 @@ mode = "read-only"
 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `micro_compaction` | `boolean` | `false` | 提示词缓存未命中后，把出站请求里较旧的大型工具结果替换为标记，让重建的前缀保持较小 |
+| `operation_log` | `boolean` | `false` | 在本地 Git 仓库中记录前台工具操作，启用 `/operation` 以及 `/undo` 的仓库恢复；详见 [Operation Log](../reference/slash-commands.md#operation-log实验性) |
+
+## `operationLog`
+
+`operationLog` 配置实验性 [Operation Log](../reference/slash-commands.md#operation-log实验性) 的保留上限。只有设置 `[experimental] operation_log = true`（或 `KIMI_CODE_EXPERIMENTAL_OPERATION_LOG=1`）开启功能后，这些上限才会生效。
+
+| 字段 | 类型 | 默认值 | 环境变量覆盖 | 说明 |
+| --- | --- | --- | --- | --- |
+| `maxOperations` | `integer` | `1000` | `KIMI_CODE_OPERATION_LOG_MAX_OPERATIONS` | 最大操作数，必须为正整数 |
+| `maxAgeMs` | `integer` | `2592000000`（30 天） | `KIMI_CODE_OPERATION_LOG_MAX_AGE_MS` | 追加新操作时已有条目的最大年龄；`0` 表示不按年龄接受任何已有条目 |
+| `maxTotalBytes` | `integer` | `1073741824`（1 GiB） | `KIMI_CODE_OPERATION_LOG_MAX_TOTAL_BYTES` | 操作记录与视图的最大总字节数，必须为正整数 |
+
+任一上限先超限时都会拒绝追加。Operation Log 不会为腾出空间而静默淘汰历史。
 
 ## `services`
 

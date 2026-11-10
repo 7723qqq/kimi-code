@@ -33,7 +33,10 @@
 | `/fork` | — | 基于当前会话 fork 一份新会话，保留完整对话历史；fork 后仍停留在当前会话 | 否 |
 | `/title [<text>]` | `/rename` | 不带参数时显示当前会话标题；带参数时设置为新标题（最长 200 字符） | 是 |
 | `/compact [<instruction>]` | — | 压缩当前对话上下文，释放 token 占用；可附带自定义指令，提示模型压缩时保留哪些信息；Agent 运行期间使用会加入消息队列，轮到它时自动执行；等待期间若上下文已被自动压缩，该次排队会被跳过 | 是 |
-| `/undo [<count>]` | — | 从当前上下文撤销最近的提示词。不带数量时打开选择器；带数量时撤销对应条数。最后一次上下文压缩之前的提示词不能撤销。撤销会一并回滚这些提示词产生的 todo 列表和计划模式状态（不回滚代码改动） | 否 |
+| `/undo [<count>]` | — | 从当前上下文撤销最近的提示词。不带数量时打开选择器；带数量时撤销对应条数。最后一次上下文压缩之前的提示词不能撤销。撤销会一并回滚这些提示词产生的 todo 列表和计划模式状态；只有开启 [Operation Log](#operation-log实验性) 时才会回滚代码改动 | 否 |
+| `/operation [list]` | `/op` | 按最新优先列出已记录的仓库操作及其完整操作 ID；需要开启 [Operation Log](#operation-log实验性) | 否 |
+| `/operation undo` 或 `/operation redo` | `/op` | 撤销或重做一个仓库操作，不改变当前对话；需要开启 [Operation Log](#operation-log实验性) | 否 |
+| `/operation restore <operation-id>` | `/op` | 恢复任意操作记录的仓库视图；需要开启 [Operation Log](#operation-log实验性) | 否 |
 | `/reload` | — | 重新加载当前会话并应用最新的 `config.toml` 设置（供应商、模型等）与 `tui.toml` UI 偏好，无需重启 CLI；同时会把 AGENTS.md、Skill、subagent 及模型的外部变更告知 Agent | 否 |
 | `/reload-tui` | — | 仅重新加载 `tui.toml` UI 偏好（主题、编辑器、通知等），不重建会话 | 是 |
 | `/init` | — | 分析当前代码库并生成 `AGENTS.md` | 否 |
@@ -45,6 +48,16 @@
 | `/web` | — | 在 web UI 中打开当前会话：选择一个运行中的实例进行连接，或在 TUI 退出后新开一个前台服务器。参见 [`kimi web`](./kimi-command.md#kimi-web) | 是 |
 | `/desktop` | `/install-desktop` | 在浏览器中打开 Kimi Code 桌面端页面（地址随当前区域而定：`https://www.kimi.com/code` 或 `https://www.kimi.ai/code`）。参见 [`kimi install-desktop`](./kimi-command.md#kimi-install-desktop) | 是 |
 | `/remote-control` | `/rc` | 通过 Kimi Remote Control 打开当前会话。参见[远程控制](../guides/remote-control.md) | 是 |
+
+### Operation Log（实验性）
+
+Operation Log 把每次改变本地 Git 仓库的前台工具调用记录为一个操作，并保存操作前后的仓库视图。未改变仓库的工具调用不会产生操作。记录的视图包含文件树以及 Git `HEAD` 和 refs，不包含对话历史。
+
+通过 `/experiments` 开启，或在 `config.toml` 中设置 `[experimental] operation_log = true`。`/operation list` 显示可供 `restore` 使用的完整操作 ID；`undo` 和 `redo` 在连续操作中后退或前进，`restore` 则选择任意已记录视图。`/undo` 仍按轮次撤销对话，并将被撤轮次的仓库恢复委托给 Operation Log。
+
+当前或目标视图有 staged 改动、正在 merge 或 rebase、或者仓库中存在无法归因的写入时，恢复会被拒绝。采集失败会阻止工具调用，不会静默跳过记录。后台或脱离进程的写入不会作为可恢复操作被追踪，Tower mission 也不会作为一个整体回滚。
+
+操作数据保存在仓库内的 `.git/kimi-operation-log`。默认最多接受 1000 个操作、最近 30 天的条目和总计 1 GiB 数据，任一上限先达到即生效；超限追加会报错，不会静默删除历史。详见 [Operation Log 配置](../configuration/config-files.md#operationlog) 和 [仓库操作数据](../configuration/data-locations.md#仓库操作数据)。
 
 ## 模式与运行控制
 

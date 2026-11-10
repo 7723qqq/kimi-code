@@ -11,6 +11,7 @@ import type { IConfigService } from '#/app/config/config';
 import type { IFlagService } from '#/app/flag/flag';
 import { OPERATION_LOG_SECTION } from '#/features/operationLog/configSection';
 import { OPERATION_LOG_FLAG_ID } from '#/features/operationLog/flag';
+import { GitOperationBackend } from '#/features/operationLog/gitOperationBackend';
 import type { OperationLogRetention } from '#/features/operationLog/operationLog';
 import { OperationLogStore } from '#/features/operationLog/operationLogStore';
 import { AgentOperationService } from '#/features/operationLog/operationService';
@@ -71,9 +72,9 @@ function toolCall(id: string, name = 'Write'): ToolCall {
   return { type: 'function', id, name, arguments: '{}' };
 }
 
-function context(id: string, name = 'Write'): ResolvedToolExecutionHookContext {
+function context(id: string, name = 'Write', turnId = 7): ResolvedToolExecutionHookContext {
   return {
-    turnId: 7,
+    turnId,
     signal: new AbortController().signal,
     toolCall: toolCall(id, name),
     toolCalls: [toolCall(id, name)],
@@ -86,12 +87,15 @@ function context(id: string, name = 'Write'): ResolvedToolExecutionHookContext {
   };
 }
 
-function harness(
+function operationHarness(
   repo: string,
   enabled = true,
   environmentId = 'local',
   retention: Partial<OperationLogRetention> = {},
-): OrderedHookSlot<ResolvedToolExecutionHookContext> {
+): {
+  readonly hook: OrderedHookSlot<ResolvedToolExecutionHookContext>;
+  readonly service: AgentOperationService;
+} {
   const hook = new OrderedHookSlot<ResolvedToolExecutionHookContext>();
   const executor = { hooks: { onExecuteTool: hook } } as unknown as IAgentToolExecutorService;
   const flags = {
@@ -104,7 +108,7 @@ function harness(
   const config = {
     get: (section: string) => (section === OPERATION_LOG_SECTION ? retention : undefined),
   } as unknown as IConfigService;
-  new AgentOperationService(
+  const service = new AgentOperationService(
     executor,
     makeSessionContext({
       sessionId: 'session-1',
@@ -119,7 +123,16 @@ function harness(
     clock,
     config,
   );
-  return hook;
+  return { hook, service };
+}
+
+function harness(
+  repo: string,
+  enabled = true,
+  environmentId = 'local',
+  retention: Partial<OperationLogRetention> = {},
+): OrderedHookSlot<ResolvedToolExecutionHookContext> {
+  return operationHarness(repo, enabled, environmentId, retention).hook;
 }
 
 function store(repo: string): OperationLogStore {
@@ -168,6 +181,7 @@ describe('AgentOperationService', () => {
       agentId: 'main',
       turnId: 7,
       toolCallId: 'call-1',
+      toolName: 'Write',
     });
     expect(await store(repo).view(beforeViewId)).not.toEqual(
       await store(repo).view(operation.viewId),
@@ -290,6 +304,134 @@ describe('AgentOperationService', () => {
       ),
     ).toMatchObject({ code: 'invalid' });
     expect(executed).toBe(false);
+  });
+
+  it('restores successive undo and redo operations in the repository', async () => {
+    const repo = await createRepo();
+    const { hook, service } = operationHarness(repo);
+    await hook.run(context('call-1'), async () => {
+      await writeFile(join(repo, 'a.txt'), 'first\n');
+    });
+    await hook.run(context('call-2'), async () => {
+      await writeFile(join(repo, 'a.txt'), 'second\n');
+    });
+
+    await service.undoOperation();
+    expect(await Bun.file(join(repo, 'a.txt')).text()).toBe('first\n');
+    await service.undoOperation();
+    expect(await Bun.file(join(repo, 'a.txt')).text()).toBe('initial\n');
+    await service.redoOperation();
+    expect(await Bun.file(join(repo, 'a.txt')).text()).toBe('first\n');
+    await service.redoOperation();
+    expect(await Bun.file(join(repo, 'a.txt')).text()).toBe('second\n');
+
+    const operations = await service.listOperations();
+    expect(operations.map((operation) => operation.kind)).toEqual([
+      'redo',
+      'redo',
+      'undo',
+      'undo',
+      'capture',
+      'capture',
+    ]);
+    const head = await store(repo).head();
+    const operation = await store(repo).get(head!.operationId);
+    expect(await service.listOperations()).toHaveLength(6);
+    const backend = await GitOperationBackend.open({ repoRoot: repo });
+    expect(await store(repo).view(operation.viewId)).toEqual(await backend.captureView());
+  });
+
+  it('restores an arbitrary operation and can undo that restoration', async () => {
+    const repo = await createRepo();
+    const { hook, service } = operationHarness(repo);
+    await hook.run(context('call-1'), async () => {
+      await writeFile(join(repo, 'a.txt'), 'first\n');
+    });
+    await hook.run(context('call-2'), async () => {
+      await writeFile(join(repo, 'a.txt'), 'second\n');
+    });
+    const operations = await store(repo).list();
+
+    await service.restoreOperation(operations[1]!.id);
+    expect(await Bun.file(join(repo, 'a.txt')).text()).toBe('first\n');
+    expect((await store(repo).head())?.redoStack).toEqual([]);
+
+    await service.undoOperation();
+    expect(await Bun.file(join(repo, 'a.txt')).text()).toBe('second\n');
+  });
+
+  it('restores the view before the earliest operation in the removed turn range', async () => {
+    const repo = await createRepo();
+    const { hook, service } = operationHarness(repo);
+    await hook.run(context('call-1', 'Write', 7), async () => {
+      await writeFile(join(repo, 'a.txt'), 'first\n');
+    });
+    await hook.run(context('call-2', 'Write', 8), async () => {
+      await writeFile(join(repo, 'a.txt'), 'second\n');
+    });
+    await hook.run(context('call-3', 'Write', 9), async () => {
+      await writeFile(join(repo, 'a.txt'), 'third\n');
+    });
+    const before = await store(repo).list();
+
+    const restored = await service.restoreBeforeTurn(8);
+
+    expect(await Bun.file(join(repo, 'a.txt')).text()).toBe('first\n');
+    expect(restored).toMatchObject({
+      kind: 'restore',
+      targetId: before.find((operation) => operation.origin?.toolCallId === 'call-2')?.id,
+      beforeViewId: before[0]?.viewId,
+      viewId: before.find((operation) => operation.origin?.toolCallId === 'call-1')?.viewId,
+    });
+    await service.undoOperation();
+    expect(await Bun.file(join(repo, 'a.txt')).text()).toBe('third\n');
+  });
+
+  it('does not append an operation when the removed turns captured no writes', async () => {
+    const repo = await createRepo();
+    const { hook, service } = operationHarness(repo);
+    await hook.run(context('call-1', 'Write', 7), async () => {
+      await writeFile(join(repo, 'a.txt'), 'first\n');
+    });
+    const before = await store(repo).head();
+
+    await expect(service.restoreBeforeTurn(8)).resolves.toBeUndefined();
+    expect(await Bun.file(join(repo, 'a.txt')).text()).toBe('first\n');
+    expect(await store(repo).head()).toEqual(before);
+  });
+
+  it('rejects restore when the repository differs from the operation head', async () => {
+    const repo = await createRepo();
+    const { hook, service } = operationHarness(repo);
+    await hook.run(context('call-1'), async () => {
+      await writeFile(join(repo, 'a.txt'), 'recorded\n');
+    });
+    await writeFile(join(repo, 'a.txt'), 'external\n');
+    const before = await store(repo).head();
+
+    expect(await rejectionOf(service.undoOperation())).toMatchObject({ code: 'view-mismatch' });
+    expect(await Bun.file(join(repo, 'a.txt')).text()).toBe('external\n');
+    expect(await store(repo).head()).toEqual(before);
+  });
+
+  it('rolls the repository back when appending the restore operation fails', async () => {
+    const repo = await createRepo();
+    const { hook, service } = operationHarness(repo, true, 'local', { maxOperations: 2 });
+    await hook.run(context('call-1'), async () => {
+      await writeFile(join(repo, 'a.txt'), 'first\n');
+    });
+    await hook.run(context('call-2'), async () => {
+      await writeFile(join(repo, 'a.txt'), 'second\n');
+    });
+    const before = await store(repo).head();
+
+    expect(await rejectionOf(service.undoOperation())).toMatchObject({
+      code: 'retention-exceeded',
+      details: { limit: 'operations', maximum: 2 },
+    });
+    expect(await Bun.file(join(repo, 'a.txt')).text()).toBe('second\n');
+    expect(await store(repo).head()).toEqual(before);
+    expect(await store(repo).list()).toHaveLength(2);
   });
 
   it('bypasses capture entirely while the experiment is disabled', async () => {

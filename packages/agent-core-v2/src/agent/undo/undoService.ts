@@ -22,9 +22,12 @@ import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IEventService } from '#/app/event/event';
 import { AgentEvent2 } from '#/app/event/event2';
+import { IFlagService } from '#/app/flag/flag';
 import { LifecycleScope } from '#/app/scopes';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ErrorCodes, Error2 } from '#/errors';
+import { OPERATION_LOG_FLAG_ID } from '#/features/operationLog/flag';
+import { IAgentOperationService } from '#/features/operationLog/operationService';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionRunGate } from '#/session/sessionActivity/sessionRunGate';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
@@ -72,6 +75,8 @@ export class AgentConversationUndoService extends Service implements IAgentConve
     @IWireService private readonly wire: IWireService,
     @ILogService private readonly log: ILogService,
     @ISessionRunGate private readonly runGate: ISessionRunGate,
+    @IFlagService private readonly flags: IFlagService,
+    @IAgentOperationService private readonly operations: IAgentOperationService,
   ) {
     super();
   }
@@ -124,6 +129,9 @@ export class AgentConversationUndoService extends Service implements IAgentConve
       this.runGate.begin();
       this.assertUndoAvailable(turns);
       const fromTurnId = this.removedFromTurnId(turns);
+      if (fromTurnId !== undefined && this.flags.enabled(OPERATION_LOG_FLAG_ID)) {
+        await this.operations.restoreBeforeTurn(fromTurnId);
+      }
       try {
         await this.wire.switchBranch({ turns, fromTurnId });
       } catch (error) {
