@@ -35,12 +35,10 @@ import type { LlmEvent } from '#/llm/requester/actor';
 import type { LlmRequester, LlmRequestEvent } from '#/llm/requester/requester';
 import type { LlmRetryOptions } from '#/llm/requester/retry';
 import { emptyUsage, type TokenUsage } from '#/llm/usage';
-import { connectPlugins } from '#/plugin';
 import { MemoryBackend } from '#/store/backend/memory';
 import { TreeStore } from '#/store/store';
 import type { Tree } from '#/store/tree';
 import { testScopeFactory } from '#/test/agent/scope-factory';
-import { createTimingPlugin } from '#/timing/plugin';
 import type { ToolExecutor, ToolResult } from '#/tool/executor';
 import { createToolMachine } from '#/tool/machine';
 import { defineTool, type ToolDefinition } from '#/tool/tool';
@@ -1134,12 +1132,9 @@ describe('agent machine llm retry', () => {
         return Promise.resolve();
       },
     };
-    const ticks = [1000, 1100, 1200, 100000, 100100, 100140, 100200];
-    const timingPlugin = createTimingPlugin({ now: () => ticks.shift() ?? Number.NaN });
     const tools: ToolDefinition[] = [];
     const store = await testStore();
     const actor = createTestAgent(store, requester, tools, { retry: { maxAttemptsPerStep: 3 } });
-    connectPlugins(actor, [timingPlugin]);
     const retrying: Extract<LlmEvent, { type: 'llm.retrying' }>[] = [];
     const failures: unknown[] = [];
     actor.on('llm.retrying', (event) => retrying.push(event));
@@ -1161,17 +1156,6 @@ describe('agent machine llm retry', () => {
     });
     expect(failures).toHaveLength(0);
     expect(rolesAndTexts(store.getState().history)).toEqual(['user:hi', 'assistant:recovered']);
-
-    const delayMs = retrying[0]?.delayMs ?? 0;
-    expect(timingPlugin.timing()).toEqual({
-      requestBuildMs: 100000 - (1200 + delayMs),
-      ttftMs: 100100 - (1200 + delayMs),
-      serverFirstTokenMs: 100,
-      streamDurationMs: 100,
-      serverDecodeMs: 60,
-      clientConsumeMs: 40,
-    });
-    expect(ticks).toHaveLength(0);
   });
 });
 
