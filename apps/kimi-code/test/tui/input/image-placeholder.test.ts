@@ -1,17 +1,19 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, mock } from 'bun:test';
 import { mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { parseDaemonFileUrl, type PromptPart } from '@moonshot-ai/kimi-code-sdk';
+import { parseDaemonFileUrl, type PromptPart, type Session } from '@moonshot-ai/kimi-code-sdk';
 
 import { KIMI_CODE_HOME_ENV } from '#/constant/app';
 import { ImageAttachmentStore } from '#/tui/utils/image-attachment-store';
 import {
   extractMediaAttachments,
+  makeSessionExtractionResendable,
   omitExpiredVideoFileRefs,
   resolveOriginalCaptions,
+  resolveSessionOriginalCaptions,
   rewriteMediaPlaceholders,
 } from '#/tui/utils/image-placeholder';
 import { getCacheDir } from '#/utils/paths';
@@ -689,6 +691,96 @@ describe('extractMediaAttachments: bare document paths', () => {
       expect(store.size()).toBe(0);
     } finally {
       rmSync(srcDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('session-owned pasted originals', () => {
+  it('uses a stable attachment reference and registers again in a new session', async () => {
+    const dir = makeTempDir();
+    const bytes = new Uint8Array([9, 8, 7]);
+    const store = new ImageAttachmentStore();
+    const attachment = store.addImage(new Uint8Array([1]), 'image/png', 100, 100, {
+      bytes,
+      width: 200,
+      height: 200,
+      byteLength: bytes.length,
+      mime: 'image/png',
+    });
+    const extraction = await extractMediaAttachments(attachment.placeholder, store);
+    const attachFile = mock(async () => 'kimi-file://f_original');
+    const session = { id: 's1', summary: { sessionDir: dir }, attachFile } as unknown as Session;
+    try {
+      const parts = await resolveSessionOriginalCaptions(
+        extraction.parts,
+        extraction.imageAttachmentIds,
+        store,
+        session,
+      );
+      expect((parts[0] as { text: string }).text).toContain('kimi-file://f_original');
+      expect((parts[0] as { text: string }).text.includes(dir)).toBe(false);
+      await resolveSessionOriginalCaptions(parts, extraction.imageAttachmentIds, store, session);
+      expect(attachFile).toHaveBeenCalledTimes(1);
+      await resolveSessionOriginalCaptions(parts, extraction.imageAttachmentIds, store, {
+        id: 's2',
+        summary: { sessionDir: dir },
+        attachFile,
+      } as unknown as Session);
+      expect(attachFile).toHaveBeenCalledTimes(2);
+      expect(attachFile).toHaveBeenLastCalledWith(Buffer.from(bytes), {
+        name: 'original.png',
+        mimeType: 'image/png',
+      });
+      const snapshot = await extractMediaAttachments(attachment.placeholder, store);
+      expect(snapshot.imageSnapshots[0]?.original?.bytes).toEqual(Buffer.from(bytes));
+      store.clear();
+      const rebuilt = await makeSessionExtractionResendable({ ...snapshot, parts }, {
+        id: 's3',
+        summary: { sessionDir: dir },
+        attachFile,
+      } as unknown as Session);
+      expect(rebuilt.parts).toHaveLength(2);
+      expect((rebuilt.parts[0] as { text: string }).text).toContain(
+        'kimi-file://f_original',
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('reports attachment persistence failure and retries without advertising a local path', async () => {
+    const dir = makeTempDir();
+    const store = new ImageAttachmentStore();
+    const attachment = store.addImage(new Uint8Array([1]), 'image/png', 100, 100, {
+      bytes: new Uint8Array([9]),
+      width: 200,
+      height: 200,
+      byteLength: 1,
+      mime: 'image/png',
+    });
+    const extraction = await extractMediaAttachments(attachment.placeholder, store);
+    const attachFile = mock(async () => 'kimi-file://f_retry');
+    attachFile.mockRejectedValueOnce(new Error('disk full'));
+    const session = { id: 's1', summary: { sessionDir: dir }, attachFile } as unknown as Session;
+    try {
+      await expect(
+        resolveSessionOriginalCaptions(
+          extraction.parts,
+          extraction.imageAttachmentIds,
+          store,
+          session,
+        ),
+      ).rejects.toThrow('disk full');
+      const retried = await resolveSessionOriginalCaptions(
+        extraction.parts,
+        extraction.imageAttachmentIds,
+        store,
+        session,
+      );
+      expect((retried[0] as { text: string }).text).toContain('kimi-file://f_retry');
+      expect((retried[0] as { text: string }).text.includes(dir)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

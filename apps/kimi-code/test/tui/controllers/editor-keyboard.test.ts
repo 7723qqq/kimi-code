@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
-import type { Mock as BunMock } from 'bun:test';
+import { jest, type Mock as BunMock } from 'bun:test';
 
 import { DOUBLE_ESC_WINDOW_MS, getCtrlCHint } from '#/tui/constant/kimi-tui';
 import {
@@ -284,6 +284,28 @@ describe('EditorKeyboardController disposal', () => {
 
     expect(stop).not.toHaveBeenCalled();
     expect(footerHint).not.toHaveBeenCalled();
+  });
+});
+
+describe('EditorKeyboardController skill variant selection', () => {
+  it('defers cleanup on empty input until after the submit callback', async () => {
+    const { host, editor } = createHarness();
+    const path = '/work/B/review/SKILL.md';
+    const selected = new Map([['skill:review', path]]);
+    const submitted: Array<string | undefined> = [];
+    host.retainSkillVariantSelection = (text) => {
+      if (text === '') selected.clear();
+    };
+    host.handleUserInput = jest.fn(() => {
+      submitted.push(selected.get('skill:review'));
+    });
+
+    (editor['onChange'] as unknown as (text: string) => void)('');
+    (editor['onSubmit'] as unknown as (text: string) => void)('/skill:review');
+
+    expect(submitted).toEqual([path]);
+    await Promise.resolve();
+    expect(selected.size).toBe(0);
   });
 });
 
@@ -600,6 +622,7 @@ describe('EditorKeyboardController Ctrl-S steering', () => {
     queued: QueuedMessage[];
     skillCommandMap?: Map<string, string>;
     pluginCommandMap?: Map<string, string>;
+    skillVariantPathForCommand?: (commandName: string, tokenStart: number) => string | undefined;
     steering?: boolean;
   }) {
     const steerQueuedMessagesIntoRunningTurn = mock();
@@ -624,6 +647,7 @@ describe('EditorKeyboardController Ctrl-S steering', () => {
       session: { id: 's1' },
       skillCommandMap: options.skillCommandMap ?? new Map(),
       pluginCommandMap: options.pluginCommandMap ?? new Map(),
+      skillVariantPathForCommand: options.skillVariantPathForCommand,
       steerQueuedMessagesIntoRunningTurn,
       isSteeringQueuedMessages: mock(() => options.steering ?? false),
       updateQueueDisplay,
@@ -707,9 +731,17 @@ describe('EditorKeyboardController Ctrl-S steering', () => {
   });
 
   it.each([
-    ['/skill:review src/app.ts', [{ skillName: 'review', args: 'src/app.ts' }]],
-    ['check /skill:review', [{ skillName: 'review' }]],
-    ['/skill:review check /skill:review', [{ skillName: 'review' }]],
+    ['/skill:review src/app.ts', [{ skillName: 'review', path: undefined, start: 0, args: 'src/app.ts' }]],
+    ['check /skill:review', [{ skillName: 'review', path: undefined, start: 6 }]],
+    ['/skill:review check /skill:review', [{
+      skillName: 'review',
+      path: undefined,
+      start: 0,
+      occurrences: [
+        { commandName: 'skill:review', start: 0 },
+        { commandName: 'skill:review', start: 20 },
+      ],
+    }]],
   ])('parses skill draft %s before asking the coordinator to steer', (text, activations) => {
     const { host, setText, steerQueuedMessagesIntoRunningTurn, onCtrlS } = createCtrlSHarness({
       editorText: text,
@@ -723,6 +755,29 @@ describe('EditorKeyboardController Ctrl-S steering', () => {
     expect(host.state.queuedMessages).toEqual([{ text, inlineSkillActivations: activations }]);
     expect(setText).toHaveBeenCalledWith('');
   });
+
+  it('preserves selected variant paths for multi-skill drafts', () => {
+    const text = '/skill:review /skill:review';
+    const { host, onCtrlS } = createCtrlSHarness({
+      editorText: text,
+      queued: [],
+      skillCommandMap: new Map([['skill:review', 'review']]),
+      skillVariantPathForCommand: (_commandName, start) => `/work/${start === 0 ? 'A' : 'B'}/review/SKILL.md`,
+    });
+
+    onCtrlS();
+
+    expect(host.state.queuedMessages).toEqual([
+      {
+        text,
+        inlineSkillActivations: [
+          { skillName: 'review', path: '/work/A/review/SKILL.md', start: 0 },
+          { skillName: 'review', path: '/work/B/review/SKILL.md', start: 14 },
+        ],
+      },
+    ]);
+  });
+
 });
 
 describe('EditorKeyboardController survey wiring', () => {

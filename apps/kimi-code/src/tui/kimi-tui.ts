@@ -52,7 +52,12 @@ import { CLI_MSH_PLATFORM } from '#/constant/app';
 import { getLocale, t } from '#/i18n';
 import { MigrationScreenComponent, type MigrationScreenResult } from '#/migration/index';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
-import { appendInputHistory, loadInputHistory } from '#/utils/history/input-history';
+import {
+  appendInputHistory,
+  inputHistoryEntryEquals,
+  loadInputHistory,
+  type InputHistoryEntry,
+} from '#/utils/history/input-history';
 import { refreshModelSwitchConfirmConfig } from '#/utils/model-switch-confirm-config';
 import { openUrl } from '#/utils/open-url';
 import { getInputHistoryFile } from '#/utils/paths';
@@ -80,6 +85,7 @@ import {
   type SkillListSession,
 } from './commands';
 import * as slashCommands from './commands/dispatch';
+import { resolveUserInput, skillVariantPathsForInput } from './commands/resolve';
 import { BannerComponent } from './components/chrome/banner';
 import { DeviceCodeBoxComponent } from './components/chrome/device-code-box';
 import type { FooterGitBinding } from './components/chrome/footer';
@@ -209,13 +215,13 @@ import {
 import {
   extractMediaAttachments,
   omitExpiredVideoFileRefs,
-  originalsDirForSession,
   pendingMediaIngestions,
   refreshExpiringImageFileRefs,
-  resolveOriginalCaptions,
+  resolveSessionOriginalCaptions,
   rewriteMediaPlaceholders,
 } from './utils/image-placeholder';
 import type { ExtractionResult } from './utils/image-placeholder';
+import { findInlineSkillTokens, rebaseInlineSkillActivations } from './utils/inline-skill-tokens';
 import { installInputLatencyProbe } from './utils/input-latency';
 import { REPLAY_TURN_LIMIT } from './utils/message-replay';
 import { lazyModelSelection } from './utils/model-switch';
@@ -418,6 +424,8 @@ export class KimiTUI {
   private surveySettingSubscription: Unsubscribe | undefined;
   private skillCommands: readonly KimiSlashCommand[] = [];
   readonly skillCommandMap = new Map<string, string>();
+  private readonly skillCommandDefaultPaths = new Map<string, string>();
+  private readonly skillVariantPaths = new Map<number, { commandName: string; path: string }>();
   private pluginCommands: readonly KimiSlashCommand[] = [];
   readonly pluginCommandMap = new Map<string, string>();
   private readonly imageStore = new ImageAttachmentStore();
@@ -450,7 +458,10 @@ export class KimiTUI {
   private lastActivityMode: string | undefined;
   private currentLoadingTip: { kind: LoadingTipKind; tip: string | undefined } | undefined =
     undefined;
-  private lastHistoryContent: string | undefined;
+  private lastHistoryEntry: InputHistoryEntry | undefined;
+  private inputHistoryEntries: InputHistoryEntry[] = [];
+  private inputHistoryRecallIndex = -1;
+  private inputHistoryDraftVariants: Map<number, { commandName: string; path: string }> | undefined;
   // Live `!` shell output entries, keyed by commandId so concurrent commands
   // each update their own card and stale events are dropped. Mutated in place
   // as `shell.output` events arrive; removed when the command completes.
@@ -638,6 +649,10 @@ export class KimiTUI {
         name: cmd.name,
         aliases: cmd.aliases,
         description: cmd.description,
+        skillPath: cmd.skillPath,
+        skillSource: cmd.skillSource,
+        isSkill: cmd.isSkill,
+        workspaceDir: cmd.workspaceDir,
         ...(cmd.argumentHint !== undefined ? { argumentHint: cmd.argumentHint } : {}),
         ...(completer !== undefined
           ? { getArgumentCompletions: (prefix: string) => completer(prefix) }
@@ -652,6 +667,23 @@ export class KimiTUI {
       this.state.appState.additionalDirs,
       () => this.state.appState.inputMode,
       skillCommandNames,
+      this.environmentIdOf(this.state.appState.environment) === 'local'
+        ? undefined
+        : async (query: string) => {
+            const session = this.session;
+            if (session === undefined) return undefined;
+            const result = await this.harness.suggestFiles(this.state.appState.workDir, {
+              query,
+              sessionId: session.id,
+            });
+            return result?.items;
+          },
+      ({ commandName, path, start }) => {
+        this.skillVariantPaths.set(start, {
+          commandName: commandName.startsWith('skill:') ? commandName : `skill:${commandName}`,
+          path,
+        });
+      },
     );
     this.state.editor.setAutocompleteProvider(provider);
 
@@ -695,12 +727,63 @@ export class KimiTUI {
 
   private applySkillCommands(skills: readonly SkillSummary[]): void {
     const skillCommands = buildSkillSlashCommands(skills);
+    const pathsBySkillName = new Map<string, Set<string>>();
+    for (const command of skillCommands.commands) {
+      const skillName = skillCommands.commandMap.get(command.name);
+      if (skillName === undefined || command.skillPath === undefined) continue;
+      const paths = pathsBySkillName.get(skillName) ?? new Set<string>();
+      paths.add(command.skillPath);
+      pathsBySkillName.set(skillName, paths);
+    }
     this.skillCommands = skillCommands.commands;
     this.skillCommandMap.clear();
     for (const [commandName, skillName] of skillCommands.commandMap) {
       this.skillCommandMap.set(commandName, skillName);
     }
+    this.skillCommandDefaultPaths.clear();
+    for (const [commandName, path] of skillCommands.defaultPaths) {
+      this.skillCommandDefaultPaths.set(commandName, path);
+    }
+    for (const [start, selection] of this.skillVariantPaths) {
+      const skillName =
+        this.skillCommandMap.get(selection.commandName) ??
+        this.skillCommandMap.get(selection.commandName.replace(/^skill:/, ''));
+      if (skillName === undefined || !pathsBySkillName.get(skillName)?.has(selection.path)) {
+        this.skillVariantPaths.delete(start);
+      }
+    }
     this.setupAutocomplete();
+  }
+
+  retainSkillVariantSelection(text: string): void {
+    if (this.skillVariantPaths.size === 0) return;
+    const tokens = findInlineSkillTokens(text, { isKnownSkill: () => true, includeLeading: true });
+    for (const [start, selection] of this.skillVariantPaths) {
+      const token = tokens.find((candidate) => candidate.start === start);
+      const commandName = token?.commandName;
+      if (
+        commandName !== selection.commandName &&
+        `skill:${commandName}` !== selection.commandName
+      ) {
+        this.skillVariantPaths.delete(start);
+      }
+    }
+  }
+
+  skillVariantPathForCommand(commandName: string, tokenStart: number): string | undefined {
+    const selection = this.skillVariantPaths.get(tokenStart);
+    if (selection?.commandName !== commandName && selection?.commandName !== `skill:${commandName}`)
+      return undefined;
+    return selection.path;
+  }
+
+  defaultSkillPathForCommand(commandName: string): string | undefined {
+    const normalized = commandName.toLowerCase();
+    return (
+      this.skillCommandDefaultPaths.get(commandName) ??
+      this.skillCommandDefaultPaths.get(normalized) ??
+      this.skillCommandDefaultPaths.get(`skill:${normalized}`)
+    );
   }
 
   async refreshPluginCommands(session?: Session): Promise<void> {
@@ -1736,7 +1819,7 @@ export class KimiTUI {
     try {
       for (const activation of activations) {
         if (activation.args === undefined) {
-          prepared.skills.push({ name: activation.skillName });
+          prepared.skills.push({ name: activation.skillName, path: activation.path });
           continue;
         }
         const rewrite = rewriteMediaPlaceholders(
@@ -1746,7 +1829,11 @@ export class KimiTUI {
           mediaSnapshots,
         );
         this.imageStore.retainFileIds(rewrite.videoAttachmentIds);
-        prepared.skills.push({ name: activation.skillName, args: rewrite.text });
+        prepared.skills.push({
+          name: activation.skillName,
+          path: activation.path,
+          args: rewrite.text,
+        });
         prepared.mediaAttachmentIds.push(
           ...new Set([
             ...rewrite.imageAttachmentIds,
@@ -1777,15 +1864,15 @@ export class KimiTUI {
     occupiedRetry = false,
   ): void {
     let prepared: PreparedSkillActivations | undefined;
-    let input: string | readonly PromptPart[];
+    let input: string | readonly PromptPart[] | Promise<PromptPart[]>;
     try {
       prepared = this.prepareSkillActivations(activations, extraction.mediaSnapshots);
       input = extraction.hasMedia
-        ? resolveOriginalCaptions(
+        ? resolveSessionOriginalCaptions(
             omitExpiredVideoFileRefs(extraction.parts, prepared.cachedVideos),
             extraction.imageAttachmentIds,
             this.imageStore,
-            originalsDirForSession(session),
+            session,
           )
         : text;
     } catch (error) {
@@ -1824,13 +1911,17 @@ export class KimiTUI {
       renderMode: 'plain',
       content: text,
       skillNames: activations.map((activation) => activation.skillName),
+      inlineSkillActivations: activations.length === 0 ? undefined : activations,
       imageAttachmentIds:
         extraction.imageAttachmentIds.length > 0 ? extraction.imageAttachmentIds : undefined,
     };
     this.appendTranscriptEntry(entry);
+    const skills = prepared.skills;
     const request = this.messageDispatch.trackPendingEntries(
       [entry],
-      session.promptWithSkills(input, prepared.skills),
+      this.dispatchPreparedInput(session, input, (parts) =>
+        session.promptWithSkills(parts, skills),
+      ),
     );
     this.staging.trackDispatch(stagingLease, request, (error) => {
       const recovered = this.messageDispatch.handlePromptConflict({
@@ -1845,7 +1936,7 @@ export class KimiTUI {
             ...extraction.videoAttachmentIds,
             ...extraction.documentAttachmentIds,
           ]);
-          this.restoreInputText(text);
+          this.restoreInputText(text, activations);
         },
       });
       if (recovered) {
@@ -1924,7 +2015,13 @@ export class KimiTUI {
       for (const entry of entries) {
         this.state.editor.addToHistory(entry.content);
       }
-      this.lastHistoryContent = entries.at(-1)?.content;
+      this.inputHistoryEntries = entries
+        .toReversed()
+        .filter(
+          (entry, index, all) => index === 0 || !inputHistoryEntryEquals(entry, all[index - 1]),
+        )
+        .slice(0, 100);
+      this.lastHistoryEntry = entries.at(-1);
     } catch {
       // best-effort
     }
@@ -1933,15 +2030,68 @@ export class KimiTUI {
   private async persistInputHistory(text: string): Promise<void> {
     const trimmed = text.trim();
     if (trimmed.length === 0) return;
-    if (trimmed === this.lastHistoryContent) return;
+    const activations = text.startsWith('!')
+      ? []
+      : resolveUserInput({
+          input: trimmed,
+          skillCommandMap: this.skillCommandMap,
+          pluginCommandMap: this.pluginCommandMap,
+          isStreaming: this.state.appState.streamingPhase !== 'idle',
+          isCompacting: this.state.appState.isCompacting,
+          skillVariantPathForCommand: (commandName, start) =>
+            this.skillVariantPathForCommand(commandName, start),
+          defaultSkillPathForCommand: (commandName) => this.defaultSkillPathForCommand(commandName),
+        }).activations;
+    const entry: InputHistoryEntry = {
+      content: trimmed,
+      inlineSkillActivations: activations.length === 0 ? undefined : activations,
+    };
+    if (inputHistoryEntryEquals(entry, this.lastHistoryEntry)) return;
+    if (inputHistoryEntryEquals(entry, this.inputHistoryEntries[0]))
+      this.inputHistoryEntries[0] = entry;
+    else this.inputHistoryEntries.unshift(entry);
+    this.inputHistoryEntries.length = Math.min(this.inputHistoryEntries.length, 100);
     this.state.editor.addToHistory(trimmed);
     try {
       const file = getInputHistoryFile(this.state.appState.workDir);
-      const written = await appendInputHistory(file, trimmed, this.lastHistoryContent);
-      if (written) this.lastHistoryContent = trimmed;
+      const written = await appendInputHistory(file, entry, this.lastHistoryEntry);
+      if (written) this.lastHistoryEntry = entry;
     } catch {
-      this.lastHistoryContent = trimmed;
+      this.lastHistoryEntry = entry;
     }
+  }
+
+  beginInputHistoryRecall(): void {
+    this.inputHistoryRecallIndex = -1;
+    this.inputHistoryDraftVariants = new Map(this.skillVariantPaths);
+  }
+
+  restoreInputHistoryEntry(direction: 1 | -1): void {
+    this.skillVariantPaths.clear();
+    if (this.inputHistoryEntries.length === 0) return;
+    this.inputHistoryRecallIndex =
+      direction === -1
+        ? Math.min(this.inputHistoryRecallIndex + 1, this.inputHistoryEntries.length - 1)
+        : Math.max(this.inputHistoryRecallIndex - 1, 0);
+    const entry = this.inputHistoryEntries[this.inputHistoryRecallIndex];
+    if (entry === undefined) return;
+    for (const { commandName, path, start } of skillVariantPathsForInput(
+      entry.content,
+      entry.inlineSkillActivations ?? [],
+      this.skillCommandMap,
+    )) {
+      this.skillVariantPaths.set(start, { commandName, path });
+    }
+  }
+
+  restoreInputHistoryDraft(): void {
+    this.skillVariantPaths.clear();
+    if (this.inputHistoryDraftVariants !== undefined) {
+      for (const [start, selection] of this.inputHistoryDraftVariants) {
+        this.skillVariantPaths.set(start, selection);
+      }
+    }
+    this.inputHistoryDraftVariants = undefined;
   }
 
   recallLastQueued(): QueuedMessage | undefined {
@@ -1958,6 +2108,15 @@ export class KimiTUI {
       ...(prompt?.videoAttachmentIds ?? []),
       ...(prompt?.documentAttachmentIds ?? []),
     ]);
+    if (prompt !== undefined) {
+      for (const { commandName, path, start } of skillVariantPathsForInput(
+        prompt.text,
+        prompt.inlineSkillActivations ?? [],
+        this.skillCommandMap,
+      )) {
+        this.skillVariantPaths.set(start, { commandName, path });
+      }
+    }
     return last;
   }
 
@@ -2256,6 +2415,34 @@ export class KimiTUI {
     this.sessionEventHandler.requestQueuedGoalPromotion();
   }
 
+  dispatchPreparedInput<T, R>(
+    session: Session,
+    input: T | Promise<T>,
+    dispatch: (input: T) => Promise<R>,
+  ): Promise<R> {
+    if (!(input instanceof Promise)) return dispatch(input);
+    let rejectPreparation!: (error: Error) => void;
+    const interrupted = new Promise<never>((_resolve, reject) => {
+      rejectPreparation = reject;
+    });
+    const cancel = () => {
+      rejectPreparation(new Error(t('tui.statusMessages.btwInterrupted')));
+      void session.cancel().catch(() => {});
+    };
+    this.cancelInFlight = cancel;
+    return Promise.race([input, interrupted])
+      .then((parts) => {
+        if (this.cancelInFlight === cancel) this.cancelInFlight = undefined;
+        if (this.session !== session) {
+          throw new Error(t('tui.statusMessages.sessionChangedWhilePreparingMedia'));
+        }
+        return dispatch(parts);
+      })
+      .finally(() => {
+        if (this.cancelInFlight === cancel) this.cancelInFlight = undefined;
+      });
+  }
+
   private sendMessageInternal(session: Session, input: string, options?: SendMessageOptions): void {
     const imageAttachmentIds =
       options?.imageAttachmentIds !== undefined && options.imageAttachmentIds.length > 0
@@ -2294,11 +2481,11 @@ export class KimiTUI {
     // dir) known: extraction runs before a first session exists.
     const sdkInput =
       options?.parts !== undefined
-        ? resolveOriginalCaptions(
+        ? resolveSessionOriginalCaptions(
             options.parts,
             options.imageAttachmentIds ?? [],
             this.imageStore,
-            originalsDirForSession(session),
+            session,
           )
         : input;
     // The lease normally arrives pre-created by sendNormalUserInput (carrying
@@ -2345,7 +2532,9 @@ export class KimiTUI {
       if (runningTurnId !== undefined) this.staging.bindToTurn(stagingLease, runningTurnId);
       const request = this.messageDispatch.trackPendingEntries(
         [entry],
-        this.messageDispatch.trackSteerSubmission([entry], sdkInput, () => session.steer(sdkInput)),
+        this.dispatchPreparedInput(session, sdkInput, (parts) =>
+          this.messageDispatch.trackSteerSubmission([entry], parts, () => session.steer(parts)),
+        ),
       );
       this.staging.trackDispatch(stagingLease, request, (error) => {
         this.messageDispatch.releaseSteerEntries([entry]);
@@ -2369,7 +2558,9 @@ export class KimiTUI {
     }
     const request = this.messageDispatch.trackPendingEntries(
       [entry],
-      session.prompt(sdkInput, { promptId: submissionId }),
+      this.dispatchPreparedInput(session, sdkInput, (parts) =>
+        session.prompt(parts, { promptId: submissionId }),
+      ),
     );
     this.staging.trackDispatch(stagingLease, request, (error) => {
       const recovered = this.messageDispatch.handlePromptConflict({
@@ -2682,7 +2873,7 @@ export class KimiTUI {
     }
     const activations = input.flatMap((item) => item.inlineSkillActivations ?? []);
     let prepared: PreparedSkillActivations | undefined;
-    let resolvedInput: readonly SteerInputItem[];
+    let resolvedInput: readonly (SteerInputItem | Promise<SteerInputItem>)[];
     try {
       if (activations.length > 0) {
         prepared = this.prepareSkillActivations(
@@ -2692,21 +2883,20 @@ export class KimiTUI {
             : undefined,
         );
       }
-      resolvedInput = input.map((item) =>
-        item.parts === undefined
-          ? item
-          : {
-              ...item,
-              parts: resolveOriginalCaptions(
-                prepared === undefined
-                  ? item.parts
-                  : omitExpiredVideoFileRefs(item.parts, prepared.cachedVideos),
-                item.imageAttachmentIds ?? [],
-                this.imageStore,
-                originalsDirForSession(session),
-              ),
-            },
-      );
+      resolvedInput = input.map((item) => {
+        if (item.parts === undefined) return item;
+        const parts = resolveSessionOriginalCaptions(
+          prepared === undefined
+            ? item.parts
+            : omitExpiredVideoFileRefs(item.parts, prepared.cachedVideos),
+          item.imageAttachmentIds ?? [],
+          this.imageStore,
+          session,
+        );
+        return parts instanceof Promise
+          ? parts.then((resolvedParts) => ({ ...item, parts: resolvedParts }))
+          : { ...item, parts };
+      });
     } catch (error) {
       if (prepared !== undefined) this.releaseSkillArgumentMedia(prepared);
       this.showError(
@@ -2726,6 +2916,7 @@ export class KimiTUI {
       renderMode: 'plain',
       content: item.text,
       skillNames: item.inlineSkillActivations?.map((activation) => activation.skillName),
+      inlineSkillActivations: item.inlineSkillActivations,
       imageAttachmentIds:
         item.imageAttachmentIds !== undefined && item.imageAttachmentIds.length > 0
           ? item.imageAttachmentIds
@@ -2754,15 +2945,24 @@ export class KimiTUI {
     // retires its media at session close instead.
     if (currentTurnId !== undefined && prepared === undefined)
       this.staging.bindToTurn(stagingLease, currentTurnId);
-    const payload = combineSteerInput(resolvedInput);
-    const request = this.messageDispatch.trackPendingEntries(
-      steeredEntries,
-      this.messageDispatch.trackSteerSubmission(steeredEntries, payload, () =>
+    const dispatch = (items: readonly SteerInputItem[]) => {
+      const payload = combineSteerInput(items);
+      return this.messageDispatch.trackSteerSubmission(steeredEntries, payload, () =>
         prepared === undefined
           ? session.steer(payload)
           : session.promptWithSkills(payload, prepared.skills, {
               steerIfActive: true,
             }),
+      );
+    };
+    const request = this.messageDispatch.trackPendingEntries(
+      steeredEntries,
+      this.dispatchPreparedInput(
+        session,
+        resolvedInput.some((item) => item instanceof Promise)
+          ? Promise.all(resolvedInput.map((item) => Promise.resolve(item)))
+          : (resolvedInput as readonly SteerInputItem[]),
+        dispatch,
       ),
     );
     if (onSettled !== undefined) {
@@ -2785,7 +2985,18 @@ export class KimiTUI {
         retry: () => this.steerMessage(session, input, onSettled, manual, true),
         restore: () => {
           this.staging.releaseRecalled(mediaAttachmentIds);
-          this.restoreInputText(input.map((item) => item.text).join('\n'));
+          const activations: InlineSkillActivation[] = [];
+          let offset = 0;
+          for (const item of input) {
+            activations.push(
+              ...rebaseInlineSkillActivations(item.inlineSkillActivations ?? [], offset),
+            );
+            offset += item.text.length + 1;
+          }
+          this.restoreInputText(
+            input.map((item) => item.text).join('\n'),
+            activations.length === 0 ? undefined : activations,
+          );
           onSettled?.(false);
         },
       });
@@ -4695,8 +4906,16 @@ export class KimiTUI {
     this.modelMigration.retry();
   }
 
-  restoreInputText(text: string): void {
+  restoreInputText(text: string, inlineSkillActivations?: readonly InlineSkillActivation[]): void {
+    this.skillVariantPaths.clear();
     this.dialogController.restoreInputText(text);
+    for (const { commandName, path, start } of skillVariantPathsForInput(
+      text,
+      inlineSkillActivations ?? [],
+      this.skillCommandMap,
+    )) {
+      this.skillVariantPaths.set(start, { commandName, path });
+    }
   }
 
   /** Latest in-process LLM round-trip; feeds the idle cache-hint scenario. */

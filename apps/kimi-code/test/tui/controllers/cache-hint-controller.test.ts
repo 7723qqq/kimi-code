@@ -251,7 +251,82 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
 
     // Nothing was sent; both inputs are back in the editor, newline-joined.
     expect(mocked(host.sendNormalUserInput)).not.toHaveBeenCalled();
-    expect(host.restoreInputText).toHaveBeenLastCalledWith('hello\nworld');
+    expect(host.restoreInputText).toHaveBeenLastCalledWith('hello\nworld', undefined);
+  });
+
+  it('rebases every activation when restoring chained skill drafts', async () => {
+    getMock.mockResolvedValue(CONFIG);
+    const { host } = makeHost();
+    const controller = new CacheHintController(host);
+    controller.recordActivity();
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 1200_000);
+    const first = [
+      {
+        skillName: 'review',
+        path: '/work/B/review/SKILL.md',
+        start: 0,
+        occurrences: [{ commandName: 'skill:review', start: 0 }],
+      },
+    ];
+    const second = [
+      {
+        skillName: 'review',
+        path: '/work/A/review/SKILL.md',
+        start: 0,
+        occurrences: [{ commandName: 'skill:review', start: 0 }],
+      },
+    ];
+
+    expect(controller.maybeInterceptOnSubmit('/skill:review', undefined, first)).toBe(true);
+    expect(controller.maybeInterceptOnSubmit('/skill:review', undefined, second)).toBe(true);
+    await waitForAssertion(() => {
+      expect(host.mountEditorReplacement).toHaveBeenCalled();
+    });
+    jest.restoreAllMocks();
+    const dialog = (host.mountEditorReplacement as ReturnType<typeof jest.fn>).mock
+      .calls[0]![0] as {
+      handleInput: (data: string) => void;
+    };
+    dialog.handleInput('\u001B');
+    await flush();
+
+    expect(host.restoreInputText).toHaveBeenLastCalledWith('/skill:review\n/skill:review', [
+      {
+        skillName: 'review',
+        path: '/work/B/review/SKILL.md',
+        start: 0,
+        occurrences: [{ commandName: 'skill:review', start: 0 }],
+      },
+      {
+        skillName: 'review',
+        path: '/work/A/review/SKILL.md',
+        start: 14,
+        occurrences: [{ commandName: 'skill:review', start: 14 }],
+      },
+    ]);
+  });
+
+  it('returns a stashed skill draft with its selected variant activations', async () => {
+    getMock.mockResolvedValue(CONFIG);
+    const { host } = makeHost();
+    const controller = new CacheHintController(host);
+    controller.recordActivity();
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 1200_000);
+    const activations = [{ skillName: 'review', path: '/work/B/review/SKILL.md' }];
+
+    expect(controller.maybeInterceptOnSubmit('/skill:review', undefined, activations)).toBe(true);
+    await waitForAssertion(() => {
+      expect(host.mountEditorReplacement).toHaveBeenCalled();
+    });
+    jest.restoreAllMocks();
+    const dialog = (host.mountEditorReplacement as ReturnType<typeof jest.fn>).mock
+      .calls[0]![0] as {
+      handleInput: (data: string) => void;
+    };
+    dialog.handleInput('\u001B');
+    await flush();
+
+    expect(host.restoreInputText).toHaveBeenLastCalledWith('/skill:review', activations);
   });
 
   it('releases stashed media with recall semantics when the dialog is dismissed', async () => {
@@ -279,7 +354,7 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     // retains go through recall — without this the retain count never
     // returns to zero and the upload can never be lease-deleted.
     expect(mocked(host.sendNormalUserInput)).not.toHaveBeenCalled();
-    expect(host.restoreInputText).toHaveBeenCalledWith('describe [image #1 (1×1)]');
+    expect(host.restoreInputText).toHaveBeenCalledWith('describe [image #1 (1×1)]', undefined);
     expect(host.recallStashedMedia).toHaveBeenCalledWith(extraction);
   });
 
@@ -293,7 +368,7 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     await flush();
     jest.restoreAllMocks();
 
-    expect(host.restoreInputText).toHaveBeenCalledWith('hello');
+    expect(host.restoreInputText).toHaveBeenCalledWith('hello', undefined);
     expect(mocked(host.sendNormalUserInput)).not.toHaveBeenCalled();
   });
 
@@ -392,7 +467,7 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     };
     dialog.handleInput('\u001B');
     await flush();
-    expect(host.restoreInputText).toHaveBeenCalledWith('hello');
+    expect(host.restoreInputText).toHaveBeenCalledWith('hello', undefined);
     expect(mocked(host.sendNormalUserInput)).not.toHaveBeenCalled();
   });
 
@@ -468,6 +543,51 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     });
   });
 
+  it.each([false, true])('registers stashed originals in the new session and handles failures (%s)', async (fails) => {
+    peekMock.mockReturnValue(CONFIG);
+    const attachFile = fails
+      ? jest.fn().mockRejectedValue(new Error('disk full'))
+      : jest.fn().mockResolvedValue('kimi-file://f_original');
+    const { host, state } = makeHost();
+    mocked(host.createNewSession).mockImplementation(async () => {
+      state.appState.sessionId = 's2';
+      (host as unknown as { session: unknown }).session = { id: 's2', attachFile };
+    });
+    const controller = new CacheHintController(host);
+    controller.recordActivity();
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 1200_000);
+    const extraction = uploadedExtraction('file-1', 1);
+    extraction.imageSnapshots = [
+      {
+        ...extraction.imageSnapshots[0]!,
+        original: { bytes: new Uint8Array([9]), width: 1280, height: 960, mime: 'image/png' },
+      },
+    ];
+    controller.maybeInterceptOnSubmit('describe image', extraction);
+    jest.restoreAllMocks();
+    const dialog = mocked(host.mountEditorReplacement).mock.calls[0]![0] as unknown as {
+      handleInput(data: string): void;
+    };
+    dialog.handleInput('\u001B[B');
+    dialog.handleInput('\r');
+    await flush();
+    expect(attachFile).toHaveBeenCalledWith(new Uint8Array([9]), {
+      name: 'original.png',
+      mimeType: 'image/png',
+    });
+    if (fails) {
+      expect(host.sendNormalUserInput).not.toHaveBeenCalled();
+      expect(host.showError).toHaveBeenCalledWith(expect.stringContaining('disk full'));
+      expect(host.restoreInputText).toHaveBeenCalledWith('describe image', undefined);
+    } else {
+      expect(mocked(host.sendNormalUserInput).mock.calls[0]?.[1]?.parts).toContainEqual({
+        type: 'text',
+        text: expect.stringContaining('kimi-file://f_original'),
+      });
+    }
+  });
+
+
   it('resends every chained uploaded image inline after starting a new session', async () => {
     getMock.mockResolvedValue(CONFIG);
     const { host } = makeHost();
@@ -519,7 +639,7 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     dialog.handleInput('\r');
     await flush();
     expect(state.appState.sessionId).toBe('s1');
-    expect(host.restoreInputText).toHaveBeenCalledWith('hello');
+    expect(host.restoreInputText).toHaveBeenCalledWith('hello', undefined);
     expect(mocked(host.sendNormalUserInput)).not.toHaveBeenCalled();
   });
 });

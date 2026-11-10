@@ -30,6 +30,7 @@ const host = (() => {
     getConfig: mock(),
     setConfig: mock(async () => undefined),
     listSessions: mock(async () => []),
+    listWorkspaceSkills: mock(),
     resumeSession: mock(),
     forkSession: mock(),
     deleteSession: mock(async () => undefined),
@@ -212,6 +213,38 @@ describe('Webview RPC boundary (validates requests before host dispatch)', () =>
 
     expect(result).toEqual({ id: 'rpc-1', result: { ok: true } });
     expect(showLogs).toHaveBeenCalledTimes(1);
+  });
+
+  it('deduplicates same-name workspace skills using the default-first listing', async () => {
+    host.harness.listWorkspaceSkills.mockResolvedValueOnce([
+      {
+        name: 'review',
+        description: 'from A',
+        path: '/work/A/review/SKILL.md',
+        source: 'project',
+        workspaceDir: '/work/A',
+      },
+      {
+        name: 'review',
+        description: 'from B',
+        path: '/work/B/review/SKILL.md',
+        source: 'project',
+        workspaceDir: '/work/B',
+      },
+    ]);
+
+    const response = await bridge.handle(
+      { id: 'rpc-skills', method: Methods.GetSlashCommands },
+      'view-1',
+    );
+    const commands = (
+      response as {
+        result: Array<{ name: string; aliases: string[]; description: string }>;
+      }
+    ).result.filter((command) => command.name.startsWith('skill:'));
+
+    expect(commands).toEqual([{ name: 'skill:review', aliases: [], description: 'from A' }]);
+    expect(host.harness.listWorkspaceSkills).toHaveBeenCalledTimes(1);
   });
 
   it('keeps provider identity when configured models share a display name', async () => {

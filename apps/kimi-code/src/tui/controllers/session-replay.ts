@@ -465,6 +465,10 @@ export class SessionReplayRenderer {
         'plain',
       ),
       skillNames: bundledSkillsFromOrigin(message.origin).map((skill) => skill.skillName),
+      inlineSkillActivations: bundledSkillsFromOrigin(message.origin).map((skill) => ({
+        skillName: skill.skillName,
+        path: skill.skillPath,
+      })),
     });
   }
 
@@ -570,6 +574,7 @@ export class SessionReplayRenderer {
     this.host.appendTranscriptEntry({
       ...replayEntry(context, 'user', userSlashSkillPromptText(message, skill), 'plain'),
       skillNames: [skill.skillName],
+      inlineSkillActivations: [{ skillName: skill.skillName, path: skill.skillPath }],
       skillActivationId: skill.activationId,
       skillName: skill.skillName,
       skillArgs: skill.skillArgs,

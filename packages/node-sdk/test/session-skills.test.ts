@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, expectTypeOf, it, mock } from 'bun:test';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, realpath, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import {
@@ -90,6 +90,105 @@ describe('Session skills', () => {
     } finally {
       await harness.close();
       restoreEnv();
+    }
+  });
+
+  it('lists and activates same-name variants through an explicit path', async () => {
+    const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-home-');
+    const workDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-work-');
+    const additionalDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-additional-');
+    const additionalRoot = (await realpath(additionalDir)).replaceAll('\\', '/');
+    await writeSkill(workDir, 'review', [
+      '---',
+      'name: review',
+      'description: Primary review',
+      '---',
+      '',
+      'Review with primary rules.',
+    ]);
+    await writeSkill(additionalDir, 'review', [
+      '---',
+      'name: review',
+      'description: Secondary review',
+      '---',
+      '',
+      'Review with secondary rules.',
+    ]);
+    await writeFile(
+      join(workDir, '.kimi-code', 'local.toml'),
+      `[workspace]\nadditional_dir = [${JSON.stringify(additionalDir)}]\n`,
+    );
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      const session = await harness.createSession({ id: 'ses_sdk_skill_variants', workDir });
+      const variants = (await session.listSkills()).filter((skill) => skill.name === 'review');
+      expect(variants).toHaveLength(2);
+      const secondary = variants.find((skill) => skill.workspaceDir === additionalRoot)!;
+      expect(secondary.workspaceDir).toContain('kimi-sdk-skills-additional-');
+      const activated = waitForSDKEvent(session, (event) => event.type === 'skill.activated');
+
+      await session.activateSkill('review', undefined, { path: secondary.path });
+
+      await expect(activated).resolves.toMatchObject({
+        skillName: 'review',
+        skillPath: secondary.path,
+        skillSource: 'project',
+      });
+
+      const bundledSession = await harness.createSession({
+        id: 'ses_sdk_skill_variant_bundle',
+        workDir,
+      });
+      const bundledActivation = waitForSDKEvent(
+        bundledSession,
+        (event) => event.type === 'skill.activated',
+      );
+      await bundledSession.promptWithSkills('/skill:review', [
+        { name: 'review', path: secondary.path },
+      ]);
+      await expect(bundledActivation).resolves.toMatchObject({
+        skillName: 'review',
+        skillPath: secondary.path,
+        skillSource: 'project',
+      });
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('does not merge skills from session-only additional dirs', async () => {
+    const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-home-');
+    const workDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-work-');
+    const additionalDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-additional-');
+    await writeSkill(additionalDir, 'session-only', [
+      '---',
+      'name: session-only',
+      'description: Session-only skill',
+      '---',
+      '',
+      'Do not load this skill.',
+    ]);
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      const first = await harness.createSession({
+        id: 'ses_sdk_session_only_skills_a',
+        workDir,
+        additionalDirs: [additionalDir],
+      });
+      const second = await harness.createSession({
+        id: 'ses_sdk_session_only_skills_b',
+        workDir,
+      });
+      const hasSessionOnlySkill = (skills: readonly SkillSummary[]) =>
+        skills.some((skill) => skill.name === 'session-only');
+
+      expect(hasSessionOnlySkill(await first.listSkills())).toBe(false);
+      expect(hasSessionOnlySkill(await second.listSkills())).toBe(false);
+      expect(hasSessionOnlySkill(await harness.listWorkspaceSkills(workDir))).toBe(false);
+    } finally {
+      await harness.close();
     }
   });
 

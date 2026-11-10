@@ -1940,6 +1940,7 @@ export default {
       skillFailed: 'Skill "{{name}}" failed: {{error}}',
       skillActivationFailed: 'Skill activation failed: {{error}}',
       failedToPrepareMediaAttachment: 'Failed to prepare media attachment: {{error}}',
+      originalPastedImageUnavailable: 'The original pasted image is no longer available.',
       sessionChangedWhilePreparingMedia:
         'Session changed while preparing media attachment; skill prompt not sent.',
       videoStillUploading: 'Video "{{label}}" is still uploading; try again in a moment.',

@@ -5,7 +5,7 @@
  * Run: cd apps/vscode && bun test --isolate test/session-runtime.test.ts
  */
 
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, mock } from 'bun:test';
 
 import type {
   ApprovalHandler,
@@ -21,6 +21,8 @@ import type {
 } from '@moonshot-ai/kimi-code-sdk';
 
 import { Events } from '../shared/bridge';
+import { runHostSlashCommand } from '../src/handlers/slash-command';
+import type { HandlerContext } from '../src/handlers/types';
 import type { LegacyApprovalFlags } from '../src/runtime/legacy-approval';
 import { SessionRuntime } from '../src/runtime/session-runtime';
 
@@ -763,5 +765,64 @@ describe('session runtime (adapts one SDK session for subscribed Webviews)', () 
     });
 
     expect(baselines).toEqual([]);
+  });
+
+  it('passes the visible variant path when the default skill is filtered out', async () => {
+    const activateSkill = mock(
+      async (_name: string, _args?: string, _options?: { path?: string }) => {},
+    );
+    const runtime = {
+      session: {
+        listSkills: mock(async () => [
+          { name: 'review', type: 'prompt', path: '/work/A/review/SKILL.md', scopes: ['web'] },
+          { name: 'review', type: 'prompt', path: '/work/B/review/SKILL.md' },
+        ]),
+        activateSkill,
+      },
+      runTurnAction: mock(async (_raw: string, action: () => Promise<void>) => {
+        await action();
+        return { status: 'finished' };
+      }),
+    } as unknown as SessionRuntime;
+
+    const done = await runHostSlashCommand(
+      runtime,
+      { name: 'skill:review', args: '', raw: '/skill:review' },
+      {} as HandlerContext,
+    );
+
+    expect(done).toBe(true);
+    expect(activateSkill).toHaveBeenCalledWith('review', undefined, {
+      path: '/work/B/review/SKILL.md',
+    });
+  });
+
+  it('prefers the exact-case visible variant when activating a skill', async () => {
+    const activateSkill = mock(
+      async (_name: string, _args?: string, _options?: { path?: string }) => {},
+    );
+    const runtime = {
+      session: {
+        listSkills: mock(async () => [
+          { name: 'Review', type: 'prompt', path: '/work/A/review/SKILL.md' },
+          { name: 'review', type: 'prompt', path: '/work/B/review/SKILL.md' },
+        ]),
+        activateSkill,
+      },
+      runTurnAction: mock(async (_raw: string, action: () => Promise<void>) => {
+        await action();
+        return { status: 'finished' };
+      }),
+    } as unknown as SessionRuntime;
+
+    await runHostSlashCommand(
+      runtime,
+      { name: 'skill:review', args: '', raw: '/skill:review' },
+      {} as HandlerContext,
+    );
+
+    expect(activateSkill).toHaveBeenCalledWith('review', undefined, {
+      path: '/work/B/review/SKILL.md',
+    });
   });
 });

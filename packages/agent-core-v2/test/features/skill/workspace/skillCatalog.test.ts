@@ -228,6 +228,7 @@ function makeHost(
   pluginRoots: readonly SkillRoot[] = [],
   explicitDirs?: readonly string[],
   pluginReloadEmitter?: Emitter<PluginReloadEvent>,
+  dirs: IWorkspaceDirs = workspaceDirsStub(),
 ) {
   const config = configStub();
   const host = createScopedTestHost([
@@ -238,7 +239,7 @@ function makeHost(
     stubPair(IPluginService, pluginStub(pluginRoots, pluginReloadEmitter)),
   ]);
   const workspaceHandle = createScopedChildHandle(host.app.instantiation, 'program', 'w1', {
-    seeds: [stubPair(IWorkspaceContext, ws), stubPair(IWorkspaceDirs, workspaceDirsStub())],
+    seeds: [stubPair(IWorkspaceContext, ws), stubPair(IWorkspaceDirs, dirs)],
   });
   const disposeHost = host.dispose.bind(host);
   host.dispose = () => {
@@ -300,6 +301,80 @@ describe('WorkspaceSkillCatalogService', () => {
     registerScopedService('program', IPluginSkillSource, PluginSkillSource);
     registerScopedService(LifecycleScope.App, IAppStateService, AppStateService);
     registerScopedService('program', IWorkspaceStateService, WorkspaceStateService);
+  });
+
+  async function seedCatalogSkill(
+    workDir: string,
+    name: string,
+    description: string,
+  ): Promise<void> {
+    const dir = join(workDir, '.kimi-code', 'skills', name);
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, 'SKILL.md'),
+      `---\nname: ${name}\ndescription: ${description}\n---\n\n${description}\n`,
+      'utf8',
+    );
+  }
+
+  it('discovers all workspace directories with primary and earlier dirs winning collisions', async () => {
+    const base = await mkdtemp(join(tmpdir(), 'skill-catalog-multi-root-'));
+    const primary = join(base, 'primary');
+    const secondary = join(base, 'secondary');
+    const third = join(base, 'third');
+    await seedCatalogSkill(primary, 'primary-only', 'from primary');
+    await seedCatalogSkill(primary, 'shared', 'from primary');
+    await seedCatalogSkill(secondary, 'secondary-only', 'from secondary');
+    await seedCatalogSkill(secondary, 'shared', 'from secondary');
+    await seedCatalogSkill(secondary, 'additional-shared', 'from secondary');
+    await seedCatalogSkill(third, 'third-only', 'from third');
+    await seedCatalogSkill(third, 'additional-shared', 'from third');
+    const { host, workspace } = makeHost(
+      new FileSkillDiscovery(stubLog()),
+      workspaceContextStub(primary),
+      [],
+      undefined,
+      undefined,
+      workspaceDirsStub([secondary, third]),
+    );
+
+    try {
+      const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
+      await catalog.load();
+
+      expect(catalog.catalog.getSkill('primary-only')?.description).toBe('from primary');
+      expect(catalog.catalog.getSkill('secondary-only')?.description).toBe('from secondary');
+      expect(catalog.catalog.getSkill('third-only')?.description).toBe('from third');
+      expect(catalog.catalog.getSkill('shared')?.description).toBe('from primary');
+      expect(catalog.catalog.getSkill('additional-shared')?.description).toBe('from secondary');
+      expect(
+        catalog.catalog
+          .listSkills()
+          .filter((skill) => skill.name === 'shared')
+          .map((skill) => skill.description),
+      ).toEqual(['from primary', 'from secondary']);
+      expect(
+        catalog.catalog.getSkill(
+          'shared',
+          slashPath(
+            await realpath(join(secondary, '.kimi-code', 'skills', 'shared', 'SKILL.md')),
+          ),
+        )?.description,
+      ).toBe('from secondary');
+      expect(
+        catalog.catalog.getSkill(
+          'shared',
+          join(third, '.kimi-code', 'skills', 'shared', 'SKILL.md'),
+        ),
+      ).toBeUndefined();
+      const watchedPaths = watchMockState.calls.map((call) => call.path);
+      for (const dir of [primary, secondary, third]) {
+        expect(watchedPaths).toContain(slashPath(await realpath(dir)));
+      }
+    } finally {
+      host.dispose();
+      await rm(base, { recursive: true, force: true });
+    }
   });
 
   it('merges global and project skills; project wins on name collision', async () => {
@@ -477,7 +552,13 @@ describe('WorkspaceSkillCatalogService', () => {
       calls = 0;
       async discover() {
         this.calls++;
-        return { skills: [], skipped: [], scannedRoots: [], scannedDirectories: [] };
+        return {
+          skills: [],
+          variants: [],
+          skipped: [],
+          scannedRoots: [],
+          scannedDirectories: [],
+        };
       }
     }
     const store = new CountingDiscovery();
@@ -564,7 +645,13 @@ describe('WorkspaceSkillCatalogService', () => {
         const pluginSkills = roots
           .filter((root) => root.plugin !== undefined)
           .map((root) => stubSkill('demo-skill', { source: 'extra', plugin: root.plugin }));
-        return { skills: pluginSkills, skipped: [], scannedRoots: [], scannedDirectories: [] };
+        return {
+          skills: pluginSkills,
+          variants: pluginSkills,
+          skipped: [],
+          scannedRoots: [],
+          scannedDirectories: [],
+        };
       }
     }
     const store = new ExtraRootStore();
@@ -587,6 +674,7 @@ describe('WorkspaceSkillCatalogService', () => {
         async discover(roots: readonly SkillRoot[]) {
           return {
             skills: [],
+            variants: [],
             skipped: [],
             scannedRoots: roots
               .filter((root) => root.source === 'project')
@@ -621,7 +709,13 @@ describe('WorkspaceSkillCatalogService', () => {
       declare readonly _serviceBrand: undefined;
       async discover(roots: readonly SkillRoot[]) {
         seen.push(...roots);
-        return { skills: [], skipped: [], scannedRoots: [], scannedDirectories: [] };
+        return {
+          skills: [],
+          variants: [],
+          skipped: [],
+          scannedRoots: [],
+          scannedDirectories: [],
+        };
       }
     }
     const dirs = {
@@ -670,6 +764,7 @@ describe('WorkspaceSkillCatalogService', () => {
           const isProject = roots.some((root) => root.source === 'project');
           return {
             skills: [],
+            variants: [],
             skipped: isProject ? [skippedEntry] : [],
             scannedRoots: [],
             scannedDirectories: [],
@@ -959,8 +1054,10 @@ describe('WorkspaceSkillCatalogService', () => {
       _serviceBrand: undefined,
       discover: async () => {
         scans += 1;
+        const skills = [stubSkill('demo', { description: scans === 1 ? 'stale' : 'fresh' })];
         return {
-          skills: [stubSkill('demo', { description: scans === 1 ? 'stale' : 'fresh' })],
+          skills,
+          variants: skills,
           skipped: [],
           scannedRoots: [scannedDirectory],
           scannedDirectories: [scannedDirectory],

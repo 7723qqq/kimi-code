@@ -96,7 +96,10 @@ describe('server-v2 /api/v1 skills', () => {
     if (agents.handleOf('main') === undefined) await agents.create({ agentId: 'main' });
   }
 
-  async function registerWorkspace(root: string, additionalDirs?: readonly string[]): Promise<string> {
+  async function registerWorkspace(
+    root: string,
+    additionalDirs?: readonly string[],
+  ): Promise<string> {
     const { body } = await postJson<{ id: string }>('/api/v1/workspaces', {
       root,
       additional_dirs: additionalDirs,
@@ -114,12 +117,12 @@ describe('server-v2 /api/v1 skills', () => {
     return dir;
   }
 
-  async function seedProjectSkill(root: string, name: string): Promise<void> {
+  async function seedProjectSkill(root: string, name: string, type?: string): Promise<void> {
     const dir = join(root, '.kimi-code', 'skills', name);
     await mkdir(dir, { recursive: true });
     await writeFile(
       join(dir, 'SKILL.md'),
-      `---\nname: ${name}\ndescription: e2e test skill ${name}\n---\n\nSay hello to $ARGUMENTS.\n`,
+      `---\nname: ${name}${type === undefined ? '' : `\ntype: ${type}`}\ndescription: e2e test skill ${name}\n---\n\nSay hello to $ARGUMENTS.\n`,
     );
   }
 
@@ -596,7 +599,8 @@ describe('server-v2 /api/v1 skills', () => {
       const primaryRoot = (await realpath(primary)).replaceAll('\\', '/');
       expect(wsSkills.find((skill) => skill.name === 'e2e-shared')?.path).toContain(primaryRoot);
 
-      const names = (xs: readonly { name: string }[]) => [...new Set(xs.map((s) => s.name))].toSorted();
+      const names = (xs: readonly { name: string }[]) =>
+        [...new Set(xs.map((s) => s.name))].toSorted();
       expect(names(sessSkills)).toEqual(names(wsSkills));
     });
 
@@ -614,6 +618,97 @@ describe('server-v2 /api/v1 skills', () => {
       const sessSkills = listSkillsResponseSchema.parse(sessRes.body.data).skills;
       const names = (xs: readonly { name: string }[]) => xs.map((s) => s.name).toSorted();
       expect(names(wsSkills)).toEqual(names(sessSkills));
+    });
+
+    it('lists same-name variants and activates an explicit additional-dir path', async () => {
+      const primary = await makeWorkspaceDir();
+      const secondary = await makeWorkspaceDir();
+      const primaryRoot = (await realpath(primary)).replaceAll('\\', '/');
+      const secondaryRoot = (await realpath(secondary)).replaceAll('\\', '/');
+      await seedProjectSkill(primary, 'e2e-primary');
+      await seedProjectSkill(primary, 'e2e-shared');
+      await seedProjectSkill(secondary, 'e2e-secondary');
+      await seedProjectSkill(secondary, 'e2e-shared');
+      const wid = await registerWorkspace(primary, [secondary]);
+
+      const workspaceResponse = await getJson<{ skills: SkillWire[] }>(
+        `/api/v1/workspaces/${wid}/skills`,
+      );
+      expect(workspaceResponse.body.code).toBe(0);
+      const workspaceSkills = listSkillsResponseSchema.parse(workspaceResponse.body.data).skills;
+      expect(workspaceSkills.some((skill) => skill.name === 'e2e-primary')).toBe(true);
+      expect(workspaceSkills.some((skill) => skill.name === 'e2e-secondary')).toBe(true);
+      expect(workspaceSkills.find((skill) => skill.name === 'e2e-shared')?.path).toContain(
+        primaryRoot,
+      );
+      const sharedVariants = workspaceSkills.filter((skill) => skill.name === 'e2e-shared');
+      expect(sharedVariants).toHaveLength(2);
+      expect(sharedVariants.map((skill) => skill.workspace_dir)).toEqual([
+        primaryRoot,
+        secondaryRoot,
+      ]);
+      const secondaryShared = sharedVariants.find(
+        (skill) => skill.workspace_dir === secondaryRoot,
+      )!;
+
+      const created = await postJson<{ id: string }>('/api/v1/sessions', { workspace_id: wid });
+      expect(created.body.code).toBe(0);
+      const sid = created.body.data.id;
+      const sessionResponse = await getJson<{ skills: SkillWire[] }>(
+        `/api/v1/sessions/${sid}/skills`,
+      );
+      const sessionSkills = listSkillsResponseSchema.parse(sessionResponse.body.data).skills;
+      expect(sessionSkills.map((skill) => skill.name)).toEqual(
+        workspaceSkills.map((skill) => skill.name),
+      );
+
+      await createMainAgent(sid);
+      const activated = await postJson<{ activated: boolean; skill_name: string }>(
+        `/api/v1/sessions/${sid}/skills/e2e-secondary:activate`,
+        { args: 'additional args' },
+      );
+      expect(activated.body.code).toBe(0);
+      const sharedActivation = await postJson<{ activated: boolean; skill_name: string }>(
+        `/api/v1/sessions/${sid}/skills/e2e-shared:activate`,
+        { path: secondaryShared.path, args: 'shared-secondary' },
+      );
+      expect(sharedActivation.body.code).toBe(0);
+      const messages = await getJson<{
+        items: { role: string; content: { type: string; text?: string }[] }[];
+      }>(`/api/v1/sessions/${sid}/messages`);
+      const sharedText = messages.body.data.items
+        .filter((message) => message.role === 'user')
+        .flatMap((message) => message.content)
+        .map((part) => part.text ?? '')
+        .join('\n');
+      expect(sharedText).toContain('Say hello to additional args.');
+      expect(sharedText).toContain('Say hello to shared-secondary.');
+      expect(sharedText).toContain(`dir="${secondaryShared.path.replace(/\/SKILL\.md$/, '')}"`);
+    });
+
+    it('validates bundled activation against the selected variant path', async () => {
+      const primary = await makeWorkspaceDir();
+      const secondary = await makeWorkspaceDir();
+      const secondaryRoot = (await realpath(secondary)).replaceAll('\\', '/');
+      await seedProjectSkill(primary, 'e2e-preflight', 'reference');
+      await seedProjectSkill(secondary, 'e2e-preflight', 'prompt');
+      const wid = await registerWorkspace(primary, [secondary]);
+      const created = await postJson<{ id: string }>('/api/v1/sessions', { workspace_id: wid });
+      const sid = created.body.data.id;
+      await createMainAgent(sid);
+      const listed = await getJson<{ skills: SkillWire[] }>(`/api/v1/sessions/${sid}/skills`);
+      const variants = listSkillsResponseSchema.parse(listed.body.data).skills;
+      const selected = variants.find(
+        (skill) => skill.name === 'e2e-preflight' && skill.workspace_dir === secondaryRoot,
+      )!;
+
+      const submitted = await postJson<{ prompt_id: string }>(`/api/v1/sessions/${sid}/prompts`, {
+        content: [{ type: 'text', text: 'Use the secondary variant.' }],
+        skills: [{ name: 'e2e-preflight', path: selected.path, args: 'secondary' }],
+      });
+
+      expect(submitted.body.code).toBe(0);
+      expect(submitted.body.data.prompt_id).toMatch(/^msg_/);
     });
 
     it('honors explicit skill dirs in workspace preview', async () => {

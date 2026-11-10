@@ -30,11 +30,8 @@ import type { TUIState } from '../state';
 import type { AppState, InlineSkillActivation } from '../types';
 import { evaluateCacheHint, type CacheHintDecision } from '../utils/cache-hint';
 import { formatErrorMessage } from '../utils/event-payload';
-import {
-  makeExtractionResendable,
-  originalsDirForSession,
-  type ExtractionResult,
-} from '../utils/image-placeholder';
+import { makeSessionExtractionResendable, type ExtractionResult } from '../utils/image-placeholder';
+import { rebaseInlineSkillActivations } from '../utils/inline-skill-tokens';
 
 type TurnStepCompletedEvent = Extract<Event, { type: 'turn.step.completed' }>;
 export type StepCacheBreak = NonNullable<TurnStepCompletedEvent['cacheBreak']>;
@@ -57,7 +54,7 @@ export interface CacheHintHost {
   setAppState(patch: Partial<AppState>): void;
   mountEditorReplacement(panel: Component & Focusable, onDisplaced?: () => void): void;
   restoreEditor(): void;
-  restoreInputText(text: string): void;
+  restoreInputText(text: string, inlineSkillActivations?: readonly InlineSkillActivation[]): void;
   showError(message: string): void;
   createNewSession(): Promise<void>;
   sendNormalUserInput(text: string, preExtracted?: ExtractionResult): Promise<void>;
@@ -115,6 +112,7 @@ export class CacheHintController {
   /** Inputs restored this cycle — chained restores append (newline-joined)
    *  instead of overwriting the editor. */
   private restoredTexts: string[] = [];
+  private restoredActivations: InlineSkillActivation[] = [];
   /** Resume scenario fires at most once per session per TUI instance. */
   private readonly resumedSessions = new Set<string>();
   /** Last measured main-loop step usage, for the model-switch loss estimate. */
@@ -196,6 +194,7 @@ export class CacheHintController {
     this.triggerFetchAttempted = false;
     this.lastDialogRestored = false;
     this.restoredTexts = [];
+    this.restoredActivations = [];
   }
 
   /** Session switch / create: the new session has no in-process baseline. */
@@ -205,6 +204,7 @@ export class CacheHintController {
     this.triggerFetchAttempted = false;
     this.lastDialogRestored = false;
     this.restoredTexts = [];
+    this.restoredActivations = [];
     this.lastMeasuredUsage = undefined;
     this.stepsSinceBreakNotice = Number.POSITIVE_INFINITY;
   }
@@ -419,13 +419,31 @@ export class CacheHintController {
   }
 
   private async releaseToSendPath(stash: StashedSubmit): Promise<void> {
-    // A session reset cleared the image store: rebuild the extraction from
-    // its snapshots, persisting compressed pastes' originals into the NEW
-    // session's originals dir so the compression caption survives the move.
-    const extraction =
-      stash.extraction !== undefined && this.host.state.appState.sessionId !== stash.sessionId
-        ? makeExtractionResendable(stash.extraction, originalsDirForSession(this.host.session))
-        : stash.extraction;
+    // A reset cleared the store, so register snapshot originals in the new
+    // session and rebuild image parts before returning to the send path.
+    let extraction = stash.extraction;
+    if (extraction !== undefined && this.host.state.appState.sessionId !== stash.sessionId) {
+      const session = this.host.session;
+      if (session === undefined) {
+        this.restoreStashedInput(stash);
+        return;
+      }
+      try {
+        extraction = await makeSessionExtractionResendable(extraction, session);
+      } catch (error) {
+        this.host.showError(
+          t('tui.statusMessages.failedToPrepareMediaAttachment', {
+            error: formatErrorMessage(error),
+          }),
+        );
+        this.restoreStashedInput(stash);
+        return;
+      }
+      if (this.host.session !== session) {
+        this.restoreStashedInput(stash);
+        return;
+      }
+    }
     if (stash.inlineSkillActivations !== undefined && stash.inlineSkillActivations.length > 0) {
       await this.host.sendInlineSkillUserInput(
         stash.text,
@@ -444,8 +462,17 @@ export class CacheHintController {
    *  re-retains) and staged copies retire instead of leaking. */
   private restoreStashedInput(stash: StashedSubmit | undefined): void {
     if (stash === undefined) return;
+    const offset = this.restoredTexts.length === 0 ? 0 : this.restoredTexts.join('\n').length + 1;
+    if (stash.inlineSkillActivations !== undefined) {
+      this.restoredActivations.push(
+        ...rebaseInlineSkillActivations(stash.inlineSkillActivations, offset),
+      );
+    }
     this.restoredTexts.push(stash.text);
-    this.host.restoreInputText(this.restoredTexts.join('\n'));
+    this.host.restoreInputText(
+      this.restoredTexts.join('\n'),
+      this.restoredActivations.length === 0 ? undefined : this.restoredActivations,
+    );
     this.host.recallStashedMedia(stash.extraction);
   }
 

@@ -123,6 +123,8 @@ describe('FileSkillDiscovery', () => {
 
     expect(result.skills).toHaveLength(1);
     expect(result.skills[0]?.description).toBe('from brand');
+    expect(result.variants).toHaveLength(1);
+    expect(result.variants[0]?.description).toBe('from brand');
   });
 
   it('dedupes same-named skills across roots from the same plugin', async () => {
@@ -135,6 +137,8 @@ describe('FileSkillDiscovery', () => {
     ]);
 
     expect(result.skills).toHaveLength(1);
+    expect(result.variants).toHaveLength(1);
+    expect(result.variants[0]?.description).toBe('from first root');
     expect(result.skills[0]).toEqual(
       expect.objectContaining({
         name: 'DUP',

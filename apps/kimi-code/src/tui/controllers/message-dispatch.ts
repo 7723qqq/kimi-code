@@ -28,10 +28,9 @@ import type { ImageAttachmentStore, MediaAttachment } from '../utils/image-attac
 import {
   extractMediaAttachments,
   omitExpiredVideoFileRefs,
-  originalsDirForSession,
   pendingMediaIngestions,
   refreshExpiringImageFileRefs,
-  resolveOriginalCaptions,
+  resolveSessionOriginalCaptions,
   rewriteMediaPlaceholders,
 } from '../utils/image-placeholder';
 import type { ExtractionResult } from '../utils/image-placeholder';
@@ -98,6 +97,11 @@ export interface MessageDispatchHost {
   resetLivePane(): void;
   setAppState(patch: Partial<AppState>): void;
   runShellCommandFromInput(command: string): Promise<void>;
+  dispatchPreparedInput<T, R>(
+    session: Session,
+    input: T | Promise<T>,
+    dispatch: (input: T) => Promise<R>,
+  ): Promise<R>;
   track(event: string, properties?: Parameters<KimiHarness['track']>[1]): void;
   showSessionOccupancyPrompt(prompt: SessionOccupancyPrompt): void;
   restoreInputText(text: string): void;
@@ -390,15 +394,15 @@ export class MessageDispatchController {
     // turn end. Without a lease nothing ever consumes the retain and the
     // daemon upload outlives the turn, the queue and the session.
     let prepared: PreparedSkillActivations | undefined;
-    let input: string | readonly PromptPart[];
+    let input: string | readonly PromptPart[] | Promise<PromptPart[]>;
     try {
       prepared = this.host.prepareSkillActivations(activations, extraction.mediaSnapshots);
       input = extraction.hasMedia
-        ? resolveOriginalCaptions(
+        ? resolveSessionOriginalCaptions(
             omitExpiredVideoFileRefs(extraction.parts, prepared.cachedVideos),
             extraction.imageAttachmentIds,
             this.imageStore,
-            originalsDirForSession(session),
+            session,
           )
         : text;
     } catch (error) {
@@ -443,10 +447,14 @@ export class MessageDispatchController {
       renderMode: 'plain',
       content: text,
       skillNames: activations.map((activation) => activation.skillName),
+      inlineSkillActivations: activations.length === 0 ? undefined : activations,
       imageAttachmentIds:
         extraction.imageAttachmentIds.length > 0 ? extraction.imageAttachmentIds : undefined,
     });
-    const request = session.promptWithSkills(input, prepared.skills);
+    const skills = prepared.skills;
+    const request = this.host.dispatchPreparedInput(session, input, (parts) =>
+      session.promptWithSkills(parts, skills),
+    );
     this.staging.trackDispatch(stagingLease, request, (error: unknown) => {
       // A rejected bundle never reached a turn: hand the staged media back to
       // raw ownership and release the retains without deleting the daemon
@@ -727,11 +735,11 @@ export class MessageDispatchController {
     // dir) known: extraction runs before a first session exists.
     const sdkInput =
       options?.parts !== undefined
-        ? resolveOriginalCaptions(
+        ? resolveSessionOriginalCaptions(
             options.parts,
             options.imageAttachmentIds ?? [],
             this.imageStore,
-            originalsDirForSession(session),
+            session,
           )
         : input;
     const goalActive = this.host.state.appState.goal?.status === 'active';
@@ -765,20 +773,26 @@ export class MessageDispatchController {
     // turn, or launches a turn of its own if the loop just ended.
     if (goalActive) {
       if (runningTurnId !== undefined) this.staging.bindToTurn(stagingLease, runningTurnId);
-      this.staging.trackDispatch(stagingLease, session.steer(sdkInput), (error) => {
-        // Same reset as the prompt path: beginSessionRequest already moved the
-        // TUI to the waiting phase, and no turn events may follow a failed
-        // steer (e.g. the session is gone), which would leave the UI stuck
-        // queueing input behind a request that never completes.
-        this.failSessionRequest(
-          t('tui.statusMessages.failedToSteer', { error: formatErrorMessage(error) }),
-        );
-      });
+      this.staging.trackDispatch(
+        stagingLease,
+        this.host.dispatchPreparedInput(session, sdkInput, (parts) => session.steer(parts)),
+        (error) => {
+          // Same reset as the prompt path: beginSessionRequest already moved the
+          // TUI to the waiting phase, and no turn events may follow a failed
+          // steer (e.g. the session is gone), which would leave the UI stuck
+          // queueing input behind a request that never completes.
+          this.failSessionRequest(
+            t('tui.statusMessages.failedToSteer', { error: formatErrorMessage(error) }),
+          );
+        },
+      );
       return;
     }
     this.staging.trackDispatch(
       stagingLease,
-      session.prompt(sdkInput, { promptId: submissionId }),
+      this.host.dispatchPreparedInput(session, sdkInput, (parts) =>
+        session.prompt(parts, { promptId: submissionId }),
+      ),
       (error) => {
         this.failSessionRequest(
           t('tui.statusMessages.failedToSend', { error: formatErrorMessage(error) }),
@@ -1103,7 +1117,7 @@ export class MessageDispatchController {
     }
     const activations = input.flatMap((item) => item.inlineSkillActivations ?? []);
     let prepared: PreparedSkillActivations | undefined;
-    let resolvedInput: readonly SteerInputItem[];
+    let resolvedInput: readonly (SteerInputItem | Promise<SteerInputItem>)[];
     try {
       if (activations.length > 0) {
         prepared = this.host.prepareSkillActivations(
@@ -1113,21 +1127,20 @@ export class MessageDispatchController {
             : undefined,
         );
       }
-      resolvedInput = input.map((item) =>
-        item.parts === undefined
-          ? item
-          : {
-              ...item,
-              parts: resolveOriginalCaptions(
-                prepared === undefined
-                  ? item.parts
-                  : omitExpiredVideoFileRefs(item.parts, prepared.cachedVideos),
-                item.imageAttachmentIds ?? [],
-                this.imageStore,
-                originalsDirForSession(session),
-              ),
-            },
-      );
+      resolvedInput = input.map((item) => {
+        if (item.parts === undefined) return item;
+        const parts = resolveSessionOriginalCaptions(
+          prepared === undefined
+            ? item.parts
+            : omitExpiredVideoFileRefs(item.parts, prepared.cachedVideos),
+          item.imageAttachmentIds ?? [],
+          this.imageStore,
+          session,
+        );
+        return parts instanceof Promise
+          ? parts.then((resolvedParts) => ({ ...item, parts: resolvedParts }))
+          : { ...item, parts };
+      });
     } catch (error) {
       if (prepared !== undefined) this.host.releaseSkillArgumentMedia(prepared);
       this.host.showError(
@@ -1147,6 +1160,7 @@ export class MessageDispatchController {
       renderMode: 'plain',
       content: item.text,
       skillNames: item.inlineSkillActivations?.map((activation) => activation.skillName),
+      inlineSkillActivations: item.inlineSkillActivations,
       imageAttachmentIds: nonEmptyIds(item.imageAttachmentIds),
       steerPending: startsNewTurn ? undefined : true,
     }));
@@ -1177,13 +1191,22 @@ export class MessageDispatchController {
     if (currentTurnId !== undefined && prepared === undefined) {
       this.staging.bindToTurn(stagingLease, currentTurnId);
     }
-    const payload = combineSteerInput(resolvedInput);
-    const request = this.trackSteerSubmission(steeredEntries, payload, () =>
-      prepared === undefined
-        ? session.steer(payload)
-        : session.promptWithSkills(payload, prepared.skills, {
-            steerIfActive: true,
-          }),
+    const dispatch = (items: readonly SteerInputItem[]) => {
+      const payload = combineSteerInput(items);
+      return this.trackSteerSubmission(steeredEntries, payload, () =>
+        prepared === undefined
+          ? session.steer(payload)
+          : session.promptWithSkills(payload, prepared.skills, {
+              steerIfActive: true,
+            }),
+      );
+    };
+    const request = this.host.dispatchPreparedInput(
+      session,
+      resolvedInput.some((item) => item instanceof Promise)
+        ? Promise.all(resolvedInput.map((item) => Promise.resolve(item)))
+        : (resolvedInput as readonly SteerInputItem[]),
+      dispatch,
     );
     if (onSettled !== undefined) {
       void request.then(

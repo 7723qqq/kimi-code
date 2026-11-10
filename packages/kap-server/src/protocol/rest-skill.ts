@@ -23,6 +23,7 @@ export type ActivateSkillAttachment = z.infer<typeof activateSkillAttachmentSche
 
 export const activateSkillRequestSchema = z
   .object({
+    path: z.string().optional(),
     args: z.string().optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),
     attachments: z.array(activateSkillAttachmentSchema).optional(),

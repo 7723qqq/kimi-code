@@ -1858,6 +1858,7 @@ export default {
       skillFailed: '技能 "{{name}}" 执行失败：{{error}}',
       skillActivationFailed: '技能激活失败：{{error}}',
       failedToPrepareMediaAttachment: '准备媒体附件失败：{{error}}',
+      originalPastedImageUnavailable: '原始粘贴图片已不可用。',
       sessionChangedWhilePreparingMedia: '准备媒体附件时会话已变更，技能提示未发送。',
       videoStillUploading: '视频「{{label}}」仍在上传，请稍后重试。',
       videoExpired: '视频「{{label}}」在发送前已过期，请重新粘贴。',
