@@ -77,6 +77,7 @@
 | 本 fork 有完整 i18n（中英双语），上游没有 | 任何新增用户可见字符串都要走 `t()` | 触发 i18n 三项检查 |
 | `packages/agent-core-v2`、`kap-server`、`transcript` 是零注释区 | 照搬上游代码会带进注释，直接卡 gate | 搬完删注释，`bun run check:no-comments` |
 | #4538 的 loop/requester/media 分层重构仍保留本仓结构；本批已落地 revision 持久化 | 不能把本批宣称为 #4538 全量分层迁移；schema 继续由本仓 pending reminder 落地 | `toolSelectOps` 承载 initial/current/changes，公告携带 disclosure，unsupported history 转为 runtime reminder；剩余分层差异记入 `d37f9ccc` 台账行 |
+| 本 fork 有原生 Operation Log（jj 风格 op log + 隔离 Git plumbing），上游没有 | 不能把上游 stash、checkpoint 或文件快照恢复当成等价能力；恢复覆盖文件树与 `HEAD`/refs，不覆盖会话 wire | 由 `features/operationLog` 与 SDK/Klient operation 协议承载；`/undo` 保持 turn 语义，flag 默认关闭；这是本地新增能力，不在 `ledger.tsv` 伪造上游记录 |
 
 ## 每条的落地顺序
 
