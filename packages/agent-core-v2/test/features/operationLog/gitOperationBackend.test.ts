@@ -193,4 +193,144 @@ describe('GitOperationBackend', () => {
       details: { operation },
     });
   });
+
+  it('restores the complete tree, HEAD and refs while preserving ignored files', async () => {
+    const { repo, storage } = await createRepo();
+    const backend = await open(repo, storage);
+    const initial = await backend.captureView();
+    await writeFile(join(repo, 'a.txt'), 'committed\n');
+    await writeFile(join(repo, 'new.txt'), 'new\n');
+    await git(repo, 'add', '.');
+    await git(repo, 'commit', '-m', 'second');
+    await git(repo, 'branch', 'topic');
+    await writeFile(join(repo, 'a.txt'), 'working\n');
+    await writeFile(join(repo, 'untracked.txt'), 'untracked\n');
+    await writeFile(join(repo, 'ignored.log'), 'ignored\n');
+    const current = await backend.captureView();
+
+    await backend.restoreView(current, initial);
+
+    expect(await Bun.file(join(repo, 'a.txt')).text()).toBe('initial\n');
+    expect(await Bun.file(join(repo, 'new.txt')).exists()).toBe(false);
+    expect(await Bun.file(join(repo, 'untracked.txt')).exists()).toBe(false);
+    expect(await Bun.file(join(repo, 'ignored.log')).text()).toBe('ignored\n');
+    expect(await git(repo, 'rev-parse', 'HEAD')).toBe(
+      initial.head.kind === 'branch' ? initial.head.target : '',
+    );
+    expect(await git(repo, 'for-each-ref', '--format=%(refname)')).toBe('refs/heads/main');
+    expect(await git(repo, 'diff', '--cached', '--quiet')).toBe('');
+    expect(await backend.captureView()).toEqual(initial);
+  });
+
+  it('restores a detached HEAD', async () => {
+    const { repo, storage } = await createRepo();
+    const backend = await open(repo, storage);
+    const target = await git(repo, 'rev-parse', 'HEAD');
+    await git(repo, 'checkout', '--detach', 'HEAD');
+    const detached = await backend.captureView();
+    await git(repo, 'checkout', 'main');
+    await writeFile(join(repo, 'a.txt'), 'branch\n');
+    await git(repo, 'add', 'a.txt');
+    await git(repo, 'commit', '-m', 'branch');
+    const current = await backend.captureView();
+
+    await backend.restoreView(current, detached);
+
+    expect(await git(repo, 'rev-parse', 'HEAD')).toBe(target);
+    expect(await rejectionOf(git(repo, 'symbolic-ref', '-q', 'HEAD'))).toBeDefined();
+    expect(await backend.captureView()).toEqual(detached);
+  });
+
+  it('restores an unborn HEAD and removes later branch refs', async () => {
+    const { repo, storage } = await createRepo(false);
+    await writeFile(join(repo, 'new.txt'), 'new file\n');
+    const backend = await open(repo, storage);
+    const unborn = await backend.captureView();
+    await git(repo, 'add', 'new.txt');
+    await git(repo, 'commit', '-m', 'initial');
+    await writeFile(join(repo, 'other.txt'), 'other\n');
+    const current = await backend.captureView();
+
+    await backend.restoreView(current, unborn);
+
+    expect(await git(repo, 'symbolic-ref', '-q', 'HEAD')).toBe('refs/heads/main');
+    expect(await rejectionOf(git(repo, 'rev-parse', '--verify', 'HEAD'))).toBeDefined();
+    expect(await git(repo, 'for-each-ref', '--format=%(refname)')).toBe('');
+    expect(await Bun.file(join(repo, 'new.txt')).text()).toBe('new file\n');
+    expect(await Bun.file(join(repo, 'other.txt')).exists()).toBe(false);
+    expect(await backend.captureView()).toEqual(unborn);
+  });
+
+  it('rejects restoration when the current view differs from the expected view', async () => {
+    const { repo, storage } = await createRepo();
+    const backend = await open(repo, storage);
+    const initial = await backend.captureView();
+    await writeFile(join(repo, 'a.txt'), 'expected\n');
+    const expected = await backend.captureView();
+    await writeFile(join(repo, 'a.txt'), 'external\n');
+
+    expect(await rejectionOf(backend.restoreView(expected, initial))).toMatchObject({
+      code: 'view-mismatch',
+    });
+    expect(await Bun.file(join(repo, 'a.txt')).text()).toBe('external\n');
+    expect(await git(repo, 'rev-parse', 'HEAD')).toBe(
+      expected.head.kind === 'branch' ? expected.head.target : '',
+    );
+  });
+
+  it('rolls back the worktree when updating refs fails', async () => {
+    const { repo, storage } = await createRepo();
+    const backend = await open(repo, storage);
+    const initial = await backend.captureView();
+    await writeFile(join(repo, 'a.txt'), 'current\n');
+    await git(repo, 'add', 'a.txt');
+    await git(repo, 'commit', '-m', 'current');
+    const current = await backend.captureView();
+    const lockPath = join(repo, '.git', 'refs', 'heads', 'main.lock');
+    await writeFile(lockPath, 'locked\n');
+
+    expect(await rejectionOf(backend.restoreView(current, initial))).toMatchObject({
+      name: 'GitOperationError',
+    });
+    expect(await Bun.file(join(repo, 'a.txt')).text()).toBe('current\n');
+    expect(await git(repo, 'rev-parse', 'HEAD')).toBe(
+      current.head.kind === 'branch' ? current.head.target : '',
+    );
+
+    await rm(lockPath, { force: true });
+    expect(await backend.captureView()).toEqual(current);
+  });
+
+  it('requires recovery and blocks captures when rollback fails', async () => {
+    const { repo, storage } = await createRepo();
+    const backend = await open(repo, storage);
+    const initial = await backend.captureView();
+    await writeFile(join(repo, 'a.txt'), 'current\n');
+    await git(repo, 'add', 'a.txt');
+    await git(repo, 'commit', '-m', 'current');
+    const current = await backend.captureView();
+    await writeFile(join(repo, '.git', 'refs', 'heads', 'main.lock'), 'locked\n');
+    const originalSpawn = Bun.spawn;
+    let worktreeResets = 0;
+    Bun.spawn = ((options: any) => {
+      const command = options.cmd as readonly string[];
+      if (command.includes('--reset') && command.includes('-u')) {
+        worktreeResets += 1;
+        if (worktreeResets === 2) throw new Error('Injected rollback failure');
+      }
+      return originalSpawn(options);
+    }) as typeof Bun.spawn;
+
+    try {
+      expect(await rejectionOf(backend.restoreView(current, initial))).toMatchObject({
+        code: 'recovery-required',
+      });
+      expect(worktreeResets).toBe(2);
+      expect(await rejectionOf(backend.captureView())).toMatchObject({
+        code: 'recovery-required',
+      });
+    } finally {
+      Bun.spawn = originalSpawn;
+    }
+  });
 });

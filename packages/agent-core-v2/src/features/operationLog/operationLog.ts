@@ -70,9 +70,11 @@ export type OperationLogErrorCode =
   | 'not-found'
   | 'nothing-to-undo'
   | 'nothing-to-redo'
+  | 'recovery-required'
   | 'retention-exceeded'
   | 'staged-changes'
-  | 'unfinished-operation';
+  | 'unfinished-operation'
+  | 'view-mismatch';
 
 export interface OperationLogErrorDetails {
   readonly limit?: 'operations' | 'age' | 'bytes';
