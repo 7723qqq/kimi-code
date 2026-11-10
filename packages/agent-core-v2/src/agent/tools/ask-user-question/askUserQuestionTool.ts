@@ -24,6 +24,7 @@ import {
   INTERACTION_TAG_TOOL_CALL_ID,
   INTERACTION_TAG_TURN_ID,
   isInteractionCancellation,
+  type InteractionCancellation,
   type InteractionTags,
 } from '#/human/interaction/interaction';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
@@ -253,11 +254,12 @@ export class AskUserQuestionTool implements IAskUserQuestionTool {
         }
         return null;
       });
+    const stopped: InteractionCancellation = { cancelled: true, reason: 'turn_ended' };
     if (signal.aborted) {
-      interactions.respond(id, null);
+      interactions.respond(id, stopped);
     } else {
       const onAbort = (): void => {
-        interactions.respond(id, null);
+        interactions.respond(id, stopped);
       };
       signal.addEventListener('abort', onAbort, { once: true });
       void pending

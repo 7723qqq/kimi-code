@@ -362,6 +362,21 @@ describe('server-v2 /api/v1/sessions/{sid}/interactions (question)', () => {
     expect(pendingQuestions(sid).map((i) => i.id)).toEqual(['q-6']);
   });
 
+  it('rejects the retired question note field', async () => {
+    const sid = await createSession();
+    enqueueQuestion(sid, makeRequest('q-note'));
+    const url = `/api/v1/sessions/${sid}/interactions/q-note`;
+
+    const result = await postJson<null>(url, {
+      kind: 'question',
+      dismissed: true,
+      note: 'legacy',
+    });
+
+    expect(result.body.code).toBe(40001);
+    expect(pendingQuestions(sid).map((item) => item.id)).toEqual(['q-note']);
+  });
+
   it('returns 40902 on a duplicate resolve of a colon-id question', async () => {
     const sid = await createSession();
     enqueueQuestion(sid, {

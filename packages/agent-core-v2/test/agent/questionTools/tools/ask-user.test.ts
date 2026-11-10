@@ -492,6 +492,10 @@ describe('AskUserQuestionTool', () => {
   it('resolves dismissed when the waiting question is aborted', async () => {
     const controller = new AbortController();
     const { tool } = makeTool();
+    const resolutions: unknown[] = [];
+    disposables.add(
+      toDisposable(interactions.onDidResolve((event) => resolutions.push(event.response))),
+    );
 
     const result = executeTool(tool, {
       turnId: 0,
@@ -501,13 +505,14 @@ describe('AskUserQuestionTool', () => {
     });
     controller.abort();
 
-    await expect(result).resolves.toMatchObject({ isError: false });
     const settled = await result;
+    expect(settled).toMatchObject({ isError: false });
     const output = typeof settled.output === 'string' ? settled.output : '';
     expect(JSON.parse(output)).toEqual({
       answers: {},
       note: 'User dismissed the question without answering.',
     });
+    expect(resolutions).toEqual([{ cancelled: true, reason: 'turn_ended' }]);
   });
 
   it('answers at once without asking anyone when the host is non-interactive', async () => {
