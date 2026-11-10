@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn, type Mock } from 'bun:test';
 
 import { OAuthConnectionError, OAuthUnauthorizedError } from '@moonshot-ai/kimi-code-oauth';
 
@@ -10,6 +10,7 @@ import { IOAuthService } from '#/app/auth/auth';
 import { IEventService } from '#/app/event/event';
 import type { Event2 } from '#/app/event/event2';
 import { LifecycleScope } from '#/app/scopes';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IHostRequestHeaders } from '#/llm-adapter/model/host-request-headers';
 import {
   IProviderService,
@@ -38,6 +39,7 @@ import { setEnv, setGlobal, restoreEnvs, restoreGlobals } from '#test/helpers/st
 
 import { registerLogServices } from '../../_base/log/stubs';
 import { stubProviderService } from '../../app/provider/stubs';
+import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 
 const SESSION_ID = 'sess-1';
 const MANAGED_PROVIDER: ProviderConfig = {
@@ -143,6 +145,7 @@ describe('SessionTitleService', () => {
   let ix: TestInstantiationService;
   let events: FakeEventService;
   let metadata: FakeSessionMetadata;
+  let telemetry: TelemetryRecord[];
   let providers: Record<string, ProviderConfig>;
   let fetchMock: Mock<(url: string, init?: RequestInit) => Promise<Response>>;
   let tokenError: Error | undefined;
@@ -154,6 +157,7 @@ describe('SessionTitleService', () => {
   let digestExcerpt: TitleDigestExcerpt;
   let tokenCalls: boolean[];
   let localTitle: string;
+  let localRequestError: Error | undefined;
   let localRequestCalls: number;
 
   beforeEach(() => {
@@ -166,10 +170,12 @@ describe('SessionTitleService', () => {
     digestExcerpt = { turns: [] };
     tokenCalls = [];
     localTitle = '本地生成的标题';
+    localRequestError = undefined;
     localRequestCalls = 0;
     providers = { 'managed:kimi-code': MANAGED_PROVIDER };
     metadata = new FakeSessionMetadata();
     events = new FakeEventService();
+    telemetry = [];
     fetchMock = mock<(url: string, init?: RequestInit) => Promise<Response>>(
       async () =>
         new Response(JSON.stringify({ title: '生成的标题' }), {
@@ -208,6 +214,7 @@ describe('SessionTitleService', () => {
           lastTurnRequest: () => undefined,
           request: async (_overrides, onPart) => {
             localRequestCalls += 1;
+            if (localRequestError !== undefined) throw localRequestError;
             void onPart?.({ type: 'text', text: localTitle });
             return {
               message: { role: 'assistant', content: [], toolCalls: [] },
@@ -251,6 +258,7 @@ describe('SessionTitleService', () => {
           headers: { 'User-Agent': 'test' },
           thirdPartyHeaders: {},
         });
+        reg.defineInstance(ITelemetryService, recordingTelemetry(telemetry));
         reg.define(ISessionTitleService, SessionTitleService);
       },
     });
@@ -259,6 +267,7 @@ describe('SessionTitleService', () => {
 
   afterEach(() => {
     disposables.dispose();
+    mock.restore();
     restoreGlobals();
     restoreEnvs();
   });
@@ -287,6 +296,175 @@ describe('SessionTitleService', () => {
         (event as SessionMetaUpdated).payload.patch.title === '生成的标题',
     );
     expect(rebroadcast).toBeDefined();
+  });
+
+  it('reports hosted success with timing and title length, not its content', async () => {
+    const now = spyOn(Date, 'now').mockReturnValue(1000);
+    fetchMock.mockImplementationOnce(() => {
+      now.mockReturnValue(1125);
+      return Promise.resolve(
+        new Response(JSON.stringify({ title: '生成的标题' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+    });
+    turnExcerpt = { user: '最初的问题', assistant: '第一轮的回答' };
+
+    const title = await ix.get(ISessionTitleService).generateTitle({ source: 'first_turn' });
+
+    expect(title).toBe('生成的标题');
+    expect(telemetry).toEqual([
+      {
+        event: 'session_title_generation_finished',
+        properties: {
+          trigger: 'auto',
+          source: 'first_turn',
+          outcome: 'success',
+          duration_ms: 125,
+          title_chars: 5,
+          title_outcome: 'ok',
+        },
+      },
+    ]);
+    expect(JSON.stringify(telemetry)).not.toContain('生成的标题');
+  });
+
+  it('reports manual hosted generation and truncation', async () => {
+    spyOn(Date, 'now').mockReturnValue(1000);
+    digestExcerpt = { turns: [{ user: 'hello', assistant: 'world' }] };
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ title: 'x'.repeat(201) }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const title = await ix
+      .get(ISessionTitleService)
+      .generateTitle({ force: true, source: 'digest' });
+
+    expect(title).toBe('x'.repeat(200));
+    expect(telemetry.map((record) => record.properties)).toEqual([
+      {
+        trigger: 'manual',
+        source: 'digest',
+        outcome: 'success',
+        duration_ms: 0,
+        title_chars: 200,
+        title_outcome: 'truncated',
+      },
+    ]);
+  });
+
+  it('reports hosted request failures without exposing the error message', async () => {
+    titlePrompts = ['hello'];
+    fetchMock.mockResolvedValueOnce(new Response('sensitive response', { status: 500 }));
+
+    const title = await ix.get(ISessionTitleService).generateTitle();
+
+    expect(title).toBeUndefined();
+    expect(telemetry.map((record) => record.properties)).toEqual([
+      {
+        trigger: 'auto',
+        source: 'user_prompts',
+        outcome: 'unavailable',
+        reason: 'request_failed',
+        duration_ms: expect.any(Number),
+      },
+    ]);
+    expect(JSON.stringify(telemetry)).not.toContain('sensitive response');
+  });
+
+  it('reports unexpected hosted errors and preserves their propagation', async () => {
+    titlePrompts = ['hello'];
+    tokenError = new TypeError('unexpected failure');
+    let thrown: unknown;
+
+    try {
+      await ix.get(ISessionTitleService).generateTitle({ force: true });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBe(tokenError);
+    expect(telemetry.map((record) => record.properties)).toEqual([
+      {
+        trigger: 'manual',
+        source: 'user_prompts',
+        outcome: 'error',
+        reason: 'unexpected',
+        error_type: 'TypeError',
+        duration_ms: expect.any(Number),
+      },
+    ]);
+    expect(JSON.stringify(telemetry)).not.toContain('unexpected failure');
+  });
+
+  it('skips telemetry for existing titles and reports when no input is available', async () => {
+    await metadata.setTitle('user 取的标题');
+    expect(await ix.get(ISessionTitleService).generateTitle()).toBeUndefined();
+    expect(telemetry).toEqual([]);
+
+    const title = await ix
+      .get(ISessionTitleService)
+      .generateTitle({ force: true, source: 'first_turn' });
+
+    expect(title).toBeUndefined();
+    expect(telemetry).toHaveLength(1);
+    expect(telemetry[0]).toMatchObject({
+      event: 'session_title_generation_finished',
+      properties: {
+        trigger: 'manual',
+        source: 'first_turn',
+        outcome: 'unavailable',
+        reason: 'no_input',
+      },
+    });
+    expect(telemetry[0]!.properties?.['duration_ms']).toEqual(expect.any(Number));
+  });
+
+  it('reports local generation and truncation without recording the title', async () => {
+    delete providers['managed:kimi-code'];
+    titlePrompts = ['hello'];
+    localTitle = 'x'.repeat(201);
+
+    const title = await ix.get(ISessionTitleService).generateTitle();
+
+    expect(title).toBe('x'.repeat(200));
+    expect(localRequestCalls).toBe(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(telemetry.map((record) => record.properties)).toEqual([
+      {
+        trigger: 'auto',
+        source: 'user_prompts',
+        outcome: 'success',
+        duration_ms: expect.any(Number),
+        title_chars: 200,
+        title_outcome: 'truncated',
+      },
+    ]);
+    expect(JSON.stringify(telemetry)).not.toContain('x'.repeat(201));
+  });
+
+  it('reports local request failures without exposing the error message', async () => {
+    delete providers['managed:kimi-code'];
+    titlePrompts = ['hello'];
+    localRequestError = new Error('sensitive local failure');
+
+    const title = await ix.get(ISessionTitleService).generateTitle();
+
+    expect(title).toBeUndefined();
+    expect(telemetry.map((record) => record.properties)).toEqual([
+      {
+        trigger: 'auto',
+        source: 'user_prompts',
+        outcome: 'unavailable',
+        reason: 'request_failed',
+        duration_ms: expect.any(Number),
+      },
+    ]);
+    expect(JSON.stringify(telemetry)).not.toContain('sensitive local failure');
   });
 
   it('composes the title input from the recorded prompts in order', async () => {

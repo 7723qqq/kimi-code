@@ -12,6 +12,8 @@ import { ILogService } from '#/_base/log/log';
 import { IOAuthService } from '#/app/auth/auth';
 import { IEventService } from '#/app/event/event';
 import { LifecycleScope } from '#/app/scopes';
+import type { SessionTitleGenerationFinishedEvent } from '#/app/telemetry/events';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
 import { IHostRequestHeaders } from '#/llm-adapter/model/host-request-headers';
 import { IProviderService, type ProviderConfig } from '#/llm-adapter/provider/provider';
@@ -40,6 +42,10 @@ const MAX_TITLE_DIGEST_ASSISTANT = 200;
 
 const MAX_TITLE_DIGEST_INPUT_LENGTH = 3000;
 
+type TitleGenerationResult =
+  | { title: string; outcome: 'ok' | 'truncated' }
+  | { title?: undefined; reason: NonNullable<SessionTitleGenerationFinishedEvent['reason']> };
+
 export class SessionTitleService implements ISessionTitleService {
   declare readonly _serviceBrand: undefined;
 
@@ -53,6 +59,7 @@ export class SessionTitleService implements ISessionTitleService {
     @IProviderService private readonly providers: IProviderService,
     @IOAuthService private readonly oauth: IOAuthService,
     @IHostRequestHeaders private readonly hostHeaders: IHostRequestHeaders,
+    @ITelemetryService private readonly telemetry: ITelemetryService,
     @ILogService private readonly log: ILogService,
   ) {}
 
@@ -62,35 +69,75 @@ export class SessionTitleService implements ISessionTitleService {
   }): Promise<string | undefined> {
     const force = opts?.force === true;
     const source = opts?.source ?? 'user_prompts';
-    if (force) return this.generateTitleOnce(true, source);
+    if (force) return this.trackGeneration(true, source);
     if (this._shared !== undefined) return this._shared;
-    const tracked = this.generateTitleOnce(false, source).finally(() => {
+    const tracked = this.trackGeneration(false, source).finally(() => {
       if (this._shared === tracked) this._shared = undefined;
     });
     this._shared = tracked;
     return tracked;
   }
 
-  private async generateTitleOnce(
+  private async trackGeneration(
     force: boolean,
     source: SessionTitleSource,
   ): Promise<string | undefined> {
+    const startedAt = Date.now();
+    const trigger = force ? 'manual' : 'auto';
+    const track = (
+      result: Omit<SessionTitleGenerationFinishedEvent, 'duration_ms' | 'trigger' | 'source'>,
+    ): void => {
+      this.telemetry.track2('session_title_generation_finished', {
+        ...result,
+        trigger,
+        source,
+        duration_ms: Date.now() - startedAt,
+      });
+    };
+    try {
+      const result = await this.generateTitleOnce(force, source);
+      if (result?.title !== undefined) {
+        track({
+          outcome: 'success',
+          title_chars: result.title.length,
+          title_outcome: result.outcome,
+        });
+      } else if (result !== undefined) {
+        track({ outcome: 'unavailable', reason: result.reason });
+      }
+      return result?.title;
+    } catch (error) {
+      track({
+        outcome: 'error',
+        reason: 'unexpected',
+        error_type: error instanceof Error ? error.name : 'Unknown',
+      });
+      throw error;
+    }
+  }
+
+  private async generateTitleOnce(
+    force: boolean,
+    source: SessionTitleSource,
+  ): Promise<TitleGenerationResult | undefined> {
     const current = await this.metadata.read();
     if (!force) {
-      if (current.titleKind === 'custom') return undefined;
-      if (current.titleKind === 'generated') return undefined;
+      if (current.titleKind === 'custom' || current.titleKind === 'generated') return undefined;
     }
     const main = this.agentLifecycle.handleOf(MAIN_AGENT_ID);
-    if (main === undefined) return undefined;
+    if (main === undefined) return { reason: 'no_agent' };
     const promptSource = main.accessor.get(IAgentTitlePromptSource);
     const input = await composeTitleInput(promptSource, source);
-    if (input === undefined) return undefined;
+    if (input === undefined) return { reason: 'no_input' };
     return this.generateAndApply(input, force);
   }
 
-  private async generateAndApply(chatContent: string, force: boolean): Promise<string | undefined> {
+  private async generateAndApply(
+    chatContent: string,
+    force: boolean,
+  ): Promise<TitleGenerationResult> {
     const current = await this.metadata.read();
-    if (!force && current.titleKind === 'custom') return undefined;
+    if (!force && current.titleKind === 'custom') return { reason: 'custom_title' };
     if (this.kimiTitleProvider() === undefined) {
       return this.generateLocalTitle(chatContent, force);
     }
@@ -112,9 +159,9 @@ export class SessionTitleService implements ISessionTitleService {
   private async requestHostedTitle(
     chatContent: string,
     force: boolean,
-  ): Promise<string | undefined> {
+  ): Promise<TitleGenerationResult> {
     const provider = this.kimiTitleProvider();
-    if (provider === undefined) return undefined;
+    if (provider === undefined) return { reason: 'provider_unavailable' };
     const runtimeAuth = resolveKimiCodeRuntimeAuth({
       configuredBaseUrl: provider.baseUrl,
       configuredOAuthRef: provider.oauth,
@@ -123,14 +170,14 @@ export class SessionTitleService implements ISessionTitleService {
       KIMI_CODE_PROVIDER_NAME,
       runtimeAuth.oauthRef,
     );
-    if (tokenProvider === undefined) return undefined;
+    if (tokenProvider === undefined) return { reason: 'token_unavailable' };
     let token: string;
     try {
       token = await tokenProvider.getAccessToken();
     } catch (error) {
       if (!(error instanceof OAuthError)) throw error;
       this.log.debug(`chat_title request unavailable: ${error.message}`);
-      return undefined;
+      return { reason: 'oauth_unavailable' };
     }
     const requestTitle = (accessToken: string) =>
       fetchChatTitle(kimiCodeToolsUrl(runtimeAuth.baseUrl), accessToken, chatContent, {
@@ -147,25 +194,29 @@ export class SessionTitleService implements ISessionTitleService {
       } catch (error) {
         if (!(error instanceof OAuthError)) throw error;
         this.log.debug(`chat_title request unavailable: ${error.message}`);
-        return undefined;
+        return { reason: 'oauth_unavailable' };
       }
       result = await requestTitle(token);
     }
     if (result.kind !== 'ok') {
       this.log.debug(`chat_title request failed: ${result.message}`);
-      return undefined;
+      return { reason: 'request_failed' };
     }
-    return this.applyTitle(result.title.slice(0, MAX_GENERATED_TITLE_LENGTH), force);
+    return this.applyTitle(
+      result.title.slice(0, MAX_GENERATED_TITLE_LENGTH),
+      force,
+      result.title.length > MAX_GENERATED_TITLE_LENGTH ? 'truncated' : 'ok',
+    );
   }
 
   private async generateLocalTitle(
     chatContent: string,
     force: boolean,
-  ): Promise<string | undefined> {
+  ): Promise<TitleGenerationResult> {
     const agent = this.agentLifecycle.handleOf(MAIN_AGENT_ID);
-    if (agent === undefined) return undefined;
+    if (agent === undefined) return { reason: 'no_agent' };
     const requester = agent.accessor.get(IAgentLLMRequesterService);
-    if (requester === undefined) return undefined;
+    if (requester === undefined) return { reason: 'provider_unavailable' };
     const prompt = [
       'Write a short title for this conversation, at most 40 characters. Reply with the title only: no quotes, no preamble, no trailing period.',
       '',
@@ -186,20 +237,27 @@ export class SessionTitleService implements ISessionTitleService {
       this.log.debug(
         `chat_title local generation failed: ${error instanceof Error ? error.message : String(error)}`,
       );
-      return undefined;
+      return { reason: 'request_failed' };
     }
     const title = parts
       .join('')
       .trim()
-      .replace(/^["'“”]|["'“”]$/g, '')
-      .slice(0, MAX_GENERATED_TITLE_LENGTH);
-    if (title.length === 0) return undefined;
-    return this.applyTitle(title, force);
+      .replace(/^["'“”]|["'“”]$/g, '');
+    if (title.length === 0) return { reason: 'request_failed' };
+    return this.applyTitle(
+      title.slice(0, MAX_GENERATED_TITLE_LENGTH),
+      force,
+      title.length > MAX_GENERATED_TITLE_LENGTH ? 'truncated' : 'ok',
+    );
   }
 
-  private async applyTitle(title: string, force: boolean): Promise<string | undefined> {
+  private async applyTitle(
+    title: string,
+    force: boolean,
+    outcome: 'ok' | 'truncated',
+  ): Promise<TitleGenerationResult> {
     const applied = await this.metadata.setGeneratedTitleIfUncustomized(title, { force });
-    if (!applied) return undefined;
+    if (!applied) return { reason: 'custom_title' };
     this.eventService.publish(
       new SessionMetaUpdated({
         payload: {
@@ -210,7 +268,7 @@ export class SessionTitleService implements ISessionTitleService {
         },
       }),
     );
-    return title;
+    return { title, outcome };
   }
 }
 
