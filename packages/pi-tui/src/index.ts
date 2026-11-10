@@ -3,7 +3,9 @@
 export { Marked, type Token, type Tokens } from 'marked';
 // Autocomplete support
 export {
+  type AutocompleteContext,
   type AutocompleteItem,
+  type AutocompletePreviewContext,
   type AutocompleteProvider,
   type AutocompleteSuggestions,
   CombinedAutocompleteProvider,

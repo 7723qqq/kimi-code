@@ -579,6 +579,38 @@ describe('KimiTUI startup', () => {
     });
   });
 
+  it('completes remote @ mentions through the live session', async () => {
+    const suggestFiles = mock(async () => ({
+      items: [{ path: 'src/app.ts', name: 'app.ts', kind: 'file', matchPositions: [0] }],
+      truncated: false,
+    }));
+    const session = makeSession();
+    const harness = makeHarness(session, { suggestFiles });
+    const driver = makeDriver(harness, makeStartupInput({ model: 'k2' }));
+    await driver.init();
+    await driver.setSession(session);
+    driver.state.appState.environment = {
+      environmentId: 'dev-box',
+      type: 'ssh',
+      status: 'ready',
+      cwd: '/remote/work',
+    };
+    const setAutocompleteProvider = spyOn(driver.state.editor, 'setAutocompleteProvider');
+    (driver as unknown as { refreshSlashCommandAutocomplete(): void }).refreshSlashCommandAutocomplete();
+    const provider = setAutocompleteProvider.mock.calls.at(-1)?.[0];
+
+    const result = await provider!.getSuggestions(['@app'], 0, 4, {
+      signal: new AbortController().signal,
+    });
+
+    expect(suggestFiles).toHaveBeenCalledWith(driver.state.appState.workDir, {
+      query: 'app',
+      sessionId: session.id,
+      followGitignore: false,
+    });
+    expect(result?.items[0]).toMatchObject({ value: '@src/app.ts' });
+  });
+
   it('resumes the latest session for --continue and marks history for replay', async () => {
     const session = makeSession({ id: 'ses-latest' });
     const harness = makeHarness(session, {

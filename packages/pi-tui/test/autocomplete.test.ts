@@ -146,20 +146,39 @@ describe("CombinedAutocompleteProvider", () => {
 			rmSync(rootDir, { recursive: true, force: true });
 		});
 
-		test("returns all files and folders for empty @ query", async () => {
+		test("includes gitignored files by match quality only when explicitly enabled", async () => {
+			expect(spawnSync("git", ["init", "--quiet"], { cwd: baseDir }).status).toBe(0);
 			setupFolder(baseDir, {
 				dirs: ["src"],
 				files: {
+					".gitignore": "ignored.ts\n",
 					"README.md": "readme",
+					"ignored.ts": "ignored",
 				},
 			});
 
-			const provider = new CombinedAutocompleteProvider([], baseDir, requireFdPath());
 			const line = "@";
-			const result = await getSuggestions(provider, [line], 0, line.length);
+			const defaultProvider = new CombinedAutocompleteProvider([], baseDir, requireFdPath());
+			const defaultResult = await getSuggestions(defaultProvider, [line], 0, line.length);
+			const defaultValues = defaultResult?.items.map((item) => item.value) ?? [];
+			expect(defaultValues.includes("@README.md")).toBeTruthy();
+			expect(defaultValues.includes("@src/")).toBeTruthy();
+			expect(defaultValues.includes("@ignored.ts")).toBeFalsy();
 
-			const values = result?.items.map((item) => item.value).sort();
-			expect(values).toStrictEqual(["@README.md", "@src/"].sort());
+			const provider = new CombinedAutocompleteProvider([], baseDir, requireFdPath(), [], {
+				includeGitignoredFiles: true,
+			});
+			const result = await getSuggestions(provider, [line], 0, line.length);
+			const values = result?.items.map((item) => item.value) ?? [];
+			expect(values.at(-1)).toBe("@ignored.ts");
+			expect(values.indexOf("@README.md") < values.indexOf("@ignored.ts")).toBeTruthy();
+			expect(values.indexOf("@src/") < values.indexOf("@ignored.ts")).toBeTruthy();
+
+			const weakFiles: Record<string, string> = { ".gitignore": ".tmp/**\n", ".tmp/ignored.ts": "ignored" };
+			for (let i = 0; i < 25; i++) weakFiles[`weak-${i}.tmp.ts`] = "export {};";
+			setupFolder(baseDir, { files: weakFiles });
+			const exact = await getSuggestions(provider, ["@.tmp"], 0, 5);
+			expect(exact?.items[0]?.value).toBe("@.tmp/");
 		});
 
 		test("matches file with extension in query", async () => {
@@ -243,20 +262,32 @@ describe("CombinedAutocompleteProvider", () => {
 			expect(!values?.includes("@packages/ai/src/autocomplete.ts")).toBeTruthy();
 		});
 
-		test("searches additional base paths with fd for @ mentions", async () => {
+		test("ranks exact matches before ignored status across additional roots", async () => {
+			expect(spawnSync("git", ["init", "--quiet"], { cwd: baseDir }).status).toBe(0);
+			expect(spawnSync("git", ["init", "--quiet"], { cwd: outsideDir }).status).toBe(0);
 			setupFolder(baseDir, {
-				files: { "shared-cwd.ts": "export {};" },
+				files: { ".gitignore": "shared\n", "shared-cwd.ts": "export {};", shared: "ignored" },
 			});
 			setupFolder(outsideDir, {
-				files: { "shared-extra.ts": "export {};" },
+				files: { ".gitignore": "shared\n", "shared-extra.ts": "export {};", shared: "ignored" },
 			});
 
-			const provider = new CombinedAutocompleteProvider([], baseDir, requireFdPath(), [outsideDir]);
+			const provider = new CombinedAutocompleteProvider([], baseDir, requireFdPath(), [outsideDir], {
+				includeGitignoredFiles: true,
+			});
 			const result = await getSuggestions(provider, ["@shared"], 0, 7);
 
 			const values = result?.items.map((item) => item.value) ?? [];
-			expect(values.includes("@shared-cwd.ts")).toBeTruthy();
-			expect(values.includes(`@${join(outsideDir, "shared-extra.ts").replace(/\\/g, "/")}`)).toBeTruthy();
+			const cwd = "@shared-cwd.ts";
+			const extra = `@${join(outsideDir, "shared-extra.ts").replace(/\\/g, "/")}`;
+			const ignoredCwd = values.indexOf("@shared");
+			const ignoredExtra = values.indexOf(`@${join(outsideDir, "shared").replace(/\\/g, "/")}`);
+			expect(values.includes(cwd)).toBeTruthy();
+			expect(values.includes(extra)).toBeTruthy();
+			expect(ignoredCwd < values.indexOf(cwd)).toBeTruthy();
+			expect(ignoredCwd < values.indexOf(extra)).toBeTruthy();
+			expect(ignoredExtra < values.indexOf(cwd)).toBeTruthy();
+			expect(ignoredExtra < values.indexOf(extra)).toBeTruthy();
 		});
 
 		test("scopes @dir/ queries across every root", async () => {
@@ -291,20 +322,23 @@ describe("CombinedAutocompleteProvider", () => {
 			expect(overlapCount).toBe(1);
 		});
 
-		test("merges empty @ query across roots within the result cap", async () => {
-			const cwdFiles: Record<string, string> = {};
+		test("does not let ignored matches displace a full ordinary result cap across roots", async () => {
+			const cwdFiles: Record<string, string> = { ".gitignore": "f-ignored.ts\n", "f-ignored.ts": "ignored" };
 			for (let i = 0; i < 15; i++) cwdFiles[`f${i}.ts`] = "export {};";
 			setupFolder(baseDir, { files: cwdFiles });
-			const extraFiles: Record<string, string> = {};
+			const extraFiles: Record<string, string> = { ".gitignore": "g-ignored.ts\n", "g-ignored.ts": "ignored" };
 			for (let i = 0; i < 15; i++) extraFiles[`g${i}.ts`] = "export {};";
 			setupFolder(outsideDir, { files: extraFiles });
 
-			const provider = new CombinedAutocompleteProvider([], baseDir, requireFdPath(), [outsideDir]);
+			const provider = new CombinedAutocompleteProvider([], baseDir, requireFdPath(), [outsideDir], {
+				includeGitignoredFiles: true,
+			});
 			const result = await getSuggestions(provider, ["@"], 0, 1);
 
-			const count = result?.items.length ?? 0;
-			expect(count <= 20, `expected <= 20 items, got ${count}`).toBeTruthy();
-			expect(count > 0).toBeTruthy();
+			const values = result?.items.map((item) => item.value) ?? [];
+			expect(values.length).toBe(20);
+			expect(values.includes("@f-ignored.ts")).toBeFalsy();
+			expect(values.includes(`@${join(outsideDir, "g-ignored.ts").replace(/\\/g, "/")}`)).toBeFalsy();
 		});
 
 		test("falls back to full-path per root when another root has the scoped directory", async () => {

@@ -1,4 +1,4 @@
-import type { AutocompleteProvider, AutocompleteSuggestions } from '../autocomplete.ts';
+import type { AutocompleteContext, AutocompleteProvider, AutocompleteSuggestions } from '../autocomplete.ts';
 import { getKeybindings } from '../keybindings.ts';
 import { decodePrintableKey, matchesKey } from '../keys.ts';
 import { KillRing } from '../kill-ring.ts';
@@ -398,6 +398,10 @@ export class Editor implements Component, Focusable {
   private autocompleteRequestTask: Promise<void> = Promise.resolve();
   private autocompleteStartToken: number = 0;
   private autocompleteRequestId: number = 0;
+  private autocompleteAuthoritative?: {
+    context: AutocompleteContext;
+    suggestions: AutocompleteSuggestions;
+  };
   /**
    * Called when an autocomplete provider rejects with a real error (aborts are
    * the expected cancellation path and stay silent). Assignable after
@@ -2643,6 +2647,28 @@ export class Editor implements Component, Focusable {
 
     const debounceMs = this.getAutocompleteDebounceMs(options);
     if (debounceMs > 0) {
+      const previous = this.autocompleteAuthoritative;
+      if (previous && this.autocompleteProvider.getAutocompletePreview) {
+        const preview = this.autocompleteProvider.getAutocompletePreview({
+          lines: [...this.state.lines],
+          cursorLine: this.state.cursorLine,
+          cursorCol: this.state.cursorCol,
+          previous: {
+            lines: previous.context.lines,
+            cursorLine: previous.context.cursorLine,
+            cursorCol: previous.context.cursorCol,
+            suggestions: previous.suggestions,
+          },
+        });
+        if (preview !== null) {
+          if (preview.items.length === 0) {
+            this.autocompleteList = undefined;
+          } else {
+            this.applyAutocompleteSuggestions(preview, options.force ? 'force' : 'regular');
+          }
+          this.tui.requestRender();
+        }
+      }
       this.autocompleteDebounceTimer = setTimeout(() => {
         this.autocompleteDebounceTimer = undefined;
         void this.startAutocompleteRequest(startToken, options);
@@ -2733,9 +2759,15 @@ export class Editor implements Component, Focusable {
 
     const currentLine = this.state.lines[this.state.cursorLine] || '';
     const textBeforeCursor = currentLine.slice(0, this.state.cursorCol);
-    return this.autocompleteDebouncePattern.test(textBeforeCursor)
-      ? ATTACHMENT_AUTOCOMPLETE_DEBOUNCE_MS
-      : 0;
+    if (!this.autocompleteDebouncePattern.test(textBeforeCursor)) return 0;
+    const configured = this.autocompleteProvider?.autocompleteDebounceMs;
+    if (
+      configured !== undefined &&
+      (textBeforeCursor.endsWith('@') || textBeforeCursor.endsWith('@"'))
+    ) {
+      return 0;
+    }
+    return configured ?? ATTACHMENT_AUTOCOMPLETE_DEBOUNCE_MS;
   }
 
   private async runAutocompleteRequest(
@@ -2794,6 +2826,14 @@ export class Editor implements Component, Focusable {
       return;
     }
 
+    this.autocompleteAuthoritative = {
+      context: {
+        lines: [...this.state.lines],
+        cursorLine: this.state.cursorLine,
+        cursorCol: this.state.cursorCol,
+      },
+      suggestions,
+    };
     this.applyAutocompleteSuggestions(suggestions, options.force ? 'force' : 'regular');
     this.tui.requestRender();
   }
@@ -2850,6 +2890,7 @@ export class Editor implements Component, Focusable {
 
   private cancelAutocomplete(): void {
     this.cancelAutocompleteRequest();
+    this.autocompleteAuthoritative = undefined;
     this.clearAutocompleteUi();
   }
 

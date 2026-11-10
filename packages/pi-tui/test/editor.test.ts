@@ -1,4 +1,4 @@
-import { expect, describe, it, setSystemTime } from "bun:test";
+import { expect, describe, it, setSystemTime, afterEach, jest } from "bun:test";
 import { stripVTControlCharacters } from "node:util";
 import { type AutocompleteProvider, CombinedAutocompleteProvider } from "../src/autocomplete.ts";
 import { Editor, wordWrapLine } from "../src/components/editor.ts";
@@ -2458,6 +2458,9 @@ describe("Editor component", () => {
 	});
 
 	describe("Autocomplete", () => {
+		afterEach(() => {
+			jest.useRealTimers();
+		});
 		it("auto-applies single force-file suggestion without showing menu", async () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 
@@ -2595,37 +2598,82 @@ describe("Editor component", () => {
 			expect(editor.isShowingAutocomplete()).toBe(false);
 		});
 
-		it("debounces @ autocomplete while typing", async () => {
+		it("previews appended queries without replacing the trailing authoritative search", async () => {
+			jest.useFakeTimers();
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
-			let suggestionCalls = 0;
-
+			const requests: string[] = [];
+			let releaseAx: (() => void) | undefined;
 			const mockProvider: AutocompleteProvider = {
-				getSuggestions: async (lines, _cursorLine, cursorCol) => {
-					suggestionCalls += 1;
-					const text = (lines[0] || "").slice(0, cursorCol);
+				autocompleteDebounceMs: 80,
+				getAutocompletePreview: ({ previous, lines, cursorLine, cursorCol }) => {
+					const prefix = (lines[cursorLine] || "").slice(0, cursorCol);
+					if (!prefix.startsWith(previous.suggestions.prefix)) return null;
 					return {
-						items: [{ value: "@main.ts", label: "main.ts" }],
-						prefix: text,
+						prefix,
+						items: previous.suggestions.items.filter((item) => item.value.startsWith(prefix)),
 					};
+				},
+				getSuggestions: async (lines, _cursorLine, cursorCol) => {
+					const text = (lines[0] || "").slice(0, cursorCol);
+					requests.push(text);
+					if (text === "@ax") {
+						return await new Promise<{ items: { value: string; label: string }[]; prefix: string }>((resolve) => {
+							releaseAx = () => resolve({ items: [{ value: "@ax-old", label: "ax-old" }], prefix: text });
+						});
+					}
+					if (text === "@ax/") {
+						return { items: [{ value: "@ax/axis", label: "axis" }], prefix: text };
+					}
+					const values = text === "@al" ? ["@albatross", "@alpha"] : ["@alpha", "@atom"];
+					return { items: values.map((value) => ({ value, label: value.slice(1) })), prefix: text };
 				},
 				applyCompletion,
 			};
+			const rendered = () => editor.render(80).map((line) => stripVTControlCharacters(line)).join("\n");
 
 			editor.setAutocompleteProvider(mockProvider);
-
 			editor.handleInput("@");
-			editor.handleInput("m");
-			editor.handleInput("a");
-			editor.handleInput("i");
-
-			expect(suggestionCalls).toBe(0);
-			expect(editor.isShowingAutocomplete()).toBe(false);
-
-			await new Promise((resolve) => setTimeout(resolve, 50));
 			await flushAutocomplete();
+			expect(requests).toStrictEqual(["@"]);
 
-			expect(suggestionCalls).toBe(1);
+			editor.handleInput("a");
+			jest.advanceTimersByTime(79);
+			await flushAutocomplete();
+			expect(requests).toStrictEqual(["@"]);
+			jest.advanceTimersByTime(1);
+			await flushAutocomplete();
+			expect(requests).toStrictEqual(["@", "@a"]);
+
+			editor.handleInput("l");
+			expect(rendered().includes("alpha")).toBeTruthy();
+			expect(rendered().includes("atom")).toBeFalsy();
+			jest.advanceTimersByTime(80);
+			await flushAutocomplete();
+			expect(requests).toStrictEqual(["@", "@a", "@al"]);
+			expect(rendered().includes("albatross")).toBeTruthy();
+
+			editor.handleInput("\x7f");
+			jest.advanceTimersByTime(80);
+			await flushAutocomplete();
+			expect(requests).toStrictEqual(["@", "@a", "@al", "@a"]);
+			expect(rendered().includes("albatross")).toBeFalsy();
+
+			editor.handleInput("x");
 			expect(editor.isShowingAutocomplete()).toBe(true);
+			expect(rendered().includes("alpha")).toBeFalsy();
+			expect(rendered().includes("atom")).toBeFalsy();
+			jest.advanceTimersByTime(80);
+			await flushAutocomplete();
+			expect(requests).toStrictEqual(["@", "@a", "@al", "@a", "@ax"]);
+
+			editor.handleInput("/");
+			jest.advanceTimersByTime(80);
+			releaseAx?.();
+			await flushAutocomplete();
+			await flushAutocomplete();
+			expect(requests).toStrictEqual(["@", "@a", "@al", "@a", "@ax", "@ax/"]);
+			expect(rendered().includes("axis")).toBeTruthy();
+			expect(rendered().includes("ax-old")).toBeFalsy();
 		});
 
 		it("re-queries the autocomplete picker when the cursor moves back into the command name", async () => {
@@ -2772,41 +2820,48 @@ describe("Editor component", () => {
 			expect(editor.isShowingAutocomplete()).toBe(false);
 		});
 
-		it("aborts active @ autocomplete when typing continues", async () => {
+		it("aborts stale requests without letting their late responses replace newer results", async () => {
+			jest.useFakeTimers();
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 			let aborts = 0;
-
+			let releaseOld: ((suggestions: { items: { value: string; label: string }[]; prefix: string }) => void) | undefined;
+			const requests: string[] = [];
 			const mockProvider: AutocompleteProvider = {
-				getSuggestions: async (_lines, _cursorLine, _cursorCol, options) => {
-					return await new Promise((resolve) => {
-						const timeout = setTimeout(() => {
-							resolve({ items: [{ value: "@main.ts", label: "main.ts" }], prefix: "@main" });
-						}, 500);
-						options.signal.addEventListener(
-							"abort",
-							() => {
-								aborts += 1;
-								clearTimeout(timeout);
-								resolve(null);
-							},
-							{ once: true },
-						);
-					});
+				autocompleteDebounceMs: 80,
+				getSuggestions: async (lines, _cursorLine, cursorCol, options) => {
+					const text = (lines[0] || "").slice(0, cursorCol);
+					requests.push(text);
+					if (text === "@a") {
+						return await new Promise((resolve) => {
+							releaseOld = resolve;
+							options.signal.addEventListener("abort", () => { aborts += 1; }, { once: true });
+						});
+					}
+					const value = text === "@ab" ? "@ab-new" : "@initial";
+					return { items: [{ value, label: value.slice(1) }], prefix: text };
 				},
 				applyCompletion,
 			};
 
 			editor.setAutocompleteProvider(mockProvider);
-
 			editor.handleInput("@");
-			editor.handleInput("m");
+			await flushAutocomplete();
 			editor.handleInput("a");
-			editor.handleInput("i");
-			await new Promise((resolve) => setTimeout(resolve, 250));
-			editor.handleInput("n");
-			await new Promise((resolve) => setTimeout(resolve, 50));
+			jest.advanceTimersByTime(80);
+			await flushAutocomplete();
+			expect(requests).toStrictEqual(["@", "@a"]);
+
+			editor.handleInput("b");
+			jest.advanceTimersByTime(80);
+			releaseOld?.({ items: [{ value: "@a-old", label: "a-old" }], prefix: "@a" });
+			await flushAutocomplete();
+			await flushAutocomplete();
 
 			expect(aborts).toBe(1);
+			expect(requests).toStrictEqual(["@", "@a", "@ab"]);
+			const output = editor.render(80).map((line) => stripVTControlCharacters(line)).join("\n");
+			expect(output.includes("ab-new")).toBeTruthy();
+			expect(output.includes("a-old")).toBeFalsy();
 		});
 
 		it("keeps autocomplete alive after a provider rejection and reports it once", async () => {
@@ -2898,6 +2953,7 @@ describe("Editor component", () => {
 			} finally {
 				process.off("unhandledRejection", onUnhandled);
 			}
+
 		});
 
 		it("hides autocomplete when backspacing slash command to empty", async () => {

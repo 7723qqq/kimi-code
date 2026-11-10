@@ -675,6 +675,7 @@ export class KimiTUI {
             const result = await this.harness.suggestFiles(this.state.appState.workDir, {
               query,
               sessionId: session.id,
+              followGitignore: false,
             });
             return result?.items;
           },
