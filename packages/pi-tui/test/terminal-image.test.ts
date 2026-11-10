@@ -16,8 +16,12 @@ import {
 	encodeKitty,
 	encodeSixel,
 	getCapabilities,
+	getGifDimensions,
+	getJpegDimensions,
 	getKittyImageMetadata,
 	getKittyImagePlacement,
+	getPngDimensions,
+	getWebpDimensions,
 	hyperlink,
 	imageFallback,
 	isImageLine,
@@ -138,6 +142,10 @@ describe("isImageLine", () => {
 
 		it("should not flag plain text that merely mentions sixel", () => {
 			expect(isImageLine("sixel images are supported here")).toBe(false);
+		});
+
+		it("should not flag a non-sixel DCS sequence", () => {
+			expect(isImageLine("\x1bP0;1znot-an-image\x1b\\")).toBe(false);
 		});
 	});
 
@@ -517,10 +525,55 @@ describe("sixel encoding", () => {
 		try {
 			const pixels = new Uint8Array(2 * 2 * 4).fill(255); // 2x2 opaque white
 			const sequence = encodeSixel(pixels, 2, 2, { maxWidthCells: 2 });
-			expect(sequence.startsWith("\x1bPq"), "must open with DCS").toBeTruthy();
+			expect(sequence.startsWith("\x1bP0;1q"), "must open with DCS").toBeTruthy();
 			expect(sequence.endsWith("\x1b\\"), "must close with ST").toBeTruthy();
 			expect(sequence.includes("#0;2;0;0;0"), "must define palette entry 0").toBeTruthy();
 			expect(sequence.includes("#239;2;93;93;93"), "must define the last grayscale entry").toBeTruthy();
+		} finally {
+			setCellDimensions({ widthPx: 9, heightPx: 18 });
+		}
+	});
+
+	it("declares a transparent background and a 1:1 pixel aspect", () => {
+		setCellDimensions({ widthPx: 9, heightPx: 18 });
+		try {
+			const pixels = new Uint8Array(2 * 2 * 4).fill(255);
+			const sequence = encodeSixel(pixels, 2, 2, { maxWidthCells: 2 });
+			// Windows Terminal reads DCS P1 as the macro aspect (0 means 2:1) and
+			// P2 as the background select (0 means an opaque fill), so both have
+			// to be stated explicitly.
+			expect(sequence.startsWith("\x1bP0;1q"), "P2=1 must select a transparent background").toBeTruthy();
+			expect(sequence.includes('"1;1'), "raster attributes must declare a 1:1 aspect").toBeTruthy();
+			expect(isImageLine(sequence), "the emitted sequence must survive line truncation").toBe(true);
+		} finally {
+			setCellDimensions({ widthPx: 9, heightPx: 18 });
+		}
+	});
+
+	it("returns the pen to the band start between color runs", () => {
+		setCellDimensions({ widthPx: 10, heightPx: 10 });
+		try {
+			const pixels = new Uint8Array(2 * 2 * 4);
+			for (let y = 0; y < 2; y++) {
+				pixels[(y * 2) * 4] = 255; // left column red
+				pixels[(y * 2) * 4 + 3] = 255;
+				pixels[(y * 2 + 1) * 4 + 1] = 255; // right column green
+				pixels[(y * 2 + 1) * 4 + 3] = 255;
+			}
+			const sequence = encodeSixel(pixels, 2, 2, { maxWidthCells: 2 });
+			const body = sequence.slice(sequence.indexOf("\x1bP0;1q") + 6, sequence.lastIndexOf("\x1b\\"));
+			const pixelPart = body.slice(body.indexOf("#239;2;93;93;93") + "#239;2;93;93;93".length);
+			// targetH rounds down to 18 rows -> 3 bands, each holding two color
+			// runs, so each band needs one carriage return between them.
+			const bands = pixelPart.split("-");
+			expect(bands.length, "18 pixel rows emit 3 bands").toBe(3);
+			for (const band of bands) {
+				const runs = band.split("$");
+				expect(runs.length, "each band holds a red and a green run").toBe(2);
+				for (const run of runs) {
+					expect(run.replace(/^#\d+/, "").length, "every color run spans the full width").toBe(20);
+				}
+			}
 		} finally {
 			setCellDimensions({ widthPx: 9, heightPx: 18 });
 		}
@@ -536,7 +589,7 @@ describe("sixel encoding", () => {
 			}
 			const sequence = encodeSixel(pixels, 2, 2, { maxWidthCells: 2 });
 			expect(sequence.includes("#180;2;100;0;0"), "palette must define the red cube corner").toBeTruthy();
-			const body = sequence.slice(sequence.indexOf("\x1bPq") + 4, sequence.lastIndexOf("\x1b\\"));
+			const body = sequence.slice(sequence.indexOf("\x1bP0;1q") + 6, sequence.lastIndexOf("\x1b\\"));
 			const pixelPart = body.slice(body.indexOf("#239;2;93;93;93") + "#239;2;93;93;93".length);
 			// targetW = 2 cells x 10px = 20 columns; every pixel is red, so each
 			// band emits `#180` followed by 20 chars of 63+63 ('~': all 6 rows lit).
@@ -571,14 +624,14 @@ describe("sixel encoding", () => {
 		try {
 			const pixels = new Uint8Array(2 * 2 * 4).fill(255); // 2x2 white
 			const sequence = encodeSixel(pixels, 2, 2, { maxWidthCells: 2 });
-			const body = sequence.slice(sequence.indexOf("\x1bPq") + 4, sequence.lastIndexOf("\x1b\\"));
+			const body = sequence.slice(sequence.indexOf("\x1bP0;1q") + 6, sequence.lastIndexOf("\x1b\\"));
 			const pixelPart = body.slice(body.indexOf("#239;2;93;93;93") + "#239;2;93;93;93".length);
-			// targetH = 2 cells x 10px = 20 pixel rows -> ceil(20/6) = 4 bands
-			// (3 x - separator); sixel chars carry the geometry, so no $ CRs.
+			// targetH rounds down to 18 pixel rows -> 3 bands (2 x - separator).
+			// A single-color band needs no graphics carriage return.
 			const dollars = (pixelPart.match(/\$/g) ?? []).length;
 			const dashes = (pixelPart.match(/-/g) ?? []).length;
-			expect(dollars, "column geometry lives in the chars, not CRs").toBe(0);
-			expect(dashes, "4 bands emit 3 band separators").toBe(3);
+			expect(dollars, "one color per band needs no carriage return").toBe(0);
+			expect(dashes, "3 bands emit 2 band separators").toBe(2);
 		} finally {
 			setCellDimensions({ widthPx: 9, heightPx: 18 });
 		}
@@ -589,14 +642,14 @@ describe("sixel encoding", () => {
 		try {
 			const pixels = new Uint8Array(100 * 10 * 4).fill(255); // 100x10
 			const sequence = encodeSixel(pixels, 100, 10, { maxWidthCells: 2 });
-			const body = sequence.slice(sequence.indexOf("\x1bPq") + 4, sequence.lastIndexOf("\x1b\\"));
+			const body = sequence.slice(sequence.indexOf("\x1bP0;1q") + 6, sequence.lastIndexOf("\x1b\\"));
 			const pixelPart = body.slice(body.indexOf("#239;2;93;93;93") + "#239;2;93;93;93".length);
-			// targetW = 2 cells x 10px = 20 columns; targetH = 1 cell x 10px
-			// = 10 pixel rows -> 2 bands (1 x - separator).
+			// targetW = 2 cells x 10px = 20 columns; targetH rounds down to
+			// 6 pixel rows -> a single band, so no separators.
 			const dollars = (pixelPart.match(/\$/g) ?? []).length;
 			const dashes = (pixelPart.match(/-/g) ?? []).length;
-			expect(dollars, "column geometry lives in the chars, not CRs").toBe(0);
-			expect(dashes, "2 bands emit 1 band separator").toBe(1);
+			expect(dollars, "one color per band needs no carriage return").toBe(0);
+			expect(dashes, "a single band emits no separator").toBe(0);
 		} finally {
 			setCellDimensions({ widthPx: 9, heightPx: 18 });
 		}
@@ -617,7 +670,7 @@ describe("sixel encoding", () => {
 			const lines = image.render(4);
 			expect(lines.length, "2 rows -> 1 empty pad line + 1 sequence line").toBe(2);
 			expect(lines[0]).toBe("");
-			expect(lines[1].startsWith("\x1b[1A\x1bPq"), "sequence line must move up then open DCS").toBeTruthy();
+			expect(lines[1].startsWith("\x1b[1A\x1bP0;1q"), "sequence line must move up then open DCS").toBeTruthy();
 			expect(lines[1].endsWith("\x1b\\")).toBeTruthy();
 		} finally {
 			resetCapabilitiesCache();
@@ -837,8 +890,15 @@ describe("parseImageCapabilityResponse", () => {
 		});
 	});
 
-	it("reports unsupported for a DA1 reply without param 62", () => {
-		expect(parseImageCapabilityResponse("\x1b[?1;2;4;22c")).toStrictEqual({
+	it("detects sixel from the DEC DA1 param 4", () => {
+		expect(parseImageCapabilityResponse("\x1b[?64;1;2;4c")).toStrictEqual({
+			kind: "detected",
+			protocol: "sixel",
+		});
+	});
+
+	it("reports unsupported for a DA1 reply without a sixel parameter", () => {
+		expect(parseImageCapabilityResponse("\x1b[?1;2;22c")).toStrictEqual({
 			kind: "unsupported",
 		});
 	});
@@ -921,5 +981,66 @@ describe("hyperlink", () => {
 		const result = hyperlink("README.md", "file:///home/user/README.md");
 		expect(result.includes("file:///home/user/README.md")).toBeTruthy();
 		expect(result.includes("README.md")).toBeTruthy();
+	});
+});
+
+describe("image dimension headers", () => {
+	it("reads PNG dimensions from a payload far larger than its header", () => {
+		const header = Buffer.alloc(24);
+		header.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
+		header.writeUInt32BE(13, 8);
+		header.write("IHDR", 12, "ascii");
+		header.writeUInt32BE(320, 16);
+		header.writeUInt32BE(200, 20);
+		const b64 = Buffer.concat([header, Buffer.alloc(4 * 1024 * 1024)]).toString("base64");
+
+		expect(getPngDimensions(b64)).toEqual({ widthPx: 320, heightPx: 200 });
+	});
+
+	it("reads GIF dimensions", () => {
+		const head = Buffer.alloc(10);
+		head.write("GIF89a", 0, "ascii");
+		head.writeUInt16LE(640, 6);
+		head.writeUInt16LE(480, 8);
+		expect(getGifDimensions(head.toString("base64"))).toEqual({ widthPx: 640, heightPx: 480 });
+	});
+
+	it("reads WebP dimensions", () => {
+		const head = Buffer.alloc(30);
+		head.write("RIFF", 0, "ascii");
+		head.write("WEBP", 8, "ascii");
+		head.write("VP8X", 12, "ascii");
+		head[24] = 0x3f;
+		head[25] = 0x00;
+		head[26] = 0x00;
+		head[27] = 0x27;
+		head[28] = 0x00;
+		head[29] = 0x00;
+		expect(getWebpDimensions(head.toString("base64"))).toEqual({ widthPx: 64, heightPx: 40 });
+	});
+
+	it("finds the JPEG SOF marker behind APP segments larger than one window", () => {
+		// A JPEG segment length is a uint16, so a large APP payload is split
+		// across several segments; L counts the length field plus the payload,
+		// and the next segment sits at marker + 2 + L.
+		const parts: Buffer[] = [Buffer.from([0xff, 0xd8])];
+		for (let index = 0; index < 4; index += 1) {
+			const app = Buffer.alloc(2 + 2 + 60_000);
+			app[0] = 0xff;
+			app[1] = 0xe0;
+			app.writeUInt16BE(app.length - 2, 2);
+			parts.push(app);
+		}
+		const sof = Buffer.alloc(11);
+		sof[0] = 0xff;
+		sof[1] = 0xc0;
+		sof.writeUInt16BE(sof.length - 2, 2);
+		sof[4] = 0x08;
+		sof.writeUInt16BE(200, 5);
+		sof.writeUInt16BE(320, 7);
+		parts.push(sof);
+		const b64 = Buffer.concat(parts).toString("base64");
+
+		expect(getJpegDimensions(b64)).toEqual({ widthPx: 320, heightPx: 200 });
 	});
 });

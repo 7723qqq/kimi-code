@@ -31,7 +31,7 @@ function kittyColumns(line: string): number | undefined {
 
 /** True when a rendered line carries a sixel DCS sequence. */
 function hasSixel(line: string): boolean {
-  return line.includes('\u001BPq');
+  return line.includes('\u001BP0;1q');
 }
 
 describe('ImageThumbnail', () => {
@@ -129,7 +129,7 @@ describe('InlineImage', () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     const [again] = component.render(80);
     expect(again).toContain('image #1');
-    expect(again).not.toContain('\u001BPq');
+    expect(again).not.toContain('\u001BP0;1q');
   });
 
   it('scales image width with the available terminal width', () => {

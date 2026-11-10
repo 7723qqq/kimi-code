@@ -68,6 +68,7 @@ const MIME_SHORT: Readonly<Record<string, string>> = {
   'image/webp': 'WEBP',
   'image/gif': 'GIF',
   'image/bmp': 'BMP',
+  'image/tiff': 'TIFF',
 };
 
 function shortMime(mime: string): string {
@@ -130,8 +131,17 @@ export class InlineImage extends Container {
       fallbackColor: (s: string) => currentTheme.fg('textDim', s),
     };
     const { base64, mime, width: widthPx, height: heightPx } = this.options;
+    // Sixel renders from the decoded pixel buffer and never reads the base64
+    // payload, so the multi-megabyte string is not retained next to it.
+    const sixel = pixels !== undefined;
+    const intrinsic =
+      pixels !== undefined
+        ? { widthPx: pixels.width, heightPx: pixels.height }
+        : widthPx !== undefined && heightPx !== undefined
+          ? { widthPx, heightPx }
+          : undefined;
     return new Image(
-      base64,
+      sixel ? '' : base64,
       mime,
       theme,
       {
@@ -142,7 +152,7 @@ export class InlineImage extends Container {
         pixelWidth: pixels?.width,
         pixelHeight: pixels?.height,
       },
-      widthPx !== undefined && heightPx !== undefined ? { widthPx, heightPx } : undefined,
+      intrinsic,
     );
   }
 

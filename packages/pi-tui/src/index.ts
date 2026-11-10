@@ -122,6 +122,7 @@ export {
   type ImageProtocol,
   type ImageRenderOptions,
   imageFallback,
+  imagesProtocolIsGuessed,
   isCapabilitiesExplicitlySet,
   isImageLine,
   parseImageCapabilityResponse,

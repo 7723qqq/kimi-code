@@ -14,6 +14,7 @@ import {
 } from './terminal-colors.ts';
 import {
   getCapabilities,
+  imagesProtocolIsGuessed,
   isCapabilitiesExplicitlySet,
   isImageLine,
   parseImageCapabilityResponse,
@@ -1091,7 +1092,12 @@ export abstract class TuiBase extends Container implements TUI {
     // Skip when a protocol is already known, or when the cache was pinned
     // explicitly (tests, TuiAltScreen's temporary iTerm2 override) — a
     // probe there would emit a stray Kitty query into the alt screen.
-    if (getCapabilities().images || isCapabilitiesExplicitlySet()) {
+    // The Windows Terminal guess is the exception: it is a guess, not an
+    // identification, so the terminal still has to be asked.
+    if (isCapabilitiesExplicitlySet()) {
+      return;
+    }
+    if (getCapabilities().images && !imagesProtocolIsGuessed()) {
       return;
     }
     const term = process.env['TERM']?.toLowerCase() || '';
@@ -1400,8 +1406,8 @@ export abstract class TuiBase extends Container implements TUI {
       clearTimeout(this.imageCapabilityQueryTimer);
       this.imageCapabilityQueryTimer = undefined;
     }
+    const current = getCapabilities();
     if (response.kind === 'detected') {
-      const current = getCapabilities();
       if (current.images !== response.protocol) {
         setCapabilities({ ...current, images: response.protocol });
         // Invalidate all components so images re-render with the
@@ -1409,7 +1415,13 @@ export abstract class TuiBase extends Container implements TUI {
         this.invalidate();
         this.requestRender();
       }
+      return true;
     }
+    // An explicit "no" is consumed but does not retract the guess. The only
+    // guess this probe can act on is the Windows Terminal sixel claim, and
+    // ConPTY answers the startup DA1 query on the terminal's behalf with a
+    // bare `?61c` that carries no feature information — retracting on it
+    // would turn a working sixel terminal back into a text placeholder.
     return true;
   }
 

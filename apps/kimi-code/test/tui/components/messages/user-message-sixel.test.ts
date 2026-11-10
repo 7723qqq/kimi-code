@@ -38,7 +38,7 @@ describe('UserMessageComponent image thumbnails (sixel)', () => {
     await waitForAssertion(
       () => {
         const lines = component.render(80).join('\n');
-        expect(lines).toContain('\u001BPq');
+        expect(lines).toContain('\u001BP0;1q');
       },
       { timeout: 5_000 },
     );

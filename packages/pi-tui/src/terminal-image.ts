@@ -37,6 +37,21 @@ let cachedCapabilities: TerminalCapabilities | null = null;
 let capabilitiesExplicitlySet = false;
 let capabilityOverrides: Partial<TerminalCapabilities> = {};
 
+/**
+ * True while the image protocol is the environment's Windows Terminal guess
+ * rather than something the terminal confirmed.
+ *
+ * `WT_SESSION` is set by every Windows Terminal version, and sixel only
+ * arrived in Preview 1.22 — stable builds did not render it for a long time
+ * after. The guess must be confirmable by the startup probe, so it cannot
+ * suppress that probe the way a positive identification does.
+ */
+let imagesProtocolGuessed = false;
+
+export function imagesProtocolIsGuessed(): boolean {
+  return imagesProtocolGuessed;
+}
+
 // Default cell dimensions - updated by TUI when terminal responds to query
 let cellDimensions: CellDimensions = { widthPx: 9, heightPx: 18 };
 
@@ -183,6 +198,8 @@ export function detectCapabilities(
       : imageProtocol === 'none' || imageProtocol === '0'
         ? null
         : undefined;
+  imagesProtocolGuessed =
+    images === undefined && process.env['WT_SESSION'] !== undefined && detected.images === 'sixel';
   const trueColor = parseBooleanCapabilityOverride(process.env['PI_TRUE_COLOR']);
   return {
     ...detected,
@@ -223,11 +240,12 @@ export function parseImageCapabilityResponse(data: string): ImageCapabilityRespo
       ? { kind: 'detected', protocol: 'kitty' }
       : { kind: 'unsupported' };
   }
-  // DA1 reply: ESC [ ? <params> c, where param 62 means sixel graphics.
+  // DA1 reply: ESC [ ? <params> c. DEC reports sixel as parameter 4 (VT510
+  // DA1); some terminals use 62. Either means sixel is available.
   const da1Match = /^\x1b\[\?([0-9;]*)c$/.exec(data);
   if (da1Match) {
     const params = da1Match[1]!.split(';');
-    return params.includes('62')
+    return params.includes('4') || params.includes('62')
       ? { kind: 'detected', protocol: 'sixel' }
       : { kind: 'unsupported' };
   }
@@ -237,6 +255,7 @@ export function parseImageCapabilityResponse(data: string): ImageCapabilityRespo
 export function resetCapabilitiesCache(): void {
   cachedCapabilities = null;
   capabilitiesExplicitlySet = false;
+  imagesProtocolGuessed = false;
 }
 
 /** Override selected auto-detected capabilities. */
@@ -250,12 +269,14 @@ export function setCapabilityOverrides(overrides: Partial<TerminalCapabilities>)
   }
   capabilityOverrides = { ...overrides };
   cachedCapabilities = null;
+  imagesProtocolGuessed = false;
 }
 
 /** Override the cached capabilities. Useful in tests to exercise both code paths. */
 export function setCapabilities(caps: TerminalCapabilities): void {
   cachedCapabilities = caps;
   capabilitiesExplicitlySet = true;
+  imagesProtocolGuessed = false;
 }
 
 /**
@@ -271,19 +292,22 @@ export function isCapabilitiesExplicitlySet(): boolean {
 
 const KITTY_PREFIX = '\x1b_G';
 const ITERM2_PREFIX = '\x1b]1337;File=';
-const SIXEL_DCS = '\x1bPq';
+// Sixel arrives as a DCS string whose parameters carry the aspect ratio and
+// background select, so match the introducer rather than a fixed prefix.
+const SIXEL_DCS = /\x1bP[0-9;]*q/;
+const SIXEL_DCS_START = /^\x1bP[0-9;]*q/;
 
 export function isImageLine(line: string): boolean {
   // Fast path: sequence at line start (single-row images)
   if (
     line.startsWith(KITTY_PREFIX) ||
     line.startsWith(ITERM2_PREFIX) ||
-    line.startsWith(SIXEL_DCS)
+    SIXEL_DCS_START.test(line)
   ) {
     return true;
   }
   // Slow path: sequence elsewhere (multi-row images have cursor-up prefix)
-  return line.includes(KITTY_PREFIX) || line.includes(ITERM2_PREFIX) || line.includes(SIXEL_DCS);
+  return line.includes(KITTY_PREFIX) || line.includes(ITERM2_PREFIX) || SIXEL_DCS.test(line);
 }
 
 /**
@@ -556,9 +580,19 @@ export function calculateImageRows(
   return calculateImageCellSize(imageDimensions, targetWidthCells, undefined, cellDimensions).rows;
 }
 
+/**
+ * Decode only the first `byteLength` bytes of a base64 payload. Every
+ * dimension header sits at the start of its format, and reading a few header
+ * bytes must not decode a multi-megabyte image.
+ */
+function decodeBase64Prefix(base64Data: string, byteLength: number): Buffer {
+  const chars = Math.ceil(byteLength / 3) * 4;
+  return Buffer.from(base64Data.slice(0, chars), 'base64');
+}
+
 export function getPngDimensions(base64Data: string): ImageDimensions | null {
   try {
-    const buffer = Buffer.from(base64Data, 'base64');
+    const buffer = decodeBase64Prefix(base64Data, 24);
 
     if (buffer.length < 24) {
       return null;
@@ -579,50 +613,63 @@ export function getPngDimensions(base64Data: string): ImageDimensions | null {
 
 export function getJpegDimensions(base64Data: string): ImageDimensions | null {
   try {
-    const buffer = Buffer.from(base64Data, 'base64');
-
-    if (buffer.length < 2) {
+    const head = decodeBase64Prefix(base64Data, 2);
+    if (head.length < 2 || head[0] !== 0xff || head[1] !== 0xd8) {
       return null;
     }
 
-    if (buffer[0] !== 0xff || buffer[1] !== 0xd8) {
-      return null;
+    // The SOF marker can sit behind arbitrarily large APP segments (EXIF), so
+    // grow the decoded window instead of decoding the whole payload up front.
+    const STEP_BYTES = 64 * 1024;
+    for (let want = STEP_BYTES; ; want += STEP_BYTES) {
+      const buffer = decodeBase64Prefix(base64Data, want);
+      const scan = scanJpegSegments(buffer);
+      if (scan.kind === 'found') return scan.dimensions;
+      if (scan.kind === 'invalid' || buffer.length < want) return null;
     }
-
-    let offset = 2;
-    while (offset < buffer.length - 9) {
-      if (buffer[offset] !== 0xff) {
-        offset++;
-        continue;
-      }
-
-      const marker = buffer[offset + 1]!;
-
-      if (marker >= 0xc0 && marker <= 0xc2) {
-        const height = buffer.readUInt16BE(offset + 5);
-        const width = buffer.readUInt16BE(offset + 7);
-        return { widthPx: width, heightPx: height };
-      }
-
-      if (offset + 3 >= buffer.length) {
-        return null;
-      }
-      const length = buffer.readUInt16BE(offset + 2);
-      if (length < 2) {
-        return null;
-      }
-      offset += 2 + length;
-    }
-
-    return null;
   } catch {
     return null;
   }
 }
 
+function scanJpegSegments(buffer: Buffer):
+  | { kind: 'found'; dimensions: ImageDimensions }
+  | { kind: 'invalid' }
+  | { kind: 'need-more' } {
+  let offset = 2;
+  while (offset < buffer.length - 9) {
+    if (buffer[offset] !== 0xff) {
+      offset++;
+      continue;
+    }
+
+    const marker = buffer[offset + 1]!;
+
+    if (marker >= 0xc0 && marker <= 0xc2) {
+      return {
+        kind: 'found',
+        dimensions: {
+          heightPx: buffer.readUInt16BE(offset + 5),
+          widthPx: buffer.readUInt16BE(offset + 7),
+        },
+      };
+    }
+
+    if (offset + 3 >= buffer.length) {
+      return { kind: 'need-more' };
+    }
+    const length = buffer.readUInt16BE(offset + 2);
+    if (length < 2) {
+      return { kind: 'invalid' };
+    }
+    offset += 2 + length;
+  }
+  return { kind: 'need-more' };
+}
+
 export function getGifDimensions(base64Data: string): ImageDimensions | null {
   try {
-    const buffer = Buffer.from(base64Data, 'base64');
+    const buffer = decodeBase64Prefix(base64Data, 10);
 
     if (buffer.length < 10) {
       return null;
@@ -644,7 +691,7 @@ export function getGifDimensions(base64Data: string): ImageDimensions | null {
 
 export function getWebpDimensions(base64Data: string): ImageDimensions | null {
   try {
-    const buffer = Buffer.from(base64Data, 'base64');
+    const buffer = decodeBase64Prefix(base64Data, 30);
 
     if (buffer.length < 30) {
       return null;
@@ -777,10 +824,16 @@ export function encodeSixel(
     cell,
   );
   const targetW = Math.max(1, size.columns * cell.widthPx);
-  const targetH = Math.max(1, size.rows * cell.heightPx);
-  const bands = Math.ceil(targetH / 6);
+  // Round down to a whole number of sixel rows so the terminal advances
+  // exactly `size.rows` text rows, which is what the caller reserved.
+  const targetH = Math.max(6, Math.floor((size.rows * cell.heightPx) / 6) * 6);
+  const bands = targetH / 6;
 
-  const parts: string[] = ['\x1bPq', buildSixelPalette()];
+  // P2=1 asks for a transparent background and the raster attributes declare a
+  // 1:1 pixel aspect. Omitting both makes Windows Terminal fall back to an
+  // opaque background fill and a 2:1 aspect, which doubles the image height and
+  // paints a black block over the rest of the page.
+  const parts: string[] = ['\x1bP0;1q', '"1;1', buildSixelPalette()];
   for (let band = 0; band < bands; band++) {
     if (band > 0) parts.push('-');
     // Sample the band: one quantized color per (column, row-in-band).
@@ -809,8 +862,13 @@ export function encodeSixel(
     }
     // One sixel char paints one pixel column across the band's 6 rows in
     // the currently selected color (bit 0 = topmost row), so emit one
-    // `#<color>` run over all columns per color present in the band.
+    // `#<color>` run over all columns per color present in the band. The pen
+    // keeps advancing across runs, so every run after the first has to be
+    // preceded by a graphics carriage return to get back to column zero.
+    let firstColor = true;
     for (const color of colorsPresent) {
+      if (!firstColor) parts.push('$');
+      firstColor = false;
       parts.push(`#${color}`);
       for (let tx = 0; tx < targetW; tx++) {
         let bits = 0;

@@ -22,8 +22,37 @@ export interface DecodedImagePixels {
 /** Longest edge kept after decode; sixel thumbnails never need more. */
 const MAX_DECODE_EDGE_PX = 800;
 
-/** Bounded LRU: 32 entries × ≤800×800×4 bytes ≈ 80 MB worst case. */
-const MAX_CACHE_ENTRIES = 32;
+/** Bounded LRU: 16 entries × ≤800×800×4 bytes ≈ 41 MB worst case. */
+const MAX_CACHE_ENTRIES = 16;
+
+/**
+ * Decodes run in parallel and each holds a full pixel buffer, so an
+ * unbounded fan-out (a long transcript full of screenshots) would spike
+ * memory far past the cache's own ceiling.
+ */
+const MAX_CONCURRENT_DECODES = 3;
+
+let activeDecodes = 0;
+const decodeQueue: Array<() => void> = [];
+
+function acquireDecodeSlot(): Promise<void> {
+  if (activeDecodes < MAX_CONCURRENT_DECODES) {
+    activeDecodes += 1;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    decodeQueue.push(resolve);
+  });
+}
+
+function releaseDecodeSlot(): void {
+  const next = decodeQueue.shift();
+  if (next !== undefined) {
+    next();
+    return;
+  }
+  activeDecodes -= 1;
+}
 
 const cache = new Map<string, Promise<DecodedImagePixels | null>>();
 
@@ -58,6 +87,7 @@ function cacheKey(base64: string): string {
 }
 
 async function decodeToPixels(base64: string): Promise<DecodedImagePixels | null> {
+  await acquireDecodeSlot();
   try {
     const { Jimp } = await import('jimp');
     const image = await Jimp.fromBuffer(Buffer.from(base64, 'base64'));
@@ -77,5 +107,7 @@ async function decodeToPixels(base64: string): Promise<DecodedImagePixels | null
     };
   } catch {
     return null;
+  } finally {
+    releaseDecodeSlot();
   }
 }

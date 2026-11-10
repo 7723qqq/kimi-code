@@ -7,7 +7,11 @@
  */
 
 import { expect, describe, it } from "bun:test";
-import { getCapabilities, resetCapabilitiesCache } from "../src/terminal-image.ts";
+import {
+  getCapabilities,
+  imagesProtocolIsGuessed,
+  resetCapabilitiesCache,
+} from "../src/terminal-image.ts";
 import type { Component, TUI } from "../src/tui.ts";
 import { TuiMainScreen } from "../src/tui-main-screen.ts";
 import { VirtualTerminal } from "./virtual-terminal.ts";
@@ -23,6 +27,7 @@ const ENV_KEYS = [
 	"WEZTERM_PANE",
 	"ITERM_SESSION_ID",
 	"WT_SESSION",
+	"PI_IMAGE_PROTOCOL",
 	"WARP_SESSION_ID",
 	"WARP_TERMINAL_SESSION_UUID",
 	"MLTERM",
@@ -45,6 +50,14 @@ function withNoImageTerminal<T>(fn: () => T): T {
 		}
 		resetCapabilitiesCache();
 	}
+}
+
+function withWindowsTerminal<T>(fn: () => T): T {
+  return withNoImageTerminal(() => {
+    process.env.WT_SESSION = "a1b2c3d4-0000-0000-0000-000000000000";
+    resetCapabilitiesCache();
+    return fn();
+  });
 }
 
 class InputRecorder implements Component {
@@ -149,6 +162,75 @@ describe("TUI image capability query", () => {
 				delete process.env.TMUX;
 				resetCapabilitiesCache();
 			}
+		});
+	});
+
+	it("marks the Windows Terminal sixel claim as a guess", () => {
+		withWindowsTerminal(() => {
+			expect(getCapabilities().images).toBe("sixel");
+			expect(imagesProtocolIsGuessed()).toBe(true);
+		});
+	});
+
+	it("does not treat an explicit protocol override as a Windows Terminal guess", () => {
+		withWindowsTerminal(() => {
+			process.env.PI_IMAGE_PROTOCOL = "kitty";
+			resetCapabilitiesCache();
+
+			expect(getCapabilities().images).toBe("kitty");
+			expect(imagesProtocolIsGuessed()).toBe(false);
+		});
+	});
+
+	it("asks the terminal when sixel is only a guess, and keeps it on an explicit no", () => {
+		withWindowsTerminal(() => {
+			const terminal = new VirtualTerminal(80, 24);
+			const tui: TUI = new TuiMainScreen(terminal);
+			const recorder = new InputRecorder();
+
+			tui.setFocus(recorder);
+			tui.start();
+
+			// ConPTY answers the startup DA1 query on the terminal's behalf with
+			// a bare `?61c` that carries no feature information. The reply is
+			// consumed rather than forwarded, but it must not retract the
+			// Windows Terminal sixel claim — retracting on it turned a working
+			// sixel terminal back into a text placeholder.
+			terminal.sendInput("\x1b[?61c");
+			expect(getCapabilities().images).toBe("sixel");
+			expect(imagesProtocolIsGuessed()).toBe(true);
+			expect(recorder.inputs).toStrictEqual([]);
+			tui.stop();
+		});
+	});
+
+	it("keeps sixel when the Windows Terminal reply confirms it", () => {
+		withWindowsTerminal(() => {
+			const terminal = new VirtualTerminal(80, 24);
+			const tui: TUI = new TuiMainScreen(terminal);
+			const recorder = new InputRecorder();
+
+			tui.setFocus(recorder);
+			tui.start();
+
+			terminal.sendInput("\x1b[?1;2;62c");
+			expect(getCapabilities().images).toBe("sixel");
+			tui.stop();
+		});
+	});
+
+	it("accepts the DEC DA1 sixel parameter (4) as confirmation", () => {
+		withWindowsTerminal(() => {
+			const terminal = new VirtualTerminal(80, 24);
+			const tui: TUI = new TuiMainScreen(terminal);
+			const recorder = new InputRecorder();
+
+			tui.setFocus(recorder);
+			tui.start();
+
+			terminal.sendInput("\x1b[?64;1;2;4c");
+			expect(getCapabilities().images).toBe("sixel");
+			tui.stop();
 		});
 	});
 });
