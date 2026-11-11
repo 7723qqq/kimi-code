@@ -19,6 +19,8 @@ export interface ToolRegistration extends IDisposable {
 export interface IAgentToolRegistryService {
   readonly _serviceBrand: undefined;
 
+  readonly revision: number;
+
   register(tool: ExecutableTool, options?: ToolRegistrationOptions): ToolRegistration;
   list(): readonly ToolInfo[];
   listLive?(): readonly ToolInfo[];

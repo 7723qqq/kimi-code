@@ -444,13 +444,9 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
     const liveByName = new Map(live.map((tool) => [tool.name, tool]));
     for (const active of this.modelState().current) {
       const next = liveByName.get(active.name);
-      if (
-        next === undefined ||
-        toolSelectVersionSignature(next) === toolSelectVersionSignature(active)
-      ) {
-        continue;
-      }
+      if (next === undefined) continue;
       const signature = toolSelectVersionSignature(next);
+      if (signature === toolSelectVersionSignature(active)) continue;
       if (this.notifiedUpdates.has(signature)) continue;
       signal?.throwIfAborted();
       this.notifiedUpdates.add(signature);
@@ -512,10 +508,28 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
 
   private consecutiveFailures = 0;
   private selectionEnvironment: string | undefined;
+  private selectionEnvironmentKey:
+    | {
+        readonly tools: readonly ToolSelectTool[];
+        readonly policy: string;
+        readonly revision: number;
+      }
+    | undefined;
 
   private resetFailuresIfToolsChanged(registryInfos: readonly ToolSelectTool[]): void {
+    const policy = this.toolPolicy.getPolicyFingerprint();
+    const revision = this.toolRegistry.revision;
+    const key = this.selectionEnvironmentKey;
+    if (
+      key !== undefined &&
+      key.tools === registryInfos &&
+      key.policy === policy &&
+      key.revision === revision
+    ) {
+      return;
+    }
     const environment = JSON.stringify([
-      this.toolPolicy.getPolicyFingerprint(),
+      policy,
       registryInfos
         .map(
           (info) =>
@@ -530,6 +544,7 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
         )
         .toSorted((left, right) => left[0].localeCompare(right[0])),
     ]);
+    this.selectionEnvironmentKey = { tools: registryInfos, policy, revision };
     if (environment === this.selectionEnvironment) return;
     this.selectionEnvironment = environment;
     this.consecutiveFailures = 0;

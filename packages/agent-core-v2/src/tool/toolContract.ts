@@ -136,8 +136,18 @@ export function toolDefinitionSchemaSignature(
   return JSON.stringify([tool.name, tool.description, canonicalToolValue(parameters)]);
 }
 
+const versionSignatures = new WeakMap<object, string>();
+
 export function toolDefinitionVersionSignature(tool: ToolInfo): string {
-  return JSON.stringify([toolDefinitionSchemaSignature(tool), tool.source, tool.disclosure]);
+  const cached = versionSignatures.get(tool);
+  if (cached !== undefined) return cached;
+  const signature = JSON.stringify([
+    toolDefinitionSchemaSignature(tool),
+    tool.source,
+    tool.disclosure,
+  ]);
+  versionSignatures.set(tool, signature);
+  return signature;
 }
 
 export interface AgentTool<Input = unknown> extends ExecutableTool<Input> {

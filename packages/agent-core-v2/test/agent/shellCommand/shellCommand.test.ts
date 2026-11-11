@@ -173,6 +173,7 @@ describe('AgentShellCommandService', () => {
   it('records the failure when the Bash tool is not registered', async () => {
     const emptyRegistry: IAgentToolRegistryService = {
       _serviceBrand: undefined,
+      revision: 0,
       register: () => ({ dispose: () => {} }),
       list: () => [],
       listReferences: () => [],

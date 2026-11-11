@@ -57,11 +57,17 @@ export class AgentToolRegistryService implements IAgentToolRegistryService {
   declare readonly _serviceBrand: undefined;
   private readonly tools = new Map<string, ToolEntry>();
   private readonly pendingTools = new Map<string, ToolEntry>();
+  private registryRevision = 0;
+
+  get revision(): number {
+    return this.registryRevision;
+  }
 
   register(tool: ExecutableTool, options: ToolRegistrationOptions = {}): ToolRegistration {
     const source = options.source ?? 'builtin';
     const candidate = createEntry(tool, source, options.disclosure);
     const current = this.tools.get(tool.name);
+    this.registryRevision += 1;
     if (current === undefined) {
       this.pendingTools.delete(tool.name);
       this.tools.set(tool.name, candidate);
@@ -113,6 +119,7 @@ export class AgentToolRegistryService implements IAgentToolRegistryService {
       if (status === 'pending') {
         if (this.pendingTools.get(entry.tool.name) === entry) {
           this.pendingTools.delete(entry.tool.name);
+          this.registryRevision += 1;
         }
         return;
       }
@@ -131,6 +138,7 @@ export class AgentToolRegistryService implements IAgentToolRegistryService {
     this.pendingTools.delete(name);
     if (entry === undefined) return undefined;
     this.tools.delete(name);
+    this.registryRevision += 1;
     return entry;
   }
 }

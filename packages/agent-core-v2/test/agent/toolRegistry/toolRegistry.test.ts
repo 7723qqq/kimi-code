@@ -4,7 +4,11 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
-import type { ExecutableTool, ToolExecution } from '#/tool/toolContract';
+import {
+  toolDefinitionVersionSignature,
+  type ExecutableTool,
+  type ToolExecution,
+} from '#/tool/toolContract';
 
 class StubTool implements ExecutableTool<unknown> {
   readonly parameters = { type: 'object', additionalProperties: true };
@@ -199,5 +203,53 @@ describe('AgentToolRegistryService', () => {
 
     replacementHandle.dispose();
     expect(registry.resolve('A')).toBeUndefined();
+  });
+
+  it('bumps its revision on register, replacement and pending changes', () => {
+    const initial = registry.revision;
+    registry.register(new StubTool('Echo', 'stable'));
+    const afterRegister = registry.revision;
+    expect(afterRegister).toBeGreaterThan(initial);
+
+    registry.register(new StubTool('Echo', 'stable'));
+    const afterReplacement = registry.revision;
+    expect(afterReplacement).toBeGreaterThan(afterRegister);
+
+    const pending = registry.register(new StubTool('Echo', 'changed'));
+    expect(pending.status).toBe('pending');
+    const afterPending = registry.revision;
+    expect(afterPending).toBeGreaterThan(afterReplacement);
+
+    pending.dispose();
+    expect(registry.revision).toBeGreaterThan(afterPending);
+  });
+
+  it('bumps its revision when an active tool is unregistered', () => {
+    const handle = registry.register(new StubTool('Temp'));
+    const before = registry.revision;
+
+    handle.dispose();
+
+    expect(registry.revision).toBeGreaterThan(before);
+    expect(registry.resolve('Temp')).toBeUndefined();
+  });
+
+  it('keeps the version signature equal across equivalent tool info objects', () => {
+    const tool = {
+      name: 'Echo',
+      description: 'Echoes',
+      parameters: { type: 'object', properties: { text: { type: 'string' } } },
+      source: 'builtin' as const,
+    };
+
+    expect(toolDefinitionVersionSignature({ ...tool })).toBe(
+      toolDefinitionVersionSignature({ ...tool }),
+    );
+    expect(toolDefinitionVersionSignature({ ...tool, source: 'mcp' })).not.toBe(
+      toolDefinitionVersionSignature({ ...tool }),
+    );
+    expect(toolDefinitionVersionSignature({ ...tool, disclosure: 'deferred' })).not.toBe(
+      toolDefinitionVersionSignature({ ...tool }),
+    );
   });
 });
