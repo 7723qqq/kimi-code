@@ -167,6 +167,11 @@ describe('runShell', () => {
     // Pin region to cn: the telemetry endpoint assertion below must not
     // follow the dev machine's own login/marker state.
     setEnv('KIMI_CODE_OAUTH_HOST', 'https://auth.kimi.com');
+    setEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '');
+    setEnv('KIMI_CODE_TUI_FULL_SCREEN', '');
+    setEnv('TERM', 'xterm-256color');
+    setEnv('TERMUX_VERSION', '');
+    setEnv('TMUX', '');
     resetKimiRegionCache();
   });
 
@@ -339,6 +344,7 @@ describe('runShell', () => {
       },
       version: '1.2.3-test',
       workDir: process.cwd(),
+      resolvedTuiMode: 'regular',
       telemetryDisabled: false,
     });
     expect(mocks.tuiStart).toHaveBeenCalledTimes(1);
@@ -349,6 +355,8 @@ describe('runShell', () => {
       init_ms: expect.any(Number),
       mcp_ms: 47,
       tui_mode: 'regular',
+      tui_mode_config: 'unset',
+      tui_mode_fallback: undefined,
     });
   });
 
@@ -580,6 +588,8 @@ describe('runShell', () => {
       init_ms: expect.any(Number),
       mcp_ms: 47,
       tui_mode: 'regular',
+      tui_mode_config: 'unset',
+      tui_mode_fallback: undefined,
     });
   });
 
@@ -846,6 +856,8 @@ describe('runShell', () => {
     expect(mocks.harnessTrack).toHaveBeenCalledWith('exit', {
       duration_ms: expect.any(Number),
       tui_mode: 'regular',
+      tui_mode_config: 'unset',
+      tui_mode_fallback: undefined,
     });
     expect(mocks.shutdownTelemetry).toHaveBeenCalledTimes(1);
     expect(mocks.harnessClose).toHaveBeenCalledTimes(1);
@@ -897,6 +909,8 @@ describe('runShell', () => {
       expect(mocks.lifecycleTrack).toHaveBeenCalledWith('exit', {
         duration_ms: expect.any(Number),
         tui_mode: 'regular',
+        tui_mode_config: 'unset',
+        tui_mode_fallback: undefined,
       });
       expect(mocks.harnessTrack).not.toHaveBeenCalledWith('exit', expect.anything());
       expect(mocks.shutdownTelemetry).toHaveBeenCalledTimes(1);

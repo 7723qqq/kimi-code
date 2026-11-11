@@ -2925,6 +2925,8 @@ export default {
       configTuiModeSetRegular: 'TUI 模式已设置为常规模式。',
       configTuiModeSetFullscreen: 'TUI 模式已设置为全屏模式。',
       configTuiModeSaveFailed: '保存 TUI 模式失败：{{error}}',
+      configTuiModeEnvOverrideNotice: '已保存到 tui.toml；需取消设置 KIMI_CODE_TUI_FULL_SCREEN 才能生效。',
+      configTuiModeFallbackNotice: '已保存到 tui.toml；此终端会自动回退到常规模式，除非设置 KIMI_CODE_TUI_FULL_SCREEN=1。',
       // tui/commands/resolve.ts
       resolveCannotWhileStreaming: '流式传输时无法使用 /{{name}}——请先按 Esc 或 Ctrl-C。',
       resolveCannotWhileCompacting: '压缩时无法使用 /{{name}}——请等待压缩完成。',

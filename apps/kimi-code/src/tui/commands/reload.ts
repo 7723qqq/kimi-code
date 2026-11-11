@@ -3,7 +3,7 @@ import type { KimiConfig } from '@moonshot-ai/kimi-code-sdk';
 import { setLocale, t } from '#/i18n';
 import { currentTheme, lightColors } from '#/tui/theme';
 
-import { DEFAULT_MARKDOWN_CONFIG, loadTuiConfig, type TuiConfig } from '../config';
+import { DEFAULT_MARKDOWN_CONFIG, loadTuiConfig, resolveTuiMode, type TuiConfig } from '../config';
 import { getTuiModeRestartNotice } from '../constant/kimi-tui';
 import { setMarkdownMermaidMode, setMarkdownRenderLatex } from '../utils/markdown-options';
 import type { SlashCommandHost } from './dispatch';
@@ -90,7 +90,7 @@ export async function applyReloadedTuiConfig(
     host.setAppState({ locale: config.locale });
   }
   host.state.editor.setDisablePasteBurst(config.disablePasteBurst);
-  if ((config.tuiMode ?? 'regular') !== host.state.ui.mode) {
+  if (resolveTuiMode(config.tuiMode).mode !== host.state.ui.mode) {
     host.showNotice(getTuiModeRestartNotice());
   }
 }

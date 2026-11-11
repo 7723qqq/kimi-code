@@ -3030,6 +3030,10 @@ export default {
       configTuiModeSetRegular: 'TUI mode set to regular.',
       configTuiModeSetFullscreen: 'TUI mode set to fullscreen.',
       configTuiModeSaveFailed: 'Failed to save TUI mode: {{error}}',
+      configTuiModeEnvOverrideNotice:
+        'Saved to tui.toml; unset KIMI_CODE_TUI_FULL_SCREEN for it to take effect.',
+      configTuiModeFallbackNotice:
+        'Saved to tui.toml; this terminal automatically falls back to regular mode unless KIMI_CODE_TUI_FULL_SCREEN=1 is set.',
       // tui/commands/resolve.ts
       resolveCannotWhileStreaming: 'Cannot /{{name}} while streaming — press Esc or Ctrl-C first.',
       resolveCannotWhileCompacting:

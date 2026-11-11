@@ -52,6 +52,7 @@ import { UpdatePreferenceSelectorComponent } from '../components/dialogs/update-
 import {
   DEFAULT_MARKDOWN_CONFIG,
   DEFAULT_TUI_CONFIG,
+  resolveTuiMode,
   saveTuiConfig,
   type MarkdownConfig,
   type TuiConfig,
@@ -1301,7 +1302,7 @@ export async function applyMermaidPreferenceChoice(
 export function showTuiModePicker(host: SlashCommandHost): void {
   host.mountEditorReplacement(
     new TuiModeSelectorComponent({
-      currentValue: host.state.appState.tuiMode ?? 'regular',
+      currentValue: host.state.appState.tuiMode ?? host.state.ui.mode,
       onSelect: (value) => {
         host.restoreEditor();
         void applyTuiModeChoice(host, value);
@@ -1321,10 +1322,12 @@ type TuiModeHost = {
   setAppState(patch: Pick<SlashCommandHost['state']['appState'], 'tuiMode'>): void;
   showStatus(msg: string, color?: string): void;
   showNotice(msg: string): void;
+  track?: SlashCommandHost['track'];
 };
 
 export async function applyTuiModeChoice(host: TuiModeHost, tuiMode: TuiMode): Promise<void> {
-  if (tuiMode === (host.state.appState.tuiMode ?? 'regular')) {
+  const resolved = resolveTuiMode(tuiMode);
+  if (tuiMode === host.state.appState.tuiMode) {
     host.showStatus(
       t(
         tuiMode === 'fullscreen'
@@ -1332,32 +1335,42 @@ export async function applyTuiModeChoice(host: TuiModeHost, tuiMode: TuiMode): P
           : 'tui.messages.configTuiModeAlreadyRegular',
       ),
     );
-    return;
-  }
+  } else {
+    try {
+      await saveTuiConfig({
+        ...currentTuiConfig(host as unknown as SlashCommandHost),
+        tuiMode,
+      });
+    } catch (error) {
+      host.showStatus(
+        t('tui.messages.configTuiModeSaveFailed', { error: formatErrorMessage(error) }),
+        'error',
+      );
+      return;
+    }
 
-  try {
-    await saveTuiConfig({
-      ...currentTuiConfig(host as unknown as SlashCommandHost),
-      tuiMode,
-    });
-  } catch (error) {
+    host.setAppState({ tuiMode });
+    host.track?.('tui_mode_switch', { tui_mode: tuiMode });
     host.showStatus(
-      t('tui.messages.configTuiModeSaveFailed', { error: formatErrorMessage(error) }),
-      'error',
+      t(
+        tuiMode === 'fullscreen'
+          ? 'tui.messages.configTuiModeSetFullscreen'
+          : 'tui.messages.configTuiModeSetRegular',
+      ),
+      'success',
+    );
+  }
+  if (resolved.mode !== tuiMode) {
+    host.showNotice(
+      t(
+        resolved.overriddenByEnv
+          ? 'tui.messages.configTuiModeEnvOverrideNotice'
+          : 'tui.messages.configTuiModeFallbackNotice',
+      ),
     );
     return;
   }
-
-  host.setAppState({ tuiMode });
-  host.showStatus(
-    t(
-      tuiMode === 'fullscreen'
-        ? 'tui.messages.configTuiModeSetFullscreen'
-        : 'tui.messages.configTuiModeSetRegular',
-    ),
-    'success',
-  );
-  if (tuiMode !== host.state.ui.mode) {
+  if (resolved.mode !== host.state.ui.mode) {
     host.showNotice(getTuiModeRestartNotice());
   }
 }

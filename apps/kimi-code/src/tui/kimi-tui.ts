@@ -125,7 +125,7 @@ import {
 } from './components/messages/user-message';
 import { type ActivityPaneMode } from './components/panes/activity-pane';
 import { QueuePaneComponent } from './components/panes/queue-pane';
-import { removeLegacySurveySetting, type TuiConfig } from './config';
+import { removeLegacySurveySetting, type TuiConfig, type TuiMode } from './config';
 import {
   getLlmNotSetMessage,
   getNoActiveSessionMessage,
@@ -278,6 +278,7 @@ export interface KimiTUIStartupInput {
   readonly agentProfile?: string;
   readonly additionalDirs?: readonly string[];
   readonly tuiConfig: TuiConfig;
+  readonly resolvedTuiMode?: TuiMode;
   readonly version: string;
   readonly workDir: string;
   readonly startupNotice?: string;
@@ -529,6 +530,7 @@ export class KimiTUI {
     });
     const tuiOptions: KimiTUIOptions = {
       initialAppState: createInitialAppState(startupInput),
+      resolvedTuiMode: startupInput.resolvedTuiMode,
       startup: {
         sessionFlag: startupInput.cliOptions.session,
         continueLast: startupInput.cliOptions.continue,

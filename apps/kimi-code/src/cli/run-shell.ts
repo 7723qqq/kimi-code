@@ -13,7 +13,7 @@ import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE, TUI_HOST_UI_CAPABILITIES } from '
 import { setLocale, t } from '#/i18n';
 import { detectPendingMigration, resolveLegacySourceHome, sameLegacyPath } from '#/migration/index';
 import type { TuiConfig } from '#/tui/config';
-import { loadTuiConfig, TuiConfigParseError } from '#/tui/config';
+import { loadTuiConfig, resolveTuiMode, TuiConfigParseError } from '#/tui/config';
 import { CHROME_GUTTER } from '#/tui/constant/rendering';
 import { KimiTUI } from '#/tui/index';
 import { currentTheme, getColorPalette } from '#/tui/theme';
@@ -138,6 +138,7 @@ export async function runShell(
   // Resolve --agent/--agent-file once for the startup session; validateOptions
   // has already rejected them alongside --session/--continue.
   const agentProfile = await resolveAgentProfileSelection(opts, workDir);
+  const tuiModeResolution = resolveTuiMode(tuiConfig.tuiMode);
   // Degraded native workers (embeddable-asset install failures) are appended to
   // the same dim startup notice as tui.toml parse errors, so a broken install
   // is visible on screen instead of only in the trace file.
@@ -150,6 +151,7 @@ export async function runShell(
     agentProfile,
     additionalDirs: opts.addDirs?.length ? opts.addDirs : undefined,
     tuiConfig,
+    resolvedTuiMode: tuiModeResolution.mode,
     version,
     workDir,
     startupNotice,
@@ -258,7 +260,12 @@ export async function runShell(
     const sessionId = tui.getCurrentSessionId();
     const hasContent = tui.hasSessionContent();
     setCrashPhase('shutdown');
-    trackLifecycle('exit', { duration_ms: Date.now() - startedAt, tui_mode: tui.state.ui.mode });
+    trackLifecycle('exit', {
+      duration_ms: Date.now() - startedAt,
+      tui_mode: tui.state.ui.mode,
+      tui_mode_config: tuiModeResolution.config,
+      tui_mode_fallback: tuiModeResolution.fallback,
+    });
     try {
       await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS });
     } catch {}
@@ -301,11 +308,18 @@ export async function runShell(
       init_ms: initMs,
       mcp_ms: mcpMs,
       tui_mode: tui.state.ui.mode,
+      tui_mode_config: tuiModeResolution.config,
+      tui_mode_fallback: tuiModeResolution.fallback,
     });
   } catch (error) {
     removeCrashHandlers();
     setCrashPhase('shutdown');
-    trackLifecycle('exit', { duration_ms: Date.now() - startedAt, tui_mode: tui.state.ui.mode });
+    trackLifecycle('exit', {
+      duration_ms: Date.now() - startedAt,
+      tui_mode: tui.state.ui.mode,
+      tui_mode_config: tuiModeResolution.config,
+      tui_mode_fallback: tuiModeResolution.fallback,
+    });
     try {
       await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS });
     } catch {}

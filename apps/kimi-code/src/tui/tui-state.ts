@@ -45,7 +45,7 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
   setMarkdownRenderLatex(initialAppState.renderLatex ?? DEFAULT_TUI_CONFIG.renderLatex ?? true);
   setMarkdownMermaidMode(initialAppState.markdown?.mermaid ?? DEFAULT_MARKDOWN_CONFIG.mermaid);
   const ui =
-    initialAppState.tuiMode === 'fullscreen'
+    (options.resolvedTuiMode ?? initialAppState.tuiMode) === 'fullscreen'
       ? new TuiAltScreen(terminal, undefined, undefined, {
           // Mouse capture takes over the terminal's native link activation, so
           // route OSC 8 clicks through our own opener.

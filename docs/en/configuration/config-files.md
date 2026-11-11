@@ -845,7 +845,7 @@ Model, cwd, git branch, permission mode, plan mode, spec mode, swarm mode, hello
 ```toml
 # ~/.kimi-code/tui.toml
 theme = "auto" # "auto" | "dark" | "light" | custom theme name
-tui_mode = "regular" # "regular" | "fullscreen" | "textual" (fullscreen and textual are experimental)
+# tui_mode = "regular" # "regular" | "fullscreen" | "textual" (fullscreen and textual are experimental)
 render_latex = true # false keeps LaTeX math in messages as raw source
 disable_paste_burst = false # true disables non-bracketed paste-burst fallback
 cache_expiry_hint = true # false disables the "cache expired" dialog on resume / idle submit
