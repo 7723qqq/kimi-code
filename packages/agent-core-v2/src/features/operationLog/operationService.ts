@@ -14,7 +14,6 @@ import { ISessionContext } from '#/session/sessionContext/sessionContext';
 
 import { resolveOperationLogRetention } from './configSection';
 import { OPERATION_LOG_FLAG_ID } from './flag';
-import { GitOperationBackend } from './gitOperationBackend';
 import {
   OperationLogError,
   operationViewsEqual,
@@ -23,6 +22,7 @@ import {
   type OperationView,
 } from './operationLog';
 import { OperationLogStore } from './operationLogStore';
+import { RepositoryViewService } from './repositoryViewService';
 
 const executionLocks = new Map<string, Promise<void>>();
 const orchestrationTools = new Set(['Agent', 'AgentSwarm']);
@@ -42,7 +42,7 @@ export const IAgentOperationService =
 export class AgentOperationService extends Service implements IAgentOperationService {
   declare readonly _serviceBrand: undefined;
 
-  private readonly operationBackends = new Map<string, GitOperationBackend>();
+  private readonly repositoryViews = new Map<string, RepositoryViewService>();
 
   constructor(
     @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
@@ -175,10 +175,10 @@ export class AgentOperationService extends Service implements IAgentOperationSer
   }
 
   private async openOperationStore(repoRoot: string): Promise<{
-    readonly backend: GitOperationBackend;
+    readonly backend: RepositoryViewService;
     readonly store: OperationLogStore;
   }> {
-    const backend = await this.operationBackend(repoRoot);
+    const backend = await this.repositoryView(repoRoot);
     const store = new OperationLogStore(
       backend.storageRoot,
       resolveOperationLogRetention(this.configuration),
@@ -186,16 +186,16 @@ export class AgentOperationService extends Service implements IAgentOperationSer
     return { backend, store };
   }
 
-  private async operationBackend(repoRoot: string): Promise<GitOperationBackend> {
-    const cached = this.operationBackends.get(repoRoot);
+  private async repositoryView(repoRoot: string): Promise<RepositoryViewService> {
+    const cached = this.repositoryViews.get(repoRoot);
     if (cached !== undefined && (await cached.isRepositoryCurrent())) return cached;
-    const backend = await GitOperationBackend.open({ repoRoot });
-    this.operationBackends.set(repoRoot, backend);
+    const backend = await RepositoryViewService.open({ repoRoot });
+    this.repositoryViews.set(repoRoot, backend);
     return backend;
   }
 
   override dispose(): void {
-    this.operationBackends.clear();
+    this.repositoryViews.clear();
     super.dispose();
   }
 
@@ -272,7 +272,7 @@ export class AgentOperationService extends Service implements IAgentOperationSer
     context: ResolvedToolExecutionHookContext,
     next: (context?: ResolvedToolExecutionHookContext) => Promise<void>,
   ): Promise<void> {
-    const backend = await this.operationBackend(repoRoot);
+    const backend = await this.repositoryView(repoRoot);
     const store = new OperationLogStore(
       backend.storageRoot,
       resolveOperationLogRetention(this.configuration),

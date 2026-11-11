@@ -6,9 +6,9 @@ import { join } from 'pathe';
 
 import { makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { AgentFileHistoryService } from '#/features/fileHistory/fileHistoryService';
-import { GitOperationBackend } from '#/features/operationLog/gitOperationBackend';
 import type { OperationView } from '#/features/operationLog/operationLog';
 import { OperationLogStore } from '#/features/operationLog/operationLogStore';
+import { RepositoryViewService } from '#/features/operationLog/repositoryViewService';
 import { SnapshotService } from '#/features/snapshot/snapshotService';
 import { makeSessionContext } from '#/session/sessionContext/sessionContext';
 
@@ -52,7 +52,7 @@ async function capture(
   turnId: number,
   toolCallId: string,
 ): Promise<OperationView> {
-  const backend = await GitOperationBackend.open({ repoRoot: repo });
+  const backend = await RepositoryViewService.open({ repoRoot: repo });
   const after = await backend.captureView();
   await store.capture(
     after,
@@ -92,7 +92,7 @@ afterAll(async () => {
 describe('operation store query projections', () => {
   it('serves snapshots and per-turn file history without legacy capture services', async () => {
     const repo = await createRepo();
-    const backend = await GitOperationBackend.open({ repoRoot: repo });
+    const backend = await RepositoryViewService.open({ repoRoot: repo });
     const store = new OperationLogStore(backend.storageRoot);
     const initial = await backend.captureView();
     await writeFile(join(repo, 'a.txt'), 'alpha\nbeta\n');

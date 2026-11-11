@@ -11,10 +11,10 @@ import type { IConfigService } from '#/app/config/config';
 import type { IFlagService } from '#/app/flag/flag';
 import { OPERATION_LOG_SECTION } from '#/features/operationLog/configSection';
 import { OPERATION_LOG_FLAG_ID } from '#/features/operationLog/flag';
-import { GitOperationBackend } from '#/features/operationLog/gitOperationBackend';
 import type { OperationLogRetention } from '#/features/operationLog/operationLog';
 import { OperationLogStore } from '#/features/operationLog/operationLogStore';
 import { AgentOperationService } from '#/features/operationLog/operationService';
+import { RepositoryViewService } from '#/features/operationLog/repositoryViewService';
 import { OrderedHookSlot } from '#/hooks';
 import type { IHostClock } from '#/os/interface/hostClock';
 import { makeSessionContext } from '#/session/sessionContext/sessionContext';
@@ -337,7 +337,7 @@ describe('AgentOperationService', () => {
     const head = await store(repo).head();
     const operation = await store(repo).get(head!.operationId);
     expect(await service.listOperations()).toHaveLength(6);
-    const backend = await GitOperationBackend.open({ repoRoot: repo });
+    const backend = await RepositoryViewService.open({ repoRoot: repo });
     expect(await store(repo).view(operation.viewId)).toEqual(await backend.captureView());
   });
 

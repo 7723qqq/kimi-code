@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 
 import { join } from 'pathe';
 
-import { GitOperationBackend } from '#/features/operationLog/gitOperationBackend';
+import { RepositoryViewService } from '#/features/operationLog/repositoryViewService';
 
 const roots: string[] = [];
 
@@ -33,6 +33,17 @@ async function gitEnv(
 
 function git(cwd: string, ...args: string[]): Promise<string> {
   return gitEnv(cwd, {}, ...args);
+}
+
+async function gitRefs(repo: string): Promise<Record<string, string>> {
+  const raw = await git(repo, 'for-each-ref', '--format=%(refname)%00%(objectname)');
+  const refs: Record<string, string> = {};
+  for (const line of raw.split('\n')) {
+    if (line === '') continue;
+    const separator = line.indexOf('\0');
+    refs[line.slice(0, separator)] = line.slice(separator + 1);
+  }
+  return refs;
 }
 
 async function gitCaptured(cwd: string, storage: string, ...args: string[]): Promise<string> {
@@ -72,8 +83,8 @@ async function createRepo(withInitialCommit = true): Promise<{ repo: string; sto
   return { repo, storage };
 }
 
-function open(repo: string, storage: string): Promise<GitOperationBackend> {
-  return GitOperationBackend.open({ repoRoot: repo, storageRoot: storage });
+function open(repo: string, storage: string): Promise<RepositoryViewService> {
+  return RepositoryViewService.open({ repoRoot: repo, storageRoot: storage });
 }
 
 async function actualState(repo: string) {
@@ -100,7 +111,7 @@ afterAll(async () => {
   await Promise.all(roots.map((root) => rm(root, { recursive: true, force: true })));
 });
 
-describe('GitOperationBackend', () => {
+describe('RepositoryViewService', () => {
   it('captures tree, HEAD, refs and index fingerprint without mutating the repository', async () => {
     const { repo, storage } = await createRepo();
     const before = await actualState(repo);
@@ -355,7 +366,7 @@ describe('GitOperationBackend', () => {
     const { repo } = await createRepo();
     const gitDir = await git(repo, 'rev-parse', '--path-format=absolute', '--absolute-git-dir');
 
-    const backend = await GitOperationBackend.open({ repoRoot: repo });
+    const backend = await RepositoryViewService.open({ repoRoot: repo });
 
     expect(backend.storageRoot).toBe(join(gitDir, 'kimi-operation-log'));
   });
@@ -370,5 +381,89 @@ describe('GitOperationBackend', () => {
     await git(repo, 'init', '-b', 'main');
 
     expect(await backend.isRepositoryCurrent()).toBe(false);
+  });
+
+  it('reads loose and packed refs exactly like for-each-ref', async () => {
+    const { repo, storage } = await createRepo();
+    await git(repo, 'branch', 'topic');
+    await git(repo, 'tag', 'light');
+    await git(repo, 'tag', '-a', 'annotated', '-m', 'annotated tag');
+    const first = await git(repo, 'rev-parse', 'HEAD');
+    await mkdir(join(repo, '.git', 'refs', 'remotes', 'origin'), { recursive: true });
+    await writeFile(join(repo, '.git', 'refs', 'remotes', 'origin', 'main'), `${first}\n`);
+    await writeFile(
+      join(repo, '.git', 'refs', 'remotes', 'origin', 'HEAD'),
+      'ref: refs/remotes/origin/main\n',
+    );
+    await writeFile(join(repo, '.git', 'refs', 'heads', 'ignored.lock'), `${first}\n`);
+    await writeFile(join(repo, '.git', 'refs', 'heads', '.hidden'), `${first}\n`);
+    await git(repo, 'pack-refs', '--all');
+    await writeFile(join(repo, 'b.txt'), 'second\n');
+    await git(repo, 'add', '.');
+    await git(repo, 'commit', '-m', 'second');
+    const second = await git(repo, 'rev-parse', 'HEAD');
+    await git(repo, 'update-ref', 'refs/heads/topic', second);
+
+    const view = await (await open(repo, storage)).captureView();
+
+    expect(view.refs).toEqual(await gitRefs(repo));
+    expect(view.refs['refs/heads/topic']).toBe(second);
+    expect(view.refs['refs/remotes/origin/HEAD']).toBe(first);
+  });
+
+  it('captures a linked worktree from the git ref probes', async () => {
+    const { repo, storage } = await createRepo();
+    const worktree = join(repo, '..', 'worktree');
+    await git(repo, 'worktree', 'add', '-b', 'wt', worktree);
+    const backend = await RepositoryViewService.open({
+      repoRoot: worktree,
+      storageRoot: join(storage, 'wt'),
+    });
+
+    const view = await backend.captureView();
+
+    expect(view.head).toEqual({
+      kind: 'branch',
+      ref: 'refs/heads/wt',
+      target: await git(worktree, 'rev-parse', 'HEAD'),
+    });
+    expect(view.refs).toEqual(await gitRefs(worktree));
+  });
+
+  it('records an unmerged index as an empty index tree', async () => {
+    const { repo, storage } = await createRepo();
+    await git(repo, 'checkout', '-b', 'side');
+    await writeFile(join(repo, 'a.txt'), 'side\n');
+    await git(repo, 'commit', '-am', 'side');
+    await git(repo, 'checkout', 'main');
+    await writeFile(join(repo, 'a.txt'), 'main\n');
+    await git(repo, 'commit', '-am', 'main');
+    expect(await rejectionOf(git(repo, 'merge', 'side'))).toBeDefined();
+
+    const view = await (await open(repo, storage)).captureView();
+
+    expect(view.unfinishedOperation).toBe('merge');
+    expect(view.indexTree).toBe('');
+  });
+
+  it('captures a view with four git processes', async () => {
+    const { repo, storage } = await createRepo();
+    const backend = await open(repo, storage);
+    await backend.captureView();
+    const originalSpawn = Bun.spawn;
+    let spawns = 0;
+    Bun.spawn = ((options: any) => {
+      const command = options.cmd as readonly string[];
+      if (command[0] === 'git') spawns += 1;
+      return originalSpawn(options);
+    }) as typeof Bun.spawn;
+
+    try {
+      await backend.captureView();
+    } finally {
+      Bun.spawn = originalSpawn;
+    }
+
+    expect(spawns).toBe(4);
   });
 });

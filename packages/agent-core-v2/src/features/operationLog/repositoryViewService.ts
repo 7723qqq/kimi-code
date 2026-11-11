@@ -1,4 +1,4 @@
-import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
 
 import { dirname, join, resolve } from 'pathe';
 
@@ -11,7 +11,7 @@ import {
   type OperationView,
 } from './operationLog';
 
-interface GitOperationBackendOptions {
+interface RepositoryViewServiceOptions {
   readonly repoRoot: string;
   readonly storageRoot?: string;
 }
@@ -28,12 +28,59 @@ interface GitRunOptions {
   readonly allowedExitCodes?: readonly number[];
 }
 
+type RefResolution =
+  | { readonly kind: 'resolved'; readonly target: string }
+  | { readonly kind: 'missing' }
+  | { readonly kind: 'invalid' };
+
+const OBJECT_ID_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+const MAX_SYMREF_DEPTH = 8;
+const FORBIDDEN_REF_CHARACTERS = new Set([' ', '~', '^', ':', '?', '*', '[', '\\']);
+
+function isValidRefName(ref: string): boolean {
+  if (!ref.startsWith('refs/') || ref.endsWith('/') || ref.endsWith('.')) return false;
+  if (ref.includes('//') || ref.includes('..') || ref.includes('@{')) return false;
+  for (const character of ref) {
+    const code = character.codePointAt(0) ?? 0;
+    if (code < 0x20 || code === 0x7f || FORBIDDEN_REF_CHARACTERS.has(character)) return false;
+  }
+  for (const component of ref.split('/')) {
+    if (component === '' || component.startsWith('.') || component.endsWith('.lock')) return false;
+  }
+  return true;
+}
+
+function compareRefNames(left: string, right: string): number {
+  return Buffer.compare(Buffer.from(left, 'utf8'), Buffer.from(right, 'utf8'));
+}
+
+function resolveRefChain(refs: ReadonlyMap<string, string>, name: string): string | undefined {
+  let current = name;
+  for (let depth = 0; depth < MAX_SYMREF_DEPTH; depth += 1) {
+    const value = refs.get(current);
+    if (value === undefined) return undefined;
+    if (!value.startsWith('ref: ')) return OBJECT_ID_PATTERN.test(value) ? value : undefined;
+    current = value.slice(5).trim();
+  }
+  return undefined;
+}
+
 async function pathExists(path: string): Promise<boolean> {
   try {
     await stat(path);
     return true;
   } catch (error) {
     if ((error as { code?: unknown }).code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+async function readTextFile(path: string): Promise<string | undefined> {
+  try {
+    return await Bun.file(path).text();
+  } catch (error) {
+    const code = (error as { code?: unknown }).code;
+    if (code === 'ENOENT' || code === 'EISDIR') return undefined;
     throw error;
   }
 }
@@ -63,7 +110,7 @@ export class GitOperationError extends Error {
   }
 }
 
-export class GitOperationBackend {
+export class RepositoryViewService {
   private gitDirIdentity: string | undefined;
 
   private constructor(
@@ -74,9 +121,10 @@ export class GitOperationBackend {
     private readonly shadowIndexPath: string,
     private readonly shadowObjectDir: string,
     private readonly recoveryPath: string,
+    private readonly refsFromFiles: boolean,
   ) {}
 
-  static async open(options: GitOperationBackendOptions): Promise<GitOperationBackend> {
+  static async open(options: RepositoryViewServiceOptions): Promise<RepositoryViewService> {
     const repoRoot = resolve(options.repoRoot);
     const resolved = await runGit(repoRoot, [
       'rev-parse',
@@ -97,7 +145,10 @@ export class GitOperationBackend {
       );
     }
     const storageRoot = resolve(options.storageRoot ?? join(gitDir, 'kimi-operation-log'));
-    const backend = new GitOperationBackend(
+    const refsFromFiles =
+      !(await pathExists(join(gitDir, 'commondir'))) &&
+      !(await pathExists(join(gitDir, 'reftable')));
+    const service = new RepositoryViewService(
       root,
       gitDir,
       storageRoot,
@@ -105,9 +156,10 @@ export class GitOperationBackend {
       join(storageRoot, 'index'),
       join(storageRoot, 'objects'),
       join(storageRoot, 'recovery-required.json'),
+      refsFromFiles,
     );
-    backend.gitDirIdentity = await readDirectoryIdentity(gitDir);
-    return backend;
+    service.gitDirIdentity = await readDirectoryIdentity(gitDir);
+    return service;
   }
 
   async isRepositoryCurrent(): Promise<boolean> {
@@ -288,6 +340,45 @@ export class GitOperationBackend {
   }
 
   private async readHead(): Promise<OperationGitHead> {
+    return (await this.readHeadFile()) ?? this.readHeadWithGit();
+  }
+
+  private async readHeadFile(): Promise<OperationGitHead | undefined> {
+    if (!this.refsFromFiles) return undefined;
+    const raw = await readTextFile(join(this.gitDir, 'HEAD'));
+    if (raw === undefined) return undefined;
+    const value = raw.trim();
+    if (value.includes('\n')) return undefined;
+    if (value.startsWith('ref: ')) {
+      const ref = value.slice(5).trim();
+      if (!isValidRefName(ref)) return undefined;
+      const resolution = await this.resolveRefFile(ref, 0);
+      if (resolution.kind === 'invalid') return undefined;
+      if (resolution.kind === 'missing') return { kind: 'unborn', ref };
+      return { kind: 'branch', ref, target: resolution.target };
+    }
+    return OBJECT_ID_PATTERN.test(value) ? { kind: 'detached', target: value } : undefined;
+  }
+
+  private async resolveRefFile(ref: string, depth: number): Promise<RefResolution> {
+    if (depth >= MAX_SYMREF_DEPTH || !isValidRefName(ref)) return { kind: 'invalid' };
+    const raw = await readTextFile(join(this.gitDir, ref));
+    if (raw !== undefined) {
+      const value = raw.trim();
+      if (value.startsWith('ref: ')) {
+        return this.resolveRefFile(value.slice(5).trim(), depth + 1);
+      }
+      return OBJECT_ID_PATTERN.test(value)
+        ? { kind: 'resolved', target: value }
+        : { kind: 'invalid' };
+    }
+    const packed = await this.readPackedRefs();
+    if (packed === 'invalid') return { kind: 'invalid' };
+    const target = packed?.get(ref);
+    return target === undefined ? { kind: 'missing' } : { kind: 'resolved', target };
+  }
+
+  private async readHeadWithGit(): Promise<OperationGitHead> {
     const [symbolic, targetResult] = await Promise.all([
       this.git(['symbolic-ref', '-q', 'HEAD'], {
         allowedExitCodes: [0, 1],
@@ -311,6 +402,74 @@ export class GitOperationBackend {
   }
 
   private async readRefs(): Promise<Readonly<Record<string, string>>> {
+    return (await this.readRefsFromFiles()) ?? this.readRefsWithGit();
+  }
+
+  private async readRefsFromFiles(): Promise<Readonly<Record<string, string>> | undefined> {
+    if (!this.refsFromFiles) return undefined;
+    const packed = await this.readPackedRefs();
+    if (packed === 'invalid') return undefined;
+    const raw = new Map<string, string>(packed ?? []);
+    if (!(await this.collectLooseRefs(join(this.gitDir, 'refs'), 'refs', raw))) return undefined;
+    for (const value of raw.values()) {
+      if (!OBJECT_ID_PATTERN.test(value) && !value.startsWith('ref: ')) return undefined;
+    }
+    const refs: Record<string, string> = Object.create(null) as Record<string, string>;
+    for (const name of [...raw.keys()].toSorted(compareRefNames)) {
+      const target = resolveRefChain(raw, name);
+      if (target !== undefined) refs[name] = target;
+    }
+    return refs;
+  }
+
+  private async collectLooseRefs(
+    directory: string,
+    prefix: string,
+    refs: Map<string, string>,
+  ): Promise<boolean> {
+    let entries;
+    try {
+      entries = await readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      return (error as { code?: unknown }).code === 'ENOENT';
+    }
+    for (const entry of entries) {
+      const name = entry.name;
+      if (name.startsWith('.') || name.endsWith('.lock')) continue;
+      const ref = `${prefix}/${name}`;
+      if (entry.isDirectory()) {
+        if (!(await this.collectLooseRefs(join(directory, name), ref, refs))) return false;
+        continue;
+      }
+      if (!entry.isFile() || !isValidRefName(ref)) continue;
+      const raw = await readTextFile(join(directory, name));
+      if (raw === undefined) return false;
+      refs.set(ref, raw.trim());
+    }
+    return true;
+  }
+
+  private async readPackedRefs(): Promise<ReadonlyMap<string, string> | 'invalid' | undefined> {
+    const raw = await readTextFile(join(this.gitDir, 'packed-refs'));
+    if (raw === undefined) return undefined;
+    const refs = new Map<string, string>();
+    for (const line of raw.split('\n')) {
+      if (line === '' || line.startsWith('#')) continue;
+      if (line.startsWith('^')) {
+        if (!OBJECT_ID_PATTERN.test(line.slice(1).trim())) return 'invalid';
+        continue;
+      }
+      const separator = line.indexOf(' ');
+      if (separator <= 0) return 'invalid';
+      const target = line.slice(0, separator);
+      const name = line.slice(separator + 1).trim();
+      if (!OBJECT_ID_PATTERN.test(target) || !isValidRefName(name)) return 'invalid';
+      refs.set(name, target);
+    }
+    return refs;
+  }
+
+  private async readRefsWithGit(): Promise<Readonly<Record<string, string>>> {
     const result = await this.git(['for-each-ref', '--format=%(refname)%00%(objectname)']);
     const refs: Record<string, string> = Object.create(null) as Record<string, string>;
     for (const line of result.stdout.split('\n')) {
@@ -324,11 +483,16 @@ export class GitOperationBackend {
 
   private async readActualIndexTree(): Promise<string> {
     if (!(await pathExists(join(this.gitDir, 'index')))) return this.emptyTree();
-    const unmerged = await this.git(['diff', '--cached', '--name-only', '--diff-filter=U'], {
-      shadowIndex: false,
-    });
-    if (unmerged.stdout.trim() !== '') return '';
-    return (await this.git(['write-tree'], { shadowIndex: false })).stdout.trim();
+    try {
+      return (await this.git(['write-tree'], { shadowIndex: false })).stdout.trim();
+    } catch (error) {
+      if (!(error instanceof GitOperationError)) throw error;
+      const unmerged = await this.git(['diff', '--cached', '--name-only', '--diff-filter=U'], {
+        shadowIndex: false,
+      });
+      if (unmerged.stdout.trim() === '') throw error;
+      return '';
+    }
   }
 
   private async actualIndexIsClean(): Promise<boolean> {

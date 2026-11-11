@@ -10,7 +10,6 @@ import type {
   SnapshotRecordInput,
 } from '#/features/snapshot/snapshot';
 
-import { GitOperationBackend } from './gitOperationBackend';
 import {
   OperationLogError,
   type OperationLogRetention,
@@ -18,9 +17,10 @@ import {
   type OperationView,
 } from './operationLog';
 import { OperationLogStore } from './operationLogStore';
+import { RepositoryViewService } from './repositoryViewService';
 
 interface ProjectionContext {
-  readonly backend: GitOperationBackend;
+  readonly backend: RepositoryViewService;
   readonly store: OperationLogStore;
 }
 
@@ -141,7 +141,7 @@ export class OperationSnapshotStore implements ISnapshotStore {
   }
 
   private async open(retention: Partial<OperationLogRetention>): Promise<ProjectionContext> {
-    const backend = await GitOperationBackend.open({ repoRoot: this.repoRoot });
+    const backend = await RepositoryViewService.open({ repoRoot: this.repoRoot });
     return { backend, store: new OperationLogStore(backend.storageRoot, retention) };
   }
 
