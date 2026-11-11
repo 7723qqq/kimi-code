@@ -140,6 +140,7 @@ export interface DefineRouteOptions<
   success?: { data: TSuccessData };
   errors?: Record<number, { dataSchema?: z.ZodTypeAny; detailsSchema?: z.ZodTypeAny }>;
   rawResponse?: Record<number, Record<string, unknown>>;
+  rawErrorStatus?: boolean;
   description?: string;
   summary?: string;
   tags?: string[];
@@ -181,7 +182,7 @@ export function defineRoute<
   const preHandler: unknown[] = [];
 
   if (options.params) {
-    preHandler.push(validateParams(options.params));
+    preHandler.push(validateParams(options.params, options.rawErrorStatus === true));
   }
   if (options.body) {
     assertStrictRequestSchema('body', options.path, options.body);
@@ -189,7 +190,7 @@ export function defineRoute<
   }
   if (options.querystring) {
     assertStrictRequestSchema('querystring', options.path, options.querystring);
-    preHandler.push(validateQuery(options.querystring));
+    preHandler.push(validateQuery(options.querystring, options.rawErrorStatus === true));
   }
 
   const schema: Record<string, unknown> = {};
