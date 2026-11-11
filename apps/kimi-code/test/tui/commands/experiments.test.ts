@@ -19,6 +19,7 @@ void mock.module('#/i18n', () => ({
       'tui.statusMessages.experimentalUpdated': 'Experimental features updated.',
       'tui.messages.experimentalTowerRestart':
         'Tower mode takes effect after restarting Kimi Code.',
+      'tui.messages.experimentalLspRestart': 'LSP setting changes take effect after restarting Kimi Code.',
       'tui.messages.experimentalNotifyUserNewSession':
         'Start a new session to use Updates if this session was created with the feature disabled.',
     };
@@ -186,7 +187,24 @@ describe('experimental feature command handlers', () => {
     );
   });
 
-  it('does not show the restart notice for non-tower changes', async () => {
+  it.each([true, false])(
+    'notices that LSP support needs a restart when the lsp flag changes: %s',
+    async (enabled) => {
+      const host = makeHost();
+
+      await applyExperimentalFeatureChanges(host, [{ id: 'lsp', enabled }]);
+
+      expect(host.harness.setConfig).toHaveBeenCalledWith({
+        experimental: { lsp: enabled },
+      });
+      expect(host.harness.reloadSession).toHaveBeenCalledWith({ id: host.session.id });
+      expect(host.showNotice).toHaveBeenCalledWith(
+        'LSP setting changes take effect after restarting Kimi Code.',
+      );
+    },
+  );
+
+  it('does not show the restart notice for unrelated flag changes', async () => {
     const host = makeHost();
 
     await applyExperimentalFeatureChanges(host, [{ id: 'micro_compaction', enabled: false }]);

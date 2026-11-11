@@ -2893,6 +2893,7 @@ export default {
       configGithubTokenSaveFailed: '保存 GitHub Token 失败：{{error}}',
       experimentalNotifyUserNewSession:
         '如果本会话创建时该功能处于关闭状态，请新建会话后再使用 Updates。',
+      experimentalLspRestart: 'LSP 设置变更将在重启 Kimi Code 后生效。',
       experimentalTowerRestart: 'tower 模式将在重启 Kimi Code 后生效。',
       // tui/commands/dispatch.ts
       configInvalidSlashCommand: '无效的斜杠命令：/{{name}}',

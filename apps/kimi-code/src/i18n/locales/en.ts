@@ -2995,6 +2995,7 @@ export default {
       configGithubTokenSaveFailed: 'Failed to save GitHub token: {{error}}',
       experimentalNotifyUserNewSession:
         'Start a new session to use Updates if this session was created with the feature disabled.',
+      experimentalLspRestart: 'LSP setting changes take effect after restarting Kimi Code.',
       experimentalTowerRestart: 'Tower mode takes effect after restarting Kimi Code.',
       // tui/commands/dispatch.ts
       configInvalidSlashCommand: 'Invalid slash command: /{{name}}',

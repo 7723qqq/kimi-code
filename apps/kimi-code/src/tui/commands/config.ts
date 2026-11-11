@@ -1054,6 +1054,9 @@ export async function applyExperimentalFeatureChanges(
       // them; only the mode machinery (enter/injection/guards) reacts live.
       host.showNotice(t('tui.messages.experimentalTowerRestart'));
     }
+    if (changes.some((change) => change.id === 'lsp')) {
+      host.showNotice(t('tui.messages.experimentalLspRestart'));
+    }
     host.track('experimental_features_apply', {
       changed: changes.length,
       flags: features
