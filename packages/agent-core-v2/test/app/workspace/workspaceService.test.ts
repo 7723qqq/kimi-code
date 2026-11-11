@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { promises as fsp } from 'node:fs';
 import os from 'node:os';
 import { join } from 'node:path';
@@ -141,6 +141,13 @@ describe('WorkspaceService (file-backed)', () => {
       JSON.stringify({ version: 1, workspaces, ...extra }),
       'utf8',
     );
+  }
+
+  function createPersistence(
+    docs = new JsonAtomicDocumentStore(new FileStorageService(homeDir)),
+    storage = new FileStorageService(homeDir),
+  ): FileWorkspacePersistence {
+    return new FileWorkspacePersistence(docs, stubBootstrap(homeDir), storage, noopLog);
   }
 
   async function readWorkspacesJson(): Promise<{
@@ -818,6 +825,69 @@ describe('WorkspaceService (file-backed)', () => {
 
     const same = await registry.create({ root: homeDir, additionalDirs: [homeDir] });
     expect(same.additionalDirs).toEqual([]);
+  });
+
+  it('shares a parsed catalog across repeated reads until the file changes', async () => {
+    await writeWorkspacesJson({});
+    const storage = new FileStorageService(homeDir);
+    const docs = new JsonAtomicDocumentStore(storage);
+    const get = spyOn(docs, 'get');
+    const persistence = createPersistence(docs, storage);
+    try {
+      const first = await persistence.load();
+      for (let index = 0; index < 64; index += 1) {
+        expect(await persistence.load()).toEqual(first);
+      }
+      expect(get.mock.calls.filter(([, key]) => key === 'workspaces.json')).toHaveLength(1);
+      await persistence.update((catalog) => ({ ...catalog, deletedIds: ['wd_removed'] }));
+      expect((await persistence.load())?.deletedIds).toEqual(['wd_removed']);
+    } finally {
+      persistence.dispose();
+    }
+  });
+
+  it('observes same-sized atomic replacement even when the modification time is preserved', async () => {
+    await writeWorkspacesJson({}, { deleted_workspace_ids: ['old'] });
+    const persistence = createPersistence();
+    try {
+      expect((await persistence.load())?.deletedIds).toEqual(['old']);
+      const target = join(homeDir, 'workspaces.json');
+      const metadata = await fsp.stat(target);
+      const replacement = join(homeDir, 'replacement.json');
+      await fsp.writeFile(
+        replacement,
+        JSON.stringify({ version: 1, workspaces: {}, deleted_workspace_ids: ['new'] }),
+      );
+      await fsp.utimes(replacement, metadata.atime, metadata.mtime);
+      await fsp.rename(replacement, target);
+      expect((await persistence.load())?.deletedIds).toEqual(['new']);
+      await fsp.writeFile(target, '{invalid');
+      await expect(persistence.load()).rejects.toThrow();
+      await writeWorkspacesJson({}, { deleted_workspace_ids: ['old'] });
+      expect((await persistence.load())?.deletedIds).toEqual(['old']);
+    } finally {
+      persistence.dispose();
+    }
+  });
+
+  it('does not cache a snapshot when the file is atomically replaced during its read', async () => {
+    const original = { version: 1, workspaces: {}, deleted_workspace_ids: ['old'] };
+    await fsp.writeFile(join(homeDir, 'workspaces.json'), JSON.stringify(original));
+    const storage = new FileStorageService(homeDir);
+    const docs = new JsonAtomicDocumentStore(storage);
+    const get = docs.get.bind(docs);
+    spyOn(docs, 'get').mockImplementationOnce(async <T>(scope: string, key: string): Promise<T | undefined> => {
+      const value = await get<T>(scope, key);
+      await docs.set(scope, key, { ...original, deleted_workspace_ids: ['new'] });
+      return value;
+    });
+    const persistence = createPersistence(docs, storage);
+    try {
+      expect((await persistence.load())?.deletedIds).toEqual(['old']);
+      expect((await persistence.load())?.deletedIds).toEqual(['new']);
+    } finally {
+      persistence.dispose();
+    }
   });
 
   it('touch bumps lastOpenedAt and setPrimary swaps a source folder into the root', async () => {

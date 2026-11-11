@@ -1,4 +1,4 @@
-import { mkdir } from 'node:fs/promises';
+import { mkdir, stat } from 'node:fs/promises';
 import { dirname, join, normalize } from 'pathe';
 
 import { LockFile } from '@moonshot-ai/minidb';
@@ -38,6 +38,9 @@ export class FileWorkspacePersistence extends Disposable implements IWorkspacePe
   private readonly watchDebounce = this._register(new TimeoutTimer());
   private readonly catalogLock: LockFile;
   private readonly catalogLockPath: string;
+  private catalogCache:
+    | { readonly version: string; readonly catalog: WorkspaceCatalog }
+    | undefined;
 
   constructor(
     @IAtomicDocumentStore private readonly docs: IAtomicDocumentStore,
@@ -55,6 +58,7 @@ export class FileWorkspacePersistence extends Disposable implements IWorkspacePe
     this._register(
       handle.onDidChange((change) => {
         if (normalize(change.path) !== normalize(catalogFile)) return;
+        this.catalogCache = undefined;
         this.watchDebounce.cancelAndSet(() => {
           this.changeEmitter.fire();
         }, WATCH_DEBOUNCE_MS);
@@ -63,6 +67,19 @@ export class FileWorkspacePersistence extends Disposable implements IWorkspacePe
   }
 
   async load(): Promise<WorkspaceCatalog | undefined> {
+    const version = await this.catalogVersion();
+    if (version !== undefined && this.catalogCache?.version === version) {
+      return this.catalogCache.catalog;
+    }
+    const catalog = await this.readCatalog();
+    this.catalogCache =
+      catalog !== undefined && version !== undefined && version === (await this.catalogVersion())
+        ? { version, catalog }
+        : undefined;
+    return catalog;
+  }
+
+  private async readCatalog(): Promise<WorkspaceCatalog | undefined> {
     const file = await this.docs.get<PersistedWorkspaceFile>(
       WORKSPACE_CATALOG_SCOPE,
       WORKSPACE_CATALOG_KEY,
@@ -129,6 +146,7 @@ export class FileWorkspacePersistence extends Disposable implements IWorkspacePe
           ? {}
           : { idempotency_keys: { ...catalog.idempotencyKeys } }),
       };
+      this.catalogCache = undefined;
       await this.docs.set(WORKSPACE_CATALOG_SCOPE, WORKSPACE_CATALOG_KEY, file);
       this.changeEmitter.fire();
     } finally {
@@ -164,6 +182,17 @@ export class FileWorkspacePersistence extends Disposable implements IWorkspacePe
       path: this.catalogLockPath,
     });
     return () => Promise.resolve();
+  }
+
+  private async catalogVersion(): Promise<string | undefined> {
+    const path = this.storage.pathFor(WORKSPACE_CATALOG_SCOPE, WORKSPACE_CATALOG_KEY);
+    if (path === undefined) return undefined;
+    try {
+      const metadata = await stat(path, { bigint: true });
+      return `${metadata.dev}:${metadata.ino}:${metadata.size}:${metadata.mtimeNs}:${metadata.ctimeNs}`;
+    } catch {
+      return undefined;
+    }
   }
 
   async stamp(): Promise<string | undefined> {
