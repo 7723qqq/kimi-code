@@ -151,7 +151,7 @@ Both flags are creation-only: they cannot be combined with `--session` or `--con
 
 Resuming reads the persisted environment id and working directory and reconnects to the target. If the environment is not registered or cannot be reached, resuming fails instead of opening the session on `local`.
 
-The footer shows the active environment's identity before the working directory; `local` renders nothing. A disconnected environment is shown with its failure reason, and the local git status slot is hidden for remote sessions. Approval prompts display the target environment next to the command or path, and `@` file completion queries the target filesystem.
+The footer shows the active environment's identity before the working directory; `local` renders nothing. A disconnected environment is shown with its failure reason, and the git status slot reads through the session's bound environment. Approval prompts display the target environment next to the command or path, and `@` file completion queries the target filesystem.
 
 ## Disconnects and reconnecting
 
@@ -213,7 +213,6 @@ Several behaviors are deliberately scoped. Each of the following is a known limi
 - **Remote sessions load only user-level agent files**: project-level agent files can replace the system prompt, and workspace trust currently covers local paths only, so remote sessions read neither `.kimi-code/agents/` nor `.agents/agents/` on the target, and do not apply the project-level agent files of the directory you started in.
 - **No hot reload on remote workspaces**: file watching is outside the remote abstraction, so changes to `AGENTS.md` or project skills on the target are not picked up live; they are read again when you create or resume a session, or run `/reload`.
 - **Tower mode unsupported**: tower multi-agent orchestration does not work on remote workspaces.
-- **Git status slot hidden**: the CLI footer's git indicators (branch, status, PR) are local-only and hidden for remote sessions.
 - **`/feedback` scanner unsupported**: the codebase scanner attached to `/feedback` scans the local disk and is unavailable for remote workspaces; a notice is shown instead.
 - **Same path on two hosts shares one workspace entry**: workspaces are keyed by root path alone, so `/home/me/app` on two different hosts maps to a single workspace. A cosmetic side effect: the TUI's `~` abbreviation may render remote paths against your local home directory.
 - **Local file paths in prompts are unreadable remotely**: a path like `/tmp/x.png` typed into a prompt resolves on the target's filesystem, so the agent cannot read your local files by path. Pasted images are unaffected — they travel as binary attachments, not paths.

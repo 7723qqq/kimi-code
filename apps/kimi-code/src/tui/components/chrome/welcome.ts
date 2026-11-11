@@ -12,6 +12,7 @@ import { t } from '#/i18n';
 import { isRainbowDancing, renderDanceWelcomeHeader } from '#/tui/easter-eggs/dance';
 import { currentTheme } from '#/tui/theme';
 import type { AppState } from '#/tui/types';
+import { sessionWorkDir } from '#/tui/utils/session-work-dir';
 
 export class WelcomeComponent implements Component {
   private state: AppState;
@@ -79,13 +80,8 @@ export class WelcomeComponent implements Component {
       ? chalk.hex(currentTheme.palette.warning)(t('tui.chrome.welcome.modelNotSet'))
       : (effectiveActiveModel?.displayName ?? effectiveActiveModel?.model ?? this.state.model);
 
-    const workDir =
-      this.state.environment?.environmentId !== 'local' &&
-      this.state.environment?.cwd !== undefined
-        ? this.state.environment.cwd
-        : this.state.workDir;
     const infoLines = [
-      labelStyle(t('tui.chrome.welcome.directory')) + workDir,
+      labelStyle(t('tui.chrome.welcome.directory')) + sessionWorkDir(this.state),
       labelStyle(t('tui.chrome.welcome.session')) + this.state.sessionId,
       labelStyle(t('tui.chrome.welcome.model')) + modelValue,
       labelStyle(t('tui.chrome.welcome.version')) + this.state.version,

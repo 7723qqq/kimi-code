@@ -13,6 +13,7 @@ import { getLlmNotSetMessage, getNoActiveSessionMessage } from '../constant/kimi
 import { isAbortError } from '../utils/errors';
 import { formatErrorMessage } from '../utils/event-payload';
 import { buildExportMarkdown } from '../utils/export-markdown';
+import { sessionWorkDir } from '../utils/session-work-dir';
 import type { SlashCommandHost } from './dispatch';
 
 // ---------------------------------------------------------------------------
@@ -131,7 +132,7 @@ export async function handleExportMdCommand(host: SlashCommandHost, args: string
 
     const md = buildExportMarkdown({
       sessionId: session.id,
-      workDir: host.state.appState.workDir,
+      workDir: sessionWorkDir(host.state.appState),
       history: context.history,
       tokenCount: context.tokenCount,
       now,

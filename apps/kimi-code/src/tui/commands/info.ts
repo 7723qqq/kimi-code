@@ -33,6 +33,7 @@ import {
 } from '../constant/feedback';
 import { DEFAULT_OAUTH_PROVIDER_NAME, isManagedUsageProvider } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
+import { sessionWorkDir } from '../utils/session-work-dir';
 import { nextTranscriptId } from '../utils/transcript-id';
 import type { SlashCommandHost } from './dispatch';
 import { isExperimentalFlagEnabled } from './experimental-flags';
@@ -198,7 +199,7 @@ export async function showStatusReport(host: SlashCommandHost): Promise<void> {
   const reportArgs = {
     version: appState.version,
     model: appState.model,
-    workDir: appState.workDir,
+    workDir: sessionWorkDir(appState),
     sessionId: appState.sessionId,
     sessionTitle: appState.sessionTitle,
     thinkingEffort: appState.thinkingEffort,

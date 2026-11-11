@@ -157,6 +157,9 @@ packages/kap-server/src/routes/sessionMedia.ts app/file/fileService
 packages/kap-server/src/routes/sessionMedia.ts app/sessionManager/sessionLookup
 packages/kap-server/src/routes/sessions.ts session/sessionMetadata/sessionMetaEvents
 packages/kap-server/src/routes/v2/mcp.ts mcpCore/config-schema
+# Session git must run through the leased environment fs/process, matching routes/fs.ts;
+# the root exports only the workspace wrapper, not the environment-bound GitService.
+packages/kap-server/src/routes/v2/sessions.ts app/git/gitService
 packages/kap-server/src/routes/workspaceFs.ts _base/text/encoding
 packages/kap-server/src/routes/workspaceFs.ts _base/utils/fileMeta
 packages/kap-server/src/routes/workspaceFs.ts app/hostFolderBrowser/hostFolderBrowser
@@ -196,6 +199,9 @@ packages/kap-server/test/sessions.test.ts app/sessionLegacy/sessionProtocol
 packages/kap-server/test/sessions.test.ts environment/fakeEnvironment
 packages/kap-server/test/sessions.test.ts session/sessionMetadata/sessionMetaEvents
 packages/kap-server/test/v2Sessions.test.ts app/git/git
+# These cases prove remote git never falls back to the local cwd; they need the same
+# FakeEnvironment fixture boundary already used by fs/prompts/rpc/sessions/workspaceFs.
+packages/kap-server/test/v2Sessions.test.ts environment/fakeEnvironment
 packages/kap-server/test/workspaceFs.test.ts environment/fakeEnvironment
 packages/kap-server/test/workspaces.test.ts _base/utils/workdir-slug
 packages/kap-server/test/wsUpgradeAuth.test.ts human/xstate2
