@@ -698,6 +698,16 @@ class PrefixedWrappedLine implements Component {
   }
 }
 
+class StableSpacer extends Spacer {
+  private cache: { width: number; lines: string[] } | undefined;
+
+  override render(width: number): string[] {
+    if (!isRenderCacheEnabled()) return super.render(width);
+    if (this.cache?.width !== width) this.cache = { width, lines: super.render(width) };
+    return this.cache.lines;
+  }
+}
+
 export class ToolCallComponent extends Container {
   private expanded = false;
   private toolCall: ToolCallBlockData;
@@ -830,7 +840,7 @@ export class ToolCallComponent extends Container {
     this.ui = ui;
     this.applySubagentReplay(toolCall.subagent);
 
-    this.addChild(new Spacer(1));
+    this.addChild(new StableSpacer(1));
     this.headerText =
       toolCall.name === 'NotifyUser'
         ? new NotifyUserHeader(this.buildHeader())
@@ -945,10 +955,11 @@ export class ToolCallComponent extends Container {
    * (result, live output, tool-call update, expansion).
    */
   private collapsedOutcomeClips(width: number): boolean {
+    const cacheEnabled = isRenderCacheEnabled();
     const memo = this.collapsedOutcomeClipsMemo;
-    if (memo !== undefined && memo.width === width) return memo.clips;
+    if (cacheEnabled && memo !== undefined && memo.width === width) return memo.clips;
     const clips = this.computeCollapsedOutcomeClips(width);
-    this.collapsedOutcomeClipsMemo = { width, clips };
+    if (cacheEnabled) this.collapsedOutcomeClipsMemo = { width, clips };
     return clips;
   }
 
