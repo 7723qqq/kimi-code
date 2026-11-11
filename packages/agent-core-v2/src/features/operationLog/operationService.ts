@@ -18,6 +18,7 @@ import {
   OperationLogError,
   operationViewsEqual,
   type OperationActionInput,
+  type OperationLogHead,
   type OperationRecord,
   type OperationView,
 } from './operationLog';
@@ -99,16 +100,7 @@ export class AgentOperationService extends Service implements IAgentOperationSer
         throw new OperationLogError('invalid', 'The operation has no before view');
       }
       const current = await backend.captureView();
-      const head = await store.head();
-      if (head === undefined) throw new OperationLogError('not-found', 'Operation log is empty');
-      const parent = await store.get(head.operationId);
-      const expected = await store.view(parent.viewId);
-      if (!operationViewsEqual(current, expected)) {
-        throw new OperationLogError(
-          'view-mismatch',
-          'The repository contains writes outside the operation log',
-        );
-      }
+      const { expected } = await this.alignHeadToView(store, current);
       const targetView = await store.view(target.beforeViewId);
       const input: OperationActionInput = {
         at: this.clock.now(),
@@ -214,16 +206,7 @@ export class AgentOperationService extends Service implements IAgentOperationSer
   ): Promise<OperationRecord> {
     const { backend, store } = await this.openOperationStore(repoRoot);
     const current = await backend.captureView();
-    const head = await store.head();
-    if (head === undefined) throw new OperationLogError('not-found', 'Operation log is empty');
-    const parent = await store.get(head.operationId);
-    const expected = await store.view(parent.viewId);
-    if (!operationViewsEqual(current, expected)) {
-      throw new OperationLogError(
-        'view-mismatch',
-        'The repository contains writes outside the operation log',
-      );
-    }
+    const { head, expected } = await this.alignHeadToView(store, current);
     const input: OperationActionInput = {
       at: this.clock.now(),
       description:
@@ -267,6 +250,44 @@ export class AgentOperationService extends Service implements IAgentOperationSer
     }
   }
 
+  private importExternalChanges(
+    store: OperationLogStore,
+    current: OperationView,
+    expected: OperationView,
+  ): Promise<OperationRecord> {
+    return store.capture(
+      current,
+      {
+        at: this.clock.now(),
+        description: 'Import external repository changes',
+        origin: {
+          sessionId: this.session.sessionId,
+          agentId: this.agent.agentId,
+        },
+      },
+      expected,
+    );
+  }
+
+  private async alignHeadToView(
+    store: OperationLogStore,
+    current: OperationView,
+  ): Promise<{ head: OperationLogHead; parent: OperationRecord; expected: OperationView }> {
+    const head = await store.head();
+    if (head === undefined) throw new OperationLogError('not-found', 'Operation log is empty');
+    const parent = await store.get(head.operationId);
+    const expected = await store.view(parent.viewId);
+    if (operationViewsEqual(current, expected)) {
+      return { head, parent, expected };
+    }
+    const imported = await this.importExternalChanges(store, current, expected);
+    return {
+      head: { operationId: imported.id, undoTargetId: imported.id, redoStack: [] },
+      parent: imported,
+      expected: current,
+    };
+  }
+
   private async captureLocked(
     repoRoot: string,
     context: ResolvedToolExecutionHookContext,
@@ -283,10 +304,7 @@ export class AgentOperationService extends Service implements IAgentOperationSer
       const operation = await store.get(head.operationId);
       const expected = await store.view(operation.viewId);
       if (!operationViewsEqual(before, expected)) {
-        throw new OperationLogError(
-          'view-mismatch',
-          'The repository contains writes outside the operation log',
-        );
+        await this.importExternalChanges(store, before, expected);
       }
     }
     let failed = false;

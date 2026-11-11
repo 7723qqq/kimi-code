@@ -191,7 +191,7 @@ describe('AgentOperationService', () => {
     );
   });
 
-  it('rejects execution when the repository changed outside the recorded operations', async () => {
+  it('imports external repository changes as an operation instead of blocking execution', async () => {
     const repo = await createRepo();
     const hook = harness(repo);
     await hook.run(context('call-1'), async () => {
@@ -200,15 +200,22 @@ describe('AgentOperationService', () => {
     await writeFile(join(repo, 'a.txt'), 'external\n');
     let executed = false;
 
-    expect(
-      await rejectionOf(
-        hook.run(context('call-2'), async () => {
-          executed = true;
-        }),
-      ),
-    ).toMatchObject({ code: 'view-mismatch' });
-    expect(executed).toBe(false);
+    await hook.run(context('call-2'), async () => {
+      executed = true;
+    });
+
+    expect(executed).toBe(true);
     expect(await Bun.file(join(repo, 'a.txt')).text()).toBe('external\n');
+    const operations = await store(repo).list();
+    expect(operations).toHaveLength(2);
+    const imported = operations[0]!;
+    expect(imported.kind).toBe('capture');
+    expect(imported.description).toBe('Import external repository changes');
+    expect(imported.origin).toEqual({ sessionId: 'session-1', agentId: 'main' });
+    expect(imported.beforeViewId).toBe(operations[1]!.viewId);
+    expect((await store(repo).undo({ at: new Date(2_000), description: 'undo' })).viewId).toBe(
+      operations[1]!.viewId,
+    );
   });
 
   it('fails closed before tool execution when the view cannot be captured', async () => {
@@ -400,18 +407,41 @@ describe('AgentOperationService', () => {
     expect(await store(repo).head()).toEqual(before);
   });
 
-  it('rejects restore when the repository differs from the operation head', async () => {
+  it('imports external changes and proceeds when undoing a diverged repository', async () => {
     const repo = await createRepo();
     const { hook, service } = operationHarness(repo);
     await hook.run(context('call-1'), async () => {
       await writeFile(join(repo, 'a.txt'), 'recorded\n');
     });
     await writeFile(join(repo, 'a.txt'), 'external\n');
-    const before = await store(repo).head();
 
-    expect(await rejectionOf(service.undoOperation())).toMatchObject({ code: 'view-mismatch' });
-    expect(await Bun.file(join(repo, 'a.txt')).text()).toBe('external\n');
-    expect(await store(repo).head()).toEqual(before);
+    await service.undoOperation();
+
+    expect(await Bun.file(join(repo, 'a.txt')).text()).toBe('recorded\n');
+    const operations = await store(repo).list();
+    expect(
+      operations.some((operation) => operation.description === 'Import external repository changes'),
+    ).toBe(true);
+  });
+
+  it('imports external changes before restoring to a turn boundary', async () => {
+    const repo = await createRepo();
+    const { hook, service } = operationHarness(repo);
+    await hook.run(context('call-1', 'Write', 7), async () => {
+      await writeFile(join(repo, 'a.txt'), 'first\n');
+    });
+    await hook.run(context('call-2', 'Write', 8), async () => {
+      await writeFile(join(repo, 'a.txt'), 'second\n');
+    });
+    await writeFile(join(repo, 'a.txt'), 'external\n');
+
+    await service.restoreBeforeTurn(8);
+
+    expect(await Bun.file(join(repo, 'a.txt')).text()).toBe('first\n');
+    const operations = await store(repo).list();
+    expect(
+      operations.some((operation) => operation.description === 'Import external repository changes'),
+    ).toBe(true);
   });
 
   it('rolls the repository back when appending the restore operation fails', async () => {
