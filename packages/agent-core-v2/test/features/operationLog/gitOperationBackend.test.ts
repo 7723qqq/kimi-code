@@ -350,4 +350,25 @@ describe('GitOperationBackend', () => {
       Bun.spawn = originalSpawn;
     }
   });
+
+  it('derives the default storage root from the absolute git directory', async () => {
+    const { repo } = await createRepo();
+    const gitDir = await git(repo, 'rev-parse', '--path-format=absolute', '--absolute-git-dir');
+
+    const backend = await GitOperationBackend.open({ repoRoot: repo });
+
+    expect(backend.storageRoot).toBe(join(gitDir, 'kimi-operation-log'));
+  });
+
+  it('reports whether the opened repository identity is still current', async () => {
+    const { repo, storage } = await createRepo();
+    const backend = await open(repo, storage);
+
+    expect(await backend.isRepositoryCurrent()).toBe(true);
+
+    await rm(join(repo, '.git'), { recursive: true, force: true });
+    await git(repo, 'init', '-b', 'main');
+
+    expect(await backend.isRepositoryCurrent()).toBe(false);
+  });
 });

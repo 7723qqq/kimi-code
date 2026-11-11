@@ -42,6 +42,8 @@ export const IAgentOperationService =
 export class AgentOperationService extends Service implements IAgentOperationService {
   declare readonly _serviceBrand: undefined;
 
+  private readonly operationBackends = new Map<string, GitOperationBackend>();
+
   constructor(
     @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
     @ISessionContext private readonly session: ISessionContext,
@@ -176,12 +178,25 @@ export class AgentOperationService extends Service implements IAgentOperationSer
     readonly backend: GitOperationBackend;
     readonly store: OperationLogStore;
   }> {
-    const backend = await GitOperationBackend.open({ repoRoot });
+    const backend = await this.operationBackend(repoRoot);
     const store = new OperationLogStore(
       backend.storageRoot,
       resolveOperationLogRetention(this.configuration),
     );
     return { backend, store };
+  }
+
+  private async operationBackend(repoRoot: string): Promise<GitOperationBackend> {
+    const cached = this.operationBackends.get(repoRoot);
+    if (cached !== undefined && (await cached.isRepositoryCurrent())) return cached;
+    const backend = await GitOperationBackend.open({ repoRoot });
+    this.operationBackends.set(repoRoot, backend);
+    return backend;
+  }
+
+  override dispose(): void {
+    this.operationBackends.clear();
+    super.dispose();
   }
 
   private restore(
@@ -257,7 +272,7 @@ export class AgentOperationService extends Service implements IAgentOperationSer
     context: ResolvedToolExecutionHookContext,
     next: (context?: ResolvedToolExecutionHookContext) => Promise<void>,
   ): Promise<void> {
-    const backend = await GitOperationBackend.open({ repoRoot });
+    const backend = await this.operationBackend(repoRoot);
     const store = new OperationLogStore(
       backend.storageRoot,
       resolveOperationLogRetention(this.configuration),

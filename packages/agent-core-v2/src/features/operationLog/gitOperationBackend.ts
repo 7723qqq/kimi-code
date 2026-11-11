@@ -38,6 +38,15 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
+async function readDirectoryIdentity(directory: string): Promise<string | undefined> {
+  try {
+    const info = await stat(directory);
+    return `${String(info.dev)}:${String(info.ino)}`;
+  } catch {
+    return undefined;
+  }
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -55,6 +64,8 @@ export class GitOperationError extends Error {
 }
 
 export class GitOperationBackend {
+  private gitDirIdentity: string | undefined;
+
   private constructor(
     private readonly repoRoot: string,
     private readonly gitDir: string,
@@ -67,30 +78,42 @@ export class GitOperationBackend {
 
   static async open(options: GitOperationBackendOptions): Promise<GitOperationBackend> {
     const repoRoot = resolve(options.repoRoot);
-    const rootResult = await runGit(repoRoot, ['rev-parse', '--show-toplevel']);
-    const gitDirResult = await runGit(repoRoot, [
+    const resolved = await runGit(repoRoot, [
       'rev-parse',
       '--path-format=absolute',
+      '--show-toplevel',
       '--absolute-git-dir',
-    ]);
-    const storageRoot = resolve(
-      options.storageRoot ?? join(gitDirResult.stdout.trim(), 'kimi-operation-log'),
-    );
-    const objectDirResult = await runGit(repoRoot, [
-      'rev-parse',
-      '--path-format=absolute',
       '--git-path',
       'objects',
     ]);
-    return new GitOperationBackend(
-      rootResult.stdout.trim(),
-      gitDirResult.stdout.trim(),
+    const [root, gitDir, objectDir] = resolved.stdout
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line !== '');
+    if (root === undefined || gitDir === undefined || objectDir === undefined) {
+      throw new OperationLogError(
+        'invalid',
+        'git rev-parse did not resolve the repository root, git directory, and object directory',
+      );
+    }
+    const storageRoot = resolve(options.storageRoot ?? join(gitDir, 'kimi-operation-log'));
+    const backend = new GitOperationBackend(
+      root,
+      gitDir,
       storageRoot,
-      objectDirResult.stdout.trim(),
+      objectDir,
       join(storageRoot, 'index'),
       join(storageRoot, 'objects'),
       join(storageRoot, 'recovery-required.json'),
     );
+    backend.gitDirIdentity = await readDirectoryIdentity(gitDir);
+    return backend;
+  }
+
+  async isRepositoryCurrent(): Promise<boolean> {
+    const identity = this.gitDirIdentity;
+    if (identity === undefined) return false;
+    return (await readDirectoryIdentity(this.gitDir)) === identity;
   }
 
   async captureView(): Promise<OperationView> {
@@ -265,12 +288,14 @@ export class GitOperationBackend {
   }
 
   private async readHead(): Promise<OperationGitHead> {
-    const symbolic = await this.git(['symbolic-ref', '-q', 'HEAD'], {
-      allowedExitCodes: [0, 1],
-    });
-    const targetResult = await this.git(['rev-parse', '--verify', '--quiet', 'HEAD'], {
-      allowedExitCodes: [0, 1],
-    });
+    const [symbolic, targetResult] = await Promise.all([
+      this.git(['symbolic-ref', '-q', 'HEAD'], {
+        allowedExitCodes: [0, 1],
+      }),
+      this.git(['rev-parse', '--verify', '--quiet', 'HEAD'], {
+        allowedExitCodes: [0, 1],
+      }),
+    ]);
     if (symbolic.exitCode === 0) {
       const ref = symbolic.stdout.trim();
       if (targetResult.exitCode !== 0) return { kind: 'unborn', ref };
