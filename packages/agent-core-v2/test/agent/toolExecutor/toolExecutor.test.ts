@@ -36,7 +36,10 @@ import { ReadInputSchema, type ReadInput } from '#/agent/tools/os/read/read';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
+import { SnapshotService } from '#/features/snapshot/snapshotService';
 import type { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
+import type { IHostClock } from '#/os/interface/hostClock';
+import { hostWorkspacePathSemantics } from '#/session/workspaceContext/workspacePaths';
 import { stubWorkspaceContext } from '../../session/workspaceContext/stub-workspace-context';
 import { stubAgentEnvironment } from '../../environment/stubs';
 import { ConfigRegistry, ConfigService } from '#/app/config/configService';
@@ -719,6 +722,61 @@ describe('AgentToolExecutorService', () => {
     expect(results).toEqual([
       expect.objectContaining({ output: 'Tool "first" was aborted', isError: true }),
       expect.objectContaining({ output: 'Tool "second" was aborted', isError: true }),
+    ]);
+  });
+
+  it('runs a same-path batch while the snapshot hook is holding that path', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'tool-executor-snapshot-'));
+    const target = join(root, 'same.ts');
+    let current = new TextEncoder().encode('version zero');
+    const environment = {
+      acquireWhenReady: () =>
+        Promise.resolve({
+          environment: {
+            fs: {
+              stat: () =>
+                Promise.resolve({ isFile: true, isDirectory: false, size: current.byteLength }),
+              readBytes: () => Promise.resolve(current),
+            },
+            path: hostWorkspacePathSemantics,
+          },
+          dispose: () => {},
+        }),
+    } as unknown as IAgentEnvironmentService;
+    new SnapshotService(
+      ix.get(IAgentScopeContext),
+      makeSessionContext({
+        sessionId: 'ses_snapshot',
+        workspaceId: 'ws',
+        sessionDir: root,
+        sessionScope: 'ses_snapshot',
+        cwd: root,
+      }),
+      stubBootstrap(root),
+      environment,
+      stubWorkspaceContext(root),
+      { now: () => new Date(5_000), timeZone: () => 'UTC' } as unknown as IHostClock,
+      executor,
+      ix.get(IEventBus),
+    );
+    const edit = new TestTool('edit', {
+      accesses: ToolAccesses.readWriteFile(target),
+      display: { kind: 'file_io', operation: 'edit', path: target },
+      execute: async (_ctx, args) => {
+        current = new TextEncoder().encode(String(args['version']));
+        return { output: `edited ${String(args['version'])}` };
+      },
+    });
+    registry.register(edit);
+
+    const results = await execute([
+      toolCall('call_first', 'edit', { version: 'version a' }),
+      toolCall('call_second', 'edit', { version: 'version b' }),
+    ]);
+
+    expect(results.map((result) => result.output)).toEqual([
+      'edited version a',
+      'edited version b',
     ]);
   });
 

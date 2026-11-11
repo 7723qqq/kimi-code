@@ -5,7 +5,7 @@ import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import type { WillExecuteToolEvent } from '#/agent/toolExecutor/toolHooks';
+import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IEventBus } from '#/app/event/eventBus';
 import { IFlagService } from '#/app/flag/flag';
@@ -88,8 +88,9 @@ export class SnapshotService extends Service implements ISnapshotService {
     }
     this.store = new FileSnapshotStore(join(bootstrap.storeDir, SNAPSHOT_DIR_NAME));
     this._register(
-      toolExecutor.onWillExecuteTool((event) => {
-        this.onWillExecuteTool(event);
+      toolExecutor.hooks.onExecuteTool.register('snapshot', async (context, next) => {
+        await this.captureBeforeExecution(context);
+        return next();
       }),
     );
     this._register(
@@ -123,11 +124,13 @@ export class SnapshotService extends Service implements ISnapshotService {
     }
   }
 
-  private onWillExecuteTool(event: WillExecuteToolEvent): void {
-    const target = resolveSnapshotTarget(event.execution.display, event.args);
+  private async captureBeforeExecution(
+    context: ResolvedToolExecutionHookContext,
+  ): Promise<void> {
+    const target = resolveSnapshotTarget(context.execution.display, context.args);
     if (target === undefined) return;
-    const content = target.mode === 'overwrite' ? writtenContent(event.args) : undefined;
-    event.waitUntil(this.capture(event.toolCall.id, target, content));
+    const content = target.mode === 'overwrite' ? writtenContent(context.args) : undefined;
+    await this.capture(context.toolCall.id, target, content);
   }
 
   private async onDidExecuteTool(

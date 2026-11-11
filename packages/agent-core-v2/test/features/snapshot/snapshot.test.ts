@@ -7,7 +7,6 @@ import { join } from 'pathe';
 import type { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import type { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import type { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import type { WillExecuteToolEvent } from '#/agent/toolExecutor/toolHooks';
 import type { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import type { IEventBus } from '#/app/event/eventBus';
 import { FileSnapshotStore } from '#/features/snapshot/fileSnapshotStore';
@@ -481,13 +480,25 @@ describe('SnapshotService', () => {
     fire(callId: string, content?: string): Promise<void>;
     didExecute(callId: string, outcome: string, failed?: boolean): Promise<void>;
     write(next: string): void;
+    willExecuteSubscribed(): boolean;
   }
 
   async function serviceHarness(body: Uint8Array): Promise<ServiceHarness> {
     const root = await tempRoot();
     const target = join(root, 'edited.ts');
     let current = body;
-    let willHandler: ((event: WillExecuteToolEvent) => void) | undefined;
+    let willSubscribed = false;
+    let executeHandler:
+      | ((
+          context: {
+            turnId: number;
+            toolCall: { type: 'function'; id: string; name: string; arguments: null };
+            execution: { display: { kind: 'file_io'; operation: 'write'; path: string } };
+            args: { mode: 'overwrite'; content?: string };
+          },
+          next: () => Promise<void>,
+        ) => Promise<void>)
+      | undefined;
     let didHandler:
       | ((
           context: { toolCall: { id: string }; outcome: string; result: { isError?: boolean } },
@@ -528,11 +539,28 @@ describe('SnapshotService', () => {
       stubWorkspaceContext(root),
       { now: () => new Date(5_000), timeZone: () => 'UTC' } as unknown as IHostClock,
       {
-        onWillExecuteTool: (next: (event: WillExecuteToolEvent) => void) => {
-          willHandler = next;
+        onWillExecuteTool: () => {
+          willSubscribed = true;
           return { dispose: () => {} };
         },
         hooks: {
+          onExecuteTool: {
+            register: (
+              _id: string,
+              next: (
+                context: {
+                  turnId: number;
+                  toolCall: { type: 'function'; id: string; name: string; arguments: null };
+                  execution: { display: { kind: 'file_io'; operation: 'write'; path: string } };
+                  args: { mode: 'overwrite'; content?: string };
+                },
+                proceed: () => Promise<void>,
+              ) => Promise<void>,
+            ) => {
+              executeHandler = next;
+              return { dispose: () => {} };
+            },
+          },
           onDidExecuteTool: {
             register: (
               _id: string,
@@ -554,17 +582,15 @@ describe('SnapshotService', () => {
       service,
       target,
       async fire(callId: string, content?: string): Promise<void> {
-        const pending: Promise<void>[] = [];
-        willHandler!({
-          turnId: 1,
-          toolCall: { type: 'function', id: callId, name: 'Write', arguments: null },
-          execution: { display: { kind: 'file_io', operation: 'write', path: target } },
-          args: content === undefined ? { mode: 'overwrite' } : { mode: 'overwrite', content },
-          waitUntil: (task: Promise<void>) => {
-            pending.push(task);
+        await executeHandler!(
+          {
+            turnId: 1,
+            toolCall: { type: 'function', id: callId, name: 'Write', arguments: null },
+            execution: { display: { kind: 'file_io', operation: 'write', path: target } },
+            args: content === undefined ? { mode: 'overwrite' } : { mode: 'overwrite', content },
           },
-        } as unknown as WillExecuteToolEvent);
-        await Promise.all(pending);
+          () => Promise.resolve(),
+        );
       },
       async didExecute(callId: string, outcome: string, failed = false): Promise<void> {
         await didHandler!({ toolCall: { id: callId }, outcome, result: { isError: failed } }, () =>
@@ -573,6 +599,9 @@ describe('SnapshotService', () => {
       },
       write(next: string): void {
         current = bytesOf(next);
+      },
+      willExecuteSubscribed(): boolean {
+        return willSubscribed;
       },
     };
   }
@@ -654,14 +683,15 @@ describe('SnapshotService', () => {
     expect(await harness.service.list('edited.ts')).toHaveLength(1);
   });
 
-  it('keeps the pre-image and intermediate version of overlapping writes', async () => {
+  it('captures at execution time, so preparing a second write never waits for the first', async () => {
     const harness = await serviceHarness(bytesOf('version zero'));
-    const first = harness.fire('call-first', 'version a');
-    const second = harness.fire('call-second', 'version b');
-    await first;
+    expect(harness.willExecuteSubscribed()).toBe(false);
+
+    await harness.fire('call-first', 'version a');
     harness.write('version a');
     await harness.didExecute('call-first', 'executed');
-    await second;
+
+    await harness.fire('call-second', 'version b');
     harness.write('version b');
     await harness.didExecute('call-second', 'executed');
 
