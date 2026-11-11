@@ -181,7 +181,11 @@ describe('toProtocolMessage', () => {
         },
         { type: 'audio_url', audioUrl: { url: 'https://example.com/audio.mp3' } },
         { type: 'video_url', videoUrl: { url: 'ms://video-1', id: 'video-1' } },
-        { type: 'video_url', videoUrl: { url: 'kimi-file://file_10', name: 'clip.mp4' } },
+        {
+          type: 'video_url',
+          source: { kind: 'url', url: 'kimi-file://file_10' },
+          name: 'clip.mp4',
+        } as unknown as ContextMessage['content'][number],
       ],
       toolCalls: [],
       toolCallId: 'call_media',
