@@ -79,6 +79,7 @@ interface LlmRoute {
   readonly match: (body: string) => boolean;
   readonly respond: () => string;
   readonly delayMs?: number;
+  readonly gate?: Promise<void>;
 }
 
 interface MockLlm {
@@ -101,8 +102,15 @@ async function startMockLlm(
       const route = routes.find((r) => r.match(body));
       const respond = route?.respond ?? fallback;
       const send = (): void => {
-        res.writeHead(200, { 'content-type': 'text/event-stream' });
-        res.end(respond());
+        const write = (): void => {
+          res.writeHead(200, { 'content-type': 'text/event-stream' });
+          res.end(respond());
+        };
+        if (route?.gate !== undefined) {
+          void route.gate.then(write);
+          return;
+        }
+        write();
       };
       if (route?.delayMs !== undefined) setTimeout(send, route.delayMs);
       else send();
@@ -741,7 +749,11 @@ describeWithTimeout(
     });
 
     it('S5: late attach backfills liveness and the prompt queue from the live loop', async () => {
-      await boot([{ match: () => true, respond: () => sseText('slow answer'), delayMs: 4000 }]);
+      let release: (() => void) | undefined;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await boot([{ match: () => true, respond: () => sseText('slow answer'), gate }]);
       const sid = await createSession(server!, base);
       await submitPrompt(server!, base, sid, 'take your time');
 
@@ -751,6 +763,7 @@ describeWithTimeout(
 
       const channel = await subscribeTranscript(server!, sid);
       expect(channel.agents[0]).toMatchObject({ status: 'running' });
+      release?.();
       await idle(server!, base, sid);
       await until('agent idle frame', () => channel.agents.at(-1)?.status === 'idle');
       channel.close();
