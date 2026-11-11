@@ -4,6 +4,7 @@ import { toInputJsonSchema } from '#/tool/input-schema';
 import { ToolOutputAccumulator } from '#/tool/output-accumulator';
 import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
 import {
+  RepoMutations,
   ToolAccesses,
   ToolSideEffects,
   type ExecutableToolContext,
@@ -18,6 +19,7 @@ export class WebSearchTool implements IWebSearchTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'WebSearch' as const;
   readonly sideEffect = ToolSideEffects.read;
+  readonly repoMutation = RepoMutations.none;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(WebSearchInputSchema);
 

@@ -1,4 +1,5 @@
 import { toInputJsonSchema } from '#/tool/input-schema';
+import { RepoMutations } from '#/tool/toolContract';
 import { ToolAccesses, type ToolExecution } from '#/tool/toolContract';
 
 import { ISnapshotService, type SnapshotRecord } from './snapshot';
@@ -36,6 +37,7 @@ export function formatSnapshotVersion(record: SnapshotRecord, index: number): st
 export class SnapshotListTool implements ISnapshotListTool {
   declare readonly _serviceBrand: undefined;
   readonly name = SNAPSHOT_LIST_TOOL_NAME;
+  readonly repoMutation = RepoMutations.none;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(SnapshotListInputSchema);
 

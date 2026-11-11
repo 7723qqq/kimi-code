@@ -3,7 +3,12 @@ import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IFlagService } from '#/app/flag/flag';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import { ToolAccesses, ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
+import {
+  RepoMutations,
+  ToolAccesses,
+  ToolSideEffects,
+  type ToolExecution,
+} from '#/tool/toolContract';
 
 import { notifyUserAvailable } from '../../notifyUserAvailability';
 import { notifyStreakBefore } from '../../notifyUserNudge';
@@ -26,6 +31,7 @@ export class NotifyUserTool implements INotifyUserTool {
   declare readonly _serviceBrand: undefined;
   readonly name = NOTIFY_USER_TOOL_NAME;
   readonly sideEffect = ToolSideEffects.read;
+  readonly repoMutation = RepoMutations.none;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(NotifyUserInputSchema);
 

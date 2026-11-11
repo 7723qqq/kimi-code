@@ -82,7 +82,7 @@ import {
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { matchesGlobRuleSubject } from '#/tool/rule-match';
-import { ToolSideEffects } from '#/tool/toolContract';
+import { RepoMutations, ToolSideEffects } from '#/tool/toolContract';
 
 import {
   BACKGROUND_AGENT_UNAVAILABLE,
@@ -121,6 +121,7 @@ export class SubagentTool implements ISubagentTool {
   declare readonly _serviceBrand: undefined;
   readonly name: string = 'Agent';
   readonly sideEffect = ToolSideEffects.read;
+  readonly repoMutation = RepoMutations.none;
 
   get parameters(): Record<string, unknown> {
     let parameters = exposesSubagentModelChoice(this.config)

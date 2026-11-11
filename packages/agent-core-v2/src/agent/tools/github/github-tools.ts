@@ -8,6 +8,7 @@ import { toInputJsonSchema } from '#/tool/input-schema';
 import { ToolOutputAccumulator } from '#/tool/output-accumulator';
 import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
 import {
+  RepoMutations,
   ToolAccesses,
   ToolSideEffects,
   type ExecutableToolContext,
@@ -108,6 +109,8 @@ export function makeGitHubToolCtor<Input extends z.ZodTypeAny>(
   spec: GitHubToolSpec<Input>,
 ): new (config: IConfigService) => GitHubToolBase {
   class GitHubAgentTool extends GitHubToolBase {
+    readonly repoMutation = RepoMutations.none;
+
     constructor(@IConfigService config: IConfigService) {
       super(spec, {
         config,

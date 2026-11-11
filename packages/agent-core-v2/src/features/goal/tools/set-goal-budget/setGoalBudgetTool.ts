@@ -3,7 +3,7 @@ import { GOAL_MAIN_AGENT_ONLY, mainAgentOnlyExecution } from '#/agent/tools/main
 import { IAgentGoalService } from '#/features/goal/goalService';
 import type { GoalBudgetLimits, GoalSnapshot } from '#/features/goal/types';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import { ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
+import { RepoMutations, ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
 
 import {
   SetGoalBudgetToolInputSchema,
@@ -18,6 +18,7 @@ export class SetGoalBudgetTool implements ISetGoalBudgetTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'SetGoalBudget' as const;
   readonly sideEffect = ToolSideEffects.read;
+  readonly repoMutation = RepoMutations.none;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(SetGoalBudgetToolInputSchema);
 

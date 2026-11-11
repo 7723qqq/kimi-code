@@ -5,6 +5,7 @@ import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import {
+  RepoMutations,
   ToolSideEffects,
   type AgentTool,
   type ExecutableToolResult,
@@ -37,6 +38,7 @@ export class KnowledgeTool implements IKnowledgeTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'Knowledge' as const;
   readonly sideEffect = ToolSideEffects.write;
+  readonly repoMutation = RepoMutations.none;
   readonly description: string = TOOL_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(KnowledgeInputSchema);
 

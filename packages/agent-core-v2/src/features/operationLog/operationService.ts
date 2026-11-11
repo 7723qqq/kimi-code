@@ -26,7 +26,6 @@ import { OperationLogStore } from './operationLogStore';
 import { RepositoryViewService } from './repositoryViewService';
 
 const executionLocks = new Map<string, Promise<void>>();
-const orchestrationTools = new Set(['Agent', 'AgentSwarm']);
 
 export interface IAgentOperationService {
   readonly _serviceBrand: undefined;
@@ -121,10 +120,7 @@ export class AgentOperationService extends Service implements IAgentOperationSer
     context: ResolvedToolExecutionHookContext,
     next: (context?: ResolvedToolExecutionHookContext) => Promise<void>,
   ): Promise<void> {
-    if (
-      !this.flags.enabled(OPERATION_LOG_FLAG_ID) ||
-      orchestrationTools.has(context.toolCall.name)
-    ) {
+    if (!this.flags.enabled(OPERATION_LOG_FLAG_ID) || context.tool?.repoMutation === 'none') {
       await next(context);
       return;
     }
@@ -187,6 +183,7 @@ export class AgentOperationService extends Service implements IAgentOperationSer
   }
 
   override dispose(): void {
+    for (const view of this.repositoryViews.values()) view.dispose();
     this.repositoryViews.clear();
     super.dispose();
   }

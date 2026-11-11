@@ -59,6 +59,7 @@ import {
   matchesPathRuleSubject,
 } from '#/tool/rule-match';
 import {
+  RepoMutations,
   ToolAccesses,
   ToolSideEffects,
   type ExecutableToolResult,
@@ -242,6 +243,7 @@ export class ReadTool implements IReadTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'Read' as const;
   readonly sideEffect = ToolSideEffects.read;
+  readonly repoMutation = RepoMutations.none;
   get description(): string {
     const limits = this.limits();
     return renderPrompt(readDescriptionTemplate, {

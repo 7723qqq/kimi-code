@@ -5,7 +5,7 @@ import type { TowerMission, TowerRosterEntry } from '#/features/tower/protocol/i
 import { ITowerRateLimitService } from '#/features/tower/towerRateLimit';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import { ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
+import { RepoMutations, ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
 
 import { runTowerTool } from '../support';
 import { ITowerStatusTool, TowerStatusToolInputSchema, type TowerStatusToolInput } from './status';
@@ -31,6 +31,7 @@ export class TowerStatusTool implements ITowerStatusTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'TowerStatus' as const;
   readonly sideEffect = ToolSideEffects.read;
+  readonly repoMutation = RepoMutations.none;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(TowerStatusToolInputSchema);
 

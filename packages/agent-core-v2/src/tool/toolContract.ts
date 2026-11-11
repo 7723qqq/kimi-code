@@ -98,8 +98,16 @@ export const ToolSideEffects = {
 
 export type ToolSideEffect = (typeof ToolSideEffects)[keyof typeof ToolSideEffects];
 
+export const RepoMutations = {
+  possible: 'possible',
+  none: 'none',
+} as const;
+
+export type RepoMutation = (typeof RepoMutations)[keyof typeof RepoMutations];
+
 export interface ExecutableTool<Input = unknown> extends Tool {
   readonly sideEffect?: ToolSideEffect;
+  readonly repoMutation?: RepoMutation;
   resolveExecution(input: Input): ToolExecution | Promise<ToolExecution>;
 }
 

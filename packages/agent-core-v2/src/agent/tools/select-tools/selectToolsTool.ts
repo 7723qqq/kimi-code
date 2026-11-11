@@ -1,6 +1,7 @@
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { IAgentToolSelectService, SELECT_TOOLS_TOOL_NAME } from '#/agent/toolSelect/toolSelect';
 import { toInputJsonSchema } from '#/tool/input-schema';
+import { RepoMutations } from '#/tool/toolContract';
 import type { ToolExecution } from '#/tool/toolContract';
 
 import { ISelectToolsTool, SelectToolsInputSchema, type SelectToolsInput } from './select-tools';
@@ -19,6 +20,7 @@ const DESCRIPTION =
 export class SelectToolsTool implements ISelectToolsTool {
   declare readonly _serviceBrand: undefined;
   readonly name = SELECT_TOOLS_TOOL_NAME;
+  readonly repoMutation = RepoMutations.none;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(SelectToolsInputSchema);
 

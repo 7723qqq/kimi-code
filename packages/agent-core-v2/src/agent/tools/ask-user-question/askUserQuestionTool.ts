@@ -30,6 +30,7 @@ import {
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import {
+  RepoMutations,
   ToolSideEffects,
   type ExecutableToolContext,
   type ExecutableToolResult,
@@ -66,6 +67,7 @@ export class AskUserQuestionTool implements IAskUserQuestionTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'AskUserQuestion' as const;
   readonly sideEffect = ToolSideEffects.read;
+  readonly repoMutation = RepoMutations.none;
 
   constructor(
     @ISessionContext private readonly session: ISessionContext,

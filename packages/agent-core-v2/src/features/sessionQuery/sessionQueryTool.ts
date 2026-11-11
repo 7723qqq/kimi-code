@@ -5,6 +5,7 @@ import { Error2 } from '#/errors';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import {
+  RepoMutations,
   ToolSideEffects,
   type ExecutableToolContext,
   type ExecutableToolResult,
@@ -34,6 +35,7 @@ export class SessionQueryTool implements ISessionQueryTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'session_query' as const;
   readonly sideEffect = ToolSideEffects.read;
+  readonly repoMutation = RepoMutations.none;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(SessionQueryToolInput);
 

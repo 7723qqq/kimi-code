@@ -13,6 +13,7 @@ import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { matchesGlobRuleSubject } from '#/tool/rule-match';
 import {
+  RepoMutations,
   ToolSideEffects,
   type ExecutableToolContext,
   type ExecutableToolResult,
@@ -124,6 +125,7 @@ export class WaitForTool implements IWaitForTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'WaitFor' as const;
   readonly sideEffect = ToolSideEffects.read;
+  readonly repoMutation = RepoMutations.none;
   readonly description: string = WAIT_FOR_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(WaitForInputSchema);
 

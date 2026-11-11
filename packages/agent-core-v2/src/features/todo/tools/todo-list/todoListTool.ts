@@ -11,7 +11,7 @@ import {
 import { todoListWriteStatsBefore } from '#/features/todo/todoListReminder';
 import { IAgentTodoService } from '#/features/todo/todoService';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import { ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
+import { RepoMutations, ToolSideEffects, type ToolExecution } from '#/tool/toolContract';
 
 import { ITodoListTool, TodoListInputSchema, type TodoListInput } from './todo-list';
 import DESCRIPTION from './todo-list.md?raw';
@@ -20,6 +20,7 @@ export class TodoListTool implements ITodoListTool {
   declare readonly _serviceBrand: undefined;
   readonly name = TODO_LIST_TOOL_NAME;
   readonly sideEffect = ToolSideEffects.read;
+  readonly repoMutation = RepoMutations.none;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(TodoListInputSchema);
 

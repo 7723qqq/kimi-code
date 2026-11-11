@@ -4,6 +4,7 @@ import { GIT_MEMORY_FLAG_ID } from '#/features/gitMemory/flag';
 import { IGitMemoryService } from '#/features/gitMemory/gitMemoryService';
 import { GIT_MEMORY_TREE_DEPTH } from '#/features/gitMemory/types';
 import { toInputJsonSchema } from '#/tool/input-schema';
+import { RepoMutations } from '#/tool/toolContract';
 import { ToolAccesses, type ToolExecution } from '#/tool/toolContract';
 
 import {
@@ -20,6 +21,7 @@ export const REPO_MAP_EMPTY_OUTPUT =
 export class RepoMapTool implements IRepoMapTool {
   declare readonly _serviceBrand: undefined;
   readonly name = REPO_MAP_TOOL_NAME;
+  readonly repoMutation = RepoMutations.none;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(RepoMapInputSchema);
 

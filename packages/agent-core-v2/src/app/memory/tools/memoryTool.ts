@@ -27,7 +27,12 @@ import { GIT_MEMORY_FLAG_ID } from '#/features/gitMemory/flag';
 import { IHostProcessService } from '#/os/interface/hostProcess';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import { ToolSideEffects, type AgentTool, type ToolExecution } from '#/tool/toolContract';
+import {
+  RepoMutations,
+  ToolSideEffects,
+  type AgentTool,
+  type ToolExecution,
+} from '#/tool/toolContract';
 
 import DESCRIPTION from './memory.md?raw';
 
@@ -70,6 +75,7 @@ export class MemoryTool implements IMemoryTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'Memory' as const;
   readonly sideEffect = ToolSideEffects.write;
+  readonly repoMutation = RepoMutations.none;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(MemoryToolInputSchema);
 

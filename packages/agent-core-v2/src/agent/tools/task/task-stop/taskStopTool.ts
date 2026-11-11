@@ -6,7 +6,7 @@ import { NO_PARTIAL_OUTPUT, type SubagentTaskInfo } from '#/agent/tools/agent/su
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { outputSizeLine } from '#/tool/outputPointer';
 import { matchesGlobRuleSubject } from '#/tool/rule-match';
-import { type ToolExecution, ToolSideEffects } from '#/tool/toolContract';
+import { RepoMutations, type ToolExecution, ToolSideEffects } from '#/tool/toolContract';
 
 import { ITaskStopTool, TaskStopInputSchema, type TaskStopInput } from './task-stop';
 import TASK_STOP_DESCRIPTION from './task-stop.md?raw';
@@ -17,6 +17,7 @@ export class TaskStopTool implements ITaskStopTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'TaskStop' as const;
   readonly sideEffect = ToolSideEffects.write;
+  readonly repoMutation = RepoMutations.none;
   readonly description = TASK_STOP_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(TaskStopInputSchema);
 

@@ -68,16 +68,28 @@ function deferred(): { readonly promise: Promise<void>; readonly resolve: () => 
   return { promise, resolve };
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function toolCall(id: string, name = 'Write'): ToolCall {
   return { type: 'function', id, name, arguments: '{}' };
 }
 
-function context(id: string, name = 'Write', turnId = 7): ResolvedToolExecutionHookContext {
+function context(
+  id: string,
+  name = 'Write',
+  turnId = 7,
+  mutation?: 'none' | 'possible',
+): ResolvedToolExecutionHookContext {
   return {
     turnId,
     signal: new AbortController().signal,
     toolCall: toolCall(id, name),
     toolCalls: [toolCall(id, name)],
+    ...(mutation === undefined
+      ? {}
+      : { tool: { repoMutation: mutation } as ResolvedToolExecutionHookContext['tool'] }),
     args: {},
     execution: {
       approvalRule: 'Write',
@@ -92,6 +104,7 @@ function operationHarness(
   enabled = true,
   environmentId = 'local',
   retention: Partial<OperationLogRetention> = {},
+  agentId = 'main',
 ): {
   readonly hook: OrderedHookSlot<ResolvedToolExecutionHookContext>;
   readonly service: AgentOperationService;
@@ -117,7 +130,7 @@ function operationHarness(
       sessionScope: 'session-1',
       cwd: repo,
     }),
-    makeAgentScopeContext({ agentId: 'main', agentScope: 'main' }),
+    makeAgentScopeContext({ agentId, agentScope: agentId }),
     environment,
     flags,
     clock,
@@ -290,7 +303,7 @@ describe('AgentOperationService', () => {
       const repo = await createRepo();
       const hook = harness(repo);
 
-      await hook.run(context('call-1', name), async () => {
+      await hook.run(context('call-1', name, 7, 'none'), async () => {
         await writeFile(join(repo, 'a.txt'), 'nested\n');
       });
 
@@ -476,5 +489,143 @@ describe('AgentOperationService', () => {
     expect(await Bun.file(join(repo, '.git', 'kimi-operation-log', 'head.json')).exists()).toBe(
       false,
     );
+  });
+});
+
+describe('operation log execution window', () => {
+  it('lets read-only and waiting tools proceed while another tool waits', async () => {
+    const repo = await createRepo();
+    const main = operationHarness(repo, true, 'local', {}, 'main').hook;
+    const child = operationHarness(repo, true, 'local', {}, 'child').hook;
+    const mainBodyStarted = deferred();
+    const releaseMainBody = deferred();
+    let childBodyRan = false;
+
+    const mainRun = main.run(context('call-main', 'WaitFor', 7, 'none'), async () => {
+      mainBodyStarted.resolve();
+      await releaseMainBody.promise;
+    });
+    await mainBodyStarted.promise;
+
+    const childRun = child.run(context('call-child', 'Read', 7, 'none'), async () => {
+      childBodyRan = true;
+    });
+    const beforeRelease = await Promise.race([
+      childRun.then(() => 'child-completed'),
+      delay(100).then(() => 'child-waiting'),
+    ]);
+
+    releaseMainBody.resolve();
+    await mainRun;
+    await childRun;
+
+    expect(beforeRelease).toBe('child-completed');
+    expect(childBodyRan).toBe(true);
+    expect(await store(repo).head()).toBeUndefined();
+  });
+
+  it('lets a waiting parent observe its subagent finishing', async () => {
+    const repo = await createRepo();
+    const main = operationHarness(repo, true, 'local', {}, 'main').hook;
+    const child = operationHarness(repo, true, 'local', {}, 'child').hook;
+    const mainBodyStarted = deferred();
+    const childBodyDone = deferred();
+    let waitOutcome: 'child-done' | 'timeout' | undefined;
+
+    const mainRun = main.run(context('call-main', 'WaitFor', 7, 'none'), async () => {
+      mainBodyStarted.resolve();
+      waitOutcome = await Promise.race([
+        childBodyDone.promise.then((): 'child-done' => 'child-done'),
+        delay(3_000).then((): 'timeout' => 'timeout'),
+      ]);
+    });
+    await mainBodyStarted.promise;
+    const childRun = child.run(context('call-child', 'Read', 7, 'none'), async () => {
+      childBodyDone.resolve();
+    });
+
+    await mainRun;
+    await childRun;
+
+    expect(waitOutcome).toBe('child-done');
+  });
+
+  it('still holds the repository window for writers', async () => {
+    const repo = await createRepo();
+    const main = operationHarness(repo, true, 'local', {}, 'main').hook;
+    const child = operationHarness(repo, true, 'local', {}, 'child').hook;
+    const mainBodyStarted = deferred();
+    const releaseMainBody = deferred();
+    let childBodyRan = false;
+
+    const mainRun = main.run(context('call-main', 'Edit'), async () => {
+      mainBodyStarted.resolve();
+      await releaseMainBody.promise;
+    });
+    await mainBodyStarted.promise;
+
+    const childRun = child.run(context('call-child', 'Write'), async () => {
+      childBodyRan = true;
+    });
+    const beforeRelease = await Promise.race([
+      childRun.then(() => 'child-completed'),
+      delay(100).then(() => 'child-waiting'),
+    ]);
+
+    releaseMainBody.resolve();
+    await mainRun;
+    await childRun;
+
+    expect(beforeRelease).toBe('child-waiting');
+    expect(childBodyRan).toBe(true);
+  });
+
+  it('keeps unknown and MCP-like tools fail-closed', async () => {
+    const repo = await createRepo();
+    const main = operationHarness(repo, true, 'local', {}, 'main').hook;
+    const child = operationHarness(repo, true, 'local', {}, 'child').hook;
+    const mainBodyStarted = deferred();
+    const releaseMainBody = deferred();
+    let childBodyRan = false;
+
+    const mainRun = main.run(context('call-main', 'mcp__server__tool'), async () => {
+      mainBodyStarted.resolve();
+      await releaseMainBody.promise;
+    });
+    await mainBodyStarted.promise;
+
+    const childRun = child.run(context('call-child', 'Write'), async () => {
+      childBodyRan = true;
+    });
+    const beforeRelease = await Promise.race([
+      childRun.then(() => 'child-completed'),
+      delay(100).then(() => 'child-waiting'),
+    ]);
+
+    releaseMainBody.resolve();
+    await mainRun;
+    await childRun;
+
+    expect(beforeRelease).toBe('child-waiting');
+    expect(childBodyRan).toBe(true);
+  });
+
+  it('lets undo proceed while a waiting tool is in flight', async () => {
+    const repo = await createRepo();
+    const main = operationHarness(repo, true, 'local', {}, 'main');
+    const mainBodyStarted = deferred();
+    const releaseMainBody = deferred();
+
+    const mainRun = main.hook.run(context('call-main', 'WaitFor', 7, 'none'), async () => {
+      mainBodyStarted.resolve();
+      await releaseMainBody.promise;
+    });
+    await mainBodyStarted.promise;
+
+    const operations = await main.service.listOperations();
+    expect(operations).toEqual([]);
+
+    releaseMainBody.resolve();
+    await mainRun;
   });
 });

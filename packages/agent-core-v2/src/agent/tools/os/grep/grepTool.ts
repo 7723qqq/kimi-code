@@ -35,6 +35,7 @@ import {
 } from '#/tool/path-access';
 import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
 import {
+  RepoMutations,
   ToolAccesses,
   ToolSideEffects,
   type ExecutableToolResult,
@@ -71,6 +72,7 @@ export class GrepTool implements IGrepTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'Grep' as const;
   readonly sideEffect = ToolSideEffects.read;
+  readonly repoMutation = RepoMutations.none;
   readonly description = GREP_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(GrepInputSchema);
   constructor(

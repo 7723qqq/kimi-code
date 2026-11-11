@@ -28,6 +28,7 @@ import {
 import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
 import {
   DEFAULT_TOOL_RESULT_MAX_RETAINED_CHARS,
+  RepoMutations,
   ToolAccesses,
   ToolSideEffects,
   type ExecutableToolResult,
@@ -67,6 +68,7 @@ export class GlobTool implements IGlobTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'Glob' as const;
   readonly sideEffect = ToolSideEffects.read;
+  readonly repoMutation = RepoMutations.none;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(GlobInputSchema);
   constructor(
     @IAgentEnvironmentService private readonly environment: IAgentEnvironmentService,

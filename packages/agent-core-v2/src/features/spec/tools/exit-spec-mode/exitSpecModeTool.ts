@@ -4,7 +4,12 @@ import type { SpecSubmittedEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentSpecService, SPEC_REQUIRED_FILES, type SpecData } from '#/features/spec/spec';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import { ToolSideEffects, type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
+import {
+  RepoMutations,
+  ToolSideEffects,
+  type ExecutableToolResult,
+  type ToolExecution,
+} from '#/tool/toolContract';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 
 import type { IExitSpecModeTool } from './exit-spec-mode';
@@ -15,6 +20,7 @@ export class ExitSpecModeTool implements IExitSpecModeTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'ExitSpecMode' as const;
   readonly sideEffect = ToolSideEffects.read;
+  readonly repoMutation = RepoMutations.none;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(ExitSpecModeInputSchema);
 

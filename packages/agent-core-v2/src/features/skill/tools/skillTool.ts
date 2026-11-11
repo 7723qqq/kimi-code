@@ -10,6 +10,7 @@ import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { matchesGlobRuleSubject } from '#/tool/rule-match';
 import {
+  RepoMutations,
   ToolSideEffects,
   type ExecutableToolResult,
   type ToolDeliveryMessage,
@@ -29,6 +30,7 @@ export class SkillTool implements ISkillTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'Skill';
   readonly sideEffect = ToolSideEffects.read;
+  readonly repoMutation = RepoMutations.none;
   readonly description: string = renderPrompt(skillDescriptionTemplate, {
     MAX_SKILL_QUERY_DEPTH,
   });

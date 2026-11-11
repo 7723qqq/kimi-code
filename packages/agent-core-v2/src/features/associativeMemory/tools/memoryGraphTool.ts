@@ -5,7 +5,12 @@ import { createDecorator } from '#/_base/di/instantiation';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { IFlagService } from '#/app/flag/flag';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import { type AgentTool, type ToolExecution, ToolSideEffects } from '#/tool/toolContract';
+import {
+  RepoMutations,
+  type AgentTool,
+  type ToolExecution,
+  ToolSideEffects,
+} from '#/tool/toolContract';
 
 import { ASSOCIATIVE_MEMORY_FLAG_ID } from '../flag';
 import { ASSOCIATIVE_MEMORY_PARAMS } from '../params';
@@ -63,6 +68,7 @@ export class MemoryGraphTool implements IMemoryGraphTool {
   declare readonly _serviceBrand: undefined;
   readonly name = MEMORY_GRAPH_TOOL_NAME;
   readonly sideEffect = ToolSideEffects.write;
+  readonly repoMutation = RepoMutations.none;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(MemoryGraphInputSchema);
 
