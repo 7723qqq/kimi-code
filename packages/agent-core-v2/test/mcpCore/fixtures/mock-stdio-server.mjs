@@ -18,6 +18,24 @@ if (shutdownBehavior !== undefined) {
   });
 }
 
+const pidFile = process.env['KIMI_TEST_MCP_PID_FILE'];
+if (pidFile !== undefined && pidFile.length > 0) {
+  writeFileSync(pidFile, String(process.pid));
+}
+
+const eofBehavior = process.env['KIMI_TEST_MCP_EOF_BEHAVIOR'];
+if (eofBehavior !== undefined) {
+  process.stdin.on('end', () => {
+    const marker = process.env['KIMI_TEST_MCP_EOF_MARKER'];
+    if (marker !== undefined && marker.length > 0) writeFileSync(marker, '');
+    if (eofBehavior === 'ignore') {
+      setInterval(() => {}, 1000);
+      return;
+    }
+    process.exit(0);
+  });
+}
+
 const delayMs = Number.parseInt(process.env['KIMI_TEST_MCP_START_DELAY_MS'] ?? '0', 10);
 if (delayMs > 0) {
   await sleep(delayMs);

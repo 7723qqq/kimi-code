@@ -37,6 +37,7 @@ export interface StdioMcpClientOptions {
 
 const STDERR_BUFFER_CAPACITY = 4 * 1024;
 const STDIO_DRAIN_GRACE_MS = 100;
+const STDIO_EOF_GRACE_MS = 200;
 const STDIO_TERMINATION_GRACE_MS = 5_000;
 
 export class StdioMcpClient implements MCPClient {
@@ -277,24 +278,19 @@ class EnvironmentStdioTransport implements Transport {
     this.process = undefined;
     if (process !== undefined) {
       try {
-        await process.kill();
-        let graceTimer: ReturnType<typeof setTimeout> | undefined;
-        const exited = await Promise.race([
-          process.wait().then(
-            () => true,
-            () => true,
-          ),
-          new Promise<false>((resolve) => {
-            graceTimer = setTimeout(() => {
-              resolve(false);
-            }, STDIO_TERMINATION_GRACE_MS);
-            graceTimer.unref?.();
-          }),
-        ]);
-        if (graceTimer !== undefined) clearTimeout(graceTimer);
-        if (!exited && process.exitCode === null) {
-          await process.kill('SIGKILL');
-          await process.wait();
+        try {
+          process.stdin.end();
+        } catch (error) {
+          this.onerror?.(error instanceof Error ? error : new Error(String(error)));
+        }
+        const exitedOnEof = await waitForExit(process, STDIO_EOF_GRACE_MS);
+        if (!exitedOnEof) {
+          await process.kill();
+          const exited = await waitForExit(process, STDIO_TERMINATION_GRACE_MS);
+          if (!exited && process.exitCode === null) {
+            await process.kill('SIGKILL');
+            await process.wait();
+          }
         }
       } catch {}
       void process.dispose();
@@ -362,6 +358,26 @@ class EnvironmentStdioTransport implements Transport {
     if (this.drainTimer === undefined) return;
     clearTimeout(this.drainTimer);
     this.drainTimer = undefined;
+  }
+}
+
+async function waitForExit(process: IHostProcess, timeoutMs: number): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      process.wait().then(
+        () => true,
+        () => true,
+      ),
+      new Promise<false>((resolve) => {
+        timer = setTimeout(() => {
+          resolve(false);
+        }, timeoutMs);
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
 }
 

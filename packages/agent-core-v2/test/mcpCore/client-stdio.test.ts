@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
@@ -146,6 +146,15 @@ function isPostCloseTransportError(error: unknown): boolean {
     message.includes('Connection closed') ||
     message.includes('transport is not running')
   );
+}
+
+function processIsRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
+  }
 }
 
 describe('StdioMcpClient', () => {
@@ -614,6 +623,65 @@ describe('StdioMcpClient', () => {
     await client.close();
 
     expect(tracked.every((entry) => entry.disposed)).toBe(true);
+  }, 15000);
+
+  it('closes a stdio server by ending its stdin before any forced kill', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kimi-mcp-eof-'));
+    const eofMarker = join(dir, 'eof');
+    const exitMarker = join(dir, 'exit');
+    const client = createClient({
+      transport: 'stdio',
+      command: process.execPath,
+      args: [stdioFixture],
+      env: {
+        KIMI_TEST_MCP_EOF_BEHAVIOR: 'exit',
+        KIMI_TEST_MCP_EOF_MARKER: eofMarker,
+        KIMI_TEST_MCP_SHUTDOWN_BEHAVIOR: 'exit',
+        KIMI_TEST_MCP_EXIT_MARKER: exitMarker,
+      },
+    });
+    try {
+      await client.connect();
+      await client.close();
+      expect(existsSync(eofMarker)).toBe(true);
+      expect(existsSync(exitMarker)).toBe(false);
+    } finally {
+      await client.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 15000);
+
+  it('still terminates a stdio server that ignores stdin EOF', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kimi-mcp-eof-ignore-'));
+    const eofMarker = join(dir, 'eof');
+    const pidFile = join(dir, 'pid');
+    const client = createClient({
+      transport: 'stdio',
+      command: process.execPath,
+      args: [stdioFixture],
+      env: {
+        KIMI_TEST_MCP_EOF_BEHAVIOR: 'ignore',
+        KIMI_TEST_MCP_EOF_MARKER: eofMarker,
+        KIMI_TEST_MCP_PID_FILE: pidFile,
+      },
+    });
+    try {
+      await client.connect();
+      const pid = Number(readFileSync(pidFile, 'utf8'));
+      expect(processIsRunning(pid)).toBe(true);
+
+      await client.close();
+
+      expect(existsSync(eofMarker)).toBe(true);
+      const deadline = Date.now() + 5000;
+      while (Date.now() < deadline && processIsRunning(pid)) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(processIsRunning(pid)).toBe(false);
+    } finally {
+      await client.close();
+      await rm(dir, { recursive: true, force: true });
+    }
   }, 15000);
 });
 
