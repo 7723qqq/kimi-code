@@ -125,9 +125,13 @@ const dimHeaderStyle = (text: string): string => currentTheme.dim(text);
 
 const notifyTitleStyle = (text: string): string => currentTheme.boldFg('textStrong', text);
 
-/** The "Update" badge that marks a NotifyUser card. */
-function notifyUserBadge(): string {
-  return currentTheme.bg('primary', chalk.hex(NOTIFY_USER_MARK_FOREGROUND)(NOTIFY_USER_MARK));
+/** The prefix that marks a NotifyUser card: a primary bullet in fullscreen, else the Update badge. */
+function notifyUserPrefix(fullscreen: boolean): string {
+  if (fullscreen) return currentTheme.fg('primary', STATUS_BULLET);
+  return `${currentTheme.bg(
+    'primary',
+    chalk.hex(NOTIFY_USER_MARK_FOREGROUND)(NOTIFY_USER_MARK),
+  )} `;
 }
 
 /** The call's own arguments, with a streaming title/message filled in as it arrives. */
@@ -187,6 +191,7 @@ function isNotifyUserHeaderContent(content: HeaderContent): content is NotifyUse
  * clipped, so the whole update stays readable without opening a dialog.
  */
 class NotifyUserHeader extends TruncatedHeaderLine {
+  private prefix = '';
   private title: string | undefined;
   private expanded = false;
   private expandedCache: { width: number; lines: string[] } | undefined;
@@ -197,7 +202,13 @@ class NotifyUserHeader extends TruncatedHeaderLine {
   }
 
   override setText(content: HeaderContent): void {
-    this.title = isNotifyUserHeaderContent(content) ? content.notifyUserTitle : undefined;
+    if (isNotifyUserHeaderContent(content)) {
+      this.prefix = content.head;
+      this.title = content.notifyUserTitle;
+    } else {
+      this.prefix = '';
+      this.title = undefined;
+    }
     this.expandedCache = undefined;
     super.setText(content);
   }
@@ -219,7 +230,7 @@ class NotifyUserHeader extends TruncatedHeaderLine {
     if (isRenderCacheEnabled() && this.expandedCache?.width === safeWidth) {
       return this.expandedCache.lines;
     }
-    const firstPrefix = `${notifyUserBadge()} `;
+    const firstPrefix = this.prefix;
     const firstWidth = Math.max(1, safeWidth - visibleWidth(firstPrefix));
     const continuationWidth = Math.max(1, safeWidth - visibleWidth(MESSAGE_INDENT));
     const first = wrapTextWithAnsi(this.title, firstWidth)[0] ?? '';
@@ -1937,7 +1948,7 @@ export class ToolCallComponent extends Container {
       // until ctrl+o expands it.
       const title = notifyUserTitle(isFinished ? toolCall.args : notifyUserLiveArgs(toolCall));
       const content: NotifyUserHeaderContent = {
-        head: `${notifyUserBadge()} `,
+        head: notifyUserPrefix(this.ui?.mode === 'fullscreen'),
         flex: { text: title, style: notifyTitleStyle, keep: 'head' },
         tail: '',
         notifyUserTitle: title,
