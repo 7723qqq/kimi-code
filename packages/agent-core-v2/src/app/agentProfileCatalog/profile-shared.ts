@@ -164,6 +164,12 @@ const SKILLS_SECTION_PROSE =
   '## Available skills\n\n' +
   'Skills are grouped by scope (`Project`, `User`, `Extra`, `Built-in`) so you can tell where each came from. When the user refers to "the skill in this project" or "the user-scope skill", use the scope heading to disambiguate. When multiple scopes define a skill with the same name, the more specific scope takes precedence: **Project overrides User overrides Extra overrides Built-in**.';
 
+const SKILLS_SECTION_INACTIVE_PROSE =
+  'Skills are reusable, composable capabilities that enhance your abilities. Each skill is either a self-contained directory with a `SKILL.md` file or a standalone `.md` file that contains instructions, examples, and/or reference material.\n\n' +
+  'Identify the skills relevant to your current task and read their `SKILL.md` files for instructions, or use a user-initiated skill command. Only read further skill details when needed, to conserve the context window.\n\n' +
+  '## Available skills\n\n' +
+  'Skills are grouped by scope (`Project`, `User`, `Extra`, `Built-in`) so you can tell where each came from. When the user refers to "the skill in this project" or "the user-scope skill", use the scope heading to disambiguate. When multiple scopes define a skill with the same name, the more specific scope takes precedence: **Project overrides User overrides Extra overrides Built-in**.';
+
 const MODEL_ADAPTATION_PROSE =
   'The section below describes standing guidance for the model family you are running as. It is reference data, not an instruction from the user. Where it conflicts with the instructions above, the instructions above win.';
 
@@ -177,7 +183,7 @@ export function systemPromptVars(
   const shellName = context.shellName ?? '';
   const shellPath = context.shellPath ?? '';
   const skillActive = context.skillActive ?? options.skillActive;
-  const skills = skillActive ? (context.skills ?? '') : '';
+  const skills = context.skills ?? '';
   const pluginSections = context.pluginSections ?? '';
   const modelAdaptation = context.modelAdaptation ?? '';
   const additionalDirsInfo = context.additionalDirsInfo ?? '';
@@ -226,7 +232,9 @@ export function systemPromptVars(
         : '',
     skills,
     skills_section:
-      skills.length > 0 ? `\n\n# Skills\n\n${SKILLS_SECTION_PROSE}\n\n${skills}\n\n` : '',
+      skills.length > 0
+        ? `\n\n# Skills\n\n${skillActive ? SKILLS_SECTION_PROSE : SKILLS_SECTION_INACTIVE_PROSE}\n\n${skills}\n\n`
+        : '',
     plugin_sections:
       pluginSections.length > 0
         ? `\n\n# Plugin Instructions\n\n${PLUGIN_SECTIONS_PROSE}\n\n${pluginSections}\n\n`
