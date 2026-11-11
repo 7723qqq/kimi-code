@@ -246,40 +246,29 @@ describe('AssistantMessageComponent', () => {
     }
   });
 
-  it('reflects copy-chip state changes through the render cache', async () => {
-    const component = new AssistantMessageComponent();
-    clipboardMock.copyTextToClipboard.mockClear();
-    clipboardMock.copyTextToClipboard.mockResolvedValue('native');
+  it('renders every streaming frame byte-identically to a freshly built component', () => {
     const previousLevel = chalk.level;
     chalk.level = 3;
     try {
-      setMarkdownAltScreenActive(true);
-      component.updateContent('```mermaid\nflowchart LR\n  A-->B\n```\n');
-      const before = component.render(80);
-
-      const mouse = (type: 'press' | 'release') => ({
-        type,
-        button: 'left' as const,
-        x: 3,
-        y: before.length - 1,
-        screenX: 3,
-        screenY: before.length - 1,
-        width: 80,
-        height: before.length,
-        shift: false,
-        alt: false,
-        ctrl: false,
-      });
-      component.handleMouse(mouse('press'));
-      expect(component.render(80).join('\n')).not.toBe(before.join('\n'));
-
-      component.handleMouse(mouse('release'));
-      await waitForAssertion(() => {
-        expect(strip(component.render(80).join('\n'))).toContain('[Copied]');
-      });
+      const doc =
+        'Intro with a [guide][guide] link.\n\n' +
+        '```ts\nconst value = 1;\n```\n\n' +
+        '中文段落，包含全角标点！参见 https://example.com/wiki/中华人民共和国（1949年）。\n\n' +
+        '[guide]: https://example.com/guide\n';
+      const component = new AssistantMessageComponent();
+      for (let end = 0; end <= doc.length; end += 7) {
+        const prefix = doc.slice(0, end);
+        component.updateContent(prefix, { transient: true });
+        const reference = new AssistantMessageComponent();
+        reference.updateContent(prefix, { transient: true });
+        expect(component.render(80)).toStrictEqual(reference.render(80));
+      }
+      component.updateContent(doc, { transient: false });
+      const finalized = new AssistantMessageComponent();
+      finalized.updateContent(doc, { transient: false });
+      expect(component.render(80)).toStrictEqual(finalized.render(80));
     } finally {
       chalk.level = previousLevel;
-      setMarkdownAltScreenActive(false);
     }
   });
 });

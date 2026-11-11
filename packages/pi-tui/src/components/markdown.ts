@@ -267,6 +267,30 @@ function trimPartialClosingFences(tokens: readonly Token[]): void {
   token.text = token.text.slice(0, -lastLine.length).replace(/\n$/, '');
 }
 
+function tokenEquals(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (typeof left !== 'object' || typeof right !== 'object' || left === null || right === null) {
+    return false;
+  }
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+    for (let index = 0; index < left.length; index++) {
+      if (!tokenEquals(left[index], right[index])) return false;
+    }
+    return true;
+  }
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
+  for (const key of leftKeys) {
+    if (!Object.hasOwn(right, key)) return false;
+    if (!tokenEquals((left as Record<string, unknown>)[key], (right as Record<string, unknown>)[key])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 const markdownParser = new Marked();
 markdownParser.setOptions({
   tokenizer: new CjkBoundaryUrlTokenizer(),
@@ -346,6 +370,14 @@ export class Markdown implements Component {
   private cachedWidth?: number;
   private cachedLines?: string[];
 
+  // Prefix cache for streaming updates: per-token wrapped lines for every token
+  // except the last, reused only when the token sequence and content width match.
+  private blockCache?: {
+    tokens: readonly Token[];
+    wrapped: readonly (readonly string[])[];
+    contentWidth: number;
+  };
+
   constructor(
     text: string,
     paddingX: number,
@@ -364,10 +396,15 @@ export class Markdown implements Component {
 
   setText(text: string): void {
     this.text = text;
-    this.invalidate();
+    this.clearRenderCache();
   }
 
   invalidate(): void {
+    this.clearRenderCache();
+    this.blockCache = undefined;
+  }
+
+  private clearRenderCache(): void {
     this.cachedText = undefined;
     this.cachedWidth = undefined;
     this.cachedLines = undefined;
@@ -400,27 +437,51 @@ export class Markdown implements Component {
     const tokens = markdownParser.lexer(normalizedText);
     trimPartialClosingFences(tokens);
 
-    // Convert tokens to styled terminal output
-    const renderedLines: string[] = [];
+    const cached = this.blockCache;
+    let reused = 0;
+    if (cached !== undefined && cached.contentWidth === contentWidth) {
+      const limit = Math.min(cached.tokens.length, tokens.length);
+      let common = 0;
+      while (common < limit && tokenEquals(cached.tokens[common], tokens[common])) {
+        common += 1;
+      }
+      reused = Math.min(Math.max(0, common - 1), cached.wrapped.length);
+    }
 
-    for (let i = 0; i < tokens.length; i++) {
+    const wrappedByToken: (readonly string[])[] = [];
+    for (let index = 0; index < reused; index++) {
+      wrappedByToken.push(cached!.wrapped[index]!);
+    }
+
+    // Convert tokens to styled terminal output, wrapping each token's lines on
+    // their own so a closed prefix can be reused on the next streaming update.
+    for (let i = reused; i < tokens.length; i++) {
       const token = tokens[i]!;
       const nextToken = tokens[i + 1];
       const tokenLines = this.renderToken(token, contentWidth, nextToken?.type);
-      for (const tokenLine of tokenLines) {
-        renderedLines.push(tokenLine);
+      const wrapped: string[] = [];
+      for (const line of tokenLines) {
+        if (isImageLine(line)) {
+          wrapped.push(line);
+        } else {
+          for (const wrappedLine of wrapTextWithAnsi(line, contentWidth)) {
+            wrapped.push(wrappedLine);
+          }
+        }
       }
+      wrappedByToken.push(wrapped);
     }
 
-    // Wrap lines (NO padding, NO background yet)
+    this.blockCache = {
+      tokens,
+      wrapped: wrappedByToken.slice(0, Math.max(0, wrappedByToken.length - 1)),
+      contentWidth,
+    };
+
     const wrappedLines: string[] = [];
-    for (const line of renderedLines) {
-      if (isImageLine(line)) {
+    for (const tokenLines of wrappedByToken) {
+      for (const line of tokenLines) {
         wrappedLines.push(line);
-      } else {
-        for (const wrappedLine of wrapTextWithAnsi(line, contentWidth)) {
-          wrappedLines.push(wrappedLine);
-        }
       }
     }
 

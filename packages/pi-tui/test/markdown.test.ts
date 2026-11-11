@@ -1786,3 +1786,64 @@ describe("Markdown negative width safety", () => {
 		expect(() => markdown.render(-1)).not.toThrow();
 	});
 });
+
+describe("Streaming prefix cache", () => {
+	const documents = [
+		"Read the [guide][guide] first, then [unknown][nope] and [inline](https://example.com).\n\n![shot][shot]\n\n[guide]: https://example.com/guide\n[shot]: https://example.com/shot.png\n",
+		"Intro paragraph.\n\n```ts\nconst value = 1;\nfunction render() {\n  return value;\n}\n```\n\nAfter the fence.\n",
+		"中文流式渲染测试，包含全角标点！参见 https://example.com/wiki/中华人民共和国（1949年） 与 `内联代码`。\n\n第二段：emoji 😀 与 **加粗** 文本。\n",
+		"Setext title\n---\n\n- one\n- two\n  continued\n\n1. first\n2. second\n\n> quote\n> still quote\n",
+	];
+
+	function fullRender(source: string, width: number): string[] {
+		return new Markdown(source, 0, 0, defaultMarkdownTheme).render(width);
+	}
+
+	it("matches a fresh full render on every streamed prefix and width", () => {
+		for (const source of documents) {
+			for (const width of [40, 80, 100, 120]) {
+				const streaming = new Markdown("", 0, 0, defaultMarkdownTheme);
+				for (let length = 0; length <= source.length; length += 1) {
+					streaming.setText(source.slice(0, length));
+					expect(streaming.render(width)).toStrictEqual(fullRender(source.slice(0, length), width));
+				}
+			}
+		}
+	});
+
+	it("keeps ANSI styling byte-identical on every streamed prefix", () => {
+		const source = "# Heading\n\n**bold** and `code`\n\nplain\n";
+		const streaming = new Markdown("", 0, 0, defaultMarkdownTheme);
+		for (let length = 0; length <= source.length; length += 1) {
+			streaming.setText(source.slice(0, length));
+			expect(streaming.render(80)).toStrictEqual(fullRender(source.slice(0, length), 80));
+		}
+		expect(streaming.render(80).join("\n")).toContain("\x1b[");
+	});
+
+	it("reuses the wrapped lines of unchanged leading blocks", () => {
+		const first = "Paragraph one stays put.\n\nParagraph two stays put.\n\nGrowing";
+		const streaming = new Markdown(first, 0, 0, defaultMarkdownTheme);
+		streaming.render(80);
+		const cached = (streaming as unknown as { blockCache: { wrapped: readonly (readonly string[])[] } }).blockCache;
+		const cachedFirstBlock = cached.wrapped[0];
+
+		streaming.setText(`${first} tail.`);
+		streaming.render(80);
+		const next = (streaming as unknown as { blockCache: { wrapped: readonly (readonly string[])[] } }).blockCache;
+		expect(next.wrapped[0]).toBe(cachedFirstBlock);
+	});
+
+	it("drops the cached prefix when the width changes or invalidate runs", () => {
+		const source = documents[0]!;
+		const streaming = new Markdown("", 0, 0, defaultMarkdownTheme);
+		streaming.setText(source.slice(0, 40));
+		streaming.render(80);
+		streaming.setText(source);
+		expect(streaming.render(60)).toStrictEqual(fullRender(source, 60));
+		expect(streaming.render(80)).toStrictEqual(fullRender(source, 80));
+		expect(streaming.render(40)).toStrictEqual(fullRender(source, 40));
+		streaming.invalidate();
+		expect(streaming.render(80)).toStrictEqual(fullRender(source, 80));
+	});
+});
