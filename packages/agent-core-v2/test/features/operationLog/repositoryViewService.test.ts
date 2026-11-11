@@ -1,10 +1,11 @@
 import { afterAll, describe, expect, it } from 'bun:test';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import { join } from 'pathe';
 
 import { RepositoryViewService } from '#/features/operationLog/repositoryViewService';
+import type { OperationView } from '#/features/operationLog/operationLog';
 
 const roots: string[] = [];
 
@@ -29,6 +30,52 @@ async function gitEnv(
   ]);
   if (exitCode !== 0) throw new Error(`git ${args.join(' ')} failed: ${stderr}`);
   return stdout.trim();
+}
+
+async function gitInput(cwd: string, input: string, ...args: string[]): Promise<string> {
+  const proc = Bun.spawn({
+    cmd: ['git', ...args],
+    cwd,
+    env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    stdin: 'pipe',
+    stdout: 'pipe',
+    stderr: 'pipe',
+    windowsHide: true,
+  });
+  if (proc.stdin === undefined) throw new Error('git stdin is unavailable');
+  await proc.stdin.write(input);
+  await proc.stdin.end();
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  if (exitCode !== 0) throw new Error(`git ${args.join(' ')} failed: ${stderr}`);
+  return stdout.trim();
+}
+
+async function supportsReftable(): Promise<boolean> {
+  const proc = Bun.spawn({
+    cmd: ['git', 'init', '-h'],
+    env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    stdin: 'ignore',
+    stdout: 'pipe',
+    stderr: 'pipe',
+    windowsHide: true,
+  });
+  const [stdout, stderr] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  return `${stdout}${stderr}`.includes('ref-format');
+}
+
+const reftableSupported = await supportsReftable();
+if (!reftableSupported) {
+  console.warn(
+    'repositoryViewService.test: skipping the reftable backend case because git init does not support --ref-format',
+  );
 }
 
 function git(cwd: string, ...args: string[]): Promise<string> {
@@ -563,5 +610,101 @@ describe('RepositoryViewService', () => {
     expect(await rejectionOf(backend.readBlobs([file.hash]))).toMatchObject({
       name: 'GitOperationError',
     });
+  });
+
+  it.skipIf(!reftableSupported)(
+    'reads HEAD and refs through git when the repository uses the reftable backend',
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), 'kimi-operation-reftable-'));
+      roots.push(root);
+      const repo = join(root, 'repo');
+      const storage = join(root, 'storage');
+      await mkdir(repo, { recursive: true });
+      await git(repo, 'init', '--ref-format=reftable', '-b', 'main');
+      await git(repo, 'config', 'core.autocrlf', 'false');
+      await git(repo, 'config', 'user.email', 'operation-test@example.com');
+      await git(repo, 'config', 'user.name', 'Operation Test');
+      await writeFile(join(repo, 'a.txt'), 'initial\n');
+      await git(repo, 'add', '.');
+      await git(repo, 'commit', '-m', 'initial');
+      expect((await stat(join(repo, '.git', 'reftable'))).isDirectory()).toBe(true);
+      const backend = await open(repo, storage);
+      const originalSpawn = Bun.spawn;
+      const commands: string[][] = [];
+      Bun.spawn = ((options: any) => {
+        const command = options.cmd as readonly string[];
+        if (command[0] === 'git') commands.push([...command]);
+        return originalSpawn(options);
+      }) as typeof Bun.spawn;
+
+      let view!: OperationView;
+      try {
+        view = await backend.captureView();
+      } finally {
+        Bun.spawn = originalSpawn;
+      }
+
+      expect(view.head).toEqual({
+        kind: 'branch',
+        ref: 'refs/heads/main',
+        target: await git(repo, 'rev-parse', 'HEAD'),
+      });
+      expect(view.refs).toEqual(await gitRefs(repo));
+      expect(commands.some((command) => command[1] === 'symbolic-ref')).toBe(true);
+      expect(commands.some((command) => command[1] === 'for-each-ref')).toBe(true);
+    },
+  );
+
+  it('falls back to ls-tree for paths that cat-file batch input cannot carry', async () => {
+    const { repo, storage } = await createRepo();
+    const entries = [
+      { name: 'normal.txt', content: 'plain\n' },
+      { name: 'weird\nname.txt', content: 'newline\n' },
+      { name: 'weird\rname.txt', content: 'carriage\n' },
+    ];
+    const expected = new Map<string, { hash: string; size: number }>();
+    let treeInput = '';
+    for (const entry of entries) {
+      const hash = await gitInput(repo, entry.content, 'hash-object', '-w', '--stdin');
+      expected.set(entry.name, {
+        hash,
+        size: new TextEncoder().encode(entry.content).byteLength,
+      });
+      treeInput += `100644 blob ${hash}\t${entry.name}\0`;
+    }
+    const tree = await gitInput(repo, treeInput, 'mktree', '-z');
+    const view: OperationView = {
+      tree,
+      head: { kind: 'unborn', ref: 'refs/heads/main' },
+      refs: {},
+      indexTree: '',
+    };
+    const backend = await open(repo, storage);
+    await backend.captureView();
+    const originalSpawn = Bun.spawn;
+    const commands: string[][] = [];
+    Bun.spawn = ((options: any) => {
+      const command = options.cmd as readonly string[];
+      if (command[0] === 'git') commands.push([...command]);
+      return originalSpawn(options);
+    }) as typeof Bun.spawn;
+
+    let reads: readonly ({ readonly hash: string; readonly size: number } | undefined)[] = [];
+    try {
+      reads = await backend.readFiles(entries.map((entry) => ({ view, path: entry.name })));
+    } finally {
+      Bun.spawn = originalSpawn;
+    }
+
+    expect(
+      commands.filter((command) => command[1] === 'cat-file' && command[2] === '--batch-check'),
+    ).toHaveLength(1);
+    expect(
+      commands.filter((command) => command[1] === 'ls-tree' && command[2] === '-z'),
+    ).toHaveLength(2);
+    expect(commands).toHaveLength(5);
+    for (const [index, entry] of entries.entries()) {
+      expect(reads[index]).toEqual(expected.get(entry.name));
+    }
   });
 });
