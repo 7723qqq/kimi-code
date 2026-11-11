@@ -12,6 +12,7 @@ import {
   SkillToolInputSchema,
 } from '#/features/skill/tools/skill';
 import { SkillTool } from '#/features/skill/tools/skillTool';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import type { LlmRequester } from '#human/llm/requester/requester';
 import { waitForAssertion } from '#test/helpers/waitFor';
 
@@ -154,6 +155,26 @@ describe('SkillTool', () => {
     expect(SkillToolInputSchema.safeParse({ skill: 'commit' }).success).toBe(true);
     expect(SkillToolInputSchema.safeParse({ skill: 'commit', args: '-m fix' }).success).toBe(true);
     expect(SkillToolInputSchema.safeParse({}).success).toBe(false);
+  });
+
+  it('renders arguments and session context through the model-tool path', async () => {
+    skills.register(
+      stubSkill('rename-session', {
+        content: 'Run "$ARGUMENTS" with "${KIMI_SESSION_ID}"',
+      }),
+    );
+
+    const result = await executeTool(
+      makeTool(),
+      toolContext({ skill: 'rename-session', args: 'Tokenizer Myths' }),
+    );
+    const part = result.delivery?.message.content[0];
+    const text = part?.type === 'text' ? part.text : '';
+    const sessionId = ctx.get(ISessionContext).sessionId;
+
+    expect(text).toContain(`Run "Tokenizer Myths" with "${sessionId}"`);
+    expect(text).not.toContain('${KIMI_SESSION_ID}');
+    expect(text).toContain('dir="/skills/rename-session"');
   });
 
   it('returns a tool error when the skill is unknown', async () => {

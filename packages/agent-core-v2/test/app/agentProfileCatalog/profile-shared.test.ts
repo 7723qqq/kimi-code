@@ -89,6 +89,7 @@ describe('systemPromptVars', () => {
     expect(vars['additional_dirs_section']).toContain('/extra');
     expect(vars['skills_section']).toContain('# Skills');
     expect(vars['skills_section']).toContain('SKILLS');
+    expect(vars['skills_section']).toContain('invoke them with the `Skill` tool');
   });
 
   it('renders missing context fields as empty strings', () => {
