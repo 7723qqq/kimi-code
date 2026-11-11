@@ -10,23 +10,23 @@ Kimi Code CLI 以单文件可执行程序分发，运行时内嵌在其中，因
 
 ## 实测结果
 
-在 Windows 11（Intel Core Ultra 9 285K，24 核，63 GiB 内存）上测量，使用逐个启动可执行程序并等待退出的进程计时方式；每个数字取 30 次运行的中位数。
+在 Windows 11（Intel Core Ultra 9 285K，24 核，63 GiB 内存）上测量，使用逐个启动可执行程序并等待退出的进程计时方式；`--version` 取 30 次运行的中位数，其余命令取 20 次。峰值工作集读取操作系统记录的进程峰值，而非轮询采样。
 
 | 场景 | 启用 bytecode 前 | 启用 bytecode 后 | 变化 |
 |---|---|---|---|
-| `kimi --version` | 604 ms | **283 ms** | 快 2.1 倍 |
-| p95（95 分位） | 633 ms | 305 ms | −52% |
-| 峰值工作集（进程活跃使用的内存） | 237 MB | **181 MB** | −24% |
-| 可执行文件体积 | 185.5 MiB | 219.4 MiB | +18% |
+| `kimi --version` | 548 ms | **177 ms** | 快 3.1 倍 |
+| p95（95 分位） | 580 ms | 222 ms | −62% |
+| 峰值工作集（进程活跃使用的内存） | 233 MiB | **170 MiB** | −27% |
+| 可执行文件体积 | 192.1 MiB | 231.9 MiB | +21% |
 
-同一台机器上与官方 Kimi Code 2.4.1（Node SEA 构建）对比：
+同一台机器上与官方 Kimi Code 2.5.3 的 npm 包对比（官方包不含独立可执行文件，以 Node.js 24.9.0 运行 `node dist/main.mjs`）；本构建为 2.5.2：
 
-| 场景 | 本构建 | 官方 2.4.1 |
+| 场景 | 本构建 | 官方 2.5.3 |
 |---|---|---|
-| `kimi --version` | 277 ms | 471 ms |
-| `kimi doctor config` | 280 ms | 488 ms |
-| `kimi session list --json` | 476 ms | 576 ms |
-| 峰值工作集（`--version`） | 181 MB | 298 MB |
+| `kimi --version` | 176 ms | 605 ms |
+| `kimi doctor config` | 174 ms | 597 ms |
+| `kimi session list --json` | 308 ms | 754 ms |
+| 峰值工作集（`--version`） | 170 MiB | 276 MiB |
 
 实际耗时受硬件、存储和机器负载影响，更有参考价值的是两者的比例。
 

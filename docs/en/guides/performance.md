@@ -10,23 +10,23 @@ Source code is not obscured: stack traces and errors still point at the original
 
 ## Measured results
 
-Measured on Windows 11 (Intel Core Ultra 9 285K, 24 cores, 63 GiB RAM) with a process-time driver that spawns the executable and waits for it to exit. Each figure is the median of 30 runs.
+Measured on Windows 11 (Intel Core Ultra 9 285K, 24 cores, 63 GiB RAM) with a process-time driver that spawns the executable and waits for it to exit. `--version` figures are the median of 30 runs; the other commands use 20. Peak working set reads the OS-recorded process peak rather than a polled sample.
 
 | Scenario | Before bytecode | After bytecode | Change |
 |---|---|---|---|
-| `kimi --version` | 604 ms | **283 ms** | 2.1× faster |
-| 95th percentile | 633 ms | 305 ms | −52% |
-| Peak working set (memory in active use) | 237 MB | **181 MB** | −24% |
-| Executable size | 185.5 MiB | 219.4 MiB | +18% |
+| `kimi --version` | 548 ms | **177 ms** | 3.1× faster |
+| 95th percentile | 580 ms | 222 ms | −62% |
+| Peak working set (memory in active use) | 233 MiB | **170 MiB** | −27% |
+| Executable size | 192.1 MiB | 231.9 MiB | +21% |
 
-The same executable compared with the official Kimi Code 2.4.1 release (Node SEA build) on the same machine:
+The same executable compared with the official Kimi Code 2.5.3 npm package on the same machine (the official package ships no standalone executable; it runs on Node.js 24.9.0 via `node dist/main.mjs`). This build is 2.5.2:
 
-| Scenario | This build | Official 2.4.1 |
+| Scenario | This build | Official 2.5.3 |
 |---|---|---|
-| `kimi --version` | 277 ms | 471 ms |
-| `kimi doctor config` | 280 ms | 488 ms |
-| `kimi session list --json` | 476 ms | 576 ms |
-| Peak working set (`--version`) | 181 MB | 298 MB |
+| `kimi --version` | 176 ms | 605 ms |
+| `kimi doctor config` | 174 ms | 597 ms |
+| `kimi session list --json` | 308 ms | 754 ms |
+| Peak working set (`--version`) | 170 MiB | 276 MiB |
 
 Times vary with hardware, storage, and what else runs on the machine; treat the ratios as the useful part.
 

@@ -1,7 +1,8 @@
 /**
  * Kimi Code version helpers.
  *
- * `getVersion` reads the host CLI's `package.json#version`.
+ * `getVersion` returns the build-time injected version when present, and
+ * otherwise falls back to reading the host CLI's `package.json#version`.
  */
 
 import { createKimiUserAgent, type KimiHostIdentity } from '@moonshot-ai/kimi-code-oauth/identity';

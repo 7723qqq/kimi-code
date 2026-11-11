@@ -157,8 +157,8 @@ async function buildBunNative() {
   const outfile = nativeBinPath(target);
   mkdirSync(dirname(outfile), { recursive: true });
   // Bytecode is on by default: on Bun 1.4.4 it takes this executable's
-  // `--version` median from ~604ms to ~272ms (30 samples, native driver) and
-  // startup peak working set from ~237MB to ~181MB, for +13-18% binary size.
+  // `--version` median from ~548ms to ~177ms (30 samples, native driver) and
+  // startup peak working set from ~233MiB to ~170MiB, for ~+21% binary size.
   // The "no startup gain" this comment used to record was measured on Bun
   // 1.4.2; that result no longer holds on the 1.4.4 floor. ESM and CJS cost the
   // same at startup, so the ESM forcing below stays. Set
