@@ -526,6 +526,38 @@ base_url = "https://target.example/v1"
     expect(cfg).not.toContain('unknown_flag');
   });
 
+  it('merges experimental flags per key and keeps only target conflict values', async () => {
+    await writeFile(
+      join(src, 'config.toml'),
+      [
+        '[experimental]',
+        'associative_memory = false',
+        'git_memory = true',
+        'lsp = true',
+        'tower = true',
+        'micro_compaction = "not-a-boolean"',
+        'unknown_flag = true',
+        '',
+      ].join('\n'),
+    );
+    await writeFile(
+      join(tgt, 'config.toml'),
+      '[experimental]\nassociative_memory = true\ntower = true\n',
+    );
+
+    const r = await migrateConfigStep({ sourceHome: src, targetHome: tgt });
+
+    const cfg = await readFile(join(tgt, 'config.toml'), 'utf-8');
+    expect(cfg).toContain('associative_memory = true');
+    expect(cfg).not.toContain('associative_memory = false');
+    expect(cfg).toContain('git_memory = true');
+    expect(cfg).toContain('lsp = true');
+    expect(cfg).toContain('tower = true');
+    expect(cfg).not.toContain('not-a-boolean');
+    expect(cfg).not.toContain('unknown_flag');
+    expect(r.configConflicts).toEqual(['experimental.associative_memory']);
+  });
+
   it('drops legacy migration fields but keeps supported loop and background fields', async () => {
     await writeFile(
       join(src, 'config.toml'),

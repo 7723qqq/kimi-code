@@ -229,7 +229,7 @@ function mergeConfig(
   const merged: Record<string, unknown> = { ...target };
   const conflicts: string[] = [];
   for (const [key, value] of Object.entries(migrated)) {
-    if ((key === 'providers' || key === 'models') && isRecord(value)) {
+    if ((key === 'providers' || key === 'models' || key === 'experimental') && isRecord(value)) {
       const section: Record<string, unknown> = isRecord(merged[key]) ? { ...merged[key] } : {};
       for (const [name, entry] of Object.entries(value)) {
         if (section[name] === undefined) {
