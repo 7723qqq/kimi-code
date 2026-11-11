@@ -2,9 +2,9 @@
  * Shared agent-scope wire schemas — the payload/result vocabulary reused by
  * the per-domain contracts in `agent/services.ts` and pinned against the
  * engine types by `test/contract-parity.ts`. `PromptPayload.input` mirrors the
- * `PromptPart` subset of `ContentPart` (text / image_url / video_url) from
- * `agent-core-v2/llm-adapter/contract/message.ts`. Task wire shapes mirror the
- * `TaskInfo` union in `kap-server/src/protocol/events-zod.ts`.
+ * `PromptPart` subset of `ContentPart` (text / image_url / video_url /
+ * document_url) from `agent-core-v2/llm-adapter/contract/message.ts`. Task wire
+ * shapes mirror the `TaskInfo` union in `kap-server/src/protocol/events-zod.ts`.
  */
 
 import { z } from 'zod';
@@ -26,11 +26,26 @@ const videoUrlPartSchema = z.object({
   videoUrl: z.object({ url: z.string(), id: z.string().optional() }),
 });
 
-/** `PromptPart = Extract<ContentPart, { type: 'text' | 'image_url' | 'video_url' }>`. */
+const documentUrlPartSchema = z.object({
+  type: z.literal('document_url'),
+  documentUrl: z.object({
+    url: z.string(),
+    mimeType: z.string(),
+    id: z.string().optional(),
+    name: z.string().optional(),
+  }),
+});
+
+/**
+ * `PromptPart = Extract<ContentPart, {
+ *   type: 'text' | 'image_url' | 'video_url' | 'document_url'
+ * }>`.
+ */
 export const promptPartSchema = z.discriminatedUnion('type', [
   textPartSchema,
   imageUrlPartSchema,
   videoUrlPartSchema,
+  documentUrlPartSchema,
 ]);
 
 // ── payloads / results ──────────────────────────────────────────────────────

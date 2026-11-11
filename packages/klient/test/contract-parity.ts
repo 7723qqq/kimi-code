@@ -585,7 +585,10 @@ type ShellCommandResult = Awaited<ReturnType<IAgentShellCommandService['run']>>;
 type SetModelResult = Awaited<ReturnType<IAgentProfileService['setModel']>>;
 type OperationRecord = Awaited<ReturnType<IAgentOperationService['undoOperation']>>;
 type TokenUsage = NonNullable<UsageStatus['total']>;
-type PromptPart = Extract<ContentPart, { type: 'text' | 'image_url' | 'video_url' }>;
+type PromptPart = Extract<
+  ContentPart,
+  { type: 'text' | 'image_url' | 'video_url' | 'document_url' }
+>;
 
 type EmptyPayload = {};
 type CancelPayload = NonNullable<Parameters<AgentFacade['cancel']>[0]>;

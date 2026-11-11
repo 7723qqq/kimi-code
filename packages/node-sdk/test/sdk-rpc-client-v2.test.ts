@@ -842,6 +842,40 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     }
   });
 
+  it('passes document URL prompt parts through the default v2 facade', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-'));
+    const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-work-'));
+    tempDirs.push(homeDir, workDir);
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+    try {
+      await client.createSession({ id: 'ses_document_prompt', workDir });
+      await client.getSessionWarnings({ sessionId: 'ses_document_prompt' });
+      const main = getLiveSessionById(client.engineAccessor, 'ses_document_prompt')!
+        .accessor.get(IAgentLifecycleService)
+        .handleOf('main')!;
+      const submit = jest
+        .spyOn(main.accessor.get(IAgentPromptChannel), 'submit')
+        .mockResolvedValue(undefined);
+      const input = [
+        {
+          type: 'document_url',
+          documentUrl: {
+            url: 'kimi-file://file-document',
+            mimeType: 'application/pdf',
+            id: 'file-document',
+            name: 'report.pdf',
+          },
+        },
+      ] as const;
+
+      await client.prompt({ sessionId: 'ses_document_prompt', input });
+
+      expect(submit).toHaveBeenCalledWith({ input });
+    } finally {
+      await client.close();
+    }
+  });
+
   it('returns prompt identities and delivery state from the v2 steer APIs', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-'));
     const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-work-'));

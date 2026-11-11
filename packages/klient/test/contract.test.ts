@@ -7,6 +7,7 @@
  */
 
 import { describe, expect, it } from 'bun:test';
+import type { z } from 'zod';
 
 import { promptPayloadSchema } from '../src/contract/agent/schemas.js';
 import { mcpServerAuthFlowHandleSchema } from '../src/contract/global/mcpManagement.js';
@@ -142,6 +143,28 @@ describe('MCP timeout contract validation', () => {
 });
 
 describe('prompt contract validation', () => {
+  it('accepts the supported multimodal prompt parts', () => {
+    const input: z.input<typeof promptPayloadSchema>['input'] = [
+      { type: 'text', text: 'describe these' },
+      { type: 'image_url', imageUrl: { url: 'data:image/png;base64,AAAA' } },
+      { type: 'video_url', videoUrl: { url: 'ms://file-video', id: 'file-video' } },
+      {
+        type: 'document_url',
+        documentUrl: {
+          url: 'kimi-file://file-document',
+          mimeType: 'application/pdf',
+          id: 'file-document',
+          name: 'report.pdf',
+        },
+      },
+    ];
+
+    const parsed = promptPayloadSchema.safeParse({ input });
+
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.input).toEqual(input);
+  });
+
   it('rejects an empty caller-chosen promptId', () => {
     expect(promptPayloadSchema.safeParse({ input: [], promptId: '' }).success).toBe(false);
   });
