@@ -14,6 +14,7 @@ import {
   IOAuthService,
   type Event2,
   type IOAuthService as IOAuthServiceType,
+  IAgentChangeNotifierService,
   IAgentContextMemoryService,
   IAgentFullCompactionService,
   IAgentGoalService,
@@ -30,6 +31,7 @@ import {
   ISessionMetadata,
   ISessionTitleService,
   IWireService,
+  IWorkspaceInstanceManager,
   IWorkspaceService,
   MAIN_AGENT_ID,
   closeSessionById,
@@ -1163,6 +1165,7 @@ describe('server-v2 /api/v1/sessions', () => {
     base = `http://127.0.0.1:${server.port}`;
 
     const cwd = await mkdtemp(join(tmpdir(), 'kimi-reload-cwd-'));
+    const extra = await mkdtemp(join(tmpdir(), 'kimi-reload-extra-'));
     await mkdir(join(cwd, '.git'));
     try {
       const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
@@ -1182,19 +1185,102 @@ describe('server-v2 /api/v1/sessions', () => {
       const baselineCount = baseline.body.data.items.length;
 
       await writeFile(join(cwd, 'AGENTS.md'), 'new workspace rules');
+      const projectsPath = join(home as string, 'workspaces.json');
+      const projects = JSON.parse(await readFile(projectsPath, 'utf8')) as {
+        workspaces: Record<string, { root: string; additional_dirs?: string[] }>;
+      };
+      const project = Object.values(projects.workspaces).find((entry) => entry.root === cwd);
+      if (project === undefined) throw new Error('expected the session project');
+      project.additional_dirs = [extra];
+      await writeFile(projectsPath, JSON.stringify(projects), 'utf8');
 
       const second = await postJson<SessionWire>(`/api/v1/sessions/${id}:reload`);
       expect(second.body.code).toBe(0);
 
-      const after = await getJson<{ items: unknown[]; has_more: boolean }>(
-        `/api/v1/sessions/${id}/messages`,
-      );
+      const after = await getJson<{
+        items: {
+          content: { type: string; text?: string }[];
+          metadata?: { origin?: { variant?: string } };
+        }[];
+        has_more: boolean;
+      }>(`/api/v1/sessions/${id}/messages`);
       expect(after.body.data.items.length).toBeGreaterThan(baselineCount);
       const text = JSON.stringify(after.body.data.items);
       expect(text).toContain('AGENTS.md');
       expect(text).toContain('were not included in your system prompt');
+      const workspaceDirsReminders = after.body.data.items.filter(
+        (item) => item.metadata?.origin?.variant === 'workspace_dirs_change',
+      );
+      expect(workspaceDirsReminders).toHaveLength(1);
+      expect(
+        workspaceDirsReminders[0]?.content
+          .map((part) => (part.type === 'text' ? part.text : ''))
+          .join(''),
+      ).toContain(`Added directories: ${extra}.`);
+
+      const third = await postJson<SessionWire>(`/api/v1/sessions/${id}:reload`);
+      expect(third.body.code).toBe(0);
+      const reloaded = await getJson<{
+        items: { metadata?: { origin?: { variant?: string } } }[];
+        has_more: boolean;
+      }>(`/api/v1/sessions/${id}/messages`);
+      expect(
+        reloaded.body.data.items.filter(
+          (item) => item.metadata?.origin?.variant === 'workspace_dirs_change',
+        ),
+      ).toHaveLength(1);
     } finally {
       await rm(cwd, { recursive: true, force: true });
+      await rm(extra, { recursive: true, force: true });
+    }
+  });
+
+  it('restores workspace-dir reminders when :reload fails', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'kimi-reload-failure-cwd-'));
+    const extra = await mkdtemp(join(tmpdir(), 'kimi-reload-failure-extra-'));
+    await mkdir(join(cwd, '.git'));
+    try {
+      const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+      const id = created.body.data.id;
+      const before = getLiveSessionById((server as RunningServer).core.accessor, id);
+      if (before === undefined) throw new Error('expected a live session');
+      const main = await ensureMainAgent(before);
+      await main.accessor.get(IAgentChangeNotifierService).notifyWorkspaceDirsChanges();
+      const target = (server as RunningServer).core.accessor
+        .get(IWorkspaceInstanceManager)
+        .get(created.body.data.workspace_id);
+      if (target === undefined) throw new Error('expected the session workspace');
+      const projectsPath = join(home as string, 'workspaces.json');
+      const projects = JSON.parse(await readFile(projectsPath, 'utf8')) as {
+        workspaces: Record<string, { root: string; additional_dirs?: string[] }>;
+      };
+      const project = Object.values(projects.workspaces).find((entry) => entry.root === cwd);
+      if (project === undefined) throw new Error('expected the session project');
+      project.additional_dirs = [extra];
+      await writeFile(projectsPath, JSON.stringify(projects), 'utf8');
+      spyOn(target.program.instructions, 'reload').mockRejectedValueOnce(
+        new Error('instructions reload failed'),
+      );
+
+      const failed = await postJson<SessionWire>(`/api/v1/sessions/${id}:reload`);
+      expect(failed.body.code).toBe(50001);
+      expect(failed.body.msg).toBe('instructions reload failed');
+      expect(getLiveSessionById((server as RunningServer).core.accessor, id)).toBe(before);
+      const reminders = main.accessor
+        .get(IAgentContextMemoryService)
+        .get()
+        .filter(
+          (message) =>
+            message.origin?.kind === 'injection' &&
+            message.origin.variant === 'workspace_dirs_change',
+        );
+      expect(reminders).toHaveLength(1);
+      expect(
+        reminders[0]?.content.map((part) => (part.type === 'text' ? part.text : '')).join(''),
+      ).toContain(`Added directories: ${extra}.`);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(extra, { recursive: true, force: true });
     }
   });
 

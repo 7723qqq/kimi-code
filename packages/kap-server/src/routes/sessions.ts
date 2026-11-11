@@ -1215,6 +1215,7 @@ async function reloadSessionAction(ctx: SessionActionCtx): Promise<void> {
         staleNotifier.notifyAgentsMdChanges(),
         staleNotifier.notifySkillChanges(),
         staleNotifier.notifySubagentChanges({}),
+        staleNotifier.notifyWorkspaceDirsChanges(),
       ]).catch(() => undefined);
     }
     throw error;
@@ -1233,6 +1234,7 @@ async function reloadSessionAction(ctx: SessionActionCtx): Promise<void> {
     await notifier.notifyAgentsMdChanges();
     await notifier.notifySkillChanges();
     await notifier.notifySubagentChanges({ previousSubagentNames, previousModelPool });
+    await notifier.notifyWorkspaceDirsChanges();
   }
   const meta = await handle.accessor.get(ISessionMetadata).read();
   const sessionCtx = handle.accessor.get(ISessionContext);
