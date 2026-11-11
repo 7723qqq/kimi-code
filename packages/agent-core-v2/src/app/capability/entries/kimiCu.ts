@@ -9,7 +9,7 @@ import { errorMessage } from '#/_base/utils/errorMessage';
 import { Error2 } from '#/errors';
 
 import { CapabilityErrors } from '../errors';
-import { downloadToFile, runCommand, type FetchLike } from '../host';
+import { downloadToFile, runCommand, type CommandResult, type FetchLike } from '../host';
 import type {
   CapabilityDetectResult,
   CapabilityEntry,
@@ -46,6 +46,41 @@ const WINDOWS_DOCTOR_SCRIPT =
   "if ($env:ProgramFiles) { $candidates += (Join-Path $env:ProgramFiles 'KimiCU\\kimi-cu.exe') }; " +
   '$exe = $candidates | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1; ' +
   'if (-not $exe) { exit 3 }; & $exe doctor; exit $LASTEXITCODE';
+
+export function windowsCuExeCandidates(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string[] {
+  const candidates: Array<string | undefined> = [env['KIMI_CU_WINDOWS_EXE']];
+  const home = env['KIMI_CU_WINDOWS_HOME'];
+  if (home) {
+    candidates.push(path.win32.join(home, 'kimi-cu.exe'));
+  }
+  const localAppData = env['LOCALAPPDATA'];
+  if (localAppData) {
+    candidates.push(path.win32.join(localAppData, 'KimiCU', 'kimi-cu.exe'));
+  }
+  const programFiles = env['ProgramFiles'];
+  if (programFiles) {
+    candidates.push(path.win32.join(programFiles, 'KimiCU', 'kimi-cu.exe'));
+  }
+  return candidates.filter(
+    (candidate): candidate is string =>
+      candidate !== undefined && candidate.trim().length > 0,
+  );
+}
+
+export async function resolveWindowsCuExe(
+  candidates: readonly string[],
+): Promise<string | undefined> {
+  for (const candidate of candidates) {
+    const isFile = await stat(candidate).then(
+      (entry) => entry.isFile(),
+      () => false,
+    );
+    if (isFile) return candidate;
+  }
+  return undefined;
+}
 
 async function verifyDownloadedChecksum(
   url: string,
@@ -613,21 +648,10 @@ function createWindowsKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry 
     );
   }
 
-  async function runtimeStep(command: string): Promise<{
+  function runtimeStepFrom(result: CommandResult): {
     readonly step: CapabilityStep;
     readonly version?: string;
-  }> {
-    let result: Awaited<ReturnType<typeof runCommand>>;
-    try {
-      result = await runCommand(
-        ctx.hostProcess,
-        command,
-        ['-NoProfile', '-NonInteractive', '-Command', WINDOWS_DOCTOR_SCRIPT],
-        { timeout: probeTimeoutMs },
-      );
-    } catch (error) {
-      return { step: { id: 'runtime', state: 'failed', detail: errorMessage(error) } };
-    }
+  } {
     if (result.code === 3) {
       return { step: { id: 'runtime', state: 'missing' } };
     }
@@ -655,10 +679,53 @@ function createWindowsKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry 
       : { step: { id: 'runtime', state: 'ok', detail: doctor.version }, version: doctor.version };
   }
 
+  async function runtimeStep(command: string): Promise<{
+    readonly step: CapabilityStep;
+    readonly version?: string;
+  }> {
+    let result: Awaited<ReturnType<typeof runCommand>>;
+    try {
+      result = await runCommand(
+        ctx.hostProcess,
+        command,
+        ['-NoProfile', '-NonInteractive', '-Command', WINDOWS_DOCTOR_SCRIPT],
+        { timeout: probeTimeoutMs },
+      );
+    } catch (error) {
+      return { step: { id: 'runtime', state: 'failed', detail: errorMessage(error) } };
+    }
+    return runtimeStepFrom(result);
+  }
+
+  async function directRuntimeStep(exe: string): Promise<
+    | {
+        readonly step: CapabilityStep;
+        readonly version?: string;
+      }
+    | undefined
+  > {
+    let result: CommandResult;
+    try {
+      result = await runCommand(ctx.hostProcess, exe, ['doctor'], { timeout: probeTimeoutMs });
+    } catch (error) {
+      return { step: { id: 'runtime', state: 'failed', detail: errorMessage(error) } };
+    }
+    if (result.code === -1 && result.stdout.length === 0) return undefined;
+    return runtimeStepFrom(result);
+  }
+
   async function detectRuntimeStep(): Promise<{
     readonly step: CapabilityStep;
     readonly version?: string;
   }> {
+    const exe = await resolveWindowsCuExe(windowsCuExeCandidates());
+    if (exe === undefined) {
+      return { step: { id: 'runtime', state: 'missing' } };
+    }
+
+    const direct = await directRuntimeStep(exe);
+    if (direct !== undefined) return direct;
+
     const systemRuntime = await runtimeStep(powershellPath);
     if (systemRuntime.step.state !== 'failed') return systemRuntime;
 

@@ -12,6 +12,8 @@ import {
   parsePermissionStatus,
   parseWindowsDoctorOutput,
   readAppBundleVersion,
+  resolveWindowsCuExe,
+  windowsCuExeCandidates,
   windowsPowerShellPath,
   windowsPowerShell7Path,
 } from '#/app/capability/entries/kimiCu';
@@ -199,6 +201,62 @@ describe('windowsPowerShellPath', () => {
   });
 });
 
+describe('windowsCuExeCandidates', () => {
+  it('keeps the exact candidate order and expansion of the doctor script', () => {
+    expect(
+      windowsCuExeCandidates({
+        KIMI_CU_WINDOWS_EXE: 'D:\\explicit\\kimi-cu.exe',
+        KIMI_CU_WINDOWS_HOME: 'D:\\home',
+        LOCALAPPDATA: 'D:\\local',
+        ProgramFiles: 'D:\\program',
+      }),
+    ).toEqual([
+      'D:\\explicit\\kimi-cu.exe',
+      'D:\\home\\kimi-cu.exe',
+      'D:\\local\\KimiCU\\kimi-cu.exe',
+      'D:\\program\\KimiCU\\kimi-cu.exe',
+    ]);
+    expect(
+      windowsCuExeCandidates({ KIMI_CU_WINDOWS_EXE: undefined, LOCALAPPDATA: 'D:\\local' }),
+    ).toEqual(['D:\\local\\KimiCU\\kimi-cu.exe']);
+  });
+
+  it('drops blank candidates like the script whitespace filter', () => {
+    expect(
+      windowsCuExeCandidates({
+        KIMI_CU_WINDOWS_EXE: '   ',
+        KIMI_CU_WINDOWS_HOME: '',
+        LOCALAPPDATA: '',
+        ProgramFiles: '',
+      }),
+    ).toEqual([]);
+  });
+});
+
+describe('resolveWindowsCuExe', () => {
+  let root: string;
+  beforeEach(async () => {
+    root = await mkdtemp(path.join(tmpdir(), 'kimi-cu-resolve-'));
+  });
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it('returns the first candidate that is a file and skips directories', async () => {
+    const directory = path.join(root, 'as-directory');
+    await mkdir(path.join(directory, 'kimi-cu.exe'), { recursive: true });
+    const file = path.join(root, 'kimi-cu.exe');
+    await writeFile(file, '');
+
+    await expect(
+      resolveWindowsCuExe([path.join(root, 'missing.exe'), directory, file]),
+    ).resolves.toBe(file);
+    await expect(resolveWindowsCuExe([directory, path.join(root, 'missing.exe')])).resolves.toBe(
+      undefined,
+    );
+  });
+});
+
 describe('elevatedSwapScript', () => {
   it('swaps the staged bundle in under one shell-quoted transaction', () => {
     expect(
@@ -253,13 +311,40 @@ describe('readAppBundleVersion', () => {
 
 describe('kimi-cu entry', () => {
   let root: string;
+  const windowsEnvKeys = [
+    'KIMI_CU_WINDOWS_EXE',
+    'KIMI_CU_WINDOWS_HOME',
+    'LOCALAPPDATA',
+    'ProgramFiles',
+  ] as const;
+  let savedWindowsEnv: Map<string, string | undefined>;
 
   beforeEach(async () => {
     root = await mkdtemp(path.join(tmpdir(), 'kimi-cu-entry-'));
+    savedWindowsEnv = new Map(windowsEnvKeys.map((key) => [key, process.env[key]]));
+    for (const key of windowsEnvKeys) delete process.env[key];
   });
   afterEach(async () => {
+    for (const key of windowsEnvKeys) {
+      const previous = savedWindowsEnv.get(key);
+      if (previous === undefined) delete process.env[key];
+      else process.env[key] = previous;
+    }
     await rm(root, { recursive: true, force: true });
   });
+
+  function hideWindowsCandidates(): void {
+    process.env['LOCALAPPDATA'] = path.join(root, 'no-local-app-data');
+    process.env['ProgramFiles'] = path.join(root, 'no-program-files');
+  }
+
+  async function fakeWindowsExe(): Promise<string> {
+    const exe = path.join(root, 'KimiCU', 'kimi-cu.exe');
+    await mkdir(path.dirname(exe), { recursive: true });
+    await writeFile(exe, '');
+    process.env['KIMI_CU_WINDOWS_EXE'] = exe;
+    return exe;
+  }
 
   async function fakeAppBundle(): Promise<string> {
     const applicationsDir = path.join(root, 'Applications');
@@ -305,12 +390,13 @@ describe('kimi-cu entry', () => {
   });
 
   it('detects the Windows plugin and signed runtime through doctor', async () => {
+    const exe = await fakeWindowsExe();
     const plugins = fakePlugins([
       { id: 'kimi-cu-win', enabled: true, state: 'ok', version: '0.2.14' },
     ]);
     const host = fakeHostProcess([
       {
-        match: '-Command',
+        match: 'kimi-cu.exe doctor',
         code: 0,
         stdout: 'version=0.2.14\r\nmcp=true\r\nhelper=embedded\r\nagent=running\r\n',
       },
@@ -331,17 +417,78 @@ describe('kimi-cu entry', () => {
         { id: 'runtime', state: 'ok', detail: '0.2.14' },
       ],
     });
-    expect(host.calls).toHaveLength(1);
-    expect(
-      host.calls[0]?.startsWith(`${windowsPowerShellPath()} -NoProfile -NonInteractive -Command `),
-    ).toBe(true);
+    expect(host.calls).toEqual([`${exe} doctor`]);
+  });
+
+  it('reports the Windows runtime missing without spawning anything on a bare machine', async () => {
+    hideWindowsCandidates();
+    const host = fakeHostProcess([]);
+    const entry = createKimiCuEntry(
+      makeCtx({ platform: 'win32', arch: 'x64', hostProcess: host.service }),
+    );
+
+    await expect(entry.detect()).resolves.toEqual({
+      version: undefined,
+      steps: [
+        { id: 'plugin', state: 'missing' },
+        { id: 'runtime', state: 'missing' },
+      ],
+    });
+    expect(host.calls).toEqual([]);
+  });
+
+  it('falls back to the PowerShell doctor script when the resolved runtime cannot be launched', async () => {
+    const exe = await fakeWindowsExe();
+    const calls: string[] = [];
+    const hostProcess = {
+      _serviceBrand: undefined,
+      spawn: (command: string, args: readonly string[] = []) => {
+        calls.push(`${command} ${args.join(' ')}`);
+        if (command === exe) return Promise.reject(new Error('launch failed'));
+        return Promise.resolve(
+          fakeProc(0, 'version=0.2.14\r\nmcp=true\r\nhelper=embedded\r\nagent=running\r\n'),
+        );
+      },
+    } as IHostProcessService;
+    const entry = createKimiCuEntry(
+      makeCtx({ platform: 'win32', arch: 'x64', hostProcess }),
+    );
+
+    await expect(entry.detect()).resolves.toMatchObject({
+      steps: [
+        { id: 'plugin', state: 'missing' },
+        { id: 'runtime', state: 'ok', detail: '0.2.14' },
+      ],
+    });
+    expect(calls[0]).toBe(`${exe} doctor`);
+    expect(calls[1]?.startsWith(`${windowsPowerShellPath()} -NoProfile -NonInteractive -Command `)).toBe(
+      true,
+    );
+  });
+
+  it('reports a failing Windows doctor with the same detail as before', async () => {
+    const exe = await fakeWindowsExe();
+    const host = fakeHostProcess([
+      { match: 'kimi-cu.exe doctor', code: 1, stderr: 'runtime unhealthy' },
+    ]);
+    const entry = createKimiCuEntry(
+      makeCtx({ platform: 'win32', arch: 'x64', hostProcess: host.service }),
+    );
+
+    const detected = await entry.detect();
+    expect(detected.steps.find((step) => step.id === 'runtime')).toEqual({
+      id: 'runtime',
+      state: 'failed',
+      detail: 'runtime unhealthy',
+    });
+    expect(host.calls).toEqual([`${exe} doctor`]);
   });
 
   it('installs Windows with the official setup script and shared plugin wiring', async () => {
+    const exe = await fakeWindowsExe();
     const plugins = fakePlugins([]);
     const calls: string[] = [];
     const doctorResults = [
-      { code: 3, stdout: '', stderr: '' },
       {
         code: 0,
         stdout: 'version=0.2.14\r\nmcp=true\r\nhelper=embedded\r\nagent=running\r\n',
@@ -352,6 +499,7 @@ describe('kimi-cu entry', () => {
       _serviceBrand: undefined,
       spawn: (command: string, args: readonly string[] = []) => {
         calls.push(`${command} ${args.join(' ')}`);
+        if (command === exe) return Promise.resolve(fakeProc(3));
         if (args.some((arg) => arg.includes('$matched ='))) return Promise.resolve(fakeProc(0, '0'));
         if (args.some((arg) => arg.includes('Get-FileHash'))) {
           return Promise.resolve(fakeProc(0, 'PowerShell 5.1'));
@@ -409,7 +557,11 @@ describe('kimi-cu entry', () => {
           call.includes('setup_windows.ps1'),
       ),
     ).toBe(true);
-    expect(calls.every((call) => call.startsWith(windowsPowerShellPath()))).toBe(true);
+    expect(
+      calls
+        .filter((call) => call !== `${exe} doctor`)
+        .every((call) => call.startsWith(windowsPowerShellPath())),
+    ).toBe(true);
     expect(doctorResults).toEqual([]);
   });
 
@@ -459,10 +611,10 @@ describe('kimi-cu entry', () => {
   });
 
   it('uses trusted PowerShell 7 when system PowerShell cannot run the installer', async () => {
+    const exe = await fakeWindowsExe();
     const plugins = fakePlugins([]);
     const calls: string[] = [];
     const doctorResults = [
-      { code: 3, stdout: '', stderr: '' },
       {
         code: 0,
         stdout: 'version=0.2.14\r\nmcp=true\r\nhelper=embedded\r\nagent=running\r\n',
@@ -473,6 +625,7 @@ describe('kimi-cu entry', () => {
       _serviceBrand: undefined,
       spawn: (command: string, args: readonly string[] = []) => {
         calls.push(`${command} ${args.join(' ')}`);
+        if (command === exe) return Promise.resolve(fakeProc(3));
         if (args.some((arg) => arg.includes('$matched ='))) return Promise.resolve(fakeProc(0, '0'));
         if (args.some((arg) => arg.includes('Get-FileHash'))) {
           return Promise.resolve(
@@ -518,6 +671,7 @@ describe('kimi-cu entry', () => {
   });
 
   it('keeps the Windows runtime detectable after installing through PowerShell 7', async () => {
+    await fakeWindowsExe();
     const plugins = fakePlugins([]);
     const calls: string[] = [];
     let runtimeInstalled = false;
@@ -611,6 +765,7 @@ describe('kimi-cu entry', () => {
   });
 
   it.each([false, true])('repairs only the Windows plugin without installer cmdlets, process fallback: %s', async (fallback) => {
+    await fakeWindowsExe();
     const plugins = fakePlugins([]);
     const calls: string[] = [];
     let downloads = 0;
@@ -667,9 +822,9 @@ describe('kimi-cu entry', () => {
   });
 
   it('repairs a missing Windows runtime without replacing a healthy plugin', async () => {
+    const exe = await fakeWindowsExe();
     const plugins = fakePlugins([{ id: 'kimi-cu-win', enabled: true, state: 'ok' }]);
     const doctorResults = [
-      { code: 3, stdout: '', stderr: '' },
       {
         code: 0,
         stdout: 'version=0.2.14\r\nmcp=true\r\nhelper=embedded\r\nagent=running\r\n',
@@ -678,7 +833,8 @@ describe('kimi-cu entry', () => {
     ];
     const hostProcess = {
       _serviceBrand: undefined,
-      spawn: (_command: string, args: readonly string[] = []) => {
+      spawn: (command: string, args: readonly string[] = []) => {
+        if (command === exe) return Promise.resolve(fakeProc(3));
         if (args.some((arg) => arg.includes('$matched ='))) return Promise.resolve(fakeProc(0, '0'));
         if (args.some((arg) => arg.includes('Get-FileHash'))) {
           return Promise.resolve(fakeProc(0, 'PowerShell 5.1'));
@@ -714,6 +870,7 @@ describe('kimi-cu entry', () => {
   });
 
   it('refreshes the Windows plugin when installation starts fully ready', async () => {
+    const exe = await fakeWindowsExe();
     const plugins = fakePlugins([{ id: 'kimi-cu-win', enabled: true, state: 'ok' }]);
     const doctorResults = [
       {
@@ -729,7 +886,13 @@ describe('kimi-cu entry', () => {
     ];
     const hostProcess = {
       _serviceBrand: undefined,
-      spawn: (_command: string, args: readonly string[] = []) => {
+      spawn: (command: string, args: readonly string[] = []) => {
+        if (command === exe) {
+          const direct = doctorResults.shift();
+          return Promise.resolve(
+            fakeProc(direct?.code ?? 1, direct?.stdout ?? '', direct?.stderr ?? 'unexpected doctor'),
+          );
+        }
         if (args.some((arg) => arg.includes('$matched ='))) return Promise.resolve(fakeProc(0, '0'));
         if (args.some((arg) => arg.includes('Get-FileHash'))) {
           return Promise.resolve(fakeProc(0, 'PowerShell 5.1'));
@@ -767,6 +930,7 @@ describe('kimi-cu entry', () => {
   });
 
   it.each([false, true])('only stops running Windows processes with consent: %s', async (confirmed) => {
+    await fakeWindowsExe();
     const actions: string[] = [];
     const plugins = fakePlugins([], async () => { actions.push('install'); });
     plugins.service.withMcpServersSuspended = async (_id, task) => {
@@ -842,10 +1006,11 @@ describe('kimi-cu entry', () => {
   });
 
   it('does not reinstall a healthy Windows runtime when only the plugin is missing', async () => {
+    const exe = await fakeWindowsExe();
     const plugins = fakePlugins([]);
     const host = fakeHostProcess([
       {
-        match: '-Command',
+        match: 'kimi-cu.exe doctor',
         code: 0,
         stdout: 'version=0.2.14\nmcp=true\nhelper=embedded\nagent=running\n',
       },
@@ -864,7 +1029,7 @@ describe('kimi-cu entry', () => {
     await entry.install((step) => reports.push(step));
 
     expect(reports).toEqual(['plugin']);
-    expect(host.calls.filter((call) => call.includes('& $exe doctor'))).toHaveLength(1);
+    expect(host.calls.filter((call) => call === `${exe} doctor`)).toHaveLength(1);
   });
 
   it('detects all four layers with details', async () => {
