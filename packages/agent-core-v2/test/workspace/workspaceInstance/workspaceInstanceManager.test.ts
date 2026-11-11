@@ -57,7 +57,10 @@ function manager(
   const workspaces: IWorkspaceService = {
     _serviceBrand: undefined,
     list: async () => values,
-    get: mock(async (id: string) => byId.get(id)),
+    get: mock(async (id: string) => {
+      const value = byId.get(id);
+      return value === undefined ? undefined : { ...value };
+    }),
     create: mock(async (input: { root: string }) => {
       const value = values.find((entry) => entry.root === input.root);
       if (value === undefined) throw new Error(`unknown root ${input.root}`);
@@ -66,7 +69,7 @@ function manager(
     createOrTouch: mock(async (root: string) => {
       const value = values.find((entry) => entry.root === root);
       if (value === undefined) throw new Error(`unknown root ${root}`);
-      return value;
+      return { ...value };
     }),
     touch: mock(async (id: string) => byId.get(id)),
     update: async () => undefined,
@@ -105,6 +108,26 @@ describe('WorkspaceInstanceManager', () => {
     await viWaitFor(() => {
       expect(value.get('one')).toBeUndefined();
     });
+    await value.dispose();
+  });
+
+  it('reuses the instance and program when the workspace primary changes', async () => {
+    const initial = workspace('one') as { -readonly [K in keyof Workspace]: Workspace[K] };
+    const value = manager([initial]);
+    const first = await value.acquire({ workspaceId: 'one' });
+    const instance = first.instance;
+    const program = instance.program;
+    initial.root = '/two';
+    initial.additionalDirs = ['/one'];
+
+    const second = await value.acquire({ workspaceId: 'one' });
+    expect(second.instance).toBe(instance);
+    expect(second.instance.root).toBe('/two');
+    expect(second.instance.program).toBe(program);
+    expect(second.instance.snapshot().metadata).toEqual(initial);
+
+    second.dispose();
+    first.dispose();
     await value.dispose();
   });
 

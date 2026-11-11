@@ -241,10 +241,16 @@ function stubHookRunner(partial: unknown): IExternalHooksRunnerService {
   } as IExternalHooksRunnerService;
 }
 
-function stubSessionMetadata(title?: string): ISessionMetadata {
+function stubSessionMetadata(
+  title?: string,
+  cwd: string | (() => string) = '/tmp',
+): ISessionMetadata {
   return {
     _serviceBrand: undefined,
     ready: Promise.resolve(),
+    get effectiveCwd() {
+      return typeof cwd === 'function' ? cwd() : cwd;
+    },
     onDidChangeMetadata: Event.None,
     read: async () => ({
       id: 'session-1',
@@ -1011,6 +1017,8 @@ describe('IExternalHooksRunnerService integration', () => {
       const path = hookLogPath();
       const command = appendHookLogCommand(path);
       const cwd = mkdtempSync(join(tmpdir(), 'session-external-hooks-cwd-'));
+      const promotedCwd = mkdtempSync(join(tmpdir(), 'session-external-hooks-promoted-cwd-'));
+      let effectiveCwd = cwd;
 
       ix = createServices(disposables, {
         strict: true,
@@ -1029,7 +1037,7 @@ describe('IExternalHooksRunnerService integration', () => {
                 : `sessions/workspace-1/session-1/${subKey}`,
           });
           reg.definePartialInstance(ISessionManager, lifecycle.service);
-          reg.defineInstance(ISessionMetadata, stubSessionMetadata());
+          reg.defineInstance(ISessionMetadata, stubSessionMetadata(undefined, () => effectiveCwd));
           reg.defineInstance(ISessionAgentProfileCatalog, stubProfileCatalog());
           reg.defineInstance(IModelService, stubModelService());
           reg.definePartialInstance(ISessionSubagentService, {
@@ -1067,6 +1075,7 @@ describe('IExternalHooksRunnerService integration', () => {
       await lifecycle.fireDidCreate('fork');
       await lifecycle.fireWillClose('reclaim');
       await lifecycle.fireWillClose('exit');
+      effectiveCwd = promotedCwd;
       await lifecycle.fireWillClose('archive');
 
       expect(readHookLog(path)).toEqual([
@@ -1092,7 +1101,7 @@ describe('IExternalHooksRunnerService integration', () => {
           event: 'SessionEnd',
           reason: 'archive',
           sessionId: 'session-1',
-          cwd,
+          cwd: promotedCwd,
         },
       ]);
     } finally {
@@ -1284,6 +1293,7 @@ describe('IExternalHooksRunnerService integration', () => {
     const disposables = new DisposableStore();
     let ix: TestInstantiationService | undefined;
     try {
+      let effectiveCwd = '/tmp';
       const fired: Array<{
         event: string;
         matcherValue?: unknown;
@@ -1314,7 +1324,7 @@ describe('IExternalHooksRunnerService integration', () => {
           registerTestAgentWireServices(reg, 'wire/external-hooks');
           reg.defineInstance(IBootstrapService, { ...stubBootstrap(), cwd: '/launch-dir' });
           reg.defineInstance(ISessionContext, stubSessionContext());
-          reg.defineInstance(ISessionMetadata, stubSessionMetadata('My Session'));
+          reg.defineInstance(ISessionMetadata, stubSessionMetadata('My Session', () => effectiveCwd));
           reg.definePartialInstance(IConfigService, {});
           reg.definePartialInstance(IPluginService, {});
           reg.defineInstance(IAgentContextMemoryService, stubContextMemory());
@@ -1424,6 +1434,21 @@ describe('IExternalHooksRunnerService integration', () => {
           },
         },
       ]);
+
+      effectiveCwd = '/promoted';
+      eventBus.publish(
+        new TurnStarted({
+          agentId: 'main',
+          turnId: 5,
+          origin: { kind: 'user' },
+        }),
+      );
+      await flushMicrotasks();
+      expect(fired.at(-1)).toMatchObject({
+        event: 'TurnStarted',
+        matcherValue: 'user',
+        cwd: '/promoted',
+      });
     } finally {
       ix?.dispose();
       disposables.dispose();

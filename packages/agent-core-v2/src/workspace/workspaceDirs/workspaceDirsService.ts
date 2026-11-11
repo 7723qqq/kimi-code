@@ -1,4 +1,4 @@
-import { Disposable, type IDisposable } from '#/_base/di/lifecycle';
+import { Disposable, DisposableStore, MutableDisposable, type IDisposable } from '#/_base/di/lifecycle';
 import { Emitter, type Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
 import { subtreeWatchFilter } from '#/_base/utils/paths';
@@ -6,6 +6,8 @@ import { workspaceRootKey } from '#/_base/utils/workdir-slug';
 import { TimeoutTimer } from '#/_base/utils/timer';
 import { IProjectLocalConfigService } from '#/app/projectLocalConfig/projectLocalConfig';
 import { IWorkspaceService } from '#/app/workspace/workspace';
+import { IWorkspacePersistence } from '#/app/workspace/workspacePersistence';
+import { LOCAL_ENVIRONMENT_ID } from '#/environment/environment';
 import type { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
 import { defineState } from '#/state/state';
 import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
@@ -39,11 +41,16 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
 
   private projectRoot: string;
   private configPath: string;
+  private readonly legacyProjectConfig: boolean;
   readonly ready: Promise<void>;
   private readonly onDidChangeEmitter = this._register(new Emitter<void>());
   readonly onDidChange: Event<void> = this.onDidChangeEmitter.event;
   private readonly watchDebounce = this._register(new TimeoutTimer());
+  private readonly localConfigWatcher = this._register(new MutableDisposable<IDisposable>());
   private mutationTail: Promise<void> = Promise.resolve();
+  private registryReloadQueued = false;
+  private changeBatchDepth = 0;
+  private changePending = false;
 
   constructor(
     @IWorkspaceContext private readonly workspace: IWorkspaceContext,
@@ -51,6 +58,9 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
     @ILogService private readonly log: ILogService,
     @IWorkspaceStateService private readonly states: IWorkspaceStateService,
     @IWorkspaceService private readonly workspaces: IWorkspaceService,
+    @IWorkspacePersistence private readonly workspaceStore: IWorkspacePersistence,
+    private readonly environmentId = LOCAL_ENVIRONMENT_ID,
+    private readonly followsPrimary = environmentId === LOCAL_ENVIRONMENT_ID,
   ) {
     super();
     this.states.contributeState(workspaceDirsFileDirsKey);
@@ -59,13 +69,19 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
     this.states.contributeState(workspaceDirsPrimaryByWorkspaceKey);
     this.projectRoot = workspace.cwd;
     this.configPath = '';
-    this.ready = this.enqueue(async () => {
-      await this.reloadFromDisk();
-      await this.reloadFromRegistry();
-    });
-    void this.ready.then(
-      () => this.watchLocalToml(),
-      () => undefined,
+    this.legacyProjectConfig = workspace.meta.kind !== 'managed';
+    this.ready = this.enqueue(() => this.reloadWorkspace(true));
+    this._register(
+      this.workspaceStore.onDidChange(() => {
+        if (this.registryReloadQueued) return;
+        this.registryReloadQueued = true;
+        void this.enqueue(async () => {
+          this.registryReloadQueued = false;
+          await this.reloadWorkspace();
+        }).catch((error) => {
+          this.log.warn(`workspace registry reload failed: ${String(error)}`);
+        });
+      }),
     );
   }
 
@@ -102,6 +118,13 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
   }
 
   private readonly ephemeralRefs = new Map<string, number>();
+
+  get primary(): string {
+    if (this.environmentId !== LOCAL_ENVIRONMENT_ID || !this.followsPrimary) {
+      return this.workspace.cwd;
+    }
+    return this.primaryByWorkspace[this.workspace.workspaceId] ?? this.workspace.meta.root;
+  }
 
   get sharedAdditionalDirs(): readonly string[] {
     return [...new Set([...this.fileDirs, ...this.registryDirs])];
@@ -151,9 +174,21 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
   }
 
   reload(): Promise<void> {
-    return this.enqueue(async () => {
-      await this.reloadFromDisk();
+    return this.enqueue(() => this.reloadWorkspace(true));
+  }
+
+  private async reloadWorkspace(reloadLocal = false): Promise<void> {
+    await this.batchChanges(async () => {
+      const previousPrimary = this.primary;
       await this.reloadFromRegistry();
+      if (!this.legacyProjectConfig) return;
+      const primaryChanged = previousPrimary !== this.primary;
+      if (reloadLocal || primaryChanged || this.localConfigWatcher.value === undefined) {
+        await this.reloadFromDisk();
+      }
+      if (primaryChanged || this.localConfigWatcher.value === undefined) {
+        this.watchLocalToml();
+      }
     });
   }
 
@@ -177,7 +212,7 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
     const persist = input.persist ?? true;
 
     if (persist) {
-      const persisted = await this.localConfig.appendAdditionalDir(this.workspace.cwd, input.path);
+      const persisted = await this.localConfig.appendAdditionalDir(this.primary, input.path);
       this.projectRoot = persisted.projectRoot;
       this.configPath = persisted.configPath;
       const changed = this.setFileDirs(persisted.additionalDirs);
@@ -192,10 +227,10 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
       };
     }
 
-    const onDisk = await this.localConfig.readAdditionalDirs(this.workspace.cwd);
+    const onDisk = await this.localConfig.readAdditionalDirs(this.primary);
     this.projectRoot = onDisk.projectRoot;
     this.configPath = onDisk.configPath;
-    const resolved = await this.localConfig.resolveAdditionalDirs(this.workspace.cwd, [input.path]);
+    const resolved = await this.localConfig.resolveAdditionalDirs(this.primary, [input.path]);
     const changed = this.unionEphemeral(resolved);
     if (changed) {
       this.onDidChangeEmitter.fire();
@@ -209,12 +244,10 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
   }
 
   private async reloadFromDisk(): Promise<void> {
-    const onDisk = await this.localConfig.readAdditionalDirs(this.workspace.cwd);
+    const onDisk = await this.localConfig.readAdditionalDirs(this.primary);
     this.projectRoot = onDisk.projectRoot;
     this.configPath = onDisk.configPath;
-    if (this.setFileDirs(onDisk.additionalDirs)) {
-      this.onDidChangeEmitter.fire();
-    }
+    if (this.setFileDirs(onDisk.additionalDirs)) this.fireChange();
   }
 
   private async reloadFromRegistry(): Promise<void> {
@@ -229,11 +262,18 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
     const primary: Record<string, string> = {};
     for (const entry of entries) {
       const set = [entry.root, ...entry.additionalDirs];
-      if (!set.some((dir) => workspaceRootKey(dir) === cwdKey)) continue;
+      const currentEntry =
+        this.followsPrimary &&
+        this.environmentId === LOCAL_ENVIRONMENT_ID &&
+        entry.id === this.workspace.workspaceId;
+      if (!currentEntry && !set.some((dir) => workspaceRootKey(dir) === cwdKey)) continue;
       primary[entry.id] = entry.root;
+      const primaryKey = workspaceRootKey(entry.root);
       for (const dir of set) {
-        if (workspaceRootKey(dir) === cwdKey) continue;
-        if (dirs.some((kept) => workspaceRootKey(kept) === workspaceRootKey(dir))) continue;
+        const key = workspaceRootKey(dir);
+        if (this.followsPrimary && currentEntry && key === primaryKey) continue;
+        if ((!this.followsPrimary || !currentEntry) && key === cwdKey) continue;
+        if (dirs.some((kept) => workspaceRootKey(kept) === key)) continue;
         dirs.push(dir);
       }
     }
@@ -245,7 +285,7 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
       !sameStringList(beforeDirs, this.sharedAdditionalDirs) ||
       !samePrimaryByWorkspace(beforePrimary, primary)
     ) {
-      this.onDidChangeEmitter.fire();
+      this.fireChange();
     }
   }
 
@@ -269,18 +309,40 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
       const handle = watchCandidates(this.projectRoot, [this.configPath], {
         ignored: subtreeWatchFilter(this.projectRoot, [this.configPath]),
       });
-      this._register(handle);
-      this._register(
-        handle.onDidChange(() => {
-          this.watchDebounce.cancelAndSet(() => {
-            void this.enqueue(() => this.reloadFromDisk()).catch((error) => {
-              this.log.warn(`local.toml reload failed: ${String(error)}`);
-            });
-          }, WATCH_DEBOUNCE_MS);
-        }),
-      );
+      const subscription = handle.onDidChange(() => {
+        this.watchDebounce.cancelAndSet(() => {
+          void this.enqueue(() => this.reloadFromDisk()).catch((error) => {
+            this.log.warn(`local.toml reload failed: ${String(error)}`);
+          });
+        }, WATCH_DEBOUNCE_MS);
+      });
+      const watchers = new DisposableStore();
+      watchers.add(handle);
+      watchers.add(subscription);
+      this.localConfigWatcher.value = watchers;
     } catch (error) {
       this.log.warn(`cannot watch project-local config ${this.configPath}: ${String(error)}`);
+    }
+  }
+
+  private fireChange(): void {
+    if (this.changeBatchDepth > 0) {
+      this.changePending = true;
+      return;
+    }
+    this.onDidChangeEmitter.fire();
+  }
+
+  private async batchChanges(work: () => Promise<void>): Promise<void> {
+    this.changeBatchDepth += 1;
+    try {
+      await work();
+    } finally {
+      this.changeBatchDepth -= 1;
+      if (this.changeBatchDepth === 0 && this.changePending) {
+        this.changePending = false;
+        this.onDidChangeEmitter.fire();
+      }
     }
   }
 

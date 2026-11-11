@@ -4,11 +4,14 @@ import { Emitter, type Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
 import { LifecycleScope } from '#/app/scopes';
 import { ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
+import { LOCAL_ENVIRONMENT_ID, type EnvironmentBinding } from '#/environment/environment';
 import { buildSessionSummary } from '#/app/sessionIndex/sessionIndexSource';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { ISessionLockService } from '#/persistence/interface/sessionLock';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionStateService } from '#/session/state/sessionState';
+import { resolveEffectiveWorkspaceRoots } from '#/session/workspaceContext/workspaceRoots';
+import { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
 import { defineState } from '#/state/state';
 
 import { isUntitled } from './promptMetadata';
@@ -56,6 +59,7 @@ export class SessionMetadata extends Service implements ISessionMetadata {
     @ILogService private readonly log: ILogService,
     @ISessionIndexMirror private readonly mirror: ISessionIndexMirror,
     @ISessionLockService private readonly sessionLocks: ISessionLockService,
+    @ISessionWorkspaceInfo private readonly workspaceInfo: ISessionWorkspaceInfo,
   ) {
     super();
     this._register({
@@ -69,6 +73,11 @@ export class SessionMetadata extends Service implements ISessionMetadata {
       }),
     );
     this.states.contributeState(sessionMetadataDataKey);
+    this._register(
+      this.workspaceInfo.onDidChange(() => {
+        if (this.states.get(sessionMetadataDataKey) !== undefined) this.mirrorToReadModel();
+      }),
+    );
     this.scope = ctx.metaScope;
     this.onDidChangeMetadata = this._onDidChangeMetadata.event;
     this.ready = this.load();
@@ -199,13 +208,26 @@ export class SessionMetadata extends Service implements ISessionMetadata {
     return run;
   }
 
+  get effectiveCwd(): string {
+    if (this.data.environmentId !== undefined && this.data.environmentId !== LOCAL_ENVIRONMENT_ID) {
+      return this.ctx.cwd;
+    }
+    const binding: EnvironmentBinding = {
+      environmentId: this.data.environmentId ?? LOCAL_ENVIRONMENT_ID,
+      cwd: this.data.environmentCwd,
+    };
+    return resolveEffectiveWorkspaceRoots(this.ctx, binding, this.workspaceInfo).workDir;
+  }
+
   private mirrorToReadModel(): void {
     try {
       this.mirror.record(
         buildSessionSummary({
           id: this.data.id,
           workspaceId: this.ctx.workspaceId,
-          cwd: this.ctx.cwd,
+          cwd: this.effectiveCwd,
+          environmentId: this.data.environmentId,
+          environmentCwd: this.data.environmentCwd,
           title: this.data.title,
           lastPrompt: this.data.lastPrompt,
           createdAt: this.data.createdAt,

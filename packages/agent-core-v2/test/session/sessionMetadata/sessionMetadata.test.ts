@@ -22,6 +22,7 @@ import { SessionMetadata } from '#/session/sessionMetadata/sessionMetadataServic
 import { SessionMetaUpdated } from '#/session/sessionMetadata/sessionMetaEvents';
 import { ISessionStateService } from '#/session/state/sessionState';
 import { SessionStateService } from '#/session/state/sessionStateService';
+import { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
 import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
 
 import { stubLog } from '../../_base/log/stubs';
@@ -76,6 +77,13 @@ describe('SessionMetadata', () => {
     mirror = stubSessionIndexMirror();
     ix.stub(ILogService, stubLog());
     ix.stub(ISessionContext, makeContext());
+    ix.stub(ISessionWorkspaceInfo, {
+      _serviceBrand: undefined,
+      ready: Promise.resolve(),
+      primaryByWorkspace: {},
+      additionalDirs: [],
+      onDidChange: () => ({ dispose: () => {} }),
+    });
     ix.stub(ISessionIndexMirror, mirror);
     const locks = new InMemorySessionLockService();
     ix.stub(ISessionLockService, locks);
@@ -99,6 +107,29 @@ describe('SessionMetadata', () => {
       custom: {},
     });
     expect((await meta.read()).createdAt).toBeGreaterThan(0);
+  });
+
+  it('exposes the live effective cwd while preserving explicit and remote bindings', async () => {
+    const primaryByWorkspace: Record<string, string> = { wd_test: '/old' };
+    ix.stub(ISessionWorkspaceInfo, {
+      _serviceBrand: undefined,
+      ready: Promise.resolve(),
+      primaryByWorkspace,
+      additionalDirs: [],
+      onDidChange: () => ({ dispose: () => {} }),
+    });
+    const meta = ix.get(ISessionMetadata);
+    await meta.ready;
+    expect(meta.effectiveCwd).toBe('/old');
+
+    primaryByWorkspace['wd_test'] = '/new';
+    expect(meta.effectiveCwd).toBe('/new');
+
+    await meta.update({ environmentCwd: '/explicit' });
+    expect(meta.effectiveCwd).toBe('/explicit');
+
+    await meta.update({ environmentId: 'remote', environmentCwd: '/remote/project' });
+    expect(meta.effectiveCwd).toBe(makeContext().cwd);
   });
 
   it('update merges fields and bumps updatedAt', async () => {

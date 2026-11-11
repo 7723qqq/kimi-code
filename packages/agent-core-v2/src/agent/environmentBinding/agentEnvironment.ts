@@ -23,8 +23,8 @@ import {
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { ISessionStateService } from '#/session/state/sessionState';
-import { workspaceContextAdditionalDirsKey } from '#/session/workspaceContext/workspaceContextService';
+import { resolveEffectiveWorkspaceRoots } from '#/session/workspaceContext/workspaceRoots';
+import { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
 
 import { IAgentEnvironmentBindingService } from './environmentBinding';
 import { EnvironmentStatusChanged } from './environmentEvents';
@@ -127,7 +127,7 @@ export class AgentEnvironmentService implements IAgentEnvironmentService {
     @IEnvironmentService private readonly resolver: IEnvironmentService,
     @ISessionEventBus private readonly eventBus: ISessionEventBus,
     @ISessionContext private readonly session: ISessionContext,
-    @ISessionStateService private readonly sessionState: ISessionStateService,
+    @ISessionWorkspaceInfo private readonly workspaceInfo: ISessionWorkspaceInfo,
   ) {
     this.bindingSubscription = this.binding.onDidChange(() => this.changeEmitter.fire());
     this.registrySubscription = this.resolver.onDidChange((change) => {
@@ -148,19 +148,15 @@ export class AgentEnvironmentService implements IAgentEnvironmentService {
 
   workspaceRoots(): EnvironmentWorkspaceRoots {
     const binding = this.binding.current;
-    let workDir = binding.cwd;
-    if (workDir === undefined && binding.environmentId !== LOCAL_ENVIRONMENT_ID) {
+    let host;
+    if (binding.cwd === undefined && binding.environmentId !== LOCAL_ENVIRONMENT_ID) {
       try {
-        const environment = this.resolver.inspect(binding);
-        workDir = environment.host?.cwd ?? environment.host?.homeDir;
+        host = this.resolver.inspect(binding).host;
       } catch {
-        workDir = undefined;
+        host = undefined;
       }
     }
-    return {
-      workDir: workDir ?? this.session.cwd,
-      additionalDirs: this.sessionState.get(workspaceContextAdditionalDirsKey),
-    };
+    return resolveEffectiveWorkspaceRoots(this.session, binding, this.workspaceInfo, host);
   }
 
   isAvailable(required: readonly EnvironmentCapability[] = []): boolean {

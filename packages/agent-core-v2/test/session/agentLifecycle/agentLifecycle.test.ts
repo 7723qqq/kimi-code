@@ -135,6 +135,7 @@ import { _clearAgentToolContributionsForTests } from '#/agent/toolRegistry/toolC
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import '#/agent/toolActivation/toolActivationService';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
+import { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import type { EnvironmentBinding } from '#/environment/environment';
 import { EnvironmentError } from '#/environment/environmentRegistry';
@@ -315,11 +316,19 @@ describe('AgentLifecycleService', () => {
       workspaceId: 'ws_test',
       sessionDir: '/tmp/kimi-agentLifecycle-test',
       metaScope: 'test',
+      cwd: '/tmp/kimi-agentLifecycle-work',
       scope: (subKey?: string) =>
         subKey === undefined || subKey === ''
           ? 'sessions/ws_test/sess_test'
           : `sessions/ws_test/sess_test/${subKey}`,
     } as unknown as ISessionContext);
+    ix.stub(ISessionWorkspaceInfo, {
+      _serviceBrand: undefined,
+      ready: Promise.resolve(),
+      primaryByWorkspace: {},
+      additionalDirs: [],
+      onDidChange: Event.None,
+    } as ISessionWorkspaceInfo);
     ix.stub(IEnvironmentService, {
       onDidChange: () => ({ dispose: () => {} }),
       _serviceBrand: undefined,

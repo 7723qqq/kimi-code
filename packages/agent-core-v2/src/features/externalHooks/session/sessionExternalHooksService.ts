@@ -118,10 +118,15 @@ export class SessionExternalHooksService extends Service implements ISessionExte
     this.heartbeat = undefined;
   }
 
+  private async hookCwd(): Promise<string> {
+    await this.metadata.ready;
+    return this.metadata.effectiveCwd;
+  }
+
   private async triggerSessionStart(source: SessionStartHookSource): Promise<void> {
     await this.runner.trigger('SessionStart', {
       matcherValue: source,
-      cwd: this.context.cwd,
+      cwd: await this.hookCwd(),
       sessionId: this.context.sessionId,
       inputData: {
         source,
@@ -144,7 +149,7 @@ export class SessionExternalHooksService extends Service implements ISessionExte
   private async triggerSessionEnd(reason: SessionEndHookReason): Promise<void> {
     await this.runner.trigger('SessionEnd', {
       matcherValue: reason,
-      cwd: this.context.cwd,
+      cwd: await this.hookCwd(),
       sessionId: this.context.sessionId,
       inputData: { reason, sessionTitle: this.sessionTitle },
     });
@@ -153,14 +158,18 @@ export class SessionExternalHooksService extends Service implements ISessionExte
   private tickHeartbeat(): void {
     try {
       if (!this.runner.hasHooksFor('SessionHeartbeat')) return;
-      void this.runner.fireAndForgetTrigger('SessionHeartbeat', {
-        cwd: this.context.cwd,
-        sessionId: this.context.sessionId,
-        inputData: {
-          sessionTitle: this.sessionTitle,
-          uptimeMs: Date.now() - this.createdAt,
-        },
-      });
+      void this.hookCwd()
+        .then((cwd) =>
+          this.runner.fireAndForgetTrigger('SessionHeartbeat', {
+            cwd,
+            sessionId: this.context.sessionId,
+            inputData: {
+              sessionTitle: this.sessionTitle,
+              uptimeMs: Date.now() - this.createdAt,
+            },
+          }),
+        )
+        .catch(() => undefined);
     } catch {}
   }
 
@@ -169,7 +178,7 @@ export class SessionExternalHooksService extends Service implements ISessionExte
     await this.runner.trigger('SubagentStart', {
       matcherValue: ctx.agentName,
       signal: ctx.signal,
-      cwd: this.context.cwd,
+      cwd: await this.hookCwd(),
       sessionId: this.context.sessionId,
       inputData: {
         agentName: ctx.agentName,
@@ -181,15 +190,19 @@ export class SessionExternalHooksService extends Service implements ISessionExte
   }
 
   private notifySubagentStop(ctx: AgentTaskStopHookContext): void {
-    void this.runner.fireAndForgetTrigger('SubagentStop', {
-      matcherValue: ctx.agentName,
-      cwd: this.context.cwd,
-      sessionId: this.context.sessionId,
-      inputData: {
-        agentName: ctx.agentName,
-        response: ctx.response,
-        sessionTitle: this.sessionTitle,
-      },
-    });
+    void this.hookCwd()
+      .then((cwd) =>
+        this.runner.fireAndForgetTrigger('SubagentStop', {
+          matcherValue: ctx.agentName,
+          cwd,
+          sessionId: this.context.sessionId,
+          inputData: {
+            agentName: ctx.agentName,
+            response: ctx.response,
+            sessionTitle: this.sessionTitle,
+          },
+        }),
+      )
+      .catch(() => undefined);
   }
 }

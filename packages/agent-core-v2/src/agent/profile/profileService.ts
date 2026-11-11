@@ -313,7 +313,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
       agentsMdPaths,
       disallowedTools: snapshot.disallowedTools ?? [],
     });
-    this.agentsMdReminder.seedInjected(agentsMdPaths, this.sessionContext.cwd);
+    this.agentsMdReminder.seedInjected(agentsMdPaths, this.workspace.workDir);
   }
 
   private bindSubagents(

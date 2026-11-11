@@ -7,6 +7,7 @@ import { join } from 'pathe';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
+import { Emitter } from '#/_base/event';
 import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
@@ -15,7 +16,7 @@ import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDo
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
-import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
+import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
 import { WORKSPACE_TRUST_SECTION } from '#/workspace/workspaceTrust/configSection';
 import {
   deleteWorkspaceTrust,
@@ -35,6 +36,7 @@ import {
   IWorkspaceTrustStore,
   WorkspaceTrustStore,
 } from '#/workspace/workspaceTrust/workspaceTrustStore';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { stubBootstrap } from '../../app/bootstrap/stubs';
 import { stubConfigService } from '../../app/config/stubs';
@@ -64,16 +66,29 @@ describe('WorkspaceTrustService', () => {
     events?: WorkspaceTrustChange[],
     env: NodeJS.ProcessEnv = {},
     sharedStore?: IWorkspaceTrustStore,
+    additionalDirs: readonly string[] = [],
   ): {
     service: IWorkspaceTrust;
     states: IWorkspaceStateService;
     trustStore: IWorkspaceTrustStore;
+    dirs: { primary: string; additionalDirs: string[] };
+    dirsChange: Emitter<void>;
   } {
+    const dirs = { primary: root, additionalDirs: [...additionalDirs] };
+    const dirsChange = disposables.add(new Emitter<void>());
     const ix = createServices(disposables, {
       strict: true,
       additionalServices: (reg) => {
         registerStateServices(reg);
-        reg.definePartialInstance(IWorkspaceContext, { cwd: root });
+        reg.definePartialInstance(IWorkspaceDirs, {
+          get primary() {
+            return dirs.primary;
+          },
+          get additionalDirs() {
+            return dirs.additionalDirs;
+          },
+          onDidChange: dirsChange.event,
+        });
         reg.defineInstance(IBootstrapService, stubBootstrap(homeDir, env));
         reg.defineInstance(
           IAtomicDocumentStore,
@@ -97,8 +112,38 @@ describe('WorkspaceTrustService', () => {
       service,
       states: ix.get(IWorkspaceStateService),
       trustStore: ix.get(IWorkspaceTrustStore),
+      dirs,
+      dirsChange,
     };
   }
+
+  it('keeps the existing trust decision across primary changes and a restart without migrating records', async () => {
+    const other = mkdtempSync(join(tmpdir(), 'kimi-workspace-trust-other-'));
+    try {
+      const first = createService(cwd);
+      await first.service.trust();
+
+      first.dirs.primary = other;
+      first.dirs.additionalDirs = [cwd];
+      first.dirsChange.fire();
+      await waitForAssertion(() => {
+        expect(first.service.isTrusted()).toBe(true);
+      });
+      expect(await first.service.get()).toBe(true);
+
+      const restarted = createService(other, undefined, undefined, first.trustStore, [cwd]);
+      await restarted.service.ready;
+      expect(restarted.service.isTrusted()).toBe(true);
+      expect(await restarted.service.get()).toBe(true);
+      expect(await first.trustStore.forRoot(other).get()).toBe(false);
+
+      await restarted.service.untrust();
+      expect(await first.trustStore.forRoot(cwd).get()).toBe(false);
+      expect(await first.trustStore.forRoot(other).get()).toBe(false);
+    } finally {
+      await rm(other, { recursive: true, force: true });
+    }
+  });
 
   it('defaults to untrusted when no marker exists', async () => {
     const { service } = createService(cwd);

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -14,13 +14,14 @@ import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
-import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
+import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
 import { IWorkspaceInstructionsService } from '#/workspace/workspaceInstructions/workspaceInstructions';
 import {
   WorkspaceInstructionsService,
   workspaceInstructionsCurrentKey,
 } from '#/workspace/workspaceInstructions/workspaceInstructionsService';
 import type { WatchChange } from '#human/utils/watch';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { stubLog } from '../../_base/log/stubs';
 import { registerStateServices } from '../../state/stubs';
@@ -73,16 +74,25 @@ describe('WorkspaceInstructionsService', () => {
     }
   }
 
-  function createService(): {
+  function createService(hostFs: IHostFileSystem = new HostFileSystem()): {
     service: IWorkspaceInstructionsService;
     states: IWorkspaceStateService;
+    dirs: { primary: string };
+    dirsChange: Emitter<void>;
   } {
+    const dirsChange = disposables.add(new Emitter<void>());
+    const dirs = { primary: workDir };
     const ix = createServices(disposables, {
       strict: true,
       additionalServices: (reg) => {
         registerStateServices(reg);
-        reg.definePartialInstance(IWorkspaceContext, { cwd: workDir });
-        reg.defineInstance(IHostFileSystem, new HostFileSystem());
+        reg.definePartialInstance(IWorkspaceDirs, {
+          get primary() {
+            return dirs.primary;
+          },
+          onDidChange: dirsChange.event,
+        });
+        reg.defineInstance(IHostFileSystem, hostFs);
         reg.definePartialInstance(IHostEnvironment, { homeDir: osHomeDir });
         reg.definePartialInstance(IBootstrapService, { homeDir: brandHomeDir });
         reg.defineInstance(ILogService, stubLog());
@@ -92,6 +102,8 @@ describe('WorkspaceInstructionsService', () => {
     return {
       service: ix.get(IWorkspaceInstructionsService),
       states: ix.get(IWorkspaceStateService),
+      dirs,
+      dirsChange,
     };
   }
 
@@ -218,5 +230,72 @@ describe('WorkspaceInstructionsService', () => {
     await changed;
 
     expect(states.get(workspaceInstructionsCurrentKey).agentsMd).toContain('updated instructions');
+  });
+
+  it('reloads instructions and moves watchers when the primary changes', async () => {
+    const otherDir = mkdtempSync(join(tmpdir(), 'kimi-instructions-other-'));
+    try {
+      await writeFile(join(workDir, 'AGENTS.md'), 'old primary', 'utf8');
+      await writeFile(join(otherDir, 'AGENTS.md'), 'new primary', 'utf8');
+      const { service, dirs, dirsChange } = createService();
+      await service.ready;
+      expect(service.snapshot.agentsMd).toContain('old primary');
+
+      dirs.primary = otherDir;
+      dirsChange.fire();
+      await waitForAssertion(() => {
+        expect(service.snapshot.agentsMd).toContain('new primary');
+      });
+      expect(service.snapshot.agentsMd).not.toContain('old primary');
+      expect([...watchFires.keys()].some((root) => root === otherDir || root.startsWith(`${otherDir}/`))).toBe(true);
+    } finally {
+      await rm(otherDir, { recursive: true, force: true });
+    }
+  });
+
+  it('queues another reload when primary changes during an in-flight load', async () => {
+    const otherDir = mkdtempSync(join(tmpdir(), 'kimi-instructions-other-'));
+    const hostFs = new HostFileSystem();
+    const realReadText = hostFs.readText.bind(hostFs);
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let initialStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      initialStarted = resolve;
+    });
+    let initialReads = 0;
+    let otherReads = 0;
+    spyOn(hostFs, 'readText').mockImplementation(async (path, opts) => {
+      if (path === join(workDir, 'AGENTS.md')) {
+        initialReads += 1;
+        if (initialReads === 1) {
+          initialStarted();
+          await gate;
+        }
+      }
+      if (path === join(otherDir, 'AGENTS.md')) otherReads += 1;
+      return realReadText(path, opts);
+    });
+    try {
+      await writeFile(join(workDir, 'AGENTS.md'), 'old primary', 'utf8');
+      await writeFile(join(otherDir, 'AGENTS.md'), 'new primary', 'utf8');
+      const { service, dirs, dirsChange } = createService(hostFs);
+      await started;
+
+      dirs.primary = otherDir;
+      dirsChange.fire();
+      release();
+      await service.ready;
+      await waitForAssertion(() => {
+        expect(service.snapshot.agentsMd).toContain('new primary');
+      });
+      expect(service.snapshot.agentsMd).not.toContain('old primary');
+      expect(otherReads).toBe(1);
+    } finally {
+      release();
+      await rm(otherDir, { recursive: true, force: true });
+    }
   });
 });

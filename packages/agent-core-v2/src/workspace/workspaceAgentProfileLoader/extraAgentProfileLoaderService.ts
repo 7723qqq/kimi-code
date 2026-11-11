@@ -16,6 +16,7 @@ import { AgentProfileLoaderBase } from '#/workspace/workspaceAgentProfileLoader/
 import { configuredAgentRoots } from '#/workspace/workspaceAgentProfileLoader/internal/agentRoots';
 import { IUserAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoader';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
+import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
 
 import type { IExtraAgentProfileLoader } from './extraAgentProfileLoader';
 import { profilesFromDiscovery } from './internal/agentProfileFromFile';
@@ -32,6 +33,7 @@ export class ExtraAgentProfileLoaderService
   constructor(
     @IConfigService private readonly configService: IConfigService,
     @IWorkspaceContext private readonly workspace: IWorkspaceContext,
+    @IWorkspaceDirs private readonly dirs: IWorkspaceDirs,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @IHostFileSystem private readonly fs: IHostFileSystem,
     @ILogService log: ILogService,
@@ -46,6 +48,13 @@ export class ExtraAgentProfileLoaderService
             this.log.warn(`agent profile loader "extra" reload failed: ${String(error)}`);
           });
         }
+      }),
+    );
+    this._register(
+      this.dirs.onDidChange(() => {
+        void this.reload().catch((error) => {
+          this.log.warn(`agent profile loader "extra" primary reload failed: ${String(error)}`);
+        });
       }),
     );
     this.start();
@@ -64,7 +73,7 @@ export class ExtraAgentProfileLoaderService
         await configuredAgentRoots(
           this.fs,
           dirs,
-          this.workspace.cwd,
+          this.dirs.primary,
           this.bootstrap.osHomeDir,
           'extra',
           (message, error) => {

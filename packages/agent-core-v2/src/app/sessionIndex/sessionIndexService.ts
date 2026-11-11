@@ -1,4 +1,5 @@
-import { Disposable } from '#/_base/di/lifecycle';
+import { Disposable, MutableDisposable, type IDisposable } from '#/_base/di/lifecycle';
+import { ref, type LiveRef } from '#/_base/di/instantiation';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { IntervalTimer } from '#/_base/utils/timer';
@@ -7,6 +8,8 @@ import { IConfigService } from '#/app/config/config';
 import { LifecycleScope } from '#/app/scopes';
 import type { SessionIndexDegradedEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { IWorkspaceService } from '#/app/workspace/workspace';
+import { IWorkspacePersistence } from '#/app/workspace/workspacePersistence';
 import {
   SESSION_INDEX_KEY,
   SESSION_INDEX_SCOPE,
@@ -90,6 +93,11 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
   private projectFlight: Promise<void> | undefined;
   private readonly reconcileTimer = this._register(new IntervalTimer({ unref: true }));
   private readonly projector: SessionIndexProjector;
+  private primarySnapshot?: Readonly<Record<string, string>>;
+  private primaryRefreshTail: Promise<void> = Promise.resolve();
+  private readonly workspacePersistenceSubscription = this._register(
+    new MutableDisposable<IDisposable>(),
+  );
 
   constructor(
     @IBootstrapService private readonly bootstrap: IBootstrapService,
@@ -100,6 +108,8 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
     @ISessionIndexMirror private readonly mirror: ISessionIndexMirror,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @ILogService private readonly log: ILogService,
+    @ref(IWorkspaceService) private readonly workspaces: LiveRef<IWorkspaceService>,
+    @ref(IWorkspacePersistence) private readonly workspaceStore: LiveRef<IWorkspacePersistence>,
   ) {
     super();
     this.projector = new SessionIndexProjector({
@@ -108,7 +118,21 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
       queryStore,
       log,
       sessionsScope: bootstrap.scope('sessions'),
+      primaryByWorkspace: () => this.primaryByWorkspace(),
     });
+    const subscribe = (): void => {
+      this.workspacePersistenceSubscription.value = this.workspaceStore.current?.onDidChange(() => {
+        this.primaryRefreshTail = this.primaryRefreshTail.then(
+          () => this.refreshPrimaries(),
+          () => this.refreshPrimaries(),
+        );
+        void this.primaryRefreshTail.catch((error) => {
+          this.log.warn('session index primary refresh failed', { error: String(error) });
+        });
+      });
+    };
+    this._register(this.workspaceStore.onDidChange(subscribe));
+    subscribe();
   }
 
   private ensureReconcileTimer(): void {
@@ -138,6 +162,7 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
     if (this.state === 'ready') return this.status();
     this.state = 'preparing';
     try {
+      this.primarySnapshot ??= await this.primaryByWorkspace();
       const manifest = await this.queryStore.getCheckpoint(SESSION_INDEX_MANIFEST);
       if (manifest === undefined || manifest.schemaVersion !== SESSION_INDEX_SCHEMA_VERSION) {
         const projection = this.ensureProjection();
@@ -154,7 +179,19 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
       } else {
         this.generation = manifest.seq;
         await this.ensureSchema(manifest.seq);
-        if (!(await this.manifestFresh(manifest))) {
+        if (!(await this.manifestPrimariesFresh(manifest))) {
+          const projection = this.ensureProjection();
+          if (deadlineMs === undefined) {
+            await projection;
+          } else {
+            await Promise.race([
+              projection,
+              new Promise((resolve) => {
+                setTimeout(resolve, deadlineMs);
+              }),
+            ]);
+          }
+        } else if (!(await this.manifestFresh(manifest))) {
           try {
             const reconciliation = this.projector.reconcile(manifest.seq);
             if (deadlineMs === undefined) {
@@ -192,14 +229,20 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
     return this.status();
   }
 
+  private async manifestPrimariesFresh(manifest: Checkpoint): Promise<boolean> {
+    return samePrimaryByWorkspace(manifest.workspacePrimaries, await this.primaryByWorkspace());
+  }
+
   private async manifestFresh(manifest: Checkpoint): Promise<boolean> {
     const signals = manifest.workspaceSignals;
     if (signals === undefined) return false;
     try {
-      const [marks, workspaceIds] = await Promise.all([
+      const [marks, workspaceIds, primaries] = await Promise.all([
         listDirtyMarks(this.storage, this.sessionsScope),
         listWorkspaceIds(this.storage, this.sessionsScope),
+        this.primaryByWorkspace(),
       ]);
+      if (!samePrimaryByWorkspace(manifest.workspacePrimaries, primaries)) return false;
       if (marks.length > 0) return false;
       if (workspaceIds.length !== Object.keys(signals).length) return false;
       for (const workspaceId of workspaceIds) {
@@ -663,15 +706,47 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
     };
   }
 
+  private async refreshPrimaries(): Promise<void> {
+    const next = await this.primaryByWorkspace();
+    const previous = this.primarySnapshot;
+    this.primarySnapshot = next;
+    if (previous !== undefined && samePrimaryByWorkspace(previous, next)) return;
+    if (!this.readModelEnabled() || this.state === 'uninitialized' || this.state === 'preparing') {
+      return;
+    }
+    await this.ensureProjection();
+  }
+
+  private async primaryByWorkspace(): Promise<Readonly<Record<string, string>>> {
+    const workspaces = this.workspaces.current;
+    if (workspaces === undefined) return {};
+    return Object.fromEntries(
+      (await workspaces.list()).map((workspace) => [workspace.id, workspace.root]),
+    );
+  }
+
   private async getLegacy(id: string): Promise<SessionSummary | undefined> {
+    const primaryByWorkspace = await this.primaryByWorkspace();
     const hinted = await this.workspaceHintFor(id);
     if (hinted !== undefined) {
-      const summary = await readSessionSummary(this.docs, this.sessionsScope, hinted, id);
+      const summary = await readSessionSummary(
+        this.docs,
+        this.sessionsScope,
+        hinted,
+        id,
+        primaryByWorkspace[hinted],
+      );
       if (summary !== undefined) return summary;
     }
     for (const workspaceId of await listWorkspaceIds(this.storage, this.sessionsScope)) {
       if (workspaceId === hinted) continue;
-      const summary = await readSessionSummary(this.docs, this.sessionsScope, workspaceId, id);
+      const summary = await readSessionSummary(
+        this.docs,
+        this.sessionsScope,
+        workspaceId,
+        id,
+        primaryByWorkspace[workspaceId],
+      );
       if (summary !== undefined) return summary;
     }
     return undefined;
@@ -731,6 +806,7 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
   private async collectAuthoritative(
     workspaceIds: readonly string[] | undefined,
   ): Promise<SessionSummary[]> {
+    const primaryByWorkspace = await this.primaryByWorkspace();
     let collected: SessionSummary[];
     if (this.readModelEnabled() && (this.state === 'uninitialized' || this.state === 'preparing')) {
       const { summaries } = await this.projector.sharedScanForRead();
@@ -752,6 +828,7 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
             this.sessionsScope,
             workspaceId,
             sessionId,
+            primaryByWorkspace[workspaceId],
           );
           if (summary !== undefined) collected.push(summary);
         }
@@ -770,6 +847,16 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
   private readModelEnabled(): boolean {
     return databaseBaseEnabled(this.config);
   }
+}
+
+function samePrimaryByWorkspace(
+  left: Readonly<Record<string, string>> | undefined,
+  right: Readonly<Record<string, string>>,
+): boolean {
+  if (left === undefined) return false;
+  const leftIds = Object.keys(left);
+  const rightIds = Object.keys(right);
+  return leftIds.length === rightIds.length && leftIds.every((id) => left[id] === right[id]);
 }
 
 registerScopedService(

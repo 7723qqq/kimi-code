@@ -7,6 +7,7 @@ export interface WorkspaceMeta {
   readonly id: string;
   readonly root: string;
   readonly name: string;
+  readonly kind?: 'managed' | 'implicit';
   readonly createdAt: number;
   readonly lastOpenedAt: number;
 }
