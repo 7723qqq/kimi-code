@@ -77,7 +77,8 @@ export class StdioMcpClient implements MCPClient {
       await this.client.connect(this.transport, buildRequestOptions(this.startupTimeoutMs));
     } catch (error) {
       await this.closeStartedClient();
-      throw classifyStdioStartupError(error);
+      const transportError = (await this.transport.exitError()) ?? this.lastTransportError;
+      throw classifyStdioStartupError(error, transportError);
     }
     if (this.closed) {
       await this.closeStartedClient();
@@ -171,6 +172,7 @@ class EnvironmentStdioTransport implements Transport {
   private started = false;
   private closed = false;
   private finished = false;
+  private exitErrorPromise: Promise<Error | undefined> | undefined;
   private stdoutEnded = false;
   private stderrEnded = false;
   private onCloseFired = false;
@@ -239,13 +241,14 @@ class EnvironmentStdioTransport implements Transport {
         this.fireOnClose();
       });
       process.stderr.on('error', (error: Error) => this.onerror?.(error));
-      void process.wait().then(
-        () => this.finish(),
-        (error: unknown) => {
-          this.onerror?.(error instanceof Error ? error : new Error(String(error)));
-          this.finish();
-        },
+      this.exitErrorPromise = process.wait().then(
+        () => undefined,
+        (error: unknown) => (error instanceof Error ? error : new Error(String(error))),
       );
+      void this.exitErrorPromise.then((error) => {
+        if (error !== undefined) this.onerror?.(error);
+        this.finish();
+      });
     } catch (error) {
       this.lease = undefined;
       lease.dispose();
@@ -264,6 +267,21 @@ class EnvironmentStdioTransport implements Transport {
         else resolve();
       });
     });
+  }
+
+  async exitError(): Promise<Error | undefined> {
+    const promise = this.exitErrorPromise;
+    if (promise === undefined) return undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<undefined>((resolve) => {
+      timer = setTimeout(() => resolve(undefined), 1_000);
+      timer.unref?.();
+    });
+    try {
+      return await Promise.race([promise, timeout]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
   }
 
   dispose(): Promise<void> {
@@ -462,8 +480,12 @@ export function mergeStdioEnv(
 
 const permanentSpawnErrnos = new Set(['ENOENT', 'EACCES', 'ENOEXEC', 'ENOTDIR', 'EISDIR']);
 
-function classifyStdioStartupError(error: unknown): unknown {
+function classifyStdioStartupError(error: unknown, transportError?: Error): unknown {
   if (!(error instanceof HostProcessError) || error.code !== HostProcessErrorCode.SpawnFailed) {
+    const code = (transportError as NodeJS.ErrnoException | undefined)?.code;
+    if (transportError !== undefined && typeof code === 'string' && permanentSpawnErrnos.has(code)) {
+      return new McpClassifiedStartupError('config', transportError.message, { cause: transportError });
+    }
     return error;
   }
   const cause = error.cause as { readonly code?: unknown } | undefined;
