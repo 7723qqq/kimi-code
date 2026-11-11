@@ -499,6 +499,33 @@ base_url = "https://target.example/v1"
     expect(r.siblingContents.hooks).toBe(2);
   });
 
+  it('preserves runtime-registered source experimental flags and drops graduated flags', async () => {
+    const { getContributedFlags } = await import('@moonshot-ai/agent-core-v2');
+    const registeredFlags = getContributedFlags()
+      .map((definition) => definition.id)
+      .sort();
+    expect(registeredFlags).toEqual(expect.arrayContaining(['micro_compaction', 'wait_for']));
+    await writeFile(
+      join(src, 'config.toml'),
+      [
+        '[experimental]',
+        ...registeredFlags.map((flag) => `${flag} = false`),
+        'auto_session_title = true',
+        'unknown_flag = true',
+        '',
+      ].join('\n'),
+    );
+
+    const r = await migrateConfigStep({ sourceHome: src, targetHome: tgt });
+
+    expect(r.migrated).toBe(true);
+    const cfg = await readFile(join(tgt, 'config.toml'), 'utf-8');
+    const migratedFlags = registeredFlags.filter((flag) => cfg.includes(`${flag} = false`));
+    expect(migratedFlags).toEqual(registeredFlags);
+    expect(cfg).not.toContain('auto_session_title');
+    expect(cfg).not.toContain('unknown_flag');
+  });
+
   it('drops legacy migration fields but keeps supported loop and background fields', async () => {
     await writeFile(
       join(src, 'config.toml'),
@@ -506,7 +533,7 @@ base_url = "https://target.example/v1"
         'plan_mode = true\n' +
         'yolo = true\n' +
         '[experimental]\n' +
-        'micro_compaction = false\n' +
+        'auto_session_title = true\n' +
         'unknown_flag = true\n' +
         '[loop_control]\n' +
         'max_steps_per_turn = 1000\n' +
@@ -527,11 +554,9 @@ base_url = "https://target.example/v1"
 
     expect(r.migrated).toBe(true);
     const cfg = await readFile(join(tgt, 'config.toml'), 'utf-8');
-    // No experimental flags are currently registered, so the whole
-    // `[experimental]` section (including the former `micro_compaction`) is
-    // dropped along with unknown flags during migration.
+    // An experimental section with only graduated and unknown flags is dropped.
     expect(cfg).not.toContain('[experimental]');
-    expect(cfg).not.toContain('micro_compaction');
+    expect(cfg).not.toContain('auto_session_title');
     expect(cfg).not.toContain('unknown_flag');
     expect(cfg).toContain('[loop_control]');
     expect(cfg).not.toContain('max_retries_per_step');

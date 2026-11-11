@@ -2,9 +2,9 @@ import { existsSync } from 'node:fs';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { getContributedFlags } from '@moonshot-ai/agent-core-v2';
 import { getConfigSectionContributions } from '@moonshot-ai/agent-core-v2/app/config/configSectionContributions';
 import { camelToSnake } from '@moonshot-ai/agent-core-v2/app/config/toml';
-import { getContributedFlags } from '@moonshot-ai/agent-core-v2/app/flag/flagRegistry';
 import {
   ModelRecordSchema,
   ProviderConfigSchema,
@@ -20,11 +20,6 @@ import '@moonshot-ai/agent-core-v2/app/mcpConfig/configSection';
 import '@moonshot-ai/agent-core-v2/app/auth/configSection';
 import '@moonshot-ai/agent-core-v2/app/flag/flag';
 import '@moonshot-ai/agent-core-v2/features/skill/catalog/configSection';
-import '@moonshot-ai/agent-core-v2/session/subagent/flag';
-import '@moonshot-ai/agent-core-v2/features/tower/flag';
-import '@moonshot-ai/agent-core-v2/agent/toolSelect/flag';
-// `agent/tools/task/task-wait/flag` no longer exists in this fork — the
-// `wait_for` gate was graduated and removed, so there is no flag to register.
 import '@moonshot-ai/agent-core-v2/persistence/configSection';
 
 import { atomicWrite } from '../atomic-write.js';
