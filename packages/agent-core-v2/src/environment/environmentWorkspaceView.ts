@@ -20,6 +20,8 @@ export class EnvironmentWorkspaceView {
   readonly path: EnvironmentPath;
   readonly shellPathBridge: ShellPathBridge | undefined;
   readonly workDir: string;
+  readonly primaryDir: string | undefined;
+  readonly followsPrimary: boolean | undefined;
   readonly additionalDirs: readonly string[];
   readonly roots: readonly string[];
 
@@ -36,6 +38,9 @@ export class EnvironmentWorkspaceView {
     const workspace = environment.workspace ?? POSIX_ENVIRONMENT_WORKSPACE;
     const mapped = workspace.mapRoots(roots);
     this.workDir = this.path.resolve(mapped.workDir);
+    this.primaryDir =
+      mapped.primaryDir === undefined ? undefined : this.path.resolve(mapped.primaryDir);
+    this.followsPrimary = mapped.followsPrimary;
     this.additionalDirs = [
       ...new Set((mapped.additionalDirs ?? []).map((root) => this.path.resolve(root))),
     ];

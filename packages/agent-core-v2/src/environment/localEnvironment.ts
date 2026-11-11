@@ -57,7 +57,9 @@ export class LocalEnvironment implements Environment {
     this.workspace = {
       mapRoots: (roots) => ({
         workDir: hostResolve(roots.workDir),
+        primaryDir: roots.primaryDir === undefined ? undefined : hostResolve(roots.primaryDir),
         additionalDirs: roots.additionalDirs?.map((root) => hostResolve(root)),
+        followsPrimary: roots.followsPrimary,
       }),
     };
     this.shellPathBridge = environment.pathClass === 'win32' ? getShellPathBridge(environment) : undefined;
