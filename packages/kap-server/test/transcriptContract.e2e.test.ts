@@ -439,7 +439,7 @@ describeWithTimeout(
     it('S2: a prompt submitted mid-turn is tracked as queued through settlement', async () => {
       await boot([
         {
-          match: (body) => body.includes('first prompt'),
+          match: (body) => body.includes('first prompt') && !body.includes('second prompt'),
           respond: () => sseText('first done'),
           delayMs: 2500,
         },
