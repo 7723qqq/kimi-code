@@ -649,6 +649,9 @@ export function snapshotToOps(
   for (const task of snapshot.tasks) {
     ops.push({ op: 'task.upsert', task });
   }
+  for (const prompt of snapshot.prompts) {
+    ops.push({ op: 'prompt.upsert', prompt });
+  }
   return ops;
 }
 

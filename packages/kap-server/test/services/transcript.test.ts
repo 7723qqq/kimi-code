@@ -3380,6 +3380,129 @@ describe('AgentTranscriptProjector', () => {
     }
   });
 
+  it('snapshotToOps flattens prompt entities', () => {
+    const snapshot: AgentTranscriptSnapshot = {
+      interactions: [],
+      attachments: [],
+      prompts: [
+        {
+          promptId: 'p1',
+          status: 'completed',
+          userMessageId: 'p1',
+          content: [{ type: 'text', text: 'hello' }],
+          createdAt: '2026-01-01T00:00:01.000Z',
+          finishedAt: '2026-01-01T00:00:02.000Z',
+        },
+      ],
+      items: [],
+      tasks: [],
+    };
+
+    const ops = snapshotToOps(snapshot);
+    expect(ops.filter((op) => op.op === 'prompt.upsert')).toEqual([
+      { op: 'prompt.upsert', prompt: snapshot.prompts[0]! },
+    ]);
+
+    const tx = new AgentTranscript('main');
+    tx.apply(ops);
+    expect(tx.getPrompt('p1')).toEqual(snapshot.prompts[0]);
+  });
+
+  it('readColdSnapshot folds durable prompt facts with their lifecycle', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'transcript-cold-prompts-'));
+    try {
+      const wireDir = join(home, 'sessions', 'ws', 's1', 'agents', 'main');
+      await mkdir(wireDir, { recursive: true });
+      const records = [
+        {
+          type: 'turn.prompt',
+          promptId: 'p1',
+          turnId: 0,
+          input: [{ type: 'text', text: 'hello' }],
+          origin: { kind: 'user', clientMetadata: [{ display_text: 'hello' }] },
+          time: 1000,
+        },
+        {
+          type: 'context.append_message',
+          message: {
+            id: 'p1',
+            role: 'user',
+            content: [{ type: 'text', text: 'hello' }],
+            toolCalls: [],
+            origin: { kind: 'user' },
+          },
+          time: 1001,
+        },
+        {
+          type: 'context.append_message',
+          message: { role: 'assistant', content: [{ type: 'text', text: 'hi' }], toolCalls: [] },
+          time: 1002,
+        },
+        { type: 'prompt.completed', promptId: 'p1', reason: 'completed', time: 1003 },
+        {
+          type: 'turn.prompt',
+          promptId: 'p2',
+          turnId: 1,
+          input: [{ type: 'text', text: 'task notification' }],
+          origin: { kind: 'task', taskId: 'agent-x' },
+          time: 2000,
+        },
+        {
+          type: 'context.append_message',
+          message: {
+            role: 'user',
+            content: [{ type: 'text', text: 'task notification' }],
+            toolCalls: [],
+            origin: { kind: 'task', taskId: 'agent-x' },
+          },
+          time: 2001,
+        },
+        { type: 'prompt.completed', promptId: 'p2', reason: 'failed', time: 2002 },
+        {
+          type: 'prompt.steered',
+          activePromptId: 'p1',
+          promptIds: ['p3'],
+          content: [{ type: 'text', text: 'queued' }],
+          steeredAt: new Date(3000).toISOString(),
+          time: 3000,
+        },
+      ];
+      await writeFile(
+        join(wireDir, 'wire.jsonl'),
+        `${records.map((record) => JSON.stringify(record)).join('\n')}\n`,
+      );
+
+      const snapshot = await coldTranscriptService(home).readColdSnapshot('s1', 'main');
+      expect(snapshot?.prompts).toEqual([
+        {
+          promptId: 'p1',
+          status: 'completed',
+          userMessageId: 'p1',
+          content: [{ type: 'text', text: 'hello' }],
+          clientMetadata: [{ display_text: 'hello' }],
+          createdAt: new Date(1000).toISOString(),
+          finishedAt: new Date(1003).toISOString(),
+          steeredAt: new Date(3000).toISOString(),
+        },
+        {
+          promptId: 'p2',
+          status: 'failed',
+          createdAt: new Date(2002).toISOString(),
+          finishedAt: new Date(2002).toISOString(),
+        },
+        {
+          promptId: 'p3',
+          status: 'completed',
+          createdAt: new Date(3000).toISOString(),
+          finishedAt: new Date(3000).toISOString(),
+          steeredAt: new Date(3000).toISOString(),
+        },
+      ]);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   it('readColdSnapshot pairs a cold turn with its prompt', async () => {
     const home = await mkdtemp(join(tmpdir(), 'transcript-cold-activity-'));
     try {

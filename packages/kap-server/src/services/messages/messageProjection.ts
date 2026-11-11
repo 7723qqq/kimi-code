@@ -4,6 +4,7 @@ import {
   type ContentPart,
   type ContextMessage,
 } from '@moonshot-ai/agent-core-v2';
+import { projectPromptContentParts as projectTranscriptPromptContent } from '@moonshot-ai/transcript';
 
 import type { Message, MessageContent, MessageRole, ToolUseContent } from '../../protocol/message';
 
@@ -70,33 +71,65 @@ function mapContentPart(part: ContextMessage['content'][number]): MessageContent
   }
 }
 
-function projectToolResultMediaPart(part: ContextMessage['content'][number]): unknown {
-  if (part.type === 'image_url') {
-    const ref = parseDaemonFileUrl(part.imageUrl.url);
+interface CoreMediaPart {
+  readonly type: 'image_url' | 'audio_url' | 'video_url';
+  readonly source:
+    | { readonly kind: 'url'; readonly url: string }
+    | { readonly kind: 'inline' | 'file' | 'store' };
+}
+
+function isCoreMediaPart(part: unknown): part is CoreMediaPart {
+  if (typeof part !== 'object' || part === null || !('type' in part) || !('source' in part)) {
+    return false;
+  }
+  if (part.type !== 'image_url' && part.type !== 'audio_url' && part.type !== 'video_url') {
+    return false;
+  }
+  const source = part.source;
+  if (typeof source !== 'object' || source === null || !('kind' in source)) return false;
+  return (
+    source.kind === 'url' ||
+    source.kind === 'inline' ||
+    source.kind === 'file' ||
+    source.kind === 'store'
+  );
+}
+
+function projectToolResultMediaPart(part: unknown): unknown {
+  if (isCoreMediaPart(part)) {
+    if (part.source.kind !== 'url' || part.type === 'audio_url') return part;
+    const ref = parseDaemonFileUrl(part.source.url);
     if (ref === undefined) return part;
+    return {
+      type: part.type === 'image_url' ? 'image' : 'video',
+      source: { kind: 'session_media', file_id: ref.fileId },
+      name: (part as { name?: unknown }).name,
+    };
+  }
+  const legacy = part as ContentPart;
+  if (typeof legacy !== 'object' || legacy === null) return legacy;
+  const ref = daemonFileRefFromPart(legacy);
+  if (ref === undefined) return legacy;
+  if (legacy.type === 'image_url') {
     return {
       type: 'image',
-      source: { kind: 'session_media', file_id: ref.fileId },
-      name: part.imageUrl.name,
+      source: { kind: 'session_media', file_id: ref.ref.fileId },
+      name: legacy.imageUrl.name,
     };
   }
-  if (part.type === 'video_url') {
-    const ref = parseDaemonFileUrl(part.videoUrl.url);
-    if (ref === undefined) return part;
+  if (legacy.type === 'video_url') {
     return {
       type: 'video',
-      source: { kind: 'session_media', file_id: ref.fileId },
-      name: part.videoUrl.name,
+      source: { kind: 'session_media', file_id: ref.ref.fileId },
+      name: legacy.videoUrl.name,
     };
   }
-  return part;
+  return legacy;
 }
 
 export function projectToolResultOutput(output: unknown): unknown {
   if (!Array.isArray(output)) return output;
-  return output.map((part) =>
-    projectToolResultMediaPart(part as ContextMessage['content'][number]),
-  );
+  return output.map((part) => projectToolResultMediaPart(part));
 }
 
 function buildProtocolContent(msg: ContextMessage): MessageContent[] {
@@ -153,56 +186,7 @@ function buildProtocolContent(msg: ContextMessage): MessageContent[] {
 }
 
 export function projectPromptContentParts(content: readonly ContentPart[]): MessageContent[] {
-  const parts: MessageContent[] = [];
-  for (const part of content) {
-    const daemonRef = daemonFileRefFromPart(part);
-    if (daemonRef !== undefined) {
-      parts.push({
-        type: daemonRef.kind,
-        source: { kind: 'session_media', file_id: daemonRef.ref.fileId },
-        name:
-          part.type === 'image_url'
-            ? part.imageUrl.name
-            : part.type === 'video_url'
-              ? part.videoUrl.name
-              : undefined,
-      });
-      continue;
-    }
-    if (part.type === 'text') parts.push({ type: 'text', text: part.text });
-    else if (part.type === 'image_url') {
-      const match = /^data:([^;]+);base64,(.*)$/.exec(part.imageUrl.url);
-      parts.push(
-        match === null
-          ? {
-              type: 'image',
-              source: { kind: 'url', url: part.imageUrl.url, id: part.imageUrl.id },
-              name: part.imageUrl.name,
-            }
-          : {
-              type: 'image',
-              source: { kind: 'base64', media_type: match[1]!, data: match[2]! },
-              name: part.imageUrl.name,
-            },
-      );
-    } else if (part.type === 'video_url') {
-      const match = /^data:([^;]+);base64,(.*)$/.exec(part.videoUrl.url);
-      parts.push(
-        match === null
-          ? {
-              type: 'video',
-              source: { kind: 'url', url: part.videoUrl.url, id: part.videoUrl.id },
-              name: part.videoUrl.name,
-            }
-          : {
-              type: 'video',
-              source: { kind: 'base64', media_type: match[1]!, data: match[2]! },
-              name: part.videoUrl.name,
-            },
-      );
-    }
-  }
-  return parts;
+  return projectTranscriptPromptContent(content) as MessageContent[];
 }
 
 export function toProtocolMessage(
