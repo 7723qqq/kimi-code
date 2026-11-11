@@ -51,6 +51,7 @@ function stubWireJournal(journal: WireRecord[]): IWireService {
     append: (record) => {
       journal.push(record as WireRecord);
     },
+    onDidAppendRecord: () => ({ dispose: () => {} }),
     readJournal: async function* () {
       for (const record of journal) yield record;
     },

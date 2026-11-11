@@ -8,8 +8,10 @@ import {
   INTERACTION_TAG_AGENT_ID,
   INTERACTION_TAG_SESSION_ID,
   ISessionMetadata,
+  IWireService,
   MAIN_AGENT_ID,
   interactions,
+  isObservableDurableRecordType,
   toDisposable,
   type AgentMeta,
   type IDisposable,
@@ -152,9 +154,19 @@ export function bindSessionTranscript(
     const projector = projectorFor(handle.id);
     store.ensureAgent(handle.id, { agentId: handle.id });
     const bus = handle.accessor.get(IEventBus);
-    const busD = bus.subscribe((event) =>
-      applyOps(handle.id, projectorFor(handle.id).map(event as ProjectorBusEvent)),
-    );
+    const busD = bus.subscribe((event) => {
+      const durable = (event.constructor as { readonly durable?: boolean }).durable === true;
+      const source = durable
+        ? (event.serialize() as unknown as ProjectorBusEvent)
+        : (event as unknown as ProjectorBusEvent);
+      applyOps(handle.id, projectorFor(handle.id).map(source));
+    });
+    const wireD = handle.accessor
+      .get(IWireService)
+      ?.onDidAppendRecord((record) => {
+        if (isObservableDurableRecordType(record.type)) return;
+        applyOps(handle.id, projectorFor(handle.id).map(record as unknown as ProjectorBusEvent));
+      });
     const loopStatus = handle.accessor.get(IAgentLoopService)?.snapshot();
     if (loopStatus?.state === 'running' && loopStatus.activeTurnId !== undefined) {
       const promptId = loopStatus.activePromptId;
@@ -162,6 +174,7 @@ export function bindSessionTranscript(
     }
     const list = agentDisposables.get(handle.id) ?? [];
     list.push(busD);
+    if (wireD !== undefined) list.push(wireD);
     if (reconcileAfterUndo !== undefined) {
       list.push(
         handle.accessor.get(IAgentConversationUndoParticipantRegistry).register({

@@ -183,6 +183,7 @@ export function stubAgentWire(flush: () => Promise<void> = async () => {}): Agen
     _serviceBrand: undefined,
     seal: async () => {},
     appendRecord: () => {},
+    onDidAppendRecord: () => ({ dispose: () => {} }),
     readJournal: async function* () {},
     readRestorable: async function* () {},
     readRestoreChains: async () => ({ restorable: [], journal: [] }),

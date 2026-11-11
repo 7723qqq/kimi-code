@@ -1318,3 +1318,51 @@ describe('WireService readRestoreChains', () => {
     expect(await readRecords()).toEqual([envelope]);
   });
 });
+
+describe('WireService append notifications', () => {
+  it('notifies synchronously for every append and stops after dispose', () => {
+    const seen: WireRecord[] = [];
+    const subscription = wire.onDidAppendRecord((record) => seen.push(record));
+    const first = { type: 'wire.test.one', time: 1 };
+    const second = { type: 'wire.test.two', time: 2 };
+
+    wire.appendRecord(first);
+    wire.appendRecord(second);
+    expect(seen).toEqual([first, second]);
+
+    subscription.dispose();
+    wire.appendRecord({ type: 'wire.test.three', time: 3 });
+    expect(seen).toHaveLength(2);
+  });
+
+  it('notifies the three records written by a branch switch', async () => {
+    const enc = new TextEncoder();
+    const userPrompt = (text: string, id: string) => ({
+      role: 'user',
+      content: [{ type: 'text', text }],
+      toolCalls: [],
+      id,
+      origin: { kind: 'user' },
+    });
+    const seed = [
+      { type: 'context.append_message', message: userPrompt('first', 'p1'), time: 1 },
+      {
+        type: 'context.append_message',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'answer' }], toolCalls: [] },
+        time: 2,
+      },
+      { type: 'context.append_message', message: userPrompt('second', 'p2'), time: 3 },
+    ];
+    await storage.write(
+      testWireScope(SCOPE, KEY),
+      AGENT_WIRE_RECORD_KEY,
+      enc.encode(`${seed.map((record) => JSON.stringify(record)).join('\n')}\n`),
+    );
+
+    const seen: string[] = [];
+    wire.onDidAppendRecord((record) => seen.push(record.type));
+    await wire.switchBranch({ turns: 1 });
+
+    expect(seen).toEqual(['agent.switched', 'context.undo', 'context.undone']);
+  });
+});

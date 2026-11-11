@@ -29,13 +29,19 @@ import {
   IWorkspaceInstanceManager,
   interactions,
   makeAgentScopeContext,
+  TurnEnded,
+  TurnStarted,
   type AgentContext,
   type ContextMessage,
   type AgentConversationUndoParticipant,
   type Event2,
   type ISessionScopeHandle,
   type Scope,
+  type WireRecord,
 } from '@moonshot-ai/agent-core-v2';
+import { TurnSteer } from '@moonshot-ai/agent-core-v2/contract';
+import { PromptCompleted } from '@moonshot-ai/agent-core-v2/agent/prompt/promptEvents';
+import { SubagentSpawned } from '@moonshot-ai/agent-core-v2/session/subagent/mirrorAgentRun';
 import {
   AgentTranscript,
   TranscriptStore,
@@ -4340,6 +4346,71 @@ describe('AgentTranscriptProjector', () => {
       usage: { inputOther: 10, output: 5, inputCacheRead: 2, inputCacheCreation: 1 },
     });
   });
+
+  it('projects a durable event identically from the event object and its wire record', () => {
+    const seed = new TurnStarted(
+      {
+        agentId: 'main',
+        turnId: 0,
+        promptId: 'p1',
+        origin: { kind: 'user' },
+        prompt: 'hi',
+      },
+      900,
+    );
+    const cases: readonly Event2<any>[] = [
+      new TurnSteer(
+        {
+          agentId: 'main',
+          input: [{ type: 'text', text: 'go' }],
+          origin: { kind: 'user' },
+          messageId: 'm1',
+          promptIds: ['p2'],
+          turnId: 0,
+        },
+        1000,
+      ),
+      new TurnEnded({ agentId: 'main', turnId: 0, reason: 'completed', durationMs: 10 }, 1001),
+      new PromptCompleted(
+        {
+          agentId: 'main',
+          promptId: 'p1',
+          finishedAt: '2026-01-01T00:00:00.000Z',
+          reason: 'completed',
+        },
+        1002,
+      ),
+      new SubagentSpawned(
+        {
+          subagentId: 'child',
+          subagentName: 'explore',
+          parentToolCallId: 'call_1',
+          runInBackground: false,
+          description: 'scan',
+        },
+        1003,
+      ),
+    ];
+    const normalize = (ops: readonly TranscriptOperation[]): string =>
+      JSON.stringify(ops).replaceAll(
+        /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z/g,
+        '<iso>',
+      );
+
+    for (const event of cases) {
+      const fromEvent = new AgentTranscriptProjector('main', TEST_SESSION_ID);
+      const fromRecord = new AgentTranscriptProjector('main', TEST_SESSION_ID);
+      const left = [
+        ...fromEvent.map(seed as unknown as ProjectorBusEvent),
+        ...fromEvent.map(event as unknown as ProjectorBusEvent),
+      ];
+      const right = [
+        ...fromRecord.map(seed as unknown as ProjectorBusEvent),
+        ...fromRecord.map(event.serialize() as unknown as ProjectorBusEvent),
+      ];
+      expect(normalize(right)).toBe(normalize(left));
+    }
+  });
 });
 
 describe('AgentTranscript transcript task vocabulary', () => {
@@ -4368,10 +4439,22 @@ describe('bindSessionTranscript', () => {
     }
   }
 
+  class FakeWire {
+    private readonly handlers = new Set<(record: WireRecord) => void>();
+    onDidAppendRecord(cb: (record: WireRecord) => void): { dispose: () => void } {
+      this.handlers.add(cb);
+      return { dispose: () => this.handlers.delete(cb) };
+    }
+    emit(record: WireRecord): void {
+      for (const cb of this.handlers) cb(record);
+    }
+  }
+
   interface FakeAgentHandle {
     readonly id: string;
     readonly context: AgentContext;
     readonly bus: FakeBus;
+    readonly wire: FakeWire;
     contextMessages: ContextMessage[];
     readonly undoParticipants: Map<string, AgentConversationUndoParticipant>;
     readonly accessor: { get: (token: unknown) => unknown };
@@ -4411,6 +4494,7 @@ describe('bindSessionTranscript', () => {
       },
     ): FakeAgentHandle {
       const bus = this.handles.get(id)?.bus ?? new FakeBus();
+      const wire = this.handles.get(id)?.wire ?? new FakeWire();
       const undoParticipants = new Map<string, AgentConversationUndoParticipant>();
       const scope = makeAgentScopeContext({
         agentId: id,
@@ -4429,12 +4513,14 @@ describe('bindSessionTranscript', () => {
         id,
         context: scope.agentContext,
         bus,
+        wire,
         contextMessages: [],
         undoParticipants,
         accessor: {
           get: (token: unknown) => {
             if (token === IAgentScopeContext) return scope;
             if (token === IEventBus) return bus;
+            if (token === IWireService) return wire;
             if (token === IAgentContextMemoryService) return { get: () => handle.contextMessages };
             if (token === IAgentConversationUndoParticipantRegistry) {
               return {
@@ -4544,6 +4630,62 @@ describe('bindSessionTranscript', () => {
       .filter((op): op is InteractionUpsertOp => op.op === 'interaction.upsert')
       .map((op) => op.interaction.state);
     expect(states).toEqual(['pending', 'approved']);
+    binding.dispose();
+  });
+
+  it('projects quiet durable wire appends and leaves observable durable records to the bus', () => {
+    const agents = new FakeAgents();
+    const store = new TranscriptStore('s1');
+    const binding = bindSessionTranscript(store, fakeSession(agents));
+    const main = agents.add('main');
+    const transcript = store.getAgent('main')!;
+
+    main.wire.emit({
+      type: 'task.terminated',
+      info: {
+        taskId: 'task-1',
+        kind: 'process',
+        description: 'run',
+        status: 'completed',
+        startedAt: 1000,
+        endedAt: 2000,
+      },
+      outputTail: 'done',
+      time: 2000,
+    });
+    expect(transcript.getTask('task-1')).toMatchObject({
+      state: 'completed',
+      description: 'run',
+    });
+
+    const items = transcript.getItems().length;
+    main.wire.emit({
+      type: 'turn.ended',
+      agentId: 'main',
+      turnId: 0,
+      reason: 'completed',
+      time: 3000,
+    });
+    expect(transcript.getItems()).toHaveLength(items);
+    binding.dispose();
+  });
+
+  it('projects a durable bus event from its serialized record', () => {
+    const agents = new FakeAgents();
+    const store = new TranscriptStore('s1');
+    const binding = bindSessionTranscript(store, fakeSession(agents));
+    const main = agents.add('main');
+
+    main.bus.emit(new TurnEnded({ agentId: 'main', turnId: 0, reason: 'completed' }, 1234));
+
+    const turn = store
+      .getAgent('main')!
+      .getItems()
+      .find((item) => item.kind === 'turn');
+    expect(turn).toMatchObject({
+      state: 'completed',
+      endedAt: new Date(1234).toISOString(),
+    });
     binding.dispose();
   });
 

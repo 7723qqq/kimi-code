@@ -1,5 +1,6 @@
 import { Service } from '#/_base/di/service';
 import { onUnexpectedError } from '#/_base/errors/unexpectedError';
+import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
 import { ILogService } from '#/_base/log/log';
 import { IAgentBlobService } from '#/agent/blob/agentBlobService';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
@@ -63,6 +64,7 @@ export class WireService extends Service implements IWireService, IAgentJournal 
   private readonly wireScope: string;
   private lines = 0;
   private lastClearLine: number | undefined;
+  private readonly appendListeners = new Set<(record: WireRecord) => void>();
   private readonly agentId: string;
   private persistQueue: Promise<void> | undefined;
   private pendingRepair:
@@ -155,6 +157,13 @@ export class WireService extends Service implements IWireService, IAgentJournal 
 
   append(record: WireRecord, dehydrate?: RecordDehydrator): void {
     this.appendRecord(record, dehydrate);
+  }
+
+  onDidAppendRecord(listener: (record: WireRecord) => void): IDisposable {
+    this.appendListeners.add(listener);
+    return toDisposable(() => {
+      this.appendListeners.delete(listener);
+    });
   }
 
   async *read(): AsyncIterable<WireRecord> {
@@ -642,6 +651,13 @@ export class WireService extends Service implements IWireService, IAgentJournal 
       this.modeTwoEntries.push({ record, line: this.lines });
     }
     if (record.type === 'context.clear') this.lastClearLine = this.lines;
+    for (const listener of this.appendListeners) {
+      try {
+        listener(record);
+      } catch (error) {
+        onUnexpectedError(error);
+      }
+    }
   }
 }
 

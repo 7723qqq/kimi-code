@@ -93,3 +93,7 @@ export function event2FromRecord<P>(
   if (parsed === undefined || !parsed.success) return undefined;
   return new cls(parsed.data, record.time);
 }
+
+export function isObservableDurableRecordType(type: string): boolean {
+  return EVENT2_REGISTRY.get(type)?.observable === true;
+}
