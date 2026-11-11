@@ -270,6 +270,11 @@ export class OperationLogStore {
     return this.withLock(() => this.readView(id));
   }
 
+  views(ids: readonly string[]): Promise<readonly OperationView[]> {
+    for (const id of ids) assertId(id);
+    return this.withLock(() => Promise.all(ids.map((id) => this.readView(id))));
+  }
+
   list(limit?: number): Promise<readonly OperationRecord[]> {
     return this.withLock(async () => {
       const head = await this.readHead();

@@ -17,7 +17,11 @@ import {
   type OperationView,
 } from './operationLog';
 import { OperationLogStore } from './operationLogStore';
-import { RepositoryViewService } from './repositoryViewService';
+import {
+  RepositoryViewService,
+  type RepositoryFile,
+  type RepositoryFileQuery,
+} from './repositoryViewService';
 
 interface ProjectionContext {
   readonly backend: RepositoryViewService;
@@ -38,13 +42,36 @@ export class OperationSnapshotStore implements ISnapshotStore {
   async list(path: string): Promise<readonly SnapshotRecord[]> {
     const pathKey = this.pathKey(path);
     const { backend, store } = await this.ready;
+    const operations = await store.list();
+    const viewIds = new Set<string>();
+    for (const operation of operations) {
+      if (operation.beforeViewId !== undefined) viewIds.add(operation.beforeViewId);
+      viewIds.add(operation.viewId);
+    }
+    const ids = [...viewIds];
+    const views = await store.views(ids);
+    const viewsById = new Map<string, OperationView>();
+    for (const [index, id] of ids.entries()) {
+      const view = views[index];
+      if (view === undefined) {
+        throw new OperationLogError('not-found', `Operation view not found: ${id}`);
+      }
+      viewsById.set(id, view);
+    }
+    const queries: RepositoryFileQuery[] = [];
+    for (const operation of operations) {
+      if (operation.beforeViewId !== undefined) {
+        const view = this.operationView(viewsById, operation.beforeViewId);
+        queries.push({ view, path: pathKey });
+      }
+      queries.push({ view: this.operationView(viewsById, operation.viewId), path: pathKey });
+    }
+    const files = await backend.readFiles(queries);
     const records: SnapshotRecord[] = [];
-    for (const operation of await store.list()) {
-      const before =
-        operation.beforeViewId === undefined ? undefined : await store.view(operation.beforeViewId);
-      const beforeFile = before === undefined ? undefined : await backend.fileAt(before, pathKey);
-      const after = await store.view(operation.viewId);
-      const afterFile = await backend.fileAt(after, pathKey);
+    let cursor = 0;
+    for (const operation of operations) {
+      const beforeFile = operation.beforeViewId === undefined ? undefined : files[cursor++];
+      const afterFile = files[cursor++];
       if (beforeFile?.hash === afterFile?.hash) continue;
       records.push({
         version: 1,
@@ -69,6 +96,19 @@ export class OperationSnapshotStore implements ISnapshotStore {
     if (hash === '') return undefined;
     const { backend } = await this.ready;
     return backend.readBlob(hash);
+  }
+
+  async readFiles(
+    view: OperationView,
+    paths: readonly string[],
+  ): Promise<readonly (RepositoryFile | undefined)[]> {
+    const { backend } = await this.ready;
+    return backend.readFiles(paths.map((path) => ({ view, path: this.pathKey(path) })));
+  }
+
+  async readBlobs(hashes: readonly string[]): Promise<readonly (Uint8Array | undefined)[]> {
+    const { backend } = await this.ready;
+    return backend.readBlobs(hashes);
   }
 
   async agents(sessionId: string): Promise<readonly SnapshotAgentMark[]> {
@@ -108,7 +148,7 @@ export class OperationSnapshotStore implements ISnapshotStore {
     path: string,
   ): Promise<{ readonly hash: string; readonly size: number } | undefined> {
     const { backend } = await this.ready;
-    return backend.fileAt(view, this.pathKey(path));
+    return backend.readFile(view, this.pathKey(path));
   }
 
   async changedFiles(before: OperationView, after: OperationView): Promise<readonly string[]> {
@@ -143,6 +183,17 @@ export class OperationSnapshotStore implements ISnapshotStore {
   private async open(retention: Partial<OperationLogRetention>): Promise<ProjectionContext> {
     const backend = await RepositoryViewService.open({ repoRoot: this.repoRoot });
     return { backend, store: new OperationLogStore(backend.storageRoot, retention) };
+  }
+
+  private operationView(
+    views: ReadonlyMap<string, OperationView>,
+    id: string,
+  ): OperationView {
+    const view = views.get(id);
+    if (view === undefined) {
+      throw new OperationLogError('not-found', `Operation view not found: ${id}`);
+    }
+    return view;
   }
 
   private pathKey(path: string): string {

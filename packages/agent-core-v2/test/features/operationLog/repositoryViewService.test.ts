@@ -46,6 +46,20 @@ async function gitRefs(repo: string): Promise<Record<string, string>> {
   return refs;
 }
 
+async function referenceFileAt(
+  repo: string,
+  storage: string,
+  tree: string,
+  path: string,
+): Promise<{ readonly hash: string; readonly size: number } | undefined> {
+  const result = await gitCaptured(repo, storage, 'ls-tree', '-z', tree, '--', path);
+  if (result === '') return undefined;
+  const metadata = result.slice(0, result.indexOf('\t')).split(' ');
+  const hash = metadata[2];
+  if (metadata[1] !== 'blob' || hash === undefined) return undefined;
+  return { hash, size: Number(await gitCaptured(repo, storage, 'cat-file', '-s', hash)) };
+}
+
 async function gitCaptured(cwd: string, storage: string, ...args: string[]): Promise<string> {
   const actualObjectDir = await git(
     cwd,
@@ -214,11 +228,11 @@ describe('RepositoryViewService', () => {
     await writeFile(join(repo, 'new.txt'), 'new\n');
     const after = await backend.captureView();
 
-    const file = await backend.fileAt(after, 'a.txt');
+    const file = await backend.readFile(after, 'a.txt');
     expect(file).toBeDefined();
     expect(file!.size).toBe(bytes.byteLength);
     expect(await backend.readBlob(file!.hash)).toEqual(bytes);
-    expect(await backend.fileAt(after, 'missing.txt')).toBeUndefined();
+    expect(await backend.readFile(after, 'missing.txt')).toBeUndefined();
     expect(await backend.changedFiles(before, after)).toEqual(['a.txt', 'new.txt']);
   });
 
@@ -465,5 +479,89 @@ describe('RepositoryViewService', () => {
     }
 
     expect(spawns).toBe(4);
+  });
+
+  it('reads many view files with one batch process and the same metadata as ls-tree', async () => {
+    const { repo, storage } = await createRepo();
+    const backend = await open(repo, storage);
+    const before = await backend.captureView();
+    await writeFile(join(repo, 'a.txt'), 'changed\n');
+    await writeFile(join(repo, 'new.txt'), 'new\n');
+    await mkdir(join(repo, 'dir'), { recursive: true });
+    await writeFile(join(repo, 'dir', 'file with space.txt'), 'space\n');
+    const after = await backend.captureView();
+    const paths = ['a.txt', 'new.txt', 'dir/file with space.txt', 'missing.txt'];
+    const queries = [
+      ...paths.map((path) => ({ view: before, path })),
+      ...paths.map((path) => ({ view: after, path })),
+    ];
+    const originalSpawn = Bun.spawn;
+    let spawns = 0;
+    Bun.spawn = ((options: any) => {
+      const command = options.cmd as readonly string[];
+      if (command[0] === 'git') spawns += 1;
+      return originalSpawn(options);
+    }) as typeof Bun.spawn;
+
+    let reads: readonly ({ readonly hash: string; readonly size: number } | undefined)[] = [];
+    try {
+      reads = await backend.readFiles(queries);
+    } finally {
+      Bun.spawn = originalSpawn;
+    }
+
+    expect(spawns).toBe(1);
+    for (const [index, query] of queries.entries()) {
+      expect(reads[index]).toEqual(
+        await referenceFileAt(repo, storage, query.view.tree, query.path),
+      );
+    }
+  });
+
+  it('reads many blobs with one batch process and serves repeats from the cache', async () => {
+    const { repo, storage } = await createRepo();
+    const backend = await open(repo, storage);
+    await writeFile(join(repo, 'binary.bin'), new Uint8Array([0, 1, 2, 255, 254]));
+    await writeFile(join(repo, 'text.txt'), 'text\n');
+    const view = await backend.captureView();
+    const files = await backend.readFiles(
+      ['binary.bin', 'text.txt'].map((path) => ({ view, path })),
+    );
+    const hashes = files.flatMap((file) => (file === undefined ? [] : [file.hash]));
+    const originalSpawn = Bun.spawn;
+    let spawns = 0;
+    Bun.spawn = ((options: any) => {
+      const command = options.cmd as readonly string[];
+      if (command[0] === 'git') spawns += 1;
+      return originalSpawn(options);
+    }) as typeof Bun.spawn;
+
+    let blobs: readonly (Uint8Array | undefined)[] = [];
+    let cached: readonly (Uint8Array | undefined)[] = [];
+    try {
+      blobs = await backend.readBlobs(hashes);
+      cached = await backend.readBlobs(hashes);
+    } finally {
+      Bun.spawn = originalSpawn;
+    }
+
+    expect(spawns).toBe(1);
+    expect(blobs[0]).toEqual(new Uint8Array([0, 1, 2, 255, 254]));
+    expect(new TextDecoder().decode(blobs[1])).toBe('text\n');
+    expect(cached).toEqual(blobs);
+  });
+
+  it('fails closed when a stored blob is missing from the shadow object store', async () => {
+    const { repo, storage } = await createRepo();
+    const backend = await open(repo, storage);
+    await writeFile(join(repo, 'new.txt'), 'new\n');
+    const view = await backend.captureView();
+    const file = await backend.readFile(view, 'new.txt');
+    if (file === undefined) throw new Error('Missing file');
+    await rm(join(storage, 'objects'), { recursive: true, force: true });
+
+    expect(await rejectionOf(backend.readBlobs([file.hash]))).toMatchObject({
+      name: 'GitOperationError',
+    });
   });
 });

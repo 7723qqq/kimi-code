@@ -16,6 +16,16 @@ interface RepositoryViewServiceOptions {
   readonly storageRoot?: string;
 }
 
+export interface RepositoryFile {
+  readonly hash: string;
+  readonly size: number;
+}
+
+export interface RepositoryFileQuery {
+  readonly view: OperationView;
+  readonly path: string;
+}
+
 interface GitResult {
   readonly stdout: string;
   readonly stderr: string;
@@ -34,7 +44,11 @@ type RefResolution =
   | { readonly kind: 'invalid' };
 
 const OBJECT_ID_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+const OBJECT_LINE_PATTERN = /^([0-9a-f]{40}|[0-9a-f]{64}) (blob|tree|commit|tag) (\d+)$/;
 const MAX_SYMREF_DEPTH = 8;
+const FILE_CACHE_MAX_ENTRIES = 50_000;
+const BLOB_CACHE_MAX_BYTES = 32 * 1024 * 1024;
+const BLOB_CACHE_MAX_ENTRY_BYTES = 4 * 1024 * 1024;
 const FORBIDDEN_REF_CHARACTERS = new Set([' ', '~', '^', ':', '?', '*', '[', '\\']);
 
 function isValidRefName(ref: string): boolean {
@@ -112,6 +126,9 @@ export class GitOperationError extends Error {
 
 export class RepositoryViewService {
   private gitDirIdentity: string | undefined;
+  private readonly fileCache = new Map<string, RepositoryFile | null>();
+  private readonly blobCache = new Map<string, Uint8Array>();
+  private blobCacheBytes = 0;
 
   private constructor(
     private readonly repoRoot: string,
@@ -173,11 +190,149 @@ export class RepositoryViewService {
     return this.captureCurrentView();
   }
 
-  async fileAt(
-    view: OperationView,
+  async readFiles(
+    queries: readonly RepositoryFileQuery[],
+  ): Promise<readonly (RepositoryFile | undefined)[]> {
+    const reads: (RepositoryFile | undefined)[] = [];
+    const pending: {
+      readonly tree: string;
+      readonly path: string;
+      readonly indexes: number[];
+    }[] = [];
+    const pendingByKey = new Map<string, (typeof pending)[number]>();
+    for (const [index, query] of queries.entries()) {
+      const key = `${query.view.tree}\0${query.path}`;
+      const cached = this.cachedFile(key);
+      if (cached !== undefined) {
+        reads[index] = cached ?? undefined;
+        continue;
+      }
+      const existing = pendingByKey.get(key);
+      if (existing !== undefined) {
+        existing.indexes.push(index);
+        continue;
+      }
+      const entry = { tree: query.view.tree, path: query.path, indexes: [index] };
+      pendingByKey.set(key, entry);
+      pending.push(entry);
+    }
+    const batched = pending.filter((entry) => !/[\n\r]/.test(entry.path));
+    const unbatched = pending.filter((entry) => /[\n\r]/.test(entry.path));
+    if (batched.length > 0) {
+      const files = await this.readFilesFromGit(batched);
+      for (const [index, entry] of batched.entries()) {
+        const file = files[index];
+        this.cacheFile(`${entry.tree}\0${entry.path}`, file ?? null);
+        for (const target of entry.indexes) reads[target] = file;
+      }
+    }
+    for (const entry of unbatched) {
+      const file = await this.readFileFromGit(entry.tree, entry.path);
+      this.cacheFile(`${entry.tree}\0${entry.path}`, file ?? null);
+      for (const target of entry.indexes) reads[target] = file;
+    }
+    return reads;
+  }
+
+  async readFile(view: OperationView, path: string): Promise<RepositoryFile | undefined> {
+    const [file] = await this.readFiles([{ view, path }]);
+    return file;
+  }
+
+  async readBlobs(hashes: readonly string[]): Promise<readonly (Uint8Array | undefined)[]> {
+    const reads: (Uint8Array | undefined)[] = [];
+    const pending: { readonly hash: string; readonly indexes: number[] }[] = [];
+    const pendingByHash = new Map<string, (typeof pending)[number]>();
+    for (const [index, hash] of hashes.entries()) {
+      const cached = this.cachedBlob(hash);
+      if (cached !== undefined) {
+        reads[index] = cached;
+        continue;
+      }
+      const existing = pendingByHash.get(hash);
+      if (existing !== undefined) {
+        existing.indexes.push(index);
+        continue;
+      }
+      const entry = { hash, indexes: [index] };
+      pendingByHash.set(hash, entry);
+      pending.push(entry);
+    }
+    if (pending.length === 0) return reads;
+    const input = `${pending.map((entry) => entry.hash).join('\n')}\n`;
+    const output = await runGitBytes(
+      this.repoRoot,
+      ['cat-file', '--batch'],
+      this.gitEnv(true),
+      input,
+    );
+    let offset = 0;
+    for (const entry of pending) {
+      const headerEnd = output.indexOf(0x0a, offset);
+      if (headerEnd < 0) {
+        throw new GitOperationError(['cat-file', 'blob', entry.hash], 'truncated output', 1);
+      }
+      const header = new TextDecoder().decode(output.subarray(offset, headerEnd));
+      offset = headerEnd + 1;
+      if (header.endsWith(' missing')) {
+        throw new GitOperationError(['cat-file', 'blob', entry.hash], 'object is missing', 128);
+      }
+      const metadata = OBJECT_LINE_PATTERN.exec(header);
+      if (metadata === null || metadata[2] !== 'blob') {
+        throw new GitOperationError(['cat-file', 'blob', entry.hash], 'not a blob', 128);
+      }
+      const size = Number(metadata[3]);
+      const bytes = output.subarray(offset, offset + size);
+      offset += size + 1;
+      this.cacheBlob(entry.hash, bytes);
+      for (const target of entry.indexes) reads[target] = bytes;
+    }
+    return reads;
+  }
+
+  async readBlob(hash: string): Promise<Uint8Array> {
+    const [bytes] = await this.readBlobs([hash]);
+    if (bytes === undefined) {
+      throw new GitOperationError(['cat-file', 'blob', hash], 'object is missing', 128);
+    }
+    return bytes.slice();
+  }
+
+  private async readFilesFromGit(
+    entries: readonly { readonly tree: string; readonly path: string }[],
+  ): Promise<(RepositoryFile | undefined)[]> {
+    const trees = [...new Set(entries.map((entry) => entry.tree))];
+    for (const tree of trees) {
+      if (tree === '') throw new GitOperationError(['ls-tree', tree], 'invalid tree', 128);
+    }
+    const input = [
+      ...trees.map((tree) => `${tree}\n`),
+      ...entries.map((entry) => `${entry.tree}:${entry.path}\n`),
+    ].join('');
+    const result = await this.git(['cat-file', '--batch-check'], { input });
+    const lines = result.stdout.split('\n');
+    for (const [index, tree] of trees.entries()) {
+      if ((lines[index] ?? '').endsWith(' missing')) {
+        throw new GitOperationError(['ls-tree', tree], 'tree object is missing', 128);
+      }
+    }
+    const reads: (RepositoryFile | undefined)[] = [];
+    for (let index = 0; index < entries.length; index += 1) {
+      const metadata = OBJECT_LINE_PATTERN.exec(lines[trees.length + index] ?? '');
+      const hash = metadata?.[1];
+      const type = metadata?.[2];
+      const size = metadata?.[3];
+      if (hash === undefined || type !== 'blob' || size === undefined) continue;
+      reads[index] = { hash, size: Number(size) };
+    }
+    return reads;
+  }
+
+  private async readFileFromGit(
+    tree: string,
     path: string,
-  ): Promise<{ readonly hash: string; readonly size: number } | undefined> {
-    const result = await this.git(['ls-tree', '-z', view.tree, '--', path]);
+  ): Promise<RepositoryFile | undefined> {
+    const result = await this.git(['ls-tree', '-z', tree, '--', path]);
     if (result.stdout === '') return undefined;
     const separator = result.stdout.indexOf('\t');
     const metadata = result.stdout.slice(0, separator).split(' ');
@@ -188,8 +343,41 @@ export class RepositoryViewService {
     return { hash, size };
   }
 
-  readBlob(hash: string): Promise<Uint8Array> {
-    return runGitBytes(this.repoRoot, ['cat-file', 'blob', hash], this.gitEnv(true));
+  private cachedFile(key: string): RepositoryFile | null | undefined {
+    const cached = this.fileCache.get(key);
+    if (cached === undefined) return undefined;
+    this.fileCache.delete(key);
+    this.fileCache.set(key, cached);
+    return cached;
+  }
+
+  private cacheFile(key: string, file: RepositoryFile | null): void {
+    if (this.fileCache.size >= FILE_CACHE_MAX_ENTRIES) {
+      const oldest = this.fileCache.keys().next().value;
+      if (oldest !== undefined) this.fileCache.delete(oldest);
+    }
+    this.fileCache.set(key, file);
+  }
+
+  private cachedBlob(hash: string): Uint8Array | undefined {
+    const cached = this.blobCache.get(hash);
+    if (cached === undefined) return undefined;
+    this.blobCache.delete(hash);
+    this.blobCache.set(hash, cached);
+    return cached;
+  }
+
+  private cacheBlob(hash: string, bytes: Uint8Array): void {
+    if (bytes.byteLength > BLOB_CACHE_MAX_ENTRY_BYTES || this.blobCache.has(hash)) return;
+    this.blobCache.set(hash, bytes);
+    this.blobCacheBytes += bytes.byteLength;
+    while (this.blobCacheBytes > BLOB_CACHE_MAX_BYTES) {
+      const oldest = this.blobCache.keys().next().value;
+      if (oldest === undefined) break;
+      const evicted = this.blobCache.get(oldest);
+      this.blobCache.delete(oldest);
+      if (evicted !== undefined) this.blobCacheBytes -= evicted.byteLength;
+    }
   }
 
   async changedFiles(before: OperationView, after: OperationView): Promise<readonly string[]> {
@@ -578,17 +766,23 @@ async function runGitBytes(
   cwd: string,
   args: readonly string[],
   env: Record<string, string>,
+  input?: string,
 ): Promise<Uint8Array> {
   const proc = Bun.spawn({
     cmd: ['git', ...args],
     cwd,
     env,
-    stdin: 'ignore',
+    stdin: input === undefined ? 'ignore' : 'pipe',
     stdout: 'pipe',
     stderr: 'pipe',
     windowsHide: true,
     timeout: 60_000,
   });
+  if (input !== undefined) {
+    if (proc.stdin === undefined) throw new Error('Git stdin is unavailable');
+    await proc.stdin.write(input);
+    await proc.stdin.end();
+  }
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(proc.stdout).arrayBuffer(),
     new Response(proc.stderr).text(),

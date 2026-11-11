@@ -5,10 +5,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
 import { makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import type { FileHistoryChange } from '#/features/fileHistory/fileHistory';
 import { AgentFileHistoryService } from '#/features/fileHistory/fileHistoryService';
 import type { OperationView } from '#/features/operationLog/operationLog';
 import { OperationLogStore } from '#/features/operationLog/operationLogStore';
+import { OperationSnapshotStore } from '#/features/operationLog/operationSnapshotStore';
 import { RepositoryViewService } from '#/features/operationLog/repositoryViewService';
+import type { SnapshotRecord } from '#/features/snapshot/snapshot';
 import { SnapshotService } from '#/features/snapshot/snapshotService';
 import { makeSessionContext } from '#/session/sessionContext/sessionContext';
 
@@ -121,8 +124,8 @@ describe('operation store query projections', () => {
     expect(aRecords).toHaveLength(3);
     expect(aRecords[2]).toMatchObject({
       id: (await store.list())[2]?.id,
-      hash: (await backend.fileAt(initial, 'a.txt'))?.hash,
-      afterHash: (await backend.fileAt(first, 'a.txt'))?.hash,
+      hash: (await backend.readFile(initial, 'a.txt'))?.hash,
+      afterHash: (await backend.readFile(first, 'a.txt'))?.hash,
       tool: 'Edit',
       mode: 'edit',
       sessionId: 'session-1',
@@ -156,7 +159,21 @@ describe('operation store query projections', () => {
     );
     expect(await history.turnRecorded(7)).toBe(true);
     expect(await history.turnRecorded(9)).toBe(false);
-    expect(await history.changes(7)).toEqual([
+    const originalSpawn = Bun.spawn;
+    let spawns = 0;
+    Bun.spawn = ((options: any) => {
+      const command = options.cmd as readonly string[];
+      if (command[0] === 'git') spawns += 1;
+      return originalSpawn(options);
+    }) as typeof Bun.spawn;
+    let turnChanges: FileHistoryChange[] = [];
+    try {
+      turnChanges = await history.changes(7);
+    } finally {
+      Bun.spawn = originalSpawn;
+    }
+    expect(spawns).toBe(4);
+    expect(turnChanges).toEqual([
       { path: 'a.txt', status: 'modified', additions: 1, deletions: 0 },
     ]);
     expect(await history.changes(8)).toEqual([
@@ -170,5 +187,48 @@ describe('operation store query projections', () => {
       version: 7_000,
       content: 'alpha\ngamma\n',
     });
+  });
+
+  it('projects a snapshot list from one batched git read', async () => {
+    const repo = await createRepo();
+    const backend = await RepositoryViewService.open({ repoRoot: repo });
+    const store = new OperationLogStore(backend.storageRoot);
+    let view = await backend.captureView();
+    for (let index = 0; index < 8; index += 1) {
+      await writeFile(join(repo, 'a.txt'), `version ${index}\n`);
+      view = await capture(repo, store, view, 7, `call-${index}`);
+    }
+    const snapshots = new OperationSnapshotStore(repo);
+    await snapshots.operations();
+    const originalSpawn = Bun.spawn;
+    let spawns = 0;
+    Bun.spawn = ((options: any) => {
+      const command = options.cmd as readonly string[];
+      if (command[0] === 'git') spawns += 1;
+      return originalSpawn(options);
+    }) as typeof Bun.spawn;
+
+    let records: readonly SnapshotRecord[] = [];
+    try {
+      records = await snapshots.list(join(repo, 'a.txt'));
+    } finally {
+      Bun.spawn = originalSpawn;
+    }
+
+    expect(spawns).toBe(1);
+    const operations = await store.list();
+    expect(records).toHaveLength(operations.length);
+    for (const [index, operation] of operations.entries()) {
+      const before =
+        operation.beforeViewId === undefined ? undefined : await store.view(operation.beforeViewId);
+      const after = await store.view(operation.viewId);
+      const beforeFile = before === undefined ? undefined : await backend.readFile(before, 'a.txt');
+      const afterFile = await backend.readFile(after, 'a.txt');
+      expect(records[index]).toMatchObject({
+        id: operation.id,
+        hash: beforeFile?.hash ?? '',
+        afterHash: afterFile?.hash ?? '',
+      });
+    }
   });
 });

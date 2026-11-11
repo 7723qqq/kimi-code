@@ -159,17 +159,26 @@ export class AgentFileHistoryService extends Service implements IAgentFileHistor
     if (first?.beforeViewId === undefined || latest === undefined) return [];
     const before = await this.operationStore.view(first.beforeViewId);
     const after = await this.operationStore.view(latest.viewId);
+    const paths = await this.operationStore.changedFiles(before, after);
+    const [beforeFiles, afterFiles] = await Promise.all([
+      this.operationStore.readFiles(before, paths),
+      this.operationStore.readFiles(after, paths),
+    ]);
+    const hashes = new Set<string>();
+    for (const file of [...beforeFiles, ...afterFiles]) {
+      if (file !== undefined) hashes.add(file.hash);
+    }
+    const hashList = [...hashes];
+    const blobs = await this.operationStore.readBlobs(hashList);
+    const contents = new Map<string, Uint8Array | undefined>();
+    for (const [index, hash] of hashList.entries()) contents.set(hash, blobs[index]);
     const changes: FileHistoryChange[] = [];
     const lcsBudget = { remaining: LCS_AGGREGATE_CELL_BUDGET };
-    for (const path of await this.operationStore.changedFiles(before, after)) {
-      const [beforeFile, afterFile] = await Promise.all([
-        this.operationStore.fileAt(before, path),
-        this.operationStore.fileAt(after, path),
-      ]);
-      const [beforeBytes, afterBytes] = await Promise.all([
-        beforeFile === undefined ? undefined : this.operationStore.content(beforeFile.hash),
-        afterFile === undefined ? undefined : this.operationStore.content(afterFile.hash),
-      ]);
+    for (const [index, path] of paths.entries()) {
+      const beforeFile = beforeFiles[index];
+      const afterFile = afterFiles[index];
+      const beforeBytes = beforeFile === undefined ? undefined : contents.get(beforeFile.hash);
+      const afterBytes = afterFile === undefined ? undefined : contents.get(afterFile.hash);
       const change = diffChange(path, beforeBytes, afterBytes, lcsBudget);
       if (change !== undefined) changes.push(change);
     }
