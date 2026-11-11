@@ -798,7 +798,7 @@ import '#/agent/loop/configSection';
 export * from '#/agent/loop/loop';
 export * from '#/agent/loop/loopService';
 export { TurnStarted, turnPromptText } from '#/agent/loop/turnEvents';
-export { TurnPrompt, TurnEnded } from '#/agent/loop/turnOps';
+export { TurnPrompt, TurnEnded, TurnSteer } from '#/agent/loop/turnOps';
 export * from '#/agent/loop/promptChannel';
 export * from '#/agent/interruptionReminder/interruptionReminder';
 export * from '#/agent/interruptionReminder/interruptionReminderService';

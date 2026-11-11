@@ -29,8 +29,11 @@ import {
   IWorkspaceInstanceManager,
   interactions,
   makeAgentScopeContext,
+  PromptCompleted,
+  SubagentSpawned,
   TurnEnded,
   TurnStarted,
+  TurnSteer,
   type AgentContext,
   type ContextMessage,
   type AgentConversationUndoParticipant,
@@ -39,9 +42,6 @@ import {
   type Scope,
   type WireRecord,
 } from '@moonshot-ai/agent-core-v2';
-import { TurnSteer } from '@moonshot-ai/agent-core-v2/contract';
-import { PromptCompleted } from '@moonshot-ai/agent-core-v2/agent/prompt/promptEvents';
-import { SubagentSpawned } from '@moonshot-ai/agent-core-v2/session/subagent/mirrorAgentRun';
 import {
   AgentTranscript,
   TranscriptStore,
