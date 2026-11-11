@@ -27,6 +27,38 @@ export const NON_USER_ORIGIN_KINDS: ReadonlySet<string> = new Set([
   'compaction_summary',
 ]);
 
+const TASK_ORIGIN_KINDS: ReadonlySet<string> = new Set([
+  'task',
+  'background_task',
+  'task_notification',
+]);
+
+export type UserOriginClass =
+  | 'user'
+  | 'opening_trigger'
+  | 'hidden'
+  | 'marker'
+  | 'slash'
+  | 'task'
+  | 'other';
+
+export function classifyUserOrigin(origin: unknown): UserOriginClass {
+  const payload = origin as { kind?: unknown; name?: unknown; trigger?: unknown } | undefined;
+  const kind = payload?.kind;
+  if (kind === undefined || kind === 'user') return 'user';
+  if (typeof kind !== 'string') return 'other';
+  if (kind === 'system_trigger') {
+    return typeof payload?.name === 'string' && TURN_OPENING_SYSTEM_TRIGGERS.has(payload.name)
+      ? 'opening_trigger'
+      : 'hidden';
+  }
+  if (HIDDEN_USER_ORIGINS.has(kind)) return 'hidden';
+  if (isUserSlashOrigin(payload)) return 'slash';
+  if (MARKER_USER_ORIGIN_KINDS.has(kind)) return 'marker';
+  if (TASK_ORIGIN_KINDS.has(kind)) return 'task';
+  return 'other';
+}
+
 export function isUserSlashOrigin(
   origin: { readonly kind?: unknown; readonly trigger?: unknown } | null | undefined,
 ): boolean {

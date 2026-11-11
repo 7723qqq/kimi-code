@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import { transcriptEventSchema } from '#/contract/events';
-import { projectTranscriptUserOrigin } from '#/contract/origin';
+import { classifyUserOrigin, isUndoAnchorTurnOrigin, projectTranscriptUserOrigin, type UserOriginClass } from '#/contract/origin';
 import {
   agentTranscriptSnapshotSchema,
   isPlainAgentId,
@@ -27,6 +27,41 @@ import { ViewRegistry } from '#/view/registry';
 
 const idLabel = (i: TranscriptItem): string =>
   i.kind === 'turn' ? i.turnId : i.kind === 'marker' ? i.markerId : i.refId;
+
+describe('shared user origin classification', () => {
+  it('classifies every origin family used by the wire', () => {
+    const cases: readonly (readonly [unknown, UserOriginClass, boolean])[] = [
+      [undefined, 'user', true],
+      [{ kind: 'user' }, 'user', true],
+      [{ kind: 'system_trigger', name: 'goal_continuation' }, 'opening_trigger', false],
+      [{ kind: 'system_trigger', name: 'subagent' }, 'opening_trigger', false],
+      [{ kind: 'system_trigger', name: 'reminder' }, 'hidden', false],
+      [{ kind: 'system_trigger', name: 7 }, 'hidden', false],
+      [{ kind: 'injection', variant: 'v' }, 'hidden', false],
+      [{ kind: 'retry' }, 'hidden', false],
+      [{ kind: 'skill_activation', trigger: 'user-slash' }, 'slash', true],
+      [{ kind: 'plugin_command', trigger: 'user-slash' }, 'slash', true],
+      [{ kind: 'skill_activation', trigger: 'model-tool' }, 'marker', false],
+      [{ kind: 'plugin_command', trigger: 'model-tool' }, 'marker', false],
+      [{ kind: 'compaction_summary' }, 'marker', false],
+      [{ kind: 'task', taskId: 't1' }, 'task', false],
+      [{ kind: 'background_task', taskId: 't1' }, 'task', false],
+      [{ kind: 'task_notification', taskId: 't1' }, 'task', false],
+      [{ kind: 'cron_job', jobId: 'j' }, 'other', false],
+      [{ kind: 'hook_result', event: 'stop' }, 'other', false],
+      [{ kind: 'shell_command', phase: 'input' }, 'other', false],
+      [{ kind: 'future_origin' }, 'other', false],
+      [{ kind: 42 }, 'other', false],
+      [null, 'user', true],
+      ['user', 'user', true],
+    ];
+
+    for (const [origin, expectedClass, expectedAnchor] of cases) {
+      expect(classifyUserOrigin(origin)).toBe(expectedClass);
+      expect(isUndoAnchorTurnOrigin(origin)).toBe(expectedAnchor);
+    }
+  });
+});
 
 describe('client metadata in transcript user origins', () => {
   it('retains user-invoked single skill frame metadata without exposing model-triggered activations as user input', () => {

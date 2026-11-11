@@ -1,11 +1,9 @@
 import { daemonFileRefFromPairingPart, parseDaemonFileRef } from '../contract/mediaRef';
 import {
-  HIDDEN_USER_ORIGINS,
-  isUserSlashOrigin,
+  classifyUserOrigin,
   mapTurnOrigin,
   MARKER_USER_ORIGINS,
   projectTranscriptUserOrigin,
-  TURN_OPENING_SYSTEM_TRIGGERS,
 } from '../contract/origin';
 import type { TranscriptAttachment } from '../model/attachment';
 import type { TranscriptFrame, TranscriptUserOrigin } from '../model/frame';
@@ -426,10 +424,8 @@ export function createHistoryMessageProjector(): HistoryMessageProjector {
     const message = content === entry.content ? entry : { ...entry, content };
     if (message.role === 'system') return;
     const originKind = message.origin?.kind;
-    const isTaskOrigin =
-      originKind === 'task' ||
-      originKind === 'background_task' ||
-      originKind === 'task_notification';
+    const originClass = message.role === 'user' ? classifyUserOrigin(message.origin) : undefined;
+    const isTaskOrigin = originClass === 'task';
     const prevRoleAtEntry = prevNonTaskRole;
     if (!isTaskOrigin) prevNonTaskRole = message.role;
 
@@ -437,8 +433,8 @@ export function createHistoryMessageProjector(): HistoryMessageProjector {
       for (const part of hookParts) {
         pushMarker('hook', userPromptSubmitHookMarkerPayload(part));
       }
-      if (originKind !== undefined && HIDDEN_USER_ORIGINS.has(originKind)) {
-        if (opensOwnTurn(message)) {
+      if (originClass === 'hidden' || originClass === 'opening_trigger') {
+        if (originClass === 'opening_trigger') {
           const opening =
             (message.origin as { name?: unknown }).name === 'subagent'
               ? foldTurnOpeningInput(message)
@@ -448,7 +444,7 @@ export function createHistoryMessageProjector(): HistoryMessageProjector {
         return;
       }
       const markerKey = originKind !== undefined ? MARKER_USER_ORIGINS[originKind] : undefined;
-      if (markerKey !== undefined && !isUserSlashOrigin(message.origin)) {
+      if (originClass === 'marker' && markerKey !== undefined) {
         pushMarker(markerKey, { text: textOf(message), origin: message.origin });
         return;
       }
@@ -489,19 +485,15 @@ export function createHistoryMessageProjector(): HistoryMessageProjector {
         });
         return;
       }
-      if (markerKey !== undefined) {
-        const opening = isUserSlashOrigin(message.origin)
-          ? foldTurnOpeningInput(message)
-          : undefined;
-        pushMarker(markerKey, { text: opening?.text ?? textOf(message), origin: message.origin });
-        if (opening !== undefined) {
-          startTurn(
-            mapOrigin(message),
-            opening.text,
-            opening.attachmentIds,
-            triggerPromptIdOf(message),
-          );
-        }
+      if (originClass === 'slash' && markerKey !== undefined) {
+        const opening = foldTurnOpeningInput(message);
+        pushMarker(markerKey, { text: opening.text, origin: message.origin });
+        startTurn(
+          mapOrigin(message),
+          opening.text,
+          opening.attachmentIds,
+          triggerPromptIdOf(message),
+        );
         return;
       }
       if (isTaskOrigin) {
@@ -693,15 +685,6 @@ function notificationFrameText(text: string): string {
   const body = (childStart === -1 ? bodyLines : bodyLines.slice(0, childStart)).join('\n').trim();
   if (title.length > 0 && body.length > 0) return `${title}\n${body}`;
   return title.length > 0 ? title : body.length > 0 ? body : text;
-}
-
-function opensOwnTurn(message: HistoryMessage): boolean {
-  const origin = message.origin as { kind?: unknown; name?: unknown } | undefined;
-  return (
-    origin?.kind === 'system_trigger' &&
-    typeof origin.name === 'string' &&
-    TURN_OPENING_SYSTEM_TRIGGERS.has(origin.name)
-  );
 }
 
 function triggerPromptIdOf(message: HistoryMessage): string | undefined {

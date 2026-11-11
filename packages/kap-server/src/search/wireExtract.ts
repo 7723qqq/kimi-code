@@ -1,10 +1,8 @@
 import { matchSingleMediaPathTag } from '@moonshot-ai/agent-core-v2/agent/media/mediaRef';
 import {
-  HIDDEN_USER_ORIGINS,
-  isUserSlashOrigin,
-  MARKER_USER_ORIGIN_KINDS,
+  classifyUserOrigin,
+  isUndoAnchorTurnOrigin,
   NON_USER_ORIGIN_KINDS,
-  TURN_OPENING_SYSTEM_TRIGGERS,
 } from '@moonshot-ai/transcript';
 
 export interface ExtractedWireMessage {
@@ -101,23 +99,10 @@ function turnEffectOfAppendMessage(message: unknown): TurnEffect {
 
   const origin =
     m.origin !== null && typeof m.origin === 'object' ? (m.origin as OriginLike) : undefined;
-  const kind = origin?.kind;
-  if (typeof kind === 'string' && HIDDEN_USER_ORIGINS.has(kind)) {
-    if (
-      kind === 'system_trigger' &&
-      typeof origin?.name === 'string' &&
-      TURN_OPENING_SYSTEM_TRIGGERS.has(origin.name)
-    ) {
-      return { kind: 'open', anchor: false };
-    }
-    return NONE;
-  }
-  if (typeof kind === 'string' && MARKER_USER_ORIGIN_KINDS.has(kind)) {
-    if (origin !== undefined && isUserSlashOrigin(origin)) return { kind: 'open', anchor: true };
-    return NONE;
-  }
-  const anchor = kind === undefined || kind === 'user';
-  return { kind: 'open', anchor };
+  const originClass = classifyUserOrigin(origin);
+  if (originClass === 'opening_trigger') return { kind: 'open', anchor: false };
+  if (originClass === 'hidden' || originClass === 'marker') return NONE;
+  return { kind: 'open', anchor: isUndoAnchorTurnOrigin(origin) };
 }
 
 export function analyzeWireLine(line: string): WireLineAnalysis {

@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'bun:test';
 
-import { analyzeWireLine, extractFromWireLine } from '../../src/search/wireExtract';
+import {
+  HIDDEN_USER_ORIGINS,
+  isUserSlashOrigin,
+  MARKER_USER_ORIGIN_KINDS,
+  TURN_OPENING_SYSTEM_TRIGGERS,
+} from '@moonshot-ai/transcript';
+
+import {
+  analyzeWireLine,
+  extractFromWireLine,
+  type TurnEffect,
+} from '../../src/search/wireExtract';
 
 const line = (value: unknown): string => JSON.stringify(value);
 
@@ -220,6 +231,61 @@ describe('extractFromWireLine', () => {
       }),
     );
     expect(out[0]?.time).toBeUndefined();
+  });
+});
+
+describe('analyzeWireLine turn effects match the pre-extraction classifier', () => {
+  const legacyTurnEffect = (origin: unknown): TurnEffect => {
+    const payload = origin as
+      | { readonly kind?: unknown; readonly name?: unknown; readonly trigger?: unknown }
+      | undefined;
+    const kind = payload?.kind;
+    if (typeof kind === 'string' && HIDDEN_USER_ORIGINS.has(kind)) {
+      if (
+        kind === 'system_trigger' &&
+        typeof payload?.name === 'string' &&
+        TURN_OPENING_SYSTEM_TRIGGERS.has(payload.name)
+      ) {
+        return { kind: 'open', anchor: false };
+      }
+      return { kind: 'none' };
+    }
+    if (typeof kind === 'string' && MARKER_USER_ORIGIN_KINDS.has(kind)) {
+      if (payload !== undefined && isUserSlashOrigin(payload)) return { kind: 'open', anchor: true };
+      return { kind: 'none' };
+    }
+    return { kind: 'open', anchor: kind === undefined || kind === 'user' };
+  };
+
+  const origins: readonly unknown[] = [
+    undefined,
+    null,
+    { kind: 'user' },
+    { kind: 'system_trigger', name: 'goal_continuation' },
+    { kind: 'system_trigger', name: 'subagent' },
+    { kind: 'system_trigger', name: 'reminder' },
+    { kind: 'system_trigger', name: 7 },
+    { kind: 'injection', variant: 'v' },
+    { kind: 'retry' },
+    { kind: 'skill_activation', trigger: 'user-slash' },
+    { kind: 'plugin_command', trigger: 'user-slash' },
+    { kind: 'skill_activation', trigger: 'model-tool' },
+    { kind: 'plugin_command', trigger: 'nested' },
+    { kind: 'compaction_summary' },
+    { kind: 'task', taskId: 't1' },
+    { kind: 'background_task', taskId: 't1' },
+    { kind: 'task_notification', taskId: 't1' },
+    { kind: 'cron_job', jobId: 'j' },
+    { kind: 'hook_result', event: 'stop' },
+    { kind: 'shell_command', phase: 'input' },
+    { kind: 'future_origin' },
+    { kind: 42 },
+  ];
+
+  it('returns the same turn effect for every origin shape', () => {
+    for (const origin of origins) {
+      expect(analyzeWireLine(userRecord('x', 1, origin)).turn).toEqual(legacyTurnEffect(origin));
+    }
   });
 });
 
