@@ -11,7 +11,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 - **Author**: Moonshot AI
 - **License**: MIT
 - **Homepage**: https://github.com/MoonshotAI/kimi-code
-- **Version**: `@moonshot-ai/kimi-code` 2.5.2 (the main CLI app — upstream 2.5.2 plus this fork's own patch stream)
+- **Version**: `@moonshot-ai/kimi-code` 2.5.3 (the main CLI app — upstream 2.5.3 plus this fork's own patch stream)
 
 > **Note**: This repository is a personal experimental fork of MoonshotAI/kimi-code. Not affiliated with Moonshot AI. Use at your own risk — do not submit PRs from this fork to upstream.
 
