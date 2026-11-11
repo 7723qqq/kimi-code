@@ -204,6 +204,39 @@ describe('experimental feature command handlers', () => {
     },
   );
 
+  it('still notices that LSP needs a restart when reload fails after the config write', async () => {
+    const host = makeHost();
+    host.harness.reloadSession.mockRejectedValue(new Error('session reload failed'));
+
+    await applyExperimentalFeatureChanges(host, [{ id: 'lsp', enabled: true }]);
+
+    expect(host.harness.setConfig).toHaveBeenCalledWith({ experimental: { lsp: true } });
+    expect(host.showNotice).toHaveBeenCalledWith(
+      'LSP setting changes take effect after restarting Kimi Code.',
+    );
+    expect(host.showError).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not show the LSP restart notice when the config write fails', async () => {
+    const host = makeHost();
+    host.harness.setConfig.mockRejectedValue(new Error('config write failed'));
+
+    await applyExperimentalFeatureChanges(host, [{ id: 'lsp', enabled: true }]);
+
+    expect(host.showNotice).not.toHaveBeenCalled();
+    expect(host.showError).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not show the LSP restart notice for an unrelated flag whose reload fails', async () => {
+    const host = makeHost();
+    host.harness.reloadSession.mockRejectedValue(new Error('session reload failed'));
+
+    await applyExperimentalFeatureChanges(host, [{ id: 'micro_compaction', enabled: false }]);
+
+    expect(host.showNotice).not.toHaveBeenCalled();
+    expect(host.showError).toHaveBeenCalledTimes(1);
+  });
+
   it('does not show the restart notice for unrelated flag changes', async () => {
     const host = makeHost();
 

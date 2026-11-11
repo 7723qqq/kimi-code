@@ -1027,8 +1027,10 @@ export async function applyExperimentalFeatureChanges(
     experimental[change.id] = change.enabled;
   }
 
+  let configWritten = false;
   try {
     await host.harness.setConfig({ experimental });
+    configWritten = true;
     const features = await host.harness.getExperimentalFeatures();
     setExperimentalFeatures(features);
     host.refreshSlashCommandAutocomplete();
@@ -1054,9 +1056,6 @@ export async function applyExperimentalFeatureChanges(
       // them; only the mode machinery (enter/injection/guards) reacts live.
       host.showNotice(t('tui.messages.experimentalTowerRestart'));
     }
-    if (changes.some((change) => change.id === 'lsp')) {
-      host.showNotice(t('tui.messages.experimentalLspRestart'));
-    }
     host.track('experimental_features_apply', {
       changed: changes.length,
       flags: features
@@ -1069,6 +1068,10 @@ export async function applyExperimentalFeatureChanges(
     host.showError(
       t('tui.statusMessages.updateExperimentsFailed', { error: formatErrorMessage(error) }),
     );
+  } finally {
+    if (configWritten && changes.some((change) => change.id === 'lsp')) {
+      host.showNotice(t('tui.messages.experimentalLspRestart'));
+    }
   }
 }
 
