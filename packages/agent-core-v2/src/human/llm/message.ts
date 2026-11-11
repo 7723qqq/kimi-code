@@ -234,6 +234,7 @@ export function salvageInterruptedMessage(message: AssistantMessage): AssistantM
 
 export interface MessageAccumulator {
   push(part: StreamedMessagePart): void;
+  hasToolCall(): boolean;
   finish(): AssistantMessage;
 }
 
@@ -301,6 +302,9 @@ export function createMessageAccumulator(): MessageAccumulator {
         flush();
         pending = structuredClone(part);
       }
+    },
+    hasToolCall() {
+      return message.toolCalls.length > 0 || (pending !== null && isToolCall(pending));
     },
     finish(): AssistantMessage {
       flush();

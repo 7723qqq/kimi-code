@@ -1276,7 +1276,7 @@ describe('WaitForTool (harness)', () => {
   );
 
   it.each(['before-request', 'before-tool'] as const)(
-    'interrupts every wait after %s steering and can wait again after consuming the new input',
+    'settles every wait after %s steering and can wait again after consuming the new input',
     async (timing) => {
       const ctx = createTestAgent();
       const slow = controllableProcess();
@@ -1303,19 +1303,20 @@ describe('WaitForTool (harness)', () => {
           arguments: JSON.stringify({ timeout: 90, task_id: taskId }),
         });
         ctx.mockNextResponse({ type: 'text', text: 'The background work has finished.' });
+        const input =
+          'Check this message before waiting again.\n\nKeep the background task running.';
         const steer = async () => {
-          await ctx.rpc.steer({
-            input: [{ type: 'text', text: 'Check this message before waiting again.' }],
-          });
-          await ctx.rpc.steer({
-            input: [{ type: 'text', text: 'Keep the background task running.' }],
-          });
+          await ctx.rpc.steer({ input: [{ type: 'text', text: input }] });
         };
+        let steered = false;
         if (timing === 'before-request') {
           ctx
             .get(IAgentLoopService)
             .hooks.onWillBeginStep.register('steer-before-request', async (event, next) => {
-              if (event.step === 1) await steer();
+              if (!steered && event.step === 1) {
+                steered = true;
+                await steer();
+              }
               await next();
             });
         } else {
@@ -1323,40 +1324,59 @@ describe('WaitForTool (harness)', () => {
             if (event.toolCall.id === 'wait-specific') event.waitUntil(steer());
           });
         }
-        const waitingAgain = createControlledPromise<void>();
         ctx.get(IEventBus).subscribe(ToolProgress, (event) => {
-          if (event.toolCallId === 'wait-again') waitingAgain.resolve();
+          if (
+            timing === 'before-request' &&
+            (event.toolCallId === 'wait-specific' || event.toolCallId === 'wait-any')
+          ) {
+            slow.resolveWait(0);
+          }
         });
 
         await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Wait for the background work.' }] });
-        await waitingAgain;
+        await waitForAssertion(
+          () => {
+            expect(ctx.llmCalls.length).toBeGreaterThanOrEqual(2);
+          },
+          { timeout: 5_000 },
+        );
 
+        const firstWaitStatus = timing === 'before-request' ? 'completed' : 'interrupted';
+        const anyWaitStatus = timing === 'before-request' ? 'no_tasks' : firstWaitStatus;
         expect(ctx.llmCalls[1]?.history.filter((message) => message.role === 'tool')).toMatchObject(
           [
             {
               toolCallId: 'wait-specific',
-              content: [{ text: expect.stringContaining('wait_status: interrupted') }],
+              content: [{ text: expect.stringContaining(`wait_status: ${firstWaitStatus}`) }],
             },
             {
               toolCallId: 'wait-any',
-              content: [{ text: expect.stringContaining('wait_status: interrupted') }],
+              content: [{ text: expect.stringContaining(`wait_status: ${anyWaitStatus}`) }],
             },
           ],
         );
-        expect(ctx.llmCalls[1]?.history.at(-1)).toMatchObject({
-          role: 'user',
-          content: [
-            {
-              text: 'Check this message before waiting again.\n\nKeep the background task running.',
-            },
-          ],
-        });
-        expect(tasks.getTask(taskId)?.status).toBe('running');
+        const inputCall = timing === 'before-request' ? ctx.llmCalls[0] : ctx.llmCalls[1];
+        if (timing === 'before-request') {
+          expect(inputCall?.history.filter((message) => message.role === 'user')).toMatchObject([
+            { content: [{ text: 'Wait for the background work.' }] },
+            { content: [{ text: input }] },
+          ]);
+        } else {
+          expect(inputCall?.history.at(-1)).toMatchObject({
+            role: 'user',
+            content: [{ text: input }],
+          });
+        }
+        expect(tasks.getTask(taskId)?.status).toBe(
+          timing === 'before-request' ? 'completed' : 'running',
+        );
         slow.resolveWait(0);
         await ctx.get(IAgentLoopService).settled();
         expect(ctx.llmCalls).toHaveLength(3);
         expect(
-          ctx.llmCalls[2]?.history.find((message) => message.toolCallId === 'wait-again'),
+          ctx.llmCalls[2]?.history.find(
+            (message) => message.role === 'tool' && message.toolCallId === 'wait-again',
+          ),
         ).toMatchObject({
           content: [{ text: expect.stringContaining('wait_status: completed') }],
         });
