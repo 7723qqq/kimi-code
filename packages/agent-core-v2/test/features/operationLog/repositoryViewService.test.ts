@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from 'bun:test';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import { join } from 'pathe';
@@ -706,5 +706,38 @@ describe('RepositoryViewService', () => {
     for (const [index, entry] of entries.entries()) {
       expect(reads[index]).toEqual(expected.get(entry.name));
     }
+  });
+});
+
+describe('capture locking', () => {
+  it('isolates shadow indexes per instance while allowing concurrent captures', async () => {
+    const { repo, storage } = await createRepo();
+    const first = await RepositoryViewService.open({ repoRoot: repo, storageRoot: storage });
+    const second = await RepositoryViewService.open({ repoRoot: repo, storageRoot: storage });
+
+    const [firstView, secondView] = await Promise.all([
+      first.captureView(),
+      second.captureView(),
+    ]);
+
+    expect(firstView.tree).toBe(secondView.tree);
+    expect(await readdir(join(storage, 'indexes'))).toHaveLength(2);
+    const [file] = await first.readFiles([{ view: firstView, path: 'a.txt' }]);
+    expect(file).toBeDefined();
+  });
+
+  it('recovers a stale cross-process capture lock', async () => {
+    const { repo, storage } = await createRepo();
+    const service = await RepositoryViewService.open({ repoRoot: repo, storageRoot: storage });
+    await mkdir(storage, { recursive: true });
+    const lockPath = join(storage, 'capture.lock');
+    await writeFile(lockPath, 'stale-owner');
+    const staleAt = new Date(Date.now() - 60_000);
+    await utimes(lockPath, staleAt, staleAt);
+
+    const view = await service.captureView();
+
+    expect(view.tree).not.toBe('');
+    expect(await stat(lockPath).catch(() => undefined)).toBeUndefined();
   });
 });

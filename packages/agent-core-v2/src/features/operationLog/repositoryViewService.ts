@@ -1,4 +1,5 @@
-import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { mkdir, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
 
 import { dirname, join, resolve } from 'pathe';
 
@@ -50,6 +51,11 @@ const FILE_CACHE_MAX_ENTRIES = 50_000;
 const BLOB_CACHE_MAX_BYTES = 32 * 1024 * 1024;
 const BLOB_CACHE_MAX_ENTRY_BYTES = 4 * 1024 * 1024;
 const FORBIDDEN_REF_CHARACTERS = new Set([' ', '~', '^', ':', '?', '*', '[', '\\']);
+const CAPTURE_LOCK_RETRY_MS = 25;
+const CAPTURE_LOCK_TIMEOUT_MS = 30_000;
+const CAPTURE_LOCK_STALE_MS = 30_000;
+const CAPTURE_LOCK_HEARTBEAT_MS = 10_000;
+const captureLocks = new Map<string, Promise<void>>();
 
 function isValidRefName(ref: string): boolean {
   if (!ref.startsWith('refs/') || ref.endsWith('/') || ref.endsWith('.')) return false;
@@ -112,6 +118,12 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function errorCode(error: unknown): string | undefined {
+  if (typeof error !== 'object' || error === null) return undefined;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === 'string' ? code : undefined;
+}
+
 export class GitOperationError extends Error {
   override readonly name = 'GitOperationError';
 
@@ -170,7 +182,7 @@ export class RepositoryViewService {
       gitDir,
       storageRoot,
       objectDir,
-      join(storageRoot, 'index'),
+      join(storageRoot, 'indexes', randomUUID(), 'index'),
       join(storageRoot, 'objects'),
       join(storageRoot, 'recovery-required.json'),
       refsFromFiles,
@@ -187,7 +199,11 @@ export class RepositoryViewService {
 
   async captureView(): Promise<OperationView> {
     await this.assertNoRecoveryRequired();
-    return this.captureCurrentView();
+    return this.withCaptureLock(() => this.captureCurrentView());
+  }
+
+  dispose(): void {
+    void rm(dirname(this.shadowIndexPath), { recursive: true, force: true }).catch(() => undefined);
   }
 
   async readFiles(
@@ -386,43 +402,45 @@ export class RepositoryViewService {
   }
 
   async restoreView(expected: OperationView, target: OperationView): Promise<void> {
-    const current = await this.captureView();
-    await this.assertRestorable(target);
-    if (!operationViewsEqual(current, expected)) {
-      throw new OperationLogError(
-        'view-mismatch',
-        'The repository changed after the expected view was captured',
-      );
-    }
-    await mkdir(dirname(this.recoveryPath), { recursive: true, mode: 0o700 });
-    await writeFile(this.recoveryPath, JSON.stringify({ current, target }), {
-      encoding: 'utf8',
-      flag: 'wx',
-      mode: 0o600,
-    });
-    try {
-      await this.applyView(current, target);
-    } catch (error) {
-      try {
-        const interrupted = await this.captureCurrentView();
-        await this.applyView(interrupted, current);
-        await rm(this.recoveryPath, { force: true });
-      } catch (rollbackError) {
+    return this.withCaptureLock(async () => {
+      const current = await this.captureCurrentView();
+      await this.assertRestorable(target);
+      if (!operationViewsEqual(current, expected)) {
         throw new OperationLogError(
-          'recovery-required',
-          `Git view restoration failed (${errorMessage(error)}); rollback failed (${errorMessage(rollbackError)})`,
+          'view-mismatch',
+          'The repository changed after the expected view was captured',
         );
       }
-      throw error;
-    }
-    try {
-      await rm(this.recoveryPath, { force: true });
-    } catch (error) {
-      throw new OperationLogError(
-        'recovery-required',
-        `Git view was restored but its recovery marker could not be removed: ${errorMessage(error)}`,
-      );
-    }
+      await mkdir(dirname(this.recoveryPath), { recursive: true, mode: 0o700 });
+      await writeFile(this.recoveryPath, JSON.stringify({ current, target }), {
+        encoding: 'utf8',
+        flag: 'wx',
+        mode: 0o600,
+      });
+      try {
+        await this.applyView(current, target);
+      } catch (error) {
+        try {
+          const interrupted = await this.captureCurrentView();
+          await this.applyView(interrupted, current);
+          await rm(this.recoveryPath, { force: true });
+        } catch (rollbackError) {
+          throw new OperationLogError(
+            'recovery-required',
+            `Git view restoration failed (${errorMessage(error)}); rollback failed (${errorMessage(rollbackError)})`,
+          );
+        }
+        throw error;
+      }
+      try {
+        await rm(this.recoveryPath, { force: true });
+      } catch (error) {
+        throw new OperationLogError(
+          'recovery-required',
+          `Git view was restored but its recovery marker could not be removed: ${errorMessage(error)}`,
+        );
+      }
+    });
   }
 
   async assertRestorable(view: OperationView): Promise<void> {
@@ -448,6 +466,63 @@ export class RepositoryViewService {
     const expectedIndexTree = await this.treeForHead(view.head);
     if (view.indexTree === '' || view.indexTree !== expectedIndexTree) {
       throw new OperationLogError('staged-changes', 'The target view contains staged changes');
+    }
+  }
+
+  private async withCaptureLock<T>(run: () => Promise<T>): Promise<T> {
+    const previous = captureLocks.get(this.storageRoot) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.then(() => current);
+    captureLocks.set(this.storageRoot, tail);
+    await previous;
+    try {
+      return await this.withCaptureFileLock(run);
+    } finally {
+      release();
+      if (captureLocks.get(this.storageRoot) === tail) captureLocks.delete(this.storageRoot);
+    }
+  }
+
+  private async withCaptureFileLock<T>(run: () => Promise<T>): Promise<T> {
+    await mkdir(this.storageRoot, { recursive: true, mode: 0o700 });
+    const path = join(this.storageRoot, 'capture.lock');
+    const token = randomUUID();
+    const deadline = Date.now() + CAPTURE_LOCK_TIMEOUT_MS;
+    for (;;) {
+      try {
+        await writeFile(path, token, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+        break;
+      } catch (error) {
+        const code = errorCode(error);
+        if (code !== 'EEXIST' && code !== 'EPERM') throw error;
+        if (code === 'EPERM' && !(await pathExists(path))) throw error;
+        const age = await stat(path)
+          .then((info) => Date.now() - info.mtimeMs)
+          .catch(() => 0);
+        if (age > CAPTURE_LOCK_STALE_MS) {
+          await rm(path, { force: true });
+          continue;
+        }
+        if (Date.now() > deadline) {
+          throw new OperationLogError('busy', 'Repository view capture is locked by another process');
+        }
+        await new Promise((resolve) => setTimeout(resolve, CAPTURE_LOCK_RETRY_MS));
+      }
+    }
+    const heartbeat = setInterval(() => {
+      const at = new Date();
+      void utimes(path, at, at).catch(() => undefined);
+    }, CAPTURE_LOCK_HEARTBEAT_MS);
+    heartbeat.unref();
+    try {
+      return await run();
+    } finally {
+      clearInterval(heartbeat);
+      const owner = await readTextFile(path).catch(() => undefined);
+      if (owner === token) await rm(path, { force: true });
     }
   }
 
