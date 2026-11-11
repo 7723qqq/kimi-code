@@ -370,7 +370,7 @@ describeWithTimeout(
       const markers = hits
         .map((hit) => /"content":"([^"]{0,60})/.exec(hit)?.[1] ?? hit.slice(0, 60))
         .slice(0, 8);
-      return `${JSON.stringify({ prompts: tx.prompts, turns, interactions: tx.interactions })}\nllm hits (${hits.length}): ${JSON.stringify(markers)}`;
+      return `${JSON.stringify({ prompts: tx.prompts, turns, tasks: tx.tasks, interactions: tx.interactions })}\nllm hits (${hits.length}): ${JSON.stringify(markers)}`;
     }
 
     const idleOrDump = async (server: RunningServer, base: string, sid: string): Promise<void> => {
@@ -378,8 +378,20 @@ describeWithTimeout(
         await idle(server, base, sid);
       } catch (error) {
         const tx = await getTranscript(server, base, sid);
+        let facts: string;
+        try {
+          facts = JSON.stringify(
+            await rest<Record<string, unknown>>(
+              server,
+              base,
+              `/api/v1/sessions/${encodeURIComponent(sid)}`,
+            ),
+          );
+        } catch (factsError) {
+          facts = `unavailable: ${(factsError as Error).message}`;
+        }
         throw new Error(
-          `${(error as Error).message}\ntranscript at timeout: ${dumpState(tx, llm?.hits ?? [])}`,
+          `${(error as Error).message}\nsession facts at timeout: ${facts}\ntranscript at timeout: ${dumpState(tx, llm?.hits ?? [])}`,
           { cause: error },
         );
       }
