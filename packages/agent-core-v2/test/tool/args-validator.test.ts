@@ -33,6 +33,17 @@ describe('args-validator (Ajv, format support)', () => {
     ).toContain("must NOT have additional property 'b'");
   });
 
+  it('appends valid parameter names to additionalProperties messages', () => {
+    const schema = {
+      type: 'object',
+      properties: { path: { type: 'string' }, line_offset: { type: 'integer' } },
+      additionalProperties: false,
+    };
+    expect(
+      validateToolArgs(compileToolArgsValidator(schema), { offset: 1 }, ['path', 'line_offset']),
+    ).toBe("must NOT have additional property 'offset'; valid parameters: path, line_offset");
+  });
+
   it('still validates the JSON-Schema subset (type / enum / const)', () => {
     expect(validate({ type: 'integer' }, 1.5)).toContain('must be integer');
     expect(validate({ enum: ['a', 'b'] }, 'c')).toContain('allowed values');

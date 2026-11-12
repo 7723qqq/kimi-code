@@ -465,6 +465,21 @@ describe('ReadTool', () => {
     expect(lineOffset?.['anyOf']).toBeUndefined();
   });
 
+  it('describes text pagination bounds in the model-facing schema', () => {
+    const schema = toInputJsonSchema(ReadInputSchema) as {
+      properties: Record<string, Record<string, unknown> | undefined>;
+    };
+    expect(schema.properties['line_offset']?.['description']).toBe(
+      'One-based file line number to start reading from, unlike the offset used by Grep and Glob to skip result entries. Omit to start at line 1; 0 is invalid. Negative values select a tail window: with -100, reading starts at the 100th line from the end, and n_lines can limit how many lines are returned from that point; without n_lines, it returns the last 100 lines.',
+    );
+    expect(schema.properties['n_lines']?.['description']).toBe(
+      'Maximum number of lines to return, counted forward from line_offset; with a negative line_offset, counting starts at the computed tail-window start. Omit to read toward the end of the file. This limits line count only: max_chars can further shorten the selected range or a long line. Incomplete ranges include continuation arguments.',
+    );
+    expect(schema.properties['max_chars']?.['description']).toBe(
+      'Maximum rendered characters, including line-number prefixes and the Read status; this is not a line count. It bounds the range selected by line_offset and n_lines and can shorten that range or a long line. Incomplete ranges include continuation arguments. Omit for the configured default; requests above the configured maximum are capped.',
+    );
+  });
+
   it('matches permission args with glob path semantics', async () => {
     const tool = toolWithContent('');
     const execution = await tool.resolveExecution({ path: '/etc/passwd' });

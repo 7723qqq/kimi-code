@@ -851,7 +851,12 @@ function validateExecutableToolArgs(tool: ExecutableTool, args: unknown): string
       return error instanceof Error ? error.message : String(error);
     }
   }
-  return validateToolArgs(cached.validator, args as JsonType);
+  const properties = schema['properties'];
+  const validParameterNames =
+    typeof properties === 'object' && properties !== null && !Array.isArray(properties)
+      ? Object.keys(properties)
+      : [];
+  return validateToolArgs(cached.validator, args as JsonType, validParameterNames);
 }
 
 function toolCallDisplayFieldsFromExecution(

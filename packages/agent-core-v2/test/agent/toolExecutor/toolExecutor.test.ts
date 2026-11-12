@@ -54,6 +54,7 @@ import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageSe
 import { IAtomicTomlDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { makeSessionContext } from '#/session/sessionContext/sessionContext';
+import { toInputJsonSchema } from '#/tool/input-schema';
 import { ToolOutputAccumulator } from '#/tool/output-accumulator';
 import { parseToolCallArguments } from '#/tool/tool-args-parse';
 import {
@@ -357,6 +358,24 @@ describe('AgentToolExecutorService', () => {
       calls: ['call_strict'],
       results: ['call_strict'],
     });
+  });
+
+  it('lists valid Read parameter names when offset is used instead of line_offset', async () => {
+    const tool = new TestTool('Read', { parameters: toInputJsonSchema(ReadInputSchema) });
+    registry.register(tool);
+
+    const results = await execute([
+      toolCall('call_read_offset', 'Read', { path: '/tmp/a.txt', offset: 10 }),
+    ]);
+
+    expect(results).toEqual([
+      expect.objectContaining({
+        output:
+          'Invalid args for tool "Read": must NOT have additional property \'offset\'; valid parameters: path, line_offset, column_offset, n_lines, region, full_resolution, max_chars',
+        isError: true,
+      }),
+    ]);
+    expect(tool.calls).toEqual([]);
   });
 
   it('recompiles the cached args validator when a tool advertises a different schema object', async () => {

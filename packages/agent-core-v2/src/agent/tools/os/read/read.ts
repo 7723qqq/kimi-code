@@ -25,7 +25,7 @@ export const ReadInputSchema = z.object({
     .refine((value) => value !== 0, 'line_offset must not be 0')
     .optional()
     .describe(
-      'The line number to start reading from. Omit to start at line 1. Negative values read from the end of the file (for example, -100 reads the last 100 lines).',
+      'One-based file line number to start reading from, unlike the offset used by Grep and Glob to skip result entries. Omit to start at line 1; 0 is invalid. Negative values select a tail window: with -100, reading starts at the 100th line from the end, and n_lines can limit how many lines are returned from that point; without n_lines, it returns the last 100 lines.',
     ),
   column_offset: z
     .number()
@@ -41,7 +41,7 @@ export const ReadInputSchema = z.object({
     .positive()
     .optional()
     .describe(
-      'The number of lines to read. Omit to read toward the end of the file. Results are bounded by max_chars, with continuation arguments when the requested range is incomplete.',
+      'Maximum number of lines to return, counted forward from line_offset; with a negative line_offset, counting starts at the computed tail-window start. Omit to read toward the end of the file. This limits line count only: max_chars can further shorten the selected range or a long line. Incomplete ranges include continuation arguments.',
     ),
   region: z
     .object({
@@ -70,7 +70,7 @@ export const ReadInputSchema = z.object({
     .positive()
     .optional()
     .describe(
-      'Maximum characters in the returned text, including line numbers and status. Omit for the configured default; requests above the configured maximum are capped.',
+      'Maximum rendered characters, including line-number prefixes and the Read status; this is not a line count. It bounds the range selected by line_offset and n_lines and can shorten that range or a long line. Incomplete ranges include continuation arguments. Omit for the configured default; requests above the configured maximum are capped.',
     ),
 });
 
