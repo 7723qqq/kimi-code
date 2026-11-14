@@ -96,6 +96,8 @@ export const SUBAGENT_STOPPED_MESSAGE = 'The subagent was stopped before it fini
 
 export interface ISubagentTool extends AgentTool<SubagentToolInput> {
   readonly _serviceBrand: undefined;
+
+  invalidateProfileDescriptions(): void;
 }
 
 export const ISubagentTool = createDecorator<ISubagentTool>('subagentTool');
