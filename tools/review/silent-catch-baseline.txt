@@ -123,7 +123,7 @@ packages/kap-server/src/services/transcript/wireCache.ts  1
 packages/kap-server/src/start.ts  1
 packages/kap-server/src/transport/ws/connectionRegistry.ts  1
 packages/kap-server/src/transport/ws/debug/wsConnectionDebug.ts  3
-packages/kap-server/src/transport/ws/v1/sessionEventBroadcaster.ts  5
+packages/kap-server/src/transport/ws/v1/sessionEventBroadcaster.ts  8
 packages/kap-server/src/transport/ws/v1/wsConnectionV1.ts  2
 packages/klient/src/core/events/hub.ts  1
 packages/klient/src/transports/ipc/channel.ts  1

@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-
 import {
   PROVIDER_FILTERED_ERROR_CODE,
   isUndoAnchor,
@@ -698,7 +696,7 @@ function addTurn(
 }
 
 function turnIdOf(agentId: string, ordinal: number, startedAt: number): string {
-  const digest = createHash('sha1').update(`${agentId}\n${ordinal}\n${startedAt}`).digest('hex');
+  const digest = new Bun.CryptoHasher('sha1').update(`${agentId}\n${ordinal}\n${startedAt}`).digest('hex');
   return `t_${digest.slice(0, 12)}`;
 }
 

@@ -1,13 +1,11 @@
 import {
   IAgentTaskService,
   IEventBus,
+  TaskStarted,
+  TaskTerminatedNotice,
   type AgentTaskInfo,
   type IAgentScopeHandle,
 } from '@moonshot-ai/agent-core-v2';
-import {
-  TaskStarted,
-  TaskTerminatedNotice,
-} from '@moonshot-ai/agent-core-v2/agent/task/taskOps';
 import type { Event2 } from '@moonshot-ai/agent-core-v2/app/event/event2';
 import { describe, expect, it } from 'bun:test';
 

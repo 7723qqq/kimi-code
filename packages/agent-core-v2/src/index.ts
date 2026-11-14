@@ -538,6 +538,10 @@ export * from '#/agent/tools/task/task-wait/task-wait';
 import '#/agent/tools/task/task-wait/taskWaitTool';
 export * from '#/agent/task/task';
 export * from '#/agent/task/taskOps';
+export {
+  NOTIFICATION_SEVERITY_LABEL,
+  NOTIFICATION_TITLE_LABEL,
+} from '#/agent/task/notificationXml';
 export * from '#/agent/task/taskService';
 import '#/features/cron/configSection';
 export * from '#/features/cron/cronTask';
@@ -741,7 +745,10 @@ export * from '#/agent/blob/agentBlobService';
 export * from '#/agent/blob/agentBlobServiceImpl';
 export * from '#/agent/contextMemory/contextMemory';
 export * from '#/agent/contextMemory/contextMemoryService';
-export { ContextAppendMessage } from '#/agent/contextMemory/contextEvents';
+export {
+  ContextAppendMessage,
+  ContextSpliced,
+} from '#/agent/contextMemory/contextEvents';
 export * from '#/agent/contextMemory/contextOps';
 export * from '#/agent/contextMemory/compactionHandoff';
 export * from '#/agent/contextMemory/conversationUndoParticipants';
@@ -797,7 +804,16 @@ export { workspaceRootKey } from '#/_base/utils/workdir-slug';
 import '#/agent/loop/configSection';
 export * from '#/agent/loop/loop';
 export * from '#/agent/loop/loopService';
-export { TurnStarted, turnPromptText } from '#/agent/loop/turnEvents';
+export {
+  AssistantDelta,
+  ThinkingDelta,
+  ToolCallDelta,
+  TurnStarted,
+  TurnStepInterrupted,
+  TurnStepRetrying,
+  TurnStepStreamReset,
+  turnPromptText,
+} from '#/agent/loop/turnEvents';
 export { TurnPrompt, TurnEnded, TurnSteer } from '#/agent/loop/turnOps';
 export * from '#/agent/loop/promptChannel';
 export * from '#/agent/interruptionReminder/interruptionReminder';
@@ -871,7 +887,11 @@ export * from '#/tool/toolContract';
 export * from '#/agent/toolExecutor/toolHooks';
 export * from '#/agent/toolExecutor/toolExecutor';
 export * from '#/agent/toolExecutor/toolExecutorService';
-export { ToolCallStarted, ToolResultEvent } from '#/agent/toolExecutor/toolExecutorEvents';
+export {
+  ToolCallStarted,
+  ToolProgress,
+  ToolResultEvent,
+} from '#/agent/toolExecutor/toolExecutorEvents';
 export * from '#/agent/toolResultTruncation/toolResultTruncation';
 import '#/agent/toolResultTruncation/toolResultTruncationService';
 import '#/agent/toolActivation/toolActivationService';

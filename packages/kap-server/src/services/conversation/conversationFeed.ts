@@ -1,5 +1,7 @@
 import {
+  AssistantDelta,
   CompactionCancelled,
+  ContextSpliced,
   Error2,
   ErrorCodes,
   IAgentBlobService,
@@ -9,24 +11,22 @@ import {
   IEventBus,
   ILogService,
   PromptCompleted,
+  ThinkingDelta,
+  ToolCallDelta,
+  ToolProgress,
+  TurnEnded,
+  TurnPrompt,
+  TurnSteer,
+  TurnStepInterrupted,
+  TurnStepRetrying,
+  TurnStepStreamReset,
+  isRealUserInput,
   type IAgentScopeHandle,
   type IDisposable,
   type ToolUpdate,
 } from '@moonshot-ai/agent-core-v2';
-import { ContextSpliced } from '@moonshot-ai/agent-core-v2/agent/contextMemory/contextEvents';
-import {
-  AssistantDelta,
-  ThinkingDelta,
-  ToolCallDelta,
-  TurnStepInterrupted,
-  TurnStepRetrying,
-  TurnStepStreamReset,
-} from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
-import { TurnEnded, TurnPrompt, TurnSteer } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
 import { AgentErrorEvent } from '@moonshot-ai/agent-core-v2/agent/mcp/mcpEvents';
 import { WarningIssued } from '@moonshot-ai/agent-core-v2/agent/profile/profileOps';
-import { ToolProgress } from '@moonshot-ai/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
-import { isRealUserInput } from '@moonshot-ai/agent-core-v2/agent/contextMemory/compactionHandoff';
 import { errorInfoOf } from './conversationItems';
 
 import type {
@@ -544,7 +544,11 @@ export class ConversationFeed implements IDisposable {
     for (const listener of this.listeners) {
       try {
         listener(event);
-      } catch {
+      } catch (error) {
+        this.handle.accessor.get(ILogService).warn('conversation listener failed', {
+          agentId: this.handle.id,
+          error,
+        });
       }
     }
   }

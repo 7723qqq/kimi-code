@@ -2,11 +2,12 @@ import {
   IAgentLifecycleService,
   IAgentTaskService,
   IEventBus,
+  TaskStarted,
+  TaskTerminatedNotice,
   type AgentTaskInfo,
   type IDisposable,
 } from '@moonshot-ai/agent-core-v2';
 import type { Event2 } from '@moonshot-ai/agent-core-v2/app/event/event2';
-import { TaskStarted, TaskTerminatedNotice } from '@moonshot-ai/agent-core-v2/agent/task/taskOps';
 
 import type { TaskState } from '../../../protocol/ws-task';
 import { optionalService } from './agentState';

@@ -112,6 +112,7 @@ packages/kap-server/src/lib/promptMedia.ts tool/path-access
 packages/kap-server/src/openapi/transforms.ts app/git/git
 packages/kap-server/src/openapi/transforms.ts workspace/workspaceFs/fs
 packages/kap-server/src/protocol/approval.ts _base/utils/isoDateTime
+packages/kap-server/src/protocol/conversation.ts _base/utils/isoDateTime
 packages/kap-server/src/protocol/events-zod.ts _base/utils/isoDateTime
 packages/kap-server/src/protocol/interaction.ts _base/utils/isoDateTime
 packages/kap-server/src/protocol/message.ts _base/utils/isoDateTime
@@ -164,6 +165,14 @@ packages/kap-server/src/routes/workspaceFs.ts _base/text/encoding
 packages/kap-server/src/routes/workspaceFs.ts _base/utils/fileMeta
 packages/kap-server/src/routes/workspaceFs.ts app/hostFolderBrowser/hostFolderBrowser
 packages/kap-server/src/search/wireExtract.ts agent/media/mediaRef
+# The conversation feed folds agent-internal records and needs the same event
+# identities and fold helpers the engine emits; the root entry does not
+# re-export these modules.
+packages/kap-server/src/services/conversation/conversationFeed.ts agent/mcp/mcpEvents
+packages/kap-server/src/services/conversation/conversationFeed.ts agent/profile/profileOps
+packages/kap-server/src/services/conversation/conversationFold.ts agent/contextMemory/hookParts
+packages/kap-server/src/services/conversation/conversationFold.ts human/agent/errors
+packages/kap-server/src/services/conversation/conversationFold.ts human/agent/origin
 packages/kap-server/src/services/transcript/coreEventMap.ts agent/contextMemory/hookParts
 packages/kap-server/src/services/transcript/coreEventMap.ts human/agent/origin
 packages/kap-server/src/services/transcript/transcriptService.ts features/tower/protocol/index
