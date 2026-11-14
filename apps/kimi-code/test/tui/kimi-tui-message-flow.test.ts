@@ -102,33 +102,10 @@ import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
 import { setGlobal } from '#test/helpers/stubs';
 import { waitForAssertion } from '#test/helpers/waitFor';
 
-import { createFeedbackArchivePath } from '../../src/feedback/archive';
-import * as feedbackArchiveModule from '../../src/feedback/archive';
-import { packageCodebase, scanCodebase } from '../../src/feedback/codebase';
-import * as feedbackCodebaseModule from '../../src/feedback/codebase';
-import { uploadArchive } from '../../src/feedback/upload';
-import * as feedbackUploadModule from '../../src/feedback/upload';
-
 void mock.module('#/tui/commands/prompts', () => ({
   ...promptsModule,
   promptFeedbackInput: mock(),
   promptFeedbackAttachment: mock(),
-}));
-
-void mock.module('../../src/feedback/codebase', () => ({
-  ...feedbackCodebaseModule,
-  scanCodebase: mock().mockResolvedValue(undefined),
-  packageCodebase: mock(),
-}));
-
-void mock.module('../../src/feedback/upload', () => ({
-  ...feedbackUploadModule,
-  uploadArchive: mock(),
-}));
-
-void mock.module('../../src/feedback/archive', () => ({
-  ...feedbackArchiveModule,
-  createFeedbackArchivePath: mock(feedbackArchiveModule.createFeedbackArchivePath),
 }));
 
 void mock.module('#/utils/open-url', () => ({ openUrl: mock() }));
@@ -142,12 +119,6 @@ const promptFeedbackAttachmentMock = promptFeedbackAttachment as Mock<
   typeof promptFeedbackAttachment
 >;
 const openUrlMock = openUrl as Mock<typeof openUrl>;
-const scanCodebaseMock = scanCodebase as Mock<typeof scanCodebase>;
-const packageCodebaseMock = packageCodebase as Mock<typeof packageCodebase>;
-const uploadArchiveMock = uploadArchive as Mock<typeof uploadArchive>;
-const createFeedbackArchivePathMock = createFeedbackArchivePath as Mock<
-  typeof createFeedbackArchivePath
->;
 const copyTextToClipboardMock = copyTextToClipboard as Mock<typeof copyTextToClipboard>;
 
 const ESC = String.fromCodePoint(0x1b);
@@ -378,6 +349,23 @@ function makeHarness(session = makeSession(), overrides: Record<string, unknown>
       return interactiveAgentScope.run(agentId, fn);
     }),
     getExperimentalFeatures: mock(async () => []),
+    feedbackAvailability: mock(
+      async (): Promise<
+        | { kind: 'ready' }
+        | { kind: 'needs-login' }
+        | { kind: 'error'; message: string }
+      > => ({ kind: 'ready' }),
+    ),
+    submitFeedback: mock(
+      async (): Promise<
+        | { kind: 'ok'; feedbackId: number; attachmentFailed?: boolean }
+        | { kind: 'needs-login' }
+        | { kind: 'error'; message: string }
+      > => ({
+        kind: 'ok',
+        feedbackId: 3,
+      }),
+    ),
     auth: {
       status: mock(async () => ({
         providers: [{ providerName: 'managed:kimi-code', hasToken: true }],
@@ -385,14 +373,6 @@ function makeHarness(session = makeSession(), overrides: Record<string, unknown>
       login: mock(),
       logout: mock(),
       getManagedUsage: mock(),
-      submitFeedback: mock(
-        async (): Promise<
-          { kind: 'ok'; feedbackId: number } | { kind: 'error'; status?: number; message: string }
-        > => ({
-          kind: 'ok',
-          feedbackId: 3,
-        }),
-      ),
     },
     ...overrides,
   };
@@ -726,14 +706,6 @@ function sessionEventEmitter(session: ReturnType<typeof makeSession>) {
   return (event: unknown): void => {
     for (const listener of [...listeners]) listener(event);
   };
-}
-
-async function makeExportedSessionZip(content = 'session zip'): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'kimi-code-feedback-export-'));
-  tempDirs.push(dir);
-  const zipPath = join(dir, 'session.zip');
-  await writeFile(zipPath, content);
-  return zipPath;
 }
 
 afterEach(async () => {
@@ -3670,9 +3642,7 @@ command = "vim"
 
   it('prints the sign-up page and GitHub Issues links when not signed in', async () => {
     const { driver, harness } = await makeDriver(makeSession());
-    harness.auth.status.mockResolvedValueOnce({
-      providers: [{ providerName: 'managed:kimi-code', hasToken: false }],
-    });
+    harness.feedbackAvailability.mockResolvedValueOnce({ kind: 'needs-login' });
     const feedbackDriver = driver as unknown as FeedbackDriver;
     promptFeedbackInputMock.mockImplementation(async () => ({ value: 'useful feedback' }));
     openUrlMock.mockClear();
@@ -3681,7 +3651,7 @@ command = "vim"
 
     expect(openUrl).not.toHaveBeenCalled();
     expect(promptFeedbackInput).not.toHaveBeenCalled();
-    expect(harness.auth.submitFeedback).not.toHaveBeenCalled();
+    expect(harness.submitFeedback).not.toHaveBeenCalled();
     const transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain("You're not signed in");
     expect(transcript).toContain('https://www.kimi.com/code');
@@ -3690,7 +3660,7 @@ command = "vim"
 
   it('falls back to GitHub Issues when the sign-in status cannot be read', async () => {
     const { driver, harness } = await makeDriver(makeSession());
-    harness.auth.status.mockRejectedValueOnce(new Error('token storage unavailable'));
+    harness.feedbackAvailability.mockRejectedValueOnce(new Error('token storage unavailable'));
     const feedbackDriver = driver as unknown as FeedbackDriver;
     promptFeedbackInputMock.mockClear();
     openUrlMock.mockClear();
@@ -3700,7 +3670,7 @@ command = "vim"
     expect(openUrl).toHaveBeenCalledTimes(1);
     expect(openUrl).toHaveBeenCalledWith('https://github.com/MoonshotAI/kimi-code/issues');
     expect(promptFeedbackInput).not.toHaveBeenCalled();
-    expect(harness.auth.submitFeedback).not.toHaveBeenCalled();
+    expect(harness.submitFeedback).not.toHaveBeenCalled();
     const transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain('Opening GitHub Issues as fallback');
   });
@@ -3719,11 +3689,11 @@ command = "vim"
     const feedbackDriver = driver as unknown as FeedbackDriver;
     promptFeedbackInputMock.mockImplementation(async () => ({ value: 'useful feedback' }));
     promptFeedbackAttachmentMock.mockImplementation(async () => 'none');
-    harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 7 });
+    harness.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 7 });
 
     await handleFeedbackCommand(feedbackDriver as any);
 
-    expect(harness.auth.submitFeedback).toHaveBeenCalledTimes(1);
+    expect(harness.submitFeedback).toHaveBeenCalledTimes(1);
     const transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain('Feedback ID: 7');
   });
@@ -3733,294 +3703,51 @@ command = "vim"
     const feedbackDriver = driver as unknown as FeedbackDriver;
     promptFeedbackInputMock.mockImplementation(async () => ({ value: 'useful feedback' }));
     promptFeedbackAttachmentMock.mockImplementation(async () => 'none');
-    harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 3 });
+    harness.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 3 });
     harness.track.mockClear();
 
     await handleFeedbackCommand(feedbackDriver as any);
 
-    expect(harness.auth.submitFeedback).toHaveBeenCalledWith(
+    expect(harness.submitFeedback).toHaveBeenCalledWith(
       expect.objectContaining({
         content: 'useful feedback',
         sessionId: 'ses-1',
         version: 'kimi-code-0.0.0-test',
         model: 'k2',
       }),
+      'k2',
     );
     expect(harness.track).toHaveBeenCalledWith('feedback_submitted', undefined);
     const transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain('Feedback ID: 3');
   });
 
-  it('submits text feedback before preparing requested attachments', async () => {
+  it('forwards the selected attachment level and surfaces partial attachment upload failures', async () => {
     const { driver, harness } = await makeDriver(makeSession());
     const feedbackDriver = driver as unknown as FeedbackDriver;
-    promptFeedbackInputMock.mockImplementation(async () => ({ value: 'useful feedback' }));
-    promptFeedbackAttachmentMock.mockImplementation(async () => 'logs');
-    harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 3 });
-    harness.listSessions.mockResolvedValueOnce([
-      { id: 'ses-1', sessionDir: '/tmp/session-a' },
-    ] as never);
-
-    const zipPath = await makeExportedSessionZip();
-    let resolveExport!: () => void;
-    const exportBlocked = new Promise<{
-      zipPath: string;
-      entries: string[];
-      sessionDir: string;
-      manifest: Record<string, never>;
-    }>((resolve) => {
-      resolveExport = () => {
-        resolve({
-          zipPath,
-          entries: ['manifest.json', 'state.json'],
-          sessionDir: '/tmp/session-a',
-          manifest: {},
-        });
-      };
-    });
-    harness.exportSession.mockImplementationOnce(() => exportBlocked);
-
-    let settled = false;
-    const command = handleFeedbackCommand(feedbackDriver as any).then(() => {
-      settled = true;
-    });
-
-    await waitForAssertion(
-      () => {
-        expect(harness.exportSession).toHaveBeenCalledWith(
-          expect.objectContaining({
-            id: 'ses-1',
-            includeGlobalLog: true,
-            version: '0.0.0-test',
-          }),
-        );
-      },
-      // The command performs real fs work (archive path creation, install
-      // detection) before reaching exportSession; the default 1s window is
-      // too tight under full-suite parallel load.
-      { timeout: 10_000 },
-    );
-    expect(harness.auth.submitFeedback).toHaveBeenCalledWith(
-      expect.objectContaining({ content: 'useful feedback' }),
-    );
-    expect(harness.auth.submitFeedback.mock.invocationCallOrder[0]).toBeLessThan(
-      harness.exportSession.mock.invocationCallOrder[0]!,
-    );
-    expect(settled).toBe(false);
-
-    resolveExport();
-    await command;
-  });
-
-  it('waits for the codebase upload to finish before returning', async () => {
-    const { driver, harness } = await makeDriver(makeSession());
-    const feedbackDriver = driver as unknown as FeedbackDriver;
-    scanCodebaseMock.mockReset();
-    harness.exportSession.mockReset();
-    packageCodebaseMock.mockReset();
-    uploadArchiveMock.mockReset();
     promptFeedbackInputMock.mockImplementation(async () => ({ value: 'useful feedback' }));
     promptFeedbackAttachmentMock.mockImplementation(async () => 'logs+codebase');
-    harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 3 });
-    harness.listSessions.mockResolvedValueOnce([
-      { id: 'ses-1', sessionDir: '/tmp/session-a' },
-    ] as never);
-
-    scanCodebaseMock.mockResolvedValueOnce({
-      root: '/tmp/proj-a',
-      files: [{ path: 'keep.ts', size: 4 }],
-      fingerprint: 'fp-123',
-      usedGitIgnore: false,
-    } as any);
-    const sessionZipPath = await makeExportedSessionZip();
-    harness.exportSession.mockResolvedValueOnce({
-      zipPath: sessionZipPath,
-      entries: ['manifest.json', 'state.json'],
-      sessionDir: '/tmp/session-a',
-      manifest: {},
+    harness.submitFeedback.mockResolvedValueOnce({
+      kind: 'ok',
+      feedbackId: 3,
+      attachmentFailed: true,
     });
-    packageCodebaseMock.mockResolvedValueOnce({
-      path: '/tmp/fake-codebase.zip',
-      size: 4,
-      sha256: 'hash-123',
-      fingerprint: 'fp-123',
-      fileCount: 1,
-    });
-
-    let resolveCodebaseUpload!: () => void;
-    const codebaseUploadBlocked = new Promise<void>((resolve) => {
-      resolveCodebaseUpload = resolve;
-    });
-    uploadArchiveMock.mockImplementation((_api, archive) => {
-      if (archive.path === sessionZipPath) return Promise.resolve();
-      return codebaseUploadBlocked;
-    });
-
-    let settled = false;
-    const command = handleFeedbackCommand(feedbackDriver as any).then(() => {
-      settled = true;
-    });
-
-    await waitForAssertion(
-      () => {
-        expect(uploadArchive).toHaveBeenCalledTimes(2);
-      },
-      { timeout: 10_000 },
-    );
-    expect(settled).toBe(false);
-
-    resolveCodebaseUpload();
-    await command;
-    expect(settled).toBe(true);
-    expect(uploadArchive).toHaveBeenCalledWith(
-      expect.any(Object),
-      expect.objectContaining({ path: sessionZipPath }),
-      3,
-      { filename: 'session.zip' },
-    );
-    expect(uploadArchive).toHaveBeenCalledWith(
-      expect.any(Object),
-      expect.objectContaining({ path: '/tmp/fake-codebase.zip' }),
-      3,
-      { filename: 'repo.zip' },
-    );
-    expect(harness.auth.submitFeedback).toHaveBeenCalledWith(
-      expect.not.objectContaining({ info: expect.anything() }),
-    );
-  });
-
-  it('uploads session logs when codebase scanning fails but the session directory is available', async () => {
-    const { driver, harness } = await makeDriver(makeSession());
-    const feedbackDriver = driver as unknown as FeedbackDriver;
-    scanCodebaseMock.mockReset();
-    harness.exportSession.mockReset();
-    packageCodebaseMock.mockReset();
-    uploadArchiveMock.mockReset();
-    promptFeedbackInputMock.mockImplementation(async () => ({ value: 'useful feedback' }));
-    promptFeedbackAttachmentMock.mockImplementation(async () => 'logs+codebase');
-    harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 3 });
-    harness.listSessions.mockResolvedValueOnce([
-      { id: 'ses-1', sessionDir: '/tmp/session-a' },
-    ] as never);
-    const sessionZipPath = await makeExportedSessionZip();
-    scanCodebaseMock.mockRejectedValueOnce(new Error('scan failed'));
-    harness.exportSession.mockResolvedValueOnce({
-      zipPath: sessionZipPath,
-      entries: ['manifest.json', 'state.json'],
-      sessionDir: '/tmp/session-a',
-      manifest: {},
-    });
-
-    await handleFeedbackCommand(feedbackDriver as any);
-
-    expect(harness.exportSession).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'ses-1', includeGlobalLog: true }),
-    );
-    expect(packageCodebase).not.toHaveBeenCalled();
-    expect(uploadArchive).toHaveBeenCalledWith(
-      expect.any(Object),
-      expect.objectContaining({ path: sessionZipPath }),
-      3,
-      { filename: 'session.zip' },
-    );
-    const transcript = stripSgr(renderTranscript(driver));
-    expect(transcript).toContain('Feedback ID: 3');
-    expect(transcript).toContain('attachment upload failed');
-  });
-
-  it('keeps archive-path creation failures as partial failures without the GitHub fallback', async () => {
-    const { driver, harness } = await makeDriver(makeSession());
-    const feedbackDriver = driver as unknown as FeedbackDriver;
-    promptFeedbackInputMock.mockImplementation(async () => ({ value: 'useful feedback' }));
-    promptFeedbackAttachmentMock.mockImplementation(async () => 'logs');
-    harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 3 });
-    harness.listSessions.mockResolvedValueOnce([
-      { id: 'ses-1', sessionDir: '/tmp/session-a' },
-    ] as never);
-    createFeedbackArchivePathMock.mockRejectedValueOnce(new Error('cache dir not writable'));
     openUrlMock.mockClear();
 
     await handleFeedbackCommand(feedbackDriver as any);
 
     expect(openUrl).not.toHaveBeenCalled();
-    const transcript = stripSgr(renderTranscript(driver));
-    expect(transcript).toContain('Feedback submitted, thank you!');
-    expect(transcript).toContain('Feedback ID: 3');
-    expect(transcript).toContain('attachment upload failed');
-  });
-
-  it('tells the user when feedback is sent but codebase packaging fails', async () => {
-    const { driver, harness } = await makeDriver(makeSession());
-    const feedbackDriver = driver as unknown as FeedbackDriver;
-    scanCodebaseMock.mockReset();
-    packageCodebaseMock.mockReset();
-    harness.exportSession.mockReset();
-    uploadArchiveMock.mockReset();
-    promptFeedbackInputMock.mockImplementation(async () => ({ value: 'useful feedback' }));
-    promptFeedbackAttachmentMock.mockImplementation(async () => 'logs+codebase');
-    harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 3 });
-    harness.listSessions.mockResolvedValueOnce([
-      { id: 'ses-1', sessionDir: '/tmp/session-a' },
-    ] as never);
-    const sessionZipPath = await makeExportedSessionZip();
-
-    scanCodebaseMock.mockResolvedValueOnce({
-      root: '/tmp/proj-a',
-      files: [{ path: 'keep.ts', size: 4 }],
-      fingerprint: 'fp-123',
-      usedGitIgnore: false,
-    } as any);
-    harness.exportSession.mockResolvedValueOnce({
-      zipPath: sessionZipPath,
-      entries: ['manifest.json', 'state.json'],
-      sessionDir: '/tmp/session-a',
-      manifest: {},
-    });
-    packageCodebaseMock.mockRejectedValueOnce(new Error('zip failed'));
-
-    await handleFeedbackCommand(feedbackDriver as any);
-
-    const calls = harness.auth.submitFeedback.mock.calls as unknown as Array<
-      [Record<string, unknown>]
-    >;
-    expect(calls[0]?.[0]?.['info']).toBeUndefined();
-    expect(uploadArchive).toHaveBeenCalledWith(
-      expect.any(Object),
-      expect.objectContaining({ path: sessionZipPath }),
-      3,
-      { filename: 'session.zip' },
+    expect(harness.submitFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: 'useful feedback',
+        sessionId: 'ses-1',
+        attachmentLevel: 'logs+codebase',
+        workDir: '/tmp/proj-a',
+      }),
+      'k2',
     );
     const transcript = stripSgr(renderTranscript(driver));
-    expect(transcript).toContain('Feedback ID: 3');
-    expect(transcript).toContain('attachment upload failed');
-  });
-
-  it('tells the user when the codebase upload fails', async () => {
-    const { driver, harness } = await makeDriver(makeSession());
-    const feedbackDriver = driver as unknown as FeedbackDriver;
-    promptFeedbackInputMock.mockImplementation(async () => ({ value: 'useful feedback' }));
-    promptFeedbackAttachmentMock.mockImplementation(async () => 'logs+codebase');
-    harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 3 });
-
-    scanCodebaseMock.mockResolvedValueOnce({
-      root: '/tmp/proj-a',
-      files: [{ path: 'keep.ts', size: 4 }],
-      fingerprint: 'fp-123',
-      usedGitIgnore: false,
-    } as any);
-    packageCodebaseMock.mockResolvedValueOnce({
-      path: '/tmp/fake-codebase.zip',
-      size: 4,
-      sha256: 'hash-123',
-      fingerprint: 'fp-123',
-      fileCount: 1,
-    });
-    uploadArchiveMock.mockRejectedValueOnce(new Error('upload failed'));
-
-    await handleFeedbackCommand(feedbackDriver as any);
-
-    expect(harness.auth.submitFeedback).toHaveBeenCalledTimes(1);
-    const transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).toContain('Feedback submitted, thank you!');
     expect(transcript).toContain('Feedback ID: 3');
     expect(transcript).toContain('attachment upload failed');
   });
@@ -4030,9 +3757,8 @@ command = "vim"
     const feedbackDriver = driver as unknown as FeedbackDriver;
     promptFeedbackInputMock.mockImplementation(async () => ({ value: 'useful feedback' }));
     promptFeedbackAttachmentMock.mockImplementation(async () => 'none');
-    harness.auth.submitFeedback.mockResolvedValueOnce({
+    harness.submitFeedback.mockResolvedValueOnce({
       kind: 'error',
-      status: 500,
       message: 'backend says no',
     });
 
@@ -4049,7 +3775,7 @@ command = "vim"
     const feedbackDriver = driver as unknown as FeedbackDriver;
     promptFeedbackInputMock.mockImplementation(async () => ({ value: 'useful feedback' }));
     promptFeedbackAttachmentMock.mockImplementation(async () => 'none');
-    harness.auth.submitFeedback.mockRejectedValueOnce(new Error('socket hangup'));
+    harness.submitFeedback.mockRejectedValueOnce(new Error('socket hangup'));
     openUrlMock.mockClear();
 
     await expect(handleFeedbackCommand(feedbackDriver as any)).rejects.toThrow('socket hangup');
@@ -4067,10 +3793,32 @@ command = "vim"
 
     await handleFeedbackCommand(feedbackDriver as any);
 
-    expect(harness.auth.submitFeedback).not.toHaveBeenCalled();
+    expect(harness.submitFeedback).not.toHaveBeenCalled();
     expect(harness.track).not.toHaveBeenCalledWith('feedback_submitted', undefined);
   });
 
+  it('submits feedback through the engine when it reports the channel is ready', async () => {
+    const { driver, harness } = await makeDriver(makeSession());
+    harness.feedbackAvailability.mockResolvedValueOnce({ kind: 'ready' });
+    driver.state.appState.model = 'registry_kimi/k3';
+    const feedbackDriver = driver as unknown as FeedbackDriver;
+    promptFeedbackInputMock.mockImplementation(async () => ({ value: 'custom feedback' }));
+    promptFeedbackAttachmentMock.mockImplementation(async () => 'none');
+    harness.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 11 });
+
+    await handleFeedbackCommand(feedbackDriver as any);
+
+    expect(harness.auth.status).not.toHaveBeenCalled();
+    expect(harness.submitFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: 'custom feedback',
+        model: 'registry_kimi/k3',
+      }),
+      'registry_kimi/k3',
+    );
+    const transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).toContain('Feedback ID: 11');
+  });
   it('tracks blocked slash commands as invalid without counting them as executed commands', async () => {
     const { driver, harness } = await makeDriver();
     driver.state.appState.streamingPhase = 'waiting';

@@ -3,11 +3,11 @@ import { release as osRelease, type as osType } from 'node:os';
 import type { McpServerInfo, SessionStatus, SessionUsage } from '@moonshot-ai/kimi-code-sdk';
 
 import { t } from '#/i18n';
+import { detectInstallSource } from '#/cli/update/source';
 import { openUrl } from '#/utils/open-url';
+import { detectShellEnvironment } from '#/utils/process/shell-env';
 import { quotaUsageRows } from '#/utils/usage/usage-format';
 
-import type { FeedbackCodebaseLimitExceeded } from '../../feedback/codebase';
-import { submitFeedbackWithAttachments } from '../../feedback/feedback-attachments';
 import { buildMcpStatusReportLines } from '../components/messages/mcp-status-panel';
 import { buildStatusReportLines } from '../components/messages/status-panel';
 import {
@@ -31,7 +31,7 @@ import {
   kimiCodeSignupUrl,
   withFeedbackVersionPrefix,
 } from '../constant/feedback';
-import { DEFAULT_OAUTH_PROVIDER_NAME, isManagedUsageProvider } from '../constant/kimi-tui';
+import { isManagedUsageProvider } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
 import { sessionWorkDir } from '../utils/session-work-dir';
 import { nextTranscriptId } from '../utils/transcript-id';
@@ -50,25 +50,25 @@ export async function handleFeedbackCommand(host: SlashCommandHost): Promise<voi
     openUrl(FEEDBACK_ISSUE_URL);
   };
 
-  // Gate on the OAuth token rather than the active model's provider: a
-  // signed-in user running an API-key model can still submit feedback
-  // through the authenticated channel.
-  let signedIn = false;
+  const modelAlias = host.state.appState.model.length > 0 ? host.state.appState.model : undefined;
+  let availability: Awaited<ReturnType<SlashCommandHost['harness']['feedbackAvailability']>>;
   try {
-    const status = await host.harness.auth.status(DEFAULT_OAUTH_PROVIDER_NAME);
-    signedIn = status.providers.some(
-      (provider) => provider.providerName === DEFAULT_OAUTH_PROVIDER_NAME && provider.hasToken,
-    );
+    availability = await host.harness.feedbackAvailability(modelAlias);
   } catch {
     // The sign-in state is unreadable — keep the feedback entry usable by
     // falling back to GitHub Issues instead of failing the command.
     fallback(getFeedbackStatusFallback());
     return;
   }
-  if (!signedIn) {
+  if (availability.kind === 'needs-login') {
     host.showStatus(getFeedbackStatusNotSignedIn());
     host.showStatus(kimiCodeSignupUrl());
     host.showStatus(FEEDBACK_ISSUE_URL);
+    return;
+  }
+  if (availability.kind === 'error') {
+    host.showStatus(availability.message);
+    fallback(getFeedbackStatusFallback());
     return;
   }
 
@@ -98,46 +98,43 @@ export async function handleFeedbackCommand(host: SlashCommandHost): Promise<voi
     spinner.stop(opts);
   };
   try {
-    const res = await host.harness.auth.submitFeedback({
+    const body = {
       content: input.value,
       sessionId: host.state.appState.sessionId,
       version,
       os: `${osType()} ${osRelease()}`,
       model: host.state.appState.model.length > 0 ? host.state.appState.model : null,
-    });
+      attachmentLevel: level,
+      workDir: host.state.appState.workDir,
+      installSource: level === 'none' ? undefined : await detectInstallSource(),
+      shellEnv: level === 'none' ? undefined : detectShellEnvironment(),
+    };
+    const res = await host.harness.submitFeedback(body, modelAlias);
 
+    if (res.kind === 'needs-login') {
+      stopSpinner({ ok: false, label: getFeedbackStatusNotSignedIn() });
+      host.showStatus(kimiCodeSignupUrl());
+      host.showStatus(FEEDBACK_ISSUE_URL);
+      return;
+    }
     if (res.kind !== 'ok') {
       stopSpinner({ ok: false, label: res.message });
       fallback(getFeedbackStatusFallback());
       return;
     }
 
-    // Stage 3: prepare and upload each requested attachment independently.
-    // Attachment failures are non-fatal partial failures — the text feedback
-    // already exists server-side — so a throw here degrades to the
-    // partial-failure status, never to the GitHub fallback in the outer catch.
-    let attachmentFailed = false;
-    let codebaseTruncated: FeedbackCodebaseLimitExceeded | undefined;
-    try {
-      const outcome = await submitFeedbackWithAttachments(host, res.feedbackId, level);
-      attachmentFailed = outcome.failed;
-      codebaseTruncated = outcome.codebaseTruncated;
-    } catch {
-      attachmentFailed = true;
-    }
-
     stopSpinner({ ok: true, label: getFeedbackStatusSuccess() });
     host.showStatus(feedbackSessionLine(host.state.appState.sessionId));
     host.showStatus(feedbackIdLine(res.feedbackId));
     host.track(FEEDBACK_TELEMETRY_EVENT);
-    if (attachmentFailed) {
+    if (res.attachmentFailed === true) {
       host.showStatus(getFeedbackStatusUploadFailed());
     }
     // A truncated codebase archive is not a failure (the upload succeeded) but
     // it is also not a full attachment: say so instead of implying the whole
     // repository was sent.
-    if (codebaseTruncated !== undefined) {
-      host.showStatus(getFeedbackStatusCodebaseTruncated(codebaseTruncated));
+    if (res.codebaseTruncated !== undefined) {
+      host.showStatus(getFeedbackStatusCodebaseTruncated(res.codebaseTruncated));
     }
   } catch (error) {
     stopSpinner({ ok: false, label: getFeedbackStatusNetworkError() });

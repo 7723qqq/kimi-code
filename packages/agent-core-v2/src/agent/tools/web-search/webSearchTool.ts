@@ -1,3 +1,4 @@
+import { IAgentProfileService } from '#/agent/profile/profile';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { IWebSearchProviderService } from '#/app/auth/webSearch/webSearch';
 import { toInputJsonSchema } from '#/tool/input-schema';
@@ -25,6 +26,7 @@ export class WebSearchTool implements IWebSearchTool {
 
   constructor(
     @IWebSearchProviderService private readonly providerService: IWebSearchProviderService,
+    @IAgentProfileService private readonly profile: IAgentProfileService,
   ) {}
 
   resolveExecution(args: WebSearchInput): ToolExecution {
@@ -43,7 +45,7 @@ export class WebSearchTool implements IWebSearchTool {
     args: WebSearchInput,
     { toolCallId, signal }: ExecutableToolContext,
   ): Promise<ExecutableToolResult> {
-    const provider = this.providerService.getWebSearchProvider();
+    const provider = this.providerService.getWebSearchProvider(this.profile.getModel());
     if (provider === undefined) {
       return {
         isError: true,
@@ -115,5 +117,8 @@ function classifySearchError(error: unknown): string {
 registerAgentToolService(IWebSearchTool, WebSearchTool, {
   name: 'WebSearch',
   domain: 'auth',
-  when: (accessor) => accessor.get(IWebSearchProviderService).hasWebSearchProvider(),
+  when: (accessor) =>
+    accessor
+      .get(IWebSearchProviderService)
+      .hasWebSearchProvider(accessor.get(IAgentProfileService).getModel()),
 });

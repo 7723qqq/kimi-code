@@ -1,3 +1,5 @@
+import type { FeedbackSubmitInput } from '@moonshot-ai/agent-core-v2/app/auth/feedback';
+
 import type { KimiAuthFacade } from '#/auth';
 import { ErrorCodes, KimiError } from '#/errors';
 import type { ExperimentalFeatureState } from '#/flag';
@@ -324,6 +326,14 @@ export class KimiHarness {
    */
   async generateSessionTitle(input: GenerateSessionTitleInput): Promise<string | undefined> {
     return this.rpc.generateSessionTitle(input);
+  }
+
+  feedbackAvailability(modelAlias?: string) {
+    return this.rpc.feedbackAvailability(modelAlias);
+  }
+
+  submitFeedback(input: FeedbackSubmitInput, modelAlias?: string) {
+    return this.rpc.submitFeedback(input, modelAlias);
   }
 
   async exportSession(input: ExportSessionInput): Promise<ExportSessionResult> {

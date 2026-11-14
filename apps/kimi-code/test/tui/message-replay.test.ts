@@ -249,7 +249,6 @@ function makeHarness(initialSession: Session) {
       login: mock(),
       logout: mock(),
       getManagedUsage: mock(),
-      submitFeedback: mock(async () => ({ kind: 'ok', feedbackId: 3 })),
     },
   };
 }

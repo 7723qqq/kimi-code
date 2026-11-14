@@ -43,14 +43,23 @@ Kimi Code CLI 支持同时接入多家模型供应商服务，模型在供应商
 
   启动时，如果当前模型存在有效的升级目标，TUI 会显示迁移提示，包括从会话列表选择并恢复会话之后。迁移说明以 Markdown 渲染。提示会等待输入框为空，且没有正在运行的轮次或打开的对话框；如果被审批或提问打断，会在输入框再次空闲后重新显示。按 `Enter` 确认；空格不会接受迁移。接受后会切换模型，并在原模型支持 Thinking 且目标模型支持当前档位时沿用当前档位，否则使用目标模型的默认档位；选择保留当前模型则会记录该决定，之后不再提示同一次迁移。如果启动刷新发现 registry 已删除默认模型，TUI 会显示警告；当前会话正在使用该模型时，会按同样的档位规则直接切换到替代模型，不再询问。
 
+  registry 中的供应商条目还可以声明可选字符串字段 `search_url` 和 `feedback_url`（导入后存为 `[providers.<id>]` 下的 `search_url` 和 `feedback_url`）。字段非空时，该供应商下模型的 `WebSearch` 与 `/feedback` 会直接携带该供应商的凭证发往对应地址，无需登录托管的 Kimi Code OAuth 账号；省略或在上游移除字段后，下次刷新会自动清除。
+
   这些字段是 Kimi registry 的扩展，不属于 models.dev 的 schema：
 
   ```json
   {
-    "upgrade": {
-      "model": "new-model-id",
-      "migration_markdown": "建议从 {model_from} 切换到 {model_to}。",
-      "retirement_at": "2027-01-01T00:00:00Z"
+    "search_url": "https://registry.example.com/v1/search",
+    "feedback_url": "https://registry.example.com/v1/feedback",
+    "models": {
+      "current-model": {
+        "id": "current-model-id",
+        "upgrade": {
+          "model": "new-model-id",
+          "migration_markdown": "建议从 {model_from} 切换到 {model_to}。",
+          "retirement_at": "2027-01-01T00:00:00Z"
+        }
+      }
     }
   }
   ```

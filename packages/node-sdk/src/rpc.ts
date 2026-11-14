@@ -1,6 +1,11 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 import type {
+  FeedbackAvailability,
+  FeedbackSubmitInput,
+  FeedbackSubmitResult,
+} from '@moonshot-ai/agent-core-v2/app/auth/feedback';
+import type {
   HelloWorldModeTrigger,
   HelloWorldRunItemId,
   HelloWorldStage,
@@ -285,6 +290,13 @@ export abstract class SDKRpcClientBase {
   abstract generateSessionTitle(input: GenerateSessionTitleInput): Promise<string | undefined>;
 
   abstract exportSession(input: ExportSessionInput): Promise<ExportSessionResult>;
+
+  abstract feedbackAvailability(modelAlias?: string): Promise<FeedbackAvailability>;
+
+  abstract submitFeedback(
+    input: FeedbackSubmitInput,
+    modelAlias?: string,
+  ): Promise<FeedbackSubmitResult>;
 
   abstract getConfig(input?: GetConfigOptions): Promise<KimiConfig>;
 

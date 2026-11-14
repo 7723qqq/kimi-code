@@ -8,9 +8,9 @@ import { promisify } from 'node:util';
 
 import { setGlobal, restoreGlobals } from '#test/helpers/stubs';
 
-import { removeStaleFeedbackUploads } from '../../../src/feedback/archive';
-import { packageCodebase, scanCodebase } from '../../../src/feedback/codebase';
-import { uploadArchive } from '../../../src/feedback/upload';
+import { removeStaleFeedbackUploads } from '#/app/auth/feedback/archive';
+import { packageCodebase, scanCodebase } from '#/app/auth/feedback/codebase/index';
+import { uploadArchive } from '#/app/auth/feedback/upload';
 
 const execFileAsync = promisify(execFile);
 
@@ -63,7 +63,6 @@ describe('uploadArchive', () => {
       expect(init.body).toBeInstanceOf(ReadableStream);
       expect((init as { duplex?: string }).duplex).toBe('half');
       expect(new Headers(init.headers).get('content-length')).toBe('5');
-      // Drain the stream so the underlying file handle is released.
       expect(await new Response(init.body as ReadableStream).text()).toBe('hello');
       expect(api.completeUpload).toHaveBeenCalledWith({
         uploadId: 28,
@@ -144,8 +143,6 @@ describe('uploadArchive', () => {
       completeUpload: mock(async () => {}),
     };
 
-    // Real timers: the 25 ms part timeout only fires once the upload has actually
-    // reached the fetch call, which no fixed fake-timer advance can guarantee.
     try {
       const upload = uploadArchive(
         api,
@@ -186,8 +183,6 @@ describe('uploadArchive', () => {
       completeUpload: mock(async () => {}),
     };
 
-    // Real timers: the retry backoff (RETRY_BASE_DELAY_MS) only starts after the
-    // first part PUT settles, so the wait has to be observed, not pre-advanced.
     try {
       await uploadArchive(
         api,
@@ -327,8 +322,6 @@ describe('scanCodebase filtering', () => {
       await writeFile(join(root, 'deleted.ts'), 'export const gone = 1;\n');
       await execFileAsync('git', ['init'], { cwd: root });
       await execFileAsync('git', ['add', '-A'], { cwd: root });
-      // Remove only from the working tree; the index still lists it, so
-      // `git ls-files` reports a path that no longer exists on disk.
       await rm(join(root, 'deleted.ts'));
 
       const scan = await scanCodebase(root);
@@ -361,7 +354,6 @@ describe('scanCodebase filtering', () => {
       await writeFile(join(root, 'b.txt'), 'b'.repeat(100));
       await writeFile(join(root, 'c.txt'), 'c'.repeat(100));
 
-      // 250 bytes fits any two files (200) but not the third (300).
       const scan = await scanCodebase(root, { limits: { maxArchiveSize: 250 } });
       expect(scan.files).toHaveLength(2);
       expect(scan.exceedsLimit).toEqual({ reason: 'total-size', limit: 250 });

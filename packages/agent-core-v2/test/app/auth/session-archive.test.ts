@@ -1,15 +1,3 @@
-/**
- * Session-archive digesting for `/feedback` uploads.
- *
- * Pins the two properties that matter for a multi-hundred-MiB export:
- *  1. an over-limit archive is rejected from its `stat` alone — the file is
- *     never read (the pre-fix code `readFile`'d the whole thing just to hash
- *     it, growing RSS by the file size, and only then let `uploadArchive`
- *     reject it), and
- *  2. within the limit the streamed digests stay byte-for-byte identical to
- *     the whole-buffer implementation.
- */
-
 import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import { createHash } from 'node:crypto';
 import * as nodeFs from 'node:fs';
@@ -18,12 +6,9 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { archiveFromExportedSession } from '#/feedback/feedback-attachments';
-import { MAX_ARCHIVE_SIZE } from '#/feedback/upload';
+import { archiveFromExportedSession } from '#/app/auth/feedbackService';
+import { MAX_ARCHIVE_SIZE } from '#/app/auth/feedback/upload';
 
-// `archiveFromExportedSession` streams the export, so `createReadStream` — not
-// `readFile` — is the call that would actually pull the file through memory.
-// Spying on the real namespace keeps the stream working while recording it.
 const readStreamSpy = spyOn(nodeFs, 'createReadStream');
 
 afterEach(() => {
@@ -33,8 +18,6 @@ afterEach(() => {
 async function makeTempFileSize(size: number): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'feedback-session-archive-'));
   const path = join(dir, 'session.zip');
-  // Sparse file: the reported size is `size` without actually occupying it,
-  // so an over-limit archive can be exercised without writing 500 MiB.
   const handle = await open(path, 'w');
   try {
     await handle.truncate(size);
@@ -45,9 +28,7 @@ async function makeTempFileSize(size: number): Promise<string> {
 }
 
 async function digestOf(path: string): Promise<string> {
-  return createHash('sha256')
-    .update(await readFile(path))
-    .digest('hex');
+  return createHash('sha256').update(await readFile(path)).digest('hex');
 }
 
 describe('archiveFromExportedSession', () => {
@@ -64,9 +45,7 @@ describe('archiveFromExportedSession', () => {
         ),
       );
 
-      // Deterministic main assertion: nothing was read from the file.
       expect(readStreamSpy).not.toHaveBeenCalled();
-      // Auxiliary: hashing 500 MiB would be visible both in time and in RSS.
       expect(Date.now() - startedAt).toBeLessThan(2000);
       expect(process.memoryUsage().rss - rssBefore).toBeLessThan(200 * 1024 * 1024);
     } finally {
@@ -77,7 +56,6 @@ describe('archiveFromExportedSession', () => {
   it('produces the same digests as the whole-buffer implementation', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'feedback-session-digest-'));
     const path = join(dir, 'session.zip');
-    // Larger than one stream chunk so the digest has to span several reads.
     const payload = Buffer.alloc(3 * 1024 * 1024, 7);
     await writeFile(path, payload);
     try {

@@ -16,7 +16,6 @@ import {
   KIMI_CODE_DATA_DIR_NAME,
   KIMI_CODE_HOME_ENV,
   KIMI_CODE_INPUT_HISTORY_DIR_NAME,
-  KIMI_CODE_LOG_DIR_NAME,
   KIMI_CODE_MODEL_MIGRATION_STATE_FILE_NAME,
   KIMI_CODE_NATIVE_STAGED_STATE_FILE_NAME,
   KIMI_CODE_NATIVE_STAGING_DIR_NAME,
@@ -40,13 +39,6 @@ export function getDataDir(): string {
     return envDir;
   }
   return join(homedir(), KIMI_CODE_DATA_DIR_NAME);
-}
-
-/**
- * Return the diagnostic log directory: `<dataDir>/logs/`.
- */
-export function getLogDir(): string {
-  return join(getDataDir(), KIMI_CODE_LOG_DIR_NAME);
 }
 
 /**

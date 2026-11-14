@@ -112,7 +112,7 @@ import { IWireService } from '#/wire/wire';
 import { createAgentMachine } from '#human/agent/machine';
 import { type ToolCall } from '#human/llm/message';
 import { createActor } from '#human/xstate2';
-import { setEnv, restoreEnvs } from '#test/helpers/stubs';
+import { setEnv, restoreEnvs, setGlobal, restoreGlobals } from '#test/helpers/stubs';
 import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { stubAgentContext } from '../agent/agentContext/stubs';
@@ -1085,6 +1085,7 @@ describe('Agent tool description', () => {
       agentService(IAgentProfileService, {
         _serviceBrand: undefined,
         data: () => callerData,
+        getModel: () => 'mock-model',
         getModelCapabilities: () => ({}),
         onDidChange: Event.None,
       } as unknown as IAgentProfileService),
@@ -1152,6 +1153,58 @@ describe('Agent tool description', () => {
 
     expect(agentDescription()).not.toContain('WebSearch');
     expect(agentDescription()).toContain('FetchURL');
+  });
+
+  it('activates and executes WebSearch when the active model provider declares searchUrl', async () => {
+    const fetchMock = mock(async (_url: string) => ({
+      status: 200,
+      json: async () => ({
+        search_results: [{ title: 'Doc', url: 'https://example.test/doc', snippet: 'Body' }],
+      }),
+    }));
+    setGlobal('fetch', fetchMock);
+    try {
+      ctx = createTestAgent({
+        initialConfig: {
+          defaultModel: 'registry-kimi/k3',
+          providers: {
+            'registry-kimi': {
+              type: 'kimi',
+              baseUrl: 'https://registry.example.test/v1',
+              apiKey: 'YOUR_API_KEY',
+              searchUrl: 'https://registry.example.test/v1/search',
+            },
+          },
+          models: {
+            'registry-kimi/k3': {
+              provider: 'registry-kimi',
+              model: 'k3',
+              maxContextSize: 131_072,
+              capabilities: ['tool_use'],
+            },
+          },
+        },
+      });
+      await ctx.get(IAgentProfileService).setModel('registry-kimi/k3');
+      await ctx.get(IAgentToolActivationService).activate();
+
+      const webSearch = ctx.get(IAgentToolRegistryService).resolve('WebSearch');
+      expect(webSearch).toBeDefined();
+      expect(agentDescription()).toContain('WebSearch');
+
+      const execution = await webSearch!.resolveExecution({ query: 'internal docs' });
+      if (!('execute' in execution)) throw new Error('expected runnable execution');
+      const result = await execution.execute({
+        turnId: 1,
+        toolCallId: 'tc-1',
+        signal: new AbortController().signal,
+      });
+      expect(result.isError).toBeFalsy();
+      expect(result.output).toContain('https://example.test/doc');
+      expect(fetchMock.mock.calls[0]?.[0]).toBe('https://registry.example.test/v1/search');
+    } finally {
+      restoreGlobals();
+    }
   });
 
   it('keeps an unavailable contribution registered but omits it from descriptions', async () => {
@@ -5176,13 +5229,13 @@ describe('Agent tools', () => {
         [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "step.begin", "uuid": "<uuid-1>", "turnId": "0", "step": 1 }, "time": "<time>" }
         [wire] llm.tools_snapshot          { "agentId": "main", "hash": "<tools-hash>", "tools": [ "Agent", "AgentSwarm", "AskUserQuestion", "Bash", "CreateGoal", "CronCreate", "CronDelete", "CronList", "Edit", "EnterSpecMode", "ExitPlanMode", "ExitSpecMode", "FetchURL", "GetGoal", "Glob", "Grep", "Knowledge", "Lookup", "Memory", "Read", "run_code", "session_query", "SetGoalBudget", "Skill", "SnapshotList", "TaskList", "TaskOutput", "TaskStop", "TodoList", "UpdateGoal", "WaitFor", "WebSearch", "Workflow", "Write" ], "time": "<time>" }
         [wire] llm.request                 { "agentId": "main", "kind": "loop", "provider": "openai", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "toolsHash": "<tools-hash>", "messageCount": 2, "turnStep": "0.1", "time": "<time>" }
-        [emit] assistant.delta             { "time": "<time>", "agentId": "main", "turnId": 0, "delta": "I will look it up." }
-        [emit] tool.call.delta             { "time": "<time>", "agentId": "main", "turnId": 0, "toolCallId": "call_lookup", "name": "Lookup", "argumentsPart": "{\\"query\\":\\"moon\\"}" }
+        [emit] assistant.delta             { "time": "<time>", "agentId": "main", "turnId": 0, "delta": "I will look it up.", "block": 0 }
+        [emit] tool.call.delta             { "time": "<time>", "agentId": "main", "turnId": 0, "toolCallId": "call_lookup", "name": "Lookup", "argumentsPart": "{\\"query\\":\\"moon\\"}", "block": 1 }
         [wire] usage.record                { "agentId": "main", "model": "mock-model", "usage": { "inputOther": 118, "output": 16, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
         [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "usage": { "byModel": { "mock-model": { "inputOther": 118, "output": 16, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 118, "output": 16, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 118, "output": 16, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
         [wire] token_counting.measured     { "agentId": "main", "length": 4, "tokens": 134, "time": "<time>" }
         [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "contextTokens": 134 }
-        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "content.part", "uuid": "<uuid-2>", "turnId": "0", "step": 1, "stepUuid": "<uuid-1>", "part": { "type": "text", "text": "I will look it up." } }, "time": "<time>" }
+        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "content.part", "uuid": "<uuid-2>", "turnId": "0", "step": 1, "stepUuid": "<uuid-1>", "part": { "type": "text", "text": "I will look it up." }, "block": 0, "startedAt": "<time>" }, "time": "<time>" }
         [emit] tool.call.started           { "time": "<time>", "agentId": "main", "turnId": 0, "toolCallId": "call_lookup", "name": "Lookup", "args": { "query": "moon" } }
         [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "tool.call", "uuid": "<uuid-3>", "turnId": "0", "step": 1, "stepUuid": "<uuid-1>", "toolCallId": "call_lookup", "name": "Lookup", "args": { "query": "moon" } }, "time": "<time>" }
         [emit] toolCall                    { "turnId": 0, "toolCallId": "call_lookup", "args": { "query": "moon" } }"
@@ -5206,13 +5259,13 @@ describe('Agent tools', () => {
         [emit] turn.step.started           { "time": "<time>", "agentId": "main", "turnId": 0, "step": 2, "stepId": "<uuid-4>" }
         [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "step.begin", "uuid": "<uuid-4>", "turnId": "0", "step": 2 }, "time": "<time>" }
         [wire] llm.request                 { "agentId": "main", "kind": "loop", "provider": "openai", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "toolsHash": "<tools-hash>", "messageCount": 4, "turnStep": "0.2", "time": "<time>" }
-        [emit] assistant.delta             { "time": "<time>", "agentId": "main", "turnId": 0, "delta": "The lookup result is moon-result." }
+        [emit] assistant.delta             { "time": "<time>", "agentId": "main", "turnId": 0, "delta": "The lookup result is moon-result.", "block": 0 }
         [wire] usage.record                { "agentId": "main", "model": "mock-model", "usage": { "inputOther": 138, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
         [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "usage": { "byModel": { "mock-model": { "inputOther": 256, "output": 28, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 256, "output": 28, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 256, "output": 28, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
         [wire] token_counting.measured     { "agentId": "main", "length": 6, "tokens": 150, "time": "<time>" }
         [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "contextTokens": 150 }
         [emit] turn.step.completed         { "time": "<time>", "agentId": "main", "turnId": 0, "step": 2, "stepId": "<uuid-4>", "usage": { "inputOther": 138, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "cache": { "modelAlias": "mock-model", "protocol": "openai", "providerType": "kimi", "messageCount": 4, "historyHash": "<fingerprint>", "thinkingEffort": "off", "inputTokens": 138, "cacheRead": 0, "cacheCreation": 0, "outputTokens": 12 }, "finishReason": "end_turn", "providerFinishReason": "completed", "rawFinishReason": "stop" }
-        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "content.part", "uuid": "<uuid-5>", "turnId": "0", "step": 2, "stepUuid": "<uuid-4>", "part": { "type": "text", "text": "The lookup result is moon-result." } }, "time": "<time>" }
+        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "content.part", "uuid": "<uuid-5>", "turnId": "0", "step": 2, "stepUuid": "<uuid-4>", "part": { "type": "text", "text": "The lookup result is moon-result." }, "block": 0, "startedAt": "<time>" }, "time": "<time>" }
         [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "step.end", "uuid": "<uuid-4>", "turnId": "0", "step": 2, "finishReason": "end_turn", "usage": { "inputOther": 138, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "messageId": "mock-2", "providerFinishReason": "completed", "rawFinishReason": "stop" }, "time": "<time>" }
         [wire] agent.message.appended      { "message": { "message": { "role": "assistant", "content": [ { "type": "text", "text": "I will look it up." } ], "toolCalls": [ { "type": "function", "id": "call_lookup", "name": "Lookup", "arguments": "{\\"query\\":\\"moon\\"}" } ] }, "meta": { "model": { "provider": "agent-loop", "model": "agent-loop" }, "source": "llm", "usage": { "inputOther": 118, "output": 16, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finish": { "finishReason": "tool_calls", "rawFinishReason": "tool_calls" }, "messageId": "mock-1" } }, "time": "<time>", "kind": "event" }
         [wire] agent.message.appended      { "message": { "message": { "role": "tool", "content": [ { "type": "text", "text": "moon-result" } ], "toolCallId": "call_lookup" }, "meta": { "source": "tool" } }, "time": "<time>", "kind": "event" }
@@ -5252,13 +5305,13 @@ describe('Agent tools', () => {
         [emit] turn.step.started              { "time": "<time>", "agentId": "main", "turnId": 1, "step": 1, "stepId": "<uuid-6>" }
         [wire] context.append_loop_event      { "agentId": "main", "event": { "type": "step.begin", "uuid": "<uuid-6>", "turnId": "1", "step": 1 }, "time": "<time>" }
         [wire] llm.request                    { "agentId": "main", "kind": "loop", "provider": "openai", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "toolsHash": "<tools-hash>", "messageCount": 7, "turnStep": "1.1", "time": "<time>" }
-        [emit] assistant.delta                { "time": "<time>", "agentId": "main", "turnId": 1, "delta": "No lookup tool is available." }
+        [emit] assistant.delta                { "time": "<time>", "agentId": "main", "turnId": 1, "delta": "No lookup tool is available.", "block": 0 }
         [wire] usage.record                   { "agentId": "main", "model": "mock-model", "usage": { "inputOther": 242, "output": 10, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
         [emit] agent.status.updated           { "time": "<time>", "agentId": "main", "usage": { "byModel": { "mock-model": { "inputOther": 498, "output": 38, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 498, "output": 38, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 242, "output": 10, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
         [wire] token_counting.measured        { "agentId": "main", "length": 9, "tokens": 252, "time": "<time>" }
         [emit] agent.status.updated           { "time": "<time>", "agentId": "main", "contextTokens": 252 }
         [emit] turn.step.completed            { "time": "<time>", "agentId": "main", "turnId": 1, "step": 1, "stepId": "<uuid-6>", "usage": { "inputOther": 242, "output": 10, "inputCacheRead": 0, "inputCacheCreation": 0 }, "cache": { "modelAlias": "mock-model", "protocol": "openai", "providerType": "kimi", "messageCount": 7, "historyHash": "<fingerprint>", "thinkingEffort": "off", "inputTokens": 242, "cacheRead": 0, "cacheCreation": 0, "outputTokens": 10 }, "finishReason": "end_turn", "providerFinishReason": "completed", "rawFinishReason": "stop" }
-        [wire] context.append_loop_event      { "agentId": "main", "event": { "type": "content.part", "uuid": "<uuid-7>", "turnId": "1", "step": 1, "stepUuid": "<uuid-6>", "part": { "type": "text", "text": "No lookup tool is available." } }, "time": "<time>" }
+        [wire] context.append_loop_event      { "agentId": "main", "event": { "type": "content.part", "uuid": "<uuid-7>", "turnId": "1", "step": 1, "stepUuid": "<uuid-6>", "part": { "type": "text", "text": "No lookup tool is available." }, "block": 0, "startedAt": "<time>" }, "time": "<time>" }
         [wire] context.append_loop_event      { "agentId": "main", "event": { "type": "step.end", "uuid": "<uuid-6>", "turnId": "1", "step": 1, "finishReason": "end_turn", "usage": { "inputOther": 242, "output": 10, "inputCacheRead": 0, "inputCacheCreation": 0 }, "messageId": "mock-3", "providerFinishReason": "completed", "rawFinishReason": "stop" }, "time": "<time>" }
         [wire] agent.message.appended         { "message": { "message": { "role": "assistant", "content": [ { "type": "text", "text": "No lookup tool is available." } ], "toolCalls": [] }, "meta": { "model": { "provider": "agent-loop", "model": "agent-loop" }, "source": "llm", "usage": { "inputOther": 242, "output": 10, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finish": { "finishReason": "completed", "rawFinishReason": "stop" }, "messageId": "mock-3" } }, "time": "<time>", "kind": "event" }
         [wire] agent.turn.ended               { "turnId": 1, "outcome": "done", "time": "<time>", "kind": "event" }

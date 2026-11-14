@@ -18,7 +18,6 @@ apps/kimi-code/src/cli/update/native-swap.ts  4
 apps/kimi-code/src/cli/update/preflight.ts  3
 apps/kimi-code/src/cli/update/rollout.ts  1
 apps/kimi-code/src/cli/v2/run-v2-print.ts  1
-apps/kimi-code/src/feedback/feedback-attachments.ts  1
 apps/kimi-code/src/tui/commands/plugins.ts  1
 apps/kimi-code/src/tui/components/editor/file-mention-provider.ts  1
 apps/kimi-code/src/tui/components/messages/shell-run.ts  2
@@ -46,6 +45,9 @@ apps/vscode/src/utils/session-context.ts  2
 packages/acp-server/src/acp-fs/acpConnection.ts  1
 packages/acp-server/src/acp-terminal/acpTerminalRunner.ts  2
 packages/acp-server/src/start.ts  1
+# Best-effort upload-error logging: the text feedback already exists server-side,
+# so failing to append to the log file must not fail the submission.
+packages/agent-core-v2/src/app/auth/feedbackService.ts  1
 packages/agent-core-v2/src/_base/lifecycle/keyedResource.ts  1
 packages/agent-core-v2/src/_base/log/fileLog.ts  2
 packages/agent-core-v2/src/_base/log/formatter.ts  1

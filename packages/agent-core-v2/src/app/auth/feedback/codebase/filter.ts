@@ -1,8 +1,5 @@
 export const DEFAULT_MAX_FILES = 50000;
 export const DEFAULT_MAX_FILE_SIZE = 50 * 1024 * 1024;
-// Upper bound for the compressed codebase archive, aligned with the backend's
-// per-upload limit. The scanner uses cumulative raw file size as a conservative
-// estimate so the resulting zip stays within this bound.
 export const DEFAULT_MAX_ARCHIVE_SIZE = 500 * 1024 * 1024;
 
 const IGNORED_DIR_NAMES: ReadonlySet<string> = new Set([
@@ -65,25 +62,12 @@ const SENSITIVE_FILE_SUFFIXES: readonly string[] = [
   '.keystore',
 ];
 
-const ENV_FILE_ALLOWED_SUFFIXES: ReadonlySet<string> = new Set([
-  '.example',
-  '.sample',
-  '.template',
-]);
+const ENV_FILE_ALLOWED_SUFFIXES: ReadonlySet<string> = new Set(['.example', '.sample', '.template']);
 
 export function isIgnoredDirName(name: string): boolean {
   return IGNORED_DIR_NAMES.has(name);
 }
 
-/**
- * Case-folded compare: on a case-insensitive filesystem (macOS, Windows) `.ENV`
- * and `.env` are the SAME file, so a case-sensitive check turns the only
- * sensitive-data gate on the upload path into a no-op for `.ENV`, `Server.Key`,
- * `ID_RSA`, `.SSH/config`, ... Folding is unconditional (not platform-gated):
- * a path that differs only in case must never be treated as the harmless one.
- * `IGNORED_DIR_NAMES` keeps its exact-case match — that decides what is worth
- * scanning, a different question.
- */
 export function isSensitivePath(relativePath: string): boolean {
   const segments = relativePath.split('/');
   for (let i = 0; i < segments.length - 1; i += 1) {

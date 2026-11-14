@@ -885,18 +885,8 @@ oauth = { storage = "file", key = "${oauthKey}", oauth_host = "https://auth.dev.
       kind: 'ok',
       quota: { usages: { limit7d: { usedRatio: 0.2 } } },
     });
-    await expect(
-      harness.auth.submitFeedback({
-        content: 'dev feedback',
-        sessionId: 'sess-dev',
-        version: 'kimi-code-0.1.1',
-        os: 'Darwin 25.3.0',
-        model: 'kimi-code/kimi-for-coding',
-      }),
-    ).resolves.toEqual({ kind: 'ok', feedbackId: 3 });
 
     expect(fetchMock.mock.calls[0]?.[0]).toBe(`${baseUrl}/usages`);
-    expect(fetchMock.mock.calls[1]?.[0]).toBe(`${baseUrl}/feedback`);
     for (const call of fetchMock.mock.calls) {
       const init = call[1];
       expect(new Headers(init?.headers).get('authorization')).toBe('Bearer dev-access-token');
@@ -969,148 +959,11 @@ oauth = { storage = "file", key = "${configuredOauthKey}", oauth_host = "https:/
       kind: 'ok',
       quota: { usages: { limit7d: { usedRatio: 0.3 } } },
     });
-    await expect(
-      harness.auth.submitFeedback({
-        content: 'env feedback',
-        sessionId: 'sess-env',
-        version: 'kimi-code-0.1.1',
-        os: 'Darwin 25.3.0',
-        model: 'kimi-code/kimi-for-coding',
-      }),
-    ).resolves.toEqual({ kind: 'ok', feedbackId: 3 });
 
     expect(fetchMock.mock.calls[0]?.[0]).toBe(`${envBaseUrl}/usages`);
-    expect(fetchMock.mock.calls[1]?.[0]).toBe(`${envBaseUrl}/feedback`);
     for (const call of fetchMock.mock.calls) {
       expect(new Headers(call[1]?.headers).get('authorization')).toBe('Bearer env-access-token');
     }
   });
 
-  it('submitFeedback maps camelCase input to snake_case body and posts with bearer auth', async () => {
-    await new FileTokenStorage(join(homeDir, 'credentials')).save('kimi-code', freshToken());
-    const fetchMock = mock<FetchMock>(
-      async () =>
-        new Response(JSON.stringify({ feedback_id: 3 }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }),
-    );
-    setGlobal('fetch', fetchMock);
-
-    const harness = createHarness({ homeDir, identity: TEST_IDENTITY });
-    const result = await harness.auth.submitFeedback({
-      content: 'great tool',
-      sessionId: 'sess-42',
-      version: 'kimi-code-0.1.1',
-      os: 'Darwin 25.3.0',
-      model: 'kimi-code/kimi-for-coding',
-      contact: 'test@example.com',
-      info: { codebase: { file_name: 'repo.zip' } },
-    });
-
-    expect(result).toEqual({ kind: 'ok', feedbackId: 3 });
-
-    const calls = fetchMock.mock.calls as unknown as [string, RequestInit?][];
-    const [url, init] = calls[0]!;
-    expect(url).toBe('https://api.kimi.com/coding/v1/feedback');
-    expect(init?.method).toBe('POST');
-
-    const headers = new Headers((init?.headers ?? {}) as Record<string, string>);
-    expect(headers.get('authorization')).toBe('Bearer oauth-access-token');
-    expect(headers.get('content-type')).toBe('application/json');
-
-    expect(JSON.parse(init?.body as string)).toEqual({
-      session_id: 'sess-42',
-      content: 'great tool',
-      version: 'kimi-code-0.1.1',
-      os: 'Darwin 25.3.0',
-      model: 'kimi-code/kimi-for-coding',
-      contact: 'test@example.com',
-      info: { codebase: { file_name: 'repo.zip' } },
-    });
-  });
-
-  it('createFeedbackUploadUrl maps SDK input and returns camelCase upload parts', async () => {
-    await new FileTokenStorage(join(homeDir, 'credentials')).save('kimi-code', freshToken());
-    const fetchMock = mock<FetchMock>(
-      async () =>
-        new Response(
-          JSON.stringify({
-            upload: {
-              id: 28,
-              parts: [
-                {
-                  part_number: 1,
-                  url: 'https://upload.example.test/part-1',
-                  method: 'PUT',
-                  size: 1024,
-                },
-              ],
-            },
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
-    );
-    setGlobal('fetch', fetchMock);
-
-    const harness = createHarness({ homeDir, identity: TEST_IDENTITY });
-    const result = await harness.auth.createFeedbackUploadUrl({
-      feedbackId: 3,
-      filename: 'session.zip',
-      size: 1024,
-      sha256: 'abc123',
-    });
-
-    expect(result).toEqual({
-      kind: 'ok',
-      uploadId: 28,
-      parts: [
-        {
-          partNumber: 1,
-          url: 'https://upload.example.test/part-1',
-          method: 'PUT',
-          size: 1024,
-        },
-      ],
-    });
-
-    const calls = fetchMock.mock.calls as unknown as [string, RequestInit?][];
-    const [url, init] = calls[0]!;
-    expect(url).toBe('https://api.kimi.com/coding/v1/feedback/upload_url');
-    expect(init?.method).toBe('POST');
-    expect(JSON.parse(init?.body as string)).toEqual({
-      feedback_id: 3,
-      file_name: 'session.zip',
-      file_size: 1024,
-      file_hash: 'abc123',
-    });
-  });
-
-  it('submitFeedback surfaces HTTP errors without throwing', async () => {
-    await new FileTokenStorage(join(homeDir, 'credentials')).save('kimi-code', freshToken());
-    setGlobal(
-      'fetch',
-      mock<FetchMock>(
-        async () =>
-          new Response(JSON.stringify({ message: 'feedback API rejected the request' }), {
-            status: 401,
-            headers: { 'Content-Type': 'application/json' },
-          }),
-      ),
-    );
-
-    const harness = createHarness({ homeDir, identity: TEST_IDENTITY });
-    const result = await harness.auth.submitFeedback({
-      content: 'x',
-      sessionId: 's',
-      version: 'kimi-code-0.0.0',
-      os: 'Darwin 25.3.0',
-      model: null,
-    });
-
-    expect(result.kind).toBe('error');
-    if (result.kind !== 'error') return;
-    expect(result.status).toBe(401);
-    expect(result.message).toBe('feedback API rejected the request');
-  });
 });

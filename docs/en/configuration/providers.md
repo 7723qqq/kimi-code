@@ -43,14 +43,23 @@ Two import paths when adding (the third is manual entry, covered in the next sec
 
   On startup, the TUI prompts when the current model has a valid upgrade target, including after choosing a session to resume. The explanation is rendered as Markdown. The prompt waits until the editor is empty and no turn or dialog is active; if an approval or question interrupts it, it returns when the editor is idle again. Confirm with `Enter`; `Space` does not accept a migration. Accepting switches the model and keeps the current effort when the previous model supports thinking and the target supports that effort, otherwise the target's default effort is used; keeping the current model records the choice so that migration is not shown again. When the startup refresh finds that the registry dropped the default model, the TUI shows a warning and, if the current session uses that model, switches it to the replacement with the same effort rule, without asking.
 
+  A registry provider entry may also declare optional `search_url` and `feedback_url` strings (stored as `search_url` and `feedback_url` on `[providers.<id>]`). When non-empty, `WebSearch` and `/feedback` for models under that provider send requests to those URLs authenticated with the provider's credential instead of requiring a managed Kimi Code OAuth login; omitting or removing a field disables it on the next refresh.
+
   These fields are a Kimi registry extension, not part of the models.dev schema:
 
   ```json
   {
-    "upgrade": {
-      "model": "new-model-id",
-      "migration_markdown": "We recommend switching from {model_from} to {model_to}.",
-      "retirement_at": "2027-01-01T00:00:00Z"
+    "search_url": "https://registry.example.com/v1/search",
+    "feedback_url": "https://registry.example.com/v1/feedback",
+    "models": {
+      "current-model": {
+        "id": "current-model-id",
+        "upgrade": {
+          "model": "new-model-id",
+          "migration_markdown": "We recommend switching from {model_from} to {model_to}.",
+          "retirement_at": "2027-01-01T00:00:00Z"
+        }
+      }
     }
   }
   ```

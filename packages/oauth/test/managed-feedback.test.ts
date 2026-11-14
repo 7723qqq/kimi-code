@@ -213,4 +213,28 @@ describe('fetchSubmitFeedback', () => {
     expect(result.status).toBeUndefined();
     expect(result.message).toMatch(/network down/);
   });
+
+  it('merges custom headers when provided', async () => {
+    const fetchMock = mock(
+      async () =>
+        new Response(JSON.stringify({ feedback_id: 9 }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+    );
+    setGlobal('fetch', fetchMock);
+
+    const result = await fetchSubmitFeedback(
+      'https://api.example/feedback',
+      'access-token',
+      SAMPLE_BODY,
+      { headers: { 'X-Custom-Gateway': 'internal' } },
+    );
+
+    expect(result).toEqual({ kind: 'ok', feedbackId: 9 });
+    const calls = fetchMock.mock.calls as unknown as [string, RequestInit?][];
+    const headers = new Headers((calls[0]?.[1]?.headers ?? {}) as Record<string, string>);
+    expect(headers.get('authorization')).toBe('Bearer access-token');
+    expect(headers.get('x-custom-gateway')).toBe('internal');
+  });
 });
