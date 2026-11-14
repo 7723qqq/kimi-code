@@ -27,6 +27,7 @@ export interface ContextCompactionResult {
   tokensAfter: number;
   keptUserMessageCount: number;
   keptHeadUserMessageCount?: number;
+  appendedInjectionCount: number;
   droppedCount?: number;
 }
 

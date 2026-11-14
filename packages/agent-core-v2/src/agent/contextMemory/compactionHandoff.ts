@@ -63,6 +63,7 @@ export interface ContextCompactionShape {
   readonly tokensAfter: number;
   readonly keptUserMessageCount: number;
   readonly keptHeadUserMessageCount?: number;
+  readonly appendedInjectionCount: number;
   readonly droppedCount?: number;
   readonly messages: readonly ContextMessage[];
 }
@@ -85,6 +86,7 @@ export function buildContextCompactionShape(
       tokensBefore: input.tokensBefore,
       tokensAfter: input.tokensAfter ?? estimate.messages(messages),
       keptUserMessageCount: 0,
+      appendedInjectionCount: 0,
       droppedCount: input.droppedCount,
       messages,
     };
@@ -107,11 +109,20 @@ export function buildContextCompactionShape(
   const contextSummary = input.contextSummary ?? input.summary;
   const continuationMessage = createCompactionContinuationMessage();
   const inFlightTurn = input.inFlightTurn ?? [];
+  const inFlightMessages = new Set<ContextMessage>(inFlightTurn);
+  const appendedInjections = history
+    .slice(input.compactedCount)
+    .filter((message) => message.origin?.kind === 'injection' && !inFlightMessages.has(message));
   const tokensAfter =
     input.tokensAfter ??
     (input.requestOverheadTokens ?? 0) +
       (input.summaryOutputTokens ?? estimate.text(contextSummary)) +
-      estimate.messages([...keptMessages, ...inFlightTurn, continuationMessage]);
+      estimate.messages([
+        ...keptMessages,
+        ...inFlightTurn,
+        continuationMessage,
+        ...appendedInjections,
+      ]);
   const keptUserMessageCount =
     input.keptUserMessageCount ?? selection.head.length + selection.tail.length;
   const keptHeadUserMessageCount =
@@ -125,12 +136,14 @@ export function buildContextCompactionShape(
     tokensAfter,
     keptUserMessageCount,
     keptHeadUserMessageCount,
+    appendedInjectionCount: appendedInjections.length,
     droppedCount: input.droppedCount,
     messages: [
       ...keptMessages,
       ...inFlightTurn,
       createCompactionSummaryMessage(contextSummary),
       continuationMessage,
+      ...appendedInjections,
     ],
   };
 }

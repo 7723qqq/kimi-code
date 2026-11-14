@@ -118,6 +118,7 @@ export class AgentContextMemoryService extends Disposable implements IAgentConte
         summaryOutputTokens: input.summaryOutputTokens,
         keptUserMessageCount: result.keptUserMessageCount,
         keptHeadUserMessageCount: result.keptHeadUserMessageCount,
+        appendedInjectionCount: result.appendedInjectionCount,
         droppedCount: result.droppedCount,
         wireLines: input.wireLines,
       }),

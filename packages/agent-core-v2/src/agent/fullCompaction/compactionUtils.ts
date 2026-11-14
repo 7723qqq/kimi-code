@@ -55,7 +55,9 @@ export function historySafeToCompact(
 ): boolean {
   if (current.length < original.length) return false;
   if (!original.every((message, index) => message === current[index])) return false;
-  return current.slice(original.length).every(isRealUserInput);
+  return current
+    .slice(original.length)
+    .every((message) => isRealUserInput(message) || message.origin?.kind === 'injection');
 }
 
 export function shrinkCompactionHistoryAfterOverflow<T extends Message>(
