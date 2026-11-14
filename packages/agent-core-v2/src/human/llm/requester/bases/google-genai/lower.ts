@@ -57,12 +57,37 @@ export function buildToolNameById(messages: readonly Message[]): Map<string, str
   return toolNameById;
 }
 
+export function buildRawIdById(messages: readonly Message[]): Map<string, string | undefined> {
+  const rawIdById = new Map<string, string | undefined>();
+  for (const message of messages) {
+    if (message.role !== 'assistant') continue;
+    for (const toolCall of message.toolCalls) {
+      rawIdById.set(toolCall.id, toolCall.rawId);
+    }
+  }
+  return rawIdById;
+}
+
 export interface GoogleGenAILowerContext {
   readonly toolNameById: Map<string, string>;
+  readonly rawIdById: Map<string, string | undefined>;
+  readonly modernFunctionResponses: boolean;
+}
+
+const FUNCTION_RESPONSE_MIME_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'application/pdf',
+  'text/plain',
+]);
+
+function mediaMimeOf(part: GooglePart): string | undefined {
+  return part.inlineData?.mimeType.toLowerCase();
 }
 
 export function lowerMessage(message: Message, lower: GoogleGenAILowerContext): GoogleContent[] {
-  const { toolNameById } = lower;
+  const { toolNameById, rawIdById, modernFunctionResponses } = lower;
   if (message.role === 'tool') {
     let textOutput = '';
     const mediaParts: GooglePart[] = [];
@@ -87,17 +112,25 @@ export function lowerMessage(message: Message, lower: GoogleGenAILowerContext): 
           break;
       }
     }
+    const nestedParts = modernFunctionResponses
+      ? mediaParts.filter((part) => {
+          const mime = mediaMimeOf(part);
+          return mime !== undefined && FUNCTION_RESPONSE_MIME_TYPES.has(mime);
+        })
+      : [];
     return [
       {
         role: 'user',
         parts: [
           {
             functionResponse: {
+              id: rawIdById.get(message.toolCallId),
               name: toolCallIdToName(message.toolCallId, toolNameById),
               response: { output: textOutput },
-              parts: mediaParts,
+              parts: nestedParts.length > 0 ? nestedParts : undefined,
             },
           },
+          ...mediaParts.filter((part) => !nestedParts.includes(part)),
         ],
       },
     ];
@@ -121,9 +154,16 @@ export function lowerMessage(message: Message, lower: GoogleGenAILowerContext): 
   const parts: GooglePart[] = [];
   for (const part of message.content) {
     switch (part.type) {
-      case 'text':
-        parts.push({ text: part.text });
+      case 'text': {
+        const signature =
+          message.role === 'assistant' ? part.meta?.['thought_signature_b64'] : undefined;
+        parts.push({
+          text: part.text,
+          thoughtSignature:
+            typeof signature === 'string' && signature.length > 0 ? signature : undefined,
+        });
         break;
+      }
       case 'think': {
         const thoughtPart: GooglePart = { text: part.think, thought: true };
         if (part.encrypted !== undefined && part.encrypted.length > 0) {
@@ -165,6 +205,7 @@ export function lowerMessage(message: Message, lower: GoogleGenAILowerContext): 
 
       const functionCallPart: GooglePart = {
         functionCall: {
+          id: rawIdById.get(toolCall.id),
           name: toolCall.name,
           args,
         },

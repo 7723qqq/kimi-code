@@ -128,6 +128,12 @@ export function isToolCallPart(part: StreamedMessagePart): part is ToolCallPart 
 
 export function mergeInPlace(target: StreamedMessagePart, source: StreamedMessagePart): boolean {
   if (target.type === 'text' && source.type === 'text') {
+    if (
+      target.meta?.['thought_signature_b64'] !== undefined ||
+      source.meta?.['thought_signature_b64'] !== undefined
+    ) {
+      return false;
+    }
     target.text += source.text;
     return true;
   }
@@ -208,7 +214,7 @@ export function createToolMessage(toolCallId: string, output: string | ContentPa
 export function isVacuousContentPart(part: ContentPart): boolean {
   switch (part.type) {
     case 'text':
-      return part.text.trim().length === 0;
+      return part.meta?.['thought_signature_b64'] === undefined && part.text.trim().length === 0;
     case 'think':
       return part.encrypted === undefined && part.hidden !== true && part.think.trim().length === 0;
     case 'image_url':

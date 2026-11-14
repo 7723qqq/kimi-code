@@ -2111,7 +2111,14 @@ describe('google genai base', () => {
     expect(contents[2]).toEqual({
       role: 'user',
       parts: [
-        { functionResponse: { name: 'get_weather', response: { output: 'sunny' }, parts: [] } },
+        {
+          functionResponse: {
+            id: undefined,
+            name: 'get_weather',
+            response: { output: 'sunny' },
+            parts: undefined,
+          },
+        },
       ],
     });
     const config = body['config'] as Record<string, unknown>;

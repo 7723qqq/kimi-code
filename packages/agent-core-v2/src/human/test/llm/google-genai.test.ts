@@ -82,7 +82,7 @@ async function nextTick(): Promise<void> {
 }
 
 describe('google genai tool result media', () => {
-  it('nests media inside functionResponse.parts instead of leaving it a sibling part', async () => {
+  it('keeps tool media outside the function response for legacy models', async () => {
     const client = createStuckStreamClient();
     const requester = createGoogleGenAIRequester({
       clientFactory: client.clientFactory as never,
@@ -109,12 +109,12 @@ describe('google genai tool result media', () => {
     }>;
     const last = contents.at(-1)!;
     expect(last.role).toBe('user');
-    expect(last.parts).toHaveLength(1);
+    expect(last.parts).toHaveLength(2);
     const functionResponse = last.parts[0]?.['functionResponse'] as {
-      parts: Array<Record<string, unknown>>;
+      parts: Array<Record<string, unknown>> | undefined;
     };
-    expect(functionResponse.parts).toHaveLength(1);
-    expect(functionResponse.parts[0]?.['inlineData']).toMatchObject({ mimeType: 'image/png' });
+    expect(functionResponse.parts).toBeUndefined();
+    expect(last.parts[1]?.['inlineData']).toMatchObject({ mimeType: 'image/png' });
 
     controller.abort();
     expect(await settlesWithin(generate, 1000)).toBe(true);

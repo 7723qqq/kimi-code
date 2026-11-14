@@ -92,3 +92,23 @@ describe('anthropic lowering of inline images', () => {
     expect(messages[0]?.content[0]).toMatchObject(HEIC_BLOCK);
   });
 });
+
+describe('anthropic lowering of blank text', () => {
+  it('omits blank text kept only for another provider signature', () => {
+    const wire = lowerMessage(
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'answer', meta: { thought_signature_b64: 'sig-text' } },
+          { type: 'text', text: '', meta: { thought_signature_b64: 'sig-end' } },
+        ],
+        toolCalls: [{ type: 'function', id: 'call_1', name: 'get_weather', arguments: '{}' }],
+      },
+      providerImagePolicy().acceptedMimes,
+    );
+    expect(wire[0]?.content).toEqual([
+      { type: 'text', text: 'answer' },
+      { type: 'tool_use', id: 'call_1', name: 'get_weather', input: {} },
+    ]);
+  });
+});

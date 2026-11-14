@@ -412,7 +412,11 @@ function isInterruptedToolResult(message: Message | undefined): boolean {
 }
 
 function isBlankText(part: ContentPart): boolean {
-  return part.type === 'text' && part.text.trim().length === 0;
+  return (
+    part.type === 'text' &&
+    part.meta?.['thought_signature_b64'] === undefined &&
+    part.text.trim().length === 0
+  );
 }
 
 function canMergeUserMessage(message: ContextMessage): boolean {

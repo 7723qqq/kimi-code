@@ -1650,9 +1650,9 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         if (turn === undefined || step === undefined) return;
         const callUuid = randomUUID();
         step.toolCallUuids.set(event.toolCallId, callUuid);
-        const extras = step.entry?.message.toolCalls.find(
+        const sourceCall = step.entry?.message.toolCalls.find(
           (call) => call.id === event.toolCallId,
-        )?.extras;
+        );
         this.context.appendLoopEvent({
           type: 'tool.call',
           uuid: callUuid,
@@ -1660,9 +1660,10 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
           step: step.number,
           stepUuid: step.uuid,
           toolCallId: event.toolCallId,
+          rawId: sourceCall?.rawId,
           name: event.name,
           args: event.args,
-          extras,
+          extras: sourceCall?.extras,
           display: event.display,
         });
         return;
@@ -1824,9 +1825,9 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         onToolCall: (payload) => {
           const callUuid = randomUUID();
           step.toolCallUuids.set(payload.toolCallId, callUuid);
-          const extras = step.entry?.message.toolCalls.find(
+          const sourceCall = step.entry?.message.toolCalls.find(
             (entry) => entry.id === payload.toolCallId,
-          )?.extras;
+          );
           this.context.appendLoopEvent({
             type: 'tool.call',
             uuid: callUuid,
@@ -1834,9 +1835,10 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
             step: step.number,
             stepUuid: step.uuid,
             toolCallId: payload.toolCallId,
+            rawId: sourceCall?.rawId,
             name: payload.name,
             args: payload.args,
-            extras,
+            extras: sourceCall?.extras,
           });
         },
       })) {

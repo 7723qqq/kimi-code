@@ -55,6 +55,7 @@ export type LoopRecordedEvent =
       readonly type: 'tool.call';
       readonly stepUuid: string;
       readonly toolCallId: string;
+      readonly rawId?: string;
       readonly name: string;
       readonly args?: unknown;
       readonly extras?: Record<string, unknown>;
@@ -181,6 +182,7 @@ function createLoopEventFoldWithState(
           const call: ToolCall = {
             type: 'function',
             id: event.toolCallId,
+            rawId: event.rawId,
             name: event.name,
             arguments: event.args === undefined ? null : JSON.stringify(event.args),
             ...(event.extras !== undefined ? { extras: event.extras } : {}),

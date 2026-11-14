@@ -27,7 +27,7 @@ import { ThinkingConfigError, type ThinkingEffort } from '#/llm/thinking';
 import type { TokenUsage } from '#/llm/usage';
 
 import type { GoogleContent } from './contract';
-import { buildToolNameById, lowerMessage } from './lower';
+import { buildRawIdById, buildToolNameById, lowerMessage } from './lower';
 import { sortToolRunByCallOrder } from './patterns';
 
 export function defaultGoogleGenAITool(tool: ToolDescription): Record<string, unknown> {
@@ -42,10 +42,18 @@ export function defaultGoogleGenAITool(tool: ToolDescription): Record<string, un
   };
 }
 
-export function lowerGoogleGenAIMessages(messages: readonly Message[]): GoogleContent[] {
+export function lowerGoogleGenAIMessages(
+  messages: readonly Message[],
+  modelName?: string,
+): GoogleContent[] {
   const normalized = applyPatterns(messages, [sortToolRunByCallOrder]);
   const toolNameById = buildToolNameById(normalized);
-  const lowered = normalized.flatMap((message) => lowerMessage(message, { toolNameById }));
+  const rawIdById = buildRawIdById(normalized);
+  const modernFunctionResponses =
+    modelName !== undefined && /^gemini-(?:[3-9]|[1-9]\d)-/.test(modelName);
+  const lowered = normalized.flatMap((message) =>
+    lowerMessage(message, { toolNameById, rawIdById, modernFunctionResponses }),
+  );
   return applyPatterns(lowered, [
     mergeConsecutiveUsers({
       isUser: (content) => content.role === 'user',
@@ -117,31 +125,34 @@ function extractChunkParts(response: Record<string, unknown>): StreamedMessagePa
 
     for (const part of contentParts) {
       const p = part as Record<string, unknown>;
+      const thoughtSignature = p['thoughtSignature'] ?? p['thought_signature'];
+      const signature =
+        typeof thoughtSignature === 'string' && thoughtSignature.length > 0
+          ? { thought_signature_b64: thoughtSignature }
+          : undefined;
       if (p['thought'] === true && typeof p['text'] === 'string') {
-        const thoughtSignature = p['thoughtSignature'] ?? p['thought_signature'];
         const thinkPart: ThinkPart = { type: 'think', think: p['text'] };
         if (typeof thoughtSignature === 'string' && thoughtSignature.length > 0) {
           thinkPart.encrypted = thoughtSignature;
         }
         parts.push(thinkPart);
-      } else if (p['text']) {
-        parts.push({ type: 'text', text: p['text'] as string });
+      } else if (typeof p['text'] === 'string') {
+        parts.push({ type: 'text', text: p['text'], meta: signature });
       } else if (p['functionCall'] || p['function_call']) {
         const fc = (p['functionCall'] ?? p['function_call']) as Record<string, unknown>;
         const name = fc['name'] as string;
         if (!name) continue;
-        const id_ = (fc['id'] as string) ?? crypto.randomUUID();
+        const rawId = typeof fc['id'] === 'string' && fc['id'].length > 0 ? fc['id'] : undefined;
+        const id_ = rawId ?? crypto.randomUUID();
         const toolCallId = `${name}_${id_}_${crypto.randomUUID().replaceAll('-', '').slice(0, 8)}`;
-        const thoughtSigB64 = p['thoughtSignature'] ?? p['thought_signature'];
         const toolCall: ToolCall = {
           type: 'function',
           id: toolCallId,
+          rawId,
           name,
           arguments: fc['args'] ? JSON.stringify(fc['args']) : '{}',
+          ...(signature !== undefined ? { extras: signature } : {}),
         };
-        if (typeof thoughtSigB64 === 'string' && thoughtSigB64.length > 0) {
-          toolCall.extras = { thought_signature_b64: thoughtSigB64 };
-        }
         parts.push(toolCall);
       }
     }

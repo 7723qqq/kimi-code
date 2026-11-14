@@ -67,7 +67,7 @@ export function prepareGoogleGenAIRequest(
   }
   kwargs = shake(assign(kwargs, input.extraParams?.googleGenai ?? {}));
 
-  const contents = lowerGoogleGenAIMessages(input.messages);
+  const contents = lowerGoogleGenAIMessages(input.messages, input.model.model);
   const merged = trait?.mergeHistory?.(contents, ctx) ?? contents;
   const tools = input.tools.map(
     (tool) => trait?.convertTool?.(tool, ctx) ?? defaultGoogleGenAITool(tool),

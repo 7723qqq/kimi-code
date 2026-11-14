@@ -57,6 +57,7 @@ describe('foldWireRecords', () => {
           type: 'tool.call',
           stepUuid: 's1',
           toolCallId: 'tc1',
+          rawId: 'call_native',
           name: 'Shell',
           args: { command: 'ls' },
           display,
@@ -80,6 +81,7 @@ describe('foldWireRecords', () => {
       {
         type: 'function',
         id: 'tc1',
+        rawId: 'call_native',
         name: 'Shell',
         arguments: '{"command":"ls"}',
         extras: undefined,
