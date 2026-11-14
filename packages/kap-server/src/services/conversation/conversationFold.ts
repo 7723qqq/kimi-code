@@ -27,7 +27,6 @@ import {
   agentRefOf,
   contentItem,
   endToolCall,
-  errorInfoOf,
   isPlanTool,
   isoTime,
   notificationItem,
@@ -41,6 +40,7 @@ import {
   totalUsage,
   userMessageItem,
   type ToolInteraction,
+  errorInfoOf,
 } from './conversationItems';
 import { parseTaskNotifications, plainTaskNotification } from './taskNotifications';
 
@@ -129,7 +129,7 @@ export function createConversationState(agentId: string, fork?: ConversationFork
   };
 }
 
-const COMPLETED: TurnEnd = { outcome: 'completed' };
+export const COMPLETED: TurnEnd = { outcome: 'completed' };
 const HIDDEN_ORIGIN_KINDS: ReadonlySet<string> = new Set(['injection']);
 const TASK_ORIGIN_KINDS: ReadonlySet<string> = new Set(['task', 'background_task', 'task_notification']);
 const TURN_OPENING_SYSTEM_TRIGGERS: ReadonlySet<string> = new Set(['goal_continuation', 'subagent']);
@@ -267,7 +267,7 @@ export function undoConversationTurns(state: ConversationState, count: number): 
   return state;
 }
 
-function applyMessage(state: ConversationState, message: ContextMessage | undefined, time: number): void {
+export function applyMessage(state: ConversationState, message: ContextMessage | undefined, time: number): void {
   if (message === undefined) return;
   if (message.role === 'assistant') {
     applyLegacyAssistant(state, message, time);
@@ -515,7 +515,7 @@ function applyTurnEnded(state: ConversationState, record: WireRecord, time: numb
   if (durationMs !== undefined) turn.duration_ms = durationMs;
 }
 
-function turnEndOf(reason: unknown, error: ErrorInfo | undefined, provisional: TurnEnd | undefined): TurnEnd {
+export function turnEndOf(reason: unknown, error: ErrorInfo | undefined, provisional: TurnEnd | undefined): TurnEnd {
   switch (reason) {
     case 'cancelled':
       return provisional?.outcome === 'interrupted' ? provisional : { outcome: 'interrupted', reason: 'user_cancelled' };
@@ -702,7 +702,7 @@ function turnIdOf(agentId: string, ordinal: number, startedAt: number): string {
   return `t_${digest.slice(0, 12)}`;
 }
 
-function endTurn(state: ConversationState, turn: ConversationTurn, end: TurnEnd, time: number): void {
+export function endTurn(state: ConversationState, turn: ConversationTurn, end: TurnEnd, time: number): void {
   turn.status = 'ended';
   turn.outcome = end.outcome;
   turn.end_reason = end.reason;
@@ -761,7 +761,7 @@ function turnForNumber(state: ConversationState, turnNumber: number | undefined,
   return turn;
 }
 
-function openTurn(state: ConversationState): ConversationTurn | undefined {
+export function openTurn(state: ConversationState): ConversationTurn | undefined {
   return state.openTurnId === undefined ? undefined : findTurn(state, state.openTurnId);
 }
 

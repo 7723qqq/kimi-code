@@ -59,6 +59,7 @@ export class SurveyPopupConfigFeed {
   }
 
   readyForEvaluation(): boolean {
+    console.log('CONFIG-FEED', 'ready:', this.ready, 'isFresh:', this.deps.isFresh(), 'region:', this.deps.region(), 'refreshedRegion:', this.refreshedRegion);
     if (!this.ready) return false;
     const now = this.now();
     if (
@@ -79,18 +80,20 @@ export class SurveyPopupConfigFeed {
 
   private refresh(): boolean {
     this.refreshedAt = this.now();
-    this.refreshedRegion = this.deps.region();
     const refresh = this.deps.refresh;
     if (refresh === undefined) {
+      this.refreshedRegion = this.deps.region();
       this.ready = true;
       return false;
     }
+    this.refreshedRegion = this.deps.region();
     this.ready = false;
     void new Promise((resolve) => {
       resolve(refresh());
     })
       .catch(() => undefined)
       .finally(() => {
+        this.refreshedRegion = this.deps.region();
         this.ready = true;
       });
     return true;

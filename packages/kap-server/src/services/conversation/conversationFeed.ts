@@ -2,30 +2,18 @@ import {
   CompactionCancelled,
   Error2,
   ErrorCodes,
-  FullCompactionBegin,
-  FullCompactionCancel,
-  FullCompactionComplete,
   IAgentBlobService,
+  IAgentContextMemoryService,
   IAgentConversationUndoService,
   IAgentLoopService,
   IEventBus,
-  IEventDispatcher,
   ILogService,
-  InteractionRequestEvent,
-  InteractionResolvedEvent,
   PromptCompleted,
-  SubagentSpawned,
-  type DurableAgentRuntimeParticipant,
   type IAgentScopeHandle,
   type IDisposable,
   type ToolUpdate,
 } from '@moonshot-ai/agent-core-v2';
-import {
-  ContextAppendLoopEvent,
-  ContextAppendMessage,
-  ContextApplyCompaction,
-  ContextClear,
-} from '@moonshot-ai/agent-core-v2/agent/contextMemory/contextEvents';
+import { ContextSpliced } from '@moonshot-ai/agent-core-v2/agent/contextMemory/contextEvents';
 import {
   AssistantDelta,
   ThinkingDelta,
@@ -34,12 +22,12 @@ import {
   TurnStepRetrying,
   TurnStepStreamReset,
 } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
-import { TurnCancel, TurnEnded, TurnPrompt, TurnSteer } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
+import { TurnEnded, TurnPrompt, TurnSteer } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
 import { AgentErrorEvent } from '@moonshot-ai/agent-core-v2/agent/mcp/mcpEvents';
 import { WarningIssued } from '@moonshot-ai/agent-core-v2/agent/profile/profileOps';
 import { ToolProgress } from '@moonshot-ai/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
-import { IAgentConversationUndoParticipantRegistry } from '@moonshot-ai/agent-core-v2/agent/contextMemory/conversationUndoParticipants';
-import { IWireService } from '@moonshot-ai/agent-core-v2/wire/wire';
+import { isRealUserInput } from '@moonshot-ai/agent-core-v2/agent/contextMemory/compactionHandoff';
+import { errorInfoOf } from './conversationItems';
 
 import type {
   AssistantMessageItem,
@@ -56,9 +44,13 @@ import type {
   TurnsMessage,
 } from '../../protocol/conversation';
 import {
-  applyConversationRecord,
+  applyMessage,
+  COMPLETED,
   createConversationState,
+  endTurn,
+  openTurn,
   settleOrphanTurns,
+  turnEndOf,
   type ConversationFork,
   type ConversationState,
   type RunningWork,
@@ -87,30 +79,6 @@ interface LiveTool {
   readonly fields: LiveToolFields;
 }
 
-const RECORD_EVENTS = [
-  TurnPrompt,
-  ContextAppendMessage,
-  ContextAppendLoopEvent,
-  TurnSteer,
-  TurnCancel,
-  TurnStepInterrupted,
-  TurnStepRetrying,
-  TurnEnded,
-  PromptCompleted,
-  InteractionRequestEvent,
-  InteractionResolvedEvent,
-  SubagentSpawned,
-  FullCompactionBegin,
-  ContextApplyCompaction,
-  FullCompactionComplete,
-  FullCompactionCancel,
-  ContextClear,
-];
-
-const RECORD_EVENT_TYPES: ReadonlySet<string> = new Set(
-  RECORD_EVENTS.map((event) => event.type),
-);
-
 const BLOBREF_PREFIX = 'blobref:';
 const PAGE_BYTES = 1024 * 1024;
 const PAGE_ENVELOPE_BYTES = 4 * 1024;
@@ -127,6 +95,8 @@ export class ConversationFeed implements IDisposable {
   private started = false;
   private beforeReplay: ConversationState | undefined;
   private flushQueued = false;
+  private rebuildQueued = false;
+  private lastTurnEnd: { reason?: string; error?: unknown } | undefined;
   private disposed = false;
   private readonly live = new Map<string, LiveItem>();
   private readonly tools = new Map<string, LiveTool>();
@@ -236,51 +206,73 @@ export class ConversationFeed implements IDisposable {
       bus.subscribe(CompactionCancelled, () => {
         this.notify(COMPACTION_CANCELLED_NOTICE);
       }),
-    );
-    const dispatcher = this.handle.accessor.get(IEventDispatcher);
-    const participant: DurableAgentRuntimeParticipant<ConversationState> = {
-      id: 'kap.conversation',
-      events: RECORD_EVENTS,
-      undoable: false,
-      transition: (draft, event) => {
-        applyConversationRecord(draft, event.serialize());
-      },
-      getState: () => this.state,
-      commit: (next) => {
-        this.commit(next);
-      },
-    };
-    this.disposables.push(await dispatcher.attachLate(participant));
-    this.disposables.push(
-      this.handle.accessor.get(IAgentConversationUndoParticipantRegistry).register({
-        id: 'kap.conversation',
-        phase: 'after-flush',
-        reconcileAfterUndo: async () => {
-          await this.rebuildFromWire();
-        },
+      bus.subscribe(TurnPrompt, () => {
+        this.lastTurnEnd = undefined;
+        this.scheduleRebuild();
+      }),
+      bus.subscribe(TurnSteer, () => {
+        this.scheduleRebuild();
+      }),
+      bus.subscribe(TurnEnded, (event) => {
+        this.lastTurnEnd = { reason: event.reason, error: event.error };
+        this.scheduleRebuild();
+      }),
+      bus.subscribe(TurnStepInterrupted, () => {
+        this.scheduleRebuild();
+      }),
+      bus.subscribe(PromptCompleted, () => {
+        this.scheduleRebuild();
+      }),
+      bus.subscribe(ContextSpliced, () => {
+        this.scheduleRebuild();
       }),
     );
+    this.rebuild();
     this.sent = this.state.turns;
     this.started = true;
   }
 
-  private async rebuildFromWire(): Promise<void> {
+  private scheduleRebuild(): void {
+    if (this.rebuildQueued || this.disposed) return;
+    this.rebuildQueued = true;
+    queueMicrotask(() => {
+      this.rebuildQueued = false;
+      this.rebuild();
+    });
+  }
+
+  private rebuild(): void {
     if (this.disposed) return;
-    const wire = this.handle.accessor.get(IWireService);
-    const state = createConversationState(this.handle.id, this.fork, this.debug);
-    try {
-      for await (const record of wire.readJournal()) {
-        if (!RECORD_EVENT_TYPES.has(record.type)) continue;
-        applyConversationRecord(state, record);
+    const fresh = createConversationState(this.handle.id, undefined, this.debug);
+    fresh.provisionalEnds = { ...this.state.provisionalEnds };
+    let ordinalClock = 0;
+    let skipping = this.fork !== undefined;
+    for (const message of this.handle.accessor.get(IAgentContextMemoryService).get()) {
+      if (skipping) {
+        if (isRealUserInput(message)) skipping = false;
+        else continue;
       }
-    } catch {
-      return;
+      applyMessage(fresh, message, (ordinalClock += 1) * 1000);
+    }
+    const open = openTurn(fresh);
+    if (open !== undefined) {
+      const loop = this.handle.accessor.get(IAgentLoopService).snapshot();
+      if (loop.state !== 'running') {
+        const last = this.lastTurnEnd;
+        this.lastTurnEnd = undefined;
+        endTurn(
+          fresh,
+          open,
+          last === undefined ? COMPLETED : turnEndOf(last.reason, errorInfoOf(last.error, undefined), undefined),
+          (ordinalClock + 1) * 1000,
+        );
+      }
     }
     this.beforeReplay = undefined;
     this.dropLive(() => true);
     this.tools.clear();
-    this.state = settleOrphanTurns(state, this.runningWork());
-    this.flush();
+    this.state = settleOrphanTurns(fresh, this.runningWork());
+    if (this.started) this.flush();
   }
 
   private get debug(): boolean {

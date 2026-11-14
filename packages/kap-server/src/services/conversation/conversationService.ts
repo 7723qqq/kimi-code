@@ -28,7 +28,7 @@ export interface ConversationFeedCreated {
 }
 
 interface SessionFeeds {
-  readonly session: ISessionScopeHandle;
+  session: ISessionScopeHandle;
   readonly feeds: Map<string, { readonly context: AgentContext; readonly feed: ConversationFeed }>;
   readonly watches: IDisposable[];
 }
@@ -70,7 +70,7 @@ export class ConversationService implements IDisposable {
   async mainTurns(sessionId: string): Promise<readonly ConversationTurn[] | undefined> {
     const session = await resumeSessionById(this.core.accessor, sessionId);
     if (session === undefined) return undefined;
-    const handle = await getOrRestoreAgent(session, MAIN_AGENT_ID);
+    const handle = await ensureMainAgent(session);
     if (handle === undefined) return undefined;
     return (await this.attach(sessionId, this.watch(sessionId, session), handle).ready).turns();
   }
@@ -88,11 +88,21 @@ export class ConversationService implements IDisposable {
 
   private watch(sessionId: string, session: ISessionScopeHandle): SessionFeeds {
     const existing = this.sessions.get(sessionId);
-    if (existing?.session === session) return existing;
-    if (existing !== undefined) this.drop(sessionId, existing.session);
-    const agents = session.accessor.get(IAgentLifecycleService);
-    const entry: SessionFeeds = { session, feeds: new Map(), watches: [] };
+    if (existing !== undefined) {
+      for (const watch of existing.watches) watch.dispose();
+      existing.watches.length = 0;
+      existing.session = session;
+      for (const agentId of existing.feeds.keys()) {
+        if (session.accessor.get(IAgentLifecycleService).handleOf(agentId) === undefined) {
+          existing.feeds.get(agentId)!.feed.dispose();
+          existing.feeds.delete(agentId);
+        }
+      }
+    }
+    const entry: SessionFeeds =
+      existing ?? { session, feeds: new Map(), watches: [] };
     this.sessions.set(sessionId, entry);
+    const agents = session.accessor.get(IAgentLifecycleService);
     entry.watches.push(
       agents.onDidCreateScope?.(({ handle }) => {
         this.attach(sessionId, entry, handle);
