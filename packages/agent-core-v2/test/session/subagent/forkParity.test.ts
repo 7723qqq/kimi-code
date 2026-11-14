@@ -683,6 +683,34 @@ describe('subagent task reminders and fork request parity', () => {
     expect(ctx.llmCalls).toHaveLength(2);
   });
 
+  it('carries the post-change tool baseline into a btw fork', async () => {
+    createMainForkCtx();
+    await ctx.get(IAgentProfileService).bind({ profile: 'agent', model: 'mock-model' });
+    ctx.get(IAgentProfileService).update({
+      activeToolNames: contributedToolNames().filter((name) => !MAIN_AGENT_ONLY_TOOLS.has(name)),
+    });
+    const lifecycle = ctx.get(IAgentLifecycleService);
+    const main = lifecycle.handleOf('main')!;
+    await runPrompt(main);
+    ctx.get(IAgentProfileService).update({
+      activeToolNames: contributedToolNames().filter(
+        (name) => !MAIN_AGENT_ONLY_TOOLS.has(name) && name !== 'WaitFor' && name !== 'Glob',
+      ),
+    });
+    const childId = await ctx.get(ISessionBtwService).start();
+    const child = lifecycle.handleOf(childId)!;
+
+    await runPrompt(child);
+
+    const parentReq = ctx.llmCalls[0]!;
+    const childReq = ctx.llmCalls[1]!;
+    expect(parentReq.tools.some((tool) => tool.name === 'WaitFor')).toBe(true);
+    expect(childReq.tools.some((tool) => tool.name === 'WaitFor')).toBe(false);
+    expect(childReq.tools.some((tool) => tool.name === 'Glob')).toBe(false);
+    expect(childReq.systemPrompt).toBe(parentReq.systemPrompt);
+    expect(childReq.history.slice(0, parentReq.history.length)).toEqual(parentReq.history);
+  });
+
   it('drops the parent comparison from the btw cache probe once main compacts', async () => {
     const telemetry: TelemetryRecord[] = [];
     createMainForkCtx(stubFlag(true), telemetry);
