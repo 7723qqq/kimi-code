@@ -59,7 +59,6 @@ export class SurveyPopupConfigFeed {
   }
 
   readyForEvaluation(): boolean {
-    console.log('CONFIG-FEED', 'ready:', this.ready, 'isFresh:', this.deps.isFresh(), 'region:', this.deps.region(), 'refreshedRegion:', this.refreshedRegion);
     if (!this.ready) return false;
     const now = this.now();
     if (
