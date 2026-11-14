@@ -28,6 +28,80 @@ export interface KimiFilesOptions {
   fetch?: KimiFilesFetch;
 }
 
+const READY_FILE_OBJECT_STATUSES = new Set(['ready', 'ok', 'processed']);
+
+function readNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function readUploadFailureDetail(record: Record<string, unknown>): string | undefined {
+  const statusDetails = readNonEmptyString(record['status_details']);
+  if (statusDetails !== undefined) return statusDetails;
+  const extractError = record['extract_error'];
+  const directExtractError = readNonEmptyString(extractError);
+  if (directExtractError !== undefined) return directExtractError;
+  if (extractError !== undefined) {
+    const serialized = JSON.stringify(extractError);
+    if (serialized !== undefined) return serialized;
+  }
+  const rawError = record['error'];
+  const directError = readNonEmptyString(rawError);
+  if (directError !== undefined) return directError;
+  if (typeof rawError === 'object' && rawError !== null) {
+    const nestedMessage = readNonEmptyString((rawError as Record<string, unknown>)['message']);
+    if (nestedMessage !== undefined) return nestedMessage;
+  }
+  return readNonEmptyString(record['message']);
+}
+
+function formatUploadStatusError(
+  id: string,
+  field: 'extract_status' | 'status',
+  value: unknown,
+  detail: string | undefined,
+): Error {
+  const rendered = String(value);
+  const summary =
+    value === 'error'
+      ? `Kimi file upload failed for file "${id}" (${field}=${rendered})`
+      : `Kimi file upload for file "${id}" is not ready (${field}=${rendered})`;
+  return new Error(detail === undefined ? summary : `${summary}: ${detail}`);
+}
+
+function parseUploadedKimiFile(uploaded: unknown): { id: string } {
+  if (typeof uploaded !== 'object' || uploaded === null) {
+    throw new Error('Kimi file upload returned an invalid response payload');
+  }
+  const record = uploaded as Record<string, unknown>;
+  const rawId = record['id'];
+  const id = typeof rawId === 'string' && rawId.trim().length > 0 ? rawId : undefined;
+  if (id === undefined) {
+    throw new Error('Kimi file upload returned an empty file id');
+  }
+  const extractStatus = record['extract_status'];
+  if (extractStatus !== undefined && extractStatus !== null && extractStatus !== 'ready') {
+    throw formatUploadStatusError(
+      id,
+      'extract_status',
+      extractStatus,
+      readUploadFailureDetail(record),
+    );
+  }
+  const status = record['status'];
+  const allowUploadedWithReadyExtract = extractStatus === 'ready' && status === 'uploaded';
+  if (
+    status !== undefined &&
+    status !== null &&
+    !allowUploadedWithReadyExtract &&
+    (typeof status !== 'string' || !READY_FILE_OBJECT_STATUSES.has(status))
+  ) {
+    throw formatUploadStatusError(id, 'status', status, readUploadFailureDetail(record));
+  }
+  return { id };
+}
+
 export class KimiFiles {
   private readonly _client: OpenAI | undefined;
 
@@ -82,13 +156,14 @@ export class KimiFiles {
     const file = new File([blob], filename, { type: input.mimeType });
 
     const client = this._createClient();
-    return (await client.files.create(
+    const uploaded = (await client.files.create(
       {
         file: file as never,
         purpose: purpose as never,
       },
       options?.signal ? { signal: options.signal } : undefined,
-    )) as unknown as { id: string };
+    )) as unknown;
+    return parseUploadedKimiFile(uploaded);
   }
 
   private _createClient(): OpenAI {

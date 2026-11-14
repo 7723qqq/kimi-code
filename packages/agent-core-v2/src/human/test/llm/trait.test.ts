@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 
 import { classifyKimiQuotaError } from '#/llm-kimi/errors';
-import { KimiFiles, kimiFilesBaseUrl } from '#/llm-kimi/files';
+import { KimiFiles, kimiFilesBaseUrl, type KimiFilesFetch } from '#/llm-kimi/files';
 import { kimiMediaContribution } from '#/llm-kimi/media';
 import { kimiProvider } from '#/llm-kimi/provider';
 import {
@@ -392,6 +392,77 @@ describe('media', () => {
     await expect(
       files.uploadImage({ data: new Uint8Array([1]), mimeType: 'image/png' }),
     ).rejects.toThrow('apiKey is required');
+  });
+
+  describe('upload status validation', () => {
+    const failures = [
+      {
+        body: {
+          id: 'img-1',
+          extract_status: 'error',
+          extract_error: 'Formula image could not be decoded',
+        },
+        expected: /img-1.*extract_status=error.*Formula image could not be decoded/,
+      },
+      {
+        body: { id: 'img-2', status: 'error', status_details: 'Invalid image format' },
+        expected: /img-2.*status=error.*Invalid image format/,
+      },
+      {
+        body: {
+          id: 'img-3',
+          extract_status: 'error',
+          error: { message: 'Unsupported color profile' },
+        },
+        expected: /img-3.*extract_status=error.*Unsupported color profile/,
+      },
+      {
+        body: { id: 'img-4', extract_status: 'processing' },
+        expected: /img-4.*not ready.*extract_status=processing/,
+      },
+      {
+        body: { id: 'img-5', status: 'uploaded' },
+        expected: /img-5.*not ready.*status=uploaded/,
+      },
+      {
+        body: { id: ' ', extract_status: 'ready' },
+        expected: /empty file id/,
+      },
+    ];
+
+    function filesWith(responses: Response[]): KimiFiles {
+      return new KimiFiles({
+        apiKey: 'sk-test',
+        baseUrl: 'https://example.test/v1',
+        fetch: (async (input: RequestInfo | URL) => {
+          if (new Request(input).url === 'data:,') return new Response();
+          return responses.shift()!;
+        }) as unknown as KimiFilesFetch,
+      });
+    }
+
+    it('rejects failed or unfinished uploads instead of caching unusable file refs', async () => {
+      for (const { body } of failures) {
+        const files = filesWith([Response.json(body)]);
+        await expect(
+          files.uploadImage({ data: new Uint8Array([1]), mimeType: 'image/png' }),
+        ).rejects.toThrow(failures.find((failure) => failure.body === body)!.expected);
+      }
+    });
+
+    it('accepts a ready upload with a ready extract', async () => {
+      const files = filesWith([
+        Response.json({ id: 'img-ready', extract_status: 'ready', status: 'uploaded' }),
+      ]);
+      const part = await files.uploadImage({
+        data: new Uint8Array([1]),
+        mimeType: 'image/png',
+      });
+      expect(part).toEqual({
+        type: 'image_url',
+        imageUrl: { url: 'ms://img-ready', id: 'img-ready' },
+      });
+    });
   });
 
   it('restores the stripped /v1 for anthropic-routed kimi models', () => {
