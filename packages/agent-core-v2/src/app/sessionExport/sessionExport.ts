@@ -23,7 +23,6 @@ export interface ExportSessionPreview {
   readonly sessionId: string;
   readonly sessionDir: string;
   readonly files: readonly string[];
-  readonly requestId?: string;
 }
 
 export interface ExportSessionManifest {

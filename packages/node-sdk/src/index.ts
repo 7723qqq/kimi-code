@@ -146,6 +146,7 @@ export type { DaemonFileRef, MediaKind } from '@moonshot-ai/agent-core-v2/agent/
 export type {
   FeedbackAttachmentLevel,
   FeedbackAvailability,
+  FeedbackSessionPreview,
   FeedbackSubmitInput,
   FeedbackSubmitResult,
 } from '@moonshot-ai/agent-core-v2/app/auth/feedback';
