@@ -86,6 +86,7 @@ import {
   shutdownServerTelemetry,
 } from './services/telemetry';
 import { TranscriptService } from './services/transcript/transcriptService';
+import { ConversationService } from './services/conversation/conversationService';
 import { extractWsBearerToken } from './transport/ws/bearerProtocol';
 import { ConnectionRegistry, type IConnectionRegistry } from './transport/ws/connectionRegistry';
 import { registerWsDebug, WS_DEBUG_PATH } from './transport/ws/debug/registerWsDebug';
@@ -396,12 +397,14 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
 
   const connectionRegistry = new ConnectionRegistry();
   const transcriptService = new TranscriptService({ homeDir, core, logger });
+  const conversations = new ConversationService(core);
   const sessionRating = createServerSessionRating(core, { debugEndpoints, logger });
   core.accessor.get(IGlobalSearchService).setLiveTranscriptSource(transcriptService);
   const broadcaster = new SessionEventBroadcaster({
     core,
     logger,
     transcriptService,
+    conversations,
   });
 
   const configService = core.accessor.get(IConfigService);
@@ -512,6 +515,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     },
     connectionRegistry,
     broadcaster,
+    conversations,
     transcriptService,
     sessionRating,
     dangerousBypassAuth: opts.disableAuth === true,

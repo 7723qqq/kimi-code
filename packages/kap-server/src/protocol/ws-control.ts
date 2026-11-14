@@ -85,7 +85,8 @@ export const clientHelloAckMessageSchema = wsAckEnvelopeSchema(clientHelloAckPay
 
 export const subscribeV2PayloadSchema = z.object({
   session_id: z.string().min(1),
-  transcript: transcriptGradeSpecSchema,
+  agent_ids: z.array(z.string().min(1)).min(1).optional(),
+  transcript: transcriptGradeSpecSchema.optional(),
   transcript_since: z.record(z.string(), transcriptSeqSchema).optional(),
 });
 

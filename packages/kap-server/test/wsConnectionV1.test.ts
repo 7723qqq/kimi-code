@@ -241,6 +241,8 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
       ) => {
         detaches.push({ sessionId, agentIds });
       },
+      subscribeAgents: async () => true,
+      unsubscribeAgents: () => {},
       flushTranscriptSeed: async () => {},
       addGlobalTarget: () => {},
       removeGlobalTarget: () => {},

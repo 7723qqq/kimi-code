@@ -94,9 +94,9 @@ export class ConversationService implements IDisposable {
     const entry: SessionFeeds = { session, feeds: new Map(), watches: [] };
     this.sessions.set(sessionId, entry);
     entry.watches.push(
-      agents.onDidCreateScope(({ handle }) => {
+      agents.onDidCreateScope?.(({ handle }) => {
         this.attach(sessionId, entry, handle);
-      }),
+      }) ?? { dispose: () => {} },
       agents.onDidClose((agent) => {
         const closed = entry.feeds.get(agent.agentId);
         if (closed?.context !== agent) return;
@@ -135,8 +135,14 @@ export class ConversationService implements IDisposable {
 }
 
 function forkOf(session: ISessionScopeHandle, agentId: string): ConversationFork | undefined {
-  const states = session.accessor.get(ISessionStateService);
-  const agent = states.has(sessionMetadataDataKey) ? states.get(sessionMetadataDataKey)?.agents?.[agentId] : undefined;
-  if (agent?.forkedFrom === undefined) return undefined;
-  return { forkedFrom: agent.forkedFrom, source: agent.labels?.[BTW_AGENT_LABEL] === 'true' ? 'btw' : 'fork' };
+  try {
+    const states = session.accessor.get(ISessionStateService);
+    const agent = states.has(sessionMetadataDataKey)
+      ? states.get(sessionMetadataDataKey)?.agents?.[agentId]
+      : undefined;
+    if (agent?.forkedFrom === undefined) return undefined;
+    return { forkedFrom: agent.forkedFrom, source: agent.labels?.[BTW_AGENT_LABEL] === 'true' ? 'btw' : 'fork' };
+  } catch {
+    return undefined;
+  }
 }

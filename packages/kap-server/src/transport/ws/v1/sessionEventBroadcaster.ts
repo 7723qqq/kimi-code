@@ -58,6 +58,16 @@ import {
 } from '../../../protocol/interaction-wire';
 import { toWireWorkspace } from '../../../routes/workspaces';
 import { ensureMainAgent } from '../../mainAgent';
+import type { ConversationMessage } from '../../../protocol/conversation';
+import {
+  ConversationService,
+  type ConversationFeedCreated,
+} from '../../../services/conversation/conversationService';
+import {
+  ConversationFeed,
+  type ConversationEvent,
+} from '../../../services/conversation/conversationFeed';
+import { mapError } from '../../errors';
 import { projectPromptContentParts } from '../../../services/messages/messageProjection';
 import type { TranscriptService } from '../../../services/transcript/transcriptService';
 import type {
@@ -95,7 +105,8 @@ export type BroadcastFrame =
   | InteractionEventMessage
   | TaskEventMessage
   | TaskListMessage
-  | AgentFeedMessage;
+  | AgentFeedMessage
+  | ConversationMessage;
 
 export interface BroadcastTarget {
   send(frame: BroadcastFrame, delivery?: BroadcastDelivery): void;
@@ -127,12 +138,34 @@ interface SessionState {
   readonly listedAgents: Map<BroadcastTarget, Set<string>>;
   transcriptStream?: TranscriptStream;
   readonly transcriptSeeded: Set<BroadcastTarget>;
+  readonly conversations: Map<BroadcastTarget, Map<string, AgentSubscription>>;
+}
+
+interface AgentSubscription {
+  generation: number;
+  conversation?: ConversationAttachment;
+}
+
+interface ConversationAttachment {
+  readonly feed: ConversationFeed;
+  readonly listener: IDisposable;
+  pending?: ConversationEvent[];
 }
 
 const GLOBAL_SESSION_ID = '__global__';
+const CONVERSATION_PAGE_TURNS = 10;
+
+function releaseConversation(subscription: AgentSubscription): void {
+  subscription.generation += 1;
+  subscription.conversation?.listener.dispose();
+  subscription.conversation = undefined;
+}
 const TRANSCRIPT_RESET_TAIL_TURNS = 0;
 
 async function disposeSessionState(state: SessionState): Promise<void> {
+  for (const agents of state.conversations.values()) {
+    for (const subscription of agents.values()) releaseConversation(subscription);
+  }
   for (const d of state.lifecycleDisposables) d.dispose();
   for (const d of state.agentDisposables.values()) d.dispose();
 }
@@ -149,16 +182,22 @@ export class SessionEventBroadcaster {
   private readonly lifecycleSubscription: IDisposable;
   private closed = false;
 
+  private readonly feedSubscription: IDisposable;
+
   constructor(
     private readonly opts: {
       readonly core: Scope;
       readonly logger?: BroadcastLogger;
       readonly transcriptService?: TranscriptService;
+      readonly conversations: ConversationService;
     },
   ) {
     const sessionManager = opts.core.accessor.get(ISessionManager);
     this.deletionSubscription = sessionManager.onWillDeleteSession?.((event) => {
       event.waitUntil(this.purgeSession(event.sessionId));
+    });
+    this.feedSubscription = opts.conversations.onDidCreateFeed((created) => {
+      this.onFeedCreated(created);
     });
     this.lifecycleSubscription = followSessionLifecycles(opts.core.accessor, (service) => {
       const closeSubscription = service.onDidCloseSession((event) => {
@@ -300,6 +339,174 @@ export class SessionEventBroadcaster {
     state.transcriptSeeded.delete(target);
     state.listedAgents.delete(target);
     this.evictDetachedSession(sessionId);
+  }
+
+  async subscribeAgents(
+    sessionId: string,
+    target: BroadcastTarget,
+    agentIds: readonly string[],
+  ): Promise<boolean> {
+    let state = this.sessions.get(sessionId);
+    if (state === undefined) {
+      try {
+        await this.reattachSession(sessionId);
+      } catch (error) {
+        this.opts.logger?.warn(
+          { sessionId, err: error instanceof Error ? error.message : String(error) },
+          'session subscribe conversation reattach failed',
+        );
+        return false;
+      }
+      state = this.sessions.get(sessionId);
+      if (state === undefined) return false;
+    }
+    let agents = state.conversations.get(target);
+    if (agents === undefined) {
+      agents = new Map();
+      state.conversations.set(target, agents);
+    }
+    const added: string[] = [];
+    for (const agentId of agentIds) {
+      if (agents.has(agentId)) continue;
+      agents.set(agentId, { generation: 0 });
+      added.push(agentId);
+    }
+    for (const agentId of new Set(agentIds)) void this.sync(state, target, agentId);
+    return true;
+  }
+
+  unsubscribeAgents(sessionId: string, target: BroadcastTarget, agentIds?: readonly string[]): void {
+    const state = this.sessions.get(sessionId);
+    const agents = state?.conversations.get(target);
+    if (state === undefined || agents === undefined) return;
+    for (const agentId of agentIds ?? [...agents.keys()]) {
+      const subscription = agents.get(agentId);
+      if (subscription === undefined) continue;
+      releaseConversation(subscription);
+      agents.delete(agentId);
+    }
+    if (agents.size > 0) return;
+    state.conversations.delete(target);
+    this.evictDetachedSession(sessionId);
+  }
+
+  conversationsOf(target: BroadcastTarget): string[] {
+    return [...this.sessions.values()]
+      .filter((state) => state.conversations.has(target))
+      .map((state) => state.sessionId)
+      .toSorted();
+  }
+
+  private async sync(
+    state: SessionState,
+    target: BroadcastTarget,
+    agentId: string,
+  ): Promise<void> {
+    const subscription = state.conversations.get(target)?.get(agentId);
+    if (subscription === undefined) return;
+    const generation = ++subscription.generation;
+    const current = (): boolean =>
+      state.conversations.get(target)?.get(agentId) === subscription &&
+      subscription.generation === generation;
+    let feed: ConversationFeed;
+    try {
+      feed = await this.opts.conversations.feed(state.sessionId, agentId);
+    } catch (error) {
+      if (!current()) return;
+      this.opts.logger?.warn(
+        {
+          sessionId: state.sessionId,
+          agentId,
+          err: error instanceof Error ? error.message : String(error),
+        },
+        'session subscribe conversation failed',
+      );
+      releaseConversation(subscription);
+      const failure = mapError(error, '');
+      try {
+        target.send({
+          type: 'turns.failed',
+          session_id: state.sessionId,
+          agent_id: agentId,
+          event_created_at: new Date().toISOString(),
+          code: failure.code,
+          msg: failure.msg,
+        });
+      } catch {
+      }
+      return;
+    }
+    if (!current() || subscription.conversation?.feed === feed) return;
+    subscription.conversation?.listener.dispose();
+    const attachment: ConversationAttachment = {
+      feed,
+      listener: feed.subscribe((event) => {
+        this.forwardConversation(state, target, agentId, attachment, event);
+      }),
+    };
+    subscription.conversation = attachment;
+    void this.sendPage(state, target, agentId, attachment);
+  }
+
+  private onFeedCreated({ sessionId, agentId }: ConversationFeedCreated): void {
+    const state = this.sessions.get(sessionId);
+    if (state === undefined) return;
+    for (const [target, agents] of state.conversations) {
+      if (agents.has(agentId)) void this.sync(state, target, agentId);
+    }
+  }
+
+  private forwardConversation(
+    state: SessionState,
+    target: BroadcastTarget,
+    agentId: string,
+    attachment: ConversationAttachment,
+    event: ConversationEvent,
+  ): void {
+    if (state.conversations.get(target)?.get(agentId)?.conversation !== attachment) return;
+    if (attachment.pending !== undefined) attachment.pending.push(event);
+    else this.sendConversation(target, state.sessionId, agentId, event);
+  }
+
+  private async sendPage(
+    state: SessionState,
+    target: BroadcastTarget,
+    agentId: string,
+    attachment: ConversationAttachment,
+  ): Promise<void> {
+    const pending: ConversationEvent[] = [];
+    attachment.pending = pending;
+    const page = await attachment.feed.page(undefined, CONVERSATION_PAGE_TURNS);
+    if (state.conversations.get(target)?.get(agentId)?.conversation !== attachment) return;
+    attachment.pending = undefined;
+    try {
+      target.send({
+        type: 'turns',
+        session_id: state.sessionId,
+        agent_id: agentId,
+        event_created_at: new Date().toISOString(),
+        ...page,
+      });
+    } catch {
+    }
+    for (const event of pending) this.sendConversation(target, state.sessionId, agentId, event);
+  }
+
+  private sendConversation(
+    target: BroadcastTarget,
+    sessionId: string,
+    agentId: string,
+    event: ConversationEvent,
+  ): void {
+    try {
+      target.send({
+        ...event,
+        session_id: sessionId,
+        agent_id: agentId,
+        event_created_at: new Date().toISOString(),
+      } as ConversationMessage);
+    } catch {
+    }
   }
 
   unsubscribeTranscript(
@@ -479,6 +686,7 @@ export class SessionEventBroadcaster {
     this.deletionSubscription?.dispose();
     this.createSubscription?.dispose();
     this.lifecycleSubscription.dispose();
+    this.feedSubscription.dispose();
     const disposals: Promise<void>[] = [];
     for (const [sessionId, state] of this.sessions) {
       disposals.push(disposeSessionState(state));
@@ -620,6 +828,7 @@ export class SessionEventBroadcaster {
       knownInteractions: new Map(),
       transcriptSeeded: new Set(),
       listedAgents: new Map(),
+      conversations: new Map(),
     };
     this.sessions.set(sessionId, state);
     try {
@@ -663,6 +872,7 @@ export class SessionEventBroadcaster {
       knownInteractions: new Map(),
       transcriptSeeded: new Set(),
       listedAgents: new Map(),
+      conversations: new Map(),
     };
     this.sessions.set(GLOBAL_SESSION_ID, state);
     return state;

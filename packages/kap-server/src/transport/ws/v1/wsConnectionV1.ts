@@ -1,13 +1,14 @@
-import {
-  detachGrades,
-  transcriptSubscribeV2PayloadSchema,
-  type TranscriptGradeSpec,
-} from '@moonshot-ai/transcript';
+import { detachGrades, type TranscriptGradeSpec } from '@moonshot-ai/transcript';
 import { ulid } from 'ulid';
 import type { RawData, WebSocket } from 'ws';
 
 import { SYSTEM_CLOCK, type Clock, type TimerHandle } from '../../../lib/clock';
-import { abortPayloadSchema, unsubscribeV2PayloadSchema, WS_PROTOCOL_VERSION } from '../../../protocol/ws-control';
+import {
+  abortPayloadSchema,
+  subscribeV2PayloadSchema,
+  unsubscribeV2PayloadSchema,
+  WS_PROTOCOL_VERSION,
+} from '../../../protocol/ws-control';
 import type { CredentialValidator } from '../../../services/auth/credentials';
 import type { IConnectionRegistry } from '../connectionRegistry';
 import { buildAck, buildPing, buildResponse, buildServerHello } from './protocol';
@@ -32,7 +33,18 @@ const TASK_REQUEST_TYPES: ReadonlySet<string> = new Set([
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 10_000;
 const HEARTBEAT_MISS_LIMIT = 2;
 
-type SessionSubscription = TargetSubscription;
+type SessionSubscription = TargetSubscription & { conversationAgents?: readonly string[] };
+
+function detachConversationAgents(
+  existing: SessionSubscription,
+  removed: readonly string[],
+): readonly string[] | undefined {
+  const current = existing.conversationAgents;
+  if (current === undefined) return undefined;
+  const gone = new Set(removed);
+  const next = current.filter((agentId) => !gone.has(agentId));
+  return next.length === 0 ? undefined : next;
+}
 
 const DEFAULT_FLUSH_INTERVAL_MS = 16;
 const DEFAULT_MAX_BATCH_SIZE = 64;
@@ -225,12 +237,33 @@ export class WsConnectionV1 implements BroadcastTarget {
   }
 
   private async onSubscribeV2(frame: InboundFrame): Promise<void> {
-    const parsed = transcriptSubscribeV2PayloadSchema.safeParse(frame.payload ?? {});
+    const parsed = subscribeV2PayloadSchema.safeParse(frame.payload ?? {});
     if (!parsed.success) {
       this.sendImmediateFrame(buildAck(frame.id ?? '', 1, 'invalid subscribe_v2 payload', {}));
       return;
     }
     const sid = parsed.data.session_id;
+
+    if (parsed.data.agent_ids !== undefined) {
+      const ok = await this.broadcaster.subscribeAgents(sid, this, parsed.data.agent_ids);
+      if (!ok) {
+        this.sendImmediateFrame(
+          buildAck(frame.id ?? '', 1, 'session not found', { accepted: [], not_found: [sid] }),
+        );
+        return;
+      }
+      const existing = this.subscriptions.get(sid);
+      this.subscriptions.set(sid, {
+        agentFilter: existing?.agentFilter,
+        transcriptGrades: existing?.transcriptGrades,
+        conversationAgents: [...parsed.data.agent_ids],
+      });
+      this.sendImmediateFrame(
+        buildAck(frame.id ?? '', 0, 'success', { accepted: [sid], not_found: [] }),
+      );
+      this.sendPendingInteractions([sid]);
+      return;
+    }
 
     const accepted: string[] = [];
     const notFound: string[] = [];
@@ -261,10 +294,13 @@ export class WsConnectionV1 implements BroadcastTarget {
     const existing = this.subscriptions.get(sid);
     if (existing !== undefined) {
       this.broadcaster.unsubscribeTranscript(sid, this, agentIds);
+      this.broadcaster.unsubscribeAgents(sid, this, agentIds);
       this.subscriptions.set(sid, {
         agentFilter: existing.agentFilter,
         transcriptGrades:
           agentIds === undefined ? undefined : detachGrades(existing.transcriptGrades, agentIds),
+        conversationAgents:
+          agentIds === undefined ? undefined : detachConversationAgents(existing, agentIds),
       });
     }
 
@@ -411,7 +447,10 @@ export class WsConnectionV1 implements BroadcastTarget {
     this.outbound = [];
     this.taskRequests.dispose();
     this.broadcaster.removeGlobalTarget(this);
-    for (const sid of this.subscriptions.keys()) this.broadcaster.unsubscribe(sid, this);
+    for (const [sid, subscription] of this.subscriptions) {
+      this.broadcaster.unsubscribe(sid, this);
+      this.broadcaster.unsubscribeAgents(sid, this, subscription.conversationAgents);
+    }
   }
 }
 

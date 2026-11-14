@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, jest, spyOn } from 'bun:test';
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+
+import { ConversationService } from '../src/services/conversation/conversationService';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -558,6 +560,7 @@ describe('SessionEventBroadcaster', () => {
     eventBus = new FakeEventBus();
     bc = new SessionEventBroadcaster({
       core: makeCore(sessions, eventBus),
+      conversations: new ConversationService(makeCore(sessions, eventBus)),
     });
   });
 
@@ -632,7 +635,7 @@ describe('SessionEventBroadcaster', () => {
     const state = withAgentState(main);
     state.setTodos([{ title: 'write tests', status: 'in_progress' }]);
     sessions.set('s1', lc);
-    bc = new SessionEventBroadcaster({ core: makeCore(sessions, eventBus) });
+    bc = new SessionEventBroadcaster({ core: makeCore(sessions, eventBus), conversations: new ConversationService(makeCore(sessions, eventBus)) });
 
     const view = collectingTarget();
     const offView = collectingTarget();
@@ -675,7 +678,7 @@ describe('SessionEventBroadcaster', () => {
     main.set(IModelService, { getDefaultModel: () => 'k3' });
     main.set(IModelCatalog, { get: () => ({ capabilities: { max_input_tokens: 800 } }) });
     sessions.set('s1', lc);
-    bc = new SessionEventBroadcaster({ core: makeCore(sessions, eventBus) });
+    bc = new SessionEventBroadcaster({ core: makeCore(sessions, eventBus), conversations: new ConversationService(makeCore(sessions, eventBus)) });
 
     const view = collectingTarget();
     await bc.subscribe('s1', view.target, undefined, { '*': 'turn' });
@@ -840,6 +843,7 @@ describe('SessionEventBroadcaster', () => {
     await bc.close();
     bc = new SessionEventBroadcaster({
       core: makeCore(sessions, eventBus, {}, managerEvents),
+      conversations: new ConversationService(makeCore(sessions, eventBus, {}, managerEvents)),
     });
 
     const lc = new FakeLifecycle();
@@ -2134,6 +2138,7 @@ describe('SessionEventBroadcaster', () => {
       return new SessionEventBroadcaster({
         core,
         transcriptService: new TranscriptService({ homeDir: dir, core }),
+        conversations: new ConversationService(core),
       });
     }
 
@@ -2355,6 +2360,7 @@ describe('SessionEventBroadcaster', () => {
       bc = new SessionEventBroadcaster({
         core,
         transcriptService: service,
+        conversations: new ConversationService(core),
       });
 
       const view = collectingTarget();
@@ -2377,6 +2383,7 @@ describe('SessionEventBroadcaster', () => {
       bc = new SessionEventBroadcaster({
         core,
         transcriptService: service,
+        conversations: new ConversationService(core),
       });
 
       const view = collectingTarget();

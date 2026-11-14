@@ -42,6 +42,8 @@ import { registerShutdownRoutes } from './shutdown';
 import { registerSkillsRoutes } from './skills';
 import { registerToolsRoutes } from './tools';
 import { registerTranscriptRoutes } from './transcript';
+import { registerConversationRoutes } from './conversation';
+import type { ConversationService } from '../services/conversation/conversationService';
 import { registerWorkspaceFsRoutes } from './workspaceFs';
 import { registerWorkspacesRoutes } from './workspaces';
 
@@ -69,6 +71,7 @@ export interface RegisterApiV1RoutesOptions {
   readonly onShutdown: () => void;
   readonly connectionRegistry: IConnectionRegistry;
   readonly broadcaster: SessionEventBroadcaster;
+  readonly conversations: ConversationService;
   readonly transcriptService: TranscriptService;
   readonly sessionRating: SessionRatingHost;
   readonly pluginMarketplaceUrl: () => string | Promise<string>;
@@ -208,6 +211,10 @@ export async function registerApiV1Routes(
         core,
         transcriptService: opts.transcriptService,
       });
+      registerConversationRoutes(
+        apiV1 as unknown as Parameters<typeof registerConversationRoutes>[0],
+        opts.conversations,
+      );
       if (opts.enableShutdown !== false) {
         registerShutdownRoutes(apiV1 as unknown as Parameters<typeof registerShutdownRoutes>[0], {
           onShutdown: opts.onShutdown,
