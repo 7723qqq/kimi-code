@@ -241,7 +241,7 @@ export class ConversationFeed implements IDisposable {
     const participant: DurableAgentRuntimeParticipant<ConversationState> = {
       id: 'kap.conversation',
       events: RECORD_EVENTS,
-      undoable: true,
+      undoable: false,
       transition: (draft, event) => {
         applyConversationRecord(draft, event.serialize());
       },
