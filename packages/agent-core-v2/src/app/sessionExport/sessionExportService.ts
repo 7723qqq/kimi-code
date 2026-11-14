@@ -1,4 +1,4 @@
-import { join, resolve } from 'pathe';
+import { join, relative, resolve } from 'pathe';
 
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import type { ISessionScopeHandle } from '#/_base/di/scope';
@@ -23,6 +23,7 @@ import { openZipSource, type ZipSource } from './file-source';
 import { buildExportManifest, type ExportSessionManifestSummary } from './manifest';
 import {
   type ExportSessionPayload,
+  type ExportSessionPreview,
   type ExportSessionResult,
   type ExportSessionOptions,
   ISessionExportService,
@@ -65,7 +66,8 @@ export class SessionExportService implements ISessionExportService {
     }
 
     const summary = await this.index.get(input.sessionId);
-    if (summary === undefined) {
+    const globalLogOnly = input.includeGlobalLog === true && input.sessionId.trim().length === 0;
+    if (summary === undefined && !globalLogOnly) {
       throw new Error2(
         ErrorCodes.SESSION_NOT_FOUND,
         `Session "${input.sessionId}" does not exist`,
@@ -73,7 +75,13 @@ export class SessionExportService implements ISessionExportService {
       );
     }
 
-    const liveSummary = await this.flushLiveSession(summary);
+    const liveSummary =
+      summary === undefined
+        ? {
+            id: input.sessionId,
+            sessionDir: join(this.bootstrap.homeDir, '.empty-session'),
+          }
+        : await this.flushLiveSession(summary);
     options.signal?.throwIfAborted();
     if (input.includeGlobalLog === true) {
       await this.warnIfFails('export global log flush failed', () => this.log.flush(), {
@@ -92,6 +100,22 @@ export class SessionExportService implements ISessionExportService {
       webLog: options.webLog,
       signal: options.signal,
     });
+  }
+
+  async preview(sessionId: string): Promise<ExportSessionPreview | undefined> {
+    const id = sessionId.trim();
+    if (id.length === 0) return undefined;
+    const summary = await this.index.get(id);
+    if (summary === undefined) return undefined;
+    const liveSummary = await this.flushLiveSession(summary);
+    const files = await collectFilesRecursive(liveSummary.sessionDir, FILE_HISTORY_BLOB_PREFIX);
+    return {
+      sessionId: liveSummary.id,
+      sessionDir: liveSummary.sessionDir,
+      files: files.map((file) =>
+        relative(liveSummary.sessionDir, file).split(/[\\/]/).join('/'),
+      ),
+    };
   }
 
   private async flushLiveSession(summary: SessionSummary): Promise<ExportSessionDirectorySummary> {
@@ -193,8 +217,12 @@ export async function exportSessionDirectory(input: {
     if (input.desktopLogPath !== undefined) {
       desktopSource = await openOptionalZipSource(input.desktopLogPath, input.signal);
     }
-    const sessionFiles = await collectFilesRecursive(sessionDir);
-    if (sessionFiles.length === 0 && sessionLogSource === undefined) {
+    const sessionFiles = await collectFilesRecursive(sessionDir, FILE_HISTORY_BLOB_PREFIX);
+    if (
+      !input.request.includeGlobalLog &&
+      sessionFiles.length === 0 &&
+      sessionLogSource === undefined
+    ) {
       throw new Error2(
         ErrorCodes.SESSION_EXPORT_NOT_FOUND,
         `Session "${input.summary.id}" has no exportable directory at "${sessionDir}"`,

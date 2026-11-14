@@ -286,6 +286,11 @@ describe('FeedbackService', () => {
       });
       setGlobal('fetch', fetchMock);
 
+      const preview = {
+        sessionId: 's1',
+        sessionDir: join(root, 'session'),
+        files: ['agents/main/wire.jsonl', 'state.json'],
+      };
       const exportMock = mock(async ({ outputPath }: { outputPath?: string }) => {
         await writeFile(outputPath!, 'session archive bytes');
         return {
@@ -309,7 +314,19 @@ describe('FeedbackService', () => {
           'acme/k3': { provider: 'acme', model: 'k3', maxContextSize: 131072 },
         },
         bootstrap: { cacheDir, logsDir },
-        sessionExport: { export: exportMock },
+        sessionExport: {
+          preview: async () => preview,
+          export: exportMock,
+        },
+      });
+
+      await expect(svc.availability('acme/k3', 's1')).resolves.toEqual({
+        kind: 'ready',
+        session: {
+          sessionId: 's1',
+          sessionDir: join(root, 'session'),
+          files: ['agents/main/wire.jsonl', 'state.json'],
+        },
       });
 
       const result = await svc.submit(
@@ -333,6 +350,35 @@ describe('FeedbackService', () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+
+  it('honors attachmentLevel none without uploading archives', async () => {
+    const fetchMock = mock(async () => Response.json({ feedback_id: 91 }));
+    setGlobal('fetch', fetchMock);
+    const exportMock = mock();
+
+    const svc = service({
+      providers: {
+        acme: {
+          type: 'kimi',
+          baseUrl: 'https://registry.example.test/v1',
+          apiKey: 'YOUR_API_KEY',
+          feedbackUrl: 'https://registry.example.test/v1/feedback',
+        },
+      },
+      models: {
+        'acme/k3': { provider: 'acme', model: 'k3', maxContextSize: 131072 },
+      },
+      sessionExport: {
+        export: exportMock,
+      },
+    });
+
+    await expect(svc.submit({ ...SUBMIT, attachmentLevel: 'none' }, 'acme/k3')).resolves.toEqual({
+      kind: 'ok',
+      feedbackId: 91,
+    });
+    expect(exportMock).not.toHaveBeenCalled();
   });
 
   it('marks attachmentFailed when session export fails after feedback submission succeeds', async () => {

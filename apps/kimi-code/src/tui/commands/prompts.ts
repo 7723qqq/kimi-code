@@ -82,15 +82,10 @@ export function promptFeedbackInput(
   });
 }
 
-export type FeedbackAttachmentLevel = 'none' | 'logs' | 'logs+codebase';
+export type FeedbackAttachmentLevel = 'logs' | 'logs+codebase';
 
 function getFeedbackAttachmentOptions(): readonly ChoiceOption[] {
   return [
-    {
-      value: 'none',
-      label: t('tui.statusMessages.feedbackNoAttachment'),
-      description: t('tui.statusMessages.feedbackNoAttachmentDesc'),
-    },
     {
       value: 'logs',
       label: t('tui.statusMessages.feedbackLogsOnly'),

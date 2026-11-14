@@ -730,6 +730,54 @@ describe('sessionExport', () => {
       code: 'session.not_found',
       details: { sessionId: 'ses_missing' },
     } satisfies Partial<Error2>);
+
+    await mkdir(join(tmp, 'logs'), { recursive: true });
+    await writeFile(join(tmp, 'logs', 'kimi-code.log'), 'global log\n', 'utf8');
+    const fallbackZip = join(tmp, 'fallback-global.zip');
+    const fallbackResult = await ix.get(ISessionExportService).export({
+      sessionId: '',
+      outputPath: fallbackZip,
+      includeGlobalLog: true,
+      version: '1.0.0-test',
+    });
+    expect(fallbackResult.entries).toEqual(['manifest.json', 'logs/global/kimi-code.log']);
+  });
+
+  it('previews session files excluding file-history', async () => {
+    const tmp = await mkdtemp(join(tmpdir(), 'session-export-preview-'));
+    const sessionDir = join(tmp, 'sessions', 'ws_live', 'ses_live');
+    await mkdir(join(sessionDir, 'agents', 'main'), { recursive: true });
+    await mkdir(join(sessionDir, 'file-history'), { recursive: true });
+    await writeFile(join(sessionDir, 'state.json'), '{}\n', 'utf8');
+    await writeFile(join(sessionDir, 'file-history', 'blob-1'), 'secret\n', 'utf8');
+    await writeFile(join(sessionDir, 'agents', 'main', 'wire.jsonl'), '{}\n', 'utf8');
+    ix = createTestServices(tmp, {
+      summary: {
+        id: 'ses_live',
+        workspaceId: 'ws_live',
+        title: 'Live',
+        createdAt: 1,
+        updatedAt: 2,
+        archived: false,
+      },
+      lifecycleHandle: liveSessionHandle({
+        meta: {
+          id: 'ses_live',
+          title: 'Live',
+          createdAt: 1,
+          updatedAt: 2,
+          archived: false,
+        },
+        sessionLog: stubLog(),
+        agentWire: { flush: async () => {} },
+      }),
+    });
+
+    await expect(ix.get(ISessionExportService).preview!('ses_live')).resolves.toEqual({
+      sessionId: 'ses_live',
+      sessionDir,
+      files: ['agents/main/wire.jsonl', 'state.json'],
+    });
   });
 
   it('flushes live session and agent state before packaging', async () => {

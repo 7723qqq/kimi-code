@@ -19,7 +19,10 @@ import { ILogService } from '#/_base/log/log';
 import { IOAuthService } from '#/app/auth/auth';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
-import { ISessionExportService } from '#/app/sessionExport/sessionExport';
+import {
+  ISessionExportService,
+  type ExportSessionPreview,
+} from '#/app/sessionExport/sessionExport';
 import { LifecycleScope } from '#/app/scopes';
 import { IModelService, type ModelRecord } from '#/llm-adapter/model/model';
 import {
@@ -34,6 +37,7 @@ import {
   IFeedbackService,
   type FeedbackAttachmentLevel,
   type FeedbackAvailability,
+  type FeedbackSessionPreview,
   type FeedbackSubmitInput,
   type FeedbackSubmitResult,
 } from './feedback';
@@ -80,10 +84,17 @@ export class FeedbackService implements IFeedbackService {
     @ILogService private readonly log?: ILogService,
   ) {}
 
-  async availability(modelAlias?: string): Promise<FeedbackAvailability> {
+  async availability(modelAlias?: string, sessionId?: string): Promise<FeedbackAvailability> {
     const target = await this.resolveTarget(modelAlias, false);
-    if (target.kind === 'custom' || target.kind === 'managed') return { kind: 'ready' };
-    return target;
+    if (target.kind !== 'custom' && target.kind !== 'managed') return target;
+    const preview = await this.previewSession(sessionId);
+    if (preview === undefined) return { kind: 'ready' };
+    const session: FeedbackSessionPreview = {
+      sessionId: preview.sessionId,
+      sessionDir: preview.sessionDir,
+      files: preview.files,
+    };
+    return { kind: 'ready', session };
   }
 
   async submit(input: FeedbackSubmitInput, modelAlias?: string): Promise<FeedbackSubmitResult> {
@@ -106,7 +117,7 @@ export class FeedbackService implements IFeedbackService {
     if (result.kind === 'error') return { kind: 'error', message: result.message };
 
     const level = input.attachmentLevel;
-    if (level === undefined || level === 'none') {
+    if (level !== 'logs' && level !== 'logs+codebase') {
       return { kind: 'ok', feedbackId: result.feedbackId };
     }
     let outcome: AttachmentOutcome = { failed: true };
@@ -125,6 +136,17 @@ export class FeedbackService implements IFeedbackService {
             : { codebaseTruncated: outcome.codebaseTruncated }),
         }
       : { kind: 'ok', feedbackId: result.feedbackId };
+  }
+
+  private async previewSession(sessionId?: string): Promise<ExportSessionPreview | undefined> {
+    const id = nonEmpty(sessionId);
+    if (id === undefined || this.sessionExport?.preview === undefined) return undefined;
+    try {
+      return await this.sessionExport.preview(id);
+    } catch (error) {
+      this.log?.warn('feedback session preview failed', { error });
+      return undefined;
+    }
   }
 
   private async uploadAttachments(

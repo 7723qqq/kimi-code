@@ -3688,7 +3688,7 @@ command = "vim"
     };
     const feedbackDriver = driver as unknown as FeedbackDriver;
     promptFeedbackInputMock.mockImplementation(async () => ({ value: 'useful feedback' }));
-    promptFeedbackAttachmentMock.mockImplementation(async () => 'none');
+    promptFeedbackAttachmentMock.mockImplementation(async () => 'logs');
     harness.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 7 });
 
     await handleFeedbackCommand(feedbackDriver as any);
@@ -3702,7 +3702,7 @@ command = "vim"
     const { driver, harness } = await makeDriver(makeSession());
     const feedbackDriver = driver as unknown as FeedbackDriver;
     promptFeedbackInputMock.mockImplementation(async () => ({ value: 'useful feedback' }));
-    promptFeedbackAttachmentMock.mockImplementation(async () => 'none');
+    promptFeedbackAttachmentMock.mockImplementation(async () => 'logs');
     harness.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 3 });
     harness.track.mockClear();
 
@@ -3737,6 +3737,7 @@ command = "vim"
     await handleFeedbackCommand(feedbackDriver as any);
 
     expect(openUrl).not.toHaveBeenCalled();
+    expect(harness.feedbackAvailability).toHaveBeenCalledWith('k2', 'ses-1');
     expect(harness.submitFeedback).toHaveBeenCalledWith(
       expect.objectContaining({
         content: 'useful feedback',
@@ -3756,7 +3757,7 @@ command = "vim"
     const { driver, harness } = await makeDriver(makeSession());
     const feedbackDriver = driver as unknown as FeedbackDriver;
     promptFeedbackInputMock.mockImplementation(async () => ({ value: 'useful feedback' }));
-    promptFeedbackAttachmentMock.mockImplementation(async () => 'none');
+    promptFeedbackAttachmentMock.mockImplementation(async () => 'logs');
     harness.submitFeedback.mockResolvedValueOnce({
       kind: 'error',
       message: 'backend says no',
@@ -3774,7 +3775,7 @@ command = "vim"
     const { driver, harness } = await makeDriver(makeSession());
     const feedbackDriver = driver as unknown as FeedbackDriver;
     promptFeedbackInputMock.mockImplementation(async () => ({ value: 'useful feedback' }));
-    promptFeedbackAttachmentMock.mockImplementation(async () => 'none');
+    promptFeedbackAttachmentMock.mockImplementation(async () => 'logs');
     harness.submitFeedback.mockRejectedValueOnce(new Error('socket hangup'));
     openUrlMock.mockClear();
 
@@ -3803,7 +3804,7 @@ command = "vim"
     driver.state.appState.model = 'registry_kimi/k3';
     const feedbackDriver = driver as unknown as FeedbackDriver;
     promptFeedbackInputMock.mockImplementation(async () => ({ value: 'custom feedback' }));
-    promptFeedbackAttachmentMock.mockImplementation(async () => 'none');
+    promptFeedbackAttachmentMock.mockImplementation(async () => 'logs');
     harness.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 11 });
 
     await handleFeedbackCommand(feedbackDriver as any);

@@ -5,8 +5,14 @@ import type { FeedbackCodebaseLimitExceeded } from './feedback/codebase/types';
 
 export type FeedbackAttachmentLevel = 'none' | 'logs' | 'logs+codebase';
 
+export interface FeedbackSessionPreview {
+  readonly sessionId: string;
+  readonly sessionDir: string;
+  readonly files: readonly string[];
+}
+
 export type FeedbackAvailability =
-  | { readonly kind: 'ready' }
+  | { readonly kind: 'ready'; readonly session?: FeedbackSessionPreview }
   | { readonly kind: 'needs-login' }
   | { readonly kind: 'error'; readonly message: string };
 
@@ -37,7 +43,7 @@ export type FeedbackSubmitResult =
 export interface IFeedbackService {
   readonly _serviceBrand: undefined;
 
-  availability(modelAlias?: string): Promise<FeedbackAvailability>;
+  availability(modelAlias?: string, sessionId?: string): Promise<FeedbackAvailability>;
   submit(input: FeedbackSubmitInput, modelAlias?: string): Promise<FeedbackSubmitResult>;
 }
 
