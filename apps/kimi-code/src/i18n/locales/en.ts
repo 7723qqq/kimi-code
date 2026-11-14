@@ -272,6 +272,9 @@ export default {
     // terminal.*
     terminalNotFound: 'Terminal not found',
     terminalNotFoundAction: 'Check the terminal id or start a new terminal.',
+    // turn.*
+    turnNotFound: 'Turn not found',
+    turnNotFoundAction: 'Check the turn id or reload the session.',
     // fs.*
     fsPathNotFound: 'Path not found',
     fsPathNotFoundAction: 'Check the path and retry.',

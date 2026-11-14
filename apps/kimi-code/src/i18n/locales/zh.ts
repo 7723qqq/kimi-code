@@ -262,6 +262,9 @@ export default {
     // terminal.*
     terminalNotFound: '未找到终端',
     terminalNotFoundAction: '请检查终端 ID 或新建终端。',
+    // turn.*
+    turnNotFound: '未找到该轮次',
+    turnNotFoundAction: '请检查轮次 ID 或重新加载会话。',
     // fs.*
     fsPathNotFound: '未找到路径',
     fsPathNotFoundAction: '请检查路径后重试。',
