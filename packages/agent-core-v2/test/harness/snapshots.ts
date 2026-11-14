@@ -383,6 +383,9 @@ function normalizeObjectField(key: string, value: unknown, labels: SnapshotLabel
     typeof value === 'string'
   )
     return '<time>';
+  if ((key === 'startedAt' || key === 'endedAt') && typeof value === 'number') {
+    return '<time>';
+  }
   if (key === 'protocol_version' && value === WIRE_PROTOCOL_VERSION) {
     return '<protocol-version>';
   }

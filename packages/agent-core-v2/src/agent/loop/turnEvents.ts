@@ -215,6 +215,7 @@ export interface AssistantDeltaPayload {
   readonly agentId: string;
   readonly turnId: number;
   readonly delta: string;
+  readonly block?: number;
 }
 
 export class AssistantDelta extends AgentEvent2<AssistantDeltaPayload> {
@@ -227,6 +228,7 @@ export interface ThinkingDeltaPayload {
   readonly agentId: string;
   readonly turnId: number;
   readonly delta: string;
+  readonly block?: number;
 }
 
 export class ThinkingDelta extends AgentEvent2<ThinkingDeltaPayload> {
@@ -241,7 +243,21 @@ export interface ToolCallDeltaPayload {
   readonly toolCallId: string;
   readonly name?: string;
   readonly argumentsPart?: string;
+  readonly block?: number;
 }
+
+export interface TurnStepStreamResetPayload {
+  readonly agentId: string;
+  readonly turnId: number;
+  readonly step: number;
+  readonly stepId: string;
+}
+
+export class TurnStepStreamReset extends AgentEvent2<TurnStepStreamResetPayload> {
+  static override readonly type = 'turn.step.stream_reset';
+  static override readonly observable = true;
+}
+export interface TurnStepStreamReset extends TurnStepStreamResetPayload {}
 
 export class ToolCallDelta extends AgentEvent2<ToolCallDeltaPayload> {
   static override readonly type = 'tool.call.delta';

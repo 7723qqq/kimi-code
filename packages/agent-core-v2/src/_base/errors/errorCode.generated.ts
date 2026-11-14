@@ -164,6 +164,7 @@ export const ERROR_CODE_UNION = [
   'task.limit_exceeded',
   'task.task_id_empty',
   'turn.agent_busy',
+  'turn.not_found',
   'usage.turn_id_conflict',
   'validation.failed',
   'web.fetch_failed',

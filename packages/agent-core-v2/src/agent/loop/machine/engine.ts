@@ -51,7 +51,7 @@ import { createMachineTools, type MachineTools } from './tools';
 export type { PromptGateVerdict };
 
 export type MachineEngineDelta =
-  | { readonly kind: 'assistant'; readonly delta: string }
+  | { readonly kind: 'assistant'; readonly delta: string; readonly block?: number }
   | {
       readonly kind: 'thinking';
       readonly delta: string;
@@ -59,6 +59,7 @@ export type MachineEngineDelta =
       readonly detailsIndex?: number;
       readonly hidden?: boolean;
       readonly reasoningKey?: string;
+      readonly block?: number;
     }
   | {
       readonly kind: 'toolCall';
@@ -66,6 +67,7 @@ export type MachineEngineDelta =
       readonly name: string;
       readonly argumentsPart?: string;
       readonly started?: boolean;
+      readonly block?: number;
     };
 
 export type MachineTurnOutcome = 'done' | 'failed' | 'aborted';
@@ -253,10 +255,21 @@ interface MachineSnapshotLike {
 
 function createDeltaSplitter(): (part: StreamedMessagePart) => MachineEngineDelta | undefined {
   const callsByIndex = new Map<number | string | undefined, { id: string; name: string }>();
+  let nextBlock = 0;
+  let activeBlock = -1;
+  let activeIdentity: string | undefined;
+  const blockOf = (identity: string): number => {
+    if (identity !== activeIdentity) {
+      activeIdentity = identity;
+      activeBlock = nextBlock;
+      nextBlock += 1;
+    }
+    return activeBlock;
+  };
   return (part) => {
     switch (part.type) {
       case 'text':
-        return { kind: 'assistant', delta: part.text };
+        return { kind: 'assistant', delta: part.text, block: blockOf('text') };
       case 'think':
         return {
           kind: 'thinking',
@@ -265,6 +278,9 @@ function createDeltaSplitter(): (part: StreamedMessagePart) => MachineEngineDelt
           detailsIndex: part.detailsIndex,
           hidden: part.hidden,
           reasoningKey: part.reasoningKey,
+          block: blockOf(
+            `think:${part.detailsIndex === undefined ? '-' : String(part.detailsIndex)}:${part.reasoningKey ?? ''}:${part.encrypted === undefined ? 'u' : 's'}`,
+          ),
         };
       case 'image_url':
       case 'audio_url':
@@ -279,6 +295,7 @@ function createDeltaSplitter(): (part: StreamedMessagePart) => MachineEngineDelt
           name: part.name,
           argumentsPart: part.arguments ?? undefined,
           started: true,
+          block: blockOf(`call:${part.id}`),
         };
       }
       case 'tool_call_part': {
@@ -290,6 +307,7 @@ function createDeltaSplitter(): (part: StreamedMessagePart) => MachineEngineDelt
           toolCallId: call.id,
           name: call.name,
           argumentsPart: part.argumentsPart,
+          block: blockOf(`call:${call.id}`),
         };
       }
     }
