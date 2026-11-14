@@ -64,7 +64,7 @@ import { registerRequestLogging } from './requestLogging';
 import { registerApiV1Routes } from './routes/registerApiV1Routes';
 import { registerApiV2Routes } from './routes/registerApiV2Routes';
 import { registerWebAssetRoutes } from './routes/webAssets';
-import { drainGlobalSearchDisposals, IGlobalSearchService } from './search/searchService';
+import { drainGlobalSearchDisposals } from './search/searchService';
 import { classify } from './security/bindClassify';
 import { createAuthTokenService, type IAuthTokenService } from './services/auth/authTokenService';
 import { createCredentialValidator } from './services/auth/credentials';
@@ -399,7 +399,6 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
   const transcriptService = new TranscriptService({ homeDir, core, logger });
   const conversations = new ConversationService(core);
   const sessionRating = createServerSessionRating(core, { debugEndpoints, logger });
-  core.accessor.get(IGlobalSearchService).setLiveTranscriptSource(transcriptService);
   const broadcaster = new SessionEventBroadcaster({
     core,
     logger,

@@ -1233,7 +1233,7 @@ export class SearchIndexCore {
       }
     }
     const generation = this.tokenGeneration();
-    const page = decodePageToken(q, 'index', params.pageToken, generation);
+    const page = decodePageToken(q, params.pageToken, generation);
 
     if (serveDb.textIndexBuilding(q.mode === 'literal' ? TRI_INDEX_NAME : TEXT_INDEX_NAME)) {
       return { kind: 'building', index: this.buildingView(serveDb) };

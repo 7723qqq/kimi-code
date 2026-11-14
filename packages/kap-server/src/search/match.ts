@@ -3,7 +3,6 @@ import { normalizeLiteral } from '@moonshot-ai/minidb';
 import {
   GlobalSearchError,
   type GlobalSearchIncomplete,
-  type GlobalSearchSource,
 } from './contract.ts';
 import type { MessageDoc, SearchDoc, TitleDoc } from './docs.ts';
 
@@ -190,7 +189,7 @@ export function paginateRows(
   return { pageRows, hasMore };
 }
 
-export function tokenFingerprint(q: NormalizedQuery, source: GlobalSearchSource): string {
+export function tokenFingerprint(q: NormalizedQuery): string {
   const basis = JSON.stringify([
     q.query,
     q.mode,
@@ -201,7 +200,6 @@ export function tokenFingerprint(q: NormalizedQuery, source: GlobalSearchSource)
     q.startTime,
     q.endTime,
     q.sort,
-    source,
   ]);
   return new Bun.CryptoHasher('sha256').update(basis).digest('base64url').slice(0, 16);
 }
@@ -210,14 +208,13 @@ const PAGE_TOKEN_VERSION = 2;
 
 export function encodePageToken(
   q: NormalizedQuery,
-  source: GlobalSearchSource,
   boundary: SortBoundary,
   generation: string | undefined,
 ): string {
   return Buffer.from(
     JSON.stringify({
       v: PAGE_TOKEN_VERSION,
-      f: tokenFingerprint(q, source),
+      f: tokenFingerprint(q),
       g: generation,
       b: boundary,
     }),
@@ -226,7 +223,6 @@ export function encodePageToken(
 
 export function decodePageToken(
   q: NormalizedQuery,
-  source: GlobalSearchSource,
   token: string | undefined,
   generation: string | undefined,
 ): DecodedPage {
@@ -241,7 +237,7 @@ export function decodePageToken(
     throw new GlobalSearchError('invalid_page_token', 'pageToken is malformed');
   }
   const p = parsed as { v?: unknown; f?: unknown; s?: unknown; g?: unknown; b?: unknown };
-  if (p.f !== tokenFingerprint(q, source)) {
+  if (p.f !== tokenFingerprint(q)) {
     throw new GlobalSearchError(
       'invalid_page_token',
       'pageToken does not match the query conditions; query conditions must not change mid-pagination',

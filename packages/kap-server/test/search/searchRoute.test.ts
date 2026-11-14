@@ -176,7 +176,6 @@ describe('server-v2 /api/v1/search', () => {
     expect(body!.data.items.some((h) => h.role === 'title')).toBe(true);
     expect(body!.data.has_more).toBe(false);
     expect(['building', 'ready', 'readonly']).toContain(body!.data.index_state.state);
-    expect(body!.data.source).toBe('index');
   });
 
   it('rejects invalid bodies with 40001', async () => {

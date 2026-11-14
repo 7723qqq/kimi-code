@@ -52,7 +52,6 @@ export interface GlobalSearchIndexState {
   readonly degraded?: string;
 }
 
-export type GlobalSearchSource = 'live' | 'index';
 
 export type GlobalSearchIncomplete = 'candidate_cap' | 'postings_budget' | 'deadline';
 
@@ -62,5 +61,4 @@ export interface GlobalSearchPage {
   readonly pageToken?: string;
   readonly incomplete?: GlobalSearchIncomplete;
   readonly indexState: GlobalSearchIndexState;
-  readonly source: GlobalSearchSource;
 }
