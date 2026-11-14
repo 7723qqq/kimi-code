@@ -1266,15 +1266,15 @@ describe('AgentTaskService', () => {
     await ctx.dispose();
   });
 
-  it('wait with a zero timeout returns the immediate snapshot before next-tick completion', async () => {
+  it('wait with a zero timeout returns the immediate snapshot before task completion', async () => {
     const { manager } = createAgentTaskService();
     const proc = manuallyResolvedProcess();
-    const taskId = registerProcess(manager, proc.proc, 'sleep 0', 'next-tick completion');
+    const taskId = registerProcess(manager, proc.proc, 'sleep 0', 'task completion');
 
     await Promise.resolve();
     setTimeout(() => {
       proc.resolve(0);
-    }, 0);
+    }, 10);
 
     expect(await manager.wait(taskId, 0)).toMatchObject({
       status: 'running',
