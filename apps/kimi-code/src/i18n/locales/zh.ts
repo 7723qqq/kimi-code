@@ -3036,6 +3036,8 @@ export default {
       feedbackCodebaseTruncatedTotalSize:
         '反馈已发送；代码库归档在 {{limit}} 字节源码处被截断——仅包含达到上限前扫描到的文件。',
       feedbackHttpFailed: '提交反馈失败（HTTP {{status}}）。',
+      feedbackRemoteCodebaseUnsupported:
+        '远端会话不支持代码库附件——扫描器只读取本机文件系统。',
       feedbackSession: '会话：{{sessionId}}',
       feedbackId: '反馈 ID：{{id}}',
       feedbackPersistHint:

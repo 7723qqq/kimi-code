@@ -3147,6 +3147,8 @@ export default {
       feedbackCodebaseTruncatedTotalSize:
         'Feedback sent; the codebase archive was truncated at {{limit}} bytes of source — it contains only the files scanned before the cap.',
       feedbackHttpFailed: 'Failed to submit feedback (HTTP {{status}}).',
+      feedbackRemoteCodebaseUnsupported:
+        'Codebase attachment is not supported for remote sessions — the scanner only reads the local filesystem.',
       feedbackSession: 'Session: {{sessionId}}',
       feedbackId: 'Feedback ID: {{id}}',
       feedbackPersistHint:

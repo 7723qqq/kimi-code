@@ -57,6 +57,14 @@ export function feedbackHttpErrorMessage(status: number): string {
   return t('tui.messages.feedbackHttpFailed', { status: String(status) });
 }
 
+/**
+ * Remote-bound sessions cannot package their codebase: the scanner reads this
+ * machine's filesystem, not the remote one.
+ */
+export function getFeedbackStatusRemoteCodebaseUnsupported(): string {
+  return t('tui.messages.feedbackRemoteCodebaseUnsupported');
+}
+
 export function feedbackSessionLine(sessionId: string): string {
   return t('tui.messages.feedbackSession', { sessionId });
 }

@@ -3698,6 +3698,21 @@ command = "vim"
     expect(transcript).toContain('Feedback ID: 7');
   });
 
+  it('drops the codebase attachment option with a hint for remote-bound sessions', async () => {
+    const { driver, harness } = await makeDriver(makeSession());
+    driver.state.appState.environment = { environmentId: 'dev-box', type: 'ssh', status: 'ready' };
+    const feedbackDriver = driver as unknown as FeedbackDriver;
+    promptFeedbackInputMock.mockImplementation(async () => ({ value: 'useful feedback' }));
+    promptFeedbackAttachmentMock.mockImplementation(async () => 'logs');
+    harness.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 9 });
+
+    await handleFeedbackCommand(feedbackDriver as any);
+
+    expect(promptFeedbackAttachmentMock).toHaveBeenCalledWith(expect.anything(), true);
+    const transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).toContain('Codebase attachment is not supported for remote sessions');
+  });
+
   it('tracks successful feedback submissions only after the request succeeds', async () => {
     const { driver, harness } = await makeDriver(makeSession());
     const feedbackDriver = driver as unknown as FeedbackDriver;

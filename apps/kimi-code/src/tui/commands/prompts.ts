@@ -102,11 +102,15 @@ function getFeedbackAttachmentOptions(): readonly ChoiceOption[] {
 
 export function promptFeedbackAttachment(
   host: SlashCommandHost,
+  excludeCodebase = false,
 ): Promise<FeedbackAttachmentLevel | undefined> {
+  const options = excludeCodebase
+    ? getFeedbackAttachmentOptions().filter((option) => option.value !== 'logs+codebase')
+    : getFeedbackAttachmentOptions();
   return new Promise((resolve) => {
     const picker = new ChoicePickerComponent({
       title: t('tui.statusMessages.shareDiagnosticInfo'),
-      options: getFeedbackAttachmentOptions(),
+      options,
       onSelect: (value) => {
         host.restoreEditor();
         resolve(value as FeedbackAttachmentLevel);
