@@ -162,9 +162,12 @@ apps/kimi-code/src/tui/components/index.ts
 # `_base/errors/serialize.ts` is the copy actually in use.
 packages/kosong/src/errors/serialize.ts
 
-# Moved into packages/agent-core-v2/src/app/auth/feedback/ by the 2.6.2
-# release-line port (#4875). upstream/main still carries the app copies because
-# that port landed on the release branch; remove these entries once it merges.
+# The 2.6.2 release-line port (#4875) moved archive.ts into the engine's
+# app/auth/feedback/ and split feedback-attachments.ts apart: its upload
+# orchestration now lives in feedbackService.ts and feedback/upload.ts, its
+# codebase scan/package path in feedback/codebase/. upstream/main still carries
+# the app copies because that port landed on the release branch; remove these
+# entries once it merges.
 apps/kimi-code/src/feedback/archive.ts
 apps/kimi-code/src/feedback/feedback-attachments.ts
 
