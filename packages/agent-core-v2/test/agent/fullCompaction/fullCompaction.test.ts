@@ -5079,6 +5079,81 @@ describe('FullCompaction pre-shrink', () => {
     await ctx.expectResumeMatches();
   });
 
+  it('pre-shrinks the auto compaction triggered before a step from historical usage', async () => {
+    const ctx = testAgent();
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: {
+        ...CATALOGUED_MODEL_CAPABILITIES,
+        max_context_tokens: 1_000_000,
+      },
+    });
+    const usageOf = (total: number) => ({
+      inputOther: total - 1,
+      output: 1,
+      inputCacheRead: 0,
+      inputCacheCreation: 0,
+    });
+    const exchange = (user: string, assistant: string, total: number) => {
+      ctx.context.append(
+        {
+          role: 'user',
+          content: [{ type: 'text', text: user }],
+          toolCalls: [],
+          origin: { kind: 'user' },
+        },
+        {
+          role: 'assistant',
+          content: [{ type: 'text', text: assistant }],
+          toolCalls: [],
+          usage: usageOf(total),
+        },
+      );
+    };
+    exchange('old user one', `old assistant one ${'a'.repeat(200_000)}`, 350_000);
+    exchange('mid user two', `mid assistant two ${'b'.repeat(80_000)}`, 700_000);
+    exchange('recent user three', `recent assistant three ${'c'.repeat(1_000)}`, 1_003_601);
+    expect(ctx.tokenCounting.get().size).toBeLessThan(900_000);
+
+    ctx.mockNextResponse({ type: 'text', text: 'Usage-anchored summary.' });
+    ctx.mockNextResponse({ type: 'text', text: 'Answer after the usage-anchored compaction.' });
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'continue the task' }] });
+    const events = await ctx.untilTurnEnd();
+
+    expect(ctx.llmCalls).toHaveLength(2);
+    const [compactionCall, answerCall] = ctx.llmCalls;
+    const compactionTexts = compactionCall!.history.map(messageText);
+    expect(compactionTexts.some((text) => text.includes('old user one'))).toBe(false);
+    expect(compactionTexts.some((text) => text.includes('old assistant one'))).toBe(false);
+    expect(compactionTexts.some((text) => text.includes('mid user two'))).toBe(true);
+    expect(compactionTexts.some((text) => text.includes('recent assistant three'))).toBe(true);
+    const answerTexts = answerCall!.history.map(messageText);
+    expect(answerTexts.some((text) => text.includes('Usage-anchored summary.'))).toBe(true);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        event: 'compaction.completed',
+        args: expect.objectContaining({
+          result: expect.objectContaining({
+            tokensBefore: expect.any(Number),
+          }),
+        }),
+      }),
+    );
+    const completed = events.find(
+      (event): event is { event: string; args: { result: { tokensBefore: number } } } =>
+        typeof event === 'object' && event !== null && (event as { event?: unknown }).event === 'compaction.completed',
+    );
+    expect(completed).toBeDefined();
+    expect(completed!.args.result.tokensBefore).toBeGreaterThan(1_000_000);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        event: 'turn.ended',
+        args: expect.objectContaining({ reason: 'completed' }),
+      }),
+    );
+    await ctx.expectResumeMatches();
+  });
+
   it('sends the full history when an auto compaction request fits the window', async () => {
     const ctx = testAgent();
     ctx.configure({

@@ -17,6 +17,7 @@ import {
   shrinkCompactionHistoryAfterOverflow,
   snipLargeToolResults,
   type CompactionAttemptResult,
+  type HistoryTokenProfile,
 } from './compactionUtils';
 
 export const COMPLETION_BUDGET_ESTIMATE_MARGIN_RATIO = 0.02;
@@ -34,13 +35,11 @@ export interface CompactionGenerationDeps {
   readonly maxAttempts: number;
   readonly compactionMaxOutputSize: number | undefined;
   readonly originTurnId: number | undefined;
-  readonly requestTokens: (messages: readonly Message[]) => number;
-  readonly estimateMessage: (message: Message) => number;
+  readonly tokenProfile: HistoryTokenProfile;
   readonly getEffectiveMaxContextTokens: () => number;
   readonly llmRequester: IAgentLLMRequesterService;
   readonly preShrinkHistory: (
     history: readonly ContextMessage[],
-    instruction: string,
     maxOutputSize: number | undefined,
   ) => readonly ContextMessage[];
   readonly shouldRecoverFromContextOverflow: (error: unknown, estimatedTokens: number) => boolean;
@@ -64,8 +63,7 @@ export async function generateCompactionSummary(
     maxAttempts,
     compactionMaxOutputSize,
     originTurnId,
-    requestTokens,
-    estimateMessage,
+    tokenProfile,
     getEffectiveMaxContextTokens,
     llmRequester,
     preShrinkHistory,
@@ -79,14 +77,14 @@ export async function generateCompactionSummary(
   let overflowShrinkCount = 0;
   let requestAttempts = 0;
   let cacheProbePending = true;
-  const preShrunkHistory = preShrinkHistory(historyForModel, instruction, compactionMaxOutputSize);
+  const preShrunkHistory = preShrinkHistory(historyForModel, compactionMaxOutputSize);
   droppedCount += historyForModel.length - preShrunkHistory.length;
   historyForModel = preShrunkHistory;
   while (true) {
     const messagesToCompact = historyForModel;
     const snipped = snipLargeToolResults(messagesToCompact);
     const messages: Message[] = [...snipped, createUserMessage(instruction)];
-    const estimatedCompactionRequestTokens = requestTokens(messages);
+    const estimatedCompactionRequestTokens = tokenProfile.estimateRequest(messages);
     const effectiveMaxTokens = getEffectiveMaxContextTokens();
     const usedContextTokens =
       effectiveMaxTokens > 0
@@ -143,7 +141,7 @@ export async function generateCompactionSummary(
         historyForModel = shrinkCompactionHistoryAfterOverflow(
           messagesToCompact,
           overflowShrinkCount,
-          estimateMessage,
+          tokenProfile.estimateMessage,
         );
         if (historyForModel.length === 0) throw error;
         droppedCount += before - historyForModel.length;

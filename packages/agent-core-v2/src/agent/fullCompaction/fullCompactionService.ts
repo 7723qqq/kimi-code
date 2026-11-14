@@ -55,7 +55,13 @@ import {
   FullCompactionCancel,
   FullCompactionComplete,
 } from './compactionOps';
-import { findAPIStatusError, takeRecentMessagesWithinTokenBudget } from './compactionUtils';
+import {
+  assistantUsageTotal,
+  buildHistoryTokenProfile,
+  findAPIStatusError,
+  takeRecentMessagesWithinTokenBudget,
+  type HistoryTokenProfile,
+} from './compactionUtils';
 import {
   IAgentFullCompactionService,
   type FullCompactionInput,
@@ -252,7 +258,23 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
   }
 
   private currentRequestTokens(): number {
-    return this.requestTokens(this.context.get());
+    return this.historyRequestTokens(this.context.get());
+  }
+
+  private historyRequestTokens(messages: readonly Message[]): number {
+    const estimated = this.requestTokens(messages);
+    const usageAnchored = this.usageAnchoredRequestTokens(messages);
+    return usageAnchored === undefined ? estimated : Math.max(estimated, usageAnchored);
+  }
+
+  private usageAnchoredRequestTokens(messages: readonly Message[]): number | undefined {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const usageTokens = assistantUsageTotal(messages[i]!);
+      if (usageTokens !== undefined) {
+        return usageTokens + this.tokenCounting.estimateMessages(messages.slice(i + 1));
+      }
+    }
+    return undefined;
   }
 
   private requestTokens(messages: readonly Message[]): number {
@@ -357,7 +379,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
         'Cannot compact while a turn is active. Wait for it to finish, then retry.',
       );
     }
-    return this.requestTokens(history);
+    return this.historyRequestTokens(history);
   }
 
   private createActiveCompaction(
@@ -595,7 +617,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
       estimateText: (text: string) => this.tokenCounting.estimateText(text),
     };
     const nonHistoryStateBefore = nonHistoryStateFingerprint(applyDeps);
-    const tokensBefore = this.requestTokens(originalHistory);
+    const tokensBefore = this.historyRequestTokens(originalHistory);
     const generationState = { retryCount: 0 };
     let thinkingEffort = this.profile.data().thinkingLevel;
 
@@ -615,6 +637,12 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
       const compactionMaxOutputSize = resolvedModel.maxOutputSize ?? defaultCompactionCap;
 
       const instruction = renderCompactionInstruction({ customInstruction: data.instruction });
+      const instructionMessage = createUserMessage(instruction);
+      const tokenProfile = buildHistoryTokenProfile(
+        originalHistory,
+        this.requestTokens([]),
+        (message) => this.tokenCounting.estimateMessage(message),
+      );
 
       const maxAttempts = resolvedModel.compactionMaxAttempts ?? MAX_COMPACTION_RETRY_ATTEMPTS;
       let droppedCount = 0;
@@ -626,12 +654,11 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
         maxAttempts,
         compactionMaxOutputSize,
         originTurnId: active.originTurnId,
-        requestTokens: (messages) => this.requestTokens(messages),
-        estimateMessage: (message) => this.tokenCounting.estimateMessage(message),
+        tokenProfile,
         getEffectiveMaxContextTokens: () => this.getEffectiveMaxContextTokens(),
         llmRequester: this.llmRequester,
-        preShrinkHistory: (history, instruction, maxOutputSize) =>
-          this.preShrinkHistoryToWindowBudget(history, instruction, maxOutputSize),
+        preShrinkHistory: (history, maxOutputSize) =>
+          this.preShrinkHistoryToWindowBudget(history, instructionMessage, maxOutputSize, tokenProfile),
         shouldRecoverFromContextOverflow: (error, estimatedTokens) =>
           this.shouldRecoverFromContextOverflow(error, estimatedTokens),
         observeContextOverflow: (estimatedTokens) => this.observeContextOverflow(estimatedTokens),
@@ -714,8 +741,9 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
 
   private preShrinkHistoryToWindowBudget(
     history: readonly ContextMessage[],
-    instruction: string,
+    instructionMessage: Message,
     compactionMaxOutputSize: number | undefined,
+    tokenProfile: HistoryTokenProfile,
   ): readonly ContextMessage[] {
     const effectiveMaxTokens = this.getEffectiveMaxContextTokens();
     if (effectiveMaxTokens <= 0) return history;
@@ -724,18 +752,16 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
         ? Math.floor(effectiveMaxTokens / 8)
         : Math.min(compactionMaxOutputSize, Math.floor(effectiveMaxTokens / 8));
     const inputLimit = effectiveMaxTokens - outputReserve;
-    const overheadTokens = this.requestTokens([]);
-    const estimatedMessagesTokens =
-      this.tokenCounting.estimateMessages(history) +
-      this.tokenCounting.estimateMessage(createUserMessage(instruction));
-    if (estimatedMessagesTokens + overheadTokens <= inputLimit) return history;
+    const totalInputTokens =
+      this.historyRequestTokens(history) + this.tokenCounting.estimateMessage(instructionMessage);
+    if (totalInputTokens <= inputLimit) return history;
     const messageBudget =
-      Math.floor(inputLimit * OVERFLOW_CONTEXT_SAFETY_RATIO) - overheadTokens;
+      Math.floor(inputLimit * OVERFLOW_CONTEXT_SAFETY_RATIO) - tokenProfile.overheadTokens;
     if (messageBudget <= 0) return history;
     const preShrunk = takeRecentMessagesWithinTokenBudget(
       history,
       messageBudget,
-      (message) => this.tokenCounting.estimateMessage(message),
+      tokenProfile.estimateMessage,
     );
     return preShrunk.length === 0 ? history : preShrunk;
   }
@@ -754,7 +780,9 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
   }
 
   private tokenCountWithPending(): number {
-    return this.tokenCounting.get(agentContextOfScope(this.agent)).size;
+    const counted = this.tokenCounting.get(agentContextOfScope(this.agent)).size;
+    const usageAnchored = this.usageAnchoredRequestTokens(this.context.get());
+    return usageAnchored === undefined ? counted : Math.max(counted, usageAnchored);
   }
 }
 
