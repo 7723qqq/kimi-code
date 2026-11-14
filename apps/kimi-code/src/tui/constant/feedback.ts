@@ -16,9 +16,6 @@ export { kimiCodeSignupUrl } from '#/constant/region-urls';
 export function getFeedbackStatusSubmitting(): string {
   return t('tui.messages.feedbackSubmitting');
 }
-export function getFeedbackStatusUploading(): string {
-  return t('tui.messages.feedbackUploading');
-}
 export function getFeedbackStatusSuccess(): string {
   return t('tui.messages.feedbackSubmitted');
 }
@@ -51,10 +48,6 @@ export function getFeedbackStatusCodebaseTruncated(exceeded: {
   return exceeded.reason === 'file-count'
     ? t('tui.messages.feedbackCodebaseTruncatedFileCount', { limit: String(exceeded.limit) })
     : t('tui.messages.feedbackCodebaseTruncatedTotalSize', { limit: String(exceeded.limit) });
-}
-
-export function feedbackHttpErrorMessage(status: number): string {
-  return t('tui.messages.feedbackHttpFailed', { status: String(status) });
 }
 
 /**

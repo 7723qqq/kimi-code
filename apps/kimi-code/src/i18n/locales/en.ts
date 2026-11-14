@@ -2292,8 +2292,6 @@ export default {
         'The catalog declares no endpoint for this provider — enter its base URL.',
       promptBaseUrlTitle: 'Enter base URL for {{provider}}',
       promptBaseUrlEmpty: 'Base URL cannot be empty.',
-      feedbackNoAttachment: 'No extra data',
-      feedbackNoAttachmentDesc: 'Send only this chat message and feedback.',
       feedbackLogsOnly: 'Logs',
       feedbackLogsOnlyDesc: 'Send this message, your feedback, and recent logs.',
       feedbackLogsAndCodebase: 'Logs and codebase',
@@ -3134,7 +3132,6 @@ export default {
       danceOff: 'Use {{cmd}} to keep the rainbow on.',
       // tui/constant/feedback.ts
       feedbackSubmitting: 'Submitting feedback…',
-      feedbackUploading: 'Uploading attachments, this could take a few minutes…',
       feedbackSubmitted: 'Feedback submitted, thank you!',
       feedbackCancelled: 'Feedback cancelled.',
       feedbackNetworkError: 'Network error, failed to submit feedback.',
@@ -3146,7 +3143,6 @@ export default {
         'Feedback sent; the codebase archive was truncated at {{limit}} files — it contains only the files scanned before the cap.',
       feedbackCodebaseTruncatedTotalSize:
         'Feedback sent; the codebase archive was truncated at {{limit}} bytes of source — it contains only the files scanned before the cap.',
-      feedbackHttpFailed: 'Failed to submit feedback (HTTP {{status}}).',
       feedbackRemoteCodebaseUnsupported:
         'Codebase attachment is not supported for remote sessions — the scanner only reads the local filesystem.',
       feedbackSession: 'Session: {{sessionId}}',

@@ -2202,8 +2202,6 @@ export default {
       promptBaseUrlMissingEndpoint: '目录未为此供应商声明端点 — 请输入其 Base URL。',
       promptBaseUrlTitle: '输入 {{provider}} 的 Base URL',
       promptBaseUrlEmpty: 'Base URL 不能为空。',
-      feedbackNoAttachment: '不附加额外数据',
-      feedbackNoAttachmentDesc: '仅发送此聊天消息和反馈。',
       feedbackLogsOnly: '日志',
       feedbackLogsOnlyDesc: '发送此消息、反馈以及最近的日志。',
       feedbackLogsAndCodebase: '日志和源代码',
@@ -3024,7 +3022,6 @@ export default {
       danceOff: '使用 {{cmd}} 保持彩虹效果。',
       // tui/constant/feedback.ts
       feedbackSubmitting: '正在提交反馈…',
-      feedbackUploading: '正在上传附件，可能需要几分钟…',
       feedbackSubmitted: '反馈已提交，谢谢！',
       feedbackCancelled: '反馈已取消。',
       feedbackNetworkError: '网络错误，提交反馈失败。',
@@ -3035,7 +3032,6 @@ export default {
         '反馈已发送；代码库归档在 {{limit}} 个文件处被截断——仅包含达到上限前扫描到的文件。',
       feedbackCodebaseTruncatedTotalSize:
         '反馈已发送；代码库归档在 {{limit}} 字节源码处被截断——仅包含达到上限前扫描到的文件。',
-      feedbackHttpFailed: '提交反馈失败（HTTP {{status}}）。',
       feedbackRemoteCodebaseUnsupported:
         '远端会话不支持代码库附件——扫描器只读取本机文件系统。',
       feedbackSession: '会话：{{sessionId}}',
