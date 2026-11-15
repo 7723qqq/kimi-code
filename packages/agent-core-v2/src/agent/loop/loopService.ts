@@ -256,36 +256,41 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     if (this.engine !== undefined) {
       throw new BugIndicatingError('Machine engine already attached');
     }
-    this.engine = attachMachineEngine(ref, bundle, this.engineOptions());
-    if (this.dispatcher.restorePhase === 'new') {
-      const hook = this.dispatcher.hooks.onDidRestore.register(
-        'loop.engineRefold',
-        async (_ctx, next) => {
-          hook.dispose();
-          try {
-            if (
-              !this.disposing &&
-              this.active === undefined &&
-              this.pendingMachineTurn === undefined
-            ) {
-              await this.machineEngine().resetJournal(this.freshEngineJournal());
+    const lease = this.runGate.acquire();
+    try {
+      this.engine = attachMachineEngine(ref, bundle, this.engineOptions());
+      if (this.dispatcher.restorePhase === 'new') {
+        const hook = this.dispatcher.hooks.onDidRestore.register(
+          'loop.engineRefold',
+          async (_ctx, next) => {
+            hook.dispose();
+            try {
+              if (
+                !this.disposing &&
+                this.active === undefined &&
+                this.pendingMachineTurn === undefined
+              ) {
+                await this.machineEngine().resetJournal(this.freshEngineJournal());
+              }
+            } catch (error) {
+              onUnexpectedError(error);
             }
-          } catch (error) {
-            onUnexpectedError(error);
-          }
-          await next();
-        },
-      );
+            await next();
+          },
+        );
+      }
+      this.rebuildRestoredRecords();
+      if (this.quiescenceDepth > 0) {
+        this.machineEngine().pause();
+      }
+      if (!this.disposing) {
+        this.drainPendingToMachine();
+        this.maybeSettle();
+      }
+      return this.engine;
+    } finally {
+      lease.release();
     }
-    this.rebuildRestoredRecords();
-    if (this.quiescenceDepth > 0) {
-      this.machineEngine().pause();
-    }
-    if (!this.disposing) {
-      this.drainPendingToMachine();
-      this.maybeSettle();
-    }
-    return this.engine;
   }
 
   private rebuildRestoredRecords(): void {
@@ -861,7 +866,12 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     if (this.active !== undefined || this.pendingMachineTurn !== undefined) {
       throw new BugIndicatingError('Machine engine reset requires a quiescent loop');
     }
-    await this.machineEngine().resetJournal(this.freshEngineJournal());
+    const lease = this.runGate.acquire();
+    try {
+      await this.machineEngine().resetJournal(this.freshEngineJournal());
+    } finally {
+      lease.release();
+    }
   }
 
   private freshEngineJournal(): ReturnType<typeof engineJournal> {

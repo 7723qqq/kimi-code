@@ -38,6 +38,7 @@ import { TodoUpdated, ToolsUpdateStore } from '#/features/todo/todoOps';
 import { IAgentTodoService } from '#/features/todo/todoService';
 import { APIRequestTooLargeError, APIStatusError } from '#/llm-adapter/contract/errors';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
+import { ISessionRunGate } from '#/session/sessionActivity/sessionRunGate';
 import type { DurableAgentRuntimeParticipant } from '#/state/eventDispatcher';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { WIRE_PROTOCOL_VERSION } from '#/wire/migration/migration';
@@ -978,6 +979,19 @@ describe('AgentConversationUndoService', () => {
       subscription.dispose();
       update.mockRestore();
     }
+  });
+
+  it('holds an operation lease on the session lock while resetting the engine', async () => {
+    await setup();
+    const gate = ctx.get(ISessionRunGate);
+    const begin = spyOn(gate, 'begin');
+    const acquire = spyOn(gate, 'acquire');
+    ctx.appendTurnExchange('u1', 'a1');
+
+    await ctx.get(IAgentConversationUndoService).undo(1);
+
+    expect(begin).toHaveBeenCalledTimes(2);
+    expect(acquire).toHaveBeenCalledTimes(1);
   });
 
   it('does not re-deliver wait-reported task notifications after conversation undo', async () => {

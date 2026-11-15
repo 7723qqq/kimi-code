@@ -203,10 +203,10 @@ describe('SessionRunGateService', () => {
     serviceB.release(SID);
   });
 
-  it('releases a directly held lock only after the session becomes idle', async () => {
+  it('releases a direct hold when idle but retains an operation lease until released', async () => {
     jest.useFakeTimers();
     try {
-      gate();
+      const runGate = gate();
       serviceA.hold(SID);
       await jest.advanceTimersByTime(3_000);
       expect(serviceA.held(SID)).toBe(true);
@@ -216,6 +216,15 @@ describe('SessionRunGateService', () => {
       await jest.advanceTimersByTime(1);
       await Promise.resolve();
       await Promise.resolve();
+      expect(serviceA.held(SID)).toBe(false);
+
+      const lease = runGate.acquire();
+      await jest.advanceTimersByTime(3_000);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(serviceA.held(SID)).toBe(true);
+      expect(() => serviceB.hold(SID)).toThrow();
+      lease.release();
       expect(serviceA.held(SID)).toBe(false);
     } finally {
       jest.useRealTimers();

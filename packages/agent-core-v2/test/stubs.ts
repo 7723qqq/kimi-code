@@ -175,5 +175,9 @@ export function stubSessionRunGate(
   return {
     _serviceBrand: undefined,
     begin: () => locks.hold(sessionId),
+    acquire() {
+      this.begin();
+      return locks.lease(sessionId);
+    },
   };
 }

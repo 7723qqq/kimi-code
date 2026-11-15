@@ -10,6 +10,7 @@ interface ScheduledTimer {
 export interface FakeClock extends Clock {
   advance(byMs: number): void;
   advanceAsync(byMs: number): Promise<void>;
+  stall(byMs: number): void;
   readonly activeTimers: number;
 }
 
@@ -17,6 +18,7 @@ const realSetImmediate = setImmediate;
 
 export function createFakeClock(startMs = Date.now()): FakeClock {
   let nowMs = startMs;
+  let monotonicOffsetMs = 0;
   const timers: ScheduledTimer[] = [];
   const handles = new Map<TimerHandle, ScheduledTimer>();
 
@@ -73,11 +75,15 @@ export function createFakeClock(startMs = Date.now()): FakeClock {
 
   return {
     now: () => nowMs,
+    monotonicNow: () => nowMs + monotonicOffsetMs,
     setTimeout: (callback, delayMs) => schedule(callback, delayMs),
     clearTimeout: cancel,
     setInterval: (callback, intervalMs) => schedule(callback, intervalMs, intervalMs),
     clearInterval: cancel,
     advance,
+    stall: (byMs) => {
+      monotonicOffsetMs += byMs;
+    },
     advanceAsync: async (byMs) => {
       advance(byMs);
       for (let round = 0; round < 4; round += 1) {

@@ -32,6 +32,7 @@ const TASK_REQUEST_TYPES: ReadonlySet<string> = new Set([
 
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 10_000;
 const HEARTBEAT_MISS_LIMIT = 2;
+const HEARTBEAT_STALL_FACTOR = 1.25;
 
 type SessionSubscription = TargetSubscription & { conversationAgents?: readonly string[] };
 
@@ -103,11 +104,13 @@ export class WsConnectionV1 implements BroadcastTarget {
   private backpressureSince?: number;
 
   private heartbeatTimer?: TimerHandle;
+  private lastHeartbeatAt: number;
   private lastInboundAt: number;
 
   constructor(opts: WsConnectionV1Options) {
     this.clock = opts.clock ?? SYSTEM_CLOCK;
-    this.lastInboundAt = this.clock.now();
+    this.lastHeartbeatAt = this.clock.monotonicNow();
+    this.lastInboundAt = this.clock.monotonicNow();
     this.id = `conn_${ulid()}`;
     this.connectedAt = new Date(this.clock.now()).toISOString();
     this.remoteAddress = opts.remoteAddress;
@@ -171,7 +174,7 @@ export class WsConnectionV1 implements BroadcastTarget {
       return;
     }
     if (typeof frame?.type !== 'string') return;
-    this.lastInboundAt = this.clock.now();
+    this.lastInboundAt = this.clock.monotonicNow();
 
     if (TASK_REQUEST_TYPES.has(frame.type)) {
       const requestId = frame.request_id;
@@ -223,11 +226,30 @@ export class WsConnectionV1 implements BroadcastTarget {
   }
 
   private onHeartbeat(): void {
-    if (this.clock.now() - this.lastInboundAt >= this.heartbeatIntervalMs * HEARTBEAT_MISS_LIMIT) {
-      this.close(1001, 'heartbeat timeout');
+    const now = this.clock.monotonicNow();
+    const sinceLastHeartbeat = now - this.lastHeartbeatAt;
+    this.lastHeartbeatAt = now;
+    if (!this.heartbeatExpired(now)) {
+      this.sendImmediateFrame(buildPing(ulid()));
       return;
     }
-    this.sendImmediateFrame(buildPing(ulid()));
+    if (sinceLastHeartbeat > this.heartbeatIntervalMs * HEARTBEAT_STALL_FACTOR) {
+      this.lastInboundAt = now;
+      this.sendImmediateFrame(buildPing(ulid()));
+      return;
+    }
+    setImmediate(() => {
+      if (this.closed) return;
+      if (this.heartbeatExpired(this.clock.monotonicNow())) {
+        this.close(1001, 'heartbeat timeout');
+        return;
+      }
+      this.sendImmediateFrame(buildPing(ulid()));
+    });
+  }
+
+  private heartbeatExpired(now: number): boolean {
+    return now - this.lastInboundAt >= this.heartbeatIntervalMs * HEARTBEAT_MISS_LIMIT;
   }
 
   private async onClientHello(frame: InboundFrame): Promise<void> {

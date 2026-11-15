@@ -4,6 +4,7 @@ export interface TimerHandle {
 
 export interface Clock {
   now(): number;
+  monotonicNow(): number;
   setTimeout(callback: () => void, delayMs: number): TimerHandle;
   clearTimeout(handle: TimerHandle): void;
   setInterval(callback: () => void, intervalMs: number): TimerHandle;
@@ -12,6 +13,7 @@ export interface Clock {
 
 export const SYSTEM_CLOCK: Clock = {
   now: () => Date.now(),
+  monotonicNow: () => performance.now(),
   setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
   clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
   setInterval: (callback, intervalMs) => setInterval(callback, intervalMs),
