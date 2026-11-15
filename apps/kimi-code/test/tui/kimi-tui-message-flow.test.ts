@@ -212,6 +212,7 @@ function makeStartupInput(): KimiTUIStartupInput {
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
       statusLine: { items: null, command: null },
+      transcript: { groupTools: 'auto', groupThinking: true },
     },
     version: '0.0.0-test',
     workDir: '/tmp/proj-a',
@@ -9127,7 +9128,7 @@ capabilities = ["image_in", "video_in"]
     );
     const session = makeSession({ runShellCommand });
     const { driver } = await makeDriver(session);
-    driver.state.toolOutputExpanded = true;
+    driver.state.transcriptContainer.toggleToolOutputExpansion();
     driver.state.appState.inputMode = 'bash';
     driver.state.editor.inputMode = 'bash';
 
@@ -9809,7 +9810,7 @@ capabilities = ["image_in", "video_in"]
     driver.state.editor.onToggleToolExpand?.();
 
     const expanded = driver.state.transcriptContainer.render(120).map(stripSgr).join('\n');
-    expect(driver.state.toolOutputExpanded).toBe(true);
+    expect(driver.state.transcriptContainer.toolOutputExpanded).toBe(true);
     expect(expanded).toContain('Keep the src/tui compaction notes.');
   });
 
@@ -9818,7 +9819,7 @@ capabilities = ["image_in", "video_in"]
     const sendQueued = mock();
 
     driver.state.editor.onToggleToolExpand?.();
-    expect(driver.state.toolOutputExpanded).toBe(true);
+    expect(driver.state.transcriptContainer.toolOutputExpanded).toBe(true);
 
     driver.sessionEventHandler.handleEvent(
       {
@@ -10721,7 +10722,7 @@ capabilities = ["image_in", "video_in"]
 
     requestRender.mockClear();
     driver.state.editor.onToggleToolExpand?.();
-    expect(driver.state.toolOutputExpanded).toBe(true);
+    expect(driver.state.transcriptContainer.toolOutputExpanded).toBe(true);
     expect(panel.render(80).map(stripSgr)).toEqual(tiny);
   });
 
@@ -13894,7 +13895,7 @@ capabilities = ["image_in", "video_in"]
 
   it('renders newly streamed thinking expanded when ctrl+o toggle was already active', async () => {
     const { driver } = await makeDriver();
-    driver.state.toolOutputExpanded = true;
+    driver.state.transcriptContainer.toggleToolOutputExpansion();
 
     const longThinking = ['t1', 't2', 't3', 't4', 't5', 't6', 't7'].join('\n');
     driver.sessionEventHandler.handleEvent(
@@ -15002,7 +15003,7 @@ describe('transcript fold block clicks', () => {
     const opened = stripSgr(renderTranscript(driver));
     expect(opened).toContain('alpha-body');
     expect(opened).not.toContain('beta-body');
-    expect(driver.state.toolOutputExpanded).toBe(false);
+    expect(driver.state.transcriptContainer.toolOutputExpanded).toBe(false);
     expect(renderFooterLine1(driver)).toContain('ctrl+o expand');
 
     clickTranscriptLine(driver, 'alpha-body');
@@ -15010,7 +15011,7 @@ describe('transcript fold block clicks', () => {
     const closed = stripSgr(renderTranscript(driver));
     expect(closed).not.toContain('alpha-body');
     expect(closed).not.toContain('beta-body');
-    expect(driver.state.toolOutputExpanded).toBe(false);
+    expect(driver.state.transcriptContainer.toolOutputExpanded).toBe(false);
     expect(renderFooterLine1(driver)).toContain('ctrl+o expand');
   });
 
@@ -15025,7 +15026,7 @@ describe('transcript fold block clicks', () => {
     const expanded = stripSgr(renderTranscript(driver));
     expect(expanded).toContain('alpha-body');
     expect(expanded).toContain('beta-body');
-    expect(driver.state.toolOutputExpanded).toBe(true);
+    expect(driver.state.transcriptContainer.toolOutputExpanded).toBe(true);
     expect(renderFooterLine1(driver)).toContain('ctrl+o collapse');
 
     clickTranscriptLine(driver, 'alpha-body');
@@ -15033,7 +15034,7 @@ describe('transcript fold block clicks', () => {
     const oneClosed = stripSgr(renderTranscript(driver));
     expect(oneClosed).not.toContain('alpha-body');
     expect(oneClosed).toContain('beta-body');
-    expect(driver.state.toolOutputExpanded).toBe(true);
+    expect(driver.state.transcriptContainer.toolOutputExpanded).toBe(true);
     expect(renderFooterLine1(driver)).toContain('ctrl+o collapse');
 
     driver.toggleToolOutputExpansion();
@@ -15041,7 +15042,7 @@ describe('transcript fold block clicks', () => {
     const collapsed = stripSgr(renderTranscript(driver));
     expect(collapsed).not.toContain('alpha-body');
     expect(collapsed).not.toContain('beta-body');
-    expect(driver.state.toolOutputExpanded).toBe(false);
+    expect(driver.state.transcriptContainer.toolOutputExpanded).toBe(false);
     expect(renderFooterLine1(driver)).toContain('ctrl+o expand');
   });
 
@@ -15069,7 +15070,7 @@ describe('transcript fold block clicks', () => {
     const oldClosed = stripSgr(renderTranscript(driver));
     expect(oldClosed).not.toContain('old-body');
     expect(oldClosed).toContain('recent-body');
-    expect(driver.state.toolOutputExpanded).toBe(true);
+    expect(driver.state.transcriptContainer.toolOutputExpanded).toBe(true);
 
     clickTranscriptLine(driver, 'old-tail');
     expect(stripSgr(renderTranscript(driver))).not.toContain('old-body');
@@ -15078,7 +15079,7 @@ describe('transcript fold block clicks', () => {
     driver.toggleToolOutputExpansion();
     expect(stripSgr(renderTranscript(driver))).not.toContain('old-body');
     expect(stripSgr(renderTranscript(driver))).not.toContain('recent-body');
-    expect(driver.state.toolOutputExpanded).toBe(false);
+    expect(driver.state.transcriptContainer.toolOutputExpanded).toBe(false);
 
     driver.toggleToolOutputExpansion();
     const reopened = stripSgr(renderTranscript(driver));
@@ -15103,7 +15104,7 @@ describe('transcript fold block clicks', () => {
     expect(transcript).toContain('plain user sentence');
     expect(transcript).not.toContain('alpha-body');
     expect(transcript).toContain('alpha-tail');
-    expect(driver.state.toolOutputExpanded).toBe(false);
+    expect(driver.state.transcriptContainer.toolOutputExpanded).toBe(false);
     expect(renderFooterLine1(driver)).toContain('ctrl+o expand');
   });
 
@@ -15114,7 +15115,7 @@ describe('transcript fold block clicks', () => {
 
     const lines = driver.state.transcriptContainer.render(transcriptWidth);
     const headerY = lines.findIndex((line) =>
-      stripSgr(line).includes(t('tui.messages.thinking.liveLabel')),
+      stripSgr(line).includes(t('tui.messages.thinking.liveTitle')),
     );
     expect(headerY).toBeGreaterThanOrEqual(0);
     const thinking = driver.state.transcriptContainer.children.find(
@@ -15164,7 +15165,9 @@ describe('transcript fold block clicks', () => {
       expect(fallback).not.toHaveBeenCalled();
       expect(thinking!.isExpanded()).toBe(true);
       expect(stripSgr(renderTranscript(driver))).toContain('think-one');
-      expect(render).toHaveBeenCalledTimes(1);
+      // The live sweep may add a frame render of its own, so the click must
+      // only be required to have asked for at least the one repaint it owns.
+      expect(render.mock.calls.length).toBeGreaterThanOrEqual(1);
 
       buttonMouse.mockClear();
       toggleFold.mockClear();
@@ -15192,7 +15195,7 @@ describe('transcript fold block clicks', () => {
       const collapsed = stripSgr(renderTranscript(driver));
       expect(collapsed).toContain('think-four');
       expect(collapsed).not.toContain('think-one');
-      expect(render).toHaveBeenCalledTimes(1);
+      expect(render.mock.calls.length).toBeGreaterThanOrEqual(1);
 
       buttonMouse.mockClear();
       toggleFold.mockClear();
@@ -15215,7 +15218,7 @@ describe('transcript fold block clicks', () => {
       driver.streamingUI.onThinkingUpdate('short-only');
       const shortHeaderY = stripSgr(renderTranscript(driver))
         .split('\n')
-        .findIndex((line) => line.includes(t('tui.messages.thinking.liveLabel')));
+        .findIndex((line) => line.includes(t('tui.messages.thinking.liveTitle')));
       expect(shortHeaderY).toBeGreaterThanOrEqual(0);
       expect(thinking!.hasHiddenContent()).toBe(false);
       buttonMouse.mockClear();
@@ -15282,11 +15285,11 @@ describe('transcript fold block clicks', () => {
     driver.toggleToolOutputExpansion();
     expect(stripSgr(renderTranscript(driver))).toContain('think-four');
     expect(renderFooterLine1(driver)).not.toContain('ctrl+o');
-    expect(driver.state.toolOutputExpanded).toBe(true);
+    expect(driver.state.transcriptContainer.toolOutputExpanded).toBe(true);
 
     driver.toggleToolOutputExpansion();
     expect(stripSgr(renderTranscript(driver))).not.toContain('think-four');
-    expect(driver.state.toolOutputExpanded).toBe(false);
+    expect(driver.state.transcriptContainer.toolOutputExpanded).toBe(false);
     expect(renderFooterLine1(driver)).not.toContain('ctrl+o');
   });
 
@@ -15301,7 +15304,7 @@ describe('transcript fold block clicks', () => {
     const opened = stripSgr(renderTranscript(driver));
     expect(opened).toContain('alpha-body');
     expect(opened).toContain('beta-body');
-    expect(driver.state.toolOutputExpanded).toBe(false);
+    expect(driver.state.transcriptContainer.toolOutputExpanded).toBe(false);
     expect(renderFooterLine1(driver)).toContain('ctrl+o expand');
   });
 
@@ -15318,7 +15321,7 @@ describe('transcript fold block clicks', () => {
     const closed = stripSgr(renderTranscript(driver));
     expect(closed).not.toContain('alpha-body');
     expect(closed).not.toContain('beta-body');
-    expect(driver.state.toolOutputExpanded).toBe(true);
+    expect(driver.state.transcriptContainer.toolOutputExpanded).toBe(true);
     expect(renderFooterLine1(driver)).not.toContain('ctrl+o');
   });
 
@@ -15345,7 +15348,7 @@ describe('transcript fold block clicks', () => {
     const closed = stripSgr(renderTranscript(driver));
     expect(closed).not.toContain(marker);
     expect(closed).toContain('ctrl+o to expand');
-    expect(driver.state.toolOutputExpanded).toBe(false);
+    expect(driver.state.transcriptContainer.toolOutputExpanded).toBe(false);
   });
 
   it('closes a wide tool card that mounted while the transcript was expanded', async () => {
@@ -15361,6 +15364,6 @@ describe('transcript fold block clicks', () => {
     const closed = stripSgr(renderTranscript(driver));
     expect(closed).not.toContain('wide-tail');
     expect(closed).toContain('wide-head');
-    expect(driver.state.toolOutputExpanded).toBe(true);
+    expect(driver.state.transcriptContainer.toolOutputExpanded).toBe(true);
   });
 });

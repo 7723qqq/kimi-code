@@ -150,6 +150,27 @@ export const DEFAULT_MARKDOWN_CONFIG: MarkdownConfig = {
   mermaid: 'final',
 };
 
+export const TranscriptGroupToolsSchema = z.enum(['auto', 'explore', 'off']);
+export const TranscriptConfigSchema = z.object({
+  groupTools: TranscriptGroupToolsSchema,
+  groupThinking: z.boolean(),
+});
+export type TranscriptGroupTools = z.infer<typeof TranscriptGroupToolsSchema>;
+export type TranscriptConfig = z.infer<typeof TranscriptConfigSchema>;
+
+export const DEFAULT_TRANSCRIPT_CONFIG: TranscriptConfig = {
+  groupTools: 'auto',
+  groupThinking: true,
+};
+
+export interface TranscriptPresentationOptions extends TranscriptConfig {
+  readonly fullscreen: boolean;
+}
+
+export function transcriptGroupingActive(options: TranscriptPresentationOptions): boolean {
+  return options.fullscreen && (options.groupTools !== 'off' || options.groupThinking);
+}
+
 export const TuiModeSchema = z.enum(['regular', 'fullscreen']);
 export type TuiMode = z.infer<typeof TuiModeSchema>;
 
@@ -192,6 +213,16 @@ export const TuiConfigFileSchema = z.object({
       mermaid: z.string().optional(),
     })
     .optional(),
+  transcript: z
+    .object({
+      group: z
+        .object({
+          tools: z.string().optional(),
+          group_thinking: z.boolean().optional(),
+        })
+        .optional(),
+    })
+    .optional(),
 });
 
 export const TuiConfigSchema = z.object({
@@ -218,6 +249,7 @@ export const TuiConfigSchema = z.object({
   /** Present in every normalized config; optional only so hand-built test
    * fixtures from before this field existed still typecheck. */
   markdown: MarkdownConfigSchema.optional(),
+  transcript: TranscriptConfigSchema,
 });
 
 export type TuiConfigFileShape = z.infer<typeof TuiConfigFileSchema>;
@@ -246,6 +278,7 @@ export const DEFAULT_TUI_CONFIG: TuiConfig = TuiConfigSchema.parse({
   upgrade: DEFAULT_UPGRADE_PREFERENCES,
   statusLine: DEFAULT_STATUS_LINE_CONFIG,
   markdown: DEFAULT_MARKDOWN_CONFIG,
+  transcript: DEFAULT_TRANSCRIPT_CONFIG,
 });
 
 /**
@@ -375,6 +408,15 @@ export function normalizeTuiConfig(
       warn(`[tui.toml] ignoring unknown markdown.mermaid value: ${mermaidValue}`);
     }
   }
+  const groupToolsValue = config.transcript?.group?.tools;
+  let groupTools: TranscriptGroupTools = DEFAULT_TRANSCRIPT_CONFIG.groupTools;
+  if (groupToolsValue !== undefined) {
+    const parsed = TranscriptGroupToolsSchema.safeParse(groupToolsValue);
+    if (parsed.success) groupTools = parsed.data;
+    else warn(`[tui.toml] ignoring unknown transcript.group.tools value: ${groupToolsValue}`);
+  }
+  const groupThinking =
+    config.transcript?.group?.group_thinking ?? DEFAULT_TRANSCRIPT_CONFIG.groupThinking;
   const tuiModeValue = config.tui_mode;
   let tuiMode: TuiMode | undefined;
   if (tuiModeValue !== undefined) {
@@ -411,6 +453,10 @@ export function normalizeTuiConfig(
     },
     markdown: {
       mermaid: mermaidMode,
+    },
+    transcript: {
+      groupTools,
+      groupThinking,
     },
   });
 }
@@ -452,6 +498,16 @@ export function renderTuiConfig(config: TuiConfig): string {
 # context usage, context tokens, max context tokens, session id, version) on stdin.
 # command = "~/.kimi-code/statusline.sh"
 `;
+  const transcript = config.transcript;
+  const transcriptSection =
+    transcript.groupTools === DEFAULT_TRANSCRIPT_CONFIG.groupTools &&
+    transcript.groupThinking === DEFAULT_TRANSCRIPT_CONFIG.groupThinking
+      ? `# [transcript.group]
+# Fullscreen transcript grouping preferences.
+# tools = "auto" # "auto" | "explore" | "off"
+# group_thinking = true # true | false
+`
+      : `[transcript.group]\ntools = "${transcript.groupTools}" # "auto" | "explore" | "off"\ngroup_thinking = ${String(transcript.groupThinking)} # true | false\n`;
   return `# ~/.kimi-code/tui.toml
 # Client preferences for kimi-code.
 # Agent/runtime settings stay in ~/.kimi-code/config.toml.
@@ -475,6 +531,7 @@ notification_condition = "${config.notifications.condition}" # "unfocused" | "al
 auto_install = ${String(config.upgrade.autoInstall)} # true | false
 
 ${markdownSection}
+${transcriptSection}
 ${statusSection}`;
 }
 

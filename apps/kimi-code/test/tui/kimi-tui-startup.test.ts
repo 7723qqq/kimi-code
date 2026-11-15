@@ -131,6 +131,7 @@ function makeStartupInput(
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
       statusLine: { items: null, command: null },
+      transcript: { groupTools: 'auto', groupThinking: true },
       ...tuiConfig,
     },
     version: '0.0.0-test',
@@ -365,7 +366,7 @@ describe('KimiTUI startup', () => {
     driver.state.ui.start();
     await vt.waitForRender();
 
-    const row = vt.getViewport().findIndex((line) => line.includes('thinking…'));
+    const row = vt.getViewport().findIndex((line) => line.includes('Thinking'));
     expect(row).toBeGreaterThanOrEqual(0);
     vt.sendInput(`\u001B[<0;5;${row + 1}M`);
     vt.sendInput(`\u001B[<0;5;${row + 1}m`);
@@ -373,7 +374,7 @@ describe('KimiTUI startup', () => {
 
     expect(thinking.isExpanded()).toBe(true);
 
-    const expandedRow = vt.getViewport().findIndex((line) => line.includes('thinking…'));
+    const expandedRow = vt.getViewport().findIndex((line) => line.includes('Thinking'));
     expect(expandedRow).toBeGreaterThanOrEqual(0);
     await Bun.sleep(600);
     vt.sendInput(`\u001B[<0;5;${expandedRow + 1}M`);

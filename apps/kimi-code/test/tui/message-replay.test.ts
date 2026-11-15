@@ -71,6 +71,7 @@ function makeStartupInput(): KimiTUIStartupInput {
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
       statusLine: { items: null, command: null },
+      transcript: { groupTools: 'auto', groupThinking: true },
     },
     version: '0.0.0-test',
     workDir: '/tmp/proj-a',
@@ -387,7 +388,7 @@ describe('KimiTUI resume message replay', () => {
       ),
     ]);
     const driver = await makeDriver(initial);
-    driver.state.toolOutputExpanded = true;
+    driver.state.transcriptContainer.toggleToolOutputExpansion();
     await driver.switchToSession(resumed, 'Resumed session (ses-replay).');
 
     const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
@@ -1644,7 +1645,7 @@ describe('KimiTUI resume message replay', () => {
       },
     ]);
     const driver = await makeDriver(initial);
-    driver.state.toolOutputExpanded = true;
+    driver.state.transcriptContainer.toggleToolOutputExpansion();
     await driver.switchToSession(resumed, 'Resumed session (ses-replay).');
 
     const transcript = stripAnsi(driver.state.transcriptContainer.render(120).join('\n'));

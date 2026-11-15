@@ -95,8 +95,18 @@ export const MAX_FINAL_OUTPUT_LABEL_CODE_UNITS = 2_000;
 export const BRAILLE_SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 export const BRAILLE_SPINNER_INTERVAL_MS = 80;
 
+export const TRANSCRIPT_GROUP_SWEEP_COLUMNS_PER_SECOND = 42;
+export const TRANSCRIPT_GROUP_SWEEP_HALF_WIDTH = 6;
+export const TRANSCRIPT_GROUP_SWEEP_RESTART_GAP_COLUMNS = 14;
+// Every 150 ms the title highlight closes half of what is left to full or off, so it fades out
+// in about a second: the speed it was tuned to on 50 ms frames.
+export const TRANSCRIPT_GROUP_FADE_HALF_LIFE_MS = 150;
+export const TRANSCRIPT_GROUP_HOLD_MS = 450;
+export const TRANSCRIPT_GROUP_TAIL_ELAPSED_MS = 2_000;
+export const FOREGROUND_BASH_HINT_DELAY_MS = 10_000;
+
 export const MOON_SPINNER_FRAMES = ['🌑', '🌒', '🌓', '🌔', '🌕', '🌖', '🌗', '🌘'];
-export const MOON_SPINNER_INTERVAL_MS = 120;
+export const MOON_LOADER_FRAME_MS = 120;
 
 /**
  * How long a newly arrived mid-turn update rests on one body row before the

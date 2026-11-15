@@ -1076,7 +1076,7 @@ export class SessionEventHandler {
     } else if (change.kind === 'lifecycle') {
       this.pendingModelBlockedFallback = undefined;
     }
-    if (buildGoalMarker(change, state.toolOutputExpanded, change.actor) === null) return;
+    if (buildGoalMarker(change, state.transcriptContainer.toolOutputExpanded, change.actor) === null) return;
     this.host.appendTranscriptEntry({
       id: nextTranscriptId(),
       kind: 'goal',
@@ -1093,7 +1093,7 @@ export class SessionEventHandler {
     this.pendingModelBlockedFallback = undefined;
     const { state } = this.host;
     const modelChange: GoalChange = { ...change, actor: 'model' };
-    if (buildGoalMarker(modelChange, state.toolOutputExpanded, 'model') === null) return;
+    if (buildGoalMarker(modelChange, state.transcriptContainer.toolOutputExpanded, 'model') === null) return;
     this.host.appendTranscriptEntry({
       id: nextTranscriptId(),
       kind: 'goal',

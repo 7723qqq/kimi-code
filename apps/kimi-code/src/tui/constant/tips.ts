@@ -56,3 +56,8 @@ export function getAllTips(): readonly ToolbarTip[] {
     { text: t('tui.chrome.tips.modelSwitch'), priority: 2 },
   ];
 }
+
+/** Shown only while fullscreen transcript grouping is on: clicking a group is the new affordance. */
+export function getTranscriptGroupingTip(): ToolbarTip {
+  return { text: t('tui.chrome.tips.transcriptGrouping'), priority: 2 };
+}

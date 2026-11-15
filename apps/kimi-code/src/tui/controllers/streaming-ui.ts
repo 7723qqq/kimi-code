@@ -19,6 +19,7 @@ import { STREAMING_UI_FLUSH_MS } from '../constant/streaming';
 import type { TUIState } from '../state';
 import type {
   AppState,
+  Elapsed,
   LivePaneState,
   QueuedMessage,
   ToolCallBlockData,
@@ -37,6 +38,8 @@ export interface StreamingUIHost {
   patchLivePane(patch: Partial<LivePaneState>): void;
   resetLivePane(): void;
   updateActivityPane(): void;
+  /** Repaints the activity line only when transcript grouping can move a running Bash into a group. */
+  updateActivityPaneForTranscriptGrouping(): void;
   updateQueueDisplay(): void;
   requireSession(): Session;
   deferUserMessages: boolean;
@@ -702,7 +705,7 @@ export class StreamingUIController {
       component.setToggleHandler(() => {
         this.host.toggleTranscriptFold(component);
       });
-      if (state.toolOutputExpanded) component.setExpanded(true);
+      if (state.transcriptContainer.toolOutputExpanded) component.setExpanded(true);
       this._activeThinkingComponent = component;
       const entry: TranscriptEntry = {
         id: nextTranscriptId(),
@@ -722,7 +725,8 @@ export class StreamingUIController {
 
   onThinkingEnd(): void {
     if (this._activeThinkingComponent === undefined) return;
-    this._activeThinkingComponent.finalize();
+    const component = this._activeThinkingComponent;
+    component.finalize(elapsedSince(component.startedAtMs, this.host.state.appState.isReplaying));
     this._activeThinkingComponent = undefined;
     this._activeThinkingEntry = undefined;
     this.host.state.ui.requestRender();
@@ -734,7 +738,7 @@ export class StreamingUIController {
 
     const { state } = this.host;
     const tc = new ToolCallComponent(toolCall, undefined, state.ui, state.appState.workDir);
-    if (state.toolOutputExpanded) tc.setExpanded(true);
+    if (state.transcriptContainer.toolOutputExpanded) tc.setExpanded(true);
     this._pendingToolComponents.set(toolCall.id, tc);
 
     const entry = this.createToolCallEntry(toolCall);
@@ -748,6 +752,7 @@ export class StreamingUIController {
     if (!handled) {
       this.host.appendTranscriptEntry(entry, tc);
     }
+    this.host.updateActivityPaneForTranscriptGrouping();
 
     if (toolCall.name === 'ExitPlanMode' && typeof toolCall.args['plan'] !== 'string') {
       const session = this.host.requireSession();
@@ -793,7 +798,7 @@ export class StreamingUIController {
     const matchedCall = this._activeToolCalls.get(toolCallId);
     const tc = this._pendingToolComponents.get(toolCallId);
     if (tc) {
-      tc.setResult(result);
+      tc.setResult(result, elapsedSince(tc.startedAtMs, state.appState.isReplaying));
       this._pendingToolComponents.delete(toolCallId);
       const entry = this._toolCallEntries.get(toolCallId);
       if (entry !== undefined) {
@@ -803,6 +808,7 @@ export class StreamingUIController {
         }
       }
       this._toolCallEntries.delete(toolCallId);
+      this.host.updateActivityPaneForTranscriptGrouping();
       state.ui.requestRender();
       this.host.mergeCurrentTurnSteps();
       return;
@@ -815,7 +821,7 @@ export class StreamingUIController {
         state.ui,
         state.appState.workDir,
       );
-      if (state.toolOutputExpanded) completed.setExpanded(true);
+      if (state.transcriptContainer.toolOutputExpanded) completed.setExpanded(true);
       matchedCall.result = result;
       this.host.appendTranscriptEntry(this.createToolCallEntry(matchedCall), completed);
     }
@@ -840,7 +846,7 @@ export class StreamingUIController {
     };
     this._activeCompactionBlock = block;
     this._activeCompactionEntry = entry;
-    if (state.toolOutputExpanded) {
+    if (state.transcriptContainer.toolOutputExpanded) {
       block.setExpanded(true);
     }
     this.host.appendTranscriptEntry(entry, block);
@@ -904,6 +910,7 @@ export class StreamingUIController {
     if (existingComponent !== undefined) {
       existingComponent.updateToolCall(toolCall);
       this.updateToolCallEntry(toolCall);
+      this.host.updateActivityPaneForTranscriptGrouping();
     } else if (toolCall.name !== 'Agent' && toolCall.name !== 'AgentSwarm') {
       this.onToolCallStart(toolCall);
     }
@@ -1009,7 +1016,7 @@ export class StreamingUIController {
   private upgradeSoloReadToGroup(solo: ToolCallComponent): ReadGroupComponent {
     const { state } = this.host;
     const group = new ReadGroupComponent(state.ui);
-    if (state.toolOutputExpanded) group.setExpanded(true);
+    if (state.transcriptContainer.toolOutputExpanded) group.setExpanded(true);
     const previousEntry = this._toolCallEntries.get(solo.toolCallView.id);
     if (!this.host.replaceTranscriptChild(solo, group, previousEntry)) {
       state.transcriptContainer.addChild(group);
@@ -1017,4 +1024,9 @@ export class StreamingUIController {
     group.attach(solo.toolCallView.id, solo);
     return group;
   }
+}
+
+/** Replayed cards never measured their own runtime, so their elapsed stays unknown. */
+function elapsedSince(startedAtMs: number, isReplaying: boolean): Elapsed {
+  return isReplaying ? { known: false } : { known: true, ms: Date.now() - startedAtMs };
 }

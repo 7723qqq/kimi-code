@@ -438,7 +438,7 @@ describe('transcript fold block clicks', () => {
     const opened = stripSgr(renderTranscript(driver));
     expect(opened).toContain('alpha-body');
     expect(opened).not.toContain('beta-body');
-    expect(driver.state.toolOutputExpanded).toBe(false);
+    expect(driver.state.transcriptContainer.toolOutputExpanded).toBe(false);
     expect(renderFooterLine1(driver)).toContain('ctrl+o expand');
 
     clickTranscriptLine(driver, 'alpha-body');
@@ -446,7 +446,7 @@ describe('transcript fold block clicks', () => {
     const closed = stripSgr(renderTranscript(driver));
     expect(closed).not.toContain('alpha-body');
     expect(closed).not.toContain('beta-body');
-    expect(driver.state.toolOutputExpanded).toBe(false);
+    expect(driver.state.transcriptContainer.toolOutputExpanded).toBe(false);
     expect(renderFooterLine1(driver)).toContain('ctrl+o expand');
   });
 
@@ -461,7 +461,7 @@ describe('transcript fold block clicks', () => {
     const expanded = stripSgr(renderTranscript(driver));
     expect(expanded).toContain('alpha-body');
     expect(expanded).toContain('beta-body');
-    expect(driver.state.toolOutputExpanded).toBe(true);
+    expect(driver.state.transcriptContainer.toolOutputExpanded).toBe(true);
     expect(renderFooterLine1(driver)).toContain('ctrl+o collapse');
 
     clickTranscriptLine(driver, 'alpha-body');
@@ -469,7 +469,7 @@ describe('transcript fold block clicks', () => {
     const oneClosed = stripSgr(renderTranscript(driver));
     expect(oneClosed).not.toContain('alpha-body');
     expect(oneClosed).toContain('beta-body');
-    expect(driver.state.toolOutputExpanded).toBe(true);
+    expect(driver.state.transcriptContainer.toolOutputExpanded).toBe(true);
     expect(renderFooterLine1(driver)).toContain('ctrl+o collapse');
 
     driver.toggleToolOutputExpansion();
@@ -477,7 +477,7 @@ describe('transcript fold block clicks', () => {
     const collapsed = stripSgr(renderTranscript(driver));
     expect(collapsed).not.toContain('alpha-body');
     expect(collapsed).not.toContain('beta-body');
-    expect(driver.state.toolOutputExpanded).toBe(false);
+    expect(driver.state.transcriptContainer.toolOutputExpanded).toBe(false);
     expect(renderFooterLine1(driver)).toContain('ctrl+o expand');
   });
 
@@ -505,7 +505,7 @@ describe('transcript fold block clicks', () => {
     const oldClosed = stripSgr(renderTranscript(driver));
     expect(oldClosed).not.toContain('old-body');
     expect(oldClosed).toContain('recent-body');
-    expect(driver.state.toolOutputExpanded).toBe(true);
+    expect(driver.state.transcriptContainer.toolOutputExpanded).toBe(true);
 
     clickTranscriptLine(driver, 'old-tail');
     expect(stripSgr(renderTranscript(driver))).not.toContain('old-body');
@@ -514,7 +514,7 @@ describe('transcript fold block clicks', () => {
     driver.toggleToolOutputExpansion();
     expect(stripSgr(renderTranscript(driver))).not.toContain('old-body');
     expect(stripSgr(renderTranscript(driver))).not.toContain('recent-body');
-    expect(driver.state.toolOutputExpanded).toBe(false);
+    expect(driver.state.transcriptContainer.toolOutputExpanded).toBe(false);
 
     driver.toggleToolOutputExpansion();
     const reopened = stripSgr(renderTranscript(driver));
@@ -539,7 +539,7 @@ describe('transcript fold block clicks', () => {
     expect(transcript).toContain('plain user sentence');
     expect(transcript).not.toContain('alpha-body');
     expect(transcript).toContain('alpha-tail');
-    expect(driver.state.toolOutputExpanded).toBe(false);
+    expect(driver.state.transcriptContainer.toolOutputExpanded).toBe(false);
     expect(renderFooterLine1(driver)).toContain('ctrl+o expand');
   });
 
@@ -590,11 +590,11 @@ describe('transcript fold block clicks', () => {
     driver.toggleToolOutputExpansion();
     expect(stripSgr(renderTranscript(driver))).toContain('think-four');
     expect(renderFooterLine1(driver)).not.toContain('ctrl+o');
-    expect(driver.state.toolOutputExpanded).toBe(true);
+    expect(driver.state.transcriptContainer.toolOutputExpanded).toBe(true);
 
     driver.toggleToolOutputExpansion();
     expect(stripSgr(renderTranscript(driver))).not.toContain('think-four');
-    expect(driver.state.toolOutputExpanded).toBe(false);
+    expect(driver.state.transcriptContainer.toolOutputExpanded).toBe(false);
     expect(renderFooterLine1(driver)).not.toContain('ctrl+o');
   });
 
@@ -609,7 +609,7 @@ describe('transcript fold block clicks', () => {
     const opened = stripSgr(renderTranscript(driver));
     expect(opened).toContain('alpha-body');
     expect(opened).toContain('beta-body');
-    expect(driver.state.toolOutputExpanded).toBe(false);
+    expect(driver.state.transcriptContainer.toolOutputExpanded).toBe(false);
     expect(renderFooterLine1(driver)).toContain('ctrl+o expand');
   });
 
@@ -626,7 +626,7 @@ describe('transcript fold block clicks', () => {
     const closed = stripSgr(renderTranscript(driver));
     expect(closed).not.toContain('alpha-body');
     expect(closed).not.toContain('beta-body');
-    expect(driver.state.toolOutputExpanded).toBe(true);
+    expect(driver.state.transcriptContainer.toolOutputExpanded).toBe(true);
     expect(renderFooterLine1(driver)).not.toContain('ctrl+o');
   });
 
@@ -653,7 +653,7 @@ describe('transcript fold block clicks', () => {
     const closed = stripSgr(renderTranscript(driver));
     expect(closed).not.toContain(marker);
     expect(closed).toContain('ctrl+o to expand');
-    expect(driver.state.toolOutputExpanded).toBe(false);
+    expect(driver.state.transcriptContainer.toolOutputExpanded).toBe(false);
   });
 
   it('closes a wide tool card that mounted while the transcript was expanded', async () => {
@@ -669,6 +669,6 @@ describe('transcript fold block clicks', () => {
     const closed = stripSgr(renderTranscript(driver));
     expect(closed).not.toContain('wide-tail');
     expect(closed).toContain('wide-head');
-    expect(driver.state.toolOutputExpanded).toBe(true);
+    expect(driver.state.transcriptContainer.toolOutputExpanded).toBe(true);
   });
 });

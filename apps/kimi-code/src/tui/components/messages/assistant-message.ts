@@ -35,6 +35,7 @@ export class AssistantMessageComponent implements Component {
   private lastText = '';
   private lastTransient = false;
   private showBullet: boolean;
+  private projectionVersion = 0;
 
   private renderCache: { width: number; lines: string[] } | undefined;
 
@@ -53,8 +54,7 @@ export class AssistantMessageComponent implements Component {
     this.markRenderDirty();
   }
 
-  updateContent(text: string, opts?: AssistantMarkdownOptions): void {
-    const transient = opts?.transient === true;
+  updateContent(text: string, opts?: AssistantMarkdownOptions): void {    const transient = opts?.transient === true;
     // While streaming (transient), render only a bounded tail so re-lexing +
     // re-wrapping the still-growing draft on the main thread stays O(tail)
     // per flush instead of O(full) — a large message otherwise blocks the
@@ -68,6 +68,9 @@ export class AssistantMessageComponent implements Component {
 
     if (displayText === this.lastText && transient === this.lastTransient) return;
 
+    if ((this.lastText.length === 0) !== (displayText.length === 0)) {
+      this.projectionVersion += 1;
+    }
     this.lastText = displayText;
     this.lastTransient = transient;
     this.markRenderDirty();
@@ -101,12 +104,21 @@ export class AssistantMessageComponent implements Component {
     this.markdown.setText(displayText);
   }
 
+  /** Bumped when the message appears or disappears, which changes how a projection treats it. */
+  get transcriptProjectionVersion(): number {
+    return this.projectionVersion;
+  }
+
+  /** Whether the message currently draws anything; an empty one stays transparent. */
+  get hasVisibleContent(): boolean {
+    return this.lastText.length > 0;
+  }
+
   invalidate(): void {
     // Markdown caches ANSI colour codes keyed on (text, width).  When the
     // theme changes the cached strings contain stale colours, so we rebuild
     // the Markdown child with the new theme while preserving transient mode.
-    this.markRenderDirty();
-    this.contentContainer.clear();
+    this.markRenderDirty();    this.contentContainer.clear();
     this.markdown = undefined;
 
     if (this.lastText.trim().length > 0) {

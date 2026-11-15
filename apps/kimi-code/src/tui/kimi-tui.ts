@@ -36,7 +36,6 @@ import {
   Spacer,
   TuiAltScreen,
   TuiMainScreen,
-  type TuiMouseEventResult,
 } from '@moonshot-ai/pi-tui';
 import { resolve } from 'pathe';
 
@@ -85,6 +84,7 @@ import {
   type SkillListSession,
 } from './commands';
 import * as slashCommands from './commands/dispatch';
+import { applyTranscriptPresentation } from './commands/config';
 import { resolveUserInput, skillVariantPathsForInput } from './commands/resolve';
 import { BannerComponent } from './components/chrome/banner';
 import { DeviceCodeBoxComponent } from './components/chrome/device-code-box';
@@ -125,7 +125,7 @@ import {
 } from './components/messages/user-message';
 import { type ActivityPaneMode } from './components/panes/activity-pane';
 import { QueuePaneComponent } from './components/panes/queue-pane';
-import { removeLegacySurveySetting, type TuiConfig, type TuiMode } from './config';
+import { removeLegacySurveySetting, transcriptGroupingActive, type TuiConfig, type TuiMode } from './config';
 import {
   getLlmNotSetMessage,
   getNoActiveSessionMessage,
@@ -197,13 +197,7 @@ import {
   type TUIStartupOptions,
   type TUIStartupState,
 } from './types';
-import {
-  countedByExpandHint,
-  hasDispose,
-  hasHiddenContent,
-  isExpandable,
-  isExpandedComponent,
-} from './utils/component-capabilities';
+import { hasDispose } from './utils/component-capabilities';
 import { isDeadTerminalError } from './utils/dead-terminal';
 import { formatErrorMessage } from './utils/event-payload';
 import { pickForegroundTasks } from './utils/foreground-task';
@@ -251,8 +245,6 @@ import {
 } from './utils/transcript-component-metadata';
 import { nextTranscriptId } from './utils/transcript-id';
 import {
-  expandCutoffIndex,
-  TRANSCRIPT_EXPAND_TURNS,
   TRANSCRIPT_HYSTERESIS,
   TRANSCRIPT_KEEP_RECENT_ASSISTANT,
   TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED,
@@ -369,6 +361,7 @@ function createInitialAppState(input: KimiTUIStartupInput): AppState {
     upgrade: input.tuiConfig.upgrade,
     statusLine: input.tuiConfig.statusLine,
     markdown: input.tuiConfig.markdown,
+    transcript: input.tuiConfig.transcript,
     availableModels: {},
     availableProviders: {},
     sessionTitle: null,
@@ -396,6 +389,14 @@ interface SendMessageOptions {
 
 /** How long the one-shot "moved to background" footer hint stays visible. */
 const DETACH_HINT_DISPLAY_MS = 4_000;
+
+/** Whether fullscreen transcript grouping currently turns tool/thinking runs into groups. */
+function transcriptGroupingActiveIn(state: TUIState): boolean {
+  return transcriptGroupingActive({
+    ...state.appState.transcript,
+    fullscreen: state.ui.mode === 'fullscreen',
+  });
+}
 
 export class KimiTUI {
   private readonly tokenSpeed = new TokenSpeedSampler();
@@ -553,7 +554,29 @@ export class KimiTUI {
     this.programStatus = new ProgramStatusController(this.state, this.state.terminal);
     this.state.footer.setExpandHintProvider(() => this.toolOutputExpandHint());
     this.state.footer.setGitBinding((state) => this.footerGitBinding(state));
-    this.state.transcriptContainer.setUnhandledClick((index) => this.toggleClickedFoldBlock(index));
+    this.state.transcriptContainer.setHost({
+      withScrollAnchor: (toggle) => {
+        if (this.state.transcriptView === undefined) {
+          toggle();
+          return;
+        }
+        this.state.transcriptView.withAnchoredScroll(toggle);
+      },
+      withBottomAnchor: (toggle, removedLines) => {
+        if (this.state.transcriptView === undefined) {
+          toggle();
+          return;
+        }
+        this.state.transcriptView.withBottomAnchor(toggle, removedLines);
+      },
+      viewportRows: () => this.state.transcriptView?.viewportRows,
+      track: (event, properties) => {
+        this.track(event, properties);
+      },
+      foldingChanged: () => {
+        this.updateActivityPane();
+      },
+    });
     this.uninstallRainbowDance = installRainbowDance(() => {
       this.state.ui.requestRender();
     });
@@ -935,9 +958,9 @@ export class KimiTUI {
     );
     const banner = new BannerComponent(this.state.appState.banner);
     if (welcomeIndex >= 0) {
-      this.state.transcriptContainer.children.splice(welcomeIndex + 1, 0, banner);
+      this.state.transcriptContainer.insertChild(welcomeIndex + 1, banner);
     } else {
-      this.state.transcriptContainer.children.unshift(banner);
+      this.state.transcriptContainer.insertChild(0, banner);
     }
     this.state.transcriptContainer.invalidate();
   }
@@ -1158,7 +1181,15 @@ export class KimiTUI {
 
   private async init(): Promise<boolean> {
     setExperimentalFeatures(await this.harness.getExperimentalFeatures());
+    applyTranscriptPresentation(this);
     this.sessionEventHandler.notifications.setEnabled(isExperimentalFlagEnabled('notify_user'));
+    if (this.state.ui.mode === 'fullscreen') {
+      this.track('transcript_display_settings', {
+        group_tools: this.state.appState.transcript.groupTools,
+        group_thinking: this.state.appState.transcript.groupThinking,
+        source: 'startup',
+      });
+    }
     await this.authFlow.refreshAvailableModels();
     this.backgroundRefreshPromise = this.refreshProviderModelsInBackground();
 
@@ -1589,7 +1620,7 @@ export class KimiTUI {
     const outputComponent = new ShellRunComponent(() => this.state.ui.requestRender());
     // Inherit the current ctrl+o state, same as freshly mounted tool calls —
     // the global toggle only reaches components that exist when it fires.
-    if (this.state.toolOutputExpanded) outputComponent.setExpanded(true);
+    if (this.state.transcriptContainer.toolOutputExpanded) outputComponent.setExpanded(true);
     this.shellOutputStreams.set(commandId, { entry: outputEntry, component: outputComponent });
     this.state.transcriptEntries.push(outputEntry);
     markTranscriptComponent(outputComponent, outputEntry);
@@ -3191,6 +3222,9 @@ export class KimiTUI {
     const busyChanged = 'streamingPhase' in patch || 'isCompacting' in patch;
     const sessionTitleChanged = 'sessionTitle' in patch;
     Object.assign(this.state.appState, patch);
+    if ('streamingPhase' in patch) {
+      this.state.transcriptContainer.setTurnActive(this.state.appState.streamingPhase !== 'idle');
+    }
     if ('planMode' in patch) this.updateEditorBorderHighlight();
     this.state.footer.setState(this.state.appState);
     this.updateActivityPane();
@@ -3923,7 +3957,7 @@ export class KimiTUI {
         block.markCanceled();
       } else {
         block.markDone(data.tokensBefore, data.tokensAfter, data.summary);
-        if (this.state.toolOutputExpanded) {
+        if (this.state.transcriptContainer.toolOutputExpanded) {
           block.setExpanded(true);
         }
       }
@@ -3965,7 +3999,7 @@ export class KimiTUI {
           return new GoalSetMessageComponent();
         }
         if (entry.goalData?.kind === 'lifecycle') {
-          return buildGoalMarker(entry.goalData.change, this.state.toolOutputExpanded);
+          return buildGoalMarker(entry.goalData.change, this.state.transcriptContainer.toolOutputExpanded);
         }
         return null;
       case 'assistant': {
@@ -3978,7 +4012,7 @@ export class KimiTUI {
       }
       case 'thinking': {
         const thinking = new ThinkingComponent(entry.content, true);
-        if (this.state.toolOutputExpanded) thinking.setExpanded(true);
+        if (this.state.transcriptContainer.toolOutputExpanded) thinking.setExpanded(true);
         return thinking;
       }
       case 'tool_call':
@@ -3989,7 +4023,7 @@ export class KimiTUI {
             this.state.ui,
             this.state.appState.workDir,
           );
-          if (this.state.toolOutputExpanded) tc.setExpanded(true);
+          if (this.state.transcriptContainer.toolOutputExpanded) tc.setExpanded(true);
           return tc;
         }
         if (entry.backgroundAgentStatus !== undefined) {
@@ -4040,12 +4074,10 @@ export class KimiTUI {
     if (entryIndex < 0) return false;
     entries.splice(entryIndex, 1);
     entries.push(entry);
-    const children = this.state.transcriptContainer.children;
-    const childIndex = children.findIndex((child) => getTranscriptComponentEntry(child) === entry);
-    if (childIndex >= 0) {
-      const [component] = children.splice(childIndex, 1);
-      children.push(component!);
-    }
+    const component = this.state.transcriptContainer.children.find(
+      (child) => getTranscriptComponentEntry(child) === entry,
+    );
+    if (component !== undefined) this.state.transcriptContainer.moveChildToEnd(component);
     this.state.ui.requestRender();
     return true;
   }
@@ -4127,6 +4159,7 @@ export class KimiTUI {
     this.streamingUI.resetToolUi();
     this.sessionEventHandler.stopAllMcpServerStatusSpinners();
     this.disposeTranscriptChildren();
+    this.state.transcriptContainer.dispose();
     this.state.transcriptContainer.clear();
     this.btwPanelController.clear();
     this.clearTerminalInlineImages();
@@ -4273,6 +4306,7 @@ export class KimiTUI {
   }
 
   private foldCurrentTurnContent(keepSteps: number, keepAssistants: number): boolean {
+    if (transcriptGroupingActiveIn(this.state)) return false;
     if (keepSteps <= 0 && keepAssistants <= 0) return false;
     const children = this.state.transcriptContainer.children;
 
@@ -4350,11 +4384,12 @@ export class KimiTUI {
       if (hasDispose(child)) child.dispose();
     }
 
-    children.splice(0, children.length, ...newChildren);
+    this.state.transcriptContainer.replaceChildren(newChildren);
     return true;
   }
 
   mergeAllTurnSteps(): void {
+    if (transcriptGroupingActiveIn(this.state)) return;
     if (TRANSCRIPT_KEEP_RECENT_STEPS <= 0 && TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED <= 0)
       return;
     const children = this.state.transcriptContainer.children;
@@ -4430,7 +4465,7 @@ export class KimiTUI {
     for (const child of toDispose) {
       if (hasDispose(child)) child.dispose();
     }
-    children.splice(0, children.length, ...newChildren);
+    this.state.transcriptContainer.replaceChildren(newChildren);
   }
 
   showStatus(message: string, color?: ColorToken): void {
@@ -4505,6 +4540,10 @@ export class KimiTUI {
     this.activityPaneController.updateActivityPane();
   }
 
+  updateActivityPaneForTranscriptGrouping(): void {
+    if (transcriptGroupingActiveIn(this.state)) this.updateActivityPane();
+  }
+
   private resolveActivityPaneMode(): EffectiveActivityPaneMode {
     if (this.state.activeDialog === 'session-picker') return 'hidden';
     if (this.state.livePane.pendingApproval !== null) return 'hidden';
@@ -4543,63 +4582,17 @@ export class KimiTUI {
   }
 
   /**
-   * Index of the first transcript child ctrl+o may expand: a component is
-   * expandable only if it sits at or after the start of the
-   * (totalTurns - expandTurns)-th turn, i.e. it belongs to one of the most
-   * recent `expandTurns` turns. Position-based so it also covers streaming
-   * components that have no entry in the metadata map.
-   */
-  private expandCutoff(children: readonly Component[]): number {
-    const boundaries: number[] = [];
-    for (let i = 0; i < children.length; i++) {
-      if (this.isTurnBoundaryComponent(children[i]!)) boundaries.push(i);
-    }
-    return expandCutoffIndex(children.length, boundaries, TRANSCRIPT_EXPAND_TURNS);
-  }
-
-  /**
    * What the footer's ctrl+o hint should offer: `expand` while a card in the
    * expandable window keeps content out of its collapsed form, `collapse`
    * once the toggle shows it, `null` when ctrl+o would change nothing.
    */
   private toolOutputExpandHint(): 'expand' | 'collapse' | null {
-    const children = this.state.transcriptContainer.children;
-    if (this.state.toolOutputExpanded) {
-      // Toggling off collapses every expanded card, including one that slid
-      // out of the expansion window since it was expanded, so any expanded
-      // card with hidden content keeps the collapse hint on.
-      for (let i = children.length - 1; i >= 0; i--) {
-        const child = children[i];
-        if (isExpandedComponent(child) && countedByExpandHint(child)) return 'collapse';
-      }
-      return null;
-    }
-    const cutoff = this.expandCutoff(children);
-    for (let i = children.length - 1; i >= cutoff; i--) {
-      if (countedByExpandHint(children[i])) return 'expand';
-    }
-    return null;
+    if (transcriptGroupingActiveIn(this.state)) return null;
+    return this.state.transcriptContainer.toolOutputExpandHint();
   }
 
   toggleTranscriptFold(component: Component): boolean {
-    const index = this.state.transcriptContainer.children.indexOf(component);
-    if (index < 0) return false;
-    return this.toggleClickedFoldBlock(index)?.handled === true;
-  }
-
-  private toggleClickedFoldBlock(index: number): TuiMouseEventResult | undefined {
-    const children = this.state.transcriptContainer.children;
-    const hit = children[index];
-    if (hit === undefined || !isExpandable(hit) || !hasHiddenContent(hit)) return undefined;
-    if (isExpandedComponent(hit)) {
-      hit.setExpanded(false);
-    } else if (index >= this.expandCutoff(children)) {
-      hit.setExpanded(true);
-    } else {
-      return undefined;
-    }
-    this.state.ui.requestRender();
-    return { handled: true };
+    return this.state.transcriptContainer.toggleSourceComponent(component);
   }
 
   toggleToolOutputExpansion(): void {
@@ -4609,19 +4602,7 @@ export class KimiTUI {
       this.track('shortcut_expand_prompt_optimizer');
       return;
     }
-    this.state.toolOutputExpanded = !this.state.toolOutputExpanded;
-    const children = this.state.transcriptContainer.children;
-    const expandCutoff = this.expandCutoff(children);
-
-    for (let i = 0; i < children.length; i++) {
-      const child = children[i]!;
-      if (!isExpandable(child)) continue;
-      child.setExpanded(this.state.toolOutputExpanded && i >= expandCutoff);
-    }
-    // Differential render only — no destructive full redraw on expand/collapse.
-    // (When the expanded region reaches above the viewport, the engine's own
-    // fallback may still do a full render; that path is not forced from here.)
-    this.state.ui.requestRender();
+    this.state.transcriptContainer.toggleToolOutputExpansion();
   }
 
   toggleStatusSurfaceFold(): boolean {

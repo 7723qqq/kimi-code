@@ -359,7 +359,7 @@ export class SessionReplayRenderer {
         output.finish(stdout, stderr, message.origin.isError);
         // Inherit the current ctrl+o state, same as the live card — the global
         // toggle only reaches components that exist when it fires.
-        if (this.host.state.toolOutputExpanded) output.setExpanded(true);
+        if (this.host.state.transcriptContainer.toolOutputExpanded) output.setExpanded(true);
         this.host.appendTranscriptEntry(
           replayEntry(
             context,
@@ -851,13 +851,13 @@ export class SessionReplayRenderer {
       return;
     }
     const children = state.transcriptContainer.children;
-    const childIndex = children.findIndex(
+    const component = children.find(
       (child) => child instanceof ToolCallComponent && child.toolCallView.id === toolCallId,
     );
-    if (childIndex >= 0) {
+    if (component !== undefined) {
       // Structural removal only: the container's ref-checked render cache
       // detects the child-list change; no tree-wide invalidate needed.
-      children.splice(childIndex, 1);
+      state.transcriptContainer.removeChild(component);
     }
   }
 

@@ -56,6 +56,11 @@ export class Theme {
     this._terminalBackground = background;
   }
 
+  /** The background colour to paint against: the reported one, else the palette family's. */
+  terminalBackground(): string {
+    return this._terminalBackground ?? (this.isLight ? '#FFFFFF' : '#000000');
+  }
+
   /**
    * The background a hovered row is painted with: the terminal background
    * nudged until the foreground keeps its contrast. Undefined until the

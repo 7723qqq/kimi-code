@@ -32,6 +32,7 @@ import {
   BRAILLE_SPINNER_FRAMES,
   BRAILLE_SPINNER_INTERVAL_MS,
   COMMAND_PREVIEW_LINES,
+  FOREGROUND_BASH_HINT_DELAY_MS,
   MAX_SUB_TOOL_ACTIVITIES,
   MESSAGE_INDENT,
   OUTCOME_MAX_LINES,
@@ -53,7 +54,7 @@ import {
 } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import { createMarkdownTheme } from '#/tui/theme/pi-tui-theme';
-import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
+import type { Elapsed, ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
 import { appendStreamingArgsPreview } from '#/tui/utils/event-payload';
 import { createMarkdownOptions } from '#/tui/utils/markdown-options';
 import { decodeMcpToolName } from '#/tui/utils/mcp-tool-name';
@@ -82,7 +83,7 @@ import {
 import { agentSwarmResultSummaryFromOutput } from './agent-swarm-progress';
 import { PlanBoxComponent } from './plan-box';
 import { ShellExecutionComponent } from './shell-execution';
-import { pickChip } from './tool-renderers/chip';
+import { chipText } from './tool-renderers/chip';
 import { buildGoalToolHeader, parseGoalToolOutput } from './tool-renderers/goal';
 import { searchNoticeOnly } from './tool-renderers/grep-output';
 import { parseReadMediaOutput } from './tool-renderers/media';
@@ -95,7 +96,7 @@ import {
   todoListFromResult,
 } from './tool-renderers/todo';
 import { TruncatedOutputComponent, trimTrailingEmptyLines } from './tool-renderers/truncated';
-import { isSpilledToolOutput } from './tool-renderers/types';
+import { CardOnly, isSpilledToolOutput } from './tool-renderers/types';
 import { buildWaitForHeader, parseWaitForOutput } from './tool-renderers/wait-for';
 import {
   renderHeaderContent,
@@ -114,6 +115,8 @@ const AUTO_APPROVED_PLAN_MARKER = '## Plan (auto-approved, not user-reviewed):';
 const STREAMING_PROGRESS_INTERVAL_MS = 1000;
 const ABORTED_MARK = '⊘';
 const MAX_LIVE_OUTPUT_CHARS = 50_000;
+/** The leading spacer and header every card starts with; the body follows them. */
+const CARD_PREAMBLE_CHILDREN = 2;
 // Prefix marking a bounded stream buffer that dropped its head (live tool
 // output, child-agent stream text, sub-tool output); everything after it is
 // the tail that survived.
@@ -162,7 +165,6 @@ function notifyUserTitle(args: Record<string, unknown>): string {
 }
 
 /** Delay before a long-running foreground Bash/Agent card advertises Ctrl+B. */
-const DETACH_HINT_DELAY_MS = 10_000;
 function getDetachHintText(): string {
   return t('tui.messages.toolCall.detachHint');
 }
@@ -730,6 +732,8 @@ export class ToolCallComponent extends Container {
   private hiddenContent: boolean | undefined = undefined;
   /** Width-dependent half of hasHiddenContent(); recomputed on every collapsed render. */
   private truncatedAtLastRender = false;
+  /** When this card mounted; the foreground-Bash Ctrl+B hint and group timers count from here. */
+  readonly startedAtMs = Date.now();
   /**
    * Memo for collapsedOutcomeClips() while the card stays expanded: the row
    * derivation is width-dependent and would otherwise run on every frame.
@@ -737,6 +741,8 @@ export class ToolCallComponent extends Container {
    */
   private collapsedOutcomeClipsMemo: { width: number; clips: boolean } | undefined = undefined;
   private result: ToolResultBlockData | undefined;
+  private elapsed: Elapsed | undefined;
+  private projectionVersion = 0;
   private ui: TUI | undefined;
   private planPath: string | undefined;
   /**
@@ -848,6 +854,7 @@ export class ToolCallComponent extends Container {
     super();
     this.toolCall = toolCall;
     this.result = result;
+    this.elapsed = result === undefined ? undefined : { known: false };
     this.ui = ui;
     this.applySubagentReplay(toolCall.subagent);
 
@@ -929,8 +936,32 @@ export class ToolCallComponent extends Container {
     return out;
   }
 
+  private rowDetailCache:
+    | { width: number; lines: string[]; parts: Component[]; partLines: string[][] }
+    | undefined;
+
+  /** The expanded body without the header and the parts a group row already states. */
+  renderRowDetail(width: number): string[] {
+    const parts = this.children.slice(CARD_PREAMBLE_CHILDREN).filter((child) => !(child instanceof CardOnly));
+    const partLines = parts.map((part) => part.render(width));
+    const cache = this.rowDetailCache;
+    if (
+      isRenderCacheEnabled() &&
+      cache !== undefined &&
+      cache.width === width &&
+      cache.parts.length === parts.length &&
+      parts.every((part, index) => cache.parts[index] === part && cache.partLines[index] === partLines[index])
+    ) {
+      return cache.lines;
+    }
+    const lines = partLines.flat();
+    this.rowDetailCache = { width, lines, parts, partLines };
+    return lines;
+  }
+
   override invalidate(): void {
     this.renderCache = undefined;
+    this.rowDetailCache = undefined;
     this.headerText.setText(this.buildHeader());
     this.rebuildBody();
     super.invalidate();
@@ -1154,8 +1185,10 @@ export class ToolCallComponent extends Container {
     }
   }
 
-  setResult(result: ToolResultBlockData): void {
+  setResult(result: ToolResultBlockData, elapsed: Elapsed = { known: false }): void {
     this.result = result;
+    this.elapsed = elapsed;
+    this.projectionVersion += 1;
     // Result supersedes any live progress chatter; the result body is the
     // authoritative final state. Without this clear, a finished tool would
     // show both the streamed status lines and the final output stacked.
@@ -1178,6 +1211,7 @@ export class ToolCallComponent extends Container {
   }
 
   updateToolCall(toolCall: ToolCallBlockData): void {
+    this.projectionVersion += 1;
     this.toolCall = toolCall;
     this.syncStreamingProgressTimer();
     this.headerText.setText(this.buildHeader());
@@ -1415,6 +1449,21 @@ export class ToolCallComponent extends Container {
     return this.toolCall;
   }
 
+  /** The finished result, or undefined while the call still runs. */
+  get toolResultView(): Readonly<ToolResultBlockData> | undefined {
+    return this.result;
+  }
+
+  /** How long the call took; unknown for replayed cards. */
+  get toolElapsed(): Elapsed | undefined {
+    return this.elapsed;
+  }
+
+  /** Bumped on every state change a transcript projection draws from. */
+  get transcriptProjectionVersion(): number {
+    return this.projectionVersion;
+  }
+
   /** Notifies the listener when internal state changes, if a group is attached. */
   private notifySnapshotChange(): void {
     this.onSnapshotChange?.();
@@ -1527,7 +1576,7 @@ export class ToolCallComponent extends Container {
       this.detachHintVisible = true;
       this.rebuildBody();
       this.ui?.requestRender();
-    }, DETACH_HINT_DELAY_MS);
+    }, FOREGROUND_BASH_HINT_DELAY_MS);
   }
 
   private stopDetachHintTimer(): void {
@@ -1539,7 +1588,7 @@ export class ToolCallComponent extends Container {
   private buildDetachHintBlock(): void {
     if (!this.detachHintVisible) return;
     if (this.result !== undefined) return;
-    this.addChild(new Text(currentTheme.dim(getDetachHintText()), 2, 0));
+    this.addChild(new CardOnly(new Text(currentTheme.dim(getDetachHintText()), 2, 0)));
   }
 
   private syncSubagentElapsedTimer(): void {
@@ -2094,11 +2143,7 @@ export class ToolCallComponent extends Container {
   }
 
   private buildHeaderChip(result: ToolResultBlockData): string {
-    // The truncation envelope of an oversized result is not countable data.
-    if (isSpilledToolOutput(result.output)) return '';
-    const provider = pickChip(this.toolCall.name);
-    if (provider === undefined) return '';
-    const text = provider(this.toolCall, result);
+    const text = chipText(this.toolCall, result);
     if (text.length === 0) return '';
     if (result.is_error) return currentTheme.fg('error', ` · ${text}`);
     return currentTheme.dim(` · ${text}`);
@@ -2120,7 +2165,7 @@ export class ToolCallComponent extends Container {
   private rebuildBody(): void {
     this.hiddenContent = undefined;
     this.collapsedOutcomeClipsMemo = undefined;
-    while (this.children.length > 2) {
+    while (this.children.length > CARD_PREAMBLE_CHILDREN) {
       this.children.pop();
     }
     this.buildCallPreview();
@@ -2652,8 +2697,9 @@ export class ToolCallComponent extends Container {
         contextLines: 3,
         maxLines: shouldCap ? COMMAND_PREVIEW_LINES : undefined,
       });
-      for (const line of lines) {
-        this.addChild(new Text(line, 2, 0));
+      for (const [index, line] of lines.entries()) {
+        const text = new Text(line, 2, 0);
+        this.addChild(index === 0 ? new CardOnly(text) : text);
       }
     } else if (name === 'Bash') {
       // The engine stamps the cwd the command actually executes in (the bound
@@ -2674,11 +2720,13 @@ export class ToolCallComponent extends Container {
       const command = str(this.toolCall.args['command']);
       if (command.length === 0) return;
       this.addChild(
-        new ShellExecutionComponent({
-          command,
-          showCommand: true,
-          commandPreviewLines: undefined,
-        }),
+        new CardOnly(
+          new ShellExecutionComponent({
+            command,
+            showCommand: true,
+            commandPreviewLines: undefined,
+          }),
+        ),
       );
     }
   }
@@ -2752,11 +2800,13 @@ export class ToolCallComponent extends Container {
       const cmd = extractPartialStringField(previewText, 'command');
       if (cmd === undefined || cmd.length === 0) return;
       this.addChild(
-        new ShellExecutionComponent({
-          command: cmd,
-          showCommand: true,
-          commandPreviewLines: undefined,
-        }),
+        new CardOnly(
+          new ShellExecutionComponent({
+            command: cmd,
+            showCommand: true,
+            commandPreviewLines: undefined,
+          }),
+        ),
       );
     }
     // Unknown tools: nothing sensible to stream without a schema, so

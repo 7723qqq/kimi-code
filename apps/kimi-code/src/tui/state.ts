@@ -10,6 +10,8 @@ import type { StatsRegion } from './components/chrome/status-surface/regions/sta
 import type { UpdatesRegion } from './components/chrome/status-surface/regions/updates-region';
 import type { SessionRow } from './components/dialogs/session-picker';
 import type { CustomEditor } from './components/editor/custom-editor';
+import type { TranscriptContainer } from './components/messages/transcript-container';
+import type { TranscriptView } from './components/messages/transcript-view';
 import type { BackgroundTasksMiniState } from './controllers/background-tasks-mini';
 import type { TasksBrowserState } from './controllers/tasks-browser';
 import type { Theme } from './theme';
@@ -26,7 +28,9 @@ import type { TerminalState } from './utils/terminal-state';
 export interface TUIState {
   ui: TUI;
   terminal: ProcessTerminal;
-  transcriptContainer: GutterContainer;
+  transcriptContainer: TranscriptContainer;
+  /** The fullscreen scroll view around the transcript; undefined in regular mode. */
+  transcriptView: TranscriptView | undefined;
   activityContainer: Container;
   /**
    * Docked host for the background-tasks mini panel (the bottom-half peek).
@@ -72,7 +76,6 @@ export interface TUIState {
    */
   renderClock: RenderClock;
   activitySpinner: { instance: MoonLoader; style: SpinnerStyle } | null;
-  toolOutputExpanded: boolean;
   sessions: SessionRow[];
   loadingSessions: boolean;
   /** Keyset cursor for the next older page; `undefined` when the listing is exhausted. */

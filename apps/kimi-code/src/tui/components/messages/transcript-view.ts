@@ -1,6 +1,7 @@
 import { ScrollView, VStack, type Component, type TuiMouseEvent } from '@moonshot-ai/pi-tui';
 
 import { GutterContainer } from '#/tui/components/chrome/gutter-container';
+import type { TranscriptContainer } from '#/tui/components/messages/transcript-container';
 import { StickyUserMessageComponent } from '#/tui/components/messages/sticky-user-message';
 import { CHROME_GUTTER } from '#/tui/constant/rendering';
 import { StickyUserMessageIndex } from '#/tui/utils/sticky-user-message';
@@ -11,7 +12,7 @@ export class TranscriptView extends VStack {
   private readonly messages = new StickyUserMessageIndex();
   private paddingTop = 1;
 
-  constructor(private readonly transcript: GutterContainer) {
+  constructor(private readonly transcript: TranscriptContainer) {
     super();
     let cachedBody: string[] | undefined;
     let paddedBody: string[] | undefined;
@@ -51,6 +52,32 @@ export class TranscriptView extends VStack {
     pillContainer.addChild(this.pill);
     this.addChild(pillContainer, { shrink: 0, minSize: 0 });
     this.addChild(this.scrollView, { basis: 0, grow: 1, shrink: 1, minSize: 0 });
+  }
+
+  get viewportRows(): number {
+    return this.scrollView.viewportHeight;
+  }
+
+  /** Runs `toggle` while keeping the line at the top of the viewport in place. */
+  withAnchoredScroll(toggle: () => void): void {
+    if (this.scrollView.isFollowingEnd) {
+      toggle();
+      return;
+    }
+    const scrollTop = this.scrollView.scrollTop;
+    toggle();
+    this.scrollView.scrollTo(scrollTop, { disableFollow: true });
+  }
+
+  /** Runs `toggle` while keeping the view anchored to the transcript end. */
+  withBottomAnchor(toggle: () => void, removedLines: number): void {
+    if (this.scrollView.isFollowingEnd) {
+      toggle();
+      return;
+    }
+    const scrollTop = this.scrollView.scrollTop;
+    toggle();
+    this.scrollView.scrollTo(scrollTop - removedLines, { disableFollow: true });
   }
 
   updateStickyMessage(): boolean {

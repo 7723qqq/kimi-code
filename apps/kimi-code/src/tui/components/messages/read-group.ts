@@ -50,6 +50,7 @@ export class ReadGroupComponent extends Container {
   private _invalidating = false;
   private disposed = false;
   private expanded = false;
+  private projectionVersion = 0;
 
   constructor(private readonly ui: TUI | undefined) {
     super();
@@ -62,6 +63,18 @@ export class ReadGroupComponent extends Container {
 
   size(): number {
     return this.entries.length;
+  }
+
+  getToolComponents(): readonly ToolCallComponent[] {
+    return this.entries.map((entry) => entry.tc);
+  }
+
+  /** Changes whenever the borrowed cards change what a transcript projection draws. */
+  get transcriptProjectionVersion(): number {
+    return this.projectionVersion + this.entries.reduce(
+      (version, entry) => version + entry.tc.transcriptProjectionVersion,
+      0,
+    );
   }
 
   /** Global ctrl+o toggle: the per-file body is only rendered while expanded. */
@@ -88,6 +101,7 @@ export class ReadGroupComponent extends Container {
   attach(toolCallId: string, tc: ToolCallComponent): void {
     if (this.entries.some((e) => e.toolCallId === toolCallId)) return;
     this.entries.push({ toolCallId, tc });
+    this.projectionVersion += 1;
     tc.setSnapshotListener(() => {
       this.scheduleRender();
     });

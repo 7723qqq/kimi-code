@@ -7,6 +7,7 @@ import { DEFAULT_MARKDOWN_CONFIG, loadTuiConfig, resolveTuiMode, type TuiConfig 
 import { getTuiModeRestartNotice } from '../constant/kimi-tui';
 import { setMarkdownMermaidMode, setMarkdownRenderLatex } from '../utils/markdown-options';
 import type { SlashCommandHost } from './dispatch';
+import { applyTranscriptPresentation } from './config';
 import { setExperimentalFeatures } from './experimental-flags';
 
 export async function handleReloadTuiCommand(host: SlashCommandHost): Promise<void> {
@@ -79,7 +80,9 @@ export async function applyReloadedTuiConfig(
     upgrade: config.upgrade,
     statusLine: config.statusLine,
     markdown: config.markdown,
+    transcript: config.transcript,
   });
+  applyTranscriptPresentation(host);
   // Exact shape of `applyLocaleChoice` (commands/config.ts): the UI locale only
   // takes effect when the i18n engine, the engine-side translator and appState
   // all move together — keeping the field list here in sync with that one

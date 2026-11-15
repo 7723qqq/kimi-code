@@ -1,18 +1,8 @@
 import { Text, visibleWidth } from '@moonshot-ai/pi-tui';
 import type { TUI } from '@moonshot-ai/pi-tui';
 
-import {
-  BRAILLE_SPINNER_FRAMES,
-  BRAILLE_SPINNER_INTERVAL_MS,
-  MOON_SPINNER_FRAMES,
-  MOON_SPINNER_INTERVAL_MS,
-} from '#/tui/constant/rendering';
+import { BRAILLE_SPINNER_FRAMES, MOON_LOADER_FRAME_MS, MOON_SPINNER_FRAMES } from '#/tui/constant/rendering';
 import { currentTheme } from '#/tui/theme';
-import {
-  SYSTEM_RENDER_CLOCK,
-  type RenderClock,
-  type RenderTimerHandle,
-} from '#/utils/render-clock';
 
 export type SpinnerStyle = 'moon' | 'braille';
 
@@ -25,18 +15,15 @@ export type SpinnerStyle = 'moon' | 'braille';
  * loader — the activity pane, the MCP-connect rows, the login/progress rows, or
  * a test standing in for one of them — is its owner: it calls `start()` to begin
  * the frames and must call `stop()` (or `dispose()`) when the row goes away.
- * Constructing a loader therefore has no side effect on the frame clock, so a
- * loader that is built and never started is inert rather than repainting the
- * whole TUI forever, and one whose owner never stops it can no longer keep the
- * process alive (the frame timer is unref'd).
+ * Frames advance on the TUI's shared animation clock, which is paused with the
+ * renderer, so a loader that is built and never started is inert.
  */
 export class MoonLoader extends Text {
   private currentFrame = 0;
-  private intervalId: RenderTimerHandle | null = null;
+  private startedAt = 0;
+  private frameRequest: number | undefined;
   private ui: TUI;
   private frames: string[];
-  private interval: number;
-  private readonly clock: RenderClock;
   private colorFn?: (s: string) => string;
   private label: string;
   private displayText = '';
@@ -49,54 +36,39 @@ export class MoonLoader extends Text {
   private tip: string = '';
   private availableWidth = 0;
 
-  constructor(
-    ui: TUI,
-    style: SpinnerStyle = 'moon',
-    colorFn?: (s: string) => string,
-    label: string = '',
-    clock: RenderClock = SYSTEM_RENDER_CLOCK,
-  ) {
+  constructor(ui: TUI, style: SpinnerStyle = 'moon', colorFn?: (s: string) => string, label: string = '') {
     super('', 1, 0);
     this.ui = ui;
     this.frames = style === 'moon' ? [...MOON_SPINNER_FRAMES] : [...BRAILLE_SPINNER_FRAMES];
-    this.interval = style === 'moon' ? MOON_SPINNER_INTERVAL_MS : BRAILLE_SPINNER_INTERVAL_MS;
-    this.clock = clock;
     this.colorFn = colorFn;
     this.label = label;
-    // No `start()` here: the owner starts the frames (see the class doc). Arming
-    // the interval from the constructor made merely building a loader a ticking
-    // side effect nothing could observe or cancel.
   }
 
   /**
-   * Begin (or resume) the frame timer. Idempotent on purpose: owners call it
+   * Begin (or resume) the animation. Idempotent on purpose: owners call it
    * from paths that can re-run (a pane re-syncing a spinner it already holds),
-   * and a second `setInterval` would double the frame rate and leak the first
-   * one. `stop()` clears the handle, so start-after-stop still resumes from the
-   * frame that was on screen.
+   * and a second request would double the frame rate.
    */
   start(): void {
-    if (this.intervalId !== null) return;
+    if (this.frameRequest !== undefined) return;
+    this.currentFrame = 0;
+    this.startedAt = performance.now();
     this.updateDisplay();
-    this.intervalId = this.clock.setInterval(() => {
-      this.currentFrame = (this.currentFrame + 1) % this.frames.length;
-      this.updateDisplay();
-    }, this.interval);
-    // Mirror the footer's timers: an animation is never a reason for the process
-    // to stay alive. Only the system clock's handles carry that meaning — an
-    // injected clock owns liveness itself and cancels on `unref`.
-    if (this.clock === SYSTEM_RENDER_CLOCK) this.intervalId.unref?.();
+    this.frameRequest = this.ui.requestAnimationFrame(this.onFrame);
   }
 
   stop(): void {
-    if (this.intervalId) {
-      this.clock.clearInterval(this.intervalId);
-      this.intervalId = null;
-    }
+    if (this.frameRequest === undefined) return;
+    this.ui.cancelAnimationFrame(this.frameRequest);
+    this.frameRequest = undefined;
   }
 
   dispose(): void {
     this.stop();
+  }
+
+  get currentLabel(): string {
+    return this.label;
   }
 
   setLabel(label: string): void {
@@ -123,6 +95,15 @@ export class MoonLoader extends Text {
   renderInline(): string {
     return this.inlineText;
   }
+
+  private readonly onFrame = (time: number): void => {
+    const frame = Math.floor(Math.max(0, time - this.startedAt) / MOON_LOADER_FRAME_MS) % this.frames.length;
+    if (frame !== this.currentFrame) {
+      this.currentFrame = frame;
+      this.updateDisplay();
+    }
+    this.frameRequest = this.ui.requestAnimationFrame(this.onFrame);
+  };
 
   private updateDisplay(): void {
     const frame = this.frames[this.currentFrame]!;

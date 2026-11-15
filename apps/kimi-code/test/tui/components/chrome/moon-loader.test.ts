@@ -3,43 +3,52 @@ import { afterEach, describe, expect, it, mock, type Mock } from 'bun:test';
 import type { TUI } from '@moonshot-ai/pi-tui';
 
 import { MoonLoader, type SpinnerStyle } from '#/tui/components/chrome/moon-loader';
-import { MOON_SPINNER_INTERVAL_MS } from '#/tui/constant/rendering';
-import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
+import { MOON_LOADER_FRAME_MS } from '#/tui/constant/rendering';
 
-// Ownership contract: a MoonLoader arms no timer in its constructor, so a loader
+// Ownership contract: a MoonLoader arms nothing in its constructor, so a loader
 // a test never starts is inert. Every loader a test does start must be stopped
-// again, or its frame timer outlives the test.
+// again, or its animation outlives the test.
 const loaders: MoonLoader[] = [];
 
-function createLoader(clock: FakeClock = createFakeClock()): MoonLoader {
-  const loader = new MoonLoader(
-    { requestRender() {} } as unknown as TUI,
-    'moon',
-    undefined,
-    '',
-    clock,
-  );
-  loaders.push(loader);
-  return loader;
+interface FrameDriver {
+  readonly loader: MoonLoader;
+  readonly requestRender: Mock<(...args: unknown[]) => unknown>;
+  runFrame(clientTimeMs: number): void;
+  pendingFrames(): number;
 }
 
-/** An owned loader whose ui records every repaint the loader asks for. */
-function createOwnedLoader(
-  clock: FakeClock,
+function createLoader(
   style: SpinnerStyle = 'moon',
   label = '',
-): { loader: MoonLoader; requestRender: Mock<(...args: any[]) => any> } {
+  start = false,
+): FrameDriver {
+  const queue = new Map<number, (time: number) => void>();
+  let nextHandle = 1;
   const requestRender = mock();
-  const loader = new MoonLoader(
-    { requestRender } as unknown as TUI,
-    style,
-    undefined,
-    label,
-    clock,
-  );
+  const ui = {
+    requestRender,
+    requestAnimationFrame: (callback: (time: number) => void): number => {
+      const handle = nextHandle++;
+      queue.set(handle, callback);
+      return handle;
+    },
+    cancelAnimationFrame: (handle: number): void => {
+      queue.delete(handle);
+    },
+  } as unknown as TUI;
+  const loader = new MoonLoader(ui, style, undefined, label);
   loaders.push(loader);
-  loader.start();
-  return { loader, requestRender };
+  if (start) loader.start();
+  return {
+    loader,
+    requestRender,
+    runFrame: (clientTimeMs: number): void => {
+      const pending = [...queue.values()];
+      queue.clear();
+      for (const callback of pending) callback(clientTimeMs);
+    },
+    pendingFrames: (): number => queue.size,
+  };
 }
 
 afterEach(() => {
@@ -49,7 +58,7 @@ afterEach(() => {
 
 describe('MoonLoader', () => {
   it('keeps the tip out of renderInline so it does not squeeze against the swarm progress bar', () => {
-    const loader = createLoader();
+    const { loader } = createLoader();
     loader.setTip(' · Tip: ctrl+s: steer mid-turn');
     loader.setAvailableWidth(80);
 
@@ -60,7 +69,7 @@ describe('MoonLoader', () => {
   });
 
   it('still shows the tip on its own row when width allows', () => {
-    const loader = createLoader();
+    const { loader } = createLoader();
     loader.setTip(' · Tip: ctrl+s: steer mid-turn');
     loader.setAvailableWidth(80);
 
@@ -69,67 +78,62 @@ describe('MoonLoader', () => {
   });
 });
 
-describe('MoonLoader frame-timer ownership', () => {
+describe('MoonLoader frame ownership', () => {
   it('does not tick when its owner never starts it', () => {
-    const clock = createFakeClock();
-    const requestRender = mock();
-    const loader = new MoonLoader(
-      { requestRender } as unknown as TUI,
-      'moon',
-      undefined,
-      'Working…',
-      clock,
-    );
-    loaders.push(loader);
+    const { requestRender, pendingFrames } = createLoader('moon', 'Working…');
 
-    clock.advance(MOON_SPINNER_INTERVAL_MS * 10);
-
-    // Constructing a loader arms nothing: no frame timer to leak, no repaint.
-    expect(clock.activeTimers).toBe(0);
+    // Constructing a loader arms nothing: no frame request to leak, no repaint.
+    expect(pendingFrames()).toBe(0);
     expect(requestRender).not.toHaveBeenCalled();
   });
 
   it('animates once its owner starts it', () => {
-    const clock = createFakeClock();
-    const { loader, requestRender } = createOwnedLoader(clock, 'moon');
+    const base = performance.now();
+    const { loader, requestRender, runFrame, pendingFrames } = createLoader('moon', '', true);
     const firstFrame = loader.renderInline();
+    expect(requestRender).toHaveBeenCalledTimes(1);
+    expect(pendingFrames()).toBe(1);
 
-    clock.advance(MOON_SPINNER_INTERVAL_MS * 3);
-
-    // start() paints the first frame, then one repaint per frame step.
-    expect(requestRender).toHaveBeenCalledTimes(1 + 3);
+    runFrame(base + MOON_LOADER_FRAME_MS + 5);
+    expect(requestRender).toHaveBeenCalledTimes(2);
     expect(loader.renderInline()).not.toBe(firstFrame);
+    expect(pendingFrames()).toBe(1);
   });
 
   it('stops its frames on dispose()', () => {
-    const clock = createFakeClock();
-    const { loader, requestRender } = createOwnedLoader(clock, 'moon', 'Working…');
-    clock.advance(MOON_SPINNER_INTERVAL_MS);
+    const base = performance.now();
+    const { loader, requestRender, runFrame, pendingFrames } = createLoader(
+      'moon',
+      'Working…',
+      true,
+    );
+    runFrame(base + MOON_LOADER_FRAME_MS + 5);
     const painted = requestRender.mock.calls.length;
 
     loader.dispose();
-    clock.advance(MOON_SPINNER_INTERVAL_MS * 5);
+    expect(pendingFrames()).toBe(0);
+    runFrame(base + MOON_LOADER_FRAME_MS * 4);
 
-    expect(clock.activeTimers).toBe(0);
+    expect(pendingFrames()).toBe(0);
     expect(requestRender.mock.calls).toHaveLength(painted);
   });
 
-  it('ignores a second start() instead of stacking frame timers', () => {
-    const clock = createFakeClock();
-    const { loader, requestRender } = createOwnedLoader(clock, 'moon');
+  it('ignores a second start() instead of stacking frame requests', () => {
+    const base = performance.now();
+    const { loader, requestRender, runFrame, pendingFrames } = createLoader('moon', '', true);
     loader.start();
     loader.start();
 
-    clock.advance(MOON_SPINNER_INTERVAL_MS);
+    expect(pendingFrames()).toBe(1);
+    runFrame(base + MOON_LOADER_FRAME_MS + 5);
 
-    // Two intervals would advance two frames per step and leak the first one.
-    expect(clock.activeTimers).toBe(1);
+    // Two frame chains would advance two frames per tick.
+    expect(pendingFrames()).toBe(1);
     expect(requestRender).toHaveBeenCalledTimes(2);
   });
 
   it('does not repaint when a setter re-applies the text it already holds', () => {
-    const clock = createFakeClock();
-    const { loader, requestRender } = createOwnedLoader(clock, 'moon', 'Working…');
+    const { loader, requestRender } = createLoader('moon', 'Working…', true);
     expect(requestRender).toHaveBeenCalledTimes(1);
 
     loader.setLabel('Working…');

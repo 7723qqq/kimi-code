@@ -82,6 +82,7 @@ auto_install = false
       upgrade: { autoInstall: false },
       statusLine: { items: null, command: null },
       markdown: { mermaid: 'final' },
+      transcript: { groupTools: 'auto', groupThinking: true },
     });
   });
 
@@ -152,6 +153,7 @@ command = "   "
       upgrade: { autoInstall: true },
       statusLine: { items: null, command: null },
       markdown: { mermaid: 'final' },
+      transcript: { groupTools: 'auto', groupThinking: true },
     });
   });
 
@@ -187,6 +189,7 @@ command = "   "
         notifications: { enabled: false, condition: 'always' },
         upgrade: { autoInstall: false },
         statusLine: { items: null, command: null },
+        transcript: DEFAULT_TUI_CONFIG.transcript,
       },
       filePath,
     );
@@ -204,6 +207,7 @@ command = "   "
       upgrade: { autoInstall: false },
       statusLine: { items: null, command: null },
       markdown: { mermaid: 'final' },
+      transcript: { groupTools: 'auto', groupThinking: true },
     });
   });
 
@@ -318,6 +322,7 @@ command = "   "
         notifications: DEFAULT_TUI_CONFIG.notifications,
         upgrade: DEFAULT_TUI_CONFIG.upgrade,
         statusLine: DEFAULT_TUI_CONFIG.statusLine,
+        transcript: DEFAULT_TUI_CONFIG.transcript,
       },
       filePath,
     );

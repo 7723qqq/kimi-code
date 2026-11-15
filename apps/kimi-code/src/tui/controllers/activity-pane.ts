@@ -42,6 +42,8 @@ export class ActivityPaneController {
   private readonly mountedChildren: Component[] = [];
   private currentLoadingTip: { kind: LoadingTipKind; tip: string | undefined } | undefined =
     undefined;
+  /** Fires when a folded foreground Bash call has run long enough to advertise Ctrl+B. */
+  private activityHintTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(host: ActivityPaneHost) {
     this.host = host;
@@ -88,7 +90,9 @@ export class ActivityPaneController {
     const retry = effectiveMode === 'waiting' ? state.appState.stepRetry : null;
     const retryKey =
       retry === null ? '' : `${formatStepRetryLabel(retry)}|${formatStepRetryDetail(retry)}`;
-    const activityModeKey = `${effectiveMode}:${placeSpinnerInAgentSwarm ? 'swarm' : 'pane'}:${retryKey}`;
+    const hintAt = state.transcriptContainer.foldedBashHintAt();
+    const showBackgroundHint = hintAt !== undefined && Date.now() >= hintAt;
+    const activityModeKey = `${effectiveMode}:${placeSpinnerInAgentSwarm ? 'swarm' : 'pane'}:${retryKey}:${String(showBackgroundHint)}`;
 
     if (
       activityModeKey === this.lastActivityMode &&
@@ -97,6 +101,7 @@ export class ActivityPaneController {
       if (placeSpinnerInAgentSwarm) {
         this.syncAgentSwarmActivitySpinner(state.activitySpinner?.instance);
       }
+      this.syncActivityBackgroundHintTimer(hintAt);
       return;
     }
 
@@ -199,6 +204,12 @@ export class ActivityPaneController {
         break;
       }
     }
+    if (showBackgroundHint && !placeSpinnerInAgentSwarm) {
+      const spinner = state.activitySpinner?.instance;
+      if (spinner?.currentLabel === '') spinner.setLabel(t('tui.messages.agentSwarmProgress.working'));
+      spinner?.setTip(` · ${t('tui.messages.toolCall.detachHint')}`);
+    }
+    this.syncActivityBackgroundHintTimer(hintAt);
     state.ui.requestRender();
   }
 
@@ -225,10 +236,30 @@ export class ActivityPaneController {
   }
 
   stopActivitySpinner(): void {
+    this.clearActivityHintTimer();
     if (this.host.state.activitySpinner !== null) {
       this.host.state.activitySpinner.instance.stop();
       this.host.state.activitySpinner = null;
     }
+  }
+
+  /** Repaints when a folded Bash call reaches the Ctrl+B hint delay. */
+  private syncActivityBackgroundHintTimer(hintAt: number | undefined): void {
+    this.clearActivityHintTimer();
+    if (hintAt === undefined) return;
+    const delay = hintAt - Date.now();
+    if (delay <= 0) return;
+    this.activityHintTimer = setTimeout(() => {
+      this.activityHintTimer = undefined;
+      this.updateActivityPane();
+    }, delay);
+    this.activityHintTimer.unref?.();
+  }
+
+  private clearActivityHintTimer(): void {
+    if (this.activityHintTimer === undefined) return;
+    clearTimeout(this.activityHintTimer);
+    this.activityHintTimer = undefined;
   }
 
   private shouldShowTerminalProgress(effectiveMode: EffectiveActivityPaneMode): boolean {
@@ -273,7 +304,7 @@ export class ActivityPaneController {
     }
 
     if (state.activitySpinner === null) {
-      const instance = new MoonLoader(state.ui, style, colorFn, label, state.renderClock);
+      const instance = new MoonLoader(state.ui, style, colorFn, label);
       // MoonLoader arms nothing on construction, so the pane that mounts it is
       // the owner: it starts the frames here and `stopActivitySpinner` ends them.
       instance.start();

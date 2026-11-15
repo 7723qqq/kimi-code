@@ -770,13 +770,9 @@ export class SubAgentEventHandler {
     if (entry !== undefined) {
       this.host.removeTranscriptEntries([entry]);
     } else {
-      const children = this.host.state.transcriptContainer.children;
-      const index = children.indexOf(progress);
-      if (index >= 0) {
-        // Structural removal only: GutterContainer's ref-checked render cache
-        // detects the child-list change; no tree-wide invalidate needed.
-        children.splice(index, 1);
-      }
+      // Structural removal only: the container's ref-checked render cache
+      // detects the child-list change; no tree-wide invalidate needed.
+      this.host.state.transcriptContainer.removeChild(progress);
     }
     this.host.updateActivityPane();
   }

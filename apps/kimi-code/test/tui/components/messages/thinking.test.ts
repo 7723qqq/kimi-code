@@ -5,21 +5,47 @@ import { visibleWidth, type TUI, type TuiMouseEvent } from '@moonshot-ai/pi-tui'
 import { ThinkingComponent } from '#/tui/components/messages/thinking';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 
-import { createFakeClock } from '../../../helpers/fake-clock';
-
 function strip(text: string): string {
   return text.replaceAll(/\u001B\[[0-9;]*m/g, '');
+}
+
+function fakeUi(): {
+  requestRender: ReturnType<typeof mock>;
+  runFrame(time: number): void;
+  pendingFrames(): number;
+} & TUI {
+  const queue = new Map<number, (time: number) => void>();
+  let nextHandle = 1;
+  const requestRender = mock();
+  const ui = {
+    requestRender,
+    requestAnimationFrame: (callback: (time: number) => void): number => {
+      const handle = nextHandle++;
+      queue.set(handle, callback);
+      return handle;
+    },
+    cancelAnimationFrame: (handle: number): void => {
+      queue.delete(handle);
+    },
+    runFrame: (time: number): void => {
+      const pending = [...queue.values()];
+      queue.clear();
+      for (const callback of pending) callback(time);
+    },
+    pendingFrames: (): number => queue.size,
+  };
+  return ui as unknown as typeof ui & TUI;
 }
 
 const longThinking = ['line1', 'line2', 'line3', 'line4', 'line5', 'line6', 'line7'].join('\n');
 
 describe('ThinkingComponent', () => {
-  it('shows the live spinner header before thinking content', () => {
+  it('shows a highlighted live title before thinking content', () => {
     const component = new ThinkingComponent('working it out', true, 'live');
     const out = strip(component.render(80).join('\n'));
 
-    expect(out).toContain('⠋ thinking…');
-    expect(out).not.toContain('  ⠋ thinking…');
+    expect(out).toContain(`${STATUS_BULLET.trimEnd()} Thinking`);
+    expect(out).not.toContain('thinking…');
     expect(out).not.toContain(`${STATUS_BULLET}⠋`);
     expect(out).toContain('  working it out');
   });
@@ -84,7 +110,7 @@ describe('ThinkingComponent', () => {
     component.setExpanded(true);
     const out = strip(component.render(80).join('\n'));
 
-    expect(out).toContain('⠋ thinking…');
+    expect(out).toContain(`${STATUS_BULLET.trimEnd()} Thinking`);
     expect(out).toContain('line1');
     expect(out).toContain('line2');
     expect(out).toContain('line3');
@@ -94,27 +120,23 @@ describe('ThinkingComponent', () => {
     expect(out).toContain('line7');
   });
 
-  it('animates the live spinner and stops on finalize', () => {
-    const clock = createFakeClock();
-    const requestRender = mock();
-    const component = new ThinkingComponent(
-      'step',
-      true,
-      'live',
-      { requestRender } as unknown as TUI,
-      clock,
-    );
+  it('animates the live title on shared frames and stops on finalize', () => {
+    const ui = fakeUi();
+    const component = new ThinkingComponent('step', true, 'live', ui);
 
-    expect(strip(component.render(80).join('\n'))).toContain('⠋ thinking…');
+    expect(strip(component.render(80).join('\n'))).toContain(`${STATUS_BULLET.trimEnd()} Thinking`);
+    expect(ui.pendingFrames()).toBe(1);
+    expect(ui.requestRender).not.toHaveBeenCalled();
 
-    clock.advance(80);
-    expect(requestRender).toHaveBeenCalled();
-    expect(strip(component.render(80).join('\n'))).toContain('⠙ thinking…');
+    ui.runFrame(120);
+    expect(ui.requestRender).toHaveBeenCalled();
+    expect(ui.pendingFrames()).toBe(1);
 
-    component.finalize();
-    requestRender.mockClear();
-    clock.advance(160);
-    expect(requestRender).not.toHaveBeenCalled();
+    component.finalize({ known: true, ms: 3_000 });
+    expect(ui.pendingFrames()).toBe(0);
+    ui.requestRender.mockClear();
+    ui.runFrame(240);
+    expect(ui.requestRender).not.toHaveBeenCalled();
   });
 
   it('finalizes in place into a collapsed preview', () => {

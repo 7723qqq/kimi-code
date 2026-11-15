@@ -15,6 +15,11 @@ export interface OmitsExpandHint {
   omitsExpandHint(): boolean;
 }
 
+/** A component whose expanded form can also render just the detail a group row leaves out. */
+export interface HasRowDetail {
+  renderRowDetail(width: number): string[];
+}
+
 export interface Disposable {
   dispose(): void;
 }
@@ -59,6 +64,15 @@ export function isExpandedComponent(obj: unknown): boolean {
     'isExpanded' in obj &&
     typeof (obj as HidesContent).isExpanded === 'function' &&
     (obj as HidesContent).isExpanded()
+  );
+}
+
+export function hasRowDetail(obj: unknown): obj is HasRowDetail {
+  return (
+    typeof obj === 'object' &&
+    obj !== null &&
+    'renderRowDetail' in obj &&
+    typeof (obj as HasRowDetail).renderRowDetail === 'function'
   );
 }
 

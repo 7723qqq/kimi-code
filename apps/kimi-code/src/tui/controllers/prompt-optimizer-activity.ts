@@ -59,7 +59,6 @@ export class PromptOptimizerActivityController {
       'braille',
       (s) => currentTheme.fg('primary', s),
       '',
-      this.host.state.renderClock,
     );
     spinner.start();
     const line = new PromptOptimizerActivityLine(spinner, () => {

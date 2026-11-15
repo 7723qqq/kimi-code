@@ -6,6 +6,7 @@ import {
 } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
+import { TranscriptContainer } from '#/tui/components/messages/transcript-container';
 import { TranscriptView } from '#/tui/components/messages/transcript-view';
 import { clipboard } from '#/utils/clipboard/clipboard-native';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
@@ -87,7 +88,7 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
     ui.requestRender(true);
   });
 
-  const transcriptContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
+  const transcriptContainer = new TranscriptContainer(CHROME_GUTTER, CHROME_GUTTER, ui);
   const activityContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const backgroundTasksMiniContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const notifyPanelContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
@@ -131,14 +132,20 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
   const editor = new CustomEditor(ui, {
     disablePasteBurst: initialAppState.disablePasteBurst ?? DEFAULT_TUI_CONFIG.disablePasteBurst,
   });
-  const footer = new FooterComponent({ ...initialAppState }, () => {
-    ui.requestRender();
-  });
+  const footer = new FooterComponent(
+    { ...initialAppState },
+    () => {
+      ui.requestRender();
+    },
+    SYSTEM_RENDER_CLOCK,
+    ui instanceof TuiAltScreen,
+  );
   // The strip owns the session readout as soon as it has numbers; the footer
   // keeps its context readout only for the window before that, so the same
   // figure is never on screen twice.
   footer.setStatsShownProbe(() => !statsRegion.isEmpty());
 
+  let transcriptView: TranscriptView | undefined;
   let dockContainer: VStack | undefined;
   if (ui instanceof TuiAltScreen) {
     // Fullscreen (alternate screen): the transcript scrolls inside the primary
@@ -148,7 +155,8 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
     // from basis 0 and grows; the dock keeps its intrinsic height, with the
     // editor never squeezed below its 3 rows (top border / input / bottom
     // border) and the footer below 1 — otherwise the box outline gets clipped.
-    const transcriptView = new TranscriptView(transcriptContainer);
+    const fullscreenView = new TranscriptView(transcriptContainer);
+    transcriptView = fullscreenView;
     dockContainer = new VStack();
     // Dock sizing contract, in two layers.
     //
@@ -181,11 +189,11 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
     });
     dockContainer.addChild(editorContainer, { shrink: 1, minSize: 3 });
     const root = new VStack();
-    root.addChild(transcriptView, { basis: 0, grow: 1, shrink: 1, minSize: 1 });
+    root.addChild(fullscreenView, { basis: 0, grow: 1, shrink: 1, minSize: 1 });
     root.addChild(dockContainer, { basis: 'auto', grow: 0, shrink: 1, minSize: 1 });
     ui.setLayoutRoot(root);
     ui.addLayoutEffect(() => {
-      if (ui.getLayoutRoot() === root && transcriptView.updateStickyMessage()) ui.requestRender();
+      if (ui.getLayoutRoot() === root && fullscreenView.updateStickyMessage()) ui.requestRender();
     });
   }
 
@@ -193,6 +201,7 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
     ui,
     terminal,
     transcriptContainer,
+    transcriptView,
     activityContainer,
     backgroundTasksMiniContainer,
     statusSurface,
@@ -217,7 +226,6 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
     terminalState: createTerminalState(),
     renderClock: SYSTEM_RENDER_CLOCK,
     activitySpinner: null,
-    toolOutputExpanded: false,
     sessions: [],
     loadingSessions: false,
     sessionsNextCursor: undefined,

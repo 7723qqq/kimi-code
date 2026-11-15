@@ -29,6 +29,7 @@ import {
   UserMessageComponent,
 } from '../components/messages/user-message';
 import type { TUIState } from '../state';
+import { transcriptGroupingActive } from '../config';
 import type { TranscriptEntry } from '../types';
 import { hasDispose } from '../utils/component-capabilities';
 import type { ImageAttachment, ImageAttachmentStore } from '../utils/image-attachment-store';
@@ -118,7 +119,7 @@ export class TranscriptRendererController {
         block.markCanceled();
       } else {
         block.markDone(data.tokensBefore, data.tokensAfter, data.summary);
-        if (this.host.state.toolOutputExpanded) {
+        if (this.host.state.transcriptContainer.toolOutputExpanded) {
           block.setExpanded(true);
         }
       }
@@ -150,7 +151,7 @@ export class TranscriptRendererController {
           return new GoalSetMessageComponent();
         }
         if (entry.goalData?.kind === 'lifecycle') {
-          return buildGoalMarker(entry.goalData.change, this.host.state.toolOutputExpanded);
+          return buildGoalMarker(entry.goalData.change, this.host.state.transcriptContainer.toolOutputExpanded);
         }
         return null;
       case 'assistant': {
@@ -166,7 +167,7 @@ export class TranscriptRendererController {
         thinking.setToggleHandler(() => {
           this.host.toggleTranscriptFold(thinking);
         });
-        if (this.host.state.toolOutputExpanded) thinking.setExpanded(true);
+        if (this.host.state.transcriptContainer.toolOutputExpanded) thinking.setExpanded(true);
         return thinking;
       }
       case 'tool_call':
@@ -177,7 +178,7 @@ export class TranscriptRendererController {
             this.host.state.ui,
             this.host.state.appState.workDir,
           );
-          if (this.host.state.toolOutputExpanded) tc.setExpanded(true);
+          if (this.host.state.transcriptContainer.toolOutputExpanded) tc.setExpanded(true);
           return tc;
         }
         if (entry.backgroundAgentStatus !== undefined) {
@@ -233,10 +234,9 @@ export class TranscriptRendererController {
    */
   replaceTranscriptChild(previous: Component, next: Component, entry?: TranscriptEntry): boolean {
     const children = this.host.state.transcriptContainer.children;
-    const index = children.indexOf(previous);
-    if (index < 0) return false;
+    if (!children.includes(previous)) return false;
     if (entry !== undefined) markTranscriptComponent(next, entry);
-    children[index] = next;
+    this.host.state.transcriptContainer.replaceChild(previous, next);
     this.host.state.ui.requestRender();
     return true;
   }
@@ -275,11 +275,8 @@ export class TranscriptRendererController {
     entries.splice(entryIndex, 1);
     entries.push(entry);
     const children = this.host.state.transcriptContainer.children;
-    const childIndex = children.findIndex((child) => getTranscriptComponentEntry(child) === entry);
-    if (childIndex >= 0) {
-      const [component] = children.splice(childIndex, 1);
-      children.push(component!);
-    }
+    const component = children.find((child) => getTranscriptComponentEntry(child) === entry);
+    if (component !== undefined) this.host.state.transcriptContainer.moveChildToEnd(component);
     this.host.state.ui.requestRender();
     return true;
   }
@@ -480,6 +477,7 @@ export class TranscriptRendererController {
   }
 
   private foldCurrentTurnContent(keepSteps: number, keepAssistants: number): boolean {
+    if (this.groupingActive()) return false;
     if (keepSteps <= 0 && keepAssistants <= 0) return false;
     const children = this.host.state.transcriptContainer.children;
 
@@ -559,11 +557,20 @@ export class TranscriptRendererController {
       if (hasDispose(child)) child.dispose();
     }
 
-    children.splice(0, children.length, ...newChildren);
+    this.host.state.transcriptContainer.replaceChildren(newChildren);
     return true;
   }
 
+  /** Fullscreen grouping projects the transcript itself; the step merge must not fight it. */
+  private groupingActive(): boolean {
+    return transcriptGroupingActive({
+      ...this.host.state.appState.transcript,
+      fullscreen: this.host.state.ui.mode === 'fullscreen',
+    });
+  }
+
   mergeAllTurnSteps(): void {
+    if (this.groupingActive()) return;
     if (TRANSCRIPT_KEEP_RECENT_STEPS <= 0 && TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED <= 0)
       return;
     const children = this.host.state.transcriptContainer.children;
@@ -639,6 +646,6 @@ export class TranscriptRendererController {
     for (const child of toDispose) {
       if (hasDispose(child)) child.dispose();
     }
-    children.splice(0, children.length, ...newChildren);
+    this.host.state.transcriptContainer.replaceChildren(newChildren);
   }
 }

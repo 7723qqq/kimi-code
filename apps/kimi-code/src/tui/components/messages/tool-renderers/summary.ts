@@ -19,7 +19,7 @@ import { currentTheme } from '#/tui/theme';
 import { parseGlobOutput, parseGrepOutput, searchNoticeOnly } from './grep-output';
 import { outcomeRow, outcomeRows } from './outcome';
 import { renderTruncated } from './truncated';
-import { isSpilledToolOutput, type ResultRenderer } from './types';
+import { isSpilledToolOutput, CardOnly, type ResultRenderer } from './types';
 
 interface Glance {
   readonly samples: string;
@@ -57,7 +57,7 @@ function withGlance(glance: GlanceFn | null): ResultRenderer {
             : '';
         out.push(
           ctx.expanded
-            ? new Text(currentTheme.dim(`${parts.samples}${tail}`), 2, 0)
+            ? new CardOnly(new Text(currentTheme.dim(`${parts.samples}${tail}`), 2, 0))
             : outcomeRow(OUTCOME_ROW_INDENT, parts.samples, tail),
         );
       }

@@ -15,6 +15,23 @@ export type ResultRenderer = (
 
 export const PREVIEW_LINES = RESULT_PREVIEW_LINES;
 
+/**
+ * Marks a child a transcript group row already summarises: expanded group
+ * rows omit these, so a row and its in-place detail do not repeat the same
+ * header, command, or diff header.
+ */
+export class CardOnly implements Component {
+  constructor(private readonly inner: Component) {}
+
+  render(width: number): string[] {
+    return this.inner.render(width);
+  }
+
+  invalidate(): void {
+    this.inner.invalidate();
+  }
+}
+
 // The spill envelope's opening line. The persisted form continues with the
 // saved file's name; the unpersisted form (the spill file could not be
 // written) ends the sentence and drops `output_path` with it.

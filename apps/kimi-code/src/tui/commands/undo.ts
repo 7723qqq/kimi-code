@@ -133,7 +133,7 @@ async function undoByCount(host: SlashCommandHost, count: number): Promise<boole
       if (entry?.hookResult === true) continue;
       break;
     }
-    removeUndoContextComponents(children, lastUserComponentIndex, groupChildIndices);
+    removeUndoContextComponents(host, children, lastUserComponentIndex, groupChildIndices);
   }
 
   const groupEntryIndices = new Set<number>();
@@ -473,7 +473,8 @@ function findUndoAnchorComponentIndex(
 }
 
 function removeUndoContextComponents(
-  children: Component[],
+  host: SlashCommandHost,
+  children: readonly Component[],
   startIndex: number,
   additionalIndices: ReadonlySet<number>,
 ): void {
@@ -486,7 +487,7 @@ function removeUndoContextComponents(
       isUndoContextComponent(child)
     ) {
       removed.push(child);
-      children.splice(i, 1);
+      host.state.transcriptContainer.removeChild(child);
     }
   }
   // Undo drops history the user asked to forget; disposable cards (shell runs,

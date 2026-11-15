@@ -1,4 +1,5 @@
 import { t } from '#/i18n';
+import type { TranscriptGroupTools } from '#/tui/config';
 
 import { isExperimentalFlagEnabled } from '../../commands/experimental-flags';
 import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
@@ -7,6 +8,8 @@ const SETTINGS_SELECTION_MEMBERS = [
   'model',
   'theme',
   'tuiMode',
+  'groupTools',
+  'groupThinking',
   'mermaid',
   'editor',
   'language',
@@ -55,6 +58,16 @@ function getSettingsOptions(): readonly SettingsChoiceOption[] {
       value: 'tuiMode',
       label: t('tui.dialogs.settingsSelector.tuiMode'),
       description: t('tui.dialogs.settingsSelector.tuiModeDesc'),
+    },
+    {
+      value: 'groupTools',
+      label: t('tui.dialogs.settingsSelector.groupTools'),
+      description: t('tui.dialogs.settingsSelector.groupToolsDesc'),
+    },
+    {
+      value: 'groupThinking',
+      label: t('tui.dialogs.settingsSelector.groupThinking'),
+      description: t('tui.dialogs.settingsSelector.groupThinkingDesc'),
     },
     {
       value: 'mermaid',
@@ -121,6 +134,7 @@ function isSettingsSelection(value: string): value is SettingsSelection {
 }
 
 export interface SettingsSelectorOptions {
+  readonly fullscreen?: boolean;
   readonly onSelect: (value: SettingsSelection) => void;
   readonly onCancel: () => void;
 }
@@ -129,9 +143,84 @@ export class SettingsSelectorComponent extends ChoicePickerComponent {
   constructor(opts: SettingsSelectorOptions) {
     super({
       title: t('tui.dialogs.settingsSelector.title'),
-      options: [...getSettingsOptions()],
+      options: getSettingsOptions().filter(
+        (option) =>
+          opts.fullscreen === true ||
+          (option.value !== 'groupTools' && option.value !== 'groupThinking'),
+      ),
       onSelect: (value) => {
         if (isSettingsSelection(value)) opts.onSelect(value);
+      },
+      onCancel: opts.onCancel,
+    });
+  }
+}
+
+const GROUP_TOOLS_OPTIONS: readonly ChoiceOption[] = [
+  {
+    value: 'auto',
+    label: t('tui.dialogs.transcriptGroupToolsSelector.auto'),
+    description: t('tui.dialogs.transcriptGroupToolsSelector.autoDesc'),
+  },
+  {
+    value: 'explore',
+    label: t('tui.dialogs.transcriptGroupToolsSelector.explore'),
+    description: t('tui.dialogs.transcriptGroupToolsSelector.exploreDesc'),
+  },
+  {
+    value: 'off',
+    label: t('tui.dialogs.transcriptGroupToolsSelector.off'),
+    description: t('tui.dialogs.transcriptGroupToolsSelector.offDesc'),
+  },
+];
+
+const GROUP_THINKING_OPTIONS: readonly ChoiceOption[] = [
+  {
+    value: 'on',
+    label: t('tui.dialogs.transcriptGroupThinkingSelector.on'),
+    description: t('tui.dialogs.transcriptGroupThinkingSelector.onDesc'),
+  },
+  {
+    value: 'off',
+    label: t('tui.dialogs.transcriptGroupThinkingSelector.off'),
+    description: t('tui.dialogs.transcriptGroupThinkingSelector.offDesc'),
+  },
+];
+
+export interface TranscriptGroupToolsSelectorOptions {
+  readonly currentValue: TranscriptGroupTools;
+  readonly onSelect: (value: TranscriptGroupTools) => void;
+  readonly onCancel: () => void;
+}
+
+export class TranscriptGroupToolsSelectorComponent extends ChoicePickerComponent {
+  constructor(opts: TranscriptGroupToolsSelectorOptions) {
+    super({
+      title: t('tui.dialogs.transcriptGroupToolsSelector.title'),
+      options: GROUP_TOOLS_OPTIONS,
+      currentValue: opts.currentValue,
+      onSelect: (value) => {
+        if (value === 'auto' || value === 'explore' || value === 'off') opts.onSelect(value);
+      },
+      onCancel: opts.onCancel,
+    });
+  }
+}
+
+export interface TranscriptGroupThinkingSelectorOptions {
+  readonly currentValue: boolean;
+  readonly onSelect: (value: boolean) => void;
+  readonly onCancel: () => void;
+}
+
+export class TranscriptGroupThinkingSelectorComponent extends ChoicePickerComponent {
+  constructor(opts: TranscriptGroupThinkingSelectorOptions) {
+    super({
+      title: t('tui.dialogs.transcriptGroupThinkingSelector.title'),
+      options: GROUP_THINKING_OPTIONS,
+      currentValue: opts.currentValue ? 'on' : 'off',
+      onSelect: (value) => {
+        if (value === 'on' || value === 'off') opts.onSelect(value === 'on');
       },
       onCancel: opts.onCancel,
     });

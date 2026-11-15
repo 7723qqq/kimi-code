@@ -16,6 +16,7 @@ import type {
   MarkdownConfig,
   NotificationsConfig,
   StatusLineConfig,
+  TranscriptConfig,
   TuiMode,
   UpgradePreferences,
 } from './config';
@@ -131,6 +132,7 @@ export interface AppState {
   /** Footer status line customization from tui.toml; absent means the default layout. */
   statusLine?: StatusLineConfig;
   markdown?: MarkdownConfig;
+  transcript: TranscriptConfig;
   availableModels: Record<string, ModelAlias>;
   availableProviders: Record<string, ProviderConfig>;
   sessionTitle: string | null;
@@ -191,6 +193,11 @@ export interface StepRetryState {
    */
   phase: 'backoff' | 'attempt';
 }
+
+/** How long a finished transcript item ran; unknown for replayed cards. */
+export type Elapsed =
+  | { readonly known: false }
+  | { readonly known: true; readonly ms: number };
 
 export interface ToolCallBlockData {
   id: string;

@@ -18,7 +18,8 @@ import { truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
 import { t } from '#/i18n';
-import { getAllTips } from '#/tui/constant/tips';
+import { getAllTips, getTranscriptGroupingTip } from '#/tui/constant/tips';
+import { transcriptGroupingActive } from '#/tui/config';
 import {
   isRainbowDancing,
   renderDanceFooterModel,
@@ -77,6 +78,14 @@ const THINKING_PULSE_STEP = 0.125;
 const TIP_SEPARATOR = ' | ';
 
 const getRotation = createLocaleKeyedTipRotation(getAllTips);
+const getGroupingRotation = createLocaleKeyedTipRotation(() => [
+  ...getAllTips(),
+  getTranscriptGroupingTip(),
+]);
+
+function showsGroupingTip(state: AppState, fullscreen: boolean): boolean {
+  return transcriptGroupingActive({ ...state.transcript, fullscreen });
+}
 
 /**
  * Rotation index of the tip shown at `nowMs`. The clock is a parameter so the
@@ -94,8 +103,11 @@ function currentTipIndex(nowMs: number = Date.now()): number {
  * current tip (which can happen at the wrap boundary), keeping long/important
  * tips on their own and avoiding "X | X".
  */
-function tipsForIndex(index: number): { primary: string; pair: string | null } {
-  const rotation = getRotation();
+function tipsForIndex(
+  index: number,
+  groupingTip = false,
+): { primary: string; pair: string | null } {
+  const rotation = groupingTip ? getGroupingRotation() : getRotation();
   const n = rotation.length;
   if (n === 0) return { primary: '', pair: null };
   const offset = ((index % n) + n) % n;
@@ -297,6 +309,7 @@ export class FooterComponent implements Component {
     state: AppState,
     onRefresh: () => void = () => {},
     clock: RenderClock = SYSTEM_RENDER_CLOCK,
+    private readonly runningFullscreen = false,
   ) {
     this.state = state;
     this.onRefresh = onRefresh;
@@ -506,7 +519,10 @@ export class FooterComponent implements Component {
       const showTips = !tipsInline && (configured === null || configured.includes('tips'));
       const tipCandidates: string[] = [];
       if (showTips) {
-        const { primary, pair } = tipsForIndex(currentTipIndex(this.clock.now()));
+        const { primary, pair } = tipsForIndex(
+          currentTipIndex(this.clock.now()),
+          showsGroupingTip(state, this.runningFullscreen),
+        );
         if (pair) tipCandidates.push(pair);
         if (primary) tipCandidates.push(primary);
       }
@@ -614,7 +630,10 @@ export class FooterComponent implements Component {
     };
 
     {
-      const { primary, pair } = tipsForIndex(currentTipIndex(this.clock.now()));
+      const { primary, pair } = tipsForIndex(
+        currentTipIndex(this.clock.now()),
+        showsGroupingTip(state, this.runningFullscreen),
+      );
       const tip = pair ?? primary;
       if (tip) slots['tips'] = [chalk.hex(colors.textMuted)(tip)];
     }

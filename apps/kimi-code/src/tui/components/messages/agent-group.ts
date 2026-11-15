@@ -54,6 +54,7 @@ export class AgentGroupComponent extends Container {
   private lastFlushPhases = new Map<string, ToolCallSubagentSnapshot['phase']>();
   private _invalidating = false;
   private disposed = false;
+  private projectionVersion = 0;
 
   constructor(
     private readonly ui: TUI | undefined,
@@ -82,6 +83,14 @@ export class AgentGroupComponent extends Container {
     return this.entries.map((entry) => entry.tc);
   }
 
+  /** Changes whenever the borrowed cards change what a transcript projection draws. */
+  get transcriptProjectionVersion(): number {
+    return this.projectionVersion + this.entries.reduce(
+      (version, entry) => version + entry.tc.transcriptProjectionVersion,
+      0,
+    );
+  }
+
   /**
    * Borrows a standalone `ToolCallComponent` into the group as a hidden state
    * container. Snapshot changes trigger throttled refreshes. Re-attaching the
@@ -90,6 +99,7 @@ export class AgentGroupComponent extends Container {
   attach(toolCallId: string, tc: ToolCallComponent): void {
     if (this.entries.some((e) => e.toolCallId === toolCallId)) return;
     this.entries.push({ toolCallId, tc });
+    this.projectionVersion += 1;
     tc.setSnapshotListener(() => {
       this.scheduleRender();
     });

@@ -44,6 +44,7 @@ function fakeInitialAppState(): AppState {
     editorCommand: null,
     notifications: { enabled: true, condition: 'unfocused' },
     upgrade: { autoInstall: true },
+    transcript: { groupTools: 'auto', groupThinking: true },
     availableModels: {},
     availableProviders: {},
     sessionTitle: null,
@@ -97,7 +98,7 @@ describe('createTUIState', () => {
     expect(state.queuedMessages).toHaveLength(0);
 
     // Boolean, counter, and optional-field defaults.
-    expect(state.toolOutputExpanded).toBe(false);
+    expect(state.transcriptContainer.toolOutputExpanded).toBe(false);
     expect(state.activeDialog).toBeNull();
     expect(state.externalEditorRunning).toBe(false);
     expect(state.loadingSessions).toBe(false);

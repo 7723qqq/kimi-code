@@ -49,6 +49,11 @@ export class SkillActivationComponent extends Container {
     }
   }
 
+  /** Whether the model (rather than the user's `/skill`) loaded this skill. */
+  get loadedByModel(): boolean {
+    return this.trigger === 'model-tool' || this.trigger === 'nested-skill';
+  }
+
   override invalidate(): void {
     const head =
       currentTheme.boldFg('primary', t('tui.messages.skillActivation.activated')) +

@@ -838,6 +838,8 @@ defaultCwd = "/workspace"
 | `[notifications].notification_condition` | `string` | `unfocused` | 何时通知：`unfocused`（仅终端失去焦点时）或 `always`（总是） |
 | `[upgrade].auto_install` | `boolean` | `true` | 是否自动安装新版本 |
 | `[markdown].mermaid` | `string` | `final` | 在终端里把 Mermaid 代码块画成图：`final` 在代码块结束后渲染，`off` 保留高亮源码 |
+| `[transcript.group].tools` | `string` | `auto` | `fullscreen` 模式下哪些工具调用折进摘要分组：`auto` 折叠除 subagent 和向你提问、通知类工具以外的所有工具调用，`explore` 只折叠读取、搜索和 `ls`、`git status` 这类只读命令，`off` 让每个工具调用保持独立卡片；对应 `/settings` 里的 Tool call folding；`regular` 模式下不生效 |
+| `[transcript.group].group_thinking` | `boolean` | `true` | `fullscreen` 模式下已结束的思考是否折进摘要分组；`false` 改为每段思考显示两行预览；对应 `/settings` 里的 Thinking folding；`regular` 模式下不生效 |
 | `[status_line].items` | `string[] \| null` | `null` | 底部状态栏第一行的内置槽位及顺序：`mode`、`goal`、`model`、`tasks`、`cwd`、`git`、`tips`；`null` 表示沿用内置布局，未知 id 跳过并告警 |
 | `[status_line].command` | `string \| null` | `null` | 自定义状态栏命令：stdout 首行替换状态栏，stdin 收 JSON 快照；`null` 表示关闭。上限 300ms、每秒一次，失败回退内置布局 |
 
@@ -869,6 +871,10 @@ auto_install = true
 
 # [markdown]
 # mermaid = "final" # "final" | "off"
+
+[transcript.group] # 仅 fullscreen 模式生效
+tools = "auto" # "auto" | "explore" | "off"
+group_thinking = true # false 表示每段思考显示两行预览
 
 # [status_line]
 # items = ["mode", "goal", "model", "tasks", "cwd", "git", "tips"]
