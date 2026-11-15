@@ -118,6 +118,11 @@ function capArgStrings(args: Record<string, unknown>): Record<string, unknown> {
 
 export class SubagentActivityStore {
   private readonly records = new Map<string, SubagentActivityRecord>();
+  private readonly startedSteps = new Set<string>();
+  /** `${agentId}:${turnId}` pending a retry attempt's `turn.step.started`.
+   *  This core opens a new step number on retry, so the retry's start reuses
+   *  the failed attempt's row instead of adding a second one. */
+  private readonly retryingSteps = new Set<string>();
   /** Raw streaming-arguments buffer per in-flight tool call (from deltas). */
   private readonly streamingArgs = new Map<string, string>();
 
@@ -164,7 +169,19 @@ export class SubagentActivityStore {
   applyEvent(event: Event): void {
     switch (event.type) {
       case 'turn.step.started': {
+        const key = `${event.agentId}:${event.turnId}:${String(event.stepId ?? event.step)}`;
         const record = this.recordFor(event.agentId);
+        if (this.startedSteps.has(key)) {
+          this.currentStep(record).retrying = undefined;
+          this.bump(record);
+          return;
+        }
+        this.startedSteps.add(key);
+        if (this.retryingSteps.delete(`${event.agentId}:${event.turnId}`)) {
+          this.currentStep(record).retrying = undefined;
+          this.bump(record);
+          return;
+        }
         record.steps.push({ step: event.step, textTail: '', toolCalls: [] });
         record.totalSteps += 1;
         while (record.steps.length > MAX_SUBAGENT_ACTIVITY_STEPS) {
@@ -272,6 +289,7 @@ export class SubagentActivityStore {
       }
       case 'turn.step.retrying': {
         const record = this.recordFor(event.agentId);
+        this.retryingSteps.add(`${event.agentId}:${event.turnId}`);
         const step = this.currentStep(record);
         step.retrying = `retrying · attempt ${String(event.nextAttempt)}/${String(event.maxAttempts)} (${event.errorName})`;
         this.bump(record);
@@ -302,6 +320,8 @@ export class SubagentActivityStore {
 
   clear(): void {
     this.records.clear();
+    this.startedSteps.clear();
+    this.retryingSteps.clear();
     this.streamingArgs.clear();
   }
 

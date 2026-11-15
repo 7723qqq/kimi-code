@@ -1755,6 +1755,9 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         const step = turn?.current;
         if (turn === undefined) return;
         if (step !== undefined) {
+          if (event.usage !== undefined) step.usage = event.usage;
+          if (event.messageId !== undefined) step.messageId = event.messageId;
+          if (event.timing !== undefined) step.timing = event.timing;
           this.closeFailedMachineStep(turn, step, 'error');
         }
         const fields =
@@ -1955,6 +1958,15 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       turnId: String(turn.id),
       step: step.number,
       finishReason,
+      ...(step.usage === undefined ? {} : { usage: step.usage }),
+      llmFirstTokenLatencyMs: step.timing?.firstTokenLatencyMs,
+      llmStreamDurationMs: step.timing?.streamDurationMs,
+      llmRequestBuildMs: step.timing?.requestBuildMs,
+      llmServerFirstTokenMs: step.timing?.serverFirstTokenMs,
+      llmServerDecodeMs: step.timing?.serverDecodeMs,
+      llmClientConsumeMs: step.timing?.clientConsumeMs,
+      llmClientBlockedMs: step.timing?.clientBlockedMs,
+      ...(step.messageId === undefined ? {} : { messageId: step.messageId }),
     });
   }
 

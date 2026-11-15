@@ -36,6 +36,7 @@ describe('SubagentActivityStore', () => {
     const store = new SubagentActivityStore();
     store.ensureRecord(spawn());
     store.applyEvent(ev({ type: 'turn.step.started', turnId: 1, step: 0 }));
+    store.applyEvent(ev({ type: 'turn.step.started', turnId: 1, step: 0 }));
     store.applyEvent(ev({ type: 'assistant.delta', turnId: 1, delta: 'Hello ' }));
     store.applyEvent(ev({ type: 'assistant.delta', turnId: 1, delta: 'world' }));
     store.applyEvent(
@@ -187,7 +188,7 @@ describe('SubagentActivityStore', () => {
     expect(call?.result?.output.length).toBeLessThan(SUBAGENT_TOOL_OUTPUT_MAX_CHARS + 120);
   });
 
-  it('marks the current step on retry without opening a new one', () => {
+  it('marks and clears the current step retry without opening a new one', () => {
     const store = new SubagentActivityStore();
     store.ensureRecord(spawn());
     store.applyEvent(ev({ type: 'turn.step.started', turnId: 1, step: 0 }));
@@ -205,9 +206,49 @@ describe('SubagentActivityStore', () => {
     expect(record?.steps).toHaveLength(1);
     expect(record?.steps[0]?.retrying).toContain('2/5');
 
-    store.applyEvent(ev({ type: 'turn.step.started', turnId: 1, step: 1 }));
+    // The core opens a new step number for the retry attempt; the store
+    // reuses the failed attempt's row and clears the marker on that start.
+    const version = record?.version ?? 0;
+    store.applyEvent(ev({ type: 'turn.step.started', turnId: 1, step: 1, stepId: 'step-retry' }));
     record = store.get('agent-1');
+    expect(record?.steps).toHaveLength(1);
+    expect(record?.totalSteps).toBe(1);
+    expect(record?.steps[0]?.retrying).toBeUndefined();
+    expect(record?.version).toBe(version + 1);
+
+    store.applyEvent(ev({ type: 'turn.step.started', turnId: 1, step: 2, stepId: 'step-next' }));
+    record = store.get('agent-1');
+    expect(record?.steps).toHaveLength(2);
+    expect(record?.totalSteps).toBe(2);
+    expect(record?.steps[1]?.step).toBe(2);
     expect(record?.steps[1]?.retrying).toBeUndefined();
+  });
+
+  it('dedupes a replayed step start and clears its retry marker', () => {
+    const store = new SubagentActivityStore();
+    store.ensureRecord(spawn());
+    store.applyEvent(ev({ type: 'turn.step.started', turnId: 1, step: 0, stepId: 'step-0' }));
+    store.applyEvent(ev({ type: 'turn.step.started', turnId: 1, step: 0, stepId: 'step-0' }));
+    let record = store.get('agent-1');
+    expect(record?.steps).toHaveLength(1);
+    expect(record?.totalSteps).toBe(1);
+
+    store.applyEvent(
+      ev({
+        type: 'turn.step.retrying',
+        turnId: 1,
+        step: 0,
+        nextAttempt: 2,
+        maxAttempts: 3,
+        errorName: 'Timeout',
+      }),
+    );
+    const version = store.get('agent-1')?.version ?? 0;
+    store.applyEvent(ev({ type: 'turn.step.started', turnId: 1, step: 0, stepId: 'step-0' }));
+    record = store.get('agent-1');
+    expect(record?.steps).toHaveLength(1);
+    expect(record?.steps[0]?.retrying).toBeUndefined();
+    expect(record?.version).toBe(version + 1);
   });
 
   it('implicitly creates a record for events from an unseen agent', () => {
@@ -259,12 +300,18 @@ describe('SubagentActivityStore', () => {
     expect(record?.error).toBe('boom');
   });
 
-  it('clear() releases all records', () => {
+  it('clear() releases all records and dedupe state', () => {
     const store = new SubagentActivityStore();
     store.ensureRecord(spawn());
-    store.applyEvent(ev({ type: 'turn.step.started', turnId: 1, step: 0 }));
+    store.applyEvent(ev({ type: 'turn.step.started', turnId: 1, step: 0, stepId: 'step-0' }));
     store.clear();
     expect(store.get('agent-1')).toBeUndefined();
+
+    // A replayed start after the session reset must still open a row.
+    store.applyEvent(ev({ type: 'turn.step.started', turnId: 1, step: 0, stepId: 'step-0' }));
+    const record = store.get('agent-1');
+    expect(record?.steps).toHaveLength(1);
+    expect(record?.totalSteps).toBe(1);
   });
 
   it('drop() removes one record along with its streaming buffers', () => {

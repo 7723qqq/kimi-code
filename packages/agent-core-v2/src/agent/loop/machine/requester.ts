@@ -1,4 +1,5 @@
 import type {
+  AgentLLMRequestAttemptFailure,
   AgentLLMRequestFinish,
   AgentLLMRequestSource,
   IAgentLLMRequesterService,
@@ -28,6 +29,7 @@ export interface MachineRequester {
   readonly requester: LlmRequester;
   lastFinish(): AgentLLMRequestFinish | undefined;
   lastError(): unknown;
+  lastAttemptFailure(): AgentLLMRequestAttemptFailure | undefined;
 }
 
 const GATE_FAILURE: LlmRemoteErrorMessage = {
@@ -53,6 +55,7 @@ export function createMachineRequester(
 ): MachineRequester {
   let lastFinish: AgentLLMRequestFinish | undefined;
   let lastError: unknown;
+  let lastAttemptFailure: AgentLLMRequestAttemptFailure | undefined;
   const generate = async (
     _config: LlmRequestConfig,
     _content: LlmRequestContent,
@@ -75,6 +78,7 @@ export function createMachineRequester(
         ? AbortSignal.any([control.signal, decision.signal])
         : control.signal;
     lastError = undefined;
+    lastAttemptFailure = undefined;
     control.onEvent?.({ type: 'llm.sent' });
     const baseSource = options?.source?.();
     const source: AgentLLMRequestSource | undefined =
@@ -111,6 +115,7 @@ export function createMachineRequester(
     } catch (error) {
       lastFinish = undefined;
       lastError = error;
+      lastAttemptFailure = task.attemptFailure?.();
       control.onEvent?.({
         type: 'llm.failed.remote',
         error: toRemoteErrorMessage(error, signal),
@@ -121,5 +126,6 @@ export function createMachineRequester(
     requester: { generate },
     lastFinish: () => lastFinish,
     lastError: () => lastError,
+    lastAttemptFailure: () => lastAttemptFailure,
   };
 }

@@ -150,6 +150,8 @@ export function requesterFromGenerateFn(fn: LegacyGenerateFn): LlmRequester {
 
 interface ScriptedResponse {
   readonly parts?: readonly StreamedMessagePart[] | undefined;
+  readonly usage?: Partial<TokenUsage> | undefined;
+  readonly messageId?: string | undefined;
   readonly finishReason?: FinishReason | null | undefined;
   readonly rawFinishReason?: string | null | undefined;
   readonly traceId?: string | null | undefined;
@@ -167,6 +169,8 @@ export function createScriptedGenerate() {
 
   function mockNextProviderResponse(input: {
     readonly parts?: readonly StreamedMessagePart[] | undefined;
+    readonly usage?: Partial<TokenUsage> | undefined;
+    readonly messageId?: string | undefined;
     readonly finishReason?: FinishReason | null | undefined;
     readonly rawFinishReason?: string | null | undefined;
     readonly traceId?: string | null | undefined;
@@ -174,6 +178,8 @@ export function createScriptedGenerate() {
   }) {
     responses.push({
       ...(input.parts !== undefined ? { parts: structuredClone(input.parts) } : {}),
+      ...(input.usage !== undefined ? { usage: structuredClone(input.usage) } : {}),
+      ...(input.messageId !== undefined ? { messageId: input.messageId } : {}),
       ...(input.finishReason !== undefined ? { finishReason: input.finishReason } : {}),
       ...(input.rawFinishReason !== undefined ? { rawFinishReason: input.rawFinishReason } : {}),
       ...(input.traceId !== undefined ? { traceId: input.traceId } : {}),
@@ -222,6 +228,12 @@ export function createScriptedGenerate() {
       emit?.({ type: 'llm.streaming.part', part: structuredClone(part) });
       await Promise.resolve();
       control.signal.throwIfAborted();
+    }
+    if (response.usage !== undefined) {
+      emit?.({ type: 'llm.streaming.usage', usage: response.usage });
+    }
+    if (response.messageId !== undefined) {
+      emit?.({ type: 'llm.streaming.message_id', messageId: response.messageId });
     }
     if (response.error !== undefined) {
       if (isAbortError(response.error)) throw response.error;

@@ -50,9 +50,16 @@ export interface AgentLLMRequestOverrides {
   onAttemptRetry?: () => void;
 }
 
+export interface AgentLLMRequestAttemptFailure {
+  readonly usage?: TokenUsage;
+  readonly messageId?: string;
+  readonly timing?: ModelRequestTiming;
+}
+
 export interface AgentLLMRequestTask {
   readonly trace: LLMRequestTrace;
   readonly result: Promise<AgentLLMRequestFinish>;
+  readonly attemptFailure?: () => AgentLLMRequestAttemptFailure | undefined;
 }
 
 export interface PreparedTurnRequestConfig {

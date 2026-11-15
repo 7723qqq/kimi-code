@@ -69,6 +69,7 @@ import { WarningIssued } from '#/agent/profile/profileOps';
 
 import {
   IAgentLLMRequesterService,
+  type AgentLLMRequestAttemptFailure,
   type AgentLLMRequestFinish,
   type AgentLLMRequestLogFields,
   type AgentLLMRequestOverrides,
@@ -275,9 +276,13 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       overrides.promptCacheProbe === undefined
         ? undefined
         : { source: overrides.promptCacheProbe, baseline: this.lastTurnRequest() };
+    let attemptFailure: AgentLLMRequestAttemptFailure | undefined;
     return {
       trace,
-      result: this.requestWithTrace(trace, overrides, onPart, signal, promptCacheProbe),
+      result: this.requestWithTrace(trace, overrides, onPart, signal, promptCacheProbe, (failure) => {
+        attemptFailure = failure;
+      }),
+      attemptFailure: () => attemptFailure,
     };
   }
 
@@ -287,6 +292,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     onPart: AgentLLMRequestPartHandler,
     signal: AbortSignal | undefined,
     promptCacheProbe: ResolvedLLMRequest['promptCacheProbe'],
+    onAttemptFailure?: (failure: AgentLLMRequestAttemptFailure) => void,
   ): Promise<AgentLLMRequestFinish> {
     signal?.throwIfAborted();
     const startedAt = Date.now();
@@ -306,6 +312,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         setTrace,
         sizeProbe,
         overrides.onAttemptRetry,
+        onAttemptFailure,
       );
     } catch (error) {
       this.logRequestFailure(error, overrides, signal, sizeProbe.bytes);
@@ -395,6 +402,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     onRequestTrace: (traceId: string | undefined) => void,
     sizeProbe: { bytes?: number } | undefined,
     onAttemptRetry: (() => void) | undefined,
+    onAttemptFailure: ((failure: AgentLLMRequestAttemptFailure) => void) | undefined,
   ): Promise<AgentLLMRequestFinish> {
     this.toolCallIdNormalizer.seedFrom(this.context.get());
     const cacheProbeBaseline = request.promptCacheProbe?.baseline;
@@ -514,6 +522,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         for await (const event of request.requester.request(input, signal, {
           ...request.params,
           onTraceId: setTraceId,
+          ...(onAttemptFailure === undefined ? {} : { onAttemptFailure }),
         })) {
           switch (event.type) {
             case 'part':

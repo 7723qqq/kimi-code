@@ -53,6 +53,12 @@ export type ModelRequestEvent =
     }
   | ({ readonly type: 'timing' } & ModelRequestTiming);
 
+export interface ModelRequestAttemptFailure {
+  readonly usage?: TokenUsage;
+  readonly messageId?: string;
+  readonly timing?: ModelRequestTiming;
+}
+
 export interface ModelRequestParams {
   readonly cacheKey?: string;
   readonly sampling?: SamplingOptions;
@@ -62,6 +68,7 @@ export interface ModelRequestParams {
   readonly usedContextTokens?: number;
   readonly maxContextTokens?: number;
   readonly onTraceId?: (traceId: string | null) => void;
+  readonly onAttemptFailure?: (failure: ModelRequestAttemptFailure) => void;
 }
 
 export interface ModelRequester {

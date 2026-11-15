@@ -423,6 +423,56 @@ describe('Agent loop', () => {
     );
   });
 
+  it('keeps retried partial content and records failed-attempt metadata on the step end', async () => {
+    profile.update({ activeToolNames: [] });
+    ctx.mockNextProviderResponse({
+      parts: [{ type: 'text', text: 'first attempt partial' }],
+      usage: { inputOther: 7, output: 3 },
+      messageId: 'msg-first',
+      error: new APIProviderRateLimitError('retry', null, 1),
+    });
+    ctx.mockNextProviderResponse({
+      parts: [{ type: 'text', text: 'final attempt partial' }],
+      error: new Error('stream broke mid-flight'),
+    });
+
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
+    await ctx.untilTurnEnd();
+
+    const loopEvents = (await ctx.persistedWireRecords())
+      .filter((record) => record.type === 'context.append_loop_event')
+      .map((record) => record['event'] as LoopRecordedEvent)
+      .filter((event) => event.type === 'step.end' || event.type === 'content.part');
+
+    const partialTexts = loopEvents.flatMap((event) =>
+      event.type === 'content.part' && event.part.type === 'text' ? [event.part.text] : [],
+    );
+    expect(partialTexts).toEqual(['first attempt partial', 'final attempt partial']);
+
+    const stepEnds = loopEvents.filter(
+      (event): event is Extract<LoopRecordedEvent, { type: 'step.end' }> =>
+        event.type === 'step.end',
+    );
+    expect(stepEnds).toHaveLength(2);
+    expect(stepEnds[0]).toMatchObject({
+      step: 1,
+      finishReason: 'error',
+      usage: { inputOther: 7, output: 3, inputCacheRead: 0, inputCacheCreation: 0 },
+      messageId: 'msg-first',
+    });
+    expect(stepEnds[0]?.llmFirstTokenLatencyMs).toBeGreaterThanOrEqual(0);
+    expect(stepEnds[0]?.llmStreamDurationMs).toBeGreaterThanOrEqual(0);
+    expect(stepEnds[1]).toMatchObject({ step: 2, finishReason: 'error' });
+
+    const assistantTexts = ctx
+      .contextData()
+      .history.filter((message) => message.role === 'assistant')
+      .map((message) =>
+        message.content.map((part) => (part.type === 'text' ? part.text : '')).join(''),
+      );
+    expect(assistantTexts).toEqual(['first attempt partial', 'final attempt partial']);
+  });
+
   it('does not run loop error handlers for aborted turns', async () => {
     let called = false;
     loop.registerLoopErrorHandler({

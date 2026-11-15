@@ -115,6 +115,9 @@ export type MachineEngineEvent =
       readonly errorMessage: string;
       readonly statusCode?: number;
       readonly rawError?: unknown;
+      readonly usage?: TokenUsage;
+      readonly messageId?: string;
+      readonly timing?: ModelRequestTiming;
     }
   | {
       readonly type: 'recovering';
@@ -449,6 +452,7 @@ export function attachMachineEngine(
     }),
     ref.on('llm.retrying', (event) => {
       pendingFailure = undefined;
+      const failure = requester.lastAttemptFailure();
       lastRetry = {
         failedAttempt: event.failedAttempt,
         nextAttempt: event.nextAttempt,
@@ -468,6 +472,9 @@ export function attachMachineEngine(
         errorMessage: event.errorMessage,
         statusCode: event.statusCode,
         rawError: requester.lastError(),
+        usage: failure?.usage,
+        messageId: failure?.messageId,
+        timing: failure?.timing,
       });
     }),
     ref.on('llm.recovering', (event) => {

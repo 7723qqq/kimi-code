@@ -294,6 +294,24 @@ export class ModelRequesterImpl implements ModelRequester {
     );
 
     if (failed !== undefined) {
+      params?.onAttemptFailure?.({
+        usage,
+        messageId,
+        timing:
+          firstChunkAt === undefined
+            ? undefined
+            : buildStreamTiming(
+                requestStartedAt,
+                requestSentAt,
+                firstChunkAt,
+                streamEndedAt ?? Date.now(),
+                finalizeDecodeStats(decodeBlocking?.blockedMs(), {
+                  serverDecodeMs,
+                  clientConsumeMs,
+                }),
+                { firstTokenAt, lastTokenAt },
+              ),
+      });
       throw errorFromLlmMessage(failed);
     }
 
