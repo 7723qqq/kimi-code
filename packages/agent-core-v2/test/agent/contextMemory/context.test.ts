@@ -32,7 +32,7 @@ describe('Agent context', () => {
   let wire: IWireService;
 
   beforeEach(async () => {
-    ctx = createTestAgent();
+    ctx = createTestAgent({ initialConfig: { experimental: { tool_select: false } } });
     context = ctx.get(IAgentContextMemoryService);
     tokenCounting = ctx.tokenCounting;
     profile = ctx.get(IAgentProfileService);
