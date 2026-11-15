@@ -332,17 +332,40 @@ export class LockFile {
   }
 
   /** Refresh the lock timestamp (proves liveness to processes inspecting the
-   *  lock file). No-op when the lock is not held. Uses write-tmp-then-rename
-   *  so a crash mid-renew cannot leave a truncated, "stale-looking" lock file
-   *  behind for a lock that is actually still owned. Serialized with
+   *  lock file). No-op when the lock is not held. Serialized with
    *  acquire/release: `held` is re-checked inside the chain, and a release
-   *  queued behind this renew unlinks only after the rename landed. */
+   *  queued behind this renew unlinks only after the write landed.
+   *
+   *  When the on-disk line is already this instance's own (exactly the same
+   *  bytes length), the refresh is an OVERWRITE IN PLACE of the same range.
+   *  Replacing the lock by rename (write-tmp-then-rename) is not usable there
+   *  on Windows: `tryCreate` publishes the lock through `fs.link`, and Bun
+   *  keeps the linked file's handle until GC, which makes every rename over
+   *  that path fail with EPERM for up to seconds right after acquire — longer
+   *  than any sane retry budget. An in-place overwrite (a) never truncates, so
+   *  a crash mid-renew cannot leave a stale-looking lock file behind, and
+   *  (b) rewrites only the timestamp digits: payload length and every other
+   *  byte (pid, token, keys) stay identical, so a concurrent reader always
+   *  parses either the old or the new line with the same owner identity.
+   *  Anything else on disk (a vanished lock, a foreign line of another length)
+   *  still takes the rename path, which replaces the file wholesale. */
   async renew(): Promise<void> {
     return this.serialized(async () => {
       if (!this.held) return;
+      const payload = this.payload();
+      const stat = await fs.stat(this.path).catch(() => null);
+      if (stat !== null && stat.size === Buffer.byteLength(payload, 'utf8')) {
+        const handle = await fs.open(this.path, 'r+');
+        try {
+          await handle.write(payload, 0, 'utf8');
+        } finally {
+          await handle.close();
+        }
+        return;
+      }
       const tmp = `${this.path}.tmp-${process.pid}-${nextSidecarSeq()}`;
-      await fs.writeFile(tmp, this.payload());
-      // Windows: replacing our own lock can still clash with a co-process's
+      await fs.writeFile(tmp, payload);
+      // Windows: replacing the lock can still clash with a co-process's
       // readFile/stat of it (EPERM) — the helper rides out such transients.
       await renameReplace(tmp, this.path, { retries: 20 });
     });
