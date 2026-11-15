@@ -238,6 +238,7 @@ On success, `data` is the config object; its fields mirror the top-level domains
 | `swarm` | object | Swarm mode configuration |
 | `cron` | object | Scheduled task configuration |
 | `token_counting` | object | Token-counting strategy |
+| `operation_log` | object | Operation Log retention limits |
 | `llm_requester` | object | LLM requester configuration |
 | `task` | object | Task runtime configuration |
 | `database` | object | Persistence backend configuration |
@@ -289,6 +290,7 @@ The body is a partial config object — any subset of the response domains above
 | `swarm` | body | object | Swarm mode configuration |
 | `cron` | body | object | Scheduled task configuration |
 | `token_counting` | body | object | Token-counting strategy |
+| `operation_log` | body | object | Operation Log retention limits |
 | `llm_requester` | body | object | LLM requester configuration |
 | `task` | body | object | Task runtime configuration |
 | `database` | body | object | Persistence backend configuration |

@@ -238,6 +238,7 @@
 | `swarm` | object | Swarm 模式配置 |
 | `cron` | object | 定时任务配置 |
 | `token_counting` | object | Token 计算策略 |
+| `operation_log` | object | Operation Log 保留上限 |
 | `llm_requester` | object | LLM 请求器配置 |
 | `task` | object | 任务运行时配置 |
 | `database` | object | 持久化后端配置 |
@@ -287,6 +288,7 @@
 | `swarm` | body | object | Swarm 模式配置 |
 | `cron` | body | object | 定时任务配置 |
 | `token_counting` | body | object | Token 计算策略 |
+| `operation_log` | body | object | Operation Log 保留上限 |
 | `llm_requester` | body | object | LLM 请求器配置 |
 | `task` | body | object | 任务运行时配置 |
 | `database` | body | object | 持久化后端配置 |

@@ -84,6 +84,7 @@ export const patchConfigRequestSchema = z
     swarm: z.unknown().optional(),
     cron: z.unknown().optional(),
     token_counting: z.unknown().optional(),
+    operation_log: z.unknown().optional(),
     llm_requester: z.unknown().optional(),
     task: z.unknown().optional(),
     database: z.unknown().optional(),
