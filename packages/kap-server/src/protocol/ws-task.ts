@@ -1,6 +1,5 @@
-import { z } from 'zod';
-
 import { isoDateTimeSchema } from '@moonshot-ai/agent-core-v2/_base/utils/isoDateTime';
+import { z } from 'zod';
 
 export const taskStateSchema = z.object({
   task_id: z.string().min(1),
@@ -82,12 +81,3 @@ export const taskOutputMessageSchema = z.object({
   text: z.string(),
 });
 export type TaskOutputMessage = z.infer<typeof taskOutputMessageSchema>;
-
-export const taskResponseMessageSchema = z.object({
-  type: z.literal('response'),
-  request_id: z.string(),
-  code: z.number().int(),
-  msg: z.string().optional(),
-  task: taskStateSchema.optional(),
-});
-export type TaskResponseMessage = z.infer<typeof taskResponseMessageSchema>;

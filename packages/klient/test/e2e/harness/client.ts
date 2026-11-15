@@ -1,11 +1,12 @@
+import type { AuthSummary } from '@moonshot-ai/agent-core-v2/app/authLegacy/authLegacy';
+import type { FileMeta } from '@moonshot-ai/agent-core-v2/app/file/fileService';
 /**
  * `DaemonClient` — wire-level test client for the kimi-code server.
  *
  * Wraps the server's HTTP REST + WS surfaces (`/api/v1/...` + `/api/v1/ws`)
  * into a single, typed object that scenarios can drive. Handles:
  *   - Envelope unwrap + typed REST helpers
- *   - WS `server_hello` → `client_hello` → ack handshake
- *   - `subscribe` / `unsubscribe` ack correlation
+ *   - WS `subscribe` / `unsubscribe` response correlation
  *   - Approval + question reverse-RPC auto-resolve via per-event handlers
  *   - `waitForFrame` / `waitForSessionBusy` convenience waits
  *
@@ -16,18 +17,16 @@ import type {
   FsBrowseResponse,
   FsHomeResponse,
 } from '@moonshot-ai/agent-core-v2/app/hostFolderBrowser/hostFolderBrowser';
-import type { AuthSummary } from '@moonshot-ai/agent-core-v2/app/authLegacy/authLegacy';
-import type { FileMeta } from '@moonshot-ai/agent-core-v2/app/file/fileService';
 import type { UpdateSessionProfileRequest as SessionUpdate } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
 import type {
   ProviderCatalogItem,
   SetDefaultModelResponse,
 } from '@moonshot-ai/agent-core-v2/llm-adapter/model/catalog';
-import type { Message } from '@moonshot-ai/kap-server/protocol/message';
 import type {
   InteractionRespondRequest,
   InteractionRespondResult,
 } from '@moonshot-ai/kap-server/protocol/interaction';
+import type { Message } from '@moonshot-ai/kap-server/protocol/message';
 import type {
   ListModelsResponse,
   ListProvidersResponse,
@@ -59,7 +58,6 @@ import type {
   WorkspaceCreate,
   WorkspaceUpdate,
 } from '@moonshot-ai/kap-server/protocol/workspace';
-import type { ServerHelloMessage } from '@moonshot-ai/kap-server/protocol/ws-control';
 import { ulid } from 'ulid';
 import { WebSocket as WsWebSocket } from 'ws';
 
@@ -72,14 +70,12 @@ export interface DaemonClientOptions {
   baseUrl?: string;
   /** Default `/api/v1`. WS endpoint is `${apiPrefix}/ws`. */
   apiPrefix?: string;
-  /** Default `server-e2e-<ulid>` — used as the `client_hello.client_id`. */
-  clientId?: string;
   fetchImpl?: typeof fetch;
   wsImpl?: typeof WsWebSocket;
   logger?: (level: 'info' | 'warn' | 'error' | 'debug', msg: string, meta?: unknown) => void;
   /** Directory for JSONL trace events and generated HTML reports. */
   reportDir?: string;
-  /** Default 5s. Applies to handshake + subscribe acks. */
+  /** Default 5s. Applies to subscribe and unsubscribe responses. */
   controlAckTimeoutMs?: number;
 }
 
@@ -119,9 +115,10 @@ export const DEFAULT_PROMPT_CONTROLS = {
  * `DEFAULT_PROMPT_CONTROLS` when omitted. `metadata` carries through
  * verbatim.
  */
-export type PromptSubmitInput =
-  Pick<PromptSubmission, 'content'>
-  & Partial<Pick<PromptSubmission, 'metadata' | 'model' | 'thinking' | 'permission_mode' | 'plan_mode'>>;
+export type PromptSubmitInput = Pick<PromptSubmission, 'content'> &
+  Partial<
+    Pick<PromptSubmission, 'metadata' | 'model' | 'thinking' | 'permission_mode' | 'plan_mode'>
+  >;
 
 function fillPromptDefaults(input: PromptSubmitInput): PromptSubmission {
   return { ...DEFAULT_PROMPT_CONTROLS, ...input };
@@ -130,7 +127,6 @@ function fillPromptDefaults(input: PromptSubmitInput): PromptSubmission {
 export class DaemonClient {
   readonly baseUrl: string;
   readonly apiPrefix: string;
-  readonly clientId: string;
   readonly http: HttpClient;
 
   private readonly _wsImpl: typeof WsWebSocket;
@@ -142,14 +138,13 @@ export class DaemonClient {
   private readonly _reportDir: string | undefined;
   private readonly _controlAckTimeoutMs: number;
   private _ws: WsClient | null = null;
-  private _serverHello: ServerHelloMessage['payload'] | null = null;
+  private _connecting: Promise<void> | null = null;
   private readonly _subscribed = new Set<string>();
   private readonly _disposers: Array<() => void> = [];
 
   constructor(opts: DaemonClientOptions = {}) {
     this.baseUrl = (opts.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
     this.apiPrefix = opts.apiPrefix ?? DEFAULT_API_PREFIX;
-    this.clientId = opts.clientId ?? `server-e2e-${ulid()}`;
     this._wsImpl = opts.wsImpl ?? WsWebSocket;
     this._logger = opts.logger ?? noopLogger;
     this._reportDir = opts.reportDir;
@@ -186,9 +181,12 @@ export class DaemonClient {
   getSession(sid: string): Promise<Session> {
     return this.http.getSession(sid);
   }
-  listSessions(
-    query?: { page_size?: number; before_id?: string; after_id?: string; workspace_id?: string },
-  ): Promise<{ items: Session[]; has_more: boolean }> {
+  listSessions(query?: {
+    page_size?: number;
+    before_id?: string;
+    after_id?: string;
+    workspace_id?: string;
+  }): Promise<{ items: Session[]; has_more: boolean }> {
     return this.http.listSessions(query);
   }
   updateSession(sid: string, body: SessionUpdate): Promise<Session> {
@@ -197,16 +195,10 @@ export class DaemonClient {
   forkSession(sid: string, body: ForkSessionRequest = {}): Promise<Session> {
     return this.http.forkSession(sid, body);
   }
-  compactSession(
-    sid: string,
-    body: CompactSessionRequest = {},
-  ): Promise<CompactSessionResponse> {
+  compactSession(sid: string, body: CompactSessionRequest = {}): Promise<CompactSessionResponse> {
     return this.http.compactSession(sid, body);
   }
-  undoSession(
-    sid: string,
-    body: UndoSessionRequest = { count: 1 },
-  ): Promise<UndoSessionResponse> {
+  undoSession(sid: string, body: UndoSessionRequest = { count: 1 }): Promise<UndoSessionResponse> {
     return this.http.undoSession(sid, body);
   }
   archiveSession(sid: string): Promise<{ archived: true }> {
@@ -268,10 +260,7 @@ export class DaemonClient {
    * legacy default-filled path) to first establish session state, then
    * exercise the "content-only prompt inherits session state" contract.
    */
-  submitPromptStateful(
-    sid: string,
-    body: PromptSubmission,
-  ): Promise<PromptSubmitResult> {
+  submitPromptStateful(sid: string, body: PromptSubmission): Promise<PromptSubmitResult> {
     return this.http.submitPrompt(sid, body);
   }
   listPrompts(sid: string): Promise<PromptListResponse> {
@@ -299,12 +288,18 @@ export class DaemonClient {
 
   // ── WS lifecycle ────────────────────────────────────────────────────────
   /**
-   * Open the WS socket, wait for `server_hello`, send `client_hello`, await
-   * the ack. Returns the server's hello payload (buffer sizes, capabilities,
-   * etc.).
+   * Open the WS socket. There is no handshake: every connection receives the
+   * global events, including `event.session.work_changed`, without subscribing.
    */
-  async connect(): Promise<ServerHelloMessage['payload']> {
-    if (this._serverHello) return this._serverHello;
+  connect(): Promise<void> {
+    this._connecting ??= this._open().catch((error: unknown) => {
+      this._connecting = null;
+      throw error;
+    });
+    return this._connecting;
+  }
+
+  private async _open(): Promise<void> {
     const wsUrl = `${this.baseUrl.replace(/^http/, 'ws')}${this.apiPrefix}/ws`;
     const ws = new WsClient({
       url: wsUrl,
@@ -312,61 +307,38 @@ export class DaemonClient {
       logger: this._logger,
       reportDir: this._reportDir,
     });
-    this._ws = ws;
     await ws.open();
-
-    const helloFrame = await ws.waitForFrame(
-      (f) => f.type === 'server_hello',
-      this._controlAckTimeoutMs,
-    );
-    const helloPayload = helloFrame.payload as ServerHelloMessage['payload'];
-    this._serverHello = helloPayload;
-
-    const helloId = `hello-${ulid()}`;
-    const ack = await ws.sendAndAwaitAck(
-      {
-        type: 'client_hello',
-        id: helloId,
-        payload: { client_id: this.clientId, subscriptions: [] },
-      },
-      this._controlAckTimeoutMs,
-    );
-    if (ack.code !== 0) {
-      throw new Error(`client_hello rejected (code=${ack.code}): ${ack.msg ?? 'no message'}`);
-    }
-    this._logger('debug', 'ws: handshake complete', {
-      wsConnectionId: helloPayload.ws_connection_id,
-      clientId: this.clientId,
-    });
-    return helloPayload;
+    this._ws = ws;
   }
 
-  /** Send `subscribe` and await its ack. Tracks the session for `close()`. */
+  /** Send `subscribe` and await its response. Tracks the session for `close()`. */
   async subscribe(sid: string): Promise<void> {
     const ws = this._requireWs();
     if (this._subscribed.has(sid)) return;
-    const id = `sub-${ulid()}`;
-    const ack = await ws.sendAndAwaitAck(
-      { type: 'subscribe', id, payload: { session_ids: [sid] } },
+    const response = await ws.sendCommand(
+      { type: 'subscribe', request_id: `sub-${ulid()}`, session_id: sid },
       this._controlAckTimeoutMs,
     );
-    if (ack.code !== 0) {
-      throw new Error(`subscribe rejected (code=${ack.code}): ${ack.msg ?? 'no message'}`);
+    if (response.code !== 0) {
+      throw new Error(
+        `subscribe rejected (code=${response.code}): ${response.msg ?? 'no message'}`,
+      );
     }
     this._subscribed.add(sid);
   }
 
-  /** Send `unsubscribe` and await its ack. */
+  /** Send `unsubscribe` and await its response. */
   async unsubscribe(sid: string): Promise<void> {
     const ws = this._requireWs();
     if (!this._subscribed.has(sid)) return;
-    const id = `unsub-${ulid()}`;
-    const ack = await ws.sendAndAwaitAck(
-      { type: 'unsubscribe', id, payload: { session_ids: [sid] } },
+    const response = await ws.sendCommand(
+      { type: 'unsubscribe', request_id: `unsub-${ulid()}`, session_id: sid },
       this._controlAckTimeoutMs,
     );
-    if (ack.code !== 0) {
-      throw new Error(`unsubscribe rejected (code=${ack.code}): ${ack.msg ?? 'no message'}`);
+    if (response.code !== 0) {
+      throw new Error(
+        `unsubscribe rejected (code=${response.code}): ${response.msg ?? 'no message'}`,
+      );
     }
     this._subscribed.delete(sid);
   }
@@ -380,11 +352,13 @@ export class DaemonClient {
         // ignore
       }
     }
+    const connecting = this._connecting;
+    this._connecting = null;
+    await connecting?.catch(() => undefined);
     if (this._ws) {
       await this._ws.close();
       this._ws = null;
     }
-    this._serverHello = null;
     this._subscribed.clear();
   }
 
@@ -399,10 +373,7 @@ export class DaemonClient {
     predicate: (frame: AnyFrame) => boolean,
     opts?: { timeoutMs?: number },
   ): Promise<AnyFrame> {
-    return this._requireWs().waitForFrame(
-      predicate,
-      opts?.timeoutMs ?? DEFAULT_FRAME_TIMEOUT_MS,
-    );
+    return this._requireWs().waitForFrame(predicate, opts?.timeoutMs ?? DEFAULT_FRAME_TIMEOUT_MS);
   }
 
   /** Poll `/sessions/{sid}` until its aggregate work flag reaches `busy`. */

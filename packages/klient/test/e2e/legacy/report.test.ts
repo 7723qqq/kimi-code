@@ -421,24 +421,20 @@ describe('server-e2e report', () => {
     });
 
     await client.createSession({ metadata: { cwd: '/tmp/workspace' } });
-    const connect = client.connect();
+    await client.connect();
+    const subscribe = client.subscribe('sess_example');
     await new Promise((resolve) => setTimeout(resolve, 0));
     const ws = FakeWebSocket.instances[0];
     expect(ws).toBeDefined();
+    const command = ws?.sent
+      .map((raw) => JSON.parse(raw) as { type: string; request_id?: string })
+      .find((frame) => frame.type === 'subscribe');
+    expect(command?.request_id).toBeDefined();
     ws?.emit(
       'message',
-      JSON.stringify({
-        type: 'server_hello',
-        payload: { heartbeat_ms: 30_000, ws_connection_id: 'ws_1' },
-      }),
+      JSON.stringify({ type: 'response', request_id: command?.request_id, code: 0 }),
     );
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    const hello = ws?.sent
-      .map((raw) => JSON.parse(raw) as { type: string; id?: string })
-      .find((frame) => frame.type === 'client_hello');
-    expect(hello?.id).toBeDefined();
-    ws?.emit('message', JSON.stringify({ type: 'ack', id: hello?.id, code: 0, payload: {} }));
-    await connect;
+    await subscribe;
     await client.close();
 
     const events = readReportEvents(reportDir);
@@ -452,13 +448,13 @@ describe('server-e2e report', () => {
         expect.objectContaining({
           kind: 'ws',
           direction: 'in',
-          frame: expect.objectContaining({ type: 'server_hello' }),
+          frame: expect.objectContaining({ type: 'response' }),
           caseName: 'server client: custom report dir',
         }),
         expect.objectContaining({
           kind: 'ws',
           direction: 'out',
-          frame: expect.objectContaining({ type: 'client_hello' }),
+          frame: expect.objectContaining({ type: 'subscribe' }),
           caseName: 'server client: custom report dir',
         }),
       ]),

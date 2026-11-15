@@ -155,14 +155,6 @@ export interface CapabilityChangedEvent {
   };
 }
 
-export interface DiUnitChangedEvent {
-  readonly type: 'event.di.unit_changed';
-  readonly scope: string;
-  readonly token: string;
-  readonly state: 'Pending' | 'Activating' | 'Active' | 'Unloading' | 'Failed';
-  readonly error?: string;
-}
-
 export interface PromptSubmittedEvent {
   readonly type: 'prompt.submitted';
   readonly promptId: string;
@@ -246,7 +238,6 @@ export type AgentEvent =
   | ModelCatalogChangedEvent
   | PluginChangedEvent
   | CapabilityChangedEvent
-  | DiUnitChangedEvent
   | PromptSubmittedEvent
   | BackgroundTaskStartedEvent
   | BackgroundTaskTerminatedEvent;
@@ -262,7 +253,6 @@ export const VOLATILE_EVENT_TYPES = [
   'shell.started',
   'shell.completed',
   'agent.status.updated',
-  'event.di.unit_changed',
   'event.capability.changed',
 ] as const;
 

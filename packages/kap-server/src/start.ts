@@ -40,15 +40,14 @@ import {
   type Scope,
   type ScopeSeed,
 } from '@moonshot-ai/agent-core-v2';
+import { RemoteEnvironmentProviderFactory } from '@moonshot-ai/agent-core-v2/remote';
 import {
   createKimiDefaultHeaders,
   KIMI_CODE_PROVIDER_NAME,
   kimiRegionProfile,
   type KimiHostIdentity,
 } from '@moonshot-ai/kimi-code-oauth';
-import { RemoteEnvironmentProviderFactory } from '@moonshot-ai/agent-core-v2/remote';
 import { createRemoteControlManager, RemoteControlDeviceClient } from '@moonshot-ai/remote-control';
-import { createAsyncApiDocument } from './protocol/asyncapi';
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import { installErrorHandler } from './error-handler';
@@ -59,6 +58,7 @@ import { createOriginHook, isOriginAllowed, parseCorsOrigins } from './middlewar
 import { createAuthFailureLimiter } from './middleware/rateLimit';
 import { createSecurityHeadersHook } from './middleware/securityHeaders';
 import { transformOpenApiDocument } from './openapi/transforms';
+import { createAsyncApiDocument } from './protocol/asyncapi';
 import { resolveRequestId } from './request-id';
 import { registerRequestLogging } from './requestLogging';
 import { registerApiV1Routes } from './routes/registerApiV1Routes';
@@ -71,6 +71,7 @@ import { createCredentialValidator } from './services/auth/credentials';
 import { resolvePasswordHash } from './services/auth/password';
 import { createTokenStore } from './services/auth/tokenStore';
 import { startConfigChangedPublisher } from './services/config/configChangedPublisher';
+import { ConversationService } from './services/conversation/conversationService';
 import { GuiStoreService } from './services/guiStore/guiStoreService';
 import { ModelCatalogRefreshScheduler } from './services/modelCatalog/modelCatalogRefreshScheduler';
 import {
@@ -86,7 +87,6 @@ import {
   shutdownServerTelemetry,
 } from './services/telemetry';
 import { TranscriptService } from './services/transcript/transcriptService';
-import { ConversationService } from './services/conversation/conversationService';
 import { extractWsBearerToken } from './transport/ws/bearerProtocol';
 import { ConnectionRegistry, type IConnectionRegistry } from './transport/ws/connectionRegistry';
 import { registerWsDebug, WS_DEBUG_PATH } from './transport/ws/debug/registerWsDebug';
@@ -524,7 +524,6 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
   await registerApiV2Routes(app, core);
 
   const wssV1 = registerWsV1(core, {
-    validateCredential,
     registry: connectionRegistry,
     broadcaster,
     logger,

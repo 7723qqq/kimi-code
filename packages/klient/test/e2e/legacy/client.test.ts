@@ -83,15 +83,11 @@ describeLive('DaemonClient (live server required)', () => {
     expect(caughtError).toBeInstanceOf(EnvelopeError);
   });
 
-  it('completes handshake (server_hello + client_hello ack)', async () => {
-    const log = createCaseLogger('client: ws handshake');
+  it('opens the WebSocket without a handshake', async () => {
+    const log = createCaseLogger('client: ws connect');
     const client = new DaemonClient({ baseUrl: BASE_URL });
     log('connect request', { url: `${BASE_URL.replace(/^http/, 'ws')}/api/v1/ws` });
-    const hello = await client.connect();
-    log('server hello', hello);
-    // heartbeat_ms is optional — kap-server omits it (no server heartbeat).
-    expect(hello.heartbeat_ms === undefined || hello.heartbeat_ms > 0).toBe(true);
-    expect(typeof hello.ws_connection_id).toBe('string');
+    await expect(client.connect()).resolves.toBeUndefined();
     await client.close();
     log('closed');
   });
@@ -103,7 +99,7 @@ describeLive('DaemonClient (live server required)', () => {
     created.push({ client, sid: session.id });
     log('created session', session);
     await client.connect();
-    log('subscribe request', { type: 'subscribe', session_ids: [session.id] });
+    log('subscribe request', { type: 'subscribe', session_id: session.id });
     await expect(client.subscribe(session.id)).resolves.toBeUndefined();
     log('subscribe accepted', { session_id: session.id });
   });
@@ -244,7 +240,8 @@ describeLive('DaemonClient (live server required)', () => {
       expect(beforeCompact.items.some((m) => m.role === 'assistant')).toBe(true);
 
       const populatedCompactRequest = {
-        instruction: 'Preserve the compact-test code word and the fact that the assistant replied OK.',
+        instruction:
+          'Preserve the compact-test code word and the fact that the assistant replied OK.',
       };
       successLog('request', {
         method: 'POST',
@@ -500,7 +497,10 @@ describe('DaemonClient session action helpers', () => {
     log('fetch calls', calls);
     expect(calls.map((call) => [call.init.method, call.url])).toEqual([
       ['POST', 'http://server.example.test/api/v1/sessions/sess_parent/children'],
-      ['GET', 'http://server.example.test/api/v1/sessions/sess_parent/children?page_size=5&busy=false'],
+      [
+        'GET',
+        'http://server.example.test/api/v1/sessions/sess_parent/children?page_size=5&busy=false',
+      ],
       ['POST', 'http://server.example.test/api/v1/sessions/sess_parent/interactions/question_1'],
     ]);
     expect(parseRecordedJsonBody(calls[0])).toEqual({
@@ -516,13 +516,7 @@ describe('DaemonClient session action helpers', () => {
     const file = testFile({ id: 'file_png', name: 'tiny.png', media_type: 'image/png', size: 3 });
     const client = new DaemonClient({
       baseUrl: 'http://server.example.test',
-      fetchImpl: recordingFetchSequence(
-        [
-          okEnvelope(file),
-          okEnvelope({ deleted: true }),
-        ],
-        calls,
-      ),
+      fetchImpl: recordingFetchSequence([okEnvelope(file), okEnvelope({ deleted: true })], calls),
     });
 
     await expect(
@@ -602,7 +596,7 @@ function frameForLog(frame: {
   type: string;
   seq?: number;
   session_id?: string;
-  id?: string;
+  request_id?: string;
   code?: number;
   msg?: string;
   payload?: unknown;
@@ -611,7 +605,7 @@ function frameForLog(frame: {
     type: frame.type,
     seq: frame.seq,
     session_id: frame.session_id,
-    id: frame.id,
+    request_id: frame.request_id,
     code: frame.code,
     msg: frame.msg,
     payload: frame.payload,
@@ -693,8 +687,9 @@ function testMessage(overrides: Partial<Message> = {}): Message {
   };
 }
 
-
-function textFromMessages(messages: Array<{ content: Array<{ type: string; text?: string }> }>): string {
+function textFromMessages(
+  messages: Array<{ content: Array<{ type: string; text?: string }> }>,
+): string {
   return messages
     .flatMap((message) => message.content)
     .filter((part) => part.type === 'text')

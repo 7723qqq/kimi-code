@@ -73,7 +73,7 @@ describe('server-v2 GET /api/v1/connections', () => {
     return new Promise((resolve, reject) => {
       const token = (server as RunningServer).authTokenService.getToken();
       const ws = new WebSocket(wsUrl, [`kimi-code.bearer.${token}`]);
-      ws.once('message', () => resolve(ws));
+      ws.once('open', () => resolve(ws));
       ws.once('error', reject);
     });
   }
@@ -119,7 +119,6 @@ describe('server-v2 GET /api/v1/connections', () => {
     expect(connections).toHaveLength(1);
     const c = connections[0]!;
     expect(c.id).toMatch(/^conn_/);
-    expect(c.has_client_hello).toBe(false);
     expect(c.subscriptions).toEqual([]);
     expect(c.connected_at).toMatch(/Z$/);
     expect(typeof c.remote_address).toBe('string');
@@ -129,19 +128,15 @@ describe('server-v2 GET /api/v1/connections', () => {
     await closed;
   });
 
-  it('reflects client_hello and session subscriptions', async () => {
+  it('reflects session subscriptions', async () => {
     const sessionId = await createSession(home as string);
     const ws = await connect();
     try {
       send(ws, {
-        type: 'client_hello',
-        id: 'h1',
-        payload: { client_id: 'connections-test' },
-      });
-      send(ws, {
-        type: 'subscribe_v2',
-        id: 's1',
-        payload: { session_id: sessionId, transcript: { main: 'delta' } },
+        type: 'subscribe',
+        request_id: 's1',
+        session_id: sessionId,
+        transcript: { main: 'delta' },
       });
 
       let connections = await listConnections();
@@ -151,17 +146,13 @@ describe('server-v2 GET /api/v1/connections', () => {
       });
       expect(connections).toHaveLength(1);
       const c = connections[0]!;
-      expect(c.has_client_hello).toBe(true);
       expect(c.subscriptions).toContain(sessionId);
 
-      send(ws, {
-        type: 'unsubscribe_v2',
-        id: 'u1',
-        payload: { session_id: sessionId },
+      send(ws, { type: 'unsubscribe', request_id: 'u1', session_id: sessionId });
+      await waitForAssertion(async () => {
+        connections = await listConnections();
+        expect(connections[0]?.subscriptions).not.toContain(sessionId);
       });
-      await new Promise((r) => setTimeout(r, 50));
-      connections = await listConnections();
-      expect(connections[0]!.has_client_hello).toBe(true);
     } finally {
       ws.close();
     }
@@ -175,11 +166,7 @@ describe('server-v2 GET /api/v1/connections', () => {
       frames.push(JSON.parse(data.toString('utf8')) as Record<string, unknown>);
     });
     try {
-      send(ws, {
-        type: 'subscribe_v2',
-        id: 'v2-1',
-        payload: { session_id: sessionId, transcript: { main: 'delta' } },
-      });
+      send(ws, { type: 'subscribe', request_id: 'v2-1', session_id: sessionId });
       const list = await waitForFrame(frames, 'task.list');
       expect(list['session_id']).toBe(sessionId);
       expect(list['agent_id']).toBe('main');
@@ -197,11 +184,6 @@ describe('server-v2 GET /api/v1/connections', () => {
 
   it('removes the connection after the socket closes', async () => {
     const ws = await connect();
-    send(ws, {
-      type: 'client_hello',
-      id: 'h1',
-      payload: { client_id: 'connections-test', subscriptions: [] },
-    });
     await waitForSize(1);
 
     ws.close();

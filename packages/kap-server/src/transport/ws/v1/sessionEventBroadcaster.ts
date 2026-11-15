@@ -43,36 +43,35 @@ import {
   type TranscriptStore,
 } from '@moonshot-ai/transcript';
 
+import type { ConversationMessage } from '../../../protocol/conversation';
 import {
   configChangedEventSchema,
   modelCatalogChangedEventSchema,
 } from '../../../protocol/events-zod';
-import { toWireQuestion } from '../../../protocol/question-wire';
-import type { AgentFeedMessage } from '../../../protocol/ws-agent';
-import type { TaskEventMessage, TaskListMessage } from '../../../protocol/ws-task';
 import type { InteractionEventMessage, InteractionOutcome } from '../../../protocol/interaction';
 import {
   approvalExpiresAt,
   interactionAgentId,
   interactionOutcome,
 } from '../../../protocol/interaction-wire';
+import { toWireQuestion } from '../../../protocol/question-wire';
+import type { AgentFeedMessage } from '../../../protocol/ws-agent';
+import type { TaskEventMessage, TaskListMessage } from '../../../protocol/ws-task';
 import { toWireWorkspace } from '../../../routes/workspaces';
-import { ensureMainAgent } from '../../mainAgent';
-import type { ConversationMessage } from '../../../protocol/conversation';
-import {
-  ConversationService,
-  type ConversationFeedCreated,
-} from '../../../services/conversation/conversationService';
 import {
   ConversationFeed,
   type ConversationEvent,
 } from '../../../services/conversation/conversationFeed';
-import { mapError } from '../../errors';
+import {
+  ConversationService,
+  type ConversationFeedCreated,
+} from '../../../services/conversation/conversationService';
 import { projectPromptContentParts } from '../../../services/messages/messageProjection';
 import type { TranscriptService } from '../../../services/transcript/transcriptService';
+import { mapError } from '../../errors';
+import { ensureMainAgent } from '../../mainAgent';
 import type {
   ConfigWarningItem,
-  DiUnitChangedEvent,
   ModelCatalogRefreshChange,
   ModelCatalogRefreshFailure,
   ModelCatalogRetiredDefault,
@@ -173,7 +172,6 @@ async function disposeSessionState(state: SessionState): Promise<void> {
 export class SessionEventBroadcaster {
   private readonly sessions = new Map<string, SessionState>();
   private readonly globalTargets = new Set<BroadcastTarget>();
-  private readonly diEventTargets = new Set<BroadcastTarget>();
   private readonly pendingStates = new Map<string, Promise<SessionState | undefined>>();
   private readonly evictions = new Map<string, Promise<void>>();
   private readonly coreEventSubscription: IDisposable;
@@ -232,11 +230,6 @@ export class SessionEventBroadcaster {
 
   removeGlobalTarget(target: BroadcastTarget): void {
     this.globalTargets.delete(target);
-    this.diEventTargets.delete(target);
-  }
-
-  addDiEventTarget(target: BroadcastTarget): void {
-    this.diEventTargets.add(target);
   }
 
   async subscribe(
@@ -371,11 +364,20 @@ export class SessionEventBroadcaster {
       agents.set(agentId, { generation: 0 });
       added.push(agentId);
     }
+    this.sendAgentLists(
+      state,
+      target,
+      Object.fromEntries(agentIds.map((agentId) => [agentId, 'turn' as const])),
+    );
     for (const agentId of new Set(agentIds)) void this.sync(state, target, agentId);
     return true;
   }
 
-  unsubscribeAgents(sessionId: string, target: BroadcastTarget, agentIds?: readonly string[]): void {
+  unsubscribeAgents(
+    sessionId: string,
+    target: BroadcastTarget,
+    agentIds?: readonly string[],
+  ): void {
     const state = this.sessions.get(sessionId);
     const agents = state?.conversations.get(target);
     if (state === undefined || agents === undefined) return;
@@ -397,11 +399,7 @@ export class SessionEventBroadcaster {
       .toSorted();
   }
 
-  private async sync(
-    state: SessionState,
-    target: BroadcastTarget,
-    agentId: string,
-  ): Promise<void> {
+  private async sync(state: SessionState, target: BroadcastTarget, agentId: string): Promise<void> {
     const subscription = state.conversations.get(target)?.get(agentId);
     if (subscription === undefined) return;
     const generation = ++subscription.generation;
@@ -432,8 +430,7 @@ export class SessionEventBroadcaster {
           code: failure.code,
           msg: failure.msg,
         });
-      } catch {
-      }
+      } catch {}
       return;
     }
     if (!current() || subscription.conversation?.feed === feed) return;
@@ -487,8 +484,7 @@ export class SessionEventBroadcaster {
         event_created_at: new Date().toISOString(),
         ...page,
       });
-    } catch {
-    }
+    } catch {}
     for (const event of pending) this.sendConversation(target, state.sessionId, agentId, event);
   }
 
@@ -505,8 +501,7 @@ export class SessionEventBroadcaster {
         agent_id: agentId,
         event_created_at: new Date().toISOString(),
       } as ConversationMessage);
-    } catch {
-    }
+    } catch {}
   }
 
   unsubscribeTranscript(
@@ -677,7 +672,6 @@ export class SessionEventBroadcaster {
       payload: { type, ...payload },
     };
   }
-
 
   async close(): Promise<void> {
     if (this.closed) return;
@@ -1028,19 +1022,6 @@ export class SessionEventBroadcaster {
       );
       return;
     }
-    if (event.type === 'event.di.unit_changed') {
-      const payload = diUnitChangedPayload(corePayload);
-      if (payload === undefined) return;
-      void this.dispatchGlobal({
-        type: 'event.di.unit_changed',
-        ...payload,
-        agentId: 'main',
-        sessionId: GLOBAL_SESSION_ID,
-      } as Event).catch((error: unknown) =>
-        this.logDispatchError(GLOBAL_SESSION_ID, 'event.di.unit_changed', error),
-      );
-      return;
-    }
   }
 
   private async dispatchGlobal(event: Event): Promise<void> {
@@ -1298,7 +1279,8 @@ export class SessionEventBroadcaster {
     frame: TaskEventMessage | AgentFeedMessage,
   ): void {
     for (const [target, spec] of state.targets) {
-      if (gradeFor(spec.transcriptGrades, agentId) === 'off') continue;
+      const conversationSubscribed = state.conversations.get(target)?.has(agentId) === true;
+      if (!conversationSubscribed && gradeFor(spec.transcriptGrades, agentId) === 'off') continue;
       try {
         target.send(frame);
       } catch (error) {
@@ -1360,9 +1342,7 @@ export class SessionEventBroadcaster {
     if (isGlobalEvent(event.type)) {
       const recipients = new Set<BroadcastTarget>(this.globalTargets);
       for (const target of this.allTargets()) recipients.add(target);
-      const diGated = event.type.startsWith('event.di.');
       for (const target of recipients) {
-        if (diGated && !this.diEventTargets.has(target)) continue;
         try {
           target.send(envelope, 'immediate');
         } catch {}
@@ -1371,6 +1351,12 @@ export class SessionEventBroadcaster {
       for (const [target, sub] of targets) {
         if (!matchesAgentFilter(envelope, sub.agentFilter)) continue;
         if (suppressedByTranscript(envelope, sub.transcriptGrades)) continue;
+        if (
+          (envelope.type === 'turn.started' || envelope.type === 'turn.ended') &&
+          (state.conversations.get(target)?.size ?? 0) > 0
+        ) {
+          continue;
+        }
         try {
           target.send(envelope);
         } catch {}
@@ -1633,32 +1619,6 @@ function sessionMetaUpdatedSessionId(payload: unknown): string | undefined {
   if (typeof payload !== 'object' || payload === null) return undefined;
   const sessionId = (payload as { sessionId?: unknown }).sessionId;
   return typeof sessionId === 'string' && sessionId.length > 0 ? sessionId : undefined;
-}
-
-const DI_UNIT_STATES: ReadonlySet<string> = new Set([
-  'Pending',
-  'Activating',
-  'Active',
-  'Unloading',
-  'Failed',
-]);
-
-function diUnitChangedPayload(
-  payload: unknown,
-): Pick<DiUnitChangedEvent, 'scope' | 'token' | 'state' | 'error'> | undefined {
-  if (typeof payload !== 'object' || payload === null) return undefined;
-  const candidate = payload as Partial<DiUnitChangedEvent>;
-  if (typeof candidate.scope !== 'string' || candidate.scope.length === 0) return undefined;
-  if (typeof candidate.token !== 'string' || candidate.token.length === 0) return undefined;
-  if (typeof candidate.state !== 'string' || !DI_UNIT_STATES.has(candidate.state)) {
-    return undefined;
-  }
-  return {
-    scope: candidate.scope,
-    token: candidate.token,
-    state: candidate.state as DiUnitChangedEvent['state'],
-    error: typeof candidate.error === 'string' ? candidate.error : undefined,
-  };
 }
 
 function sessionCreatedPayload(

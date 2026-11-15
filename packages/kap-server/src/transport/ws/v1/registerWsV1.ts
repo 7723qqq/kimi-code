@@ -1,7 +1,6 @@
 import type { Scope } from '@moonshot-ai/agent-core-v2';
 import { WebSocketServer } from 'ws';
 
-import type { CredentialValidator } from '../../../services/auth/credentials';
 import { selectWsBearerProtocol } from '../bearerProtocol';
 import { type IConnectionRegistry } from '../connectionRegistry';
 import type { BroadcastLogger, SessionEventBroadcaster } from './sessionEventBroadcaster';
@@ -11,7 +10,6 @@ import { WsConnectionV1 } from './wsConnectionV1';
 export const WS_PATH = '/api/v1/ws';
 
 export interface RegisterWsV1Options {
-  readonly validateCredential?: CredentialValidator;
   readonly registry: IConnectionRegistry;
   readonly broadcaster: SessionEventBroadcaster;
   readonly logger?: BroadcastLogger;
@@ -33,7 +31,6 @@ export function registerWsV1(core: Scope, opts: RegisterWsV1Options): WebSocketS
       broadcaster,
       taskSource,
       connectionRegistry: registry,
-      validateCredential: opts.validateCredential,
       remoteAddress: req.socket.remoteAddress ?? null,
       userAgent: req.headers['user-agent'] ?? null,
       logger: opts.logger,

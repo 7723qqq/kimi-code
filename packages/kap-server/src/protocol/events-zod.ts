@@ -735,14 +735,6 @@ export const capabilityChangedEventSchema = z.object({
   }),
 });
 
-export const diUnitChangedEventSchema = z.object({
-  type: z.literal('event.di.unit_changed'),
-  scope: z.string().min(1),
-  token: z.string().min(1),
-  state: z.enum(['Pending', 'Activating', 'Active', 'Unloading', 'Failed']),
-  error: z.string().optional(),
-});
-
 export const goalUpdatedEventSchema = z.object({
   type: z.literal('goal.updated'),
   agentId: z.string(),
@@ -1236,7 +1228,6 @@ export const pushEventSchema = z.discriminatedUnion('type', [
   configChangedEventSchema,
   configWarningEventSchema,
   modelCatalogChangedEventSchema,
-  diUnitChangedEventSchema,
   pluginChangedEventSchema,
   capabilityChangedEventSchema,
 ]);

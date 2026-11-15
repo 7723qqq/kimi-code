@@ -288,9 +288,10 @@ async function subscribeTranscript(server: RunningServer, sid: string): Promise<
   });
   ws.send(
     JSON.stringify({
-      type: 'subscribe_v2',
-      id: 'sub-1',
-      payload: { session_id: sid, transcript: { '*': 'delta' } },
+      type: 'subscribe',
+      request_id: 'sub-1',
+      session_id: sid,
+      transcript: { '*': 'delta' },
     }),
   );
   await until('transcript.reset', () => resetFrame !== undefined, 15000);
@@ -702,7 +703,8 @@ describeWithTimeout(
             ),
         },
         {
-          match: (body) => body.includes('bg-answer-42') && body.includes('You are running as a subagent'),
+          match: (body) =>
+            body.includes('bg-answer-42') && body.includes('You are running as a subagent'),
           respond: () => sseText('42'),
           delayMs: 2500,
         },

@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { WebSocket, type RawData } from 'ws';
+import { WebSocket } from 'ws';
 
 import { type RunningServer, startServer } from '../src/start';
 import { fixedTokenAuth } from './helpers/fixedAuth';
@@ -12,23 +12,10 @@ import { removeTempHome } from './helpers/tempHome';
 
 const TOKEN = 'test-token';
 
-function rawToString(data: RawData): string {
-  if (typeof data === 'string') return data;
-  if (Buffer.isBuffer(data)) return data.toString('utf8');
-  if (Array.isArray(data)) return Buffer.concat(data).toString('utf8');
-  return Buffer.from(data as ArrayBuffer).toString('utf8');
-}
-
-function openConn(url: string): Promise<{ ws: WebSocket; firstFrame: unknown }> {
+function openConn(url: string): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url);
-    ws.once('message', (data) => {
-      try {
-        resolve({ ws, firstFrame: JSON.parse(rawToString(data)) });
-      } catch {
-        resolve({ ws, firstFrame: null });
-      }
-    });
+    ws.once('open', () => resolve(ws));
     ws.once('error', reject);
   });
 }
@@ -87,9 +74,9 @@ describe('server-v2 disableAuth (--dangerous-bypass-auth)', () => {
   });
 
   it('disableAuth:true lets WebSocket upgrades through without a token', async () => {
-    const v1 = await openConn(`ws://127.0.0.1:${server!.port}/api/v1/ws`);
-    sockets.push(v1.ws);
-    expect(v1.firstFrame).toMatchObject({ type: 'server_hello' });
+    const ws = await openConn(`ws://127.0.0.1:${server!.port}/api/v1/ws`);
+    sockets.push(ws);
+    expect(ws.readyState).toBe(WebSocket.OPEN);
   });
 
   it('default boot keeps the gate closed and reports dangerous_bypass_auth: false', async () => {

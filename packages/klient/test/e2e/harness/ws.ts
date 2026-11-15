@@ -1,13 +1,12 @@
 /**
  * WS layer for `DaemonClient` — owns the socket, queues incoming frames so
- * fast tests don't race the first `server_hello`, exposes a `waitForFrame`
- * with timeouts, and routes control-message acks back to the original sender
- * via `id` correlation.
+ * fast tests don't race the first frame, exposes a `waitForFrame`
+ * with timeouts, and routes command responses back to the original sender
+ * via `request_id` correlation.
  *
  * Frame shape is the union of WS.md §2 envelopes:
  *   - `event` envelope     : `{type, seq, session_id, timestamp, payload}`
- *   - `ack`                : `{type:'ack', id, code, msg, payload}`
- *   - `server_hello`/`ping`/`resync_required`/`error`: each carries `timestamp`
+ *   - `response`           : `{type:'response', request_id, code, msg}`
  *
  * We don't Zod-validate frames here — preserving forward-compat ("unknown
  * fields pass through") and avoiding double-work since the server emits the
@@ -24,6 +23,7 @@ export interface AnyFrame {
   readonly session_id?: string;
   readonly timestamp?: string;
   readonly id?: string;
+  readonly request_id?: string;
   readonly code?: number;
   readonly msg?: string;
   readonly payload?: unknown;
@@ -160,13 +160,15 @@ export class WsClient {
     });
   }
 
-  /** Send a control message and wait for its `ack` (matched by `id`). */
-  async sendAndAwaitAck(
-    frame: { type: string; id: string; payload: unknown },
+  async sendCommand(
+    frame: { type: string; request_id: string; [key: string]: unknown },
     timeoutMs: number,
   ): Promise<AnyFrame> {
     this.send(frame);
-    return this.waitForFrame((f) => f.type === 'ack' && f.id === frame.id, timeoutMs);
+    return this.waitForFrame(
+      (f) => f.type === 'response' && f.request_id === frame.request_id,
+      timeoutMs,
+    );
   }
 
   /** Resolves when the socket closes (or immediately if already closed). */
@@ -209,7 +211,7 @@ export class WsClient {
     );
 
     if (frame.type === 'ping') {
-      this.send({ type: 'pong', payload: { nonce: pingNonce(frame) } });
+      this.send({ type: 'pong' });
     }
 
     // Dispatch to subscribers first — they observe every frame, regardless of
@@ -259,11 +261,6 @@ export class WsClient {
     }
     for (const w of this._closeWaiters.splice(0)) w(this._closeReason);
   }
-}
-
-function pingNonce(frame: AnyFrame): string {
-  const payload = frame.payload as { nonce?: unknown } | undefined;
-  return typeof payload?.nonce === 'string' ? payload.nonce : '';
 }
 
 function errorForReport(error: unknown): unknown {
