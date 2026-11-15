@@ -173,6 +173,9 @@ async function buildBunNative() {
   // user's cwd at runtime — surprising behavior for a standalone CLI that
   // reads its own config explicitly.
   buildArgs.push('--no-compile-autoload-dotenv', '--no-compile-autoload-bunfig');
+  // External plugin code still needs its own package.json files for exports
+  // and node_modules resolution; this does not load the user's CLI config.
+  buildArgs.push('--compile-autoload-package-json');
   buildArgs.push('--outfile', outfile, join(stageRoot, 'bun-entry.ts'));
   await run(resolveBun(), buildArgs);
 

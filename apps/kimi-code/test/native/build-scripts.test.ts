@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import { readFile } from 'node:fs/promises';
 
 import { SEA_EXEC_ARGV, seaCodeCacheEnabled } from '../../scripts/native/sea-options.mjs';
 
@@ -11,5 +12,16 @@ describe('sea-options', () => {
   it('only enables the V8 code cache when the target matches the build host', () => {
     expect(seaCodeCacheEnabled('darwin-arm64', 'darwin-arm64')).toBe(true);
     expect(seaCodeCacheEnabled('linux-x64', 'darwin-arm64')).toBe(false);
+  });
+});
+
+describe('native-bun-build', () => {
+  it('keeps package.json resolution enabled for external plugins', async () => {
+    const source = await readFile(
+      new URL('../../scripts/native/build-bun.mjs', import.meta.url),
+      'utf8',
+    );
+    expect(source).toContain("'--compile-autoload-package-json'");
+    expect(source).toContain("'--no-compile-autoload-bunfig'");
   });
 });
