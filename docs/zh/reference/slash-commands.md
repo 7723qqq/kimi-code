@@ -161,7 +161,6 @@ Kimi Code CLI 随包内置了一组 Skill，直接以 `/<name>` 形式出现在�
 | `/custom-theme [<text>]` | 创建或编辑自定义 TUI 配色主题。详见 [主题](../customization/themes.md) |
 | `/update-config` | 查看或编辑 `config.toml`（模型、供应商、权限、hooks）和 `tui.toml`（主题、编辑器、通知、自动更新） |
 | `/check-kimi-code-docs` | 依据官方文档回答 Kimi Code 产品问题（CLI 用法、配置、会员、错误码） |
-| `/craft-anything` | 通过 Craft Anything MCP 工具，以证据为基础分析已发布软件（原生二进制、应用包、APK、固件、Web bundle） |
 | `/import-from-cc-codex` | 从 Claude Code 和 Codex 导入 instructions、skills 和 MCP 设置 |
 | `/sub-skill` | 发现并将本地 skill 库存重组为分层子 skill 包。包含 `/sub-skill.review`（只读提案）和 `/sub-skill.consolidate`（执行重组） |
 | `/write-goal` | 帮助把粗略意图整理成规范的 `/goal` 目标——一份包含完成线、验证证据、边界与停止规则的完成契约。参见[目标模式](../guides/interaction.md#目标模式) |
