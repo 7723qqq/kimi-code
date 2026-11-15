@@ -70,6 +70,7 @@
 ## 门槛基线说明
 
 - `tools/review/silent-catch-baseline.txt` 里 `packages/kap-server/src/transport/ws/v1/sessionEventBroadcaster.ts` 的配额是 8（原 5）。`4306e8396b` 提高了配额但提交说明未写明：多出的 3 处 `catch {}` 来自 `e1f0d5c5c8` 的会话 feed 推送路径（`turns.failed`、`turns` 分页快照、单条 conversation 事件），语义是单个 WebSocket 目标发送失败只放弃该次推送、不中断广播器，可接受。这不是历史欠账；后续重构该文件时应重新评估并收窄配额。
+- `tools/review/silent-catch-baseline.txt` 里 `apps/kimi-code/src/utils/clipboard/clipboard-text.ts` 的配额是 2（原 1）。`Bun.spawn` 改写带入的第二处 `catch {}` 是 `spawnClipboardProcess` 的 `kill` 适配层：`Bun` 的 `Subprocess.kill` 在写入进程已经退出时会抛错，而超时路径要的正是"进程不再占用剪贴板选择区"，该错误既无补救动作也不影响随后 `claim()` 返回 `false`，与 `clipboard-common.ts` 已登记的同类适配层语义相同；另一处是原生剪贴板 `setText` 失败后继续走平台命令回退，错误本身就是控制流。两处都必须忽略，不是历史欠账；若以后给适配层接入诊断日志，应同步收窄配额。
 
 ## 已知差异（每次都要记住）
 
