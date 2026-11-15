@@ -548,11 +548,14 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
 
   private settlePromptLaunched(waiter: PromptWaiter, active: ActiveTurn): void {
     waiter.launched.resolve(active.turn);
-    void active.turn.result.then((result) =>
-      this.settlePromptCompletion(waiter, active.prompt, result),
-    );
     if (!active.prompt.tracked) return;
     this.publishPromptStarted(active.prompt.id, active.prompt.origin);
+  }
+
+  private completePromptTurn(turn: ActiveTurn, result: TurnResult): void {
+    const waiter = this.promptWaiters.get(turn.prompt.id);
+    if (waiter === undefined) return;
+    this.settlePromptCompletion(waiter, turn.prompt, result);
   }
 
   private settlePromptCompletion(
@@ -2314,6 +2317,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         new AgentErrorEvent({ ...error, agentId: this.scopeContext.agentId }),
       );
     }
+    this.completePromptTurn(turn, result);
     if (interruptReason !== undefined) {
       const interrupted: TurnInterruptedEvent = {
         turn_id: turn.id,

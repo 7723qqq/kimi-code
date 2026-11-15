@@ -15,7 +15,7 @@ import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory'
 import { isPromptOwnedInjection, isUndoAnchor } from '#/agent/contextMemory/conversationTime';
 import { IAgentConversationUndoParticipantRegistry } from '#/agent/contextMemory/conversationUndoParticipants';
 import { userPromptSubmitHookPart } from '#/agent/contextMemory/hookParts';
-import type { ContextMessage, PromptOrigin, TaskOrigin } from '#/agent/contextMemory/types';
+import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
 import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { turnKey } from '#/agent/loop/turnOps';
@@ -980,7 +980,7 @@ describe('AgentConversationUndoService', () => {
     }
   });
 
-  it('re-delivers wait-reported task notifications after conversation undo', async () => {
+  it('does not re-deliver wait-reported task notifications after conversation undo', async () => {
     await setup();
     const undo = ctx.get(IAgentConversationUndoService);
     const tasks = ctx.get(IAgentTaskService);
@@ -1012,9 +1012,8 @@ describe('AgentConversationUndoService', () => {
     await undo.undo(1);
 
     const redelivered = ctx.context.get().filter((message) => message.origin?.kind === 'task');
-    expect(redelivered.map((message) => (message.origin as TaskOrigin).taskId).toSorted()).toEqual(
-      [taskA, taskB].toSorted(),
-    );
+    expect(redelivered).toEqual([]);
+    expect(ctx.agentState.get(taskNotificationDeliveryKey)).toHaveLength(2);
   });
 
   it('registers a participant that late-attaches inside the undo rerun window', async () => {

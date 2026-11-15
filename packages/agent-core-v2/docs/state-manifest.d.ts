@@ -1190,6 +1190,10 @@ export interface AgentStateSnapshot {
       readonly llmFirstTokenLatencyMs?: number;
       readonly llmStreamDurationMs?: number;
     };
+    readonly contentTimings?: readonly (/* ContextContentTiming — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
+      readonly startedAt?: number;
+      readonly durationMs?: number;
+    } | undefined)[];
     readonly durationMs?: number;
   })[];
   // src/agent/contextProjector/contextProjectorService.ts
@@ -1295,6 +1299,28 @@ export interface AgentStateSnapshot {
       readonly usedContextTokens?: number;
       readonly maxContextTokens?: number;
       readonly onTraceId?: (traceId: string | null) => void;
+      readonly onAttemptFailure?: (failure: /* ModelRequestAttemptFailure — packages/agent-core-v2/src/llm-adapter/model/model-requester.ts */ {
+        readonly usage?: /* TokenUsage — packages/agent-core-v2/src/human/llm/usage.ts */ {
+          inputOther: number;
+          output: number;
+          inputCacheRead: number;
+          inputCacheCreation: number;
+          raw?: Record<string, unknown>;
+        };
+        readonly messageId?: string;
+        readonly timing?: /* ModelRequestTiming — packages/agent-core-v2/src/llm-adapter/model/model-requester.ts */ {
+          readonly firstTokenLatencyMs: number;
+          readonly streamDurationMs: number;
+          readonly requestBuildMs?: number;
+          readonly serverFirstTokenMs?: number;
+          readonly serverDecodeMs?: number;
+          readonly clientConsumeMs?: number;
+          readonly clientBlockedMs?: number;
+          readonly llmFirstTokenOffsetMs?: number;
+          readonly llmLastTokenOffsetMs?: number;
+          readonly llmWindowOnFrameClock?: boolean;
+        };
+      }) => void;
     };
     readonly systemPrompt: string;
   }>;
@@ -1550,7 +1576,7 @@ export interface AgentStateSnapshot {
     readonly timeoutMs?: number;
     readonly outputPath?: string;
   }>;
-  // replayable · durable · undoable — folds: ContextAppendMessage, TaskWaitDelivered
+  // replayable · durable — folds: ContextAppendMessage, TaskWaitDelivered
   'task.notificationDelivery': readonly string[];
   'task.scheduledNotificationKeys': Set<string>;
   // src/agent/toolDedupe/toolDedupeService.ts

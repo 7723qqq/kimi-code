@@ -1053,7 +1053,7 @@ describe('AgentTaskService — notification delivery', () => {
     }
   });
 
-  it('re-delivers a terminal task notification removed by undo when output is unavailable', async () => {
+  it('does not re-deliver a terminal task notification removed by undo when output is unavailable', async () => {
     const sessionDir = await mkdtemp(join(tmpdir(), 'kimi-bg-agent-undo-'));
     let fixture: TaskServiceFixture | undefined;
     try {
@@ -1074,11 +1074,12 @@ describe('AgentTaskService — notification delivery', () => {
 
       await ctx.restorePersisted();
       await ctx.get(IAgentConversationUndoService).undo(1);
+      await ctx.get(IAgentLoopService).settled();
 
-      expect(agent.context.appendUserMessage).toHaveBeenCalledTimes(2);
+      expect(agent.context.appendUserMessage).toHaveBeenCalledTimes(1);
       expect(ctx.context.get().some((message) => message.origin?.kind === 'user')).toBe(false);
       expect(ctx.context.get().filter((message) => message.origin?.kind === 'task')).toHaveLength(
-        1,
+        0,
       );
     } finally {
       await cleanupSessionDir(sessionDir, fixture);
