@@ -1,5 +1,6 @@
 import {
   IAgentContextMemoryService,
+  IAgentConversationUndoService,
   IAgentLoopService,
   IEventBus,
   IEventDispatcher,
@@ -49,17 +50,35 @@ interface Harness {
   events: ConversationEvent[];
   setMessages(messages: readonly ContextMessage[]): void;
   setRunning(activeTurnId: number | undefined): void;
+  undoCalls(): number;
+  releaseUndo(): void;
+  setUndoBehavior(behavior: (() => void) | undefined): void;
 }
 
 async function harness(messages: readonly ContextMessage[]): Promise<Harness> {
   const bus = new FakeBus();
   let current = [...messages];
   let loop: { state: 'idle' | 'running'; activeTurnId?: number } = { state: 'idle' };
+  let undoCount = 0;
+  let undoBehavior: (() => void) | undefined;
+  let releaseUndo!: () => void;
+  const undoReleased = new Promise<void>((resolve) => {
+    releaseUndo = resolve;
+  });
+  const undoService = {
+    _serviceBrand: undefined,
+    undo: async (): Promise<void> => {
+      undoCount += 1;
+      await undoReleased;
+      undoBehavior?.();
+    },
+  };
   const services = new Map<unknown, unknown>([
     [IEventBus, bus],
     [IAgentContextMemoryService, { get: () => current }],
     [IAgentLoopService, { snapshot: () => loop }],
     [IEventDispatcher, { whenRestored: () => Promise.resolve() }],
+    [IAgentConversationUndoService, undoService],
     [ILogService, { warn: () => {} }],
   ]);
   const handle = {
@@ -85,6 +104,11 @@ async function harness(messages: readonly ContextMessage[]): Promise<Harness> {
     },
     setRunning: (activeTurnId) => {
       loop = activeTurnId === undefined ? { state: 'idle' } : { state: 'running', activeTurnId };
+    },
+    undoCalls: () => undoCount,
+    releaseUndo,
+    setUndoBehavior: (behavior) => {
+      undoBehavior = behavior;
     },
   };
 }
@@ -198,6 +222,77 @@ describe('conversation feed interruption', () => {
     expect(reasoning).toMatchObject({ text: 'plan', duration_ms: 2_500, started_at: new Date(4_000).toISOString() });
     const message = items.find((item) => item.type === 'assistant_message');
     expect(message).not.toHaveProperty('duration_ms', expect.anything());
+    test.feed.dispose();
+  });
+});
+
+describe('conversation feed item removal', () => {
+  it('announces an item that disappears from a rebuilt turn', async () => {
+    const opener = userMessage('u1', 'one');
+    const assistant: ContextMessage = {
+      role: 'assistant',
+      content: [
+        { type: 'text', text: 'first' },
+        { type: 'text', text: 'second' },
+      ],
+      toolCalls: [],
+    };
+    const test = await harness([opener, assistant]);
+    test.setRunning(1);
+    test.bus.emit(new TurnPrompt({ agentId: 'main', input: [], origin: { kind: 'user' }, promptId: 'u1', turnId: 1 }));
+    await tick();
+
+    const assistantItems = (test.feed.turns()[0]?.items ?? []).filter(
+      (item) => item.type === 'assistant_message',
+    );
+    expect(assistantItems).toHaveLength(2);
+    test.events.length = 0;
+
+    test.setMessages([
+      opener,
+      { role: 'assistant', content: [{ type: 'text', text: 'first' }], toolCalls: [] },
+    ]);
+    test.bus.emit(new TurnEnded({ agentId: 'main', turnId: 1, reason: 'completed' }));
+    await tick();
+
+    const removed = test.events.filter((event) => event.type === 'item.removed');
+    expect(removed.map((event) => event.item_id)).toEqual([assistantItems[1]!.item_id]);
+    test.feed.dispose();
+  });
+});
+
+describe('conversation feed undo', () => {
+  it('undoes a turn only once when two requests race for it', async () => {
+    const messages: ContextMessage[] = [
+      userMessage('u1', 'one'),
+      { role: 'assistant', content: [{ type: 'text', text: 'a1' }], toolCalls: [] },
+      userMessage('u2', 'two'),
+      { role: 'assistant', content: [{ type: 'text', text: 'a2' }], toolCalls: [] },
+      userMessage('u3', 'three'),
+      { role: 'assistant', content: [{ type: 'text', text: 'a3' }], toolCalls: [] },
+    ];
+    const test = await harness(messages);
+    const turns = test.feed.turns();
+    expect(turns).toHaveLength(3);
+    const target = turns[2]!.turn_id;
+
+    const first = test.feed.undo(target);
+    await tick();
+    const second = test.feed.undo(target);
+    expect(test.undoCalls()).toBe(1);
+
+    test.setUndoBehavior(() => {
+      test.setMessages(messages.slice(0, 4));
+      test.bus.emit(new TurnEnded({ agentId: 'main', turnId: 3, reason: 'completed' }));
+    });
+    test.releaseUndo();
+    const results = await Promise.allSettled([first, second]);
+    await tick();
+
+    expect(test.undoCalls()).toBe(1);
+    expect(results[0]!.status).toBe('fulfilled');
+    expect(results[1]!.status).toBe('rejected');
+    expect((results[1] as PromiseRejectedResult).reason).toMatchObject({ code: 'turn.not_found' });
     test.feed.dispose();
   });
 });

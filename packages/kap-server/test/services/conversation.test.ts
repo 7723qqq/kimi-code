@@ -23,6 +23,13 @@ const loop = (event: Record<string, unknown>): WireRecord => record('context.app
 const stepBegin = (turnId: number, step: number, uuid: string): WireRecord =>
   loop({ type: 'step.begin', uuid, turnId: String(turnId), step });
 
+const stepEnd = (
+  turnId: number,
+  step: number,
+  uuid: string,
+  extra: Record<string, unknown>,
+): WireRecord => loop({ type: 'step.end', uuid, turnId: String(turnId), step, ...extra });
+
 const contentPart = (
   turnId: number,
   step: number,
@@ -97,6 +104,37 @@ describe('conversation fold tool outcomes', () => {
     ]);
 
     expect(toolItem(state.turns[0], 'Bash_0')).toMatchObject({ outcome: 'failed', error: 'Tool "Bash" was aborted' });
+  });
+});
+
+describe('conversation fold retried steps', () => {
+  it('replaces the partial reply of a failed attempt with the attempt that retries its step', () => {
+    const failedAttempt = [
+      turnPrompt(0, 'p1'),
+      userMessage('p1', 'Which regions?'),
+      stepBegin(0, 1, 's1'),
+      contentPart(0, 1, 's1', { type: 'text', text: 'Affected: eu-west ' }, 0),
+      stepEnd(0, 1, 's1', { finishReason: 'error' }),
+    ];
+
+    const retried = fold([
+      ...failedAttempt,
+      stepBegin(0, 1, 's2'),
+      contentPart(0, 1, 's2', { type: 'text', text: 'Affected regions are eu-west and us-east.' }, 0),
+      stepEnd(0, 1, 's2', { finishReason: 'end_turn' }),
+      turnEnded(0, 'completed'),
+    ]);
+    const exhausted = fold([
+      ...failedAttempt,
+      turnEnded(0, 'failed', { error: { name: 'APIConnectionError', message: 'terminated' } }),
+    ]);
+
+    const texts = (state: ConversationState): string[] =>
+      (state.turns[0]?.items ?? []).flatMap((item) =>
+        item.type === 'assistant_message' ? [item.text] : [],
+      );
+    expect(texts(retried)).toEqual(['Affected regions are eu-west and us-east.']);
+    expect(texts(exhausted)).toEqual(['Affected: eu-west ']);
   });
 });
 

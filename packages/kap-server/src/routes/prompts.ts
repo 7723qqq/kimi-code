@@ -73,6 +73,7 @@ import type { TranscriptService } from '../services/transcript/transcriptService
 import { ensureMainAgent, MAIN_AGENT_ID } from '../transport/mainAgent';
 import { type ActionTable, resolveActionTarget, runAction } from './action-dispatch';
 import { sendEnvironmentError } from './environment';
+import { applyThinking } from './sessionAgentConfig';
 import { sendMappedError as sendSessionMappedError, sessionConflictErrors } from './sessionErrors';
 
 interface PromptRouteHost {
@@ -146,29 +147,6 @@ async function assertActivatableSkills(
       );
     }
   }
-}
-
-async function applyProfileSelection(
-  profile: IAgentProfileService,
-  profileName: string,
-  model: string | undefined,
-  thinking: string | undefined,
-): Promise<boolean> {
-  if (profile.data().profileName === profileName) return false;
-  try {
-    await profile.bind({
-      profile: profileName,
-      model,
-      thinking,
-      strictThinking: thinking !== undefined,
-    });
-  } catch (error) {
-    if (error instanceof ProfileError) {
-      throw new Error2(ErrorCodes.REQUEST_INVALID, error.message);
-    }
-    throw error;
-  }
-  return true;
 }
 
 export function registerPromptsRoutes(
@@ -291,19 +269,10 @@ export function registerPromptsRoutes(
           const promptAttachments =
             preparedMedia.attachments.length > 0 ? preparedMedia.attachments : undefined;
 
-          let thinkingConsumed = false;
-          if (req.body.profile !== undefined) {
-            thinkingConsumed =
-              (await applyProfileSelection(
-                resolved.profile,
-                req.body.profile,
-                req.body.model,
-                req.body.thinking,
-              )) && req.body.thinking !== undefined;
-          }
           if (req.body.model !== undefined) await resolved.profile.setModel(req.body.model);
-          if (req.body.thinking !== undefined && !thinkingConsumed)
-            resolved.profile.setThinking(req.body.thinking);
+          if (req.body.thinking !== undefined) {
+            applyThinking(resolved.profile, req.body.thinking);
+          }
           if (req.body.permission_mode !== undefined)
             resolved.permissionMode.setMode(req.body.permission_mode);
           if (
@@ -430,6 +399,7 @@ export function registerPromptsRoutes(
         [ErrorCode.WIRE_VERSION_TOO_LOW]: {},
         [ErrorCode.FILE_NOT_FOUND]: {},
         [ErrorCode.PROMPT_ID_CONFLICT]: {},
+        [ErrorCode.AUTH_MODEL_NOT_RESOLVED]: {},
         [ErrorCode.ENVIRONMENT_NOT_FOUND]: {},
         [ErrorCode.ENVIRONMENT_UNAVAILABLE]: {},
         ...sessionConflictErrors,
@@ -461,6 +431,7 @@ export function registerPromptsRoutes(
         [ErrorCode.WIRE_VERSION_TOO_LOW]: {},
         [ErrorCode.FILE_NOT_FOUND]: {},
         [ErrorCode.PROMPT_ID_CONFLICT]: {},
+        [ErrorCode.AUTH_MODEL_NOT_RESOLVED]: {},
         [ErrorCode.ENVIRONMENT_NOT_FOUND]: {},
         [ErrorCode.ENVIRONMENT_UNAVAILABLE]: {},
         ...sessionConflictErrors,

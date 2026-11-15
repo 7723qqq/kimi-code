@@ -421,6 +421,7 @@ describe('server-v2 /api/v1 prompts', () => {
 
   it('accepts the prompt and fails the turn at runtime when no model resolves', async () => {
     await writeConfigToml(home as string, PROMPT_TOML_NO_DEFAULT);
+    await server!.core.accessor.get(IConfigService).reload();
     const id = await createSession(home as string);
     await createMainAgent(id);
 
@@ -446,34 +447,6 @@ describe('server-v2 /api/v1 prompts', () => {
       error: { code: 'model.not_configured', message: 'Model not set' },
     });
     expect(completed).toContainEqual(expect.objectContaining({ reason: 'failed' }));
-  });
-
-  it('rejects a bound profile switch with 40001 even when the session model is stale', async () => {
-    await mkdir(join(home as string, 'agents'), { recursive: true });
-    await writeFile(
-      join(home as string, 'agents', 'route-reviewer.md'),
-      [
-        '---',
-        'name: route-reviewer',
-        'description: reviewer defined by a user-level agent file',
-        '---',
-        '',
-        'You are a route-test reviewer.',
-        '',
-      ].join('\n'),
-      'utf-8',
-    );
-    const id = await createSession(home as string);
-    await createMainAgent(id);
-    await setSessionModel(id, 'stub');
-    await writeConfigToml(home as string, PROMPT_TOML_OTHER_DEFAULT);
-
-    const submitted = await call<null>('POST', `/api/v1/sessions/${id}/prompts`, {
-      content: [{ type: 'text', text: 'hello' }],
-      profile: 'route-reviewer',
-    });
-    expect(submitted.body.code).toBe(40001);
-    expect(submitted.body.msg).toContain('already bound');
   });
 
   it('accepts the prompt and fails the turn at runtime when the session model is stale', async () => {
@@ -863,6 +836,8 @@ describe('server-v2 /api/v1 prompts', () => {
   });
 
   it('rejects an unknown bundled skill without materializing the main agent', async () => {
+    await writeConfigToml(home as string, PROMPT_TOML_NO_DEFAULT);
+    await server!.core.accessor.get(IConfigService).reload();
     const id = await createSession(home as string);
 
     const submitted = await call<null>('POST', `/api/v1/sessions/${id}/prompts`, {
@@ -876,6 +851,8 @@ describe('server-v2 /api/v1 prompts', () => {
   });
 
   it('rejects a bundled prompt_id combination before any override or agent materialization', async () => {
+    await writeConfigToml(home as string, PROMPT_TOML_NO_DEFAULT);
+    await server!.core.accessor.get(IConfigService).reload();
     const id = await createSession(home as string);
 
     const submitted = await call<null>('POST', `/api/v1/sessions/${id}/prompts`, {
@@ -975,6 +952,8 @@ describe('server-v2 /api/v1 prompts', () => {
   });
 
   it('rejects a stale file reference without creating the agent or mutating the model', async () => {
+    await writeConfigToml(home as string, PROMPT_TOML_NO_DEFAULT);
+    await server!.core.accessor.get(IConfigService).reload();
     const id = await createSession(home as string);
     const session = getLiveSessionById(server!.core.accessor, id);
 
@@ -991,6 +970,8 @@ describe('server-v2 /api/v1 prompts', () => {
   });
 
   it('rejects a mis-kinded file reference without creating the agent', async () => {
+    await writeConfigToml(home as string, PROMPT_TOML_NO_DEFAULT);
+    await server!.core.accessor.get(IConfigService).reload();
     const id = await createSession(home as string);
     const session = getLiveSessionById(server!.core.accessor, id);
 
@@ -1054,6 +1035,8 @@ describe('server-v2 /api/v1 prompts', () => {
   });
 
   it('carries a compressed uploaded image into the prompt as an internal kimi-file reference', async () => {
+    await writeConfigToml(home as string, PROMPT_TOML_NO_DEFAULT);
+    await server!.core.accessor.get(IConfigService).reload();
     const id = await createSession(home as string);
     await createMainAgent(id);
     const bigPng = solidPng(3600, 1800);
@@ -1174,6 +1157,8 @@ describe('server-v2 /api/v1 prompts', () => {
   });
 
   it('accepts a stored session-media reference after the transient upload is deleted', async () => {
+    await writeConfigToml(home as string, PROMPT_TOML_NO_DEFAULT);
+    await server!.core.accessor.get(IConfigService).reload();
     const id = await createSession(home as string);
     await createMainAgent(id);
     const smallPng = solidPng(10, 10);
@@ -1421,14 +1406,12 @@ describe('server-v2 /api/v1 prompts', () => {
     expect(content[0]?.type).toBe('image');
   });
 
-  it('gates media against the default model a same-request profile selection binds', async () => {
+  it('gates media against the default model bound when the session was created', async () => {
     await writeConfigToml(home as string, PROMPT_TOML_KIMI_VISION_DEFAULT);
     await (server as RunningServer).core.accessor.get(IConfigService).reload();
     const id = await createSession(home as string);
-    await createMainAgent(id);
 
     const submitted = await call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, {
-      profile: 'agent',
       content: [
         {
           type: 'image',
@@ -1841,6 +1824,8 @@ describe('server-v2 /api/v1 prompts', () => {
   }
 
   it('materializes file_id attachments into the bound environment tempDir, never the server-local session dir', async () => {
+    await writeConfigToml(home as string, PROMPT_TOML_NO_DEFAULT);
+    await server!.core.accessor.get(IConfigService).reload();
     const remote = await createRemoteBoundSession();
     const id = remote.id;
     try {
@@ -2061,6 +2046,8 @@ describe('server-v2 /api/v1 prompts', () => {
   });
 
   it('returns 40402 when aborting a prompt that already settled', async () => {
+    await writeConfigToml(home as string, PROMPT_TOML_NO_DEFAULT);
+    await server!.core.accessor.get(IConfigService).reload();
     const id = await createSession(home as string);
     await createMainAgent(id);
 
@@ -2068,6 +2055,10 @@ describe('server-v2 /api/v1 prompts', () => {
       content: [{ type: 'text', text: 'hello' }],
     });
     const promptId = submitted.body.data.prompt_id;
+    const session = getLiveSessionById(server!.core.accessor, id)!;
+    const agent = session.accessor.get(IAgentLifecycleService).handleOf('main')!;
+    const handle = agent.accessor.get(IAgentLoopService).promptHandle(promptId);
+    if (handle !== undefined) await handle.completion;
 
     const aborted = await call<{ aborted: boolean }>(
       'POST',
@@ -2188,86 +2179,24 @@ describe('server-v2 /api/v1 prompts', () => {
     expect(hasText).toBe(true);
   });
 
-  it('rejects an unknown agent profile with 40001', async () => {
+  it('rejects a profile on a prompt and points to session creation', async () => {
     const id = await createSession(home as string);
-    await createMainAgent(id);
 
     const { body } = await call<null>('POST', `/api/v1/sessions/${id}/prompts`, {
       content: [{ type: 'text', text: 'hello' }],
-      profile: 'agent_does_not_exist',
-      model: 'stub',
+      profile: 'agent',
     });
+
     expect(body.code).toBe(40001);
-    expect(body.msg).toContain('agent_does_not_exist');
+    expect(JSON.stringify(body)).toContain('agent_config.profile');
   });
 
-  it('binds a discovered custom agent profile on the first prompt', async () => {
-    const work = await mkdtemp(join(tmpdir(), 'kimi-server-v2-prompts-profile-'));
-    try {
-      await mkdir(join(home as string, 'agents'), { recursive: true });
-      await writeFile(
-        join(home as string, 'agents', 'route-reviewer.md'),
-        [
-          '---',
-          'name: route-reviewer',
-          'description: reviewer defined by a user-level agent file',
-          '---',
-          '',
-          'You are a route-test reviewer.',
-          '',
-        ].join('\n'),
-        'utf-8',
-      );
-      const id = await createSession(work);
-      await createMainAgent(id);
-
-      const submitted = await call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, {
-        content: [{ type: 'text', text: 'hello' }],
-        profile: 'route-reviewer',
-      });
-      expect(submitted.body.code).toBe(0);
-
-      const session = getLiveSessionById(server!.core.accessor, id);
-      if (session === undefined) throw new Error(`session ${id} not found`);
-      const main = session.accessor.get(IAgentLifecycleService).handleOf('main');
-      expect(main?.accessor.get(IAgentProfileService).data().profileName).toBe('route-reviewer');
-
-      const again = await call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, {
-        content: [{ type: 'text', text: 'again' }],
-        profile: 'route-reviewer',
-      });
-      expect(again.body.code).toBe(0);
-    } finally {
-      await rm(work, { recursive: true, force: true });
-    }
-  });
-
-  it('rejects switching to a different profile once bound', async () => {
-    const id = await createSession(home as string);
-    await createMainAgent(id);
-
-    const first = await call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, {
-      content: [{ type: 'text', text: 'hello' }],
-      model: 'stub',
-    });
-    expect(first.body.code).toBe(0);
-
-    const { body } = await call<null>('POST', `/api/v1/sessions/${id}/prompts`, {
-      content: [{ type: 'text', text: 'again' }],
-      profile: 'some-other-agent',
-      model: 'stub',
-    });
-    expect(body.code).toBe(40001);
-    expect(body.msg).toContain('already bound');
-  });
-
-  it('applies a requested thinking effort together with the profile bind', async () => {
+  it('applies a requested model and thinking effort before the prompt starts', async () => {
     const id = await createSession(home as string);
     await createMainAgent(id);
 
     const submitted = await call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, {
       content: [{ type: 'text', text: 'hello' }],
-      profile: 'agent',
       model: 'stub',
       thinking: 'high',
     });
@@ -2346,6 +2275,8 @@ describe('server-v2 /api/v1 prompts', () => {
   });
 
   it('rejects disabled_tools before the agent profile is bound', async () => {
+    await writeConfigToml(home as string, PROMPT_TOML_NO_DEFAULT);
+    await server!.core.accessor.get(IConfigService).reload();
     const id = await createSession(home as string);
     await createMainAgent(id);
 

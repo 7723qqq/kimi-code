@@ -22,10 +22,13 @@ import {
   IAgentCronService,
   IAgentEnvironmentBindingService,
   IAgentLifecycleService,
+  IAgentProfileService,
   IEnvironmentService,
   IEventBus,
   IEventDispatcher,
   IEventService,
+  IModelCatalog,
+  IModelService,
   ISessionActivityView,
   ISessionIndexMirror,
   ISessionManager,
@@ -173,6 +176,64 @@ describe('server-v2 /api/v1/sessions', () => {
       } as never).catch(() => undefined);
     }
     home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-sessions-'));
+    server = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home,
+      logLevel: 'silent',
+      debugEndpoints: true,
+    });
+    base = `http://127.0.0.1:${server.port}`;
+  }
+
+  async function restartWithModels(): Promise<void> {
+    if (server !== undefined) {
+      await server.close();
+      server = undefined;
+    }
+    const dir = home as string;
+    await writeFile(
+      join(dir, 'config.toml'),
+      [
+        'default_model = "stub"',
+        '',
+        '[providers.stub]',
+        'type = "openai"',
+        'base_url = "http://127.0.0.1:9999"',
+        'api_key = "stub"',
+        '',
+        '[models.stub]',
+        'provider = "stub"',
+        'model = "stub"',
+        'max_context_size = 1000',
+        'support_efforts = ["low", "high"]',
+        'default_effort = "low"',
+        '',
+        '[models.other]',
+        'provider = "stub"',
+        'model = "other"',
+        'max_context_size = 1000',
+        'support_efforts = ["low", "high"]',
+        'default_effort = "low"',
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+    await mkdir(join(dir, 'agents'), { recursive: true });
+    await writeFile(
+      join(dir, 'agents', 'route-reviewer.md'),
+      [
+        '---',
+        'name: route-reviewer',
+        'description: reviewer defined by a user-level agent file',
+        '---',
+        '',
+        'You are a route-test reviewer.',
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
     server = await startServer({
       hostIdentity: TEST_HOST_IDENTITY,
       host: '127.0.0.1',
@@ -513,6 +574,11 @@ describe('server-v2 /api/v1/sessions', () => {
         'model = "stub"',
         'max_context_size = 1000',
         '',
+        '[models.other]',
+        'provider = "stub"',
+        'model = "other"',
+        'max_context_size = 1000',
+        '',
       ].join('\n'),
       'utf-8',
     );
@@ -528,22 +594,186 @@ describe('server-v2 /api/v1/sessions', () => {
 
     const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
     const id = created.body.data.id;
-    expect(created.body.data.agent_config).toEqual({ model: '' });
+    expect(created.body.data.agent_config).toEqual({ model: 'stub' });
 
     const updated = await postJson<SessionWire>(`/api/v1/sessions/${id}/profile`, {
-      agent_config: { model: 'stub' },
+      agent_config: { model: 'other' },
     });
     expect(updated.body.code).toBe(0);
-    expect(updated.body.data.agent_config).toEqual({ model: 'stub' });
+    expect(updated.body.data.agent_config).toEqual({ model: 'other' });
 
     const listed = await getJson<PageWire>('/api/v1/sessions');
     const item = listed.body.data.items.find((s) => s.id === id);
-    expect(item?.agent_config).toEqual({ model: 'stub' });
+    expect(item?.agent_config).toEqual({ model: 'other' });
 
     const got = await getJson<SessionWire>(`/api/v1/sessions/${id}`);
-    expect(got.body.data.agent_config).toEqual({ model: 'stub' });
+    expect(got.body.data.agent_config).toEqual({ model: 'other' });
   });
 
+  function liveMainAgent(id: string) {
+    const session = getLiveSessionById((server as RunningServer).core.accessor, id)!;
+    return session.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID);
+  }
+
+  it('binds the main agent to the default model when the session is created', async () => {
+    await restartWithModels();
+
+    const created = await postJson<SessionWire>('/api/v1/sessions', {
+      metadata: { cwd: home as string },
+    });
+
+    expect(created.body.data.agent_config).toEqual({ model: 'stub' });
+    const main = liveMainAgent(created.body.data.id);
+    expect(main).toBeDefined();
+    expect(main!.accessor.get(IAgentProfileService).data().profileName).toBe('agent');
+    expect(readAgentState(main!, false).model).toBe('stub');
+  });
+
+  it('waits for the model configuration before choosing the creation model', async () => {
+    await restartWithModels();
+    const models = (server as RunningServer).core.accessor.get(IModelService);
+    let loaded = false;
+    let release!: () => void;
+    (models as { ready: Promise<void> }).ready = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    spyOn(models, 'getDefaultModel').mockImplementation(() => (loaded ? 'stub' : undefined));
+
+    const pending = postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd: home as string } });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    loaded = true;
+    release();
+    const created = await pending;
+
+    expect(created.body.data.agent_config).toEqual({ model: 'stub' });
+  });
+
+  it('keeps a thinking level given at creation without a model', async () => {
+    await restartWithModels();
+
+    const created = await postJson<SessionWire>('/api/v1/sessions', {
+      metadata: { cwd: home as string },
+      agent_config: { thinking: 'high' },
+    });
+
+    expect(created.body.code).toBe(0);
+    expect(readAgentState(liveMainAgent(created.body.data.id)!, false)).toMatchObject({
+      model: 'stub',
+      thinking: 'high',
+    });
+  });
+
+  it('binds the profile, model and thinking given at creation together', async () => {
+    await restartWithModels();
+
+    const created = await postJson<SessionWire>('/api/v1/sessions', {
+      metadata: { cwd: home as string },
+      agent_config: { profile: 'route-reviewer', model: 'other', thinking: 'high' },
+    });
+
+    expect(created.body.code).toBe(0);
+    const main = liveMainAgent(created.body.data.id)!;
+    expect(main.accessor.get(IAgentProfileService).data().profileName).toBe('route-reviewer');
+    expect(readAgentState(main, false)).toMatchObject({ model: 'other', thinking: 'high' });
+  });
+
+  it('rejects changing the profile after the session is created', async () => {
+    await restartWithModels();
+    const created = await postJson<SessionWire>('/api/v1/sessions', {
+      metadata: { cwd: home as string },
+    });
+
+    const updated = await postJson<SessionWire>(`/api/v1/sessions/${created.body.data.id}/profile`, {
+      agent_config: { profile: 'route-reviewer' },
+    });
+
+    expect(updated.body.code).toBe(40001);
+    expect(JSON.stringify(updated.body)).toContain('agent_config.profile');
+    const main = liveMainAgent(created.body.data.id)!;
+    expect(main.accessor.get(IAgentProfileService).data().profileName).toBe('agent');
+  });
+
+  it('rejects an unknown profile at creation and creates nothing', async () => {
+    await restartWithModels();
+    const listed = async (): Promise<string[]> =>
+      (await getJson<PageWire>('/api/v1/sessions')).body.data.items.map((session) => session.id);
+    const before = await listed();
+
+    const created = await postJson<SessionWire>('/api/v1/sessions', {
+      metadata: { cwd: home as string },
+      agent_config: { profile: 'agent_does_not_exist' },
+    });
+
+    expect(created.body.code).toBe(40001);
+    expect(created.body.msg).toContain('agent_does_not_exist');
+    expect(await listed()).toEqual(before);
+  });
+
+  it('keeps the model of an existing session when the default model changes', async () => {
+    await restartWithModels();
+    const first = await postJson<SessionWire>('/api/v1/sessions', {
+      metadata: { cwd: home as string },
+    });
+
+    await (server as RunningServer).core.accessor.get(IModelCatalog).setDefaultModel('other');
+    const second = await postJson<SessionWire>('/api/v1/sessions', {
+      metadata: { cwd: home as string },
+    });
+
+    const got = await getJson<SessionWire>(`/api/v1/sessions/${first.body.data.id}`);
+    expect(got.body.data.agent_config).toEqual({ model: 'stub' });
+    expect(second.body.data.agent_config).toEqual({ model: 'other' });
+  });
+
+  it('keeps the client flow of model at creation, then thinking and permission through the profile', async () => {
+    await restartWithModels();
+    const created = await postJson<SessionWire>('/api/v1/sessions', {
+      metadata: { cwd: home as string },
+      agent_config: { model: 'other' },
+    });
+    const id = created.body.data.id;
+
+    const updated = await postJson<SessionWire>(`/api/v1/sessions/${id}/profile`, {
+      agent_config: { thinking: 'high', permission_mode: 'yolo' },
+    });
+
+    expect(updated.body.code).toBe(0);
+    expect(readAgentState(liveMainAgent(id)!, false)).toMatchObject({
+      model: 'other',
+      thinking: 'high',
+      permission_mode: 'yolo',
+    });
+  });
+
+  it('creates a session without a model when none is available', async () => {
+    const cwd = home as string;
+    const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+
+    expect(created.body.code).toBe(0);
+    expect(created.body.data.agent_config).toEqual({ model: '' });
+    expect(liveMainAgent(created.body.data.id)).toBeUndefined();
+
+    const thinking = await postJson<SessionWire>(`/api/v1/sessions/${created.body.data.id}/profile`, {
+      agent_config: { thinking: 'high' },
+    });
+    expect(thinking.body.code).toBe(40113);
+  });
+
+  for (const agentConfig of [{ thinking: 'high' }, { profile: 'agent' }]) {
+    it(`rejects agent_config ${JSON.stringify(agentConfig)} at creation when no model is available`, async () => {
+      const listed = async (): Promise<string[]> =>
+        (await getJson<PageWire>('/api/v1/sessions')).body.data.items.map((session) => session.id);
+      const before = await listed();
+
+      const created = await postJson<SessionWire>('/api/v1/sessions', {
+        metadata: { cwd: home as string },
+        agent_config: agentConfig,
+      });
+
+      expect(created.body.code).toBe(40113);
+      expect(await listed()).toEqual(before);
+    });
+  }
 
   it('supports exclude_empty when listing sessions', async () => {
     const cwd = home as string;
@@ -909,6 +1139,65 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(created.body.data.metadata).not.toHaveProperty('child_session_kind');
     const children = await getJson<PageWire>(`/api/v1/sessions/${parentId}/children`);
     expect(children.body.data.items.some((s) => s.id === created.body.data.id)).toBe(false);
+  });
+
+  it('drops the reserved metadata keys when updating the session profile', async () => {
+    const cwd = home as string;
+    const parent = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+    const parentId = parent.body.data.id;
+    const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+    const id = created.body.data.id;
+
+    const updated = await postJson<SessionWire>(`/api/v1/sessions/${id}/profile`, {
+      metadata: {
+        cwd: '/elsewhere',
+        goal: 'not a goal',
+        parent_session_id: parentId,
+        child_session_kind: 'child',
+        source: 'composer',
+      },
+    });
+
+    expect(updated.body.code).toBe(0);
+    expect(updated.body.data.metadata).toEqual({ cwd, source: 'composer' });
+    const children = await getJson<PageWire>(`/api/v1/sessions/${parentId}/children`);
+    expect(children.body.data.items.some((s) => s.id === id)).toBe(false);
+  });
+
+  for (const patch of [
+    { source: 'composer' },
+    { parent_session_id: null, child_session_kind: null },
+    { parent_session_id: 'session_other', child_session_kind: 'child', source: 'composer' },
+  ]) {
+    it(`keeps a child session linked when its profile metadata is ${JSON.stringify(patch)}`, async () => {
+      const cwd = home as string;
+      const parent = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+      const parentId = parent.body.data.id;
+      const child = await postJson<SessionWire>(`/api/v1/sessions/${parentId}/children`, {});
+      const childId = child.body.data.id;
+
+      const updated = await postJson<SessionWire>(`/api/v1/sessions/${childId}/profile`, {
+        metadata: patch,
+      });
+
+      expect(updated.body.code).toBe(0);
+      const children = await getJson<PageWire>(`/api/v1/sessions/${parentId}/children`);
+      expect(children.body.data.items.some((s) => s.id === childId)).toBe(true);
+    });
+  }
+
+  it('replaces the custom metadata even when the profile metadata names only reserved keys', async () => {
+    const cwd = home as string;
+    const created = await postJson<SessionWire>('/api/v1/sessions', {
+      metadata: { cwd, source: 'composer' },
+    });
+
+    const updated = await postJson<SessionWire>(`/api/v1/sessions/${created.body.data.id}/profile`, {
+      metadata: { cwd: '/elsewhere' },
+    });
+
+    expect(updated.body.code).toBe(0);
+    expect(updated.body.data.metadata).toEqual({ cwd });
   });
 
   it('reports an unknown creation model as a validation error and creates nothing', async () => {

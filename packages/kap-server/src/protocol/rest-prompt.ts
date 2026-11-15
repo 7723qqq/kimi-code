@@ -6,6 +6,7 @@ import {
 import { z } from 'zod';
 
 import { messageContentSchema } from './message';
+import { creationOnlyProfileSchema } from './session';
 
 export { promptPermissionModeSchema, promptThinkingSchema };
 export type {
@@ -25,7 +26,7 @@ export const promptSubmissionSchema = z
     content: z.array(messageContentSchema).min(1),
     metadata: z.record(z.string(), z.unknown()).optional(),
     agent_id: z.string().min(1).optional(),
-    profile: z.string().min(1).optional(),
+    profile: creationOnlyProfileSchema,
     model: z.string().min(1).optional(),
     thinking: promptThinkingSchema.optional(),
     permission_mode: promptPermissionModeSchema.optional(),

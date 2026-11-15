@@ -1,5 +1,4 @@
 import {
-  CHILD_SESSION_KIND_KEY,
   ErrorCodes,
   IAgentChangeNotifierService,
   IAgentContextMemoryService,
@@ -28,7 +27,6 @@ import {
   ISessionManager,
   IWorkspaceInstanceManager,
   IWorkspaceService,
-  PARENT_SESSION_ID_KEY,
   closeSessionById,
   getLiveSessionById,
   programForSession,
@@ -95,8 +93,13 @@ import {
   sendMappedError as sendSessionMappedError,
   sessionConflictErrors,
 } from './sessionErrors';
-import { agentConfigErrors, applyAgentConfigToSession, applySessionAgentConfig } from './sessionAgentConfig';
-import { updateSessionProfile } from './sessionProfile';
+import {
+  agentConfigErrors,
+  applyAgentConfigToSession,
+  applySessionAgentConfig,
+  creationMainAgentBinding,
+} from './sessionAgentConfig';
+import { customSessionMetadata, updateSessionProfile } from './sessionProfile';
 
 interface SessionRouteHost {
   post(
@@ -264,27 +267,28 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
 
       try {
         const touched = await registry.createOrTouch(workDir);
-        const {
-          cwd: _cwd,
-          goal: _goal,
-          [PARENT_SESSION_ID_KEY]: _parentSessionId,
-          [CHILD_SESSION_KIND_KEY]: _childSessionKind,
-          ...custom
-        }: Record<string, unknown> = body.metadata ?? {};
+        const custom = customSessionMetadata(body.metadata);
         const agentConfig = body.agent_config ?? {};
-        const { model, tower_base: _towerBase, ...settings } = agentConfig;
-        const appliesAgentConfig = Boolean(model) || Object.keys(settings).length > 0;
+        const mainAgentBinding = await creationMainAgentBinding(core, agentConfig);
+        const {
+          profile: _profile,
+          model: _model,
+          thinking: _thinking,
+          ...settings
+        } = agentConfig;
+        const appliesSettings = Object.keys(settings).some((key) => key !== 'tower_base');
         const handle = await core.accessor.get(ISessionManager).create({
           workspaceId: touched.id,
           workDir,
           environmentId: body.environment_id,
           environmentCwd: body.environment_cwd,
+          mainAgentBinding,
           ensureMainAgent: body.environment_id !== undefined && body.environment_id !== 'local',
           prepare: async (session) => {
             if (Object.keys(custom).length > 0) {
               await session.accessor.get(ISessionMetadata).update({ custom });
             }
-            if (appliesAgentConfig) await applyAgentConfigToSession(session, agentConfig);
+            if (appliesSettings) await applyAgentConfigToSession(session, settings);
           },
         });
         const metadata = handle.accessor.get(ISessionMetadata);
