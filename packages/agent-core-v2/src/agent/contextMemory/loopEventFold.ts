@@ -7,7 +7,7 @@ import type { ContentPart, ToolCall } from '#human/llm/message';
 import type { TokenUsage } from '#human/llm/usage';
 
 import { shouldRenderWallTime } from './toolResultRender';
-import type { ContextMessage, ContextMessageTiming } from './types';
+import type { ContextMessage, ContextContentTiming, ContextMessageTiming } from './types';
 import { isVacuousContentPart } from './vacuousContent';
 
 const TOOL_INTERRUPTED_ON_RESUME_OUTPUT =
@@ -81,7 +81,7 @@ export type LoopRecordedEvent =
 
 export interface LoopEventFoldSink {
   openAssistant(time: number | undefined): void;
-  appendOpenContent(part: ContentPart): void;
+  appendOpenContent(part: ContentPart, timing?: ContextContentTiming): void;
   appendOpenToolCall(call: ToolCall, display?: ToolInputDisplay): void;
   dropOpenAssistant(): void;
   sealOpenAssistant(meta?: AssistantSealMeta): void;
@@ -176,7 +176,11 @@ function createLoopEventFoldWithState(
         }
         case 'content.part': {
           if (!acceptsOpenStep(event.stepUuid)) return;
-          sink.appendOpenContent(event.part);
+          const timing =
+            event.startedAt === undefined && event.durationMs === undefined
+              ? undefined
+              : { startedAt: event.startedAt, durationMs: event.durationMs };
+          sink.appendOpenContent(event.part, timing);
           openVacuous = openVacuous && isVacuousContentPart(event.part);
           return;
         }
@@ -333,8 +337,16 @@ function createFoldSink(initial: readonly ContextMessage[], initialMutable: bool
       }
       openIndex = current.length - 1;
     },
-    appendOpenContent: (part) => {
-      updateOpen((message) => ({ ...message, content: [...message.content, part] }));
+    appendOpenContent: (part, timing) => {
+      updateOpen((message) => {
+        const content = [...message.content, part];
+        if (timing === undefined && message.contentTimings === undefined) return { ...message, content };
+        const timings: (ContextContentTiming | undefined)[] = message.contentTimings === undefined
+          ? Array.from({ length: message.content.length })
+          : [...message.contentTimings];
+        timings[message.content.length] = timing;
+        return { ...message, content, contentTimings: timings };
+      });
     },
     appendOpenToolCall: (call, display) => {
       updateOpen((message) => ({

@@ -42,6 +42,30 @@ describe('loop-event fold parity', () => {
     }));
   }
 
+  it('keeps the recorded timing of each folded content part', () => {
+    const folded = foldAll(
+      [],
+      [
+        { type: 'step.begin', uuid: 's1' },
+        {
+          type: 'content.part',
+          stepUuid: 's1',
+          part: { type: 'think', think: 'plan' },
+          startedAt: 1_000,
+          durationMs: 1_500,
+        },
+        {
+          type: 'content.part',
+          stepUuid: 's1',
+          part: { type: 'text', text: 'answer' },
+        },
+        { type: 'step.end', uuid: 's1' },
+      ],
+    );
+
+    expect(folded[0]?.contentTimings).toEqual([{ startedAt: 1_000, durationMs: 1_500 }, undefined]);
+  });
+
   it('folds a text + tool-call + tool-result step into the append_message shape', () => {
     const baseline = comparable(
       appendAll(

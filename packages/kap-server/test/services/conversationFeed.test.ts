@@ -178,4 +178,26 @@ describe('conversation feed interruption', () => {
     expect(toolCallOf(test.feed, 'Bash_0')).toMatchObject({ outcome: 'failed', error: 'Tool "Bash" was aborted' });
     test.feed.dispose();
   });
+
+  it('fills the recorded reasoning duration on a rebuilt turn', async () => {
+    const opener = userMessage('u1', 'think');
+    const assistant: ContextMessage = {
+      role: 'assistant',
+      content: [{ type: 'think', think: 'plan' }, { type: 'text', text: 'answer' }],
+      toolCalls: [],
+      contentTimings: [{ startedAt: 4_000, durationMs: 2_500 }],
+    };
+    const test = await harness([opener, assistant]);
+
+    test.setRunning(1);
+    test.bus.emit(new TurnPrompt({ agentId: 'main', input: [], origin: { kind: 'user' }, promptId: 'u1', turnId: 1 }));
+    await tick();
+
+    const items = test.feed.turns()[0]?.items ?? [];
+    const reasoning = items.find((item) => item.type === 'reasoning');
+    expect(reasoning).toMatchObject({ text: 'plan', duration_ms: 2_500, started_at: new Date(4_000).toISOString() });
+    const message = items.find((item) => item.type === 'assistant_message');
+    expect(message).not.toHaveProperty('duration_ms', expect.anything());
+    test.feed.dispose();
+  });
 });

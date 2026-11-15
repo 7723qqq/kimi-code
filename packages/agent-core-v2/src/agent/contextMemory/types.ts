@@ -130,6 +130,11 @@ export interface ContextMessageTiming {
   readonly llmStreamDurationMs?: number;
 }
 
+export interface ContextContentTiming {
+  readonly startedAt?: number;
+  readonly durationMs?: number;
+}
+
 export type ContextMessage = Message & {
   readonly id?: string;
   readonly providerMessageId?: string;
@@ -139,6 +144,7 @@ export type ContextMessage = Message & {
   readonly note?: string;
   readonly usage?: TokenUsage;
   readonly llmTiming?: ContextMessageTiming;
+  readonly contentTimings?: readonly (ContextContentTiming | undefined)[];
   readonly durationMs?: number;
 };
 

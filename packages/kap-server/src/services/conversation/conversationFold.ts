@@ -359,8 +359,9 @@ function applyLegacyAssistant(
   const open = openTurn(state);
   const ownerless = open === undefined && state.pendingPrompt === undefined;
   const turn = open ?? (ownerless ? addTurn(state, time) : startTurn(state, time));
-  for (const part of message.content) {
-    const item = contentItem(part, nextItemId(turn), undefined, time);
+  for (const [index, part] of message.content.entries()) {
+    const timing = message.contentTimings?.[index];
+    const item = contentItem(part, nextItemId(turn), undefined, timing?.startedAt ?? time, timing?.durationMs);
     if (item !== undefined) turn.items.push(item);
   }
   for (const call of message.toolCalls ?? []) {
