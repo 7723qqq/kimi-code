@@ -42,8 +42,8 @@ import {
 } from '../components/dialogs/prompt-optimizer-settings';
 import {
   SettingsSelectorComponent,
-  TranscriptGroupThinkingSelectorComponent,
-  TranscriptGroupToolsSelectorComponent,
+  ThinkingDisplaySelectorComponent,
+  ToolCallDensitySelectorComponent,
   type SettingsSelection,
 } from '../components/dialogs/settings-selector';
 import { SurveyPreferenceSelectorComponent } from '../components/dialogs/survey-preference-selector';
@@ -66,6 +66,7 @@ import {
   getTuiModeRestartNotice,
   MAIN_AGENT_ID,
 } from '../constant/kimi-tui';
+import { DOCK_PREVIEW_ROWS } from '../constant/rendering';
 import type { QueuedModelSwitch } from '../types';
 import { formatErrorMessage } from '../utils/event-payload';
 import { setMarkdownMermaidMode, type MermaidRenderMode } from '../utils/markdown-options';
@@ -1311,15 +1312,16 @@ export async function applyMermaidPreferenceChoice(
   );
 }
 
-export function showTranscriptGroupToolsPicker(host: SlashCommandHost): void {
+export function showToolCallDensityPicker(host: SlashCommandHost): void {
   host.mountEditorReplacement(
-    new TranscriptGroupToolsSelectorComponent({
-      currentValue: host.state.appState.transcript.groupTools,
-      onSelect: (groupTools) => {
+    new ToolCallDensitySelectorComponent({
+      current: host.state.appState.transcript,
+      layout: host.state.dockContainer === undefined ? undefined : { maxBodyRows: DOCK_PREVIEW_ROWS },
+      onSelect: (toolCallDensity) => {
         host.restoreEditor();
         void applyTranscriptConfigChoice(host, {
           ...host.state.appState.transcript,
-          groupTools,
+          toolCallDensity,
         });
       },
       onCancel: () => {
@@ -1329,15 +1331,16 @@ export function showTranscriptGroupToolsPicker(host: SlashCommandHost): void {
   );
 }
 
-export function showTranscriptGroupThinkingPicker(host: SlashCommandHost): void {
+export function showThinkingDisplayPicker(host: SlashCommandHost): void {
   host.mountEditorReplacement(
-    new TranscriptGroupThinkingSelectorComponent({
-      currentValue: host.state.appState.transcript.groupThinking,
-      onSelect: (groupThinking) => {
+    new ThinkingDisplaySelectorComponent({
+      current: host.state.appState.transcript,
+      layout: host.state.dockContainer === undefined ? undefined : { maxBodyRows: DOCK_PREVIEW_ROWS },
+      onSelect: (thinking) => {
         host.restoreEditor();
         void applyTranscriptConfigChoice(host, {
           ...host.state.appState.transcript,
-          groupThinking,
+          thinking,
         });
       },
       onCancel: () => {
@@ -1353,8 +1356,8 @@ export async function applyTranscriptConfigChoice(
 ): Promise<void> {
   const current = host.state.appState.transcript;
   if (
-    transcript.groupTools === current.groupTools &&
-    transcript.groupThinking === current.groupThinking
+    transcript.toolCallDensity === current.toolCallDensity &&
+    transcript.thinking === current.thinking
   ) {
     host.showStatus(t('tui.messages.configTranscriptUnchanged'));
     return;
@@ -1374,8 +1377,8 @@ export async function applyTranscriptConfigChoice(
   host.setAppState({ transcript });
   applyTranscriptPresentation(host);
   host.track('transcript_display_settings', {
-    group_tools: transcript.groupTools,
-    group_thinking: transcript.groupThinking,
+    tool_call_density: transcript.toolCallDensity,
+    thinking: transcript.thinking,
     source: 'settings',
   });
   host.showStatus(t('tui.messages.configTranscriptUpdated'), 'success');
@@ -1486,11 +1489,11 @@ function handleSettingsSelection(host: SlashCommandHost, value: SettingsSelectio
     case 'tuiMode':
       showTuiModePicker(host);
       return;
-    case 'groupTools':
-      showTranscriptGroupToolsPicker(host);
+    case 'toolCallDensity':
+      showToolCallDensityPicker(host);
       return;
-    case 'groupThinking':
-      showTranscriptGroupThinkingPicker(host);
+    case 'thinking':
+      showThinkingDisplayPicker(host);
       return;
     case 'mermaid':
       showMermaidPreferencePicker(host);

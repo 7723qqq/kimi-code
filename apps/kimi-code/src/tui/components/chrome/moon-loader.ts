@@ -5,6 +5,7 @@ import { BRAILLE_SPINNER_FRAMES, MOON_LOADER_FRAME_MS, MOON_SPINNER_FRAMES } fro
 import { currentTheme } from '#/tui/theme';
 
 export type SpinnerStyle = 'moon' | 'braille';
+export type SpinnerLabel = string | ((now: number) => string);
 
 /**
  * Animated frame spinner. `render()` is the standalone row; `renderInline()`
@@ -21,11 +22,12 @@ export type SpinnerStyle = 'moon' | 'braille';
 export class MoonLoader extends Text {
   private currentFrame = 0;
   private startedAt = 0;
+  private frameTime = 0;
   private frameRequest: number | undefined;
   private ui: TUI;
   private frames: string[];
   private colorFn?: (s: string) => string;
-  private label: string;
+  private label: SpinnerLabel;
   private displayText = '';
   // Inline text used when the spinner is embedded into another line (e.g. the
   // agent-swarm progress status line). It intentionally excludes the tip: the
@@ -36,7 +38,7 @@ export class MoonLoader extends Text {
   private tip: string = '';
   private availableWidth = 0;
 
-  constructor(ui: TUI, style: SpinnerStyle = 'moon', colorFn?: (s: string) => string, label: string = '') {
+  constructor(ui: TUI, style: SpinnerStyle = 'moon', colorFn?: (s: string) => string, label: SpinnerLabel = '') {
     super('', 1, 0);
     this.ui = ui;
     this.frames = style === 'moon' ? [...MOON_SPINNER_FRAMES] : [...BRAILLE_SPINNER_FRAMES];
@@ -53,6 +55,7 @@ export class MoonLoader extends Text {
     if (this.frameRequest !== undefined) return;
     this.currentFrame = 0;
     this.startedAt = performance.now();
+    this.frameTime = this.startedAt;
     this.updateDisplay();
     this.frameRequest = this.ui.requestAnimationFrame(this.onFrame);
   }
@@ -68,10 +71,10 @@ export class MoonLoader extends Text {
   }
 
   get currentLabel(): string {
-    return this.label;
+    return typeof this.label === 'string' ? this.label : this.label(this.frameTime);
   }
 
-  setLabel(label: string): void {
+  setLabel(label: SpinnerLabel): void {
     this.label = label;
     this.updateDisplay();
   }
@@ -97,8 +100,9 @@ export class MoonLoader extends Text {
   }
 
   private readonly onFrame = (time: number): void => {
+    this.frameTime = time;
     const frame = Math.floor(Math.max(0, time - this.startedAt) / MOON_LOADER_FRAME_MS) % this.frames.length;
-    if (frame !== this.currentFrame) {
+    if (frame !== this.currentFrame || typeof this.label === 'function') {
       this.currentFrame = frame;
       this.updateDisplay();
     }
@@ -108,7 +112,8 @@ export class MoonLoader extends Text {
   private updateDisplay(): void {
     const frame = this.frames[this.currentFrame]!;
     const coloredFrame = this.colorFn ? this.colorFn(frame) : frame;
-    const baseText = this.label ? `${coloredFrame} ${this.label}` : coloredFrame;
+    const label = this.currentLabel;
+    const baseText = label ? `${coloredFrame} ${label}` : coloredFrame;
     let text = baseText;
     if (this.tip) {
       const withTip = baseText + currentTheme.fg('textDim', this.tip);

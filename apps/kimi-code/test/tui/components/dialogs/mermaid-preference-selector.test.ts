@@ -1,30 +1,15 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { visibleWidth } from '@moonshot-ai/pi-tui';
+import chalk from 'chalk';
+import { describe, expect, it, mock, onTestFinished, spyOn } from 'bun:test';
 
 import { MermaidPreferenceSelectorComponent } from '#/tui/components/dialogs/mermaid-preference-selector';
-import { SettingsSelectorComponent } from '#/tui/components/dialogs/settings-selector';
-
-// The real `t` resolves against the bundled locale trees, which tests do not
-// load, so it would hand back raw keys. Stub the strings this file asserts on.
-void mock.module('#/i18n', () => ({
-  t: (key: string) =>
-    (
-      ({
-        'tui.dialogs.mermaidPreferenceSelector.title': 'Mermaid diagrams',
-        'tui.dialogs.mermaidPreferenceSelector.on': 'On',
-        'tui.dialogs.mermaidPreferenceSelector.off': 'Off',
-        'tui.dialogs.mermaidPreferenceSelector.onDescription':
-          'Draw mermaid code blocks as diagrams in the terminal.',
-        'tui.dialogs.mermaidPreferenceSelector.offDescription':
-          'Keep mermaid code blocks as highlighted source.',
-        'tui.dialogs.settingsSelector.theme': 'Theme',
-        'tui.dialogs.settingsSelector.mermaid': 'Mermaid diagrams',
-        'tui.dialogs.settingsSelector.editor': 'Editor',
-        'tui.labels.current': '← current',
-      }) as Record<string, string>
-    )[key] ?? key,
-  setLocale: mock(),
-  getLocale: () => 'en',
-}));
+import {
+  SettingsSelectorComponent,
+  ThinkingDisplaySelectorComponent,
+  ToolCallDensitySelectorComponent,
+} from '#/tui/components/dialogs/settings-selector';
+import { TranscriptContainer } from '#/tui/components/messages/transcript-container';
+import { currentTheme, darkColors, lightColors } from '#/tui/theme';
 
 const ANSI = /\[[0-9;]*m/g;
 const strip = (s: string): string => s.replaceAll(ANSI, '');
@@ -57,6 +42,226 @@ describe('MermaidPreferenceSelectorComponent', () => {
     expect(selected).toEqual([true]);
     disabledPicker.handleInput('\r');
     expect(selected).toEqual([true, false]);
+  });
+});
+
+describe('transcript display selectors', () => {
+  it('lists the tool call and thinking settings only in fullscreen', () => {
+    const settingsText = (fullscreen: boolean): string => {
+      const picker = new SettingsSelectorComponent({
+        fullscreen,
+        onSelect: () => {},
+        onCancel: () => {},
+      });
+      const firstPage = strip(picker.render(100).join('\n'));
+      picker.handleInput('\u001B[C');
+      return `${firstPage}\n${strip(picker.render(100).join('\n'))}`;
+    };
+
+    const regular = settingsText(false);
+    expect(regular).toContain('Usage');
+    expect(regular).not.toContain('Tool call density');
+    expect(regular).not.toContain('Thinking folding');
+
+    const fullscreen = settingsText(true).split('\n');
+    expect(fullscreen).toContain('    Tool call density');
+    expect(fullscreen).toContain('    Choose how much of each tool call the transcript shows.');
+    expect(fullscreen).toContain('    Thinking folding');
+    expect(fullscreen).toContain('    Choose whether to fold finished thinking.');
+  });
+
+  it('offers compact, balanced, and detailed tool calls with the current marker', () => {
+    const onSelect = mock();
+    const picker = new ToolCallDensitySelectorComponent({
+      current: { toolCallDensity: 'balanced', thinking: 'grouped' },
+      onSelect,
+      onCancel: () => {},
+    });
+    const lines = picker.render(100).map(strip);
+    expect(lines).toContain(' Tool call density');
+    expect(lines).toContain('  ❯ Balanced ← current');
+    expect(lines).toContain('    Compact');
+    expect(lines).toContain('    Fold tool calls into one summary. Subagents and questions stay as cards.');
+    expect(lines).toContain('    Fold read-only calls. Edits and commands get one line each that you can open.');
+    expect(lines).toContain('    Detailed');
+    expect(lines).toContain('    Fold read-only calls. Edits and commands stay as full cards.');
+    expect(lines.join('\n')).not.toMatch(/ungrouped/i);
+
+    picker.handleInput('\u001B[B');
+    picker.handleInput('\r');
+    expect(onSelect).toHaveBeenCalledWith('detailed');
+  });
+
+  it('repaints an open preview when the palette changes', () => {
+    const level = chalk.level;
+    const palette = currentTheme.palette;
+    const family = currentTheme.isLight ? 'light' : 'dark';
+    onTestFinished(() => {
+      chalk.level = level;
+      currentTheme.setPalette(palette, family);
+    });
+    chalk.level = 3;
+    const open = (): ToolCallDensitySelectorComponent => new ToolCallDensitySelectorComponent({
+      current: { toolCallDensity: 'compact', thinking: 'grouped' },
+      onSelect: () => {},
+      onCancel: () => {},
+    });
+    currentTheme.setPalette(darkColors, 'dark');
+    const picker = open();
+    const dark = picker.render(100);
+
+    currentTheme.setPalette(lightColors, 'light');
+    const light = picker.render(100);
+    expect(light).not.toEqual(dark);
+    expect(light).toEqual(open().render(100));
+  });
+
+  it('marks no tool call row as current while the file holds ungrouped', () => {
+    const onSelect = mock();
+    const picker = new ToolCallDensitySelectorComponent({
+      current: { toolCallDensity: 'ungrouped', thinking: 'grouped' },
+      onSelect,
+      onCancel: () => {},
+    });
+    const text = strip(picker.render(100).join('\n'));
+    expect(text).not.toContain('← current');
+    expect(text).not.toMatch(/ungrouped/i);
+
+    picker.handleInput('\r');
+    expect(onSelect).toHaveBeenCalledWith('compact');
+  });
+
+  it('offers folding and not folding thinking with the current marker', () => {
+    const onSelect = mock();
+    const picker = new ThinkingDisplaySelectorComponent({
+      current: { toolCallDensity: 'compact', thinking: 'grouped' },
+      onSelect,
+      onCancel: () => {},
+    });
+    const lines = picker.render(100).map(strip);
+    expect(lines).toContain(' Thinking folding');
+    expect(lines).toContain('  ❯ Fold thinking ← current');
+    expect(lines).toContain('    Fold finished thinking into summary groups.');
+    expect(lines).toContain("    Don't fold thinking");
+    expect(lines).toContain('    Show each thinking block as a two-line preview.');
+
+    picker.handleInput('\u001B[B');
+    picker.handleInput('\r');
+    expect(onSelect).toHaveBeenCalledWith('ungrouped');
+  });
+});
+
+describe('transcript display previews', () => {
+  const down = '\u001B[B';
+
+  function previewOf(lines: readonly string[]): string[] {
+    const start = lines.indexOf(' Preview');
+    expect(start).toBeGreaterThan(0);
+    expect(lines[start + 1]).toBe('');
+    return lines.slice(start + 2, -1).map((line) => line.trimEnd());
+  }
+
+  it('previews each tool call density with the real transcript at one steady height', () => {
+    const picker = new ToolCallDensitySelectorComponent({
+      current: { toolCallDensity: 'compact', thinking: 'grouped' },
+      onSelect: () => {},
+      onCancel: () => {},
+    });
+    const compact = picker.render(100).map(strip);
+    picker.handleInput(down);
+    const balanced = picker.render(100).map(strip);
+    picker.handleInput(down);
+    const detailed = picker.render(100).map(strip);
+
+    expect(previewOf(compact).filter(Boolean)).toEqual([
+      '   Thought for 3s, read 1 file, ran 1 command, edited 1 file +1 -1',
+    ]);
+    expect(previewOf(balanced).filter(Boolean)).toEqual([
+      '   Thought for 3s, read 1 file',
+      ' ● Edit src/app.ts · +1 -1',
+      ' ● Bash npm test',
+    ]);
+    expect(previewOf(detailed).filter(Boolean)).toEqual([
+      '   Thought for 3s, read 1 file',
+      ' ● Used Edit (src/app.ts) · +1 -1',
+      '   +1 -1 src/app.ts',
+      '      1 - start()',
+      '      1 + start(port = 3000)',
+      ' ● Ran a command · $ npm test',
+      '   12 tests passed',
+    ]);
+    expect(new Set([compact.length, balanced.length, detailed.length]).size).toBe(1);
+    expect(detailed.at(-2)).toBe('');
+    expect(detailed.at(-1)).toMatch(/^─+$/);
+    picker.dispose();
+  });
+
+  it('previews folded thinking in the group title and unfolded thinking as two lines and a hint', () => {
+    const picker = new ThinkingDisplaySelectorComponent({
+      current: { toolCallDensity: 'balanced', thinking: 'grouped' },
+      onSelect: () => {},
+      onCancel: () => {},
+    });
+    const grouped = picker.render(100).map(strip);
+    picker.handleInput(down);
+    const ungrouped = picker.render(100).map(strip);
+
+    expect(previewOf(grouped).filter(Boolean)).toEqual([
+      '   Thought for 3s, read 1 file',
+      ' ● Edit src/app.ts · +1 -1',
+      ' ● Bash npm test',
+    ]);
+    expect(previewOf(ungrouped).filter(Boolean)).toEqual([
+      ' ● Check how the app starts before changing it.',
+      '   start() in src/app.ts takes no arguments, so the port is fixed.',
+      '   … (2 more lines, ctrl+o to expand)',
+      '   Read src/app.ts',
+      ' ● Edit src/app.ts · +1 -1',
+      ' ● Bash npm test',
+    ]);
+    expect(ungrouped).toHaveLength(grouped.length);
+    picker.dispose();
+  });
+
+  it.each([120, 32])('keeps every preview line within a %i-column picker', (width) => {
+    const pickers = [
+      new ToolCallDensitySelectorComponent({
+        current: { toolCallDensity: 'compact', thinking: 'ungrouped' },
+        onSelect: () => {},
+        onCancel: () => {},
+      }),
+      new ThinkingDisplaySelectorComponent({
+        current: { toolCallDensity: 'detailed', thinking: 'grouped' },
+        onSelect: () => {},
+        onCancel: () => {},
+      }),
+    ];
+    for (const picker of pickers) {
+      for (let step = 0; step < 3; step++) {
+        const rendered = picker.render(width);
+        expect(rendered.map(strip)).toContain(' Preview');
+        expect(rendered.every((line) => visibleWidth(line) <= width)).toBe(true);
+        picker.handleInput(down);
+      }
+      picker.dispose();
+    }
+  });
+
+  it('draws the previews without arming frames and releases them when the picker closes', () => {
+    const dispose = spyOn(TranscriptContainer.prototype, 'dispose');
+    onTestFinished(() => {
+      dispose.mockRestore();
+    });
+    const picker = new ToolCallDensitySelectorComponent({
+      current: { toolCallDensity: 'compact', thinking: 'grouped' },
+      onSelect: () => {},
+      onCancel: () => {},
+    });
+    picker.render(100);
+    expect(dispose).not.toHaveBeenCalled();
+
+    picker.dispose();
+    expect(dispose).toHaveBeenCalledTimes(3);
   });
 });
 

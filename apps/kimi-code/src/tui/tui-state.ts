@@ -3,6 +3,7 @@ import {
   TuiAltScreen,
   TuiMainScreen,
   VStack,
+  type Component,
 } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
@@ -13,6 +14,7 @@ import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 import { openUrl } from '#/utils/open-url';
 import { SYSTEM_RENDER_CLOCK } from '#/utils/render-clock';
 
+import { DockSection } from './components/chrome/dock-section';
 import { FooterComponent } from './components/chrome/footer';
 import { GutterContainer } from './components/chrome/gutter-container';
 import { NotifyPanelComponent } from './components/chrome/notify-panel';
@@ -147,6 +149,7 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
 
   let transcriptView: TranscriptView | undefined;
   let dockContainer: VStack | undefined;
+  let editorSlot: VStack | undefined;
   if (ui instanceof TuiAltScreen) {
     // Fullscreen (alternate screen): the transcript scrolls inside the primary
     // ScrollView while the rest of the chrome stays docked at the bottom. The
@@ -187,7 +190,9 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
       // follow a resize, unlike the constant panel caps above.
       maxSize: () => Math.floor(terminal.rows * 0.5),
     });
-    dockContainer.addChild(editorContainer, { shrink: 1, minSize: 3 });
+    editorSlot = new VStack();
+    editorSlot.addChild(editorContainer, EDITOR_SLOT_ENTRY);
+    dockContainer.addChild(editorSlot, EDITOR_SLOT_ENTRY);
     const root = new VStack();
     root.addChild(fullscreenView, { basis: 0, grow: 1, shrink: 1, minSize: 1 });
     root.addChild(dockContainer, { basis: 'auto', grow: 0, shrink: 1, minSize: 1 });
@@ -215,6 +220,7 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
     btwPanelContainer,
     surveyContainer,
     editorContainer,
+    editorSlot,
     dockContainer,
     editor,
     footer,
@@ -241,4 +247,42 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
     swarmModeEntry: undefined,
     helloWorldModeEntry: undefined,
   };
+}
+
+// The editor never shrinks below its 3 rows (top border / input / bottom
+// border), and neither does whatever stands in for it.
+const EDITOR_SLOT_ENTRY = { shrink: 1, minSize: 3 } as const;
+
+/**
+ * Show `component` where the editor sits. A docked section (fullscreen) joins
+ * the layout directly so its body can scroll; anything else goes through
+ * `editorContainer`, which pads it like the rest of the chrome.
+ */
+export function setEditorSlot(
+  state: Pick<TUIState, 'editorContainer' | 'editorSlot'>,
+  component: Component,
+): void {
+  const { editorContainer, editorSlot } = state;
+  editorContainer.clear();
+  if (editorSlot === undefined) {
+    editorContainer.addChild(component);
+    return;
+  }
+  editorSlot.clear();
+  if (component instanceof DockSection && component.layout !== undefined) {
+    editorSlot.addChild(component, EDITOR_SLOT_ENTRY);
+    return;
+  }
+  editorContainer.addChild(component);
+  editorSlot.addChild(editorContainer, EDITOR_SLOT_ENTRY);
+}
+
+/** What stands where the editor sits: the editor itself or a panel that replaced it. */
+export function editorSlotComponent(
+  state: Pick<TUIState, 'editorContainer' | 'editorSlot'>,
+): Component | undefined {
+  const slotted = state.editorSlot?.children[0];
+  return slotted === undefined || slotted === state.editorContainer
+    ? state.editorContainer.children[0]
+    : slotted;
 }

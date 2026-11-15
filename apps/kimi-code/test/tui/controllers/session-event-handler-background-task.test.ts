@@ -8,9 +8,11 @@ import {
   type SubagentLifecycleEvent,
 } from '#/tui/controllers/subagent-event-handler';
 import { getBuiltInPalette } from '#/tui/theme';
+import { TurnTimeline } from '#/tui/utils/turn-timeline';
 
 function makeStreamingUIStub() {
   return {
+    timeline: new TurnTimeline(),
     getToolComponent: jest.fn(() => undefined),
     getActiveToolCall: jest.fn(() => undefined),
     onToolCallStart: jest.fn(),

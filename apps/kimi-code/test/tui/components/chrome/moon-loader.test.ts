@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, mock, type Mock } from 'bun:test';
 
 import type { TUI } from '@moonshot-ai/pi-tui';
 
-import { MoonLoader, type SpinnerStyle } from '#/tui/components/chrome/moon-loader';
+import { MoonLoader, type SpinnerLabel, type SpinnerStyle } from '#/tui/components/chrome/moon-loader';
 import { MOON_LOADER_FRAME_MS } from '#/tui/constant/rendering';
 
 // Ownership contract: a MoonLoader arms nothing in its constructor, so a loader
@@ -19,7 +19,7 @@ interface FrameDriver {
 
 function createLoader(
   style: SpinnerStyle = 'moon',
-  label = '',
+  label: SpinnerLabel = '',
   start = false,
 ): FrameDriver {
   const queue = new Map<number, (time: number) => void>();
@@ -144,5 +144,24 @@ describe('MoonLoader frame ownership', () => {
     // Only the tip arriving changed any character; the re-applied label, the
     // re-applied tip and the width change that keeps the same text repaint nothing.
     expect(requestRender).toHaveBeenCalledTimes(2);
+  });
+
+  it('evaluates a live label at each animation frame time without a timer of its own', () => {
+    const startedAt = performance.now();
+    const { loader, runFrame } = createLoader(
+      'braille',
+      (now) => `Working for ${String(Math.floor((now - startedAt) / 1000))}s`,
+      true,
+    );
+    expect(loader.renderInline()).toBe('⠋ Working for 0s');
+    expect(loader.currentLabel).toBe('Working for 0s');
+
+    runFrame(startedAt + 2_000);
+    expect(loader.renderInline()).toMatch(/^\S Working for 2s$/u);
+    expect(loader.currentLabel).toBe('Working for 2s');
+
+    loader.setLabel('Compacting…');
+    expect(loader.renderInline()).toMatch(/^\S Compacting…$/u);
+    loader.stop();
   });
 });

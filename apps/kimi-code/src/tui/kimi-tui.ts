@@ -175,7 +175,7 @@ import type { ApprovalPanelData, QuestionPanelData } from './reverse-rpc/types';
 import type { TUIState } from './state';
 import { currentTheme, getColorPalette, getBuiltInPalette, isBuiltInTheme } from './theme';
 import type { ColorToken, ResolvedTheme, ThemeName } from './theme';
-import { createTUIState } from './tui-state';
+import { createTUIState, setEditorSlot } from './tui-state';
 import type { EnvironmentSlotState } from './types';
 import {
   INITIAL_LIVE_PANE,
@@ -605,6 +605,7 @@ export class KimiTUI {
           })
         : undefined;
     this.streamingUI = new StreamingUIController(this);
+    this.state.transcriptContainer.setTimeline(this.streamingUI.timeline);
     this.authFlow = new AuthFlowController(this);
     this.btwPanelController = new BtwPanelController(this, this.imageStore, this.staging);
     this.sessionEventHandler = new SessionEventHandler(this);
@@ -991,8 +992,7 @@ export class KimiTUI {
     void this.loadBanner();
     this.setupAutocomplete();
     void this.loadPersistedInputHistory();
-    this.state.editorContainer.clear();
-    this.state.editorContainer.addChild(this.state.editor);
+    setEditorSlot(this.state, this.state.editor);
     this.state.ui.setFocus(this.state.editor);
     this.applyRecommendedEffortInBackground();
     this.refreshModelSwitchConfirmConfigInBackground();
@@ -1185,8 +1185,8 @@ export class KimiTUI {
     this.sessionEventHandler.notifications.setEnabled(isExperimentalFlagEnabled('notify_user'));
     if (this.state.ui.mode === 'fullscreen') {
       this.track('transcript_display_settings', {
-        group_tools: this.state.appState.transcript.groupTools,
-        group_thinking: this.state.appState.transcript.groupThinking,
+        tool_call_density: this.state.appState.transcript.toolCallDensity,
+        thinking: this.state.appState.transcript.thinking,
         source: 'startup',
       });
     }
@@ -2253,6 +2253,7 @@ export class KimiTUI {
   }
 
   beginSessionRequest(): void {
+    this.streamingUI.timeline.turnStarted();
     this.cacheHint.onTurnBegin();
     this.streamingUI.setTurnId(undefined);
     this.streamingUI.resetLiveText();
@@ -2271,6 +2272,7 @@ export class KimiTUI {
   }
 
   failSessionRequest(message: string): void {
+    this.streamingUI.timeline.turnEnded();
     this.programStatus.failRequest(message);
     this.setAppState({ streamingPhase: 'idle' });
     this.resetLivePane();
@@ -3067,6 +3069,9 @@ export class KimiTUI {
       this.state.transcriptContainer.removeChild(child);
       if (hasDispose(child)) child.dispose();
     }
+    this.streamingUI.timeline.forget(
+      componentsToRemove.flatMap((child) => (child instanceof ToolCallComponent ? [child.toolCallView.id] : [])),
+    );
     this.state.transcriptEntries = this.state.transcriptEntries.filter((e) => !doomed.has(e));
     this.state.ui.requestRender();
   }
@@ -3222,9 +3227,6 @@ export class KimiTUI {
     const busyChanged = 'streamingPhase' in patch || 'isCompacting' in patch;
     const sessionTitleChanged = 'sessionTitle' in patch;
     Object.assign(this.state.appState, patch);
-    if ('streamingPhase' in patch) {
-      this.state.transcriptContainer.setTurnActive(this.state.appState.streamingPhase !== 'idle');
-    }
     if ('planMode' in patch) this.updateEditorBorderHighlight();
     this.state.footer.setState(this.state.appState);
     this.updateActivityPane();
@@ -3591,6 +3593,7 @@ export class KimiTUI {
         },
         () => this.resolveApprovalEnvironment(),
         this.programStatus,
+        this.streamingUI.timeline,
       ),
     );
     session.setQuestionHandler(
@@ -4161,6 +4164,7 @@ export class KimiTUI {
     this.disposeTranscriptChildren();
     this.state.transcriptContainer.dispose();
     this.state.transcriptContainer.clear();
+    this.streamingUI.timeline.reset();
     this.btwPanelController.clear();
     this.clearTerminalInlineImages();
     this.sessionEventHandler.notifications.clear();

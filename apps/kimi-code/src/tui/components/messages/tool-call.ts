@@ -84,7 +84,7 @@ import { agentSwarmResultSummaryFromOutput } from './agent-swarm-progress';
 import { PlanBoxComponent } from './plan-box';
 import { ShellExecutionComponent } from './shell-execution';
 import { chipText } from './tool-renderers/chip';
-import { buildGoalToolHeader, parseGoalToolOutput } from './tool-renderers/goal';
+import { buildGoalToolHeader, isGoalToolName, parseGoalToolOutput } from './tool-renderers/goal';
 import { searchNoticeOnly } from './tool-renderers/grep-output';
 import { parseReadMediaOutput } from './tool-renderers/media';
 import { nonEmptyLines, outcomeLine, outcomeRows } from './tool-renderers/outcome';
@@ -957,6 +957,20 @@ export class ToolCallComponent extends Container {
     const lines = partLines.flat();
     this.rowDetailCache = { width, lines, parts, partLines };
     return lines;
+  }
+
+  statusMarker(): string {
+    const { toolCall, result } = this;
+    if (result === undefined) {
+      if (toolCall.truncated === true) return currentTheme.fg('error', FAILURE_MARK);
+      return currentTheme.fg('text', STATUS_BULLET);
+    }
+    if (result.is_error === true) return currentTheme.fg('error', FAILURE_MARK);
+    if (isGoalToolName(toolCall.name)) return currentTheme.fg('primary', STATUS_BULLET);
+    if (toolCall.name === 'WaitFor' && parseWaitForOutput(result.output)?.status === 'timed_out') {
+      return currentTheme.fg('warning', STATUS_BULLET);
+    }
+    return currentTheme.fg('success', STATUS_BULLET);
   }
 
   override invalidate(): void {
@@ -1980,16 +1994,7 @@ export class ToolCallComponent extends Container {
     const isError = result?.is_error ?? false;
     const isTruncated = toolCall.truncated === true && !isFinished;
 
-    let bullet: string;
-    if (isFinished) {
-      bullet = isError ? currentTheme.fg('error', '✗ ') : currentTheme.fg('success', STATUS_BULLET);
-    } else if (isTruncated) {
-      bullet = currentTheme.fg('error', '✗ ');
-    } else {
-      // Solid bullet for in-flight tools — the previous marker ↔ blank
-      // toggle caused visible flicker on every re-render.
-      bullet = currentTheme.fg('text', STATUS_BULLET);
-    }
+    const bullet = this.statusMarker();
 
     if (toolCall.name === 'NotifyUser' && isExperimentalFlagEnabled('notify_user')) {
       // An update card: the badge marks it as a notification rather than a tool

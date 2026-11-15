@@ -5,9 +5,11 @@ import type { TuiMouseEvent } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
 import { FooterComponent } from '#/tui/components/chrome/footer';
+import { getTranscriptGroupingTip } from '#/tui/constant/tips';
 import { setRainbowDance, type RainbowDanceController } from '#/tui/easter-eggs/dance';
 import { currentTheme, darkColors, lightColors } from '#/tui/theme';
 import type { AppState } from '#/tui/types';
+import { SYSTEM_RENDER_CLOCK } from '#/utils/render-clock';
 import { createEmptySessionStats } from '#/tui/utils/session-stats';
 import * as actualGitStatus from '#/utils/git/git-status';
 import { waitForAssertion } from '#test/helpers/waitFor';
@@ -94,7 +96,7 @@ const appState: AppState = {
   editorCommand: null,
   notifications: { enabled: true, condition: 'unfocused' },
   upgrade: { autoInstall: true },
-  transcript: { groupTools: 'auto', groupThinking: true },
+  transcript: { toolCallDensity: 'compact', thinking: 'grouped' },
   availableModels: {},
   availableProviders: {},
   mcpServersSummary: null,
@@ -453,6 +455,72 @@ describe('FooterComponent ctrl+o hint with a status_line command', () => {
     expect(line2).toContain('ctrl+o expand');
     expect(line2).toContain('context:');
     footer.dispose();
+  });
+});
+
+describe('transcript grouping tip', () => {
+  function footerAt(state: AppState, fullscreen: boolean, step: number): FooterComponent {
+    const clock = { ...SYSTEM_RENDER_CLOCK, now: () => step * 10_000 };
+    return new FooterComponent(state, () => {}, clock, fullscreen);
+  }
+
+  function showsGroupingTip(state: AppState, fullscreen: boolean): boolean {
+    const text = getTranscriptGroupingTip().text;
+    for (let step = 0; step < 40; step += 1) {
+      const footer = footerAt(state, fullscreen, step);
+      const shown = footer.render(240)[0]?.includes(text) ?? false;
+      footer.dispose();
+      if (shown) return true;
+    }
+    return false;
+  }
+
+  it('appears only when the running fullscreen UI has settings that create groups', () => {
+    const fullscreenState = { ...appState, tuiMode: 'fullscreen' as const };
+    expect(showsGroupingTip(fullscreenState, true)).toBe(true);
+
+    expect(showsGroupingTip({
+      ...fullscreenState,
+      transcript: { toolCallDensity: 'detailed', thinking: 'ungrouped' },
+    }, true)).toBe(true);
+
+    expect(showsGroupingTip({
+      ...fullscreenState,
+      transcript: { toolCallDensity: 'ungrouped', thinking: 'ungrouped' },
+    }, true)).toBe(false);
+
+    expect(showsGroupingTip({
+      ...fullscreenState,
+      transcript: { toolCallDensity: 'ungrouped', thinking: 'grouped' },
+    }, true)).toBe(true);
+
+    expect(showsGroupingTip({ ...appState, tuiMode: 'regular' }, false)).toBe(false);
+
+    const tipText = getTranscriptGroupingTip().text;
+    const showsAfterSwitch = (
+      initial: AppState,
+      fullscreen: boolean,
+      next: AppState,
+    ): boolean => {
+      for (let step = 0; step < 40; step += 1) {
+        const footer = footerAt(initial, fullscreen, step);
+        footer.setState(next);
+        const shown = footer.render(240)[0]?.includes(tipText) ?? false;
+        footer.dispose();
+        if (shown) return true;
+      }
+      return false;
+    };
+    expect(showsAfterSwitch(
+      { ...appState, tuiMode: 'regular' },
+      false,
+      { ...appState, tuiMode: 'fullscreen' },
+    )).toBe(false);
+    expect(showsAfterSwitch(
+      fullscreenState,
+      true,
+      { ...fullscreenState, tuiMode: 'regular' },
+    )).toBe(true);
   });
 });
 

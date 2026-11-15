@@ -7,6 +7,10 @@ interface ScheduledTimer {
   cancelled: boolean;
 }
 
+interface FakeTimerHandle extends RenderTimerHandle {
+  cancel(): void;
+}
+
 export interface FakeClock extends RenderClock {
   set(nowMs: number): void;
   advance(byMs: number): void;
@@ -29,8 +33,11 @@ export function createFakeClock(startMs = 0): FakeClock {
       cancelled: false,
     };
     timers.push(timer);
-    const handle: RenderTimerHandle = {
-      unref: () => {
+    const handle: FakeTimerHandle = {
+      // Fake timers never hold the process open; mirror Node's `unref` by
+      // leaving the timer armed and returning the handle for chaining.
+      unref: () => handle,
+      cancel: () => {
         timer.cancelled = true;
       },
     };
@@ -38,7 +45,7 @@ export function createFakeClock(startMs = 0): FakeClock {
   };
 
   const cancel = (handle: RenderTimerHandle): void => {
-    handle.unref?.();
+    (handle as Partial<FakeTimerHandle>).cancel?.();
   };
 
   const nextDue = (limit: number): ScheduledTimer | undefined => {

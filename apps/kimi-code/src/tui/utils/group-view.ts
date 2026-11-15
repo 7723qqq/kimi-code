@@ -1,0 +1,411 @@
+import { sliceByColumn, visibleWidth } from '@moonshot-ai/pi-tui';
+
+import { t } from '#/i18n';
+import {
+  TRANSCRIPT_GROUP_TAIL_ELAPSED_MS,
+  TRANSCRIPT_TAIL_ENTER_MS,
+  TRANSCRIPT_TAIL_MIN_NAME_COLUMNS,
+  TRANSCRIPT_TAIL_TIMER_COLUMNS,
+  TRUNCATION_ELLIPSIS,
+} from '#/tui/constant/rendering';
+import { decodeMcpToolName } from '#/tui/utils/mcp-tool-name';
+import {
+  formatDuration,
+  type ItemStatus,
+  type LogicalTranscriptItem,
+  type SummaryEvent,
+} from '#/tui/utils/transcript-items';
+import {
+  countedAt,
+  phaseAt,
+  preparingAt,
+  settledAt,
+  slowAt,
+  slowSince,
+  thinkingTextAt,
+  turnLiveAt,
+  type CallFacts,
+  type Instant,
+  type TimelineReader,
+} from '#/tui/utils/turn-timeline';
+
+type NonEmpty<T> = readonly [T, ...T[]];
+
+export interface GroupViewInput {
+  readonly members: NonEmpty<LogicalTranscriptItem>;
+  readonly pending: readonly LogicalTranscriptItem[];
+  readonly last: boolean;
+  readonly timeline: TimelineReader;
+}
+
+export type RowStatus =
+  | { readonly kind: 'running'; readonly since?: Instant }
+  | Exclude<ItemStatus, { readonly kind: 'running' }>;
+
+export type GroupTitleView =
+  | {
+      readonly kind: 'summary';
+      readonly text: string;
+      readonly added: number;
+      readonly removed: number;
+      readonly failed: number;
+      readonly interrupted: number;
+    }
+  | { readonly kind: 'item'; readonly item: LogicalTranscriptItem; readonly status: RowStatus };
+
+export interface RunningKind {
+  readonly verb: string;
+  readonly names: NonEmpty<string>;
+}
+
+export type TailView =
+  | { readonly kind: 'blank' }
+  | { readonly kind: 'running'; readonly kinds: NonEmpty<RunningKind>; readonly since: Instant }
+  | { readonly kind: 'thinking'; readonly text: string }
+  | { readonly kind: 'preparing'; readonly tool: string | undefined; readonly since: Instant }
+  | { readonly kind: 'waiting'; readonly since: Instant }
+  | { readonly kind: 'thought'; readonly text: string };
+
+export interface GroupView {
+  readonly title: GroupTitleView;
+  readonly tail: TailView | undefined;
+  readonly working: boolean;
+  readonly live: boolean;
+}
+
+interface ToolKind {
+  readonly events: readonly SummaryEvent['kind'][];
+  readonly verbKey: string;
+  readonly presentKey: string;
+  readonly pastKey: string;
+  readonly countsPaths?: true;
+  readonly names: 'subject' | 'row';
+}
+
+const SUMMARY = 'tui.messages.transcriptGroups.summary';
+const VERBS = 'tui.messages.transcriptGroups.verbs';
+const TAIL = 'tui.messages.transcriptGroups.tail';
+
+const OTHER_TOOLS: ToolKind = {
+  events: ['query', 'other'],
+  verbKey: 'tool',
+  presentKey: 'usingTool',
+  pastKey: 'tool',
+  names: 'row',
+};
+
+export const TOOL_KINDS: readonly ToolKind[] = [
+  { events: ['read'], verbKey: 'read', presentKey: 'reading', pastKey: 'read', countsPaths: true, names: 'subject' },
+  { events: ['search'], verbKey: 'search', presentKey: 'searching', pastKey: 'search', names: 'subject' },
+  { events: ['fetch'], verbKey: 'fetch', presentKey: 'fetching', pastKey: 'fetch', names: 'subject' },
+  { events: ['webSearch'], verbKey: 'webSearch', presentKey: 'webSearching', pastKey: 'webSearch', names: 'subject' },
+  { events: ['skill'], verbKey: 'skill', presentKey: 'loadingSkill', pastKey: 'skill', names: 'subject' },
+  { events: ['todo'], verbKey: 'todo', presentKey: 'updatingTodos', pastKey: 'todos', names: 'subject' },
+  { events: ['command'], verbKey: 'command', presentKey: 'runningCommand', pastKey: 'command', names: 'subject' },
+  { events: ['edit'], verbKey: 'edit', presentKey: 'editing', pastKey: 'edit', countsPaths: true, names: 'subject' },
+  { events: ['taskCheck'], verbKey: 'taskCheck', presentKey: 'checkingTask', pastKey: 'taskCheck', names: 'subject' },
+  { events: ['mcp'], verbKey: 'mcp', presentKey: 'callingMcp', pastKey: 'mcp', names: 'subject' },
+  OTHER_TOOLS,
+];
+
+const BLANK: TailView = { kind: 'blank' };
+
+interface MemberState {
+  readonly item: LogicalTranscriptItem;
+  readonly facts: CallFacts | undefined;
+  readonly status: RowStatus;
+}
+
+interface Bucket {
+  readonly kind: ToolKind;
+  readonly server: string | undefined;
+  readonly members: [MemberState, ...MemberState[]];
+}
+
+export function deriveGroupView(input: GroupViewInput, now: Instant): GroupView {
+  const { timeline } = input;
+  const [first, ...rest] = input.members;
+  const state = (item: LogicalTranscriptItem): MemberState => memberState(item, timeline, now);
+  const members: NonEmpty<MemberState> = [state(first), ...rest.map(state)];
+  const title = deriveTitle(members, now);
+  const owned = input.last && ownsLiveTurn(input, members, now);
+  let tail = input.last ? BLANK : undefined;
+  if (owned) tail = deriveTail(input, members, now);
+  if (tail !== undefined && tailBody(tail) === titleText(title)) tail = BLANK;
+  const working = owned || members.some((member) => phaseAt(member.facts, now).kind === 'executing');
+  const calls = [...members.map((member) => member.facts), ...input.pending.map((item) => factsOf(item, timeline))];
+  return {
+    title,
+    tail,
+    working,
+    live: working || calls.some((facts) => facts !== undefined && !settledAt(facts, now)),
+  };
+}
+
+export function rowStatusOf(item: LogicalTranscriptItem, timeline: TimelineReader, now: Instant): RowStatus {
+  if (item.status.kind !== 'running') return item.status;
+  if (item.callId === undefined) {
+    const thinking = item.family === 'thinking' ? timeline.latestThinking(now) : undefined;
+    return { kind: 'running', since: thinking?.end === undefined ? thinking?.start : undefined };
+  }
+  const facts = timeline.call(item.callId);
+  if (facts === undefined) return { kind: 'done' };
+  const { settle } = facts;
+  if (settle === undefined || settle.at > now) return { kind: 'running', since: facts.start };
+  return settle.kind === 'result' ? { kind: 'done' } : { kind: 'interrupted' };
+}
+
+export function titleText(title: GroupTitleView): string {
+  return title.kind === 'summary' ? title.text : itemText(title.item);
+}
+
+export function tailText(tail: TailView, columns: number, now: Instant): string {
+  let text: string;
+  switch (tail.kind) {
+    case 'blank': return '';
+    case 'thinking':
+    case 'thought':
+      text = clip(tail.text, columns);
+      break;
+    case 'running':
+      text = timed((room) => fitRunningTail(tail.kinds, room), tail.since, columns, now);
+      break;
+    case 'preparing':
+    case 'waiting':
+      text = timed((room) => clip(tailBody(tail), room), tail.since, columns, now);
+      break;
+  }
+  return clip(text, columns);
+}
+
+export function fitRunningTail(kinds: NonEmpty<RunningKind>, room: number): string {
+  const most = Math.max(...kinds.map((kind) => kind.names.length));
+  for (let perKind = most; perKind >= 1; perKind--) {
+    const text = runningBody(kinds, perKind, Infinity);
+    if (visibleWidth(text) <= room) return text;
+  }
+  const longest = Math.max(...kinds.map((kind) => visibleWidth(kind.names[0])));
+  for (let nameWidth = Math.min(longest - 1, room); nameWidth >= TRANSCRIPT_TAIL_MIN_NAME_COLUMNS; nameWidth--) {
+    const text = runningBody(kinds, 1, nameWidth);
+    if (visibleWidth(text) <= room) return text;
+  }
+  return clip(runningBody(kinds, 1, TRANSCRIPT_TAIL_MIN_NAME_COLUMNS), room);
+}
+
+export function elapsedText(since: Instant, now: Instant): string {
+  const elapsed = now - since;
+  return elapsed >= TRANSCRIPT_GROUP_TAIL_ELAPSED_MS ? ` · ${formatDuration(elapsed)}` : '';
+}
+
+export function itemText(item: LogicalTranscriptItem): string {
+  const { verb, subject } = item.label;
+  return subject === undefined ? verb : `${verb} ${oneLine(subject)}`;
+}
+
+export function oneLine(subject: string): string {
+  const newline = subject.indexOf('\n');
+  return newline < 0 ? subject : `${subject.slice(0, newline)}${TRUNCATION_ELLIPSIS}`;
+}
+
+function memberState(item: LogicalTranscriptItem, timeline: TimelineReader, now: Instant): MemberState {
+  return { item, facts: factsOf(item, timeline), status: rowStatusOf(item, timeline, now) };
+}
+
+function factsOf(item: LogicalTranscriptItem, timeline: TimelineReader): CallFacts | undefined {
+  return item.callId === undefined ? undefined : timeline.call(item.callId);
+}
+
+function deriveTitle(members: NonEmpty<MemberState>, now: Instant): GroupTitleView {
+  const [first, ...rest] = members;
+  if (rest.length === 0 && first.status.kind !== 'running') {
+    return { kind: 'item', item: first.item, status: first.status };
+  }
+  const fragments: string[] = [];
+  const thoughts = members.filter((member) => member.item.event.kind === 'thought');
+  if (thoughts.length > 0) fragments.push(thoughtFragment(thoughts));
+  const counted = members.filter((member) => member.item.event.kind !== 'thought' && countedAt(member.facts, now));
+  for (const bucket of bucketsOf(counted)) fragments.push(countFragment(bucket));
+  let added = 0;
+  let removed = 0;
+  for (const { item, status } of counted) {
+    if (item.event.kind !== 'edit' || status.kind === 'failed' || status.kind === 'interrupted') continue;
+    added += item.event.added;
+    removed += item.event.removed;
+  }
+  return {
+    kind: 'summary',
+    text: capitalize(fragments.length > 0 ? fragments.join(', ') : categoryOf(members)),
+    added,
+    removed,
+    failed: counted.filter((member) => member.status.kind === 'failed').length,
+    interrupted: counted.filter((member) => member.status.kind === 'interrupted').length,
+  };
+}
+
+function thoughtFragment(thoughts: readonly MemberState[]): string {
+  if (thoughts.some((member) => member.status.kind === 'running')) return t(`${SUMMARY}.thinking`);
+  let totalMs = 0;
+  for (const { item } of thoughts) {
+    if (item.event.kind !== 'thought' || item.event.durationMs === undefined) return t(`${SUMMARY}.thought`);
+    totalMs += item.event.durationMs;
+  }
+  return t(`${SUMMARY}.thoughtFor`, { duration: formatDuration(totalMs) });
+}
+
+function countFragment(bucket: Bucket): string {
+  const { kind, members } = bucket;
+  const present = members.some((member) => member.status.kind === 'running');
+  const key = present ? kind.presentKey : kind.pastKey;
+  const count = kind.countsPaths === true
+    ? new Set(members.map((member) => pathOf(member.item.event))).size
+    : members.length;
+  const params: Record<string, string | number> = { count };
+  if (bucket.server !== undefined) params['server'] = bucket.server;
+  return t(summaryKey(key, count), params);
+}
+
+function categoryOf(members: NonEmpty<MemberState>): string {
+  for (const { item } of members) {
+    const kind = kindOf(item.event);
+    if (kind === undefined) continue;
+    return withServer(t(`tui.messages.transcriptGroups.category.${kind.verbKey}`), serverOf(item.event));
+  }
+  return t(`tui.messages.transcriptGroups.category.${OTHER_TOOLS.verbKey}`);
+}
+
+function bucketsOf(members: readonly MemberState[]): readonly Bucket[] {
+  const buckets: Bucket[] = [];
+  for (const member of members) {
+    const kind = kindOf(member.item.event);
+    if (kind === undefined) continue;
+    const server = serverOf(member.item.event);
+    const bucket = buckets.find((candidate) => candidate.kind === kind && candidate.server === server);
+    if (bucket === undefined) buckets.push({ kind, server, members: [member] });
+    else bucket.members.push(member);
+  }
+  return buckets.toSorted((left, right) => TOOL_KINDS.indexOf(left.kind) - TOOL_KINDS.indexOf(right.kind));
+}
+
+function ownsLiveTurn(input: GroupViewInput, members: readonly MemberState[], now: Instant): boolean {
+  const { timeline } = input;
+  const turn = timeline.turn();
+  if (turn === undefined || !turnLiveAt(turn, now)) return false;
+  const calls = [...members.map((member) => member.facts), ...input.pending.map((item) => factsOf(item, timeline))];
+  if (calls.some((facts) => facts !== undefined && facts.start >= turn.start)) return true;
+  return hasThinking(members) && timeline.latestThinking(now) !== undefined;
+}
+
+function deriveTail(input: GroupViewInput, members: readonly MemberState[], now: Instant): TailView {
+  const { timeline } = input;
+  const [firstSlow, ...otherSlow] = bucketsOf(members.filter((member) => slowAt(member.facts, now)));
+  if (firstSlow !== undefined) {
+    return {
+      kind: 'running',
+      kinds: [runningKind(firstSlow), ...otherSlow.map(runningKind)],
+      since: slowSince(members.map((member) => member.facts), now) ?? now,
+    };
+  }
+  const thinking = hasThinking(members) ? timeline.latestThinking(now) : undefined;
+  if (thinking !== undefined && (thinking.end === undefined || thinking.end > now)) {
+    return { kind: 'thinking', text: latestParagraph(thinkingTextAt(thinking, now)) };
+  }
+  const preparing = [...members.map((member) => member.facts), ...input.pending.map((item) => factsOf(item, timeline))]
+    .find((facts) => preparingAt(facts, now));
+  if (preparing !== undefined) return { kind: 'preparing', tool: shownToolName(preparing.name), since: preparing.start };
+  const waiting = timeline.waitingSince(now);
+  if (waiting !== undefined && waiting + TRANSCRIPT_TAIL_ENTER_MS <= now) return { kind: 'waiting', since: waiting };
+  if (thinking !== undefined) {
+    const heldUntil = timeline.thoughtHeldUntil(thinking);
+    if (heldUntil !== undefined && now < heldUntil) {
+      return { kind: 'thought', text: latestParagraph(thinkingTextAt(thinking, now)) };
+    }
+  }
+  return BLANK;
+}
+
+function tailBody(tail: TailView): string {
+  switch (tail.kind) {
+    case 'blank': return '';
+    case 'running': return runningBody(tail.kinds, Infinity, Infinity);
+    case 'thinking':
+    case 'thought': return tail.text;
+    case 'preparing':
+      return t(`${TAIL}.preparing`, { tool: tail.tool ?? t(`${TAIL}.unknownTool`) });
+    case 'waiting': return t(`${TAIL}.waiting`);
+  }
+}
+
+function runningKind(bucket: Bucket): RunningKind {
+  const [first, ...rest] = bucket.members;
+  const name = (member: MemberState): string => nameOf(bucket.kind, member.item);
+  const verb = withServer(t(`${VERBS}.${bucket.kind.verbKey}`), bucket.server);
+  return { verb, names: [name(first), ...rest.map(name)] };
+}
+
+function runningBody(kinds: NonEmpty<RunningKind>, perKind: number, nameWidth: number): string {
+  return capitalize(kinds.map((kind) => {
+    const shown = kind.names.slice(0, perKind).map((name) => clip(name, nameWidth));
+    const hidden = kind.names.length - shown.length;
+    const more = hidden > 0 ? t(`${TAIL}.more`, { count: hidden }) : '';
+    return `${kind.verb} ${shown.join(', ')}${more}`;
+  }).join('; '));
+}
+
+function timed(body: (room: number) => string, since: Instant, columns: number, now: Instant): string {
+  const timer = elapsedText(since, now);
+  return `${body(columns - Math.max(TRANSCRIPT_TAIL_TIMER_COLUMNS, visibleWidth(timer)))}${timer}`;
+}
+
+function clip(text: string, columns: number): string {
+  if (visibleWidth(text) <= columns) return text;
+  if (columns <= 0) return '';
+  return `${sliceByColumn(text, 0, columns - 1, true).trimEnd()}${TRUNCATION_ELLIPSIS}`;
+}
+
+function nameOf(kind: ToolKind, item: LogicalTranscriptItem): string {
+  const { rowVerb, subject } = item.label;
+  if (subject === undefined) return rowVerb;
+  return kind.names === 'row' ? `${rowVerb} ${oneLine(subject)}` : oneLine(subject);
+}
+
+function shownToolName(name: string | undefined): string | undefined {
+  if (name === undefined || name.length === 0) return undefined;
+  return decodeMcpToolName(name)?.toolName ?? name;
+}
+
+function latestParagraph(text: string): string {
+  const paragraph = text
+    .split(/\n\s*\n/)
+    .map((part) => part.replaceAll(/\s+/g, ' ').trim())
+    .findLast((part) => part.length > 0);
+  return paragraph ?? t('tui.messages.transcriptGroups.thinking');
+}
+
+function hasThinking(members: readonly MemberState[]): boolean {
+  return members.some((member) => member.item.family === 'thinking');
+}
+
+function kindOf(event: SummaryEvent): ToolKind | undefined {
+  return TOOL_KINDS.find((kind) => kind.events.includes(event.kind));
+}
+
+function serverOf(event: SummaryEvent): string | undefined {
+  return event.kind === 'mcp' ? event.server : undefined;
+}
+
+function pathOf(event: SummaryEvent): string | undefined {
+  return event.kind === 'read' || event.kind === 'edit' ? event.path : undefined;
+}
+
+function withServer(text: string, server: string | undefined): string {
+  return server === undefined ? text : `${text} ${server}`;
+}
+
+function capitalize(text: string): string {
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
+}
+
+function summaryKey(key: string, count: number): string {
+  const plural = key === 'todos' || key === 'updatingTodos' ? '' : count === 1 ? '_one' : '_other';
+  return `${SUMMARY}.${key}${plural}`;
+}

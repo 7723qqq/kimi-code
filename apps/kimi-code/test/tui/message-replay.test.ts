@@ -28,12 +28,18 @@ import {
   TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED,
   TRANSCRIPT_KEEP_RECENT_STEPS,
 } from '#/tui/utils/transcript-window';
+import { isToolCallId, monotonicNow, phaseAt, type ToolCallId } from '#/tui/utils/turn-timeline';
 
 void mock.module('#/utils/open-url', () => ({ openUrl: mock() }));
 
 type GoalReplayRecord = Extract<AgentReplayRecord, { type: 'goal_updated' }>;
 
 const REPLAY_TIME = 1_700_000_000_000;
+
+function callId(id: string): ToolCallId {
+  if (!isToolCallId(id)) throw new Error('a tool call id is never empty');
+  return id;
+}
 
 function stripAnsi(text: string): string {
   return text.replaceAll(/\u001B\[[0-9;]*m/g, '');
@@ -70,8 +76,8 @@ function makeStartupInput(): KimiTUIStartupInput {
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
+      transcript: { toolCallDensity: 'compact' as const, thinking: 'grouped' as const },
       statusLine: { items: null, command: null },
-      transcript: { groupTools: 'auto', groupThinking: true },
     },
     version: '0.0.0-test',
     workDir: '/tmp/proj-a',
@@ -757,6 +763,8 @@ describe('KimiTUI resume message replay', () => {
     expect(driver.streamingUI.hasPendingReadGroup()).toBe(false);
     expect(driver.streamingUI.getToolComponent('call_read_1')).toBeUndefined();
     expect(driver.streamingUI.getToolComponent('call_read_2')).toBeUndefined();
+    expect(phaseAt(driver.streamingUI.timeline.call(callId('call_read_1')), monotonicNow())).toEqual({ kind: 'history' });
+    expect(driver.streamingUI.timeline.turn()).toBeUndefined();
   });
 
   it('renders replayed AgentSwarm calls as compact result summaries', async () => {

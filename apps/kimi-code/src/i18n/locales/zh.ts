@@ -628,6 +628,9 @@ export default {
     },
   },
   tui: {
+    configFile: {
+      transcriptSectionComment: '全屏 transcript 的显示偏好。',
+    },
     chrome: {
       statusSurface: {
         approval: {
@@ -698,6 +701,9 @@ export default {
       },
       activityPane: {
         tipPrefix: ' · 提示：{{tip}}',
+        working: '正在工作…',
+        workingFor: '已工作 {{duration}}',
+        workedFor: '用时 {{duration}} · 完成于 {{time}}',
       },
       hints: {
         ctrlDExit: '再按一次 Ctrl+D 退出',
@@ -976,6 +982,8 @@ export default {
         searchHint: '（输入以搜索）',
         noMatches: '无匹配项',
         page: '第 {{page}}/{{pageCount}} 页',
+        previewLabel: '预览',
+        scrollHint: ' · shift+↑/↓ 滚动',
       },
       compaction: {
         compacting: '正在压缩上下文…',
@@ -1197,10 +1205,10 @@ export default {
         themeDesc: '更改终端 UI 主题。',
         tuiMode: 'TUI 模式',
         tuiModeDesc: '选择常规或全屏布局。',
-        groupTools: '工具调用折叠',
-        groupToolsDesc: '选择哪些工具调用折叠为摘要分组。',
-        groupThinking: '思考折叠',
-        groupThinkingDesc: '选择是否折叠已结束的思考。',
+        toolCallDensity: '工具调用密度',
+        toolCallDensityDesc: '选择转录区为每个工具调用显示多少细节。',
+        thinking: '思考折叠',
+        thinkingDesc: '选择是否折叠已结束的思考。',
         mermaid: 'Mermaid 图表',
         mermaidDesc: '将 mermaid 代码块绘制为图表，或保留源码。',
         language: '语言',
@@ -1238,21 +1246,29 @@ export default {
         fullscreen: '全屏（实验性）',
         fullscreenDesc: '备用屏幕，支持应用内滚动、选择和会话记录搜索。',
       },
-      transcriptGroupToolsSelector: {
-        title: '工具调用折叠',
-        auto: '折叠大部分工具',
-        autoDesc: '折叠除 subagent 和通信类工具外的所有工具调用。',
-        explore: '只折叠只读工具',
-        exploreDesc: '折叠读取、搜索以及其他只读命令。',
-        off: '每个工具调用单独显示',
-        offDesc: '每个工具调用保持独立卡片。',
+      toolCallDensitySelector: {
+        title: '工具调用密度',
+        compact: '紧凑',
+        compactDesc: '把工具调用折进一行摘要。subagent 和提问仍显示为卡片。',
+        balanced: '平衡',
+        balancedDesc: '折叠只读调用；编辑和命令各显示一行，可展开查看。',
+        detailed: '详细',
+        detailedDesc: '折叠只读调用；编辑和命令保持完整卡片。',
       },
-      transcriptGroupThinkingSelector: {
+      thinkingDisplaySelector: {
         title: '思考折叠',
-        on: '折叠思考',
-        onDesc: '将已结束的思考折进摘要分组。',
-        off: '不折叠思考',
-        offDesc: '每段思考显示两行预览。',
+        grouped: '折叠思考',
+        groupedDesc: '将已结束的思考折进摘要分组。',
+        ungrouped: '不折叠思考',
+        ungroupedDesc: '每段思考显示两行预览。',
+      },
+      transcriptPreview: {
+        lineStart: '先确认应用如何启动，再做修改。',
+        linePort: '{{file}} 里的 start() 不接受参数，所以端口是写死的。',
+        lineParameter: '加一个默认值为 3000 的端口参数。',
+        lineTests: '然后运行测试，找出受影响的调用方。',
+        sampleBash: 'npm test',
+        sampleBashOutput: '12 个测试通过',
       },
       astronSettings: {
         title: '讯飞 Coding Plan 设置',
@@ -2445,6 +2461,9 @@ export default {
       bunRuntimeRequired: '@moonshot-ai/kimi-code 需要 Bun >= 1.4.4。请前往 https://bun.sh 安装',
     },
     messages: {
+      turnTimeline: {
+        badInstant: '时间点必须是有限的毫秒数，收到 {{value}}',
+      },
       providerRefreshAllSpinning: '正在刷新所有 provider 的模型列表…',
       providerRefreshOneSpinning: '正在刷新 {{id}} 的模型列表…',
       providerRefreshFailed: '刷新失败。',
@@ -2641,6 +2660,38 @@ export default {
         thoughtSubject: '用时 {{duration}}',
         durationSeconds: '{{count}}秒',
         durationMinutes: '{{minutes}}分{{seconds}}秒',
+        verbs: {
+          read: '正在读取',
+          search: '正在搜索',
+          fetch: '正在获取',
+          webSearch: '正在运行',
+          skill: '正在加载',
+          todo: '正在更新待办',
+          command: '正在运行',
+          edit: '正在编辑',
+          taskCheck: '正在检查',
+          mcp: '正在调用',
+          tool: '正在使用',
+        },
+        tail: {
+          preparing: '正在准备 {{tool}}',
+          unknownTool: '一个工具调用',
+          waiting: '等待响应',
+          more: ' 另有 {{count}} 个',
+        },
+        category: {
+          read: '正在读取文件',
+          search: '正在搜索',
+          fetch: '正在获取页面',
+          webSearch: '正在运行网页搜索',
+          skill: '正在加载技能',
+          todo: '正在更新待办',
+          command: '正在运行命令',
+          edit: '正在编辑文件',
+          taskCheck: '正在检查任务',
+          mcp: '正在调用',
+          tool: '正在使用工具',
+        },
         summary: {
           thinking: '思考中',
           thought: '思考完成',

@@ -1406,6 +1406,7 @@ export class MessageDispatchController {
   }): boolean {
     const { session, error, entries, retried = false, retry, restore } = args;
     if (this.host.session?.id !== session.id || !isSessionOccupiedError(error)) return false;
+    this.host.streamingUI.timeline.turnEnded();
     if (entries !== undefined) this.host.removeTranscriptEntries(entries);
     this.host.setAppState({ streamingPhase: 'idle' });
     this.host.resetLivePane();

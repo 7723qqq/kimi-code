@@ -2,13 +2,19 @@ import { Spacer, type Component } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
 
-import { MoonLoader, type SpinnerStyle } from '../components/chrome/moon-loader';
+import { MoonLoader, type SpinnerLabel, type SpinnerStyle } from '../components/chrome/moon-loader';
 import { pickRandomWorkingTip } from '../components/chrome/working-tips';
-import { ActivityPaneComponent, type ActivityPaneMode } from '../components/panes/activity-pane';
+import {
+  ActivityPaneComponent,
+  LastTurnSummary,
+  type ActivityPaneMode,
+} from '../components/panes/activity-pane';
 import type { TUIState } from '../state';
 import { currentTheme } from '../theme';
 import type { StepRetryState } from '../types';
+import { workingLabel } from '../utils/activity-label';
 import { formatStepRetryDetail, formatStepRetryLabel } from '../utils/step-retry';
+import { instant, type TimelineReader } from '../utils/turn-timeline';
 import type { SessionEventHandler } from './session-event-handler';
 
 type EffectiveActivityPaneMode = ActivityPaneMode | 'idle' | 'session';
@@ -28,6 +34,7 @@ function waitingSpinnerLabel(retry: StepRetryState | null): string {
 export interface ActivityPaneHost {
   readonly state: TUIState;
   readonly sessionEventHandler: SessionEventHandler;
+  readonly streamingUI: { readonly timeline: TimelineReader };
 }
 
 /**
@@ -114,6 +121,8 @@ export class ActivityPaneController {
       state.activityContainer.removeChild(child);
     }
     this.mountedChildren.length = 0;
+    const { timeline } = this.host.streamingUI;
+    const working: SpinnerLabel = (now) => workingLabel(timeline.turn(), instant(now));
 
     switch (effectiveMode) {
       case 'hidden':
@@ -137,7 +146,7 @@ export class ActivityPaneController {
         break;
       }
       case 'thinking': {
-        const spinner = this.ensureActivitySpinner('braille', 'Thinking…', (s) =>
+        const spinner = this.ensureActivitySpinner('braille', working, (s) =>
           currentTheme.fg('primary', s),
         );
         this.syncAgentSwarmActivitySpinner(undefined);
@@ -167,7 +176,7 @@ export class ActivityPaneController {
         break;
       }
       case 'composing': {
-        const spinner = this.ensureActivitySpinner('braille', 'Working…', (s) =>
+        const spinner = this.ensureActivitySpinner('braille', working, (s) =>
           currentTheme.fg('primary', s),
         );
         this.syncAgentSwarmActivitySpinner(undefined);
@@ -201,6 +210,7 @@ export class ActivityPaneController {
         // when the spinner is removed at the end of streaming; combined with
         // pi-tui's clamp, this avoids a destructive full redraw (viewport jump).
         this.mount(new Spacer(1));
+        this.mount(new LastTurnSummary(timeline));
         break;
       }
     }
@@ -295,7 +305,7 @@ export class ActivityPaneController {
 
   private ensureActivitySpinner(
     style: SpinnerStyle,
-    label = '',
+    label: SpinnerLabel = '',
     colorFn?: (s: string) => string,
   ): MoonLoader {
     const state = this.host.state;

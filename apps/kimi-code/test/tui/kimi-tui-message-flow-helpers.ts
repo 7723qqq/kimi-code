@@ -93,7 +93,7 @@ export function makeStartupInput(): KimiTUIStartupInput {
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
       statusLine: { items: null, command: null },
-      transcript: { groupTools: 'auto', groupThinking: true },
+      transcript: { toolCallDensity: 'compact', thinking: 'grouped' },
     },
     version: '0.0.0-test',
     workDir: '/tmp/proj-a',

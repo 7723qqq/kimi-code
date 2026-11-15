@@ -7,6 +7,7 @@ import { NotifyPanelComponent } from '#/tui/components/chrome/notify-panel';
 import { UpdatesRegion } from '#/tui/components/chrome/status-surface/regions/updates-region';
 import { SessionEventHandler } from '#/tui/controllers/session-event-handler';
 import { getBuiltInPalette } from '#/tui/theme';
+import { TurnTimeline } from '#/tui/utils/turn-timeline';
 
 function makeHost() {
   const notifyPanel = new NotifyPanelComponent();
@@ -38,6 +39,7 @@ function makeHost() {
     aborted: false,
     sessionEventUnsubscribe: undefined,
     streamingUI: {
+      timeline: new TurnTimeline(),
       setTurnId: mock(),
       setStep: mock(),
       flushNow: mock(),

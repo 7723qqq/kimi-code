@@ -44,7 +44,7 @@ function fakeInitialAppState(): AppState {
     editorCommand: null,
     notifications: { enabled: true, condition: 'unfocused' },
     upgrade: { autoInstall: true },
-    transcript: { groupTools: 'auto', groupThinking: true },
+    transcript: { toolCallDensity: 'compact', thinking: 'grouped' },
     availableModels: {},
     availableProviders: {},
     sessionTitle: null,
@@ -141,6 +141,7 @@ describe('createTUIState', () => {
     // both rather than two stacked ones.
     const dock = state.dockContainer;
     expect(dock).toBeDefined();
+    expect(state.editorSlot).toBeDefined();
     expect(dock?.children).toEqual([
       state.activityContainer,
       state.statusSurfaceContainer,
@@ -148,8 +149,9 @@ describe('createTUIState', () => {
       state.btwPanelContainer,
       state.surveyContainer,
       state.backgroundTasksMiniContainer,
-      state.editorContainer,
+      state.editorSlot!,
     ]);
+    expect(state.editorSlot?.children).toEqual([state.editorContainer]);
 
     // The strip holds every region behind one component, so the panel
     // containers are never mounted as siblings of the dock's other rows.

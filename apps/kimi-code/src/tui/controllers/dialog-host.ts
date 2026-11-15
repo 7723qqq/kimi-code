@@ -4,6 +4,7 @@ import { resolve } from 'pathe';
 
 import { t } from '#/i18n';
 import { DOCK_APPROVAL_ROWS } from '#/tui/constant/rendering';
+import { setEditorSlot } from '#/tui/tui-state';
 
 import type { KimiSlashCommand } from '../commands';
 import {
@@ -121,8 +122,7 @@ export class DialogHostController {
     // A `clear()`ed panel gets no dispose hook, so its pending decision would
     // be unreachable forever; tell the panel being evicted first.
     displaced?.();
-    this.host.state.editorContainer.clear();
-    this.host.state.editorContainer.addChild(panel);
+    setEditorSlot(this.host.state, panel);
     this.host.state.ui.setFocus(panel);
     this.host.state.ui.requestRender();
   }
@@ -130,8 +130,7 @@ export class DialogHostController {
   restoreEditor(): void {
     this.displacedCallback = undefined;
     this.host.state.editorReplacementMounted = false;
-    this.host.state.editorContainer.clear();
-    this.host.state.editorContainer.addChild(this.host.state.editor);
+    setEditorSlot(this.host.state, this.host.state.editor);
     this.host.state.ui.setFocus(this.host.state.editor);
     // Differential render only: closing a tall panel leaves the editor a few
     // rows above the bottom (blank tail) until the next append, but avoids a

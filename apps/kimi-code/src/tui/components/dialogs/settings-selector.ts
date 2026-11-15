@@ -1,15 +1,21 @@
 import { t } from '#/i18n';
-import type { TranscriptGroupTools } from '#/tui/config';
+import type { ThinkingDisplay, ToolCallDensity, TranscriptConfig } from '#/tui/config';
 
 import { isExperimentalFlagEnabled } from '../../commands/experimental-flags';
-import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
+import type { DockLayout } from '../chrome/dock-section';
+import {
+  ChoicePickerComponent,
+  PreviewChoicePickerComponent,
+  type ChoiceOption,
+} from './choice-picker';
+import { TranscriptPreview } from './transcript-preview';
 
 const SETTINGS_SELECTION_MEMBERS = [
   'model',
   'theme',
   'tuiMode',
-  'groupTools',
-  'groupThinking',
+  'toolCallDensity',
+  'thinking',
   'mermaid',
   'editor',
   'language',
@@ -60,14 +66,14 @@ function getSettingsOptions(): readonly SettingsChoiceOption[] {
       description: t('tui.dialogs.settingsSelector.tuiModeDesc'),
     },
     {
-      value: 'groupTools',
-      label: t('tui.dialogs.settingsSelector.groupTools'),
-      description: t('tui.dialogs.settingsSelector.groupToolsDesc'),
+      value: 'toolCallDensity',
+      label: t('tui.dialogs.settingsSelector.toolCallDensity'),
+      description: t('tui.dialogs.settingsSelector.toolCallDensityDesc'),
     },
     {
-      value: 'groupThinking',
-      label: t('tui.dialogs.settingsSelector.groupThinking'),
-      description: t('tui.dialogs.settingsSelector.groupThinkingDesc'),
+      value: 'thinking',
+      label: t('tui.dialogs.settingsSelector.thinking'),
+      description: t('tui.dialogs.settingsSelector.thinkingDesc'),
     },
     {
       value: 'mermaid',
@@ -146,7 +152,7 @@ export class SettingsSelectorComponent extends ChoicePickerComponent {
       options: getSettingsOptions().filter(
         (option) =>
           opts.fullscreen === true ||
-          (option.value !== 'groupTools' && option.value !== 'groupThinking'),
+          (option.value !== 'toolCallDensity' && option.value !== 'thinking'),
       ),
       onSelect: (value) => {
         if (isSettingsSelection(value)) opts.onSelect(value);
@@ -156,73 +162,80 @@ export class SettingsSelectorComponent extends ChoicePickerComponent {
   }
 }
 
-const GROUP_TOOLS_OPTIONS: readonly ChoiceOption[] = [
-  {
-    value: 'auto',
-    label: t('tui.dialogs.transcriptGroupToolsSelector.auto'),
-    description: t('tui.dialogs.transcriptGroupToolsSelector.autoDesc'),
-  },
-  {
-    value: 'explore',
-    label: t('tui.dialogs.transcriptGroupToolsSelector.explore'),
-    description: t('tui.dialogs.transcriptGroupToolsSelector.exploreDesc'),
-  },
-  {
-    value: 'off',
-    label: t('tui.dialogs.transcriptGroupToolsSelector.off'),
-    description: t('tui.dialogs.transcriptGroupToolsSelector.offDesc'),
-  },
-];
+type PickableToolCallDensity = Exclude<ToolCallDensity, 'ungrouped'>;
 
-const GROUP_THINKING_OPTIONS: readonly ChoiceOption[] = [
+const TOOL_CALL_DENSITY_OPTIONS = [
   {
-    value: 'on',
-    label: t('tui.dialogs.transcriptGroupThinkingSelector.on'),
-    description: t('tui.dialogs.transcriptGroupThinkingSelector.onDesc'),
+    value: 'compact',
+    label: t('tui.dialogs.toolCallDensitySelector.compact'),
+    description: t('tui.dialogs.toolCallDensitySelector.compactDesc'),
   },
   {
-    value: 'off',
-    label: t('tui.dialogs.transcriptGroupThinkingSelector.off'),
-    description: t('tui.dialogs.transcriptGroupThinkingSelector.offDesc'),
+    value: 'balanced',
+    label: t('tui.dialogs.toolCallDensitySelector.balanced'),
+    description: t('tui.dialogs.toolCallDensitySelector.balancedDesc'),
   },
-];
+  {
+    value: 'detailed',
+    label: t('tui.dialogs.toolCallDensitySelector.detailed'),
+    description: t('tui.dialogs.toolCallDensitySelector.detailedDesc'),
+  },
+] as const satisfies readonly (ChoiceOption & { readonly value: PickableToolCallDensity })[];
 
-export interface TranscriptGroupToolsSelectorOptions {
-  readonly currentValue: TranscriptGroupTools;
-  readonly onSelect: (value: TranscriptGroupTools) => void;
+const THINKING_OPTIONS = [
+  {
+    value: 'grouped',
+    label: t('tui.dialogs.thinkingDisplaySelector.grouped'),
+    description: t('tui.dialogs.thinkingDisplaySelector.groupedDesc'),
+  },
+  {
+    value: 'ungrouped',
+    label: t('tui.dialogs.thinkingDisplaySelector.ungrouped'),
+    description: t('tui.dialogs.thinkingDisplaySelector.ungroupedDesc'),
+  },
+] as const satisfies readonly (ChoiceOption & { readonly value: ThinkingDisplay })[];
+
+export interface TranscriptSettingSelectorOptions<V> {
+  readonly current: TranscriptConfig;
+  readonly layout?: DockLayout;
+  readonly onSelect: (value: V) => void;
   readonly onCancel: () => void;
 }
 
-export class TranscriptGroupToolsSelectorComponent extends ChoicePickerComponent {
-  constructor(opts: TranscriptGroupToolsSelectorOptions) {
+export class ToolCallDensitySelectorComponent extends PreviewChoicePickerComponent {
+  constructor(opts: TranscriptSettingSelectorOptions<PickableToolCallDensity>) {
     super({
-      title: t('tui.dialogs.transcriptGroupToolsSelector.title'),
-      options: GROUP_TOOLS_OPTIONS,
-      currentValue: opts.currentValue,
+      title: t('tui.dialogs.toolCallDensitySelector.title'),
+      options: TOOL_CALL_DENSITY_OPTIONS,
+      currentValue: opts.current.toolCallDensity,
       onSelect: (value) => {
-        if (value === 'auto' || value === 'explore' || value === 'off') opts.onSelect(value);
+        const option = TOOL_CALL_DENSITY_OPTIONS.find((candidate) => candidate.value === value);
+        if (option !== undefined) opts.onSelect(option.value);
       },
       onCancel: opts.onCancel,
+      preview: new TranscriptPreview(new Map(TOOL_CALL_DENSITY_OPTIONS.map(
+        (option) => [option.value, { ...opts.current, toolCallDensity: option.value }],
+      ))),
+      layout: opts.layout,
     });
   }
 }
 
-export interface TranscriptGroupThinkingSelectorOptions {
-  readonly currentValue: boolean;
-  readonly onSelect: (value: boolean) => void;
-  readonly onCancel: () => void;
-}
-
-export class TranscriptGroupThinkingSelectorComponent extends ChoicePickerComponent {
-  constructor(opts: TranscriptGroupThinkingSelectorOptions) {
+export class ThinkingDisplaySelectorComponent extends PreviewChoicePickerComponent {
+  constructor(opts: TranscriptSettingSelectorOptions<ThinkingDisplay>) {
     super({
-      title: t('tui.dialogs.transcriptGroupThinkingSelector.title'),
-      options: GROUP_THINKING_OPTIONS,
-      currentValue: opts.currentValue ? 'on' : 'off',
+      title: t('tui.dialogs.thinkingDisplaySelector.title'),
+      options: THINKING_OPTIONS,
+      currentValue: opts.current.thinking,
       onSelect: (value) => {
-        if (value === 'on' || value === 'off') opts.onSelect(value === 'on');
+        const option = THINKING_OPTIONS.find((candidate) => candidate.value === value);
+        if (option !== undefined) opts.onSelect(option.value);
       },
       onCancel: opts.onCancel,
+      preview: new TranscriptPreview(new Map(THINKING_OPTIONS.map(
+        (option) => [option.value, { ...opts.current, thinking: option.value }],
+      ))),
+      layout: opts.layout,
     });
   }
 }

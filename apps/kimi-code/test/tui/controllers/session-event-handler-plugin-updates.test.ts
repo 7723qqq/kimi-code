@@ -6,11 +6,13 @@ import {
   type SessionEventHost,
 } from '#/tui/controllers/session-event-handler';
 import { getBuiltInPalette } from '#/tui/theme';
+import { TurnTimeline } from '#/tui/utils/turn-timeline';
 
 const DATASOURCE_TOOL = 'mcp__plugin-kimi-datasource_data__call_data_source_tool';
 
 function makeHost() {
   const streamingUI = {
+    timeline: new TurnTimeline(),
     setTurnId: mock(),
     flushNow: mock(),
     resetToolUi: mock(),

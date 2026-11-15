@@ -212,7 +212,7 @@ function makeStartupInput(): KimiTUIStartupInput {
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
       statusLine: { items: null, command: null },
-      transcript: { groupTools: 'auto', groupThinking: true },
+      transcript: { toolCallDensity: 'compact', thinking: 'grouped' },
     },
     version: '0.0.0-test',
     workDir: '/tmp/proj-a',
@@ -15365,5 +15365,210 @@ describe('transcript fold block clicks', () => {
     expect(closed).not.toContain('wide-tail');
     expect(closed).toContain('wide-head');
     expect(driver.state.transcriptContainer.toolOutputExpanded).toBe(true);
+  });
+});
+
+describe('activity bar turn time', () => {
+  const MOON_PHASE = /[🌑🌒🌓🌔🌕🌖🌗🌘]/u;
+
+  function fullscreenStartup(): KimiTUIStartupInput {
+    const base = makeStartupInput();
+    return { ...base, tuiConfig: { ...base.tuiConfig, tuiMode: 'fullscreen' as const } };
+  }
+
+  async function makeActivityDriver(
+    mode: 'fullscreen' | 'regular' = 'fullscreen',
+    session = makeSession(),
+  ): Promise<{ driver: MessageDriver }> {
+    const startup = mode === 'fullscreen'
+      ? fullscreenStartup()
+      : { ...makeStartupInput(), tuiConfig: { ...makeStartupInput().tuiConfig, tuiMode: 'regular' as const } };
+    const { driver } = await makeDriver(session, {}, startup);
+    await driver.setSession(session);
+    await driver.syncRuntimeState(session);
+    return { driver };
+  }
+
+  function activityRows(driver: MessageDriver): string[] {
+    return driver.state.activityContainer.render(200).map((line) => stripSgr(line).trim());
+  }
+
+  function activity(driver: MessageDriver): string {
+    return activityRows(driver).join('\n');
+  }
+
+  it('counts the turn while the model writes, keeps the moon otherwise, and sums up the finished turn', async () => {
+    const clock = installGlobalClock();
+    const { driver } = await makeActivityDriver();
+    try {
+      expect(activityRows(driver)).toEqual(['']);
+
+      driver.handleUserInput('hello');
+      driver.sessionEventHandler.handleEvent(
+        { type: 'turn.started', agentId: 'main', turnId: 1, origin: { kind: 'user' } } as Event,
+        () => {},
+      );
+      await advanceClockAsync(clock, 4_000);
+      expect(activity(driver)).toMatch(MOON_PHASE);
+      expect(activity(driver)).not.toContain('Working');
+
+      driver.sessionEventHandler.handleEvent(
+        { type: 'thinking.delta', agentId: 'main', turnId: 1, delta: 'Plan the change.' } as Event,
+        () => {},
+      );
+      expect(activity(driver)).toContain('Working for 4s');
+      await advanceClockAsync(clock, 8_000);
+      expect(activity(driver)).toContain('Working for 12s');
+
+      driver.sessionEventHandler.handleEvent(
+        { type: 'tool.call.delta', agentId: 'main', turnId: 1, toolCallId: 'call_read', name: 'Read', argumentsPart: '{"path":"a.ts"}' } as Event,
+        () => {},
+      );
+      expect(activity(driver)).toMatch(MOON_PHASE);
+      expect(activity(driver)).not.toContain('Working');
+      driver.sessionEventHandler.handleEvent(
+        { type: 'tool.call.started', agentId: 'main', turnId: 1, toolCallId: 'call_read', name: 'Read', args: { path: 'a.ts' } } as Event,
+        () => {},
+      );
+      await advanceClockAsync(clock, 6_000);
+      expect(activity(driver)).toMatch(MOON_PHASE);
+      expect(activity(driver)).not.toContain('Working');
+      driver.sessionEventHandler.handleEvent(
+        { type: 'tool.result', agentId: 'main', turnId: 1, toolCallId: 'call_read', output: 'content', isError: false } as Event,
+        () => {},
+      );
+      await advanceClockAsync(clock, 2_000);
+      expect(activity(driver)).toMatch(MOON_PHASE);
+      expect(activity(driver)).not.toContain('Working');
+
+      driver.sessionEventHandler.handleEvent(
+        { type: 'assistant.delta', agentId: 'main', turnId: 1, delta: 'Done.' } as Event,
+        () => {},
+      );
+      expect(activity(driver)).toContain('Working for 20s');
+      await advanceClockAsync(clock, 8_000);
+      expect(activity(driver)).toContain('Working for 28s');
+
+      const doneAt = new Date(clock.now()).toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      });
+      driver.sessionEventHandler.handleEvent(
+        { type: 'turn.ended', agentId: 'main', turnId: 1, reason: 'completed' } as Event,
+        () => {},
+      );
+      expect(activityRows(driver)).toEqual(['', `Worked for 28s · done ${doneAt}`]);
+    } finally {
+      restoreGlobalClock();
+      driver.state.transcriptContainer.clear();
+    }
+  });
+
+  it.each(['cancelled', 'failed', 'blocked'] as const)(
+    'sums up no turn that ended %s',
+    async (reason) => {
+      const clock = installGlobalClock();
+      const { driver } = await makeActivityDriver();
+      try {
+        driver.handleUserInput('hello');
+        driver.sessionEventHandler.handleEvent(
+          { type: 'turn.started', agentId: 'main', turnId: 1, origin: { kind: 'user' } } as Event,
+          () => {},
+        );
+        driver.sessionEventHandler.handleEvent(
+          { type: 'assistant.delta', agentId: 'main', turnId: 1, delta: 'Partly' } as Event,
+          () => {},
+        );
+        await advanceClockAsync(clock, 5_000);
+
+        driver.sessionEventHandler.handleEvent(
+          { type: 'turn.ended', agentId: 'main', turnId: 1, reason } as Event,
+          () => {},
+        );
+        expect(activityRows(driver)).toEqual(['']);
+      } finally {
+        restoreGlobalClock();
+        driver.state.transcriptContainer.clear();
+      }
+    },
+  );
+
+  it('sums up a finished /init, which ends without a turn of its own', async () => {
+    const clock = installGlobalClock();
+    const session = makeSession({ init: mock(async () => {}) });
+    const { driver } = await makeActivityDriver('fullscreen', session);
+    try {
+      driver.handleUserInput('/init');
+      await advanceClockAsync(clock, 3_000);
+      await waitForAssertion(() => {
+        expect(driver.state.appState.streamingPhase).toBe('idle');
+      });
+      expect(activityRows(driver)[1]).toMatch(/^Worked for \d+s · done \d{1,2}:\d{2} [AP]M$/);
+    } finally {
+      restoreGlobalClock();
+      driver.state.transcriptContainer.clear();
+    }
+  });
+
+  it('counts the turn and sums it up in regular mode too', async () => {
+    const clock = installGlobalClock();
+    const { driver } = await makeActivityDriver('regular');
+    try {
+      expect(activityRows(driver)).toEqual(['']);
+      driver.handleUserInput('hello');
+      driver.sessionEventHandler.handleEvent(
+        { type: 'turn.started', agentId: 'main', turnId: 1, origin: { kind: 'user' } } as Event,
+        () => {},
+      );
+      await advanceClockAsync(clock, 4_000);
+      driver.sessionEventHandler.handleEvent(
+        { type: 'thinking.delta', agentId: 'main', turnId: 1, delta: 'Plan the change.' } as Event,
+        () => {},
+      );
+      expect(activity(driver)).toContain('Working for 4s');
+      await advanceClockAsync(clock, 8_000);
+      expect(activity(driver)).toContain('Working for 12s');
+      driver.sessionEventHandler.handleEvent(
+        { type: 'assistant.delta', agentId: 'main', turnId: 1, delta: 'Done.' } as Event,
+        () => {},
+      );
+      await advanceClockAsync(clock, 3_000);
+      expect(activity(driver)).toContain('Working for 15s');
+
+      driver.sessionEventHandler.handleEvent(
+        { type: 'turn.ended', agentId: 'main', turnId: 1, reason: 'completed' } as Event,
+        () => {},
+      );
+      expect(activityRows(driver)[1]).toMatch(/^Worked for 15s · done \d{1,2}:\d{2} [AP]M$/);
+    } finally {
+      restoreGlobalClock();
+      driver.state.transcriptContainer.clear();
+    }
+  });
+
+  it('keeps the working row as tall as the finished-turn summary', async () => {
+    const clock = installGlobalClock();
+    const { driver } = await makeActivityDriver();
+    try {
+      driver.handleUserInput('hello');
+      driver.sessionEventHandler.handleEvent(
+        { type: 'turn.started', agentId: 'main', turnId: 1, origin: { kind: 'user' } } as Event,
+        () => {},
+      );
+      driver.sessionEventHandler.handleEvent(
+        { type: 'thinking.delta', agentId: 'main', turnId: 1, delta: 'Plan the change.' } as Event,
+        () => {},
+      );
+      const working = activityRows(driver).length;
+      driver.sessionEventHandler.handleEvent(
+        { type: 'turn.ended', agentId: 'main', turnId: 1, reason: 'completed' } as Event,
+        () => {},
+      );
+      expect(activityRows(driver)).toHaveLength(working);
+    } finally {
+      restoreGlobalClock();
+      driver.state.transcriptContainer.clear();
+    }
   });
 });

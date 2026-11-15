@@ -2,9 +2,14 @@ import { afterEach, describe, expect, it, mock, onTestFinished, setSystemTime } 
 import { stripVTControlCharacters } from 'node:util';
 
 import { visibleWidth, type TuiMouseEvent } from '@moonshot-ai/pi-tui';
+import chalk from 'chalk';
 
 import { setExperimentalFeatures } from '#/tui/commands/experimental-flags';
-import { ChoicePickerComponent, type ChoiceOption } from '#/tui/components/dialogs/choice-picker';
+import {
+  ChoicePickerComponent,
+  PreviewChoicePickerComponent,
+  type ChoiceOption,
+} from '#/tui/components/dialogs/choice-picker';
 import { EditorSelectorComponent } from '#/tui/components/dialogs/editor-selector';
 import { PermissionSelectorComponent } from '#/tui/components/dialogs/permission-selector';
 import { SettingsSelectorComponent } from '#/tui/components/dialogs/settings-selector';
@@ -115,6 +120,113 @@ describe('ChoicePickerComponent', () => {
     expect(hint).not.toContain('esc cancel');
     // Blank line separates the hint from the body, like the model dialog.
     expect(lines[titleIdx + 2]).toBe('');
+  });
+
+  it('draws the highlighted preview between the list and the border at the tallest preview height', () => {
+    const previews: Record<string, readonly string[]> = {
+      a: ['alpha one'],
+      b: ['beta one', 'beta two', 'beta three'],
+      c: ['gamma one', 'gamma two'],
+    };
+    const picker = new PreviewChoicePickerComponent({
+      title: 'Pick one',
+      options: [
+        { value: 'a', label: 'Alpha' },
+        { value: 'b', label: 'Beta' },
+        { value: 'c', label: 'Gamma' },
+      ],
+      preview: { render: (value) => previews[value] ?? [], invalidate: mock(), dispose: mock() },
+      onSelect: mock(),
+      onCancel: mock(),
+    });
+    const border = '─'.repeat(60);
+    const frames = ['a', 'b', 'c'].map(() => {
+      const lines = picker.render(60).map(strip);
+      picker.handleInput('\u001B[B');
+      return lines;
+    });
+
+    expect(frames[1]!.slice(4, 7)).toEqual(['    Alpha', '  ❯ Beta', '    Gamma']);
+    expect(frames.map((lines) => lines.slice(7))).toEqual([
+      ['', ' Preview', '', 'alpha one', '', '', '', border],
+      ['', ' Preview', '', 'beta one', 'beta two', 'beta three', '', border],
+      ['', ' Preview', '', 'gamma one', 'gamma two', '', '', border],
+    ]);
+  });
+
+  it('keeps the plain picker keys, pointer, and focus fade around the preview, and releases it', () => {
+    pastSettleWindow();
+    const previousLevel = chalk.level;
+    chalk.level = 3;
+    onTestFinished(() => {
+      chalk.level = previousLevel;
+    });
+    const onSelect = mock();
+    const onCancel = mock();
+    const preview = { render: (value: string) => [`${value} sample`], invalidate: mock(), dispose: mock() };
+    const picker = new PreviewChoicePickerComponent({
+      title: 'Pick one',
+      options: [
+        { value: 'a', label: 'Alpha' },
+        { value: 'b', label: 'Beta' },
+      ],
+      preview,
+      onSelect,
+      onCancel,
+    });
+    picker.focused = true;
+    const focused = picker.render(60);
+    picker.focused = false;
+    expect(picker.render(60)).toEqual(focused.map((line) => currentTheme.fade(line)));
+    const betaRow = focused.map(strip).indexOf('    Beta');
+    const previewRow = focused.map(strip).indexOf('a sample');
+
+    expect(picker.handleMouse(mouse('click', previewRow))).toMatchObject({ handled: true, focus: true });
+    expect(picker.handleMouse(mouse('click', betaRow))).toMatchObject({ handled: true, focus: true });
+    expect(onSelect).not.toHaveBeenCalled();
+
+    picker.focused = true;
+    expect(picker.handleMouse(mouse('move', betaRow))).toMatchObject({ handled: true, render: true });
+    expect(picker.render(60).map(strip)).toContain('b sample');
+    for (const type of ['press', 'release', 'click'] as const) picker.handleMouse(mouse(type, betaRow));
+    expect(onSelect).not.toHaveBeenCalled();
+    picker.handleInput('\u001B[A');
+    picker.handleInput(' ');
+    expect(onSelect).toHaveBeenLastCalledWith('a');
+    picker.handleInput('\r');
+    expect(onSelect).toHaveBeenCalledTimes(2);
+    picker.handleInput('\u001B');
+    expect(onCancel).toHaveBeenCalledTimes(1);
+
+    picker.invalidate();
+    expect(preview.invalidate).toHaveBeenCalledTimes(1);
+    picker.dispose();
+    expect(preview.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders a plain picker as its list between two borders', () => {
+    const picker = new ChoicePickerComponent({
+      title: 'Pick one',
+      options: [
+        { value: 'a', label: 'Alpha', description: 'First choice' },
+        { value: 'b', label: 'Beta' },
+      ],
+      currentValue: 'b',
+      onSelect: mock(),
+      onCancel: mock(),
+    });
+
+    expect(picker.render(40).map(strip)).toEqual([
+      '─'.repeat(40),
+      ' Pick one',
+      ' ↑↓ navigate · ←→ page · Enter select...',
+      '',
+      '    Alpha',
+      '    First choice',
+      '  ❯ Beta ← current',
+      '',
+      '─'.repeat(40),
+    ]);
   });
 
   it('renders optional descriptions below choice labels', () => {

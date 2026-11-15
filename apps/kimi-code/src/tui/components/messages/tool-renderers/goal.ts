@@ -1,7 +1,6 @@
 import { Text } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
-import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
 import { formatTokenCount } from '#/utils/usage/usage-format';
@@ -54,16 +53,12 @@ export function buildGoalToolHeader(options: {
 
   const tone = result?.is_error === true ? 'error' : 'primary';
   const label = currentTheme.boldFg(tone, goalToolLabel(toolCall.name, result, toolCall.args));
-  const marker =
-    result !== undefined && result.is_error !== true
-      ? currentTheme.fg('primary', STATUS_BULLET)
-      : bullet;
   const arg =
     toolCall.name === 'UpdateGoal'
       ? undefined
       : formatGoalToolArgument(toolCall.name, toolCall.args);
   const argText = arg === undefined ? '' : currentTheme.dimFg('textDim', ` (${arg})`);
-  return `${marker}${label}${argText}${chip}`;
+  return `${bullet}${label}${argText}${chip}`;
 }
 
 function formatGoalBudgetArg(args: Record<string, unknown>): string | undefined {

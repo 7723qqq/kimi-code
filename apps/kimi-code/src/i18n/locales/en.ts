@@ -652,6 +652,9 @@ export default {
     },
   },
   tui: {
+    configFile: {
+      transcriptSectionComment: 'Fullscreen transcript display preferences.',
+    },
     chrome: {
       statusSurface: {
         approval: {
@@ -722,6 +725,9 @@ export default {
       },
       activityPane: {
         tipPrefix: ' · Tip: {{tip}}',
+        working: 'Working…',
+        workingFor: 'Working for {{duration}}',
+        workedFor: 'Worked for {{duration}} · done {{time}}',
       },
       hints: {
         ctrlDExit: 'Press Ctrl+D again to exit',
@@ -1006,6 +1012,8 @@ export default {
         searchHint: '(type to search)',
         noMatches: 'No matches',
         page: 'Page {{page}}/{{pageCount}}',
+        previewLabel: 'Preview',
+        scrollHint: ' · shift+↑/↓ scroll',
       },
       compaction: {
         compacting: 'Compacting context…',
@@ -1237,10 +1245,10 @@ export default {
         themeDesc: 'Change the terminal UI theme.',
         tuiMode: 'TUI mode',
         tuiModeDesc: 'Choose the regular or fullscreen layout.',
-        groupTools: 'Tool call folding',
-        groupToolsDesc: 'Choose which tool calls to fold into summary groups.',
-        groupThinking: 'Thinking folding',
-        groupThinkingDesc: 'Choose whether to fold finished thinking.',
+        toolCallDensity: 'Tool call density',
+        toolCallDensityDesc: 'Choose how much of each tool call the transcript shows.',
+        thinking: 'Thinking folding',
+        thinkingDesc: 'Choose whether to fold finished thinking.',
         mermaid: 'Mermaid diagrams',
         mermaidDesc: 'Draw mermaid code blocks as diagrams, or keep them as source.',
         language: 'Language',
@@ -1278,21 +1286,29 @@ export default {
         fullscreen: 'Fullscreen (experimental)',
         fullscreenDesc: 'Alternate screen with in-app scrolling, selection, and transcript search.',
       },
-      transcriptGroupToolsSelector: {
-        title: 'Tool call folding',
-        auto: 'Fold most tools',
-        autoDesc: 'Fold all tools except subagents and communication tools.',
-        explore: 'Fold read-only tools',
-        exploreDesc: 'Fold reads, searches, and other read-only commands.',
-        off: 'Show every tool call separately',
-        offDesc: 'Keep each tool call as its own card.',
+      toolCallDensitySelector: {
+        title: 'Tool call density',
+        compact: 'Compact',
+        compactDesc: 'Fold tool calls into one summary. Subagents and questions stay as cards.',
+        balanced: 'Balanced',
+        balancedDesc: 'Fold read-only calls. Edits and commands get one line each that you can open.',
+        detailed: 'Detailed',
+        detailedDesc: 'Fold read-only calls. Edits and commands stay as full cards.',
       },
-      transcriptGroupThinkingSelector: {
+      thinkingDisplaySelector: {
         title: 'Thinking folding',
-        on: 'Fold thinking',
-        onDesc: 'Fold finished thinking into summary groups.',
-        off: "Don't fold thinking",
-        offDesc: 'Show each thinking block as a two-line preview.',
+        grouped: 'Fold thinking',
+        groupedDesc: 'Fold finished thinking into summary groups.',
+        ungrouped: "Don't fold thinking",
+        ungroupedDesc: 'Show each thinking block as a two-line preview.',
+      },
+      transcriptPreview: {
+        lineStart: 'Check how the app starts before changing it.',
+        linePort: 'start() in {{file}} takes no arguments, so the port is fixed.',
+        lineParameter: 'Add a port parameter that defaults to 3000.',
+        lineTests: 'Then run the tests to catch any caller that breaks.',
+        sampleBash: 'npm test',
+        sampleBashOutput: '12 tests passed',
       },
       astronSettings: {
         title: 'Astron Settings',
@@ -2546,6 +2562,9 @@ export default {
       bunRuntimeRequired: '@moonshot-ai/kimi-code requires Bun >= 1.4.4. Install Bun: https://bun.sh',
     },
     messages: {
+      turnTimeline: {
+        badInstant: 'An instant must be a finite number of milliseconds, got {{value}}',
+      },
       importSessions: {
         title: 'Import sessions from Claude Code and Codex',
         importing: 'Importing sessions',
@@ -2734,6 +2753,38 @@ export default {
         thoughtSubject: 'for {{duration}}',
         durationSeconds: '{{count}}s',
         durationMinutes: '{{minutes}}m {{seconds}}s',
+        verbs: {
+          read: 'reading',
+          search: 'searching',
+          fetch: 'fetching',
+          webSearch: 'running',
+          skill: 'loading',
+          todo: 'updating todos',
+          command: 'running',
+          edit: 'editing',
+          taskCheck: 'checking',
+          mcp: 'calling',
+          tool: 'using',
+        },
+        tail: {
+          preparing: 'Preparing {{tool}}',
+          unknownTool: 'a tool call',
+          waiting: 'Waiting for response',
+          more: ' +{{count}} more',
+        },
+        category: {
+          read: 'reading files',
+          search: 'searching patterns',
+          fetch: 'fetching pages',
+          webSearch: 'running web searches',
+          skill: 'loading skills',
+          todo: 'updating todos',
+          command: 'running commands',
+          edit: 'editing files',
+          taskCheck: 'checking tasks',
+          mcp: 'calling',
+          tool: 'using tools',
+        },
         summary: {
           thinking: 'thinking',
           thought: 'thought',

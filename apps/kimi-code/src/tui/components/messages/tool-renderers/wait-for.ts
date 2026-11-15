@@ -10,7 +10,6 @@
 import { Text, type Component } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
-import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
 
@@ -74,7 +73,7 @@ export function buildWaitForHeader(options: {
 
   const status = parseWaitForOutput(result.output)?.status;
   if (status === 'timed_out') {
-    return `${currentTheme.fg('warning', STATUS_BULLET)}${currentTheme.boldFg('warning', t('tui.messages.waitForTimedOut'))}${argText}${chip}`;
+    return `${bullet}${currentTheme.boldFg('warning', t('tui.messages.waitForTimedOut'))}${argText}${chip}`;
   }
   if (status === 'no_tasks') {
     return `${bullet}${currentTheme.boldFg('primary', t('tui.messages.waitForNoTasks'))}${chip}`;

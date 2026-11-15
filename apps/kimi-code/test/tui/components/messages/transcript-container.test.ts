@@ -14,6 +14,7 @@ import type { TranscriptPresentationOptions } from '#/tui/config';
 import { currentTheme } from '#/tui/theme';
 import type { ToolResultBlockData, TranscriptEntry } from '#/tui/types';
 import { markTranscriptComponent } from '#/tui/utils/transcript-component-metadata';
+import { instant, TurnTimeline, type ToolCallId } from '#/tui/utils/turn-timeline';
 
 let id = 0;
 const defaultChalkLevel = chalk.level;
@@ -21,8 +22,8 @@ const defaultChalkLevel = chalk.level;
 function options(overrides: Partial<TranscriptPresentationOptions> = {}): TranscriptPresentationOptions {
   return {
     fullscreen: true,
-    groupTools: 'explore',
-    groupThinking: true,
+    toolCallDensity: 'detailed',
+    thinking: 'grouped',
     ...overrides,
   };
 }
@@ -169,7 +170,7 @@ afterEach(() => {
 
 describe('TranscriptContainer projection', () => {
   it('leaves children untouched outside fullscreen or with grouping off', () => {
-    for (const presentation of [options({ fullscreen: false }), options({ groupTools: 'off', groupThinking: false })]) {
+    for (const presentation of [options({ fullscreen: false }), options({ toolCallDensity: 'ungrouped', thinking: 'ungrouped' })]) {
       const { container } = makeContainer(presentation);
       const read = tool('Read', { path: 'a.ts' });
       const bash = tool('Bash', { command: 'ls' });
@@ -199,16 +200,18 @@ describe('TranscriptContainer projection', () => {
     expect(rendered).not.toContain('a.ts');
   });
 
-  it('joins a running tool into the group and shows it on the collapsed tail', () => {
+  it('joins a running tool into the group without remounting it', () => {
     const { container } = makeContainer();
     container.addChild(tool('Read', { path: 'a.ts' }));
-    container.addChild(runningTool('Bash', { command: 'sleep 30' }));
-    container.setTurnActive(true);
-
     const rendered = plain(container.render(80));
-    expect(rendered).toContain('running 1 command');
-    expect(rendered).toContain('└ $ sleep 30');
+    const group = groups(container)[0];
+    expect(group).toBeDefined();
+    expect(rendered).toContain('Read a.ts');
+
+    container.addChild(runningTool('Bash', { command: 'sleep 30' }));
     expect(groups(container)).toHaveLength(1);
+    expect(groups(container)[0]).toBe(group!);
+    expect(plain(container.render(80))).toContain('ran 1 command');
   });
 
   it('does not group a run made only of silent calls', () => {
@@ -252,15 +255,14 @@ describe('TranscriptContainer projection', () => {
     expect(groups(second)).toHaveLength(2);
   });
 
-  it('keeps a finishing thought out of the group until it stops', () => {
+  it('keeps a live thought in the group title until it stops', () => {
     const { container } = makeContainer();
     const live = liveThought();
     container.addChild(tool('Read', { path: 'a.ts' }));
     container.addChild(live);
-    container.setTurnActive(true);
 
     expect(groups(container)).toHaveLength(1);
-    expect(plain(container.render(80))).toContain('more');
+    expect(plain(container.render(80))).toContain('Thinking');
   });
 });
 
@@ -308,7 +310,7 @@ describe('TranscriptContainer interaction', () => {
   });
 
   it('toggles a node group from a click on any of its lines', () => {
-    const { container } = makeContainer(options({ groupTools: 'auto' }));
+    const { container } = makeContainer(options({ toolCallDensity: 'compact' }));
     container.addChild(tool('Edit', { path: 'a.ts', old_string: 'a', new_string: 'b' }));
     container.addChild(tool('Edit', { path: 'b.ts', old_string: 'a', new_string: 'b' }));
     const y = lineOf(container, 'Edited 2 files');
@@ -317,8 +319,27 @@ describe('TranscriptContainer interaction', () => {
   });
 });
 
-describe('TranscriptContainer turn cutoff', () => {
-  it('only expands groups inside the recent-turn window', () => {
+describe('TranscriptContainer live timeline', () => {
+  it('abandons an unstarted call on retry so its timer never restarts', () => {
+    let now = 0;
+    const timeline = new TurnTimeline(() => instant(now));
+    const callId = 'call-retried' as ToolCallId;
+    timeline.turnStarted();
+    now = 100;
+    timeline.callDelta(callId, 'Read');
+    now = 500;
+    timeline.abandonUnstarted();
+    expect(timeline.call(callId)).toBeDefined();
+    expect(timeline.call(callId)!.settle).toEqual({ kind: 'abandoned', at: instant(500) });
+
+    now = 900;
+    timeline.callStarted(callId, 'Read');
+    expect(timeline.call(callId)!.start).toBe(instant(100));
+    expect(timeline.call(callId)!.settle).toEqual({ kind: 'abandoned', at: instant(500) });
+  });
+});
+
+describe('TranscriptContainer turn cutoff', () => {  it('only expands groups inside the recent-turn window', () => {
     const { container } = makeContainer();
     for (let turn = 0; turn < 5; turn += 1) {
       container.addChild(user(`question ${turn}`));
@@ -348,8 +369,7 @@ describe('TranscriptContainer turn cutoff', () => {
   });
 });
 
-describe('TranscriptContainer measurement', () => {
-  it('reports the rendered viewport layout through the gutter', () => {
+describe('TranscriptContainer measurement', () => {  it('reports the rendered viewport layout through the gutter', () => {
     const { container } = makeContainer();
     container.addChild(tool('Read', { path: 'a.ts' }));
     container.render(60);

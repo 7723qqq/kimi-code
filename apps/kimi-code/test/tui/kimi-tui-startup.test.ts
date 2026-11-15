@@ -130,8 +130,8 @@ function makeStartupInput(
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
+      transcript: { toolCallDensity: 'compact', thinking: 'grouped' },
       statusLine: { items: null, command: null },
-      transcript: { groupTools: 'auto', groupThinking: true },
       ...tuiConfig,
     },
     version: '0.0.0-test',
@@ -343,10 +343,9 @@ describe('KimiTUI startup', () => {
     await expect(driver.init()).resolves.toBe(false);
     (driver as unknown as { mountFooter(): void }).mountFooter();
 
-    // Dock = 7 chrome rows + footer wrap, below the transcript viewport. The
-    // todo list and the updates share one row, so they count once here. The
-    // background-tasks mini panel is docked here (empty until opened).
+    // Dock = 7 chrome containers + footer wrap, below the transcript viewport.
     expect(driver.state.dockContainer?.children).toHaveLength(8);
+    expect(driver.state.activityContainer.render(80).map((line) => line.trim())).toEqual(['']);
   });
 
   it('toggles live thinking from a fullscreen click', async () => {

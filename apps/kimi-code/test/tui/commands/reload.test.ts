@@ -223,17 +223,24 @@ auto_install = false
   });
 
   it('notices a required restart when tui_mode differs from the running UI mode', async () => {
-    await writeTuiConfig('tui_mode = "fullscreen"\n');
-    const host = makeHost();
+    const previousTerm = process.env['TERM'];
+    process.env['TERM'] = 'xterm-256color';
+    try {
+      await writeTuiConfig('tui_mode = "fullscreen"\n');
+      const host = makeHost();
 
-    await handleReloadTuiCommand(host);
+      await handleReloadTuiCommand(host);
 
-    expect(host.setAppState).toHaveBeenCalledWith(
-      expect.objectContaining({ tuiMode: 'fullscreen' }),
-    );
-    expect(host.showNotice).toHaveBeenCalledWith(
-      'TUI mode takes effect after restarting Kimi Code.',
-    );
+      expect(host.setAppState).toHaveBeenCalledWith(
+        expect.objectContaining({ tuiMode: 'fullscreen' }),
+      );
+      expect(host.showNotice).toHaveBeenCalledWith(
+        'TUI mode takes effect after restarting Kimi Code.',
+      );
+    } finally {
+      if (previousTerm === undefined) delete process.env['TERM'];
+      else process.env['TERM'] = previousTerm;
+    }
   });
 
   it('does not notice when tui_mode matches the running UI mode', async () => {
@@ -271,7 +278,9 @@ function makeHost({
       upgrade: { autoInstall: true },
       availableModels: {},
       availableProviders: {},
+      transcript: { toolCallDensity: 'compact', thinking: 'grouped' },
     },
+    transcriptContainer: { setPresentationOptions: mock() },
     editor: {
       setDisablePasteBurst: mock(),
     },

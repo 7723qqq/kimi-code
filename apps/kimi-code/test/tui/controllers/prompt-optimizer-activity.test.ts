@@ -40,7 +40,7 @@ function makeHarness() {
   const requestRender = mock();
   const host = {
     state: {
-      ui: { requestRender },
+      ui: { requestRender, requestAnimationFrame: () => 0, cancelAnimationFrame: () => {} },
       activityContainer,
       renderClock: createFakeClock(0),
     },

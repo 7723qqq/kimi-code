@@ -56,6 +56,12 @@ export interface TUIState {
   surveyContainer: Container;
   editorContainer: Container;
   /**
+   * Fullscreen mode only: the slot the editor (or a panel standing in for it)
+   * occupies in the dock. A docked section replaces the editor here directly so
+   * its body joins the layout and can scroll.
+   */
+  editorSlot: VStack | undefined;
+  /**
    * Fullscreen mode only: the bottom dock (activity/todo/notify/queue/btw/editor +
    * footer) stacked under the transcript ScrollView. Undefined in regular
    * mode, where all chrome is a direct child of the root container.

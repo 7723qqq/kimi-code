@@ -103,6 +103,7 @@ import {
 } from '../utils/mcp-server-status';
 import { isTurnPromptEvent, isTurnSteerEvent, isUserSteerOrigin } from '../utils/steer-delivery';
 import { nextTranscriptId } from '../utils/transcript-id';
+import { isToolCallId } from '../utils/turn-timeline';
 import type { BtwPanelController } from './btw-panel';
 import type { StepCacheBreak } from './cache-hint-controller';
 import { NotifyController } from './notify';
@@ -487,6 +488,7 @@ export class SessionEventHandler {
   // ---------------------------------------------------------------------------
 
   private handleTurnBegin(event: TurnStartedEvent): void {
+    this.host.streamingUI.timeline.turnStarted();
     this.host.acknowledgeSteerTurnStarted?.(event.promptId);
     this.host.handleTurnStarted?.(event);
     this.currentTurnHasAssistantText = false;
@@ -531,6 +533,7 @@ export class SessionEventHandler {
   }
 
   private handleTurnEnd(event: TurnEndedEvent, sendQueued: (item: QueuedMessage) => void): void {
+    this.host.streamingUI.timeline.turnEnded(event.reason === 'completed' ? 'completed' : 'stopped');
     this.host.handleTurnEnded?.(event);
     this.host.streamingUI.flushNow();
     this.clearStepRetry();
@@ -586,6 +589,7 @@ export class SessionEventHandler {
   }
 
   private handleStepBegin(event: TurnStepStartedEvent): void {
+    this.host.streamingUI.timeline.abandonUnstarted();
     this.host.streamingUI.flushNow();
     this.host.streamingUI.setStep(event.step);
     this.host.streamingUI.resetToolUi();
@@ -602,6 +606,7 @@ export class SessionEventHandler {
   }
 
   private handleStepCompleted(event: TurnStepCompletedEvent): void {
+    this.host.streamingUI.timeline.abandonUnstarted();
     this.host.streamingUI.flushNow();
     this.clearStepRetry();
     this.host.noteStepUsage(event.usage, event.cacheBreak);
@@ -644,6 +649,7 @@ export class SessionEventHandler {
   }
 
   private handleStepRetrying(event: TurnStepRetryingEvent): void {
+    this.host.streamingUI.timeline.abandonUnstarted();
     // The failure may arrive mid-stream, after thinking/assistant deltas have
     // parked the pane in `thinking`/`composing` — drive it back to waiting so
     // the retry label and detail actually render during the backoff.
@@ -711,6 +717,7 @@ export class SessionEventHandler {
   }
 
   private handleStepInterrupted(event: TurnStepInterruptedEvent): void {
+    this.host.streamingUI.timeline.abandonUnstarted();
     this.host.streamingUI.flushNow();
     this.clearStepRetry();
     this.host.streamingUI.resetToolUi();
@@ -744,6 +751,7 @@ export class SessionEventHandler {
     // text), leaving a blank, spinner-less gap until the first real text/tool
     // token arrives. Keep the moon up until actual thinking text shows up.
     if (event.delta.trim().length === 0 && !streamingUI.hasThinkingDraft()) return;
+    streamingUI.timeline.thinkingDelta(event.delta);
     streamingUI.appendThinkingDelta(event.delta);
     this.host.patchLivePane({ mode: 'idle' });
     if (state.appState.streamingPhase !== 'thinking') {
@@ -761,6 +769,7 @@ export class SessionEventHandler {
 
   private handleAssistantDelta(event: AssistantDeltaEvent): void {
     const { state, streamingUI } = this.host;
+    streamingUI.timeline.textDelta();
     if (streamingUI.hasThinkingDraft()) {
       streamingUI.flushThinkingToTranscript('idle');
     }
@@ -790,6 +799,7 @@ export class SessionEventHandler {
   }
 
   private handleHookResult(event: HookResultEvent): void {
+    this.host.streamingUI.timeline.outputEnded();
     this.host.streamingUI.flushNow();
     if (this.host.streamingUI.hasThinkingDraft()) {
       this.host.streamingUI.flushThinkingToTranscript('idle');
@@ -815,6 +825,7 @@ export class SessionEventHandler {
 
   private handleToolCall(event: ToolCallStartedEvent): void {
     const { streamingUI } = this.host;
+    if (isToolCallId(event.toolCallId)) streamingUI.timeline.callStarted(event.toolCallId, event.name);
     this.host.surveyController.notifyToolCallStarted(event.toolCallId, event.name);
     streamingUI.flushNow();
     this.toolStartTimes.set(event.toolCallId, Date.now());
@@ -840,8 +851,9 @@ export class SessionEventHandler {
   }
 
   private handleToolCallDelta(event: ToolCallDeltaEvent): void {
-    if (event.toolCallId.length === 0) return;
+    if (!isToolCallId(event.toolCallId)) return;
     const { state, streamingUI } = this.host;
+    streamingUI.timeline.callDelta(event.toolCallId, event.name);
     streamingUI.accumulateToolCallDelta(event.toolCallId, event.name, event.argumentsPart);
     const preview = streamingUI.getStreamingToolCallPreview(event.toolCallId);
     if (
@@ -886,6 +898,7 @@ export class SessionEventHandler {
 
   private handleToolResult(event: ToolResultEvent): void {
     const { streamingUI } = this.host;
+    if (isToolCallId(event.toolCallId)) streamingUI.timeline.callResult(event.toolCallId);
     this.host.surveyController.notifyToolCallEnded(event.toolCallId);
     streamingUI.flushNow();
     this.clearStepRetry();

@@ -2,6 +2,7 @@ import { describe, expect, it, mock } from 'bun:test';
 
 import { SessionEventHandler } from '#/tui/controllers/session-event-handler';
 import { getBuiltInPalette } from '#/tui/theme';
+import { TurnTimeline } from '#/tui/utils/turn-timeline';
 import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
 
 function makeHost() {
@@ -27,6 +28,7 @@ function makeHost() {
     aborted: false,
     sessionEventUnsubscribe: undefined,
     streamingUI: {
+      timeline: new TurnTimeline(),
       setTurnId: mock(),
       setStep: mock(),
       flushNow: mock(),

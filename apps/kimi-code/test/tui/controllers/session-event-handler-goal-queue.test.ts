@@ -7,6 +7,7 @@ import { STATUS_DOT } from '#/tui/constant/symbols';
 import { SessionEventHandler } from '#/tui/controllers/session-event-handler';
 import { readGoalQueue, removeGoalQueueItem, restoreGoalQueueItem } from '#/tui/goal-queue-store';
 import { getBuiltInPalette } from '#/tui/theme';
+import { TurnTimeline } from '#/tui/utils/turn-timeline';
 import { waitForAssertion } from '#test/helpers/waitFor';
 
 void mock.module('#/tui/goal-queue-store', () => ({
@@ -80,6 +81,7 @@ function makeHost(options: { createGoalRejects?: boolean } = {}) {
     aborted: false,
     sessionEventUnsubscribe: undefined,
     streamingUI: {
+      timeline: new TurnTimeline(),
       setTurnId: mock(),
       flushNow: mock(),
       resetToolUi: mock(),
