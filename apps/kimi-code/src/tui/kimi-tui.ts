@@ -242,9 +242,12 @@ import { detectTmuxKeyboardWarning } from './utils/tmux-keyboard';
 import { TokenSpeedSampler } from './utils/token-speed';
 import {
   getTranscriptComponentEntry,
+  getTranscriptComponentTurnId,
   markTranscriptComponent,
+  markTranscriptComponentTurnId,
 } from './utils/transcript-component-metadata';
 import { nextTranscriptId } from './utils/transcript-id';
+import { isPinnedToolCallComponent } from './utils/transcript-items';
 import {
   TRANSCRIPT_HYSTERESIS,
   TRANSCRIPT_KEEP_RECENT_ASSISTANT,
@@ -3166,6 +3169,7 @@ export class KimiTUI {
 
   pushTranscriptEntry(entry: TranscriptEntry): void {
     this.state.transcriptEntries.push(entry);
+    this.trimTranscriptWindow();
   }
 
   setExternalEditorRunning(running: boolean): void {
@@ -4142,12 +4146,14 @@ export class KimiTUI {
     const entries = this.state.transcriptEntries;
     const entryIndex = entries.indexOf(entry);
     if (entryIndex < 0) return false;
+    entry.turnId = this.streamingUI.getTurnContext().turnId;
     entries.splice(entryIndex, 1);
     entries.push(entry);
     const component = this.state.transcriptContainer.children.find(
       (child) => getTranscriptComponentEntry(child) === entry,
     );
     if (component !== undefined) this.state.transcriptContainer.moveChildToEnd(component);
+    this.trimTranscriptWindow();
     this.state.ui.requestRender();
     return true;
   }
@@ -4287,14 +4293,6 @@ export class KimiTUI {
 
     const children = this.state.transcriptContainer.children;
 
-    // Trim whole turns by *position* in the child list rather than by entry
-    // lookup — otherwise only the (registered) user message would be removed and
-    // the rest of the turn would be left behind.
-    const boundaries: number[] = [];
-    for (let i = 0; i < children.length; i++) {
-      if (this.isTurnBoundaryComponent(children[i]!)) boundaries.push(i);
-    }
-
     const turns = groupTurns(this.state.transcriptEntries);
 
     const toRemove = turnsToTrim(turns, TRANSCRIPT_MAX_TURNS, TRANSCRIPT_HYSTERESIS);
@@ -4310,40 +4308,36 @@ export class KimiTUI {
       }
     }
 
-    let boundariesToRemove = 0;
-    for (const entry of toRemove) {
-      if (
-        (entry.kind === 'user' ||
-          entry.kind === 'skill_activation' ||
-          entry.kind === 'plugin_command') &&
-        entry.turnId === undefined
-      ) {
-        boundariesToRemove++;
+    const retainedTurnIds = new Set<string>();
+    const trimmedTurnIds = new Set<string>();
+    for (const turn of turns) {
+      if (turn.turnId === undefined) continue;
+      if (turn.entries.some((entry) => toRemove.has(entry))) {
+        trimmedTurnIds.add(turn.turnId);
+      } else {
+        retainedTurnIds.add(turn.turnId);
       }
     }
-    if (boundariesToRemove === 0) {
-      this.state.transcriptEntries = this.state.transcriptEntries.filter((e) => !toRemove.has(e));
-      return true;
-    }
+    for (const turnId of retainedTurnIds) trimmedTurnIds.delete(turnId);
 
-    let boundariesSeen = 0;
-    let cutoff = 0;
-    for (let i = 0; i < children.length; i++) {
-      if (this.isTurnBoundaryComponent(children[i]!)) {
-        if (boundariesSeen === boundariesToRemove) {
-          cutoff = i;
-          break;
-        }
-        boundariesSeen++;
+    const firstRetainedIndex = children.findIndex((child) => {
+      const entry = getTranscriptComponentEntry(child);
+      if (entry !== undefined) return !toRemove.has(entry);
+      const turnId = getTranscriptComponentTurnId(child);
+      return turnId !== undefined && retainedTurnIds.has(turnId);
+    });
+    const unmarkedCutoff = firstRetainedIndex < 0 ? children.length : firstRetainedIndex;
+    const componentsToRemove = children.filter((child, index) => {
+      if (child instanceof WelcomeComponent) return false;
+      const entry = getTranscriptComponentEntry(child);
+      if (entry !== undefined) return toRemove.has(entry);
+      const turnId = getTranscriptComponentTurnId(child);
+      if (turnId !== undefined) {
+        if (retainedTurnIds.has(turnId)) return false;
+        if (trimmedTurnIds.has(turnId)) return true;
       }
-    }
-
-    const componentsToRemove: Component[] = [];
-    for (let i = 0; i < cutoff; i++) {
-      const child = children[i]!;
-      if (child instanceof WelcomeComponent) continue;
-      componentsToRemove.push(child);
-    }
+      return index < unmarkedCutoff;
+    });
     for (const child of componentsToRemove) {
       // pi-tui Container.removeChild (not a DOM node); `child.remove()` does not exist.
       // oxlint-disable-next-line unicorn/prefer-dom-node-remove
@@ -4405,7 +4399,7 @@ export class KimiTUI {
         assistantIndices.push(i);
         continue;
       }
-      stepIndices.push(i);
+      if (!isPinnedToolCallComponent(child)) stepIndices.push(i);
     }
 
     // Fold the oldest steps / assistant messages beyond their respective caps;
@@ -4437,6 +4431,11 @@ export class KimiTUI {
       summary = new StepSummaryComponent();
       summary.addCounts(thinkingCount, toolCount, assistantMergeCount);
     }
+    markTranscriptComponentTurnId(
+      summary,
+      this.streamingUI.getTurnContext().turnId ??
+        getTranscriptComponentTurnId(children[turnStart]!),
+    );
 
     // Rebuild children: keep everything except the merged steps, with the summary
     // sitting right after the user message.
@@ -4487,7 +4486,7 @@ export class KimiTUI {
         const child = children[i]!;
         if (child instanceof StepSummaryComponent) summaryIndex = i;
         else if (child instanceof AssistantMessageComponent) assistantIndices.push(i);
-        else stepIndices.push(i);
+        else if (!isPinnedToolCallComponent(child)) stepIndices.push(i);
       }
 
       const stepMergeCount =
@@ -4520,6 +4519,7 @@ export class KimiTUI {
           summary = new StepSummaryComponent();
           summary.addCounts(thinkingCount, toolCount, assistantMergeCount);
         }
+        markTranscriptComponentTurnId(summary, getTranscriptComponentTurnId(children[turnStart]!));
         newChildren.push(summary);
         for (const idx of toMergeIndices) toDispose.push(children[idx]!);
         const toMergeSet = new Set(toMergeIndices);

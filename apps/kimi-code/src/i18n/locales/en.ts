@@ -2103,6 +2103,7 @@ export default {
       replayGoalUpdated: 'Goal updated',
       replaySessionUnavailable: 'Session history is unavailable for this session.',
       replayFailed: 'Failed to replay session history: {{message}}',
+      replayWarning: 'Warning: {{message}}',
       replayPlanModeOn: 'Plan mode: ON',
       replayPlanModeOff: 'Plan mode: OFF',
       replayPermissionMode: 'Permission mode: {{mode}}',

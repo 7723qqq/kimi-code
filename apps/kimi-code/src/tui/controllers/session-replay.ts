@@ -91,6 +91,7 @@ export interface SessionReplayHost {
   readonly sessionEventHandler: SessionEventHandler;
   setAppState(patch: Partial<AppState>): void;
   showError(msg: string): void;
+  showStatus?(message: string, color?: 'warning'): void;
   appendTranscriptEntry(entry: TranscriptEntry, component?: Component): void;
   mountTranscriptComponent(entry: TranscriptEntry, component: Component): void;
   removeTranscriptEntries(entries: readonly TranscriptEntry[]): void;
@@ -127,6 +128,16 @@ export class SessionReplayRenderer {
       if (main === undefined) {
         this.host.showError(t('tui.statusMessages.replaySessionUnavailable'));
         return false;
+      }
+      if (main.replayError !== undefined) {
+        this.host.showError(t('tui.statusMessages.replayFailed', { message: main.replayError }));
+        return false;
+      }
+      if (main.replayWarning !== undefined) {
+        this.host.showStatus?.(
+          t('tui.statusMessages.replayWarning', { message: main.replayWarning }),
+          'warning',
+        );
       }
 
       this.hydrateSnapshot(main);

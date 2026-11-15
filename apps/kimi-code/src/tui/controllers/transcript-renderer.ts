@@ -35,9 +35,12 @@ import { hasDispose } from '../utils/component-capabilities';
 import type { ImageAttachment, ImageAttachmentStore } from '../utils/image-attachment-store';
 import {
   getTranscriptComponentEntry,
+  getTranscriptComponentTurnId,
   markTranscriptComponent,
+  markTranscriptComponentTurnId,
 } from '../utils/transcript-component-metadata';
 import { nextTranscriptId } from '../utils/transcript-id';
+import { isPinnedToolCallComponent } from '../utils/transcript-items';
 import {
   TRANSCRIPT_KEEP_RECENT_ASSISTANT,
   TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED,
@@ -76,7 +79,7 @@ export interface TranscriptRenderHost {
 function isFoldableStepComponent(child: Component): boolean {
   return (
     child instanceof ThinkingComponent ||
-    child instanceof ToolCallComponent ||
+    (child instanceof ToolCallComponent && !isPinnedToolCallComponent(child)) ||
     child instanceof AgentGroupComponent ||
     child instanceof ReadGroupComponent
   );
@@ -426,22 +429,40 @@ export class TranscriptRendererController {
       }
     }
 
-    // Trim whole turns by *position* in the child list rather than by entry
-    // lookup — otherwise only the (registered) user message would be removed
-    // and the rest of the turn would be left behind. A child is dropped when
-    // the latest entry seen before it is itself being dropped: turn-internal
-    // components carry no entry (streaming assistant/thinking/tool calls), and
-    // relying on boundary *counts* instead desynchronized the two ledgers
-    // whenever a boundary entry had no mounted component.
-    const removed: Component[] = [];
-    let governing: TranscriptEntry | undefined;
-    for (const child of children) {
-      const entry = getTranscriptComponentEntry(child);
-      if (entry !== undefined) governing = entry;
-      if (governing === undefined || !toRemove.has(governing)) continue;
-      if (child instanceof WelcomeComponent) continue;
-      removed.push(child);
+    // Trim whole turns by turn id rather than by position. Components carry the
+    // turn they belong to (entry or explicit mark), so a card mounted late —
+    // a terminal background-task card, a nested group — is removed with its own
+    // turn instead of whatever turn happened to be live when it mounted.
+    const retainedTurnIds = new Set<string>();
+    const trimmedTurnIds = new Set<string>();
+    for (const turn of turns) {
+      if (turn.turnId === undefined) continue;
+      if (turn.entries.some((entry) => toRemove.has(entry))) {
+        trimmedTurnIds.add(turn.turnId);
+      } else {
+        retainedTurnIds.add(turn.turnId);
+      }
     }
+    for (const turnId of retainedTurnIds) trimmedTurnIds.delete(turnId);
+
+    const firstRetainedIndex = children.findIndex((child) => {
+      const entry = getTranscriptComponentEntry(child);
+      if (entry !== undefined) return !toRemove.has(entry);
+      const turnId = getTranscriptComponentTurnId(child);
+      return turnId !== undefined && retainedTurnIds.has(turnId);
+    });
+    const unmarkedCutoff = firstRetainedIndex < 0 ? children.length : firstRetainedIndex;
+    const removed = children.filter((child, index) => {
+      if (child instanceof WelcomeComponent) return false;
+      const entry = getTranscriptComponentEntry(child);
+      if (entry !== undefined) return toRemove.has(entry);
+      const turnId = getTranscriptComponentTurnId(child);
+      if (turnId !== undefined) {
+        if (retainedTurnIds.has(turnId)) return false;
+        if (trimmedTurnIds.has(turnId)) return true;
+      }
+      return index < unmarkedCutoff;
+    });
     for (const child of removed) {
       // pi-tui Container.removeChild (not a DOM node); `child.remove()` does not exist.
       // oxlint-disable-next-line unicorn/prefer-dom-node-remove
@@ -539,6 +560,11 @@ export class TranscriptRendererController {
       summary = new StepSummaryComponent();
       summary.addCounts(thinkingCount, toolCount, assistantMergeCount);
     }
+    markTranscriptComponentTurnId(
+      summary,
+      this.host.streamingUI.getTurnContext().turnId ??
+        getTranscriptComponentTurnId(children[turnStart]!),
+    );
 
     // Rebuild children: keep everything except the merged steps, with the summary
     // sitting right after the user message.
@@ -630,6 +656,7 @@ export class TranscriptRendererController {
           summary = new StepSummaryComponent();
           summary.addCounts(thinkingCount, toolCount, assistantMergeCount);
         }
+        markTranscriptComponentTurnId(summary, getTranscriptComponentTurnId(children[turnStart]!));
         newChildren.push(summary);
         for (const idx of toMergeIndices) toDispose.push(children[idx]!);
         const toMergeSet = new Set(toMergeIndices);

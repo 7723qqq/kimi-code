@@ -28,6 +28,10 @@ import type {
 } from '../types';
 import { appendStreamingArgsPreview, parseStreamingArgs } from '../utils/event-payload';
 import { notifyTerminalOnce } from '../utils/terminal-notification';
+import {
+  getTranscriptComponentTurnId,
+  markTranscriptComponentTurnId,
+} from '../utils/transcript-component-metadata';
 import { nextTranscriptId } from '../utils/transcript-id';
 import { TurnTimeline } from '../utils/turn-timeline';
 
@@ -850,6 +854,7 @@ export class StreamingUIController {
     };
     this._activeCompactionBlock = block;
     this._activeCompactionEntry = entry;
+    markTranscriptComponentTurnId(block, this._currentTurnId);
     if (state.transcriptContainer.toolOutputExpanded) {
       block.setExpanded(true);
     }
@@ -966,6 +971,7 @@ export class StreamingUIController {
   private upgradeSoloAgentToGroup(solo: ToolCallComponent): AgentGroupComponent {
     const { state } = this.host;
     const group = new AgentGroupComponent(state.ui);
+    markTranscriptComponentTurnId(group, getTranscriptComponentTurnId(solo) ?? this._currentTurnId);
     const previousEntry = this._toolCallEntries.get(solo.toolCallView.id);
     if (!this.host.replaceTranscriptChild(solo, group, previousEntry)) {
       state.transcriptContainer.addChild(group);
@@ -1020,6 +1026,7 @@ export class StreamingUIController {
   private upgradeSoloReadToGroup(solo: ToolCallComponent): ReadGroupComponent {
     const { state } = this.host;
     const group = new ReadGroupComponent(state.ui);
+    markTranscriptComponentTurnId(group, getTranscriptComponentTurnId(solo) ?? this._currentTurnId);
     if (state.transcriptContainer.toolOutputExpanded) group.setExpanded(true);
     const previousEntry = this._toolCallEntries.get(solo.toolCallView.id);
     if (!this.host.replaceTranscriptChild(solo, group, previousEntry)) {

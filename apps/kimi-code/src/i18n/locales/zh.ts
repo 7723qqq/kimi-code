@@ -2016,6 +2016,7 @@ export default {
       replayGoalUpdated: '目标已更新',
       replaySessionUnavailable: '此会话的会话历史不可用。',
       replayFailed: '回放会话历史失败：{{message}}',
+      replayWarning: '警告：{{message}}',
       replayPlanModeOn: '计划模式：开',
       replayPlanModeOff: '计划模式：关',
       replayPermissionMode: '权限模式：{{mode}}',
