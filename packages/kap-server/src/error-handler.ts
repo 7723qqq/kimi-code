@@ -25,7 +25,6 @@ export function installErrorHandler(app: ErrorHandlerHost): void {
             ErrorCode.WIRE_VERSION_TOO_LOW,
             err.message,
             requestId,
-            err.stack,
             err.details,
           ),
         );
@@ -34,7 +33,7 @@ export function installErrorHandler(app: ErrorHandlerHost): void {
     if (isError2(err) && err.code === ErrorCodes.CONFIG_INVALID) {
       reply
         .status(200)
-        .send(errEnvelope(ErrorCode.VALIDATION_FAILED, err.message, requestId, err.stack));
+        .send(errEnvelope(ErrorCode.VALIDATION_FAILED, err.message, requestId));
       return;
     }
     req.log.error({ err, request_id: requestId }, 'unhandled error');
@@ -45,7 +44,6 @@ export function installErrorHandler(app: ErrorHandlerHost): void {
           ErrorCode.INTERNAL_ERROR,
           err.message !== undefined && err.message !== '' ? err.message : 'internal error',
           requestId,
-          err.stack,
         ),
       );
   });

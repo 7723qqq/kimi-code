@@ -7,7 +7,7 @@ import {
   workspaceSnapshot,
   workspaceSnapshots,
 } from './businessSnapshotDispatcher';
-import { mapError, withTimeout } from './errors';
+import { mapDebugError, withTimeout } from './errors';
 import type { RouteHost } from './serviceDispatcherRoutes';
 
 interface SnapshotRequest {
@@ -72,6 +72,6 @@ async function sendSnapshot(
       okEnvelope(await withTimeout(Promise.resolve(read()), callTimeoutMs), req.id),
     );
   } catch (error) {
-    return reply.send(mapError(error, req.id));
+    return reply.send(mapDebugError(error, req.id));
   }
 }

@@ -156,7 +156,6 @@ export function registerRemoteControlRoutes(
               ErrorCode.REMOTE_CONTROL_ALREADY_RUNNING,
               error.message,
               req.id,
-              undefined,
               {
                 pid: error.holder.pid,
                 local_origin: error.holder.localOrigin,

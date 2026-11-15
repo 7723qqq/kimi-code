@@ -225,7 +225,6 @@ function sendAcquireError(
         ErrorCode.INTERNAL_ERROR,
         err instanceof Error ? err.message : String(err),
         requestId,
-        err instanceof Error ? err.stack : undefined,
       ),
     );
     return;
@@ -427,7 +426,6 @@ function sendOsFsError(
         ErrorCode.INTERNAL_ERROR,
         err instanceof Error ? err.message : String(err),
         requestId,
-        err instanceof Error ? err.stack : undefined,
       ),
     );
     return;
@@ -441,15 +439,15 @@ function sendMappedError(
   err: unknown,
 ): void {
   if (err instanceof HostFolderNotAbsoluteError) {
-    reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, err.message, requestId, err.stack));
+    reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, err.message, requestId));
     return;
   }
   if (err instanceof HostFolderNotFoundError) {
-    reply.send(errEnvelope(ErrorCode.FS_PATH_NOT_FOUND, err.message, requestId, err.stack));
+    reply.send(errEnvelope(ErrorCode.FS_PATH_NOT_FOUND, err.message, requestId));
     return;
   }
   if (err instanceof HostFolderPermissionError) {
-    reply.send(errEnvelope(ErrorCode.FS_PERMISSION_DENIED, err.message, requestId, err.stack));
+    reply.send(errEnvelope(ErrorCode.FS_PERMISSION_DENIED, err.message, requestId));
     return;
   }
   throw err;

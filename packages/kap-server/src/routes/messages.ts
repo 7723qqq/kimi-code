@@ -129,7 +129,7 @@ function sendMappedError(
   const requestId = req.id;
   const log = requestLog(req);
   if (err instanceof SessionNotFoundError) {
-    reply.send(errEnvelope(ErrorCode.SESSION_NOT_FOUND, err.message, requestId, err.stack));
+    reply.send(errEnvelope(ErrorCode.SESSION_NOT_FOUND, err.message, requestId));
     return;
   }
   if (err instanceof MessageCursorNotFoundError) {
@@ -143,7 +143,7 @@ function sendMappedError(
     return;
   }
   if (err instanceof MessageNotFoundError) {
-    reply.send(errEnvelope(ErrorCode.MESSAGE_NOT_FOUND, err.message, requestId, err.stack));
+    reply.send(errEnvelope(ErrorCode.MESSAGE_NOT_FOUND, err.message, requestId));
     return;
   }
   log?.error({ err }, 'message request failed');
@@ -152,7 +152,6 @@ function sendMappedError(
       ErrorCode.INTERNAL_ERROR,
       err instanceof Error ? err.message : String(err),
       requestId,
-      err instanceof Error ? err.stack : undefined,
     ),
   );
 }

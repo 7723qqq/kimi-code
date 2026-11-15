@@ -862,7 +862,7 @@ describe('server-v2 /api/v1/sessions', () => {
     const on = await postJson(`/api/v1/sessions/${id}/profile`, {
       agent_config: { tower_mode: true },
     });
-    expect(on.body.code).toBe(50001);
+    expect(on.body.code).toBe(40935);
     expect(on.body.msg).toContain('the tower experiment is disabled');
     expect(on.body.msg).toContain('KIMI_CODE_EXPERIMENTAL_TOWER=1');
     expect(readAgentState(await mainAgentOf(id), false).tower_mode).toBe(false);
@@ -1421,7 +1421,7 @@ describe('server-v2 /api/v1/sessions', () => {
     const res = await postJson<{ messages: unknown }>(`/api/v1/sessions/${id}:undo`, { count: 1 });
     expect(res.body.code).toBe(40911);
     expect(res.body.msg).toMatch(/nothing to undo/i);
-    expect(res.body.stack).toEqual(expect.stringContaining('undoService'));
+    expect(res.body).not.toHaveProperty('stack', expect.anything());
   });
 
   it('returns 40901 when :undo reports a busy session', async () => {

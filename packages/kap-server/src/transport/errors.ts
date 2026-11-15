@@ -66,6 +66,10 @@ const KIMI_TO_PROTOCOL: Record<string, ErrorCode> = {
   [ErrorCodes.STORAGE_IO_FAILED]: ErrorCode.PERSISTENCE_FAILURE,
   [ErrorCodes.STORAGE_LOCKED]: ErrorCode.PERSISTENCE_FAILURE,
   [ErrorCodes.CONFIG_PERSIST_BLOCKED]: ErrorCode.PERSISTENCE_FAILURE,
+  [ErrorCodes.SESSION_TOWER_MODE_INVALID]: ErrorCode.TOWER_MODE_INVALID,
+  [ErrorCodes.AUTH_PROVISIONING_REQUIRED]: ErrorCode.AUTH_PROVISIONING_REQUIRED,
+  [ErrorCodes.AUTH_TOKEN_MISSING]: ErrorCode.AUTH_TOKEN_MISSING,
+  [ErrorCodes.AUTH_MODEL_NOT_RESOLVED]: ErrorCode.AUTH_MODEL_NOT_RESOLVED,
 };
 
 export interface UnmappedCodeReporter {
@@ -76,6 +80,8 @@ const PUBLIC_DETAIL_CODES: ReadonlySet<string> = new Set([
   ErrorCodes.SESSION_OCCUPIED,
   ErrorCodes.SESSION_STALE,
   ErrorCodes.WIRE_VERSION_TOO_LOW,
+  ErrorCodes.AUTH_TOKEN_MISSING,
+  ErrorCodes.AUTH_MODEL_NOT_RESOLVED,
 ]);
 
 export function mapError(
@@ -96,19 +102,25 @@ export function mapError(
       mapped ?? ErrorCode.INTERNAL_ERROR,
       err.message,
       requestId,
-      err.stack,
       details,
     );
   }
   if (err instanceof TimeoutError) {
-    return errEnvelope(ErrorCode.INTERNAL_ERROR, err.message, requestId, err.stack);
+    return errEnvelope(ErrorCode.INTERNAL_ERROR, err.message, requestId);
   }
   return errEnvelope(
     ErrorCode.INTERNAL_ERROR,
     err instanceof Error ? err.message : String(err),
     requestId,
-    err instanceof Error ? err.stack : undefined,
   );
+}
+
+export function mapDebugError(
+  err: unknown,
+  requestId: string,
+  reporter?: UnmappedCodeReporter,
+): ReturnType<typeof errEnvelope> & { stack?: string } {
+  return { ...mapError(err, requestId, reporter), stack: err instanceof Error ? err.stack : undefined };
 }
 
 export function validationEnvelope(
