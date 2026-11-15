@@ -3803,7 +3803,7 @@ describe('Agent tool external backends', () => {
     }
   }
 
-  function fakeBackendService(backend: FakeBackend): ISubagentBackendService {
+  function fakeBackendService(backend: ISubagentBackend): ISubagentBackendService {
     return {
       _serviceBrand: undefined,
       getBackend: (name) => (name === backend.name ? backend : undefined),
@@ -3825,7 +3825,7 @@ describe('Agent tool external backends', () => {
   }
 
   function createBackendContext(
-    backend: FakeBackend,
+    backend: ISubagentBackend,
     ...extra: readonly (TestAgentServiceOverride | TestAgentOptions)[]
   ): TestAgentContext {
     ctx = createTestAgent(sessionService(ISubagentBackendService, fakeBackendService(backend)), ...extra);
@@ -3965,6 +3965,42 @@ describe('Agent tool external backends', () => {
     expect(result.output).toContain('stop_reason: error');
     expect(result.output).toContain('partial work');
     expect(backend.runs[0]?.dispose).toHaveBeenCalled();
+  });
+
+  it('arms no deadline for an external backend when subagent timeoutMs is 0', async () => {
+    let resolveRun!: (result: SubagentBackendResult) => void;
+    let signal: AbortSignal | undefined;
+    const backend: ISubagentBackend = {
+      name: 'codex',
+      start: (request) => {
+        signal = request.signal;
+        return Promise.resolve({
+          id: 'fake-run-1',
+          result: new Promise<SubagentBackendResult>((resolve) => {
+            resolveRun = resolve;
+          }),
+          dispose: mock(async () => {}),
+        });
+      },
+    };
+    const context = createBackendContext(backend, backendFlags(), {
+      initialConfig: { subagent: { timeoutMs: 0 } },
+    });
+
+    const pending = executeAgentTool(context, {
+      prompt: 'Investigate',
+      description: 'Find cause',
+      backend: 'codex',
+    });
+    await new Promise((resolve) => {
+      setTimeout(resolve, 10);
+    });
+    expect(signal?.aborted).toBe(false);
+    resolveRun({ output: 'still running', stopReason: 'completed' });
+
+    const result = await pending;
+    expect(result.isError).toBeUndefined();
+    expect(result.output).toContain('[summary]\nstill running');
   });
 
   it('surfaces a dispatch rejection from the backend service', async () => {

@@ -507,12 +507,12 @@ export class SubagentTool implements ISubagentTool {
     signal: AbortSignal,
   ): Promise<ExecutableToolResult> {
     const timeoutMs = resolveSubagentTimeoutMs(this.config);
-    const deadline = createDeadlineAbortSignal(signal, timeoutMs);
+    const deadline = timeoutMs > 0 ? createDeadlineAbortSignal(signal, timeoutMs) : undefined;
     try {
       const run = await this.backends.start(backendName, {
         prompt: args.prompt,
         cwd: this.workspaceCtx.workDir,
-        signal: deadline.signal,
+        signal: deadline?.signal ?? signal,
       });
       try {
         const result = await run.result;
@@ -532,7 +532,7 @@ export class SubagentTool implements ISubagentTool {
         await run.dispose();
       }
     } finally {
-      deadline.clear();
+      deadline?.clear();
     }
   }
 
@@ -859,13 +859,13 @@ function formatBackendAgentFailure(
 function backendStopMessage(
   stopReason: SubagentBackendResult['stopReason'],
   signal: AbortSignal,
-  deadline: DeadlineAbortSignal,
+  deadline: DeadlineAbortSignal | undefined,
   timeoutMs: number,
 ): string {
   switch (stopReason) {
     case 'aborted':
       if (isUserCancellation(signal.reason)) return USER_INTERRUPTED_SUBAGENT_MESSAGE;
-      if (deadline.timedOut()) {
+      if (deadline?.timedOut() === true) {
         return `Agent timed out after ${formatSubagentTimeoutDescription(timeoutMs)}.`;
       }
       return SUBAGENT_STOPPED_MESSAGE;

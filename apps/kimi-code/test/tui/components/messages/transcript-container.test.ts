@@ -319,6 +319,107 @@ describe('TranscriptContainer interaction', () => {
   });
 });
 
+describe('TranscriptRowComponent row details', () => {
+  function authenticating(toolCallDensity: 'compact' | 'balanced') {
+    const { container } = makeContainer(options({ toolCallDensity }));
+    let now = 0;
+    const timeline = new TurnTimeline(() => instant(now));
+    container.setTimeline(timeline);
+    timeline.turnStarted();
+    const call = runningTool('mcp__linear__authenticate');
+    call.appendProgress(
+      'Open this URL in your browser to authorize "linear":\n\nhttps://example.test/oauth/authorize',
+    );
+    const callId = call.toolCallView.id as ToolCallId;
+    timeline.callDelta(callId, call.toolCallView.name);
+    timeline.callStarted(callId, call.toolCallView.name);
+    container.addChild(thought());
+    container.addChild(call);
+    return {
+      container,
+      call,
+      settle(output = 'ok', isError = false): void {
+        now += 1;
+        call.setResult(
+          { tool_call_id: callId, output, is_error: isError },
+          { known: true, ms: 1_000 },
+        );
+        timeline.callResult(callId);
+      },
+      endTurn(): void {
+        now += 1;
+        timeline.turnEnded();
+      },
+    };
+  }
+
+  it.each(['compact', 'balanced'] as const)(
+    'shows the authorization link under a running MCP authenticate row in %s, ignores clicks on it, and shows the reason once it fails',
+    (toolCallDensity) => {
+      const above = ['', '  Thought for 3s', ''];
+
+      const authorized = authenticating(toolCallDensity);
+      const running = authorized.container.render(80);
+      expect(plain(running.slice(0, 4)).split('\n')).toEqual([...above, '● linear: authenticate']);
+      expect(running.slice(4)).toEqual(authorized.call.renderRowDetail(80));
+      expect(plain(running)).toContain('https://example.test/oauth/authorize');
+      const link = plain(running)
+        .split('\n')
+        .findIndex((line) => line.includes('https://example.test/oauth/authorize'));
+      expect(click(authorized.container, 3)).toBeUndefined();
+      expect(click(authorized.container, link)).toBeUndefined();
+      authorized.settle('MCP server "linear" authenticated successfully.');
+      expect(plain(authorized.container.render(80)).split('\n')).toEqual([
+        ...above,
+        '● linear: authenticate',
+      ]);
+
+      const failed = authenticating(toolCallDensity);
+      failed.settle(
+        'OAuth flow for MCP server "linear" did not complete: Timed out',
+        true,
+      );
+      const reason = failed.container.render(80);
+      expect(plain(reason.slice(0, 4)).split('\n')).toEqual([
+        ...above,
+        '✗ linear: authenticate · failed',
+      ]);
+      expect(reason.slice(4)).toEqual(failed.call.renderRowDetail(80));
+      expect(plain(reason)).toContain('did not complete: Timed out');
+      click(failed.container, 3);
+      expect(failed.call.isExpanded()).toBe(true);
+
+      const cancelled = authenticating(toolCallDensity);
+      cancelled.endTurn();
+      expect(plain(cancelled.container.render(80)).split('\n')).toEqual([
+        ...above,
+        '● linear: authenticate · interrupted',
+      ]);
+      cancelled.settle('The user manually interrupted "mcp__linear__authenticate".', true);
+      expect(plain(cancelled.container.render(80)).split('\n')).toEqual([
+        ...above,
+        '✗ linear: authenticate · interrupted',
+      ]);
+    },
+  );
+
+  it('keeps the progress of any other running row inside the closed row', () => {
+    const { container } = makeContainer(options({ toolCallDensity: 'balanced' }));
+    let now = 0;
+    const timeline = new TurnTimeline(() => instant(now));
+    container.setTimeline(timeline);
+    timeline.turnStarted();
+    const call = runningTool('mcp__linear__list_issues');
+    call.appendProgress('MCP connection lost — reconnecting…');
+    const callId = call.toolCallView.id as ToolCallId;
+    timeline.callDelta(callId, call.toolCallView.name);
+    timeline.callStarted(callId, call.toolCallView.name);
+    container.addChild(call);
+
+    expect(plain(container.render(80)).split('\n')).toEqual(['', '● linear: list_issues']);
+  });
+});
+
 describe('TranscriptContainer live timeline', () => {
   it('abandons an unstarted call on retry so its timer never restarts', () => {
     let now = 0;
