@@ -60,6 +60,18 @@ const PLATFORM_GATED_TOOL_NAMES: ReadonlySet<string> = new Set(['PowerShell']);
 export function eventSnapshot(events: readonly EventSnapshotEntry[], labels: SnapshotLabels) {
   const normalized = events.map((event) => {
     let stableEvent = stableFingerprints(event);
+    if (event.type === '[wire]' && event.event === 'tool_select.initialized') {
+      const args = event.args as { readonly tools: readonly { readonly name: string }[] };
+      stableEvent = {
+        ...stableEvent,
+        args: {
+          ...args,
+          tools: args.tools
+            .map((tool) => tool.name)
+            .filter((name) => !PLATFORM_GATED_TOOL_NAMES.has(name)),
+        },
+      };
+    }
     if (event.type === '[wire]' && event.event === 'llm.tools_snapshot') {
       const args = event.args as { readonly tools: readonly { readonly name: string }[] };
       stableEvent = {
