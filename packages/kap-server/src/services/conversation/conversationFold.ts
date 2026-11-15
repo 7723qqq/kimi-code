@@ -297,7 +297,7 @@ function applyLegacyToolResult(
 ): void {
   if (message.toolCallId === undefined) return;
   const found = findToolCall(state, message.toolCallId);
-  if (found !== undefined) finishToolCall(state, found, message.content, message.isError === true, time);
+  if (found !== undefined) finishToolCall(state, found, message.content, message.isError === true, message.note, time);
 }
 
 export function turnEndOf(reason: unknown, error: ErrorInfo | undefined, provisional: TurnEnd | undefined): TurnEnd {
@@ -448,10 +448,11 @@ function finishToolCall(
   found: { turn: ConversationTurn; item: ToolCallItem },
   output: string | readonly ContentPart[],
   isError: boolean,
+  note: string | undefined,
   time: number,
 ): void {
   const cancelled = state.provisionalEnds[found.turn.turn_id]?.outcome === 'interrupted';
-  endToolCall(found.item, output, !isError ? 'completed' : cancelled ? 'interrupted' : 'failed', time);
+  endToolCall(found.item, output, !isError ? 'completed' : cancelled ? 'interrupted' : 'failed', note, time);
   refreshTool(state, found.item);
 }
 
