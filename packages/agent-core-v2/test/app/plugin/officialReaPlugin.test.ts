@@ -77,7 +77,8 @@ describe('official REA plugin', () => {
       clients: ['cli'],
       platforms: ['windows'],
     });
-    expect(entry.source).toContain('20261115T133201Z-37dcbd9238e0');
-    expect(entry.source).toEndWith('package/rea');
+    expect(entry.source).toBe(
+      'https://github.com/7723qqq/rea/releases/download/6.9.0-kimi.1/rea-kimi-plugin-6.9.0-kimi.1-win32-x64.zip',
+    );
   });
 });
