@@ -35,6 +35,7 @@ import { McpConnectionManager } from '#/mcpCore/connection-manager';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import '#/agent/permissionMode/permissionModeService';
 import { PERMISSION_SECTION } from '#/agent/permissionRules/configSection';
+import { IProjectPermissionRulesService } from '#/agent/permissionRules/projectPermissionRules';
 import { IAgentPermissionRulesService } from '#/agent/permissionRules/permissionRules';
 import '#/agent/permissionRules/permissionRulesService';
 import {
@@ -113,6 +114,7 @@ import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionWorkdir } from '#/session/workdir/workdir';
+import { IWorkspaceTrust } from '#/workspace/workspaceTrust/workspaceTrust';
 import { ISessionMetadata, type AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
 import { createWireMetadataRecord, type WireRecord } from '#/wire/record';
 import { IWireService } from '#/wire/wire';
@@ -344,6 +346,15 @@ describe('AgentLifecycleService', () => {
       environmentId: 'local',
       fs: undefined,
     } as unknown as ISessionWorkdir);
+    ix.stub(IWorkspaceTrust, {
+      get: async () => false,
+    } as unknown as IWorkspaceTrust);
+    ix.stub(IProjectPermissionRulesService, {
+      _serviceBrand: undefined,
+      ready: Promise.resolve(),
+      rules: [],
+      appendRules: async () => {},
+    });
     ix.stub(IWorkspaceInstanceManager, {
       _serviceBrand: undefined,
       onDidChange: () => ({ dispose: () => {} }),
@@ -380,6 +391,7 @@ describe('AgentLifecycleService', () => {
     ix.stub(IProviderDiscoveryService, stubProviderDiscovery());
     ix.stub(IConfigService, {
       ready: Promise.resolve(),
+      assertValid: () => {},
       get: (() => undefined) as IConfigService['get'],
       onDidSectionChange: (() => ({ dispose: () => {} })) as IConfigService['onDidSectionChange'],
     } as unknown as IConfigService);
@@ -1060,6 +1072,7 @@ describe('AgentLifecycleService', () => {
   it('applies the configured permission mode when the Agent has no persisted mode', async () => {
     ix.stub(IConfigService, {
       ready: Promise.resolve(),
+      assertValid: () => {},
       get: (() => 'auto') as IConfigService['get'],
       onDidSectionChange: (() => ({ dispose: () => {} })) as IConfigService['onDidSectionChange'],
     } as unknown as IConfigService);
@@ -1073,6 +1086,7 @@ describe('AgentLifecycleService', () => {
   it('seeds [permission] config rules into the agent rules service', async () => {
     ix.stub(IConfigService, {
       ready: Promise.resolve(),
+      assertValid: () => {},
       get: ((section: string) =>
         section === PERMISSION_SECTION
           ? { rules: [{ decision: 'deny', scope: 'user', pattern: 'Bash(rm *)' }] }
@@ -1095,6 +1109,7 @@ describe('AgentLifecycleService', () => {
     ]).store);
     ix.stub(IConfigService, {
       ready: Promise.resolve(),
+      assertValid: () => {},
       get: (() => 'auto') as IConfigService['get'],
       onDidSectionChange: (() => ({ dispose: () => {} })) as IConfigService['onDidSectionChange'],
     } as unknown as IConfigService);
@@ -1256,6 +1271,7 @@ describe('AgentLifecycleService', () => {
     ]).store);
     ix.stub(IConfigService, {
       ready: Promise.resolve(),
+      assertValid: () => {},
       get: ((section: unknown) =>
         section === CRON_SECTION ? { disabled: true } : undefined) as IConfigService['get'],
       onDidSectionChange: (() => ({ dispose: () => {} })) as IConfigService['onDidSectionChange'],
@@ -1286,6 +1302,7 @@ describe('AgentLifecycleService', () => {
     const configReady = new Promise<void>((resolve) => { releaseConfig = resolve; });
     ix.stub(IConfigService, {
       ready: configReady,
+      assertValid: () => {},
       get: ((section: unknown) => section === CRON_SECTION
         ? { debug: false, noJitter: true, noStale: false, disabled: false, manualTick: true }
         : undefined) as IConfigService['get'],

@@ -98,6 +98,7 @@ import {
 import { SessionSubagentScopeCacheService } from '#/session/subagent/subagentScopeCacheService';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 import { ISessionWorkdir } from '#/session/workdir/workdir';
+import { IWorkspaceTrust } from '#/workspace/workspaceTrust/workspaceTrust';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
 import { IEventDispatcher } from '#/state/eventDispatcher';
@@ -447,6 +448,9 @@ describe('SessionSubagentScopeCacheService', () => {
       environmentId: 'local',
       fs: undefined,
     } as unknown as ISessionWorkdir);
+    ix.stub(IWorkspaceTrust, {
+      get: async () => false,
+    } as unknown as IWorkspaceTrust);
     ix.stub(IWorkspaceInstanceManager, {
       _serviceBrand: undefined,
       onDidChange: () => ({ dispose: () => {} }),

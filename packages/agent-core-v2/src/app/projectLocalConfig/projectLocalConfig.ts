@@ -6,6 +6,12 @@ export interface ProjectAdditionalDirsLoadResult {
   readonly additionalDirs: readonly string[];
 }
 
+export interface ProjectPermissionRulesLoadResult {
+  readonly projectRoot: string;
+  readonly configPath: string;
+  readonly rules: readonly unknown[];
+}
+
 export interface IProjectLocalConfigService {
   readonly _serviceBrand: undefined;
 
@@ -16,6 +22,11 @@ export interface IProjectLocalConfigService {
     source?: 'session' | 'config',
   ): Promise<string[]>;
   appendAdditionalDir(workDir: string, inputPath: string): Promise<ProjectAdditionalDirsLoadResult>;
+  readPermissionRules(workDir: string): Promise<ProjectPermissionRulesLoadResult>;
+  appendPermissionRules(
+    workDir: string,
+    rules: readonly unknown[],
+  ): Promise<ProjectPermissionRulesLoadResult>;
 }
 
 export const IProjectLocalConfigService: ServiceIdentifier<IProjectLocalConfigService> =

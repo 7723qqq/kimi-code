@@ -21,7 +21,6 @@ import { ISessionEventBus } from '#/app/event/eventBus';
 import { DEFAULT_PERMISSION_MODE_SECTION } from '#/agent/permissionMode/configSection';
 import { permissionModeConfiguredKey } from '#/agent/permissionMode/permissionModeOps';
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
-import { PERMISSION_SECTION, type PermissionConfig } from '#/agent/permissionRules/configSection';
 import { IAgentPermissionRulesService } from '#/agent/permissionRules/permissionRules';
 import '#/agent/permissionRules/permissionRulesService';
 import { profileKey } from '#/agent/profile/profileOps';
@@ -367,6 +366,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
         );
       }
       stage = 'restore';
+      handle.accessor.get(IAgentPermissionRulesService);
       handle.accessor.get(IAgentProfileService);
       handle.accessor.get(IAgentPermissionModeService);
       handle.accessor.get(IAgentMcpService);
@@ -432,10 +432,6 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       .get(permissionModeConfiguredKey);
     if (permissionMode !== undefined && !hasRestoredPermissionMode) {
       handle.accessor.get(IAgentPermissionModeService).setMode(permissionMode);
-    }
-    const permissionRules = this.config.get<PermissionConfig>(PERMISSION_SECTION)?.rules ?? [];
-    if (permissionRules.length > 0) {
-      handle.accessor.get(IAgentPermissionRulesService).addRules(permissionRules);
     }
   }
 

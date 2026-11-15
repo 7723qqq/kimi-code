@@ -51,6 +51,7 @@ export interface ProgramView {
 
 export interface ProgramWorkdir {
   readonly contextKey: string;
+  readonly localConfig: FileProjectLocalConfigService;
   readonly dirs: IWorkspaceDirs;
   readonly fs: IWorkspaceFsService;
   readonly instructions: IWorkspaceInstructionsService;
@@ -134,6 +135,7 @@ export class ProgramWorkdirs {
     let released = false;
     const workdir: ProgramWorkdir = {
       contextKey,
+      localConfig: acquired.view.localConfig,
       dirs: acquired.view.dirs,
       fs: acquired.view.fs,
       instructions: acquired.view.instructions,

@@ -300,6 +300,7 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
           this.models,
           this.modelProviders,
           this.environments,
+          input.trust,
           input.acquireWorkdir,
           input.onDispose,
         ),

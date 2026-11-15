@@ -481,7 +481,7 @@ describe('Plan service', () => {
       useFakes(fakes);
       useTools(['ExitPlanMode']);
       if (allowRule) {
-        permissionRules.addRules([{ decision: 'allow', scope: 'user', pattern: 'ExitPlanMode' }]);
+        await permissionRules.addRules([{ decision: 'allow', scope: 'user', pattern: 'ExitPlanMode' }]);
       }
       await ctx.rpc.setPermission({ mode });
       await plan.enter('test-plan', false);
@@ -733,7 +733,7 @@ describe('Plan service', () => {
       });
       useFakes(createPlanFakes({ writeText }));
       useTools(['Write']);
-      permissionRules.addRules([
+      await permissionRules.addRules([
         {
           decision: 'deny',
           scope: 'user',

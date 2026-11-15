@@ -20,6 +20,7 @@ import type { IPluginAgentProfileLoader } from '#/workspace/workspaceAgentProfil
 import type { IUserAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoader';
 import type { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import type { IWorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcp';
+import type { IWorkspaceTrust } from '#/workspace/workspaceTrust/workspaceTrust';
 import type { IWorkspaceTrustStore } from '#/workspace/workspaceTrust/workspaceTrustStore';
 import type { ProgramWorkdir } from './programWorkdirs';
 import { McpOAuthService } from '#/mcpCore/oauth/service';
@@ -34,6 +35,7 @@ export interface ProgramSessionControllerInput {
   readonly userAgentProfiles: IUserAgentProfileLoader;
   readonly pluginAgentProfiles: IPluginAgentProfileLoader;
   readonly mcp: IWorkspaceMcpService;
+  readonly trust: IWorkspaceTrust;
   readonly acquireWorkdir: (
     environmentId: string,
     cwd: string,

@@ -114,7 +114,7 @@ describe('AgentToolApprovalService', () => {
           _serviceBrand: undefined,
           rules: [],
           sessionApprovalRulePatterns: [],
-          addRules: () => {},
+          addRules: () => Promise.resolve(),
           recordApprovalResult: (record) => {
             recorded.push(record);
           },

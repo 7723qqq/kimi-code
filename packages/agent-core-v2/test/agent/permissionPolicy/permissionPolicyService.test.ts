@@ -828,7 +828,7 @@ function permissionRulesStub(
     get sessionApprovalRulePatterns() {
       return sessionApprovalRulePatterns();
     },
-    addRules: () => {},
+    addRules: () => Promise.resolve(),
     recordApprovalResult: () => {},
   };
 }
