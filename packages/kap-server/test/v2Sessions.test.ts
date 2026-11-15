@@ -190,6 +190,7 @@ const workspaceStub: IWorkspaceService = {
   setPrimary: async () => {
     throw new Error('not used in these tests');
   },
+  readProjectConfigDirs: async () => [],
   delete: async () => {},
 };
 

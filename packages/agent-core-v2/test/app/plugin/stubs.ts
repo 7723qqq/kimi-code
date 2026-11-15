@@ -20,6 +20,8 @@ export function stubPluginService(options: StubPluginServiceOptions): IPluginSer
     onDidReload: options.reloadEmitter?.event ?? (Event.None as IPluginService['onDidReload']),
     onDidMutate: options.mutateEmitter?.event ?? (Event.None as IPluginService['onDidMutate']),
     withMcpServersSuspended: async (_id, task) => task(),
+    reconcileAvailability: async () => {},
+    previewPlugin: async () => ({ skills: [], mcpServers: [] }),
     listPlugins: async () => [],
     installPlugin: async () => ({ id: '' }) as never,
     setPluginEnabled: async () => {},

@@ -19,7 +19,6 @@ import {
   IAgentLifecycleService,
   ISessionContext,
   MAIN_AGENT_ID,
-  IOAuthService,
   IProviderDiscoveryService,
   ISessionIndex,
   ISessionIndexMirror,
@@ -28,7 +27,6 @@ import {
   IPluginService,
   IEnvironmentService,
   IWorkspaceService,
-  KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV,
   NOTIFY_USER_UI_CAPABILITY,
   PluginChanged,
   logSeed,
@@ -44,7 +42,6 @@ import { RemoteEnvironmentProviderFactory } from '@moonshot-ai/agent-core-v2/rem
 import {
   createKimiDefaultHeaders,
   KIMI_CODE_PROVIDER_NAME,
-  kimiRegionProfile,
   type KimiHostIdentity,
 } from '@moonshot-ai/kimi-code-oauth';
 import { createRemoteControlManager, RemoteControlDeviceClient } from '@moonshot-ai/remote-control';
@@ -106,7 +103,6 @@ export interface ServerStartOptions {
   readonly homeDir?: string;
   readonly env?: NodeJS.ProcessEnv;
   readonly pluginMarketplaceUrl?: string;
-  readonly pluginMarketplaceHomeDir?: string;
   readonly configPath?: string;
   readonly instancesDir?: string;
   readonly logLevel?: ServerLogLevel;
@@ -202,7 +198,13 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     {
       homeDir,
       configPath,
-      env: opts.env,
+      env:
+        opts.pluginMarketplaceUrl === undefined
+          ? opts.env
+          : {
+              ...(opts.env ?? process.env),
+              KIMI_CODE_PLUGIN_MARKETPLACE_URL: opts.pluginMarketplaceUrl,
+            },
       clientIdentity: opts.hostIdentity,
       args: {
         requestHeaders: createKimiDefaultHeaders({ homeDir, ...opts.hostIdentity }),
@@ -486,18 +488,6 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     debugEndpoints,
     enableShutdown,
     guiStore,
-    pluginMarketplaceUrl: (() => {
-      const configured =
-        opts.pluginMarketplaceUrl ?? process.env[KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV];
-      if (configured !== undefined) return () => configured;
-      return async () =>
-        `${kimiRegionProfile(await core.accessor.get(IOAuthService).getRegionAsync()).cdnBase}/plugins/marketplace.json`;
-    })(),
-    pluginMarketplaceIsDefault:
-      opts.pluginMarketplaceUrl === undefined &&
-      (process.env[KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV] === undefined ||
-        process.env['KIMI_CODE_PLUGIN_MARKETPLACE_FROM_DEV_SERVER'] === '1'),
-    pluginMarketplaceHomeDir: opts.pluginMarketplaceHomeDir,
     remoteControl: {
       service: remoteControlManager,
       devices: remoteControlDevices,

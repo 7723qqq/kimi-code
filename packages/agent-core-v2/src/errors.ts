@@ -202,6 +202,7 @@ export type KimiErrorCode =
   | 'os.process.spawn_failed'
   | 'plugin.load_failed'
   | 'plugin.not_found'
+  | 'plugin.catalog_changed'
   | 'profile.already_bound'
   | 'profile.not_bound'
   | 'profile.thinking_alias_conflict'

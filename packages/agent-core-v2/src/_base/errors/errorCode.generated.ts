@@ -86,6 +86,7 @@ export const ERROR_CODE_UNION = [
   'os.fs.unknown',
   'os.process.kill_failed',
   'os.process.spawn_failed',
+  'plugin.catalog_changed',
   'plugin.load_failed',
   'plugin.not_found',
   'profile.already_bound',

@@ -1,6 +1,6 @@
 import { isAbsolute } from 'pathe';
 
-import { encodeWorkDirKey, workspaceRootKey } from '#/_base/utils/workdir-slug';
+import { encodeWorkDirKey, isWorkDirKey, workspaceRootKey } from '#/_base/utils/workdir-slug';
 import type { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import type { IFileSystemStorageService } from '#/persistence/interface/storage';
 
@@ -166,7 +166,12 @@ export function collectAliasIds(
 
 export function dedupeByRoot(byId: ReadonlyMap<string, Workspace>): Workspace[] {
   const byRoot = new Map<string, Workspace>();
+  const rest: Workspace[] = [];
   for (const ws of byId.values()) {
+    if (!isWorkDirKey(ws.id)) {
+      rest.push(ws);
+      continue;
+    }
     const rootKey = workspaceRootKey(ws.root);
     const existing = byRoot.get(rootKey);
     if (existing === undefined) {
@@ -174,14 +179,11 @@ export function dedupeByRoot(byId: ReadonlyMap<string, Workspace>): Workspace[] 
       continue;
     }
     const canonicalId = encodeWorkDirKey(ws.root);
-    const kept = existing.id !== canonicalId && ws.id === canonicalId ? ws : existing;
-    const other = kept === ws ? existing : ws;
-    byRoot.set(rootKey, {
-      ...kept,
-      additionalDirs: [...new Set([...kept.additionalDirs, ...other.additionalDirs])],
-    });
+    if (existing.id !== canonicalId && ws.id === canonicalId) {
+      byRoot.set(rootKey, ws);
+    }
   }
-  return [...byRoot.values()];
+  return [...byRoot.values(), ...rest];
 }
 
 export async function readSessionIndexEntries(

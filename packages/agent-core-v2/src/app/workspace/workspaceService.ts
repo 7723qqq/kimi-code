@@ -1,11 +1,12 @@
-import { basename, isAbsolute } from 'pathe';
-
 import { randomUUID } from 'node:crypto';
+
+import { basename, isAbsolute } from 'pathe';
 
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
-import { encodeWorkDirKey, workspaceRootKey } from '#/_base/utils/workdir-slug';
+import { encodeWorkDirKey, isWorkDirKey, workspaceRootKey } from '#/_base/utils/workdir-slug';
 import { IEventService } from '#/app/event/event';
+import { IProjectLocalConfigService } from '#/app/projectLocalConfig/projectLocalConfig';
 import { LifecycleScope } from '#/app/scopes';
 import { ErrorCodes, Error2, unwrapErrorCause } from '#/errors';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
@@ -27,7 +28,6 @@ import {
 } from './workspaceAlias';
 import { WorkspaceCreated, WorkspaceDeleted, WorkspaceUpdated } from './workspaceEvents';
 import { IWorkspacePersistence, type WorkspaceCatalog } from './workspacePersistence';
-import { isWorkDirKey } from '#/_base/utils/workdir-slug';
 
 export class WorkspaceService implements IWorkspaceService {
   declare readonly _serviceBrand: undefined;
@@ -40,6 +40,7 @@ export class WorkspaceService implements IWorkspaceService {
     @IFileSystemStorageService private readonly storage: IFileSystemStorageService,
     @IAppendLogStore private readonly appendLogs: IAppendLogStore,
     @IHostFileSystem private readonly hostFs: IHostFileSystem,
+    @IProjectLocalConfigService private readonly localConfig: IProjectLocalConfigService,
     @ILogService private readonly log: ILogService,
     @IEventService private readonly event: IEventService,
   ) {}
@@ -183,37 +184,64 @@ export class WorkspaceService implements IWorkspaceService {
   setPrimary(id: string, path: string): Promise<Workspace | undefined> {
     return this.runExclusive(async () => {
       await this.ensureMerged();
-      const catalog = await this.loadCatalog();
-      const existing = catalog.workspaces.find((ws) => ws.id === id);
-      if (existing === undefined) return undefined;
-      const resolved = isAbsolute(path) ? path : `${existing.root}/${path}`;
-      await this.requireDirectory(resolved);
-      const resolvedKey = workspaceRootKey(resolved);
-      if (resolvedKey === workspaceRootKey(existing.root)) return existing;
-      const wasAdditional = existing.additionalDirs.some(
-        (dir) => workspaceRootKey(dir) === resolvedKey,
-      );
-      if (!wasAdditional) {
-        throw new Error2(
-          ErrorCodes.FS_PATH_NOT_FOUND,
-          `primary ${path} is not one of this workspace's source folders`,
-        );
-      }
-      const updated: Workspace = {
-        ...existing,
-        root: resolved,
-        additionalDirs: [
-          ...existing.additionalDirs.filter((dir) => workspaceRootKey(dir) !== resolvedKey),
-          existing.root,
-        ],
-      };
-      await this.store.save({
-        workspaces: catalog.workspaces.map((ws) => (ws.id === id ? updated : ws)),
-        deletedIds: catalog.deletedIds,
-        idempotencyKeys: catalog.idempotencyKeys,
+      let updated: Workspace | undefined;
+      let changed = false;
+      await this.store.update(async (catalog) => {
+        const existing = catalog.workspaces.find((ws) => ws.id === id);
+        if (existing === undefined) return catalog;
+        const resolved = (
+          await this.localConfig.resolveAdditionalDirs(existing.root, [path])
+        )[0];
+        if (resolved === undefined) {
+          throw new Error2(ErrorCodes.FS_PATH_NOT_FOUND, `primary ${path} does not exist`);
+        }
+        const rootKey = workspaceRootKey(existing.root);
+        const resolvedKey = workspaceRootKey(resolved);
+        if (resolvedKey === rootKey) {
+          updated = existing;
+          return catalog;
+        }
+        if (!existing.additionalDirs.some((dir) => workspaceRootKey(dir) === resolvedKey)) {
+          throw new Error2(
+            ErrorCodes.CONFIG_INVALID,
+            `primary ${resolved} is not in the workspace dir set`,
+          );
+        }
+        updated = {
+          ...existing,
+          root: resolved,
+          additionalDirs: [
+            existing.root,
+            ...existing.additionalDirs.filter((dir) => workspaceRootKey(dir) !== resolvedKey),
+          ],
+          lastOpenedAt: Date.now(),
+        };
+        changed = true;
+        return {
+          workspaces: catalog.workspaces.map((ws) => (ws.id === id ? updated! : ws)),
+          deletedIds: catalog.deletedIds,
+          idempotencyKeys: catalog.idempotencyKeys,
+        };
       });
-      this.event.publish(new WorkspaceUpdated({ payload: { workspace: updated } }));
+      if (changed && updated !== undefined) {
+        this.event.publish(new WorkspaceUpdated({ payload: { workspace: updated } }));
+      }
       return updated;
+    });
+  }
+
+  readProjectConfigDirs(root: string): Promise<readonly string[]> {
+    return this.runExclusive(async () => {
+      const fromProject = await this.readProjectDirs(root);
+      const rootKey = workspaceRootKey(root);
+      const result: string[] = [];
+      for (const dir of fromProject) {
+        const key = workspaceRootKey(dir);
+        if (key === rootKey) continue;
+        if (result.some((kept) => workspaceRootKey(kept) === key)) continue;
+        result.push(dir);
+      }
+      return result;
     });
   }
 
@@ -243,37 +271,52 @@ export class WorkspaceService implements IWorkspaceService {
     dirs: readonly string[],
   ): Promise<readonly string[]> {
     const rootKey = workspaceRootKey(root);
+    const resolved = await this.localConfig.resolveAdditionalDirs(root, dirs);
     const kept: string[] = [];
-    for (const dir of dirs) {
-      const resolved = isAbsolute(dir) ? dir : `${root}/${dir}`;
-      await this.requireDirectory(resolved);
-      const key = workspaceRootKey(resolved);
-      if (key === rootKey) continue;
-      if (kept.some((entry) => workspaceRootKey(entry) === key)) continue;
-      kept.push(resolved);
+    for (const dir of resolved) {
+      if (workspaceRootKey(dir) === rootKey) {
+        throw new Error2(
+          ErrorCodes.CONFIG_INVALID,
+          `additional dir ${dir} duplicates the workspace root`,
+        );
+      }
+      if (kept.some((entry) => workspaceRootKey(entry) === workspaceRootKey(dir))) continue;
+      kept.push(dir);
     }
     return kept;
+  }
+
+  private async readProjectDirs(root: string): Promise<readonly string[]> {
+    const onDisk = await this.localConfig.readAdditionalDirs(root);
+    return onDisk.additionalDirs;
   }
 
 
   update(id: string, patch: WorkspaceUpdate): Promise<Workspace | undefined> {
     return this.runExclusive(async () => {
       await this.ensureMerged();
-      const catalog = await this.loadCatalog();
-      const existing = catalog.workspaces.find((ws) => ws.id === id);
-      if (existing === undefined) return undefined;
-      const updated: Workspace = {
-        ...existing,
-        ...(patch.name !== undefined ? { name: patch.name } : {}),
-        ...(patch.additionalDirs !== undefined
-          ? { additionalDirs: [...patch.additionalDirs] }
-          : {}),
-      };
-      await this.store.save({
-        workspaces: catalog.workspaces.map((ws) => (ws.id === id ? updated : ws)),
-        deletedIds: catalog.deletedIds,
+      let updated: Workspace | undefined;
+      await this.store.update(async (catalog) => {
+        const existing = catalog.workspaces.find((ws) => ws.id === id);
+        if (existing === undefined) return catalog;
+        const additionalDirs =
+          patch.additionalDirs === undefined
+            ? existing.additionalDirs
+            : await this.normalizeAdditionalDirs(existing.root, patch.additionalDirs);
+        updated = {
+          ...existing,
+          ...(patch.name !== undefined ? { name: patch.name } : {}),
+          additionalDirs,
+        };
+        return {
+          workspaces: catalog.workspaces.map((ws) => (ws.id === id ? updated! : ws)),
+          deletedIds: catalog.deletedIds,
+          idempotencyKeys: catalog.idempotencyKeys,
+        };
       });
-      this.event.publish(new WorkspaceUpdated({ payload: { workspace: updated } }));
+      if (updated !== undefined) {
+        this.event.publish(new WorkspaceUpdated({ payload: { workspace: updated } }));
+      }
       return updated;
     });
   }

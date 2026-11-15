@@ -988,6 +988,7 @@ function registerSessionExportServices(
     },
     touch: async () => undefined,
     setPrimary: async () => undefined,
+    readProjectConfigDirs: async () => [],
     delete: async () => {},
   });
   reg.define(ISessionExportService, SessionExportService);

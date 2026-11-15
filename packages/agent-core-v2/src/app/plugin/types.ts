@@ -152,6 +152,7 @@ export interface PluginRecord {
   readonly capabilities?: PluginCapabilityState;
   readonly github?: PluginGithubMetadata;
   readonly skillInstructions?: string;
+  readonly skills?: readonly PluginSkillRecord[];
   readonly skillCount: number;
   readonly manifest?: PluginManifest;
   readonly interfaceLocales?: Readonly<Record<string, PluginInterface>>;
@@ -179,19 +180,18 @@ export interface PluginSummary {
   readonly source: PluginSource;
   readonly origin: PluginOrigin;
   readonly catalogId?: string;
+  readonly installedAt: string;
   readonly marketplaceSource?: string;
   readonly originalSource?: string;
   readonly github?: PluginGithubMetadata;
 }
 
-export interface PluginInfo extends PluginSummary {
+export interface PluginInfo extends PluginSummary, PluginCapabilities {
   readonly root: string;
-  readonly installedAt: string;
   readonly updatedAt?: string;
   readonly manifestKind?: PluginManifestKind;
   readonly manifestPath?: string;
   readonly manifest?: PluginManifest;
-  readonly mcpServers: readonly PluginMcpServerInfo[];
   readonly shadowedManifestPath?: string;
   readonly diagnostics: readonly PluginDiagnostic[];
 }

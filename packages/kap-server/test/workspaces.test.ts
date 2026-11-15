@@ -123,7 +123,7 @@ describe('server-v2 /api/v1/workspaces', () => {
     expect(body.code).toBe(0);
     expect(body.data.root).toBe(root);
     expect(body.data.name).toBe('proj');
-    expect(body.data.id).toMatch(/^wd_[a-z0-9._-]+_[0-9a-f]{12}$/);
+    expect(body.data.id).toMatch(/^wm_[0-9a-f-]{36}$/);
     expect(typeof body.data.session_count).toBe('number');
     expect(Number.isNaN(Date.parse(body.data.created_at))).toBe(false);
     expect(Number.isNaN(Date.parse(body.data.last_opened_at))).toBe(false);
@@ -142,7 +142,8 @@ describe('server-v2 /api/v1/workspaces', () => {
       expect(first.body.code).toBe(0);
       expect(first.body.data.id).toMatch(/^wm_[0-9a-f-]{36}$/);
       expect(first.body.data.kind).toBe('managed');
-      expect(first.body.data.additional_dirs).toEqual([extra]);
+      const normalize = (value: string): string => value.replaceAll('\\', '/');
+      expect(first.body.data.additional_dirs.map(normalize)).toEqual([normalize(extra)]);
 
       const retry = await postJson<WorkspaceWire>('/api/v1/workspaces', {
         root,
@@ -186,11 +187,20 @@ describe('server-v2 /api/v1/workspaces', () => {
     expect(body.data.name.length).toBeGreaterThan(0);
   });
 
-  it('is idempotent on root (createOrTouch)', async () => {
+  it('creates a fresh id per call and is retry-safe via idempotency_key', async () => {
     const root = home as string;
     const first = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });
     const second = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });
-    expect(first.body.data.id).toBe(second.body.data.id);
+    expect(first.body.data.id).not.toBe(second.body.data.id);
+    const retried = await postJson<WorkspaceWire>('/api/v1/workspaces', {
+      root,
+      idempotency_key: 'route-key-2',
+    });
+    const again = await postJson<WorkspaceWire>('/api/v1/workspaces', {
+      root,
+      idempotency_key: 'route-key-2',
+    });
+    expect(again.body.data.id).toBe(retried.body.data.id);
   });
 
   it('rejects a relative root (40001)', async () => {
@@ -206,11 +216,15 @@ describe('server-v2 /api/v1/workspaces', () => {
   });
 
   it('lists registered workspaces', async () => {
-    const root = home as string;
-    const created = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });
-    const { body } = await getJson<ListWire>('/api/v1/workspaces');
-    expect(body.code).toBe(0);
-    expect(body.data.items.some((w) => w.id === created.body.data.id)).toBe(true);
+    const root = await mkdtemp(join(tmpdir(), 'ws-route-list-'));
+    try {
+      const created = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });
+      const { body } = await getJson<ListWire>('/api/v1/workspaces');
+      expect(body.code).toBe(0);
+      expect(body.data.items.some((w) => w.id === created.body.data.id)).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it('renames a workspace via PATCH', async () => {
@@ -245,16 +259,22 @@ describe('server-v2 /api/v1/workspaces', () => {
   });
 
   it('reflects session_count for sessions created in the workspace', async () => {
-    const root = home as string;
-    const created = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });
-    expect(created.body.data.session_count).toBe(0);
+    const root = await mkdtemp(join(tmpdir(), 'ws-route-count-'));
+    try {
+      const created = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });
+      expect(created.body.data.session_count).toBe(0);
 
-    const session = await postJson<{ id: string }>('/api/v1/sessions', { metadata: { cwd: root } });
-    expect(session.body.code).toBe(0);
+      const session = await postJson<{ id: string }>('/api/v1/sessions', {
+        workspace_id: created.body.data.id,
+      });
+      expect(session.body.code).toBe(0);
 
-    const { body } = await getJson<ListWire>('/api/v1/workspaces');
-    const ws = body.data.items.find((w) => w.id === created.body.data.id);
-    expect(ws?.session_count).toBe(1);
+      const { body } = await getJson<ListWire>('/api/v1/workspaces');
+      const ws = body.data.items.find((w) => w.id === created.body.data.id);
+      expect(ws?.session_count).toBe(1);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it('sums session_count across legacy split buckets of one root', async () => {
@@ -637,6 +657,43 @@ describe('server-v2 /api/v1/workspaces', () => {
       expect(read.body.data.trusted).toBe(true);
     } finally {
       restoreEnvs();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('promotes a source folder to primary and keeps the old root', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ws-route-primary-'));
+    const extra = await mkdtemp(join(tmpdir(), 'ws-route-primary-extra-'));
+    try {
+      const created = await postJson<WorkspaceWire>('/api/v1/workspaces', {
+        root,
+        additional_dirs: [extra],
+      });
+      expect(created.body.code).toBe(0);
+
+      const promoted = await postJson<WorkspaceWire>(
+        `/api/v1/workspaces/${created.body.data.id}/primary`,
+        { path: extra },
+      );
+      expect(promoted.body.code).toBe(0);
+      const normalize = (value: string): string => value.replaceAll('\\', '/');
+      expect(normalize(promoted.body.data.root)).toBe(normalize(extra));
+      expect(promoted.body.data.additional_dirs.map(normalize)).toContain(normalize(root));
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(extra, { recursive: true, force: true });
+    }
+  });
+
+  it('reads project config dirs without mutating the project', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ws-route-project-dirs-'));
+    try {
+      const { body } = await getJson<{ additional_dirs: string[] }>(
+        `/api/v1/workspaces/project-config-dirs?root=${encodeURIComponent(root)}`,
+      );
+      expect(body.code).toBe(0);
+      expect(body.data.additional_dirs).toEqual([]);
+    } finally {
       await rm(root, { recursive: true, force: true });
     }
   });

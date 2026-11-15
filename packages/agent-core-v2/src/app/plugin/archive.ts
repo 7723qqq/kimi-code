@@ -13,7 +13,11 @@ const MAX_ARCHIVE_ENTRIES = 10_000;
 const MAX_ENTRY_BYTES = 64 * 1024 * 1024;
 const MAX_TOTAL_EXTRACTED_BYTES = 256 * 1024 * 1024;
 
-export async function downloadZip(url: string, signal?: AbortSignal): Promise<Buffer> {
+export async function downloadZip(
+  url: string,
+  signal?: AbortSignal,
+  fetchImpl: typeof fetch = fetch,
+): Promise<Buffer> {
   const controller = new AbortController();
   const timeoutHandle = setTimeout(
     () => {
@@ -22,7 +26,7 @@ export async function downloadZip(url: string, signal?: AbortSignal): Promise<Bu
     5 * 60 * 1000,
   );
   try {
-    const resp = await fetch(url, { signal: signal ?? controller.signal });
+    const resp = await fetchImpl(url, { signal: signal ?? controller.signal });
     if (!resp.ok) {
       throw new Error2(
         ErrorCodes.PLUGIN_LOAD_FAILED,

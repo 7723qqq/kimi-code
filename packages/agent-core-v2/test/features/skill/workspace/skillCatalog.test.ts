@@ -16,6 +16,7 @@ import { IFlagService } from '#/app/flag/flag';
 import { IPluginService } from '#/app/plugin/plugin';
 import { PluginService } from '#/app/plugin/pluginService';
 import { type PluginReloadEvent } from '#/app/plugin/types';
+import { IRegionService } from '#/app/region/region';
 import { LifecycleScope } from '#/app/scopes';
 import { IAppStateService } from '#/app/state/appState';
 import { AppStateService } from '#/app/state/appStateService';
@@ -192,6 +193,8 @@ function pluginStub(
     onDidReload: reloadEmitter !== undefined ? reloadEmitter.event : () => ({ dispose: () => {} }),
     onDidMutate: () => ({ dispose: () => {} }),
     withMcpServersSuspended: async (_id, task) => task(),
+    reconcileAvailability: async () => {},
+    previewPlugin: async () => ({ skills: [], mcpServers: [] }),
     listPlugins: async () => [],
     installPlugin: async () => ({ id: '' }) as never,
     setPluginEnabled: async () => {},
@@ -1258,6 +1261,11 @@ describe('WorkspaceSkillCatalogService', () => {
       stubPair(IBootstrapService, stubBootstrap(homeDir)),
       stubPair(IConfigService, configStub()),
       stubPair(IProviderService, stubProviderService()),
+      stubPair(IRegionService, {
+        _serviceBrand: undefined,
+        current: () => ({ region: 'mainland-cn', source: 'default' }),
+        getRegionAsync: async () => 'mainland-cn',
+      } satisfies IRegionService),
       stubPair(ITelemetryService, noopTelemetryService),
       stubPair(ILogService, stubLog()),
     ]);

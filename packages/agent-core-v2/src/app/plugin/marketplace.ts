@@ -1,10 +1,21 @@
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 
+import {
+  KIMI_REGION_PROFILES,
+  OAuthUnauthorizedError,
+} from '@moonshot-ai/kimi-code-oauth';
 import { gt, valid } from 'semver';
 
 import type { FetchLike } from '#/_base/utils/fetchLike';
 import { isRecord } from '#/_base/utils/guards';
+
+export function isMissingMarketplaceTokenError(error: unknown): boolean {
+  return (
+    error instanceof OAuthUnauthorizedError &&
+    /^No token for ".+"\. Run \/login to authenticate\.$/.test(error.message)
+  );
+}
 
 export const KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV = 'KIMI_CODE_PLUGIN_MARKETPLACE_URL';
 
@@ -46,6 +57,8 @@ export interface PluginMarketplaceEntry {
   readonly tier?: PluginMarketplaceTier;
   readonly version?: string;
   readonly description?: string;
+  readonly shortDescription?: string;
+  readonly longDescription?: string;
   readonly homepage?: string;
   readonly keywords?: readonly string[];
   readonly iconUrl?: string;
@@ -119,6 +132,23 @@ export function marketplaceEntryVisibleOnHost(
     entry.platforms.some((candidate) => candidate === platform) ||
     entry.platforms.every((candidate) => candidate === 'cloud')
   );
+}
+
+export function pluginMarketplaceUrl(baseUrl: string): string {
+  const normalized = baseUrl.trim().replace(/\/+$/, '');
+  if (normalized.length === 0) throw new Error('Kimi Code base URL cannot be empty.');
+  return `${normalized}/plugins/marketplace`;
+}
+
+const TRUSTED_PLUGIN_MARKETPLACE_URLS = new Set(
+  [
+    ...Object.values(KIMI_REGION_PROFILES).map((profile) => profile.baseUrl),
+    'https://coding.deva.msh.team/coding/v1',
+  ].map(pluginMarketplaceUrl),
+);
+
+export function isTrustedPluginMarketplaceUrl(source: string): boolean {
+  return TRUSTED_PLUGIN_MARKETPLACE_URLS.has(source.trim().replace(/\/+$/, ''));
 }
 
 export function computeUpdateStatus(
@@ -280,6 +310,8 @@ function parseMarketplaceEntry(
     tier,
     version: stringField(value, 'version') ?? deriveVersionFromGithubSource(resolvedSource),
     description: stringField(value, 'description') ?? stringField(value, 'shortDescription'),
+    shortDescription: stringField(value, 'shortDescription'),
+    longDescription: stringField(value, 'longDescription'),
     homepage: stringField(value, 'homepage') ?? stringField(value, 'websiteURL'),
     keywords: stringArrayField(value, 'keywords'),
     iconUrl: stringField(value, 'iconUrl'),

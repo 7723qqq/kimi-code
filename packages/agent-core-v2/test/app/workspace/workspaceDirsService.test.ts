@@ -299,6 +299,7 @@ describe('WorkspaceDirsService primary lifecycle', () => {
       storage,
       new AppendLogStore(storage, log),
       hostFs,
+      new FileProjectLocalConfigService(bootstrap, hostFs, homeDir),
       log,
       event,
     );
@@ -349,7 +350,7 @@ describe('WorkspaceDirsService primary lifecycle', () => {
 
     const primary = createDirs(dirA, project.id, 'managed');
     await primary.ready;
-    expect(primary.additionalDirs).toEqual([dirB]);
+    expect(primary.additionalDirs.map(normalize)).toEqual([normalize(dirB)]);
     expect(primary.sessionInfo().primaryByWorkspace).toEqual({ [project.id]: dirA });
 
     const member = createDirs(dirB, 'wd_other_000000000000');
@@ -381,13 +382,13 @@ describe('WorkspaceDirsService primary lifecycle', () => {
       await writeLocalConfig(dirB, [dirD]);
       const dirs = createDirs(dirA, project.id, 'implicit');
       await dirs.ready;
-      expect(dirs.additionalDirs).toEqual([normalize(dirC), dirB]);
+      expect(dirs.additionalDirs.map(normalize)).toEqual([normalize(dirC), normalize(dirB)]);
 
       await workspaces.setPrimary(project.id, dirB);
       await waitForAssertion(
         () => {
-          expect(dirs.primary).toBe(dirB);
-          expect(dirs.additionalDirs).toEqual([normalize(dirD), dirA]);
+          expect(normalize(dirs.primary)).toBe(normalize(dirB));
+          expect(dirs.additionalDirs.map(normalize)).toEqual([normalize(dirD), normalize(dirA)]);
         },
         { timeout: 5_000 },
       );
@@ -414,19 +415,19 @@ describe('WorkspaceDirsService primary lifecycle', () => {
     expect(pinned.additionalDirs).toEqual([]);
     expect(pinned.sessionInfo().primaryByWorkspace).toEqual({});
     expect(following.primary).toBe(dirA);
-    expect(following.additionalDirs).toEqual([dirB]);
+    expect(following.additionalDirs.map(normalize)).toEqual([normalize(dirB)]);
 
     await workspaces.setPrimary(project.id, dirB);
     await waitForAssertion(
       () => {
-        expect(following.primary).toBe(dirB);
+        expect(normalize(following.primary)).toBe(normalize(dirB));
       },
       { timeout: 5_000 },
     );
     expect(pinned.primary).toBe(dirC);
     expect(pinned.additionalDirs).toEqual([]);
     expect(pinned.sessionInfo().primaryByWorkspace).toEqual({});
-    expect(following.additionalDirs).toEqual([dirA]);
+    expect(following.additionalDirs.map(normalize)).toEqual([normalize(dirA)]);
   }, 15_000);
 
   it('keeps the complete directory set when the primary changes from the original cwd', async () => {
@@ -441,22 +442,29 @@ describe('WorkspaceDirsService primary lifecycle', () => {
     await workspaces.setPrimary(project.id, dirB);
     await waitForAssertion(
       () => {
-        expect(dirs.primary).toBe(dirB);
+        expect(normalize(dirs.primary)).toBe(normalize(dirB));
       },
       { timeout: 5_000 },
     );
 
-    expect(dirs.additionalDirs).toEqual([dirA]);
-    expect(dirs.sessionInfo().primaryByWorkspace).toEqual({ [project.id]: dirB });
+    expect(dirs.additionalDirs.map(normalize)).toEqual([normalize(dirA)]);
+    expect(
+      Object.fromEntries(
+        Object.entries(dirs.sessionInfo().primaryByWorkspace).map(([key, value]) => [
+          key,
+          normalize(value),
+        ]),
+      ),
+    ).toEqual({ [project.id]: normalize(dirB) });
 
     await workspaces.update(project.id, { additionalDirs: [dirA, dirC] });
     await waitForAssertion(
       () => {
-        expect(dirs.additionalDirs).toEqual([dirA, dirC]);
+        expect(dirs.additionalDirs.map(normalize)).toEqual([normalize(dirA), normalize(dirC)]);
       },
       { timeout: 5_000 },
     );
-    expect(dirs.primary).toBe(dirB);
+    expect(normalize(dirs.primary)).toBe(normalize(dirB));
   }, 15_000);
 
   it('keeps a remote workdir rooted at its environment cwd without local registry roots', async () => {

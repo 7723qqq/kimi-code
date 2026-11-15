@@ -298,6 +298,7 @@ export * from '#/app/plugin/archive';
 export * from '#/app/plugin/availability';
 export * from '#/app/plugin/manager';
 export * from '#/app/plugin/marketplace';
+export * from '#/app/plugin/marketplaceService';
 export * from '#/app/plugin/plugin';
 export * from '#/app/plugin/pluginEvents';
 export * from '#/app/plugin/pluginService';

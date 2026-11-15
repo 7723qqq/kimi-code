@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, mock, spyOn, type Mock } from 'bun:test';
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -21,10 +22,12 @@ import type { FetchLike } from '#/_base/utils/fetchLike';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { pluginAvailabilitySourceKey } from '#/app/plugin/availability';
 import { IPluginService } from '#/app/plugin/plugin';
-import { PluginService } from '#/app/plugin/pluginService';
+import { installResolvedMarketplacePlugin, PluginService } from '#/app/plugin/pluginService';
+import type { MarketplacePluginInstall } from '#/app/plugin/marketplaceService';
 import * as pluginStore from '#/app/plugin/store';
 import type { InstalledFile, InstalledRecord } from '#/app/plugin/store';
 import type { PluginMutationSummary, ReloadSummary } from '#/app/plugin/types';
+import { IRegionService } from '#/app/region/region';
 import { LifecycleScope } from '#/app/scopes';
 import {
   ITelemetryService,
@@ -38,6 +41,7 @@ import { setGlobal, restoreGlobals } from '#test/helpers/stubs';
 
 import { stubBootstrap } from '../bootstrap/stubs';
 import { stubProviderService } from '../provider/stubs';
+import { createZipFromDir } from './zip-helper';
 
 let readInstalled: Mock<typeof pluginStore.readInstalled>;
 let writeInstalled: Mock<typeof pluginStore.writeInstalled>;
@@ -51,6 +55,11 @@ function makeHost(
   return createScopedTestHost([
     stubPair(IBootstrapService, stubBootstrap(homeDir, env)),
     stubPair(IProviderService, providers),
+    stubPair(IRegionService, {
+      _serviceBrand: undefined,
+      current: () => ({ region: 'mainland-cn', source: 'default' }),
+      getRegionAsync: async () => 'mainland-cn',
+    } satisfies IRegionService),
     stubPair(ILogService, SILENT_TEST_LOGGER),
     stubPair(ISkillDiscovery, {
       _serviceBrand: undefined,
@@ -215,24 +224,67 @@ describe('PluginService (plugin boundary)', () => {
     }
   });
 
-  it('marks an install that came from a cached catalog entry as a marketplace plugin', async () => {
+  it('installs a pre-resolved marketplace artifact without resolving the catalog again', async () => {
     const home = await makeHome();
-    const pluginRoot = await makePluginDir('catalog-install', {});
-    createdDirs.push(pluginRoot);
     await writeValidInstalledFile(home);
-    await writeInstalledFile(
-      home,
-      JSON.stringify({ version: 1, plugins: [] }),
-    );
-    await mkdir(path.join(home, 'plugins'), { recursive: true });
+    const sourceRoot = await makePluginDir('resolved-demo', { version: '2.0.0' });
+    createdDirs.push(sourceRoot);
+    const buffer = await createZipFromDir(sourceRoot);
+    const artifactFetch = mock(async () => new Response(buffer)) as unknown as typeof fetch;
+    const catalogFetch = mock(async () => {
+      throw new Error('catalog should not be fetched');
+    });
+    setGlobal('fetch', catalogFetch);
+    const marketplaceSource = 'https://marketplace.example.test/catalog?token=secret';
+    const resolved: MarketplacePluginInstall = {
+      source: 'https://marketplace.example.test/resolved-demo.zip',
+      version: '2.0.0',
+      sha256sum: createHash('sha256').update(buffer).digest('hex'),
+      catalogId: 'resolved-demo',
+      marketplaceSource,
+      origin: 'marketplace',
+      expectedPluginId: 'resolved-demo',
+      fetchImpl: artifactFetch,
+    };
+    const host = makeHost(home);
+    try {
+      const svc = host.app.accessor.get(IPluginService);
+      const summary = await installResolvedMarketplacePlugin(
+        svc,
+        { marketplaceId: 'resolved-demo', expectedVersion: '2.0.0' },
+        resolved,
+      );
+      expect(summary).toMatchObject({
+        id: 'resolved-demo',
+        version: '2.0.0',
+        state: 'ok',
+        origin: 'marketplace',
+      });
+      expect(artifactFetch).toHaveBeenCalledTimes(1);
+      expect(catalogFetch).not.toHaveBeenCalled();
+      const installed = JSON.parse(
+        await readFile(path.join(home, 'plugins', 'installed.json'), 'utf8'),
+      ) as InstalledFile;
+      expect(installed.plugins[0]?.marketplaceSource).toBe(
+        `sha256:${createHash('sha256').update(marketplaceSource).digest('hex')}`,
+      );
+      expect(installed.plugins[0]?.originalSource).toBe(resolved.source);
+    } finally {
+      host.dispose();
+    }
+  });
+
+  it('rejects a pre-resolved marketplace artifact unavailable to the current client', async () => {
+    const home = await makeHome();
+    await writeValidInstalledFile(home);
     await writeFile(
       path.join(home, 'plugins', 'availability.json'),
       JSON.stringify({
         version: 1,
         sources: {
-          [pluginAvailabilitySourceKey('https://market.example/plugins/marketplace')]: {
-            'catalog-install': {
-              artifactSourceKey: pluginAvailabilitySourceKey(pluginRoot),
+          [pluginAvailabilitySourceKey('https://marketplace.example.test/catalog')]: {
+            'desktop-only': {
+              clients: ['desktop'],
               checkedAt: '2026-01-01T00:00:00.000Z',
             },
           },
@@ -243,20 +295,21 @@ describe('PluginService (plugin boundary)', () => {
     const host = makeHost(home);
     try {
       const svc = host.app.accessor.get(IPluginService);
-      const installed = await svc.installPlugin({ source: pluginRoot });
-      expect(installed).toMatchObject({
-        id: 'catalog-install',
-        origin: 'marketplace',
-        catalogId: 'catalog-install',
-      });
-
-      const persisted = JSON.parse(
-        await readFile(path.join(home, 'plugins', 'installed.json'), 'utf8'),
-      ) as { plugins: { id: string; origin?: string; catalogId?: string }[] };
-      expect(persisted.plugins.find((entry) => entry.id === 'catalog-install')).toMatchObject({
-        origin: 'marketplace',
-        catalogId: 'catalog-install',
-      });
+      await expect(
+        installResolvedMarketplacePlugin(
+          svc,
+          { marketplaceId: 'desktop-only' },
+          {
+            source: 'https://marketplace.example.test/desktop-only.zip',
+            sha256sum: 'a'.repeat(64),
+            catalogId: 'desktop-only',
+            marketplaceSource: 'https://marketplace.example.test/catalog',
+            origin: 'marketplace',
+            expectedPluginId: 'desktop-only',
+            fetchImpl: fetch,
+          },
+        ),
+      ).rejects.toMatchObject({ code: 'validation.failed' });
     } finally {
       host.dispose();
     }

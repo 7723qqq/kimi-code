@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -206,6 +207,50 @@ describe('PluginManager', () => {
       expect(record.id).toBe('zip-plugin');
       expect(record.source).toBe('zip-url');
       expect(manager.get('zip-plugin')?.manifest?.name).toBe('zip-plugin');
+    } finally {
+      const srv = server;
+      if (srv !== undefined) {
+        await new Promise<void>((resolve, reject) =>
+          srv.close((err) => (err === undefined ? resolve() : reject(err))),
+        );
+      }
+      await rm(sourceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('inspects a zip-url plugin without installing it', async () => {
+    const sourceRoot = await mkdtemp(join(tmpdir(), 'plugin-inspect-source-'));
+    let server: ReturnType<typeof createServer> | undefined;
+    try {
+      await writeFile(
+        join(sourceRoot, 'kimi.plugin.json'),
+        JSON.stringify({
+          name: 'inspect-demo',
+          version: '1.0.0',
+          interface: { shortDescription: 'short', longDescription: 'long' },
+          mcpServers: { demo: { command: 'node', args: [] } },
+        }),
+        'utf8',
+      );
+      const zip = await createZipFromDir(sourceRoot);
+      server = createServer((_req, res) => {
+        res.end(zip);
+      });
+      await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve));
+      const address = server?.address();
+      if (address === null || typeof address === 'string' || address === undefined) {
+        throw new Error('bad server address');
+      }
+      const manager = new PluginManager({ kimiHomeDir: home });
+      const sha256 = createHash('sha256').update(zip).digest('hex');
+
+      const capabilities = await manager.inspect(
+        `http://127.0.0.1:${address.port}/plugin.zip`,
+        { expectedSha256: sha256, expectedPluginId: 'inspect-demo' },
+      );
+
+      expect(capabilities.mcpServers.map((entry) => entry.name)).toEqual(['demo']);
+      expect(manager.get('inspect-demo')).toBeUndefined();
     } finally {
       const srv = server;
       if (srv !== undefined) {
