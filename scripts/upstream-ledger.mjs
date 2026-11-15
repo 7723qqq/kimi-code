@@ -234,11 +234,16 @@ function verify(rows, onlyBatch) {
     else if (row.probe.startsWith('grep:')) outcome = runPatternProbe(row.probe, true);
     else outcome = runPatternProbe(row.probe, false);
     const label = `#${row.pr} ${row.cluster}`;
+    const held = row.verdict === 'partial' || row.verdict === 'blocked';
     if (outcome.ok) {
-      row.verdict = row.verdict === 'equivalent' ? 'equivalent' : 'ported';
-      row.evidence = outcome.detail || '-';
-      row.updated = today();
-      process.stdout.write(`PASS ${label} ${outcome.detail}\n`);
+      if (!held) {
+        row.verdict = row.verdict === 'equivalent' ? 'equivalent' : 'ported';
+        row.evidence = outcome.detail || '-';
+        row.updated = today();
+      }
+      process.stdout.write(
+        `PASS ${label} ${outcome.detail}${held ? ` (verdict held: ${row.verdict})` : ''}\n`,
+      );
     } else {
       failures.push({ label, detail: outcome.detail });
       process.stdout.write(`FAIL ${label} ${outcome.detail}\n`);
@@ -362,7 +367,7 @@ function usage() {
       'usage: bun scripts/upstream-ledger.mjs <command>',
       '',
       '  --refresh                  fetch upstream and add open commits as pending rows',
-      '  --verify [--batch B4]      run every executable probe and advance verdicts',
+      '  --verify [--batch B4]      run every executable probe; partial/blocked rows are held',
       '  --report                   batch x verdict matrix, plus remaining count',
       '  --set <sha> <verdict> --evidence <text> [--approved-by <who>]',
       '  --probe <sha> <probe>     attach test:/grep:/absent:/manual:/  to a row',
