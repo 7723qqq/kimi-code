@@ -13,7 +13,9 @@ import {
   PromptCompleted,
   ThinkingDelta,
   ToolCallDelta,
+  ToolCallStarted,
   ToolProgress,
+  ToolResultEvent,
   TurnEnded,
   TurnPrompt,
   TurnSteer,
@@ -96,6 +98,9 @@ export class ConversationFeed implements IDisposable {
   private flushQueued = false;
   private rebuildQueued = false;
   private lastTurnEnd: { reason?: string; error?: unknown } | undefined;
+  private interruptedTurnId: string | undefined;
+  private readonly interruptedToolCalls = new Set<string>();
+  private readonly pendingToolCalls = new Set<string>();
   private disposed = false;
   private readonly live = new Map<string, LiveItem>();
   private readonly tools = new Map<string, LiveTool>();
@@ -187,6 +192,12 @@ export class ConversationFeed implements IDisposable {
       bus.subscribe(ToolProgress, (event) => {
         this.onToolProgress(event.toolCallId, event.update);
       }),
+      bus.subscribe(ToolCallStarted, (event) => {
+        this.pendingToolCalls.add(event.toolCallId);
+      }),
+      bus.subscribe(ToolResultEvent, (event) => {
+        this.pendingToolCalls.delete(event.toolCallId);
+      }),
       bus.subscribe(TurnStepStreamReset, (event) => {
         this.flushPending();
         this.dropLive((entry) => entry.stepId === event.stepId);
@@ -216,13 +227,17 @@ export class ConversationFeed implements IDisposable {
         this.lastTurnEnd = { reason: event.reason, error: event.error };
         this.scheduleRebuild();
       }),
-      bus.subscribe(TurnStepInterrupted, () => {
+      bus.subscribe(TurnStepInterrupted, (event) => {
+        this.recordInterruptedStep(event.turnId, event.reason);
         this.scheduleRebuild();
       }),
       bus.subscribe(PromptCompleted, () => {
         this.scheduleRebuild();
       }),
       bus.subscribe(ContextSpliced, () => {
+        this.interruptedTurnId = undefined;
+        this.interruptedToolCalls.clear();
+        this.pendingToolCalls.clear();
         this.scheduleRebuild();
       }),
     );
@@ -240,8 +255,45 @@ export class ConversationFeed implements IDisposable {
     });
   }
 
+  private recordInterruptedStep(turnNumber: number, reason: string): void {
+    if (reason !== 'aborted' && reason !== 'user_cancelled') return;
+    const turn = this.state.turns.findLast((candidate) => candidate.status === 'running')
+      ?? this.state.turns.at(-1);
+    if (turn === undefined) return;
+    if (turn.turn_number !== undefined && turn.turn_number !== turnNumber) return;
+    this.interruptedTurnId = turn.turn_id;
+    for (const toolCallId of this.pendingToolCalls) this.interruptedToolCalls.add(toolCallId);
+    this.pendingToolCalls.clear();
+  }
+
+  private forgetCompletedInterruption(): void {
+    const last = this.lastTurnEnd;
+    if (last === undefined || last.reason === 'cancelled') return;
+    this.interruptedTurnId = undefined;
+  }
+
+  private applyInterruptedToolCalls(state: ConversationState): void {
+    if (this.interruptedToolCalls.size === 0) return;
+    for (const turn of state.turns) {
+      for (const item of turn.items) {
+        if (item.type !== 'tool_call' || item.status !== 'ended' || item.outcome !== 'failed') continue;
+        if (this.interruptedToolCalls.has(item.item_id)) item.outcome = 'interrupted';
+      }
+    }
+  }
+
+  private seedPendingToolCalls(): void {
+    this.pendingToolCalls.clear();
+    for (const turn of this.state.turns) {
+      for (const item of turn.items) {
+        if (item.type === 'tool_call' && item.status === 'running') this.pendingToolCalls.add(item.item_id);
+      }
+    }
+  }
+
   private rebuild(): void {
     if (this.disposed) return;
+    this.forgetCompletedInterruption();
     const fresh = createConversationState(this.handle.id, undefined, this.debug);
     fresh.provisionalEnds = { ...this.state.provisionalEnds };
     let ordinalClock = 0;
@@ -251,26 +303,34 @@ export class ConversationFeed implements IDisposable {
         if (isRealUserInput(message)) skipping = false;
         else continue;
       }
+      if (isRealUserInput(message)) fresh.pendingPrompt = { promptId: message.id };
       applyMessage(fresh, message, (ordinalClock += 1) * 1000);
     }
+    this.applyInterruptedToolCalls(fresh);
     const open = openTurn(fresh);
     if (open !== undefined) {
       const loop = this.handle.accessor.get(IAgentLoopService).snapshot();
       if (loop.state !== 'running') {
         const last = this.lastTurnEnd;
         this.lastTurnEnd = undefined;
+        const provisional = open.turn_id === this.interruptedTurnId
+          ? { outcome: 'interrupted' as const, reason: 'user_cancelled' as const }
+          : fresh.provisionalEnds[open.turn_id];
         endTurn(
           fresh,
           open,
-          last === undefined ? COMPLETED : turnEndOf(last.reason, errorInfoOf(last.error, undefined), undefined),
+          last === undefined ? provisional ?? COMPLETED : turnEndOf(last.reason, errorInfoOf(last.error, undefined), provisional),
           (ordinalClock + 1) * 1000,
         );
+      } else if (loop.activeTurnId !== undefined) {
+        open.turn_number = loop.activeTurnId;
       }
     }
     this.beforeReplay = undefined;
     this.dropLive(() => true);
     this.tools.clear();
     this.state = settleOrphanTurns(fresh, this.runningWork());
+    this.seedPendingToolCalls();
     if (this.started) this.flush();
   }
 
@@ -429,6 +489,7 @@ export class ConversationFeed implements IDisposable {
       started_at: isoTime(now),
     };
     this.live.set(toolCallId, { turnId: target.turn.turn_id, stepId: target.stepId, item });
+    this.pendingToolCalls.add(toolCallId);
     this.emit({ type: 'item.started', turn_id: target.turn.turn_id, item });
   }
 
@@ -494,6 +555,7 @@ export class ConversationFeed implements IDisposable {
     for (const [itemId, entry] of this.live) {
       if (!match(entry)) continue;
       this.live.delete(itemId);
+      if (entry.item.type === 'tool_call') this.pendingToolCalls.delete(itemId);
       if (announce) this.emit({ type: 'item.removed', turn_id: entry.turnId, item_id: itemId });
     }
   }
