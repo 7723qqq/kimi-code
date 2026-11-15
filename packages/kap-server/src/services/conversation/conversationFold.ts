@@ -4,11 +4,9 @@ import {
   type ContextMessage,
 } from '@moonshot-ai/agent-core-v2';
 import { isUserPromptSubmitHookPart } from '@moonshot-ai/agent-core-v2/agent/contextMemory/hookParts';
-import type { LoopRecordedEvent } from '@moonshot-ai/agent-core-v2/agent/contextMemory/loopEventFold';
 import { LOOP_MAX_STEPS_EXCEEDED_ERROR_CODE } from '@moonshot-ai/agent-core-v2/human/agent/errors';
 import { stripBundledSkillBlocks } from '@moonshot-ai/agent-core-v2/human/agent/origin';
 import type { ContentPart } from '@moonshot-ai/agent-core-v2/human/llm/message';
-import type { WireRecord } from '@moonshot-ai/agent-core-v2/wire/record';
 
 import type {
   CompactionItem,
@@ -22,23 +20,16 @@ import type {
   UserMessageItem,
 } from '../../protocol/conversation';
 import {
-  agentRefOf,
   contentItem,
   endToolCall,
   isPlanTool,
   isoTime,
   notificationItem,
-  promptIdsOf,
   refreshToolCall,
-  requestDebug,
-  retryStateOf,
-  stepOutcome,
-  stepSummary,
   toolCallItem,
   totalUsage,
   userMessageItem,
   type ToolInteraction,
-  errorInfoOf,
 } from './conversationItems';
 import { parseTaskNotifications, plainTaskNotification } from './taskNotifications';
 
@@ -132,82 +123,6 @@ export const COMPLETED: TurnEnd = { outcome: 'completed' };
 const HIDDEN_ORIGIN_KINDS: ReadonlySet<string> = new Set(['injection']);
 const TASK_ORIGIN_KINDS: ReadonlySet<string> = new Set(['task', 'background_task', 'task_notification']);
 const TURN_OPENING_SYSTEM_TRIGGERS: ReadonlySet<string> = new Set(['goal_continuation', 'subagent']);
-
-export function applyConversationRecord(state: ConversationState, record: WireRecord): void {
-  const time = numberField(record.time) ?? state.clock;
-  state.clock = time;
-  if (state.fork !== undefined) {
-    addForkBoundary(state, state.fork, time);
-    state.fork = undefined;
-  }
-  if (state.inheriting) {
-    if (record.type !== 'turn.prompt') return;
-    state.inheriting = false;
-  }
-  switch (record.type) {
-    case 'turn.prompt':
-      state.pendingPrompt = {
-        turnNumber: numberField(record['turnId']),
-        promptId: stringField(record['promptId']),
-        originKind: stringField((record['origin'] as { kind?: unknown } | undefined)?.kind),
-      };
-      return;
-    case 'context.append_message':
-      applyMessage(state, record['message'] as ContextMessage | undefined, time);
-      return;
-    case 'context.append_loop_event':
-      applyLoopEvent(state, record['event'] as LoopRecordedEvent | undefined, time);
-      return;
-    case 'turn.steer':
-      applySteer(state, record);
-      return;
-    case 'turn.cancel':
-      markProvisionalEnd(state, record['turnId'], {
-        outcome: 'interrupted',
-        reason: record['reason'] === 'aborted' ? 'aborted' : 'user_cancelled',
-      });
-      return;
-    case 'turn.step.interrupted':
-      applyStepInterrupted(state, record);
-      return;
-    case 'turn.step.retrying':
-      applyStepRetrying(state, record);
-      return;
-    case 'turn.ended':
-      applyTurnEnded(state, record, time);
-      return;
-    case 'prompt.completed':
-      if (record['reason'] === 'blocked') applyPromptBlocked(state, stringField(record['promptId']), time);
-      return;
-    case 'interaction.request':
-      applyInteractionRequest(state, record, time);
-      return;
-    case 'interaction.resolved':
-      applyInteractionResolved(state, record);
-      return;
-    case 'subagent.spawned':
-      applySubagentSpawned(state, record);
-      return;
-    case 'full_compaction.begin':
-      state.compaction = {
-        trigger: record['source'] === 'manual' ? 'manual' : 'auto',
-        instruction: stringField(record['instruction']),
-      };
-      return;
-    case 'context.apply_compaction':
-      applyCompactionSummary(state, record, time);
-      return;
-    case 'full_compaction.complete':
-      completeCompaction(state, time);
-      return;
-    case 'full_compaction.cancel':
-      state.compaction = undefined;
-      return;
-    case 'context.clear':
-      clearConversation(state);
-      return;
-  }
-}
 
 export interface RunningWork {
   readonly turnNumber?: number;
@@ -385,142 +300,6 @@ function applyLegacyToolResult(
   if (found !== undefined) finishToolCall(state, found, message.content, message.isError === true, time);
 }
 
-function applyLoopEvent(state: ConversationState, event: LoopRecordedEvent | undefined, time: number): void {
-  if (event === undefined) return;
-  switch (event.type) {
-    case 'step.begin': {
-      const turn = turnForNumber(state, numberField(event.turnId), time);
-      turn.retry = undefined;
-      const steps = (state.steps[turn.turn_id] ??= []);
-      const index = event.step ?? steps.length + 1;
-      const previous = steps.at(-1);
-      if (previous?.failed === true && previous.index === index) {
-        turn.items = turn.items.filter((item) => !item.item_id.startsWith(`${previous.id}:`));
-      }
-      steps.push({ id: event.uuid, index, startedAt: time, ended: false });
-      return;
-    }
-    case 'step.end': {
-      delete state.stepParts[event.uuid];
-      const found = findStep(state, event.uuid);
-      if (found === undefined) return;
-      const { turn, step } = found;
-      turn.retry = undefined;
-      step.ended = true;
-      step.failed = event.finishReason === 'error';
-      const summary = stepSummary(step.index, step.startedAt, time, step.interruptReason, event);
-      turn.steps = [...turn.steps.filter((existing) => existing.index !== step.index), summary].toSorted(
-        (a, b) => a.index - b.index,
-      );
-      turn.usage = totalUsage(turn.steps);
-      if (state.debug) {
-        const last = turn.items.findLast((item) => item.step_index === step.index);
-        if (last !== undefined) last.debug = requestDebug(event);
-      }
-      return;
-    }
-    case 'content.part': {
-      const turn = turnForNumber(state, numberField(event.turnId), time);
-      const position = state.stepParts[event.stepUuid] ?? 0;
-      state.stepParts[event.stepUuid] = position + 1;
-      const startedAt = event.startedAt ?? findStep(state, event.stepUuid)?.step.startedAt ?? time;
-      const item = contentItem(
-        event.part,
-        `${event.stepUuid}:${event.block ?? position}`,
-        event.step,
-        startedAt,
-        event.durationMs,
-      );
-      if (item !== undefined) upsertItem(turn, item);
-      return;
-    }
-    case 'tool.call': {
-      const turn = turnForNumber(state, numberField(event.turnId), time);
-      upsertToolCall(state, turn, toolCallItem(event.toolCallId, event.name, event.step, time, event.args, event.display));
-      return;
-    }
-    case 'tool.result': {
-      const found = findToolCall(state, event.toolCallId);
-      if (found !== undefined) finishToolCall(state, found, event.result.output, event.result.isError === true, time);
-      return;
-    }
-  }
-}
-
-function applySteer(state: ConversationState, record: WireRecord): void {
-  const messageId = stringField(record['messageId']);
-  if (messageId === undefined) {
-    state.pendingSteers += 1;
-    return;
-  }
-  const promptIds = record['promptIds'];
-  if (!Array.isArray(promptIds)) return;
-  for (let index = state.turns.length - 1; index >= 0; index--) {
-    const item = state.turns[index]!.items.find((candidate) => candidate.item_id === messageId);
-    if (item?.type !== 'user_message') continue;
-    item.prompt_ids = promptIdsOf(item.origin, promptIds.filter((id): id is string => typeof id === 'string'));
-    return;
-  }
-}
-
-function markProvisionalEnd(state: ConversationState, turnNumber: unknown, end: TurnEnd): void {
-  const turn = findTurnByNumber(state, numberField(turnNumber)) ?? unnumberedOpenTurn(state);
-  if (turn?.status === 'running') state.provisionalEnds[turn.turn_id] = end;
-}
-
-function applyStepInterrupted(state: ConversationState, record: WireRecord): void {
-  const reason = stringField(record['reason']);
-  const turn = findTurnByNumber(state, numberField(record['turnId'])) ?? unnumberedOpenTurn(state);
-  if (reason === undefined || turn === undefined) return;
-  const stepId = stringField(record['stepId']);
-  const index = numberField(record['step']);
-  const step = state.steps[turn.turn_id]?.findLast((candidate) =>
-    stepId === undefined ? candidate.index === index : candidate.id === stepId,
-  );
-  if (step !== undefined) {
-    step.interruptReason = reason;
-    const summary = step.ended ? turn.steps.find((candidate) => candidate.index === step.index) : undefined;
-    if (summary !== undefined) summary.outcome = stepOutcome(reason, summary.finish_reason);
-  }
-  if (turn.status !== 'running') return;
-  state.provisionalEnds[turn.turn_id] ??= reason === 'error'
-    ? { outcome: 'failed', reason: 'error' }
-    : { outcome: 'interrupted', reason: 'user_cancelled' };
-}
-
-function applyStepRetrying(state: ConversationState, record: WireRecord): void {
-  const turn = findTurnByNumber(state, numberField(record['turnId'])) ?? unnumberedOpenTurn(state);
-  const attempt = numberField(record['failedAttempt']);
-  const nextAttempt = numberField(record['nextAttempt']);
-  const maxAttempts = numberField(record['maxAttempts']);
-  const delayMs = numberField(record['delayMs']);
-  if (turn?.status !== 'running' || attempt === undefined || nextAttempt === undefined) return;
-  if (maxAttempts === undefined || delayMs === undefined) return;
-  turn.retry = retryStateOf({
-    attempt,
-    nextAttempt,
-    maxAttempts,
-    delayMs,
-    errorName: typeof record['errorName'] === 'string' ? record['errorName'] : '',
-    errorMessage: typeof record['errorMessage'] === 'string' ? record['errorMessage'] : '',
-    statusCode: numberField(record['statusCode']),
-  });
-}
-
-function applyTurnEnded(state: ConversationState, record: WireRecord, time: number): void {
-  state.recordsTurnEnds = true;
-  const turnNumber = numberField(record['turnId']);
-  if (turnNumber !== undefined && state.pendingPrompt?.turnNumber === turnNumber) state.pendingPrompt = undefined;
-  const turn = findTurnByNumber(state, turnNumber) ?? unnumberedOpenTurn(state);
-  if (turn === undefined) return;
-  if (turn.turn_number === undefined && turnNumber !== undefined) turn.turn_number = turnNumber;
-  const error = errorInfoOf(record['error'], stringField(record['requestId']));
-  endTurn(state, turn, turnEndOf(record['reason'], error, state.provisionalEnds[turn.turn_id]), time);
-  delete state.implicitlyEnded[turn.turn_id];
-  const durationMs = numberField(record['durationMs']);
-  if (durationMs !== undefined) turn.duration_ms = durationMs;
-}
-
 export function turnEndOf(reason: unknown, error: ErrorInfo | undefined, provisional: TurnEnd | undefined): TurnEnd {
   switch (reason) {
     case 'cancelled':
@@ -540,90 +319,6 @@ function failureReasonOf(error: ErrorInfo | undefined): TurnEndReason {
   return 'error';
 }
 
-function applyPromptBlocked(state: ConversationState, promptId: string | undefined, time: number): void {
-  if (promptId === undefined) return;
-  for (let index = state.turns.length - 1; index >= 0; index--) {
-    const turn = state.turns[index]!;
-    const opener = turn.items[0];
-    if (opener?.type !== 'user_message' || opener.item_id !== promptId) continue;
-    endTurn(state, turn, { outcome: 'failed', reason: 'blocked' }, time);
-    return;
-  }
-}
-
-function applyInteractionRequest(state: ConversationState, record: WireRecord, time: number): void {
-  const toolCallId = stringField(record['toolCallId']);
-  const id = stringField(record['id']);
-  const kind = record['kind'];
-  if (toolCallId === undefined || id === undefined) return;
-  if (kind !== 'approval' && kind !== 'question' && kind !== 'user_tool') return;
-  state.interactions[id] = toolCallId;
-  const request = record['request'];
-  const track = callTrack(state, toolCallId);
-  if (kind === 'approval' && findToolCall(state, toolCallId) === undefined) {
-    openToolCallAwaitingApproval(state, toolCallId, request, time);
-  }
-  track.interaction = { id, kind, request, pending: true };
-  refreshRecordedTool(state, toolCallId);
-}
-
-function openToolCallAwaitingApproval(state: ConversationState, toolCallId: string, request: unknown, time: number): void {
-  const { toolName, turnId, display } = (request ?? {}) as { toolName?: unknown; turnId?: unknown; display?: unknown };
-  const turn = findTurnByNumber(state, numberField(turnId)) ?? openTurn(state);
-  if (turn?.status !== 'running' || typeof toolName !== 'string') return;
-  const stepIndex = state.steps[turn.turn_id]?.at(-1)?.index;
-  upsertToolCall(state, turn, toolCallItem(toolCallId, toolName, stepIndex, time, undefined, display));
-}
-
-function applyInteractionResolved(state: ConversationState, record: WireRecord): void {
-  const id = stringField(record['id']);
-  if (id === undefined) return;
-  const toolCallId = state.interactions[id];
-  if (toolCallId === undefined) return;
-  delete state.interactions[id];
-  const track = state.tools[toolCallId];
-  if (track?.interaction === undefined) return;
-  track.interaction = { ...track.interaction, pending: false, response: record['response'] };
-  refreshRecordedTool(state, toolCallId);
-}
-
-function applySubagentSpawned(state: ConversationState, record: WireRecord): void {
-  const toolCallId = stringField(record['parentToolCallId']);
-  const agentId = stringField(record['subagentId']);
-  if (toolCallId === undefined || agentId === undefined) return;
-  const ref = agentRefOf(agentId, numberField(record['swarmIndex']), stringField(record['taskId']));
-  const found = findToolCall(state, toolCallId);
-  if (found === undefined) return;
-  found.item.agent_refs = [...(found.item.agent_refs ?? []).filter((existing) => existing.agent_id !== agentId), ref];
-}
-
-function applyCompactionSummary(state: ConversationState, record: WireRecord, time: number): void {
-  const details = {
-    summary: compactionSummaryText(record['summary']) ?? stringField(record['contextSummary']),
-    tokens_before: numberField(record['tokensBefore']),
-    tokens_after: numberField(record['tokensAfter']),
-    compacted_count: numberField(record['compactedCount']) ?? numberField(record['count']),
-  };
-  if (state.compaction !== undefined) {
-    state.compaction = { ...state.compaction, ...details };
-    return;
-  }
-  const last = state.turns.at(-1);
-  const completed = last?.items.at(-1);
-  if (last !== undefined && completed?.type === 'system' && completed.kind === 'compaction' && completed.summary === undefined) {
-    upsertItem(last, { ...completed, ...details });
-    return;
-  }
-  appendCompaction(state, { trigger: 'auto', ...details }, time);
-}
-
-function completeCompaction(state: ConversationState, time: number): void {
-  const compaction = state.compaction;
-  if (compaction === undefined) return;
-  state.compaction = undefined;
-  appendCompaction(state, compaction, time);
-}
-
 function appendCompaction(state: ConversationState, compaction: CompactionDetails, time: number): void {
   const open = openTurn(state);
   const turn = open ?? addTurn(state, time, 'system');
@@ -637,37 +332,6 @@ function appendCompaction(state: ConversationState, compaction: CompactionDetail
     ...compaction,
   });
   if (open === undefined) endTurn(state, turn, COMPLETED, time);
-}
-
-function addForkBoundary(state: ConversationState, fork: ConversationFork, time: number): void {
-  const turn = addTurn(state, time, 'system');
-  turn.items.push({
-    type: 'system',
-    kind: 'fork_boundary',
-    item_id: nextItemId(turn),
-    status: 'ended',
-    outcome: 'completed',
-    created_at: isoTime(time),
-    source: fork.source,
-    forked_from: { agent_id: fork.forkedFrom },
-  });
-  endTurn(state, turn, COMPLETED, time);
-}
-
-function clearConversation(state: ConversationState): void {
-  state.turns = [];
-  state.nextOrdinal = 0;
-  state.steps = {};
-  state.tools = {};
-  state.interactions = {};
-  state.openTurnId = undefined;
-  state.pendingPrompt = undefined;
-  state.pendingSteers = 0;
-  state.anchors = [];
-  state.implicitlyEnded = {};
-  state.provisionalEnds = {};
-  state.stepParts = {};
-  state.compaction = undefined;
 }
 
 function startTurn(state: ConversationState, time: number): ConversationTurn {
@@ -741,57 +405,12 @@ function endItem(state: ConversationState, item: ConversationItem, time: number)
   }
 }
 
-function turnForNumber(state: ConversationState, turnNumber: number | undefined, time: number): ConversationTurn {
-  const open = openTurn(state);
-  if (open !== undefined && (turnNumber === undefined || open.turn_number === turnNumber)) return open;
-  const known = findTurnByNumber(state, turnNumber);
-  if (known !== undefined && (known.status === 'running' || state.implicitlyEnded[known.turn_id] === true)) {
-    if (known.status === 'ended') {
-      delete state.implicitlyEnded[known.turn_id];
-      known.status = 'running';
-      known.outcome = undefined;
-      known.end_reason = undefined;
-      known.error = undefined;
-      known.ended_at = undefined;
-      known.duration_ms = undefined;
-      state.openTurnId = known.turn_id;
-    }
-    return known;
-  }
-  if (open !== undefined && open.turn_number === undefined) {
-    open.turn_number = turnNumber;
-    return open;
-  }
-  const turn = startTurn(state, time);
-  turn.turn_number = turnNumber;
-  return turn;
-}
-
 export function openTurn(state: ConversationState): ConversationTurn | undefined {
   return state.openTurnId === undefined ? undefined : findTurn(state, state.openTurnId);
 }
 
-function unnumberedOpenTurn(state: ConversationState): ConversationTurn | undefined {
-  const open = openTurn(state);
-  return open?.turn_number === undefined ? open : undefined;
-}
-
 function findTurn(state: ConversationState, turnId: string): ConversationTurn | undefined {
   return state.turns.findLast((turn) => turn.turn_id === turnId);
-}
-
-function findTurnByNumber(state: ConversationState, turnNumber: number | undefined): ConversationTurn | undefined {
-  if (turnNumber === undefined) return undefined;
-  return state.turns.findLast((turn) => turn.turn_number === turnNumber);
-}
-
-function findStep(state: ConversationState, stepId: string): { turn: ConversationTurn; step: StepTrack } | undefined {
-  for (let index = state.turns.length - 1; index >= 0; index--) {
-    const turn = state.turns[index]!;
-    const step = state.steps[turn.turn_id]?.findLast((candidate) => candidate.id === stepId);
-    if (step !== undefined) return { turn, step };
-  }
-  return undefined;
 }
 
 function findToolCall(state: ConversationState, toolCallId: string): { turn: ConversationTurn; item: ToolCallItem } | undefined {
@@ -836,11 +455,6 @@ function finishToolCall(
   refreshTool(state, found.item);
 }
 
-function refreshRecordedTool(state: ConversationState, toolCallId: string): void {
-  const found = findToolCall(state, toolCallId);
-  if (found !== undefined) refreshTool(state, found.item);
-}
-
 function refreshTool(state: ConversationState, item: ToolCallItem): void {
   const track = state.tools[item.item_id];
   refreshToolCall(item, track?.interaction, track?.planDisplay);
@@ -860,13 +474,6 @@ function textOf(content: readonly ContentPart[], separator = ''): string {
   return content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join(separator);
 }
 
-function compactionSummaryText(summary: unknown): string | undefined {
-  if (typeof summary === 'string') return summary;
-  if (typeof summary !== 'object' || summary === null) return undefined;
-  const content = (summary as { content?: unknown }).content;
-  return Array.isArray(content) ? textOf(content as ContentPart[]) : undefined;
-}
-
 function parseArguments(raw: string | null): unknown {
   if (raw === null) return undefined;
   try {
@@ -874,15 +481,6 @@ function parseArguments(raw: string | null): unknown {
   } catch {
     return raw;
   }
-}
-
-function numberField(value: unknown): number | undefined {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string' && value.length > 0) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : undefined;
-  }
-  return undefined;
 }
 
 function stringField(value: unknown): string | undefined {
