@@ -1,8 +1,9 @@
 import type { Session } from '@moonshot-ai/kimi-code-sdk';
-import type { Component, Focusable } from '@moonshot-ai/pi-tui';
+import { isKittyProtocolActive, type Component, type Focusable } from '@moonshot-ai/pi-tui';
 import { resolve } from 'pathe';
 
 import { t } from '#/i18n';
+import { resolveFollowUpBehavior } from '#/tui/config';
 import { DOCK_APPROVAL_ROWS } from '#/tui/constant/rendering';
 import { setEditorSlot } from '#/tui/tui-state';
 
@@ -152,6 +153,8 @@ export class DialogHostController {
         commands: this.host.getSlashCommands(),
         shortcuts: getDefaultKeyboardShortcuts({
           promptOptimizerEnabled: this.host.promptOptimizerEnabled(),
+          followUpBehavior: resolveFollowUpBehavior(this.host.state.appState.followUpBehavior),
+          ctrlEnterRecognized: isKittyProtocolActive(),
         }),
         onClose: () => {
           this.hideHelpPanel();

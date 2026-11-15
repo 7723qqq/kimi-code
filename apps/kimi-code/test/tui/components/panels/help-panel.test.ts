@@ -123,3 +123,26 @@ describe('HelpPanelComponent', () => {
     expect(offOut).toContain('Rewrite the drafted prompt with AI (off)');
   });
 });
+
+describe('help panel submit shortcut descriptions', () => {
+  const QUEUES = 'Submit; queues while Kimi is working';
+  const STEERS = 'Submit; steers into the running turn';
+
+  it.each([
+    ['queue', true, { Enter: QUEUES, 'Ctrl-Enter': STEERS, 'Ctrl-Q': QUEUES }],
+    ['queue', false, { Enter: QUEUES, 'Ctrl-Q': QUEUES }],
+    ['steer', true, { Enter: STEERS, 'Ctrl-Enter': QUEUES, 'Ctrl-Q': QUEUES }],
+    ['steer', false, { Enter: STEERS, 'Ctrl-Q': QUEUES }],
+  ] as const)(
+    'describes the submit keys for follow_up_behavior %s (Ctrl-Enter recognized: %s)',
+    (followUpBehavior, ctrlEnterRecognized, expected) => {
+      const submitKeys = Object.fromEntries(
+        getDefaultKeyboardShortcuts({ followUpBehavior, ctrlEnterRecognized })
+          .filter((shortcut) => ['Enter', 'Ctrl-Enter', 'Ctrl-Q'].includes(shortcut.keys))
+          .map((shortcut) => [shortcut.keys, shortcut.description]),
+      );
+
+      expect(submitKeys).toEqual(expected);
+    },
+  );
+});

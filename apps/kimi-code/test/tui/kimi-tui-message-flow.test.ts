@@ -60,6 +60,7 @@ import { ToolCallComponent } from '#/tui/components/messages/tool-call';
 import { BtwPanelComponent } from '#/tui/components/panes/btw-panel';
 import { MOON_SPINNER_FRAMES } from '#/tui/constant/rendering';
 import { STREAMING_UI_FLUSH_MS } from '#/tui/constant/streaming';
+import type { FollowUpBehavior, FollowUpDelivery } from '#/tui/config';
 import { SessionReplayRenderer } from '#/tui/controllers/session-replay';
 import { StreamingUIController, type StreamingUIHost } from '#/tui/controllers/streaming-ui';
 import { SurveyController } from '#/tui/controllers/survey-controller';
@@ -144,7 +145,7 @@ interface MessageDriver {
     handleEvent(event: Event, sendQueued: (item: QueuedMessage) => void): void;
   };
   init(): Promise<boolean>;
-  handleUserInput(text: string): void;
+  handleUserInput(text: string, delivery?: FollowUpDelivery): void;
   restoreInputText(text: string, inlineSkillActivations?: readonly InlineSkillActivation[]): void;
   toggleToolOutputExpansion(): void;
   appendTranscriptEntry(entry: TranscriptEntry): void;
@@ -15570,5 +15571,376 @@ describe('activity bar turn time', () => {
       restoreGlobalClock();
       driver.state.transcriptContainer.clear();
     }
+  });
+});
+
+describe('KimiTUI follow-up delivery', () => {
+  const CTRL_ENTER = '\u001B[13;5u';
+  const CTRL_Q = '\u0011';
+  const userEntries = (driver: MessageDriver) =>
+    driver.state.transcriptEntries.filter((entry) => entry.kind === 'user');
+
+  function pendingSteer(): {
+    session: ReturnType<typeof makeSession>;
+    resolve: () => void;
+    reject: (error: Error) => void;
+  } {
+    let resolve!: () => void;
+    let reject!: (error: Error) => void;
+    const session = makeSession({
+      steer: mock(
+        () =>
+          new Promise<void>((res, rej) => {
+            resolve = res;
+            reject = rej;
+          }),
+      ),
+    });
+    return { session, resolve: () => resolve(), reject: (error) => reject(error) };
+  }
+
+  async function busyDriver(followUpBehavior: FollowUpBehavior | undefined) {
+    const made = await makeDriver();
+    made.driver.state.appState.followUpBehavior = followUpBehavior;
+    made.driver.state.appState.streamingPhase = 'waiting';
+    made.driver.handleUserInput('queued note');
+    return made;
+  }
+
+  function press(driver: MessageDriver, text: string, key: string): void {
+    driver.state.editor.setText(text);
+    driver.state.editor.handleInput(key);
+  }
+
+  it('steers only the draft and leaves queued messages in place', async () => {
+    const { driver, session } = await busyDriver(undefined);
+
+    driver.handleUserInput('look at the failing test first', 'steer-draft');
+
+    expect(session.steer).toHaveBeenCalledTimes(1);
+    expect(session.steer).toHaveBeenCalledWith('look at the failing test first');
+    await waitForAssertion(() => {
+      expect(userEntries(driver)).toEqual([
+        expect.objectContaining({ content: 'look at the failing test first' }),
+      ]);
+    });
+    expect(driver.state.queuedMessages).toEqual([{ text: 'queued note', agentId: 'main' }]);
+    expect(session.prompt).not.toHaveBeenCalled();
+  });
+
+  it('steers only the draft in tower mode instead of the whole queue', async () => {
+    const steer = pendingSteer();
+    const { driver } = await makeDriver(steer.session);
+    driver.state.appState.towerMode = true;
+    driver.state.appState.streamingPhase = 'waiting';
+    driver.state.queuedMessages = [{ text: 'queued objective', agentId: 'main' }];
+
+    driver.handleUserInput('draft objective', 'steer-draft');
+    steer.resolve();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(steer.session.steer).toHaveBeenCalledTimes(1);
+    expect(steer.session.steer).toHaveBeenCalledWith('draft objective');
+    expect(driver.state.queuedMessages).toEqual([{ text: 'queued objective', agentId: 'main' }]);
+  });
+
+  it('steers draft media and releases the upload when the turn ends', async () => {
+    const { driver, session, harness } = await makeDriver();
+    const imageStore = (driver as unknown as { imageStore: ImageAttachmentStore }).imageStore;
+    const attachment = stagedImage(imageStore, 'file-draft');
+    driver.state.appState.streamingPhase = 'waiting';
+    driver.streamingUI.setTurnId('7');
+
+    driver.handleUserInput(`check ${attachment.placeholder}`, 'steer-draft');
+
+    expect(session.steer).toHaveBeenCalledWith([
+      { type: 'text', text: 'check ' },
+      { type: 'image_url', imageUrl: { url: 'kimi-file://file-draft' } },
+    ]);
+    expect(harness.deleteFile).not.toHaveBeenCalled();
+    driver.sessionEventHandler.handleEvent(
+      { type: 'turn.ended', agentId: 'main', turnId: 7, reason: 'completed' } as Event,
+      () => {},
+    );
+    await waitForAssertion(() => {
+      expect(harness.deleteFile).toHaveBeenCalledTimes(1);
+      expect(harness.deleteFile).toHaveBeenCalledWith('file-draft');
+    });
+    expect(driver.state.queuedMessages).toEqual([]);
+  });
+
+  it('queues the draft with an error when the steer fails', async () => {
+    const session = makeSession({
+      steer: mock(async () => {
+        throw new Error('network down');
+      }),
+    });
+    const { driver } = await makeDriver(session);
+    driver.state.appState.streamingPhase = 'waiting';
+    driver.streamingUI.setTurnId('1');
+
+    driver.handleUserInput('look here', 'steer-draft');
+
+    await waitForAssertion(() => {
+      expect(driver.state.queuedMessages).toEqual([{ text: 'look here', agentId: 'main' }]);
+    });
+    expect(stripSgr(renderTranscript(driver))).toContain('Failed to steer: network down');
+    expect(userEntries(driver)).toEqual([]);
+  });
+
+  it('keeps submission order when a draft steer fails after later input was queued', async () => {
+    const steer = pendingSteer();
+    const { driver } = await makeDriver(steer.session);
+    driver.state.appState.streamingPhase = 'waiting';
+    driver.streamingUI.setTurnId('1');
+    driver.handleUserInput('queued before');
+
+    driver.handleUserInput('first draft', 'steer-draft');
+    driver.handleUserInput('second draft', 'steer-draft');
+    expect(steer.session.steer).toHaveBeenCalledTimes(1);
+    steer.reject(new Error('network down'));
+
+    await waitForAssertion(() => {
+      expect(driver.state.queuedMessages).toEqual([
+        { text: 'queued before', agentId: 'main' },
+        { text: 'first draft', agentId: 'main' },
+        { text: 'second draft', agentId: 'main' },
+      ]);
+    });
+  });
+
+  it('gives an occupied draft back to the editor without queueing it', async () => {
+    const occupied = new KimiError(ErrorCodes.SESSION_OCCUPIED, 'in use');
+    const session = makeSession({ steer: mock(async () => {}).mockRejectedValueOnce(occupied) });
+    const { driver } = await makeDriver(session);
+    driver.state.appState.streamingPhase = 'waiting';
+    driver.streamingUI.setTurnId('1');
+
+    driver.handleUserInput('look here', 'steer-draft');
+    type Picker = { handleInput(data: string): void; render(width: number): string[] };
+    const picker = (): Picker => driver.state.editorContainer.children[0] as Picker;
+    await waitForAssertion(() => {
+      expect(stripSgr(picker().render(80).join(' '))).toContain('Session in use');
+    });
+    picker().handleInput('\u001B');
+
+    await waitForAssertion(() => {
+      expect(driver.state.editor.getText()).toBe('look here');
+    });
+    expect(driver.state.queuedMessages).toEqual([]);
+    expect(userEntries(driver)).toEqual([]);
+    expect(session.steer).toHaveBeenCalledTimes(1);
+  });
+
+  describe('through the editor keys', () => {
+    it.each([
+      [undefined, '\r'],
+      ['queue', '\r'],
+      ['queue', CTRL_Q],
+      ['steer', CTRL_ENTER],
+      ['steer', CTRL_Q],
+    ] as const)(
+      'with follow_up_behavior %s, %j queues behind the running turn',
+      async (followUpBehavior, key) => {
+        const { driver, session } = await busyDriver(followUpBehavior);
+
+        press(driver, 'next step', key);
+        await new Promise((resolve) => setImmediate(resolve));
+
+        expect(session.steer).not.toHaveBeenCalled();
+        expect(driver.state.queuedMessages.map((message) => message.text)).toEqual([
+          'queued note',
+          'next step',
+        ]);
+      },
+    );
+
+    it.each([
+      [undefined, CTRL_ENTER],
+      ['queue', CTRL_ENTER],
+      ['steer', '\r'],
+    ] as const)(
+      'with follow_up_behavior %s, %j steers only the draft',
+      async (followUpBehavior, key) => {
+        const { driver, session } = await busyDriver(followUpBehavior);
+
+        press(driver, 'next step', key);
+
+        expect(session.steer).toHaveBeenCalledTimes(1);
+        expect(session.steer).toHaveBeenCalledWith('next step');
+        await Promise.resolve();
+        expect(driver.state.queuedMessages).toEqual([{ text: 'queued note', agentId: 'main' }]);
+      },
+    );
+
+    it.each([
+      ['queue', CTRL_Q],
+      ['steer', CTRL_Q],
+      ['steer', CTRL_ENTER],
+    ] as const)(
+      'with follow_up_behavior %s, %j queues in tower mode instead of steering',
+      async (followUpBehavior, key) => {
+        const { driver, session } = await makeDriver();
+        driver.state.appState.followUpBehavior = followUpBehavior;
+        driver.state.appState.towerMode = true;
+        driver.state.appState.streamingPhase = 'waiting';
+
+        press(driver, 'after this turn', key);
+        await new Promise((resolve) => setImmediate(resolve));
+
+        expect(session.steer).not.toHaveBeenCalled();
+        expect(driver.state.queuedMessages.map((message) => message.text)).toEqual([
+          'after this turn',
+        ]);
+      },
+    );
+
+    it('queues tower Enter behind a message queued with Ctrl-Q', async () => {
+      const { driver, session } = await makeDriver();
+      driver.state.appState.towerMode = true;
+      driver.state.appState.streamingPhase = 'waiting';
+
+      press(driver, 'after this turn', CTRL_Q);
+      press(driver, 'next objective', '\r');
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(session.steer).not.toHaveBeenCalled();
+      expect(driver.state.queuedMessages.map((message) => message.text)).toEqual([
+        'after this turn',
+        'next objective',
+      ]);
+    });
+
+    it('keeps a message queued with Ctrl-Q in tower mode once an in-flight draft steer lands', async () => {
+      const steer = pendingSteer();
+      const { driver } = await makeDriver(steer.session);
+      driver.state.appState.towerMode = true;
+      driver.state.appState.streamingPhase = 'waiting';
+
+      press(driver, 'draft objective', CTRL_ENTER);
+      press(driver, 'after this turn', CTRL_Q);
+      steer.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(steer.session.steer).toHaveBeenCalledTimes(1);
+      expect(steer.session.steer).toHaveBeenCalledWith('draft objective');
+      expect(driver.state.queuedMessages.map((message) => message.text)).toEqual([
+        'after this turn',
+      ]);
+    });
+
+    it('steers a message queued with Ctrl-Q when Ctrl-S is pressed in tower mode', async () => {
+      const { driver, session } = await makeDriver();
+      driver.state.appState.towerMode = true;
+      driver.state.appState.streamingPhase = 'waiting';
+
+      press(driver, 'after this turn', CTRL_Q);
+      driver.state.editor.handleInput('\u0013');
+
+      expect(session.steer).toHaveBeenCalledTimes(1);
+      expect(session.steer).toHaveBeenCalledWith('after this turn');
+    });
+
+    it.each([undefined, 'queue'] as const)(
+      'keeps tower Enter steering the queue with follow_up_behavior %s',
+      async (followUpBehavior) => {
+        const { driver, session } = await makeDriver();
+        driver.state.appState.followUpBehavior = followUpBehavior;
+        driver.state.appState.towerMode = true;
+        driver.state.appState.streamingPhase = 'waiting';
+        driver.state.queuedMessages = [{ text: 'queued objective', agentId: 'main' }];
+
+        press(driver, 'next objective', '\r');
+
+        expect(session.steer).toHaveBeenCalledTimes(1);
+        expect(session.steer).toHaveBeenCalledWith('queued objective\n\nnext objective');
+        await waitForAssertion(() => {
+          expect(driver.state.queuedMessages).toEqual([]);
+        });
+      },
+    );
+
+    it.each(['\r', CTRL_ENTER, CTRL_Q])(
+      'sends %j straight away while idle in steer mode',
+      async (key) => {
+        const { driver, session } = await makeDriver();
+        driver.state.appState.followUpBehavior = 'steer';
+
+        press(driver, 'hello', key);
+
+        expect(session.prompt).toHaveBeenCalledTimes(1);
+        expect(session.prompt.mock.calls[0]?.[0]).toBe('hello');
+        expect(session.steer).not.toHaveBeenCalled();
+      },
+    );
+  });
+
+  describe('falls back to the plain Enter path', () => {
+    it.each([
+      ['while a shell command runs', (driver: MessageDriver) => {
+        driver.state.appState.streamingPhase = 'shell';
+      }],
+      ['while compacting', (driver: MessageDriver) => {
+        driver.state.appState.streamingPhase = 'waiting';
+        driver.state.appState.isCompacting = true;
+      }],
+    ] as const)('%s', async (_label, setup) => {
+      const run = async (delivery: FollowUpDelivery) => {
+        const { driver, session } = await makeDriver();
+        setup(driver);
+        driver.handleUserInput('note', delivery);
+        await new Promise((resolve) => setImmediate(resolve));
+        return {
+          queued: driver.state.queuedMessages,
+          steer: session.steer.mock.calls,
+          prompt: session.prompt.mock.calls,
+        };
+      };
+
+      const steered = await run('steer-draft');
+      expect(steered).toEqual(await run('default'));
+      expect(steered.steer).toEqual([]);
+      expect(steered.queued).toHaveLength(1);
+    });
+
+    it('in bash mode', async () => {
+      const { driver, session } = await makeDriver();
+      driver.state.appState.streamingPhase = 'waiting';
+      driver.state.appState.inputMode = 'bash';
+      driver.state.editor.inputMode = 'bash';
+
+      driver.handleUserInput('ls', 'steer-draft');
+
+      expect(session.steer).not.toHaveBeenCalled();
+      expect(driver.state.queuedMessages).toEqual([{ text: 'ls', agentId: 'main', mode: 'bash' }]);
+    });
+
+    it('while an earlier draft steer is in flight', async () => {
+      const steer = pendingSteer();
+      const { driver } = await makeDriver(steer.session);
+      driver.state.appState.streamingPhase = 'waiting';
+
+      driver.handleUserInput('first', 'steer-draft');
+      driver.handleUserInput('second', 'steer-draft');
+
+      expect(steer.session.steer).toHaveBeenCalledTimes(1);
+      expect(steer.session.steer).toHaveBeenCalledWith('first');
+      expect(driver.state.queuedMessages).toEqual([{ text: 'second', agentId: 'main' }]);
+      steer.resolve();
+      await waitForAssertion(() => {
+        expect(userEntries(driver)).toEqual([expect.objectContaining({ content: 'first' })]);
+      });
+      expect(driver.state.queuedMessages).toEqual([{ text: 'second', agentId: 'main' }]);
+    });
+
+    it('while idle', async () => {
+      const { driver, session } = await makeDriver();
+
+      driver.handleUserInput('hello', 'steer-draft');
+
+      expect(session.prompt).toHaveBeenCalledTimes(1);
+      expect(session.prompt.mock.calls[0]?.[0]).toBe('hello');
+      expect(session.steer).not.toHaveBeenCalled();
+    });
   });
 });

@@ -8,6 +8,11 @@ import { isKeyRelease, isKeyRepeat, Key, matchesKey, TuiAltScreen } from '@moons
 
 import { t } from '#/i18n';
 import {
+  FOLLOW_UP_KEYMAP,
+  resolveFollowUpBehavior,
+  type FollowUpDelivery,
+} from '#/tui/config';
+import {
   ClipboardMediaError,
   readClipboardMedia,
   type ClipboardDocument,
@@ -62,7 +67,7 @@ export interface EditorKeyboardHost {
    */
   harness?: KimiHarness | undefined;
 
-  handleUserInput(text: string): void;
+  handleUserInput(text: string, delivery?: FollowUpDelivery): void;
   readonly btwPanelController: BtwPanelController;
   readonly surveyController: SurveyController;
   readonly promptOptimizer: PromptOptimizerController;
@@ -147,7 +152,8 @@ export class EditorKeyboardController {
 
     editor.onSubmit = (text: string) => {
       if (host.surveyController.handleSubmit(text)) return;
-      host.handleUserInput(text);
+      const behavior = resolveFollowUpBehavior(host.state.appState.followUpBehavior);
+      host.handleUserInput(text, FOLLOW_UP_KEYMAP[behavior][editor.submitKey]);
     };
 
     // After dispose (shutdown), consume every key here so no shortcut can fire

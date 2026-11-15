@@ -19,7 +19,13 @@ import {
   truncateToWidth,
 } from '@moonshot-ai/pi-tui';
 
-import { t } from '#/i18n';
+import { t, type TranslationKey } from '#/i18n';
+import {
+  DEFAULT_FOLLOW_UP_BEHAVIOR,
+  FOLLOW_UP_KEYMAP,
+  type FollowUpBehavior,
+  type FollowUpDelivery,
+} from '#/tui/config';
 import { currentTheme } from '#/tui/theme';
 import { mouseDispatch, ScrollMouseRouter } from '#/tui/utils/mouse';
 
@@ -44,11 +50,21 @@ export interface HelpPanelCommand {
 /** Rows the wheel moves per notch. */
 const WHEEL_LINES = 3;
 
+const SUBMIT_DESCRIPTION_KEYS: Readonly<Record<FollowUpDelivery, TranslationKey>> = {
+  default: 'tui.dialogs.helpPanel.shortcuts.enterQueue',
+  'steer-draft': 'tui.dialogs.helpPanel.shortcuts.enterSteer',
+  queue: 'tui.dialogs.helpPanel.shortcuts.enterQueue',
+};
+
 /** Static list — keep in sync with the global editor bindings. */
 export function getDefaultKeyboardShortcuts(options?: {
   readonly promptOptimizerEnabled?: boolean;
+  readonly followUpBehavior?: FollowUpBehavior;
+  readonly ctrlEnterRecognized?: boolean;
 }): readonly KeyboardShortcut[] {
   const optimizerEnabled = options?.promptOptimizerEnabled !== false;
+  const submit =
+    FOLLOW_UP_KEYMAP[options?.followUpBehavior ?? DEFAULT_FOLLOW_UP_BEHAVIOR];
   return [
     { keys: 'Shift-Tab', description: t('tui.dialogs.helpPanel.shortcuts.shiftTab') },
     { keys: 'Ctrl-G', description: t('tui.dialogs.helpPanel.shortcuts.ctrlG') },
@@ -68,7 +84,19 @@ export function getDefaultKeyboardShortcuts(options?: {
     { keys: 'Ctrl-D', description: t('tui.dialogs.helpPanel.shortcuts.ctrlD') },
     { keys: 'Esc', description: t('tui.dialogs.helpPanel.shortcuts.esc') },
     { keys: '↑ / ↓', description: t('tui.dialogs.helpPanel.shortcuts.arrowUpDown') },
-    { keys: 'Enter', description: t('tui.dialogs.helpPanel.shortcuts.enter') },
+    { keys: 'Enter', description: t(SUBMIT_DESCRIPTION_KEYS[submit.enter]) },
+    ...(options?.ctrlEnterRecognized === true
+      ? [
+          {
+            keys: 'Ctrl-Enter',
+            description: t(SUBMIT_DESCRIPTION_KEYS[submit['mod-enter']]),
+          },
+        ]
+      : []),
+    {
+      keys: 'Ctrl-Q',
+      description: t(SUBMIT_DESCRIPTION_KEYS[submit['ctrl-q']]),
+    },
   ];
 }
 

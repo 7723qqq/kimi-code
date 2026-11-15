@@ -13,6 +13,7 @@ import type {
 } from '@moonshot-ai/kimi-code-sdk';
 
 import type {
+  FollowUpBehavior,
   MarkdownConfig,
   NotificationsConfig,
   StatusLineConfig,
@@ -129,6 +130,7 @@ export interface AppState {
   disableFeedbackSurvey?: boolean;
   /** Mirrors the TUI config toggle; defaults to true when absent from older fixtures. */
   autoSessionTitle?: boolean;
+  followUpBehavior?: FollowUpBehavior;
   notifications: NotificationsConfig;
   upgrade: UpgradePreferences;
   /** Footer status line customization from tui.toml; absent means the default layout. */
@@ -399,6 +401,7 @@ export interface QueuedPromptMessage extends QueuedEntryBase {
   readonly inlineSkillActivations?: readonly InlineSkillActivation[];
   /** Resent after the user chose Retry on a session-in-use prompt. */
   readonly occupiedRetry?: boolean;
+  readonly holdUntilTurnEnds?: boolean;
 }
 
 export interface QueuedBashCommand extends QueuedEntryBase {
@@ -444,6 +447,8 @@ export function isPromptQueuedMessage(message: QueuedMessage): message is Queued
 export function isQueuedCompactionBarrier(message: QueuedMessage): boolean {
   return message.mode === 'compact' || message.mode === 'model-switch';
 }
+
+export type SteerOutcome = 'steered' | 'failed' | 'restored';
 
 /**
  * One unit of Ctrl-S steer input: a queued message or the editor draft,

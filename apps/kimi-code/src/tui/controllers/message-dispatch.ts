@@ -10,6 +10,7 @@ import type {
 import { t } from '#/i18n';
 
 import { UserMessageComponent } from '../components/messages/user-message';
+import type { FollowUpDelivery } from '../config';
 import { getLlmNotSetMessage, MAIN_AGENT_ID } from '../constant/kimi-tui';
 import { MEDIA_INGESTION_SUBMIT_WAIT_MS } from '../constant/media';
 import type { TUIState } from '../state';
@@ -84,6 +85,13 @@ export interface MessageDispatchHost {
   readonly editorKeyboard: EditorKeyboardController;
 
   ensureSession(): Promise<Session | undefined>;
+  trySteerDraft(
+    session: Session,
+    input: string,
+    options: SendMessageOptions & {
+      readonly inlineSkillActivations?: readonly InlineSkillActivation[];
+    },
+  ): boolean;
   appendTranscriptEntry(entry: TranscriptEntry): void;
   removeTranscriptEntries(entries: readonly TranscriptEntry[]): void;
   prepareSkillActivations(
@@ -265,6 +273,7 @@ export class MessageDispatchController {
     text: string,
     activations: readonly InlineSkillActivation[],
     preExtracted?: ExtractionResult,
+    delivery: FollowUpDelivery = 'default',
   ): Promise<void> {
     if (this.host.btwPanelController.sendUserInput(text, activations)) return;
     if (this.host.state.appState.model.trim().length === 0) {
@@ -347,26 +356,27 @@ export class MessageDispatchController {
         return;
       }
     }
+    const enqueueOptions: SendMessageOptions & {
+      readonly inlineSkillActivations?: readonly InlineSkillActivation[];
+    } = {
+      parts: extraction.hasMedia ? extraction.parts : undefined,
+      imageAttachmentIds: extraction.imageAttachmentIds,
+      videoAttachmentIds: extraction.videoAttachmentIds,
+      documentAttachmentIds: extraction.documentAttachmentIds,
+      mediaSnapshots: extraction.mediaSnapshots,
+      inlineSkillActivations: activations,
+    };
+    if (delivery === 'steer-draft' && this.host.trySteerDraft(session, text, enqueueOptions)) {
+      this.host.state.ui.requestRender();
+      return;
+    }
     if (
       this.host.deferUserMessages ||
       this.steeringQueuedMessages.size > 0 ||
       this.host.state.appState.streamingPhase !== 'idle' ||
       this.host.state.appState.isCompacting
     ) {
-      this.enqueueMessage(
-        text,
-        extraction.hasMedia
-          ? {
-              hasMedia: true,
-              parts: extraction.parts,
-              imageAttachmentIds: extraction.imageAttachmentIds,
-              videoAttachmentIds: extraction.videoAttachmentIds,
-              documentAttachmentIds: extraction.documentAttachmentIds,
-              mediaSnapshots: extraction.mediaSnapshots,
-              inlineSkillActivations: activations,
-            }
-          : { inlineSkillActivations: activations },
-      );
+      this.enqueueMessage(text, enqueueOptions);
       this.host.updateQueueDisplay();
       this.host.state.ui.requestRender();
       return;
@@ -1428,7 +1438,7 @@ function isSteerableQueuedMessage(message: QueuedMessage): boolean {
   ) {
     return false;
   }
-  return message.inlineSkillActivations === undefined;
+  return message.inlineSkillActivations === undefined && message.holdUntilTurnEnds !== true;
 }
 
 function hasInlineSkillActivations(message: QueuedMessage): boolean {

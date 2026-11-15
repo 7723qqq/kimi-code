@@ -15,6 +15,7 @@ import {
 import { t } from '#/i18n';
 import { wrapWithSideBorders } from '#/tui/components/chrome/panel-frame';
 import type { StatusSurfaceKey } from '#/tui/components/chrome/status-surface/region';
+import type { SubmitKey } from '#/tui/config';
 import { currentTheme } from '#/tui/theme';
 import { createEditorTheme } from '#/tui/theme/pi-tui-theme';
 import { findInlineSkillTokens } from '#/tui/utils/inline-skill-tokens';
@@ -138,6 +139,12 @@ function stripSgr(s: string): string {
   return s.replace(ANSI_SGR, '');
 }
 
+function alternateSubmitKey(data: string): Exclude<SubmitKey, 'enter'> | undefined {
+  if (matchesKey(data, 'ctrl+enter') || matchesKey(data, 'super+enter')) return 'mod-enter';
+  if (matchesKey(data, Key.ctrl('q'))) return 'ctrl-q';
+  return undefined;
+}
+
 interface CustomEditorOptions {
   disablePasteBurst?: boolean;
   onAutocompleteError?: (error: unknown) => void;
@@ -257,6 +264,11 @@ export class CustomEditor extends Editor {
   private readonly pasteInputQueue: string[] = [];
   private argumentHints: ReadonlyMap<string, string> = new Map();
   private skillCommandNames: ReadonlySet<string> = new Set();
+  private currentSubmitKey: SubmitKey = 'enter';
+
+  get submitKey(): SubmitKey {
+    return this.currentSubmitKey;
+  }
 
   setArgumentHints(hints: ReadonlyMap<string, string>): void {
     this.argumentHints = hints;
@@ -718,7 +730,17 @@ export class CustomEditor extends Editor {
       }
     }
 
-    super.handleInput(normalized);
+    const submitKey = alternateSubmitKey(normalized);
+    if (submitKey === undefined) {
+      super.handleInput(normalized);
+    } else {
+      this.currentSubmitKey = submitKey;
+      try {
+        super.handleInput('\r');
+      } finally {
+        this.currentSubmitKey = 'enter';
+      }
+    }
 
     // Enter bash mode when `!...` is pasted into an empty prompt. The typed path
     // above handles the single `!` keystroke; this catches bracketed / Ctrl-V

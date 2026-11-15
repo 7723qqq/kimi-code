@@ -19,6 +19,7 @@ const SETTINGS_SELECTION_MEMBERS = [
   'copyOnSelect',
   'mermaid',
   'editor',
+  'followUpBehavior',
   'language',
   'permission',
   'survey',
@@ -95,6 +96,11 @@ function getSettingsOptions(): readonly SettingsChoiceOption[] {
       value: 'editor',
       label: t('tui.dialogs.settingsSelector.editor'),
       description: t('tui.dialogs.settingsSelector.editorDesc'),
+    },
+    {
+      value: 'followUpBehavior',
+      label: t('tui.dialogs.settingsSelector.followUpBehavior'),
+      description: t('tui.dialogs.settingsSelector.followUpBehaviorDesc'),
     },
     {
       value: 'survey',

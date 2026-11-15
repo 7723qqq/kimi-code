@@ -232,6 +232,8 @@ export default {
     pluginNotFoundAction: 'Check the plugin name or install it first.',
     pluginLoadFailed: 'Plugin state failed to load',
     pluginLoadFailedAction: 'Check the plugin files and retry.',
+    pluginCatalogChanged: 'Plugin catalog changed',
+    pluginCatalogChangedAction: 'Reload the plugin catalog and retry.',
     // request.*
     requestInvalid: 'Invalid request',
     requestWorkDirRequired: 'Working directory required',
@@ -1182,6 +1184,10 @@ export default {
           esc: 'Close dialogs / interrupt streaming',
           arrowUpDown: 'Browse input history',
           enter: 'Submit',
+          enterQueue: 'Submit; queues while Kimi is working',
+          enterSteer: 'Submit; steers into the running turn',
+          ctrlEnterQueue: 'Submit; queues while Kimi is working',
+          ctrlEnterSteer: 'Submit; steers into the running turn',
         },
       },
       msys2Prompt: {
@@ -1258,6 +1264,8 @@ export default {
         languageDesc: 'Change the interface language (restart required).',
         editor: 'Editor',
         editorDesc: 'Set the external editor command.',
+        followUpBehavior: 'Follow-up behavior',
+        followUpBehaviorDesc: 'Choose whether to queue follow-ups or steer the current turn.',
         survey: 'Feedback survey',
         surveyDesc: 'Turn the occasional session rating prompt on or off.',
         experiments: 'Experiments',
@@ -1319,6 +1327,16 @@ export default {
         onDesc: 'Copy text as soon as you select it.',
         off: 'Off',
         offDesc: 'Press Ctrl-C to copy selected text.',
+      },
+      followUpBehaviorSelector: {
+        title: 'Follow-up behavior',
+        queue: 'Queue',
+        queueDesc: 'Enter queues follow-ups until Kimi finishes.',
+        queueDescCtrlEnter: 'Enter queues follow-ups until Kimi finishes. Ctrl-Enter steers one.',
+        steer: 'Steer',
+        steerDesc: 'Enter steers follow-ups into the current turn.',
+        steerDescCtrlEnter: 'Enter steers follow-ups into the current turn. Ctrl-Enter queues one.',
+        steerDescCtrlQ: 'Enter steers follow-ups into the current turn. Ctrl-Q queues one.',
       },
       astronSettings: {
         title: 'Astron Settings',
@@ -3212,6 +3230,9 @@ export default {
       configCopyOnSelectAlreadyEnabled: 'Copy on select already enabled.',
       configCopyOnSelectAlreadyDisabled: 'Copy on select already disabled.',
       configCopyOnSelectSaveFailed: 'Failed to save copy on select setting: {{error}}',
+      configFollowUpBehaviorAlready: 'Follow-up behavior already {{value}}.',
+      configFollowUpBehaviorSet: 'Follow-up behavior set to {{value}}.',
+      configFollowUpBehaviorSaveFailed: 'Failed to save follow-up behavior: {{error}}',
       configTuiModeEnvOverrideNotice:
         'Saved to tui.toml; unset KIMI_CODE_TUI_FULL_SCREEN for it to take effect.',
       configTuiModeFallbackNotice:

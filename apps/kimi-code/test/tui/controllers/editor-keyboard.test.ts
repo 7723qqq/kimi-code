@@ -3,6 +3,7 @@ import { jest, type Mock as BunMock } from 'bun:test';
 
 import { Text, TuiAltScreen, TuiMainScreen } from '@moonshot-ai/pi-tui';
 
+import type { FollowUpBehavior, SubmitKey } from '#/tui/config';
 import { DOUBLE_ESC_WINDOW_MS, getCtrlCHint } from '#/tui/constant/kimi-tui';
 import {
   EditorKeyboardController,
@@ -62,6 +63,7 @@ function createHarness(
     setInputMode: mock() as unknown as (...args: never[]) => unknown,
     getText: mock(() => '') as unknown as (...args: never[]) => unknown,
     setText: mock() as unknown as (...args: never[]) => unknown,
+    submitKey: 'enter' as unknown as (...args: never[]) => unknown,
   };
   const openUndoSelector = mock();
   const cancelRunningShellCommand = mock();
@@ -789,6 +791,53 @@ describe('EditorKeyboardController Ctrl-S steering', () => {
 
 });
 
+describe('EditorKeyboardController follow-up delivery', () => {
+  const submitWith = (
+    harness: Harness,
+    followUpBehavior: FollowUpBehavior | undefined,
+    submitKey: SubmitKey,
+  ): void => {
+    (harness.host.state.appState as { followUpBehavior?: FollowUpBehavior }).followUpBehavior =
+      followUpBehavior;
+    (harness.editor as Record<string, unknown>)['submitKey'] = submitKey;
+    (harness.editor['onSubmit'] as unknown as (text: string) => void)('hello');
+  };
+
+  it.each([
+    [undefined, 'enter', 'default'],
+    [undefined, 'mod-enter', 'steer-draft'],
+    [undefined, 'ctrl-q', 'queue'],
+    ['queue', 'enter', 'default'],
+    ['queue', 'mod-enter', 'steer-draft'],
+    ['queue', 'ctrl-q', 'queue'],
+    ['steer', 'enter', 'steer-draft'],
+    ['steer', 'mod-enter', 'queue'],
+    ['steer', 'ctrl-q', 'queue'],
+  ] as const)(
+    'with follow_up_behavior %s, %s delivers %s',
+    (followUpBehavior, submitKey, delivery) => {
+      const harness = createHarness({ streamingPhase: 'waiting' });
+
+      submitWith(harness, followUpBehavior, submitKey);
+
+      expect(harness.host.handleUserInput).toHaveBeenCalledTimes(1);
+      expect(harness.host.handleUserInput).toHaveBeenCalledWith('hello', delivery);
+    },
+  );
+
+  it.each(['enter', 'mod-enter', 'ctrl-q'] as const)(
+    'lets the survey intercept a %s submit first',
+    (submitKey) => {
+      const harness = createHarness({ streamingPhase: 'waiting' });
+      harness.survey.handleSubmit.mockReturnValueOnce(true);
+
+      submitWith(harness, 'steer', submitKey);
+
+      expect(harness.host.handleUserInput).not.toHaveBeenCalled();
+    },
+  );
+});
+
 describe('EditorKeyboardController survey wiring', () => {
   it('clears the pending undo-escape sequence only when the survey consumes Escape', () => {
     const { editor, openUndoSelector, survey } = createHarness();
@@ -855,7 +904,7 @@ describe('EditorKeyboardController survey wiring', () => {
     survey.handleSubmit.mockReturnValueOnce(false);
     onSubmit('hello');
 
-    expect(host.handleUserInput).toHaveBeenCalledWith('hello');
+    expect(host.handleUserInput).toHaveBeenCalledWith('hello', 'default');
   });
 
   it('displaces the survey when the external editor opens', () => {
