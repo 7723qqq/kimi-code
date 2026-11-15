@@ -744,6 +744,56 @@ export const WIRE_RENDERERS: RendererMap = {
     }),
   },
 
+  'tool_select.initialized': {
+    tone: 'tools',
+    label: 'tool·init',
+    headline: (r) => {
+      const head = r.tools
+        .slice(0, 3)
+        .map((tool) => tool.name)
+        .join(', ');
+      const rest =
+        r.tools.length > 3 ? ` ${t('wireRenderer.more', { count: r.tools.length - 3 })}` : '';
+      return {
+        main: (
+          <span className="flex items-center gap-2 min-w-0">
+            <Mono>{t('wireRenderer.toolsCount', { count: r.tools.length })}</Mono>
+            <Dim className="truncate">
+              {head}
+              {rest}
+            </Dim>
+          </span>
+        ),
+      };
+    },
+  },
+
+  'tool_select.tools_changed': {
+    tone: 'tools',
+    label: 'tool±',
+    headline: (r) => {
+      const names = [
+        ...r.added.map((tool) => `+${tool.name}`),
+        ...r.removed.map((tool) => `-${tool.name}`),
+      ];
+      const head = names.slice(0, 4).join(', ');
+      const rest =
+        names.length > 4 ? ` ${t('wireRenderer.more', { count: names.length - 4 })}` : '';
+      return {
+        main: (
+          <span className="flex items-center gap-2 min-w-0">
+            <Mono className="text-[var(--color-cat-tools)]">+{r.added.length}</Mono>
+            <Mono className="text-[var(--color-sev-warning)]">-{r.removed.length}</Mono>
+            <Dim className="truncate">
+              {head}
+              {rest}
+            </Dim>
+          </span>
+        ),
+      };
+    },
+  },
+
   'tools.register_user_tool': {
     tone: 'tools',
     label: 'tool+',

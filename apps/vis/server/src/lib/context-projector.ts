@@ -651,6 +651,8 @@ export function projectContext(
       case 'tools.set_active_tools':
       case 'tools.update_store':
       case 'tools.reset_active_tools':
+      case 'tool_select.initialized':
+      case 'tool_select.tools_changed':
       case 'llm.tools_snapshot':
       case 'llm.request':
       case 'mcp.tools_discovered':

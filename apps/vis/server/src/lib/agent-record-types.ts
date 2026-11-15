@@ -92,6 +92,10 @@ import type {
   ToolsResetActiveTools,
   ToolsSetActiveTools,
 } from '@moonshot-ai/agent-core-v2/agent/profile/profileOps';
+import type {
+  ToolSelectInitialized,
+  ToolSelectToolsChanged,
+} from '@moonshot-ai/agent-core-v2/agent/toolSelect/toolSelectOps';
 import type { EnvironmentSetBinding } from '@moonshot-ai/agent-core-v2/agent/environmentBinding/environmentBindingOps';
 import type { TurnCancel, TurnEnded, TurnPrompt, TurnSteer } from '@moonshot-ai/agent-core-v2/contract';
 import type { TurnStepInterrupted, TurnStepRetrying } from '@moonshot-ai/agent-core-v2/contract';
@@ -261,6 +265,8 @@ export type AgentRecord =
   | WireRecordOf<'token_counting.rebased', TokenCountingRebased>
   | WireRecordOf<'token_counting.truncated', TokenCountingTruncated>
   | WireRecordOf<'token_counting.turn_recorded', TokenCountingTurnRecorded>
+  | WireRecordOf<'tool_select.initialized', ToolSelectInitialized>
+  | WireRecordOf<'tool_select.tools_changed', ToolSelectToolsChanged>
   | WireRecordOf<'tools.register_user_tool', ToolsRegisterUserTool>
   | WireRecordOf<'tools.reset_active_tools', ToolsResetActiveTools>
   | WireRecordOf<'tools.set_active_tools', ToolsSetActiveTools>
