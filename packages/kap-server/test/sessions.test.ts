@@ -39,11 +39,14 @@ import {
   IWorkspaceService,
   MAIN_AGENT_ID,
   closeSessionById,
+  ContextAppendMessage,
   drainQueryStoreDisposals,
   drainSessionIndexMirror,
   getLiveSessionById,
   resumeSessionById,
   sessionDirOf,
+  TurnEnded,
+  TurnPrompt,
   type ContextMessage,
   type ScopeSeed,
 } from '@moonshot-ai/agent-core-v2';
@@ -59,8 +62,10 @@ import { mcpResultToExecutableOutput } from '@moonshot-ai/agent-core-v2/agent/mc
 import { sessionWarningsResponseSchema } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
 import type { AgentTranscriptSnapshot } from '@moonshot-ai/transcript';
 
+import type { ConversationTurnsPage } from '../src/protocol/conversation';
 import { type RunningServer, startServer } from '../src/start';
 import { authHeaders } from './helpers/auth';
+import { ConversationFeed } from '../src/services/conversation/conversationFeed';
 import { ensureMainAgent } from '../src/transport/mainAgent';
 import { readAgentState, readUsageState } from '../src/transport/ws/v1/agentState';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
@@ -1827,17 +1832,15 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(suffix.body.code).toBe(40001);
   });
 
-  it('cold-loads a persisted session on :undo instead of 40401', async () => {
+  it('cold-loads a persisted session on :undo and reports an unknown turn instead of 40401', async () => {
     const cwd = home as string;
     const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
     const id = created.body.data.id;
 
     await closeSessionById((server as RunningServer).core.accessor, id);
 
-    const res = await postJson<{ messages: unknown }>(`/api/v1/sessions/${id}:undo`, { count: 1 });
-    expect(res.body.code).toBe(40911);
-    expect(res.body.msg).toMatch(/nothing to undo/i);
-    expect(res.body).not.toHaveProperty('stack', expect.anything());
+    const res = await postJson<null>(`/api/v1/sessions/${id}:undo`, { turn_id: 't_missing' });
+    expect(res.body.code).toBe(40421);
   });
 
   it('returns 40901 when :undo reports a busy session', async () => {
@@ -1851,13 +1854,38 @@ describe('server-v2 /api/v1/sessions', () => {
     if (session === undefined) throw new Error('expected live session');
     await session.accessor.get(IAgentLifecycleService).create({ agentId: MAIN_AGENT_ID });
     const agent = session.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)!;
-    const undo = spyOn(agent.accessor.get(IAgentConversationUndoService), 'undo').mockRejectedValue(
+    await agent.accessor.get(IEventDispatcher).dispatch(
+      new TurnPrompt({
+        agentId: MAIN_AGENT_ID,
+        input: [{ type: 'text', text: 'first prompt' }],
+        origin: { kind: 'user' },
+        turnId: 0,
+      }),
+    );
+    await agent.accessor.get(IEventDispatcher).dispatch(
+      new ContextAppendMessage({
+        agentId: MAIN_AGENT_ID,
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'first prompt' }],
+          toolCalls: [],
+          origin: { kind: 'user' },
+        },
+      }),
+    );
+    await agent.accessor.get(IEventDispatcher).dispatch(
+      new TurnEnded({ agentId: MAIN_AGENT_ID, turnId: 0, reason: 'completed' }),
+    );
+    const page = await getJson<ConversationTurnsPage>(
+      `/api/v1/sessions/${created.body.data.id}/agents/main/turns`,
+    );
+    const undo = spyOn(ConversationFeed.prototype, 'undo').mockRejectedValue(
       new Error2(ErrorCodes.SESSION_BUSY, 'session is busy'),
     );
 
     try {
       const response = await postJson<null>(`/api/v1/sessions/${created.body.data.id}:undo`, {
-        count: 1,
+        turn_id: page.body.data.turns[0]!.turn_id,
       });
 
       expect(response.body.code).toBe(40901);
@@ -2100,114 +2128,182 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(forkedState.titleKind).toBe('custom');
   });
 
-  it.each([
-    { count: 1, code: 0, prompts: [] as string[], texts: [] as string[] },
-    {
-      count: 2,
-      code: 40911,
-      prompts: ['original prompt'] as string[],
-      texts: [
-        'answer before steer',
-        'steered prompt',
-        'answer after steer',
-        'second steer',
-        'answer after second steer',
-      ] as string[],
-    },
-    {
-      count: 3,
-      code: 40911,
-      prompts: ['original prompt'] as string[],
-      texts: [
-        'answer before steer',
-        'steered prompt',
-        'answer after steer',
-        'second steer',
-        'answer after second steer',
-      ] as string[],
-    },
-  ])(
-    'keeps the correct messages when undoing $count anchors in a steered turn',
-    async ({ count, code, prompts, texts }) => {
-      const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd: home } });
-      const id = created.body.data.id;
-      const session = getLiveSessionById((server as RunningServer).core.accessor, id)!;
-      await session.accessor.get(IAgentLifecycleService).create({ agentId: MAIN_AGENT_ID });
-      const agent = session.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)!;
-      const context = agent.accessor.get(IAgentContextMemoryService);
-      context.append(
-        {
+  it('undoes a steered turn by its id together with its in-turn steers', async () => {
+    const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd: home } });
+    const id = created.body.data.id;
+    const session = getLiveSessionById((server as RunningServer).core.accessor, id)!;
+    await session.accessor.get(IAgentLifecycleService).create({ agentId: MAIN_AGENT_ID });
+    const agent = session.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)!;
+    const dispatcher = agent.accessor.get(IEventDispatcher);
+    await dispatcher.dispatch(
+      new TurnPrompt({
+        agentId: MAIN_AGENT_ID,
+        input: [{ type: 'text', text: 'original prompt' }],
+        origin: { kind: 'user' },
+        turnId: 0,
+      }),
+    );
+    await dispatcher.dispatch(
+      new ContextAppendMessage({
+        agentId: MAIN_AGENT_ID,
+        message: {
           role: 'user',
           content: [{ type: 'text', text: 'original prompt' }],
           toolCalls: [],
           origin: { kind: 'user' },
         },
-        {
+      }),
+    );
+    await dispatcher.dispatch(
+      new ContextAppendMessage({
+        agentId: MAIN_AGENT_ID,
+        message: {
           role: 'assistant',
           content: [{ type: 'text', text: 'answer before steer' }],
           toolCalls: [],
         },
-      );
-      await agent.accessor.get(IEventDispatcher).dispatch(
-        new TurnSteer({
-          agentId: MAIN_AGENT_ID,
-          input: [{ type: 'text', text: 'steered prompt' }],
-          origin: { kind: 'user', inTurn: true },
-        }),
-      );
-      context.append(
-        {
+      }),
+    );
+    await dispatcher.dispatch(
+      new TurnSteer({
+        agentId: MAIN_AGENT_ID,
+        input: [{ type: 'text', text: 'steered prompt' }],
+        origin: { kind: 'user', inTurn: true },
+      }),
+    );
+    await dispatcher.dispatch(
+      new ContextAppendMessage({
+        agentId: MAIN_AGENT_ID,
+        message: {
           role: 'user',
           content: [{ type: 'text', text: 'steered prompt' }],
           toolCalls: [],
           origin: { kind: 'user', inTurn: true },
         },
-        {
+      }),
+    );
+    await dispatcher.dispatch(
+      new ContextAppendMessage({
+        agentId: MAIN_AGENT_ID,
+        message: {
           role: 'assistant',
           content: [{ type: 'text', text: 'answer after steer' }],
           toolCalls: [],
         },
-      );
-      await agent.accessor.get(IEventDispatcher).dispatch(
-        new TurnSteer({
-          agentId: MAIN_AGENT_ID,
-          input: [{ type: 'text', text: 'second steer' }],
-          origin: { kind: 'user', inTurn: true },
-        }),
-      );
-      context.append(
-        {
+      }),
+    );
+    await dispatcher.dispatch(
+      new TurnSteer({
+        agentId: MAIN_AGENT_ID,
+        input: [{ type: 'text', text: 'second steer' }],
+        origin: { kind: 'user', inTurn: true },
+      }),
+    );
+    await dispatcher.dispatch(
+      new ContextAppendMessage({
+        agentId: MAIN_AGENT_ID,
+        message: {
           role: 'user',
           content: [{ type: 'text', text: 'second steer' }],
           toolCalls: [],
           origin: { kind: 'user', inTurn: true },
         },
-        {
+      }),
+    );
+    await dispatcher.dispatch(
+      new ContextAppendMessage({
+        agentId: MAIN_AGENT_ID,
+        message: {
           role: 'assistant',
           content: [{ type: 'text', text: 'answer after second steer' }],
           toolCalls: [],
         },
+      }),
+    );
+    await dispatcher.dispatch(new TurnEnded({ agentId: MAIN_AGENT_ID, turnId: 0, reason: 'completed' }));
+    await agent.accessor.get(IWireService).flush();
+    const path = `/api/v1/sessions/${id}/agents/main/turns`;
+    const before = await getJson<ConversationTurnsPage>(path);
+    expect(before.body.code).toBe(0);
+    const [turn] = before.body.data.turns;
+    expect(before.body.data.turns).toHaveLength(1);
+    expect(turn!.items.filter((item) => item.type === 'user_message').map((item) => item.placement)).toEqual([
+      'opener',
+      'steer',
+      'steer',
+    ]);
+
+    expect((await postJson<null>(`/api/v1/sessions/${id}:undo`, {})).body.code).toBe(40001);
+    expect((await postJson<null>(`/api/v1/sessions/${id}:undo`, { turn_id: 't_missing' })).body.code).toBe(40421);
+    const undone = await postJson<{ removed_turn_ids: string[] }>(`/api/v1/sessions/${id}:undo`, {
+      turn_id: turn!.turn_id,
+    });
+    expect(undone.body).toMatchObject({ code: 0, data: { removed_turn_ids: [turn!.turn_id] } });
+    expect((await getJson<ConversationTurnsPage>(path)).body.data.turns).toEqual([]);
+  });
+
+  it('undoes a turn only once when two requests race for it', async () => {
+    const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd: home } });
+    const id = created.body.data.id;
+    const session = getLiveSessionById((server as RunningServer).core.accessor, id)!;
+    await session.accessor.get(IAgentLifecycleService).create({ agentId: MAIN_AGENT_ID });
+    const agent = session.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)!;
+    const dispatcher = agent.accessor.get(IEventDispatcher);
+    for (let turnId = 0; turnId < 3; turnId++) {
+      await dispatcher.dispatch(
+        new TurnPrompt({
+          agentId: MAIN_AGENT_ID,
+          input: [{ type: 'text', text: `prompt ${turnId}` }],
+          origin: { kind: 'user' },
+          turnId,
+        }),
       );
-      await agent.accessor.get(IWireService).flush();
-      const path = `/api/v1/sessions/${id}/transcript?agent_id=main`;
-      const before = await getJson<AgentTranscriptSnapshot>(path);
-      expect(before.body.code).toBe(0);
-      expect(before.body.data.items.filter((item) => item.kind === 'turn')).toHaveLength(1);
-      const undone = await postJson(`/api/v1/sessions/${id}:undo`, { count });
-      expect(undone.body.code).toBe(code);
-      const after = await getJson<AgentTranscriptSnapshot>(path);
-      const turns = after.body.data.items.filter((item) => item.kind === 'turn');
-      expect(turns.map((turn) => turn.prompt)).toEqual(prompts);
-      expect(
-        turns
-          .flatMap((turn) => turn.steps)
-          .flatMap((step) => step.frames)
-          .filter((frame) => frame.kind === 'text')
-          .map((frame) => frame.text),
-      ).toEqual(texts);
-      expect(after.body.data.prompts).toEqual([]);
-    },
-  );
+      await dispatcher.dispatch(
+        new ContextAppendMessage({
+          agentId: MAIN_AGENT_ID,
+          message: {
+            role: 'user',
+            content: [{ type: 'text', text: `prompt ${turnId}` }],
+            toolCalls: [],
+            origin: { kind: 'user' },
+          },
+        }),
+      );
+      await dispatcher.dispatch(
+        new ContextAppendMessage({
+          agentId: MAIN_AGENT_ID,
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: `answer ${turnId}` }],
+            toolCalls: [],
+          },
+        }),
+      );
+      await dispatcher.dispatch(
+        new TurnEnded({ agentId: MAIN_AGENT_ID, turnId, reason: 'completed' }),
+      );
+    }
+    await agent.accessor.get(IWireService).flush();
+    const path = `/api/v1/sessions/${id}/agents/main/turns`;
+    const turnIds = (await getJson<ConversationTurnsPage>(path)).body.data.turns.map(
+      (turn) => turn.turn_id,
+    );
+    expect(turnIds).toHaveLength(3);
+
+    const results = await Promise.all([
+      postJson<{ removed_turn_ids: string[] }>(`/api/v1/sessions/${id}:undo`, {
+        turn_id: turnIds[2],
+      }),
+      postJson<{ removed_turn_ids: string[] }>(`/api/v1/sessions/${id}:undo`, {
+        turn_id: turnIds[2],
+      }),
+    ]);
+
+    expect(results.map((result) => result.body.code).toSorted()).toEqual([0, 40421]);
+    expect(
+      (await getJson<ConversationTurnsPage>(path)).body.data.turns.map((turn) => turn.turn_id),
+    ).toEqual(turnIds.slice(0, 2));
+  });
 
   it('forks an undo-branched wire self-contained and replays it equivalently', async () => {
     const cwd = home as string;

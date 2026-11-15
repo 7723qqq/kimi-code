@@ -1,9 +1,7 @@
 import {
   ErrorCodes,
   IAgentChangeNotifierService,
-  IAgentContextMemoryService,
   IAgentProfileService,
-  IAgentConversationUndoService,
   IAgentFullCompactionService,
   IAgentGoalService,
   IAgentLifecycleService,
@@ -35,7 +33,6 @@ import {
   resumeSessionById,
   setSessionArchived,
   Error2,
-  type ContextMessage,
   type IAgentScopeHandle,
   type ISessionScopeHandle,
   type Scope,
@@ -84,7 +81,7 @@ import {
 } from '../protocol/session';
 import { workspaceIdSchema } from '../protocol/workspace';
 import { readLegacyStatus } from '../services/legacyStatus/legacyStatus';
-import { toProtocolMessage } from '../services/messages/messageProjection';
+import type { ConversationService } from '../services/conversation/conversationService';
 import { loadWorkspaceVisibility } from '../services/workspaceVisibility';
 import { ensureMainAgent, MAIN_AGENT_ID } from '../transport/mainAgent';
 import { type ActionTable, dispatchAction } from './action-dispatch';
@@ -192,6 +189,8 @@ const sessionActionRequestSchema = z.preprocess(
       metadata: z.record(z.string(), z.unknown()).optional(),
       turn_index: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
       instruction: z.string().optional(),
+      turn_id: z.string().min(1).optional(),
+      agent_id: z.string().min(1).optional(),
       count: z.number().int().positive().optional(),
       page_size: z.number().int().min(1).max(100).optional(),
       text: z.string().optional(),
@@ -200,7 +199,11 @@ const sessionActionRequestSchema = z.preprocess(
     .strict(),
 );
 
-export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void {
+export function registerSessionsRoutes(
+  app: SessionRouteHost,
+  core: Scope,
+  conversations: ConversationService,
+): void {
   const createRoute = defineRoute(
     {
       method: 'POST',
@@ -680,6 +683,7 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
         ...sessionConflictErrors,
         [ErrorCode.COMPACTION_UNABLE]: {},
         [ErrorCode.SESSION_UNDO_UNAVAILABLE]: {},
+        [ErrorCode.TURN_NOT_FOUND]: {},
         [ErrorCode.PROMPT_OPTIMIZER_BUSY]: {},
         [ErrorCode.PROMPT_OPTIMIZER_DISABLED]: {},
         [ErrorCode.PROMPT_OPTIMIZER_EMPTY_DRAFT]: {},
@@ -698,7 +702,7 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
           tail: req.params.tail,
           actions: sessionActions,
           resourceLabel: 'session',
-          extra: { core, req, reply },
+          extra: { core, conversations, req, reply },
           body: req.body,
           onUnsupported: (message) => {
             reply.send(buildValidationEnvelope([{ path: 'session_id', message }], req.id));
@@ -971,6 +975,7 @@ type SessionAction =
 
 interface SessionActionExtra {
   readonly core: Scope;
+  readonly conversations: ConversationService;
   readonly req: { readonly id: string };
   readonly reply: { readonly send: (payload: unknown) => unknown };
 }
@@ -1060,25 +1065,15 @@ async function compactSessionAction(
 async function undoSessionAction(
   ctx: SessionActionCtx<z.infer<typeof undoSessionRequestSchema>>,
 ): Promise<void> {
-  const { core, req, reply, id, body } = ctx;
-  const agent = await resolveMainAgent(core, id);
-  await reloadOnStale(
+  const { core, conversations, req, reply, id, body } = ctx;
+  const removed = await reloadOnStale(
     core.accessor,
     id,
-    () => agent.accessor.get(IAgentConversationUndoService).undo(body.count),
+    async () => (await conversations.feed(id, body.agent_id ?? MAIN_AGENT_ID)).undo(body.turn_id),
     { retry: false },
   );
-  const history = agent.accessor.get(IAgentContextMemoryService).get();
   requestLog(req)?.info({ session_id: id, action: 'undo' }, 'session action completed');
-  const summary = await core.accessor.get(ISessionIndex).get(id);
-  reply.send(
-    okEnvelope(
-      {
-        messages: pageUndoMessages(id, summary?.createdAt ?? 0, history, body.page_size),
-      },
-      req.id,
-    ),
-  );
+  reply.send(okEnvelope({ removed_turn_ids: removed }, req.id));
 }
 
 async function abortSessionAction(ctx: SessionActionCtx): Promise<void> {
@@ -1379,29 +1374,6 @@ function normalizeOptional(value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
   const trimmed = value.trim();
   return trimmed.length === 0 ? undefined : trimmed;
-}
-
-const DEFAULT_UNDO_MESSAGE_PAGE_SIZE = 50;
-const MAX_UNDO_MESSAGE_PAGE_SIZE = 100;
-
-function pageUndoMessages(
-  sessionId: string,
-  sessionCreatedAtMs: number,
-  history: readonly ContextMessage[],
-  requestedPageSize: number | undefined,
-): { items: ReturnType<typeof toProtocolMessage>[]; has_more: boolean } {
-  const pageSize = Math.min(
-    Math.max(requestedPageSize ?? DEFAULT_UNDO_MESSAGE_PAGE_SIZE, 1),
-    MAX_UNDO_MESSAGE_PAGE_SIZE,
-  );
-  const all = history.map((message, index) =>
-    toProtocolMessage(sessionId, index, message, sessionCreatedAtMs),
-  );
-  const desc = all.toReversed();
-  return {
-    items: desc.slice(0, pageSize),
-    has_more: desc.length > pageSize,
-  };
 }
 
 function buildWireMetadata(

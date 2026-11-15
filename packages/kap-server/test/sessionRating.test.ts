@@ -29,7 +29,6 @@ import {
   TurnStarted,
 } from '@moonshot-ai/agent-core-v2';
 import { ToolCallStarted, ToolResultEvent } from '@moonshot-ai/agent-core-v2';
-import type { TranscriptItem } from '@moonshot-ai/transcript';
 import { pino } from 'pino';
 
 import type { SessionRatingResult } from '../src/protocol/rest-session-rating';
@@ -37,7 +36,7 @@ import { type RunningServer, startServer } from '../src/start';
 import { ensureMainAgent } from '../src/transport/mainAgent';
 import { authHeaders } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
-import { waitForAssertion, waitUntil } from './helpers/waitFor';
+import { waitForAssertion } from './helpers/waitFor';
 
 interface Envelope<T> {
   code: number;
@@ -91,15 +90,26 @@ class RatingClient {
   ): Promise<void> {
     const agent = await this.mainAgent(sessionId);
     expect(
-      (await this.request(`/api/v1/sessions/${sessionId}/transcript?agent_id=main`)).code,
+      (await this.request(`/api/v1/sessions/${sessionId}/agents/main/turns`)).code,
     ).toBe(0);
     const bus = agent.accessor.get(IEventBus);
     const dispatcher = agent.accessor.get(IEventDispatcher);
     const origin = { kind: 'user' } as const;
     await dispatcher.dispatch(new TurnPrompt({ agentId: MAIN_AGENT_ID, input: [], origin }));
-    bus.publish(new TurnStarted({ agentId: MAIN_AGENT_ID, turnId, origin }));
+    await dispatcher.dispatch(
+      new ContextAppendMessage({
+        agentId: MAIN_AGENT_ID,
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'Please rate.' }],
+          toolCalls: [],
+          origin,
+        },
+      }),
+    );
+    await dispatcher.dispatch(new TurnStarted({ agentId: MAIN_AGENT_ID, turnId, origin }));
     during?.(bus);
-    bus.publish(
+    await dispatcher.dispatch(
       new TurnEnded({
         agentId: MAIN_AGENT_ID,
         turnId,
@@ -110,12 +120,12 @@ class RatingClient {
   }
 
   async latestTurnId(sessionId: string): Promise<string> {
-    const transcript = await this.request<{ items: TranscriptItem[] }>(
-      `/api/v1/sessions/${sessionId}/transcript?agent_id=main`,
+    const page = await this.request<{ turns: { turn_id: string }[] }>(
+      `/api/v1/sessions/${sessionId}/agents/main/turns`,
     );
-    const turn = transcript.data.items.findLast((item) => item.kind === 'turn');
-    if (turn === undefined) throw new Error('expected a transcript turn');
-    return turn.turnId;
+    const turn = page.data.turns.at(-1);
+    if (turn === undefined) throw new Error('expected a turn');
+    return turn.turn_id;
   }
 
   async evaluate(sessionId: string, turnId?: string): Promise<Envelope<SessionRatingResult>> {
@@ -551,22 +561,6 @@ describe('session rating lifecycle', () => {
     const id = await client.createSession(home);
     await (await client.mainAgent(id)).accessor.get(IAgentProfileService).setModel('kimi-code/k3');
     await client.finishUserTurn(id, undefined, 0);
-    const agent = await client.mainAgent(id);
-    const dispatcher = agent.accessor.get(IEventDispatcher);
-    await dispatcher.dispatch(
-      new ContextAppendMessage({
-        agentId: MAIN_AGENT_ID,
-        message: {
-          role: 'user',
-          content: [{ type: 'text', text: 'Please review this answer.' }],
-          toolCalls: [],
-          origin: { kind: 'user' },
-        },
-      }),
-    );
-    await dispatcher.dispatch(
-      new TurnEnded({ agentId: MAIN_AGENT_ID, turnId: 0, reason: 'completed', traceId: 'trace-1' }),
-    );
     const turnId = await client.latestTurnId(id);
     expect(await server.core.accessor.get(ISessionManager).closeIfIdle(id, 0)).toBe(true);
     const result = await client.evaluate(id, turnId);
@@ -583,15 +577,15 @@ describe('session rating lifecycle', () => {
     expect(appeared?.properties).toMatchObject({ kfc_trace_id: 'trace-1', user_turn_count: 1 });
   });
 
-  it('does not load sessions when evaluating or reporting unknown appearances', async () => {
+  it('does not load a session to report an unknown appearance and offers nothing for a stale turn', async () => {
     const id = await client.createSession(home);
     await closeSessionById(server.core.accessor, id);
+    expect(await client.respond(id, 'unknown', 'good')).toMatchObject({ code: 0, data: null });
+    expect(getLiveSessionById(server.core.accessor, id)).toBeUndefined();
     expect(await client.evaluate(id, 'turn-1')).toMatchObject({
       code: 0,
       data: { appearance: null },
     });
-    expect(await client.respond(id, 'unknown', 'good')).toMatchObject({ code: 0, data: null });
-    expect(getLiveSessionById(server.core.accessor, id)).toBeUndefined();
   });
 
   it('does not recover unfinished appearances after server restart', async () => {

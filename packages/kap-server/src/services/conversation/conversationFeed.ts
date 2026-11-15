@@ -9,6 +9,7 @@ import {
   IAgentConversationUndoService,
   IAgentLoopService,
   IEventBus,
+  IEventDispatcher,
   ILogService,
   PromptCompleted,
   ThinkingDelta,
@@ -147,6 +148,7 @@ export class ConversationFeed implements IDisposable {
       throw new Error2(ErrorCodes.SESSION_UNDO_UNAVAILABLE, `turn ${turnId} does not open with user input`);
     }
     await this.handle.accessor.get(IAgentConversationUndoService).undo(anchors);
+    this.rebuild();
     return removed;
   }
 
@@ -248,6 +250,7 @@ export class ConversationFeed implements IDisposable {
         this.scheduleRebuild();
       }),
     );
+    await this.handle.accessor.get(IEventDispatcher).whenRestored();
     this.rebuild();
     this.sent = this.state.turns;
     this.started = true;

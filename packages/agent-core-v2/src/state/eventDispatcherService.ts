@@ -197,6 +197,7 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
   };
 
   restorePhase: RestorePhase = 'new';
+  private readonly restoredWaiters: Array<{ resolve: () => void; reject: (error: unknown) => void }> = [];
   private dispatching = false;
   private lateAttachmentTail: Promise<void> | undefined;
   private dispatchingSince: number | undefined;
@@ -709,8 +710,17 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
       const error = new Error('Event dispatcher disposed while a late attach was pending');
       for (const entry of pending) entry.reject(error);
     }
+    const waiters = this.restoredWaiters.splice(0);
+    if (waiters.length > 0) {
+      const error = new Error('Event dispatcher disposed while a restore wait was pending');
+      for (const waiter of waiters) waiter.reject(error);
+    }
     this.space()?._detachHost(this.spaceHost);
     super.dispose();
+  }
+
+  private drainRestoredWaiters(): void {
+    for (const waiter of this.restoredWaiters.splice(0)) waiter.resolve();
   }
 
   private commit(
@@ -778,6 +788,16 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
     return meta;
   }
 
+  whenRestored(): Promise<void> {
+    if (this.restorePhase === 'ready') return Promise.resolve();
+    if (this.restorePhase === 'failed') {
+      return Promise.reject(new Error('agent state restore failed'));
+    }
+    return new Promise((resolve, reject) => {
+      this.restoredWaiters.push({ resolve, reject });
+    });
+  }
+
   async restore(): Promise<void> {
     if (this.restorePhase === 'restoring') {
       throw new BugIndicatingError(
@@ -800,6 +820,7 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
       this.freezeReplayedStates();
       await this.rehydrateStates();
       this.restorePhase = 'ready';
+      this.drainRestoredWaiters();
       if (!this.didRunRestoreHooks) {
         await this.hooks.onDidRestore.run({});
         this.didRunRestoreHooks = true;
@@ -811,6 +832,7 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
     } catch (error) {
       this.replayMutableStates.clear();
       this.restorePhase = 'failed';
+      for (const waiter of this.restoredWaiters.splice(0)) waiter.reject(error);
       for (const pending of this.lateAttachments.splice(0)) pending.reject(error);
       if (rerun) {
         for (const entry of this.queue.splice(0)) entry.reject(error);

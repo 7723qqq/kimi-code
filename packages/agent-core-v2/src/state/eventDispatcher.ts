@@ -34,6 +34,7 @@ export interface IEventDispatcher extends DurableRuntimeParticipantHost {
   dispatch(event: Event2<any>): Promise<void>;
   attachLate(participant: DurableAgentRuntimeParticipant): Promise<IDisposable>;
   restore(): Promise<void>;
+  whenRestored(): Promise<void>;
   flush(): Promise<void>;
 }
 

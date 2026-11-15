@@ -214,9 +214,11 @@ describe('WsConnectionV1 transcript subscriptions (subscribe)', () => {
     broadcaster: SessionEventBroadcaster;
     calls: SubscribeCall[];
     detaches: { sessionId: string; agentIds?: readonly string[] }[];
+    unsubscribed: string[];
   } {
     const calls: SubscribeCall[] = [];
     const detaches: { sessionId: string; agentIds?: readonly string[] }[] = [];
+    const unsubscribed: string[] = [];
     const broadcaster = {
       subscribe: async (
         sessionId: string,
@@ -237,12 +239,15 @@ describe('WsConnectionV1 transcript subscriptions (subscribe)', () => {
       },
       subscribeAgents: async () => true,
       unsubscribeAgents: () => {},
+      unsubscribe: (sessionId: string) => {
+        unsubscribed.push(sessionId);
+      },
       flushTranscriptSeed: async () => {},
       addGlobalTarget: () => {},
       removeGlobalTarget: () => {},
       sendPendingInteractions: () => {},
     } as unknown as SessionEventBroadcaster;
-    return { broadcaster, calls, detaches };
+    return { broadcaster, calls, detaches, unsubscribed };
   }
 
   function controlFrame(type: string, payload: Record<string, unknown>): string {
@@ -474,6 +479,51 @@ describe('WsConnectionV1 transcript subscriptions (subscribe)', () => {
     await waitForAssertion(() => expect(detaches).toHaveLength(1));
 
     expect(detaches[0]).toEqual({ sessionId: 's1', agentIds: undefined });
+    expect(conn.subscriptions.has('s1')).toBe(false);
+    conn.close();
+  });
+
+  it('unsubscribe without agent_ids removes the whole broadcaster target', async () => {
+    const socket = new FakeSocket();
+    const { broadcaster, unsubscribed } = makeCapturingBroadcaster();
+    const conn = makeConn(socket, { broadcaster });
+
+    socket.emit(
+      'message',
+      controlFrame('subscribe', { session_id: 's1', agent_ids: ['main'] }),
+    );
+    await waitForAssertion(() => expect(conn.subscriptions.has('s1')).toBe(true));
+    socket.emit('message', controlFrame('unsubscribe', { session_id: 's1' }));
+    await waitForAssertion(() => expect(unsubscribed).toEqual(['s1']));
+
+    expect(conn.subscriptions.has('s1')).toBe(false);
+    conn.close();
+  });
+
+  it('removes the broadcaster target when the last agent is detached', async () => {
+    const socket = new FakeSocket();
+    const { broadcaster, unsubscribed } = makeCapturingBroadcaster();
+    const conn = makeConn(socket, { broadcaster });
+
+    socket.emit(
+      'message',
+      controlFrame('subscribe', { session_id: 's1', agent_ids: ['main', 'sub'] }),
+    );
+    await waitForAssertion(() => expect(conn.subscriptions.has('s1')).toBe(true));
+    socket.emit(
+      'message',
+      controlFrame('unsubscribe', { session_id: 's1', agent_ids: ['main'] }),
+    );
+    await waitForAssertion(() =>
+      expect(conn.subscriptions.get('s1')?.conversationAgents).toEqual(['sub']),
+    );
+    expect(unsubscribed).toEqual([]);
+
+    socket.emit(
+      'message',
+      controlFrame('unsubscribe', { session_id: 's1', agent_ids: ['sub'] }),
+    );
+    await waitForAssertion(() => expect(unsubscribed).toEqual(['s1']));
     expect(conn.subscriptions.has('s1')).toBe(false);
     conn.close();
   });
