@@ -45,7 +45,7 @@ describe('AgentReminderService', () => {
   let loop: StubLoop;
 
   beforeEach(async () => {
-    ctx = createTestAgent();
+    ctx = createTestAgent({ initialConfig: { experimental: { tool_select: false } } });
     context = ctx.get(IAgentContextMemoryService);
     loop = ctx.get(IAgentLoopService) as StubLoop;
     await ctx.restorePersisted();

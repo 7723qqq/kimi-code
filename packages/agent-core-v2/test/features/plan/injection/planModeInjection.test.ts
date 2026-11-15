@@ -51,6 +51,7 @@ describe('PlanModeService dynamic injection content', () => {
   beforeEach(async () => {
     readText = async () => '';
     ctx = createTestAgent(
+      { initialConfig: { experimental: { tool_select: false } } },
       execEnvServices({
         hostFs: createFakeHostFs({
           mkdir: mock().mockResolvedValue(undefined),
