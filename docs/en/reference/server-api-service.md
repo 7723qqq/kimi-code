@@ -196,6 +196,7 @@ On success, `data` is `{ ok: true }`.
 | --- | --- |
 | `GET /api/v1/config` | Read the global config (secret fields redacted) |
 | `POST /api/v1/config` | Merge-patch the config; broadcasts `event.config.changed` |
+| `POST /api/v1/client_configs` | Fetch a named client configuration controlled by the Kimi Code service |
 
 ### `GET /api/v1/config`
 
@@ -301,6 +302,16 @@ The body is a partial config object — any subset of the response domains above
 Every key above is enumerated: an unknown top-level key is rejected with `40001` rather than silently dropped, so a misspelled domain is reported instead of reporting success. Every domain `GET /api/v1/config` returns can be written back through this endpoint except `raw`.
 
 On success, `data` is the full updated config in the same shape as `GET /api/v1/config`.
+
+### `POST /api/v1/client_configs`
+
+Fetches a named client configuration that the Kimi Code service controls remotely — for example whether changing the model asks the user to confirm. The server fetches it from the Kimi Code service of the account's region, or from `KIMI_CODE_BASE_URL` when that is set, and normalizes it to the shape that name expects.
+
+| Parameter | In | Type | Description |
+| --- | --- | --- | --- |
+| `name` | body | string | **Required.** `model_switch_confirm` is currently the only registered name |
+
+On success, `data` is `{ name, config }`. `config` is `null` for any other name or when the fetch fails, so the client falls back to its built-in behavior. A fetched value never turns into `null`: fields that are missing or malformed take their off defaults, so a malformed `model_switch_confirm`, for example, comes back as `{ enable: false, rules: [] }` instead of failing.
 
 ## Models and providers
 

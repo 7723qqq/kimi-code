@@ -44,7 +44,7 @@ Every endpoint that returns a session uses this wire shape. The live facts (`bus
 | `last_prompt` | string | Most recent user prompt text, when present |
 | `metadata` | object | Custom metadata; always carries `cwd` (the session's working directory) |
 | `agent_config` | object | Projected as `{ model }`; `model` is the main agent's current model when the session is loaded in this server process and its main agent has one — as in the creation response unless no model was available — and `""` otherwise |
-| `usage` | object | Token rollup `{ input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, context_tokens, context_limit?, total_cost_usd?, turn_count? }`; all zeros outside the snapshot endpoints |
+| `usage` | object | Token rollup `{ input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, context_tokens, context_limit?, total_cost_usd?, turn_count? }`; currently always zeros. The live context size comes with each agent's `usage` frame over the WebSocket (see [Events](./server-api-conversation.md#events)) |
 | `permission_rules` | array | Session permission rules; currently always `[]` |
 | `message_count` | integer | Message count; currently always `0` |
 
@@ -393,7 +393,7 @@ The `messages` endpoints page the main agent's flattened message history, while 
 
 ### `GET /api/v1/sessions/{session_id}/messages`
 
-Pages the main agent's message history — the flattened context transcript shared with the session snapshot — newest first. Cursor pagination follows [Pagination](./server-api.md#pagination); reading the history resumes the session when it is cold.
+Pages the main agent's message history — the flattened context transcript — newest first. Cursor pagination follows [Pagination](./server-api.md#pagination); reading the history resumes the session when it is cold.
 
 | Parameter | In | Type | Description |
 | --- | --- | --- | --- |

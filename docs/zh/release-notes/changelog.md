@@ -6,6 +6,55 @@ outline: 2
 
 本页记录 Kimi Code CLI 每个版本的变更内容。
 
+## 2.6.2（2026-11-14）
+
+### 新功能
+
+- 自定义 registry（`api.json`）供应商支持可选的 `search_url` 和 `feedback_url` 字段，用于 `WebSearch` 和 `/feedback`。
+
+### 优化
+
+- 移除 `/feedback` 的纯文本 "No attachment" 选项，纯文本提交不再可用；确认前展示当前会话的文件，并附带会话 `request_id` 元数据。
+
+### 修复
+
+- 修复重新打开包含大量工具调用的长会话时，加载延迟数秒的问题。
+- 失败或未完成的 Kimi 媒体上传会被直接拒绝，不再缓存不可用的文件引用。
+- 修复 Swarm 面板在执行期间缺少子 Agent 实时更新的问题。
+- Web：优化交互体验并修复已知问题。
+
+## 2.6.1（2026-11-13）
+
+### 修复
+
+- 修复重新打开长会话时出现数秒加载延迟的问题。
+- 修复工具结果带有附加说明、错误或耗时信息时，长会话卡在空回复而没有触发上下文压缩的问题。
+
+## 2.6.0（2026-11-12）
+
+建议在 `/settings -> TUI mode -> Fullscreen` 切换到全屏模式（重启后生效），获得更好的使用体验。
+
+### 新功能
+
+- 全屏模式下把连续的工具调用和思考过程折叠为摘要行，不再显示模型加载技能时的技能激活卡片；可在 `/settings` 中调整折叠程度，或在 `tui.toml` 的 `[transcript]` 下设置 `tool_call_density = "ungrouped"` 和 `thinking = "ungrouped"` 恢复原布局。
+- `@` 文件路径补全默认包含隐藏路径与被 `.gitignore` 忽略的文件，匹配质量相同时优先展示未忽略的文件。
+- 同名工作区技能可在 TUI 独立的 Skills 分组中选择，并通过目录名、全局或内置标签区分来源。
+- 全屏模式下支持按 `Ctrl-C` 或 `Cmd-C` 复制选中文本，并在 `/settings` 中新增选中即复制（Copy on select）开关。
+- 支持持久化用户级与本地项目级权限规则（分别保存在 `config.toml` 与已信任工作区的 `.kimi-code/local.toml`），并在会话启动时加载，匹配优先级为 `deny` > `ask` > `allow`。
+- Tower 新增交付物任务（artifact missions），支持关键交付物审阅与人工验收，并在状态视图和任务视图中显示任务类型。
+
+### 优化
+
+- 非 SSH 和 mosh 环境下复制只写入系统剪贴板，不再同时通过终端发送 OSC 52 序列；如需保留旧行为，设置 `KIMI_CODE_CLIPBOARD_OSC52=1`。
+- 允许在 `[secondary_model]` 中将 `primary` 作为普通模型别名使用；Tower 评审改用模型池默认模型，如需使用主模型，需显式选择模型池别名或设置 `default_model`。
+- 新增环境变量 `KIMI_CODE_TUI_ANIMATION_FPS`（`1`–`60` 的整数），用于调整进行中标题扫光动画的帧率。
+
+### 修复
+
+- 会话启动时应用 `config.toml` 中的 `[[permission.rules]]`，print 模式下同样支持 `deny`、`ask` 和 `allow` 规则。
+- 切换主目录后，默认本地工作目录跟随新的主目录，并同步工具、项目配置与会话索引；传入显式的 `environmentCwd` 可保留固定目录的旧行为。
+- 修复了一些已知问题，并做了若干细节优化。更详细的变更记录见 [GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md)。
+
 ## 2.5.3（2026-11-10）
 
 ### 新功能

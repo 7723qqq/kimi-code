@@ -10,6 +10,7 @@
 | --- | --- |
 | `POST /api/v1/workspace/fs:search` | 无会话的工作区搜索（body 携带工作区引用） |
 | `POST /api/v1/workspace/fs:suggest` | 无会话的文件补全候选（用于 `@` 文件提及） |
+| `POST /api/v1/fs:suggest` | 跨多个绝对根目录的文件补全候选，无需会话或工作区 |
 | `GET /api/v1/sessions/{session_id}/fs/{path}:download` | 下载会话文件（二进制，见下文） |
 | `GET /api/v1/fs:browse` | 列出本机目录（文件夹选择器用） |
 | `GET /api/v1/fs:home` | 用户主目录与最近工作区 |
@@ -354,6 +355,21 @@
 
 - `40001`：请求体校验失败
 - `40410`：工作区不存在，且不是可用的绝对路径
+
+### `POST /api/v1/fs:suggest`
+
+在一个或多个绝对根目录中提供文件与目录补全候选，无需会话或工作区，也不会注册任何工作区。第一个 root 是主 root：其候选以相对路径返回，其他 root 下的候选以绝对路径返回。相互重叠的 root 只搜索一次。
+
+请求体用 `roots` 代替 `workspace`，其余 `query`、`limit`、`follow_gitignore`、`show_hidden`、`stream`、`include_globs` 和 `exclude_globs` 字段与 `POST /api/v1/workspace/fs:suggest` 相同。该端点只在本机执行，因此不像工作区形式那样接受 `runtime_id`。
+
+| 参数 | 位置 | 类型 | 说明 |
+| --- | --- | --- | --- |
+| `roots` | body | string[] | **必填。** 1–32 个绝对目录路径；第一个为主 root |
+
+响应（包括 `stream: true` 时的 NDJSON 形式）与 `POST /api/v1/workspace/fs:suggest` 相同。
+
+- `40001`：请求体校验失败，包括 root 不是绝对路径
+- `40409`：某个 root 不存在或不是目录（`details.path` 指明是哪一个）
 
 ### `GET /api/v1/fs:browse`
 

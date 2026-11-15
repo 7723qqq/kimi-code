@@ -44,7 +44,7 @@
 | `last_prompt` | string | 最近一条用户提示词文本（如有） |
 | `metadata` | object | 自定义元数据；始终携带 `cwd`（会话的工作目录） |
 | `agent_config` | object | 投影为 `{ model }`；会话已加载到当前服务端进程、且 main agent 有模型时，`model` 为 main agent 当前的模型（创建响应也是如此，除非创建时没有可用的模型），否则为 `""` |
-| `usage` | object | token 汇总 `{ input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, context_tokens, context_limit?, total_cost_usd?, turn_count? }`；在快照类端点之外全为零 |
+| `usage` | object | token 汇总 `{ input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, context_tokens, context_limit?, total_cost_usd?, turn_count? }`；目前始终为零。实时上下文大小由 WebSocket 上每个 agent 的 `usage` 帧提供（见 [事件](./server-api-conversation.md#事件)） |
 | `permission_rules` | array | 会话权限规则；当前始终为 `[]` |
 | `message_count` | integer | 消息数；当前始终为 `0` |
 
@@ -393,7 +393,7 @@ schema 还接受顶层 `permission_rules` 数组，但更新路由当前不会�
 
 ### `GET /api/v1/sessions/{session_id}/messages`
 
-分页返回 main agent 的消息历史——与会话快照共享的扁平化上下文转录——最新在前。游标分页遵循 [分页](./server-api.md#分页)；读取历史会在会话为冷态时将其恢复。
+分页返回 main agent 的消息历史——扁平化的上下文转录——最新在前。游标分页遵循 [分页](./server-api.md#分页)；读取历史会在会话为冷态时将其恢复。
 
 | 参数 | 位置 | 类型 | 说明 |
 | --- | --- | --- | --- |

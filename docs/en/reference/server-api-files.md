@@ -10,6 +10,7 @@ In-session file operations go through `POST /api/v1/sessions/{session_id}/fs:{ac
 | --- | --- |
 | `POST /api/v1/workspace/fs:search` | Session-less workspace search (the body carries the workspace reference) |
 | `POST /api/v1/workspace/fs:suggest` | Session-less file-completion candidates (for `@` file mentions) |
+| `POST /api/v1/fs:suggest` | File-completion candidates across absolute root directories, without a session or workspace |
 | `GET /api/v1/sessions/{session_id}/fs/{path}:download` | Download a session file (binary, see below) |
 | `GET /api/v1/fs:browse` | List host directories (folder picker) |
 | `GET /api/v1/fs:home` | The user's home directory and recent workspaces |
@@ -354,6 +355,21 @@ With `stream:true`, the response is NDJSON instead of a single JSON object. Each
 
 - `40001`: body validation failure
 - `40410`: workspace not found and not a usable absolute path
+
+### `POST /api/v1/fs:suggest`
+
+Suggests file and directory completion candidates across one or more absolute root directories, without a session or a workspace; nothing is registered. The first root is the primary root: its candidates come back as relative paths, and candidates under the other roots as absolute paths. Overlapping roots are searched once.
+
+The body takes `roots` in place of `workspace`, plus the same `query`, `limit`, `follow_gitignore`, `show_hidden`, `stream`, `include_globs`, and `exclude_globs` fields as `POST /api/v1/workspace/fs:suggest`. It is local-only: unlike the workspace form it takes no `runtime_id`.
+
+| Parameter | In | Type | Description |
+| --- | --- | --- | --- |
+| `roots` | body | string[] | **Required.** 1–32 absolute directory paths; the first is the primary root |
+
+The response, including the NDJSON form with `stream: true`, is the same as for `POST /api/v1/workspace/fs:suggest`.
+
+- `40001`: body validation failure, including a root that is not an absolute path
+- `40409`: a root does not exist or is not a directory (`details.path` names it)
 
 ### `GET /api/v1/fs:browse`
 

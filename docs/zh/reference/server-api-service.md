@@ -196,6 +196,7 @@
 | --- | --- |
 | `GET /api/v1/config` | 读取全局配置（密钥字段脱敏） |
 | `POST /api/v1/config` | 合并式更新配置，并广播 `event.config.changed` |
+| `POST /api/v1/client_configs` | 读取由 Kimi Code 服务下发的命名客户端配置 |
 
 ### `GET /api/v1/config`
 
@@ -299,6 +300,16 @@
 上表的每个键都会被逐一枚举：未知的顶层键会以 `40001` 拒绝，而不是被静默丢弃，因此拼错的域名会被报出来，而不是返回成功。`GET /api/v1/config` 返回的每个域名（`raw` 除外）都能通过本端点写回。
 
 成功时 `data` 为完整的更新后配置，形态与 `GET /api/v1/config` 相同。
+
+### `POST /api/v1/client_configs`
+
+读取由 Kimi Code 服务远程控制的命名客户端配置，例如切换模型时是否要求用户确认。服务端会从账号所在区域的 Kimi Code 服务读取，设置了 `KIMI_CODE_BASE_URL` 时则从该地址读取，并把结果规范化为该名称对应的结构。
+
+| 参数 | 位置 | 类型 | 说明 |
+| --- | --- | --- | --- |
+| `name` | body | string | **必填。** 目前只注册了 `model_switch_confirm` |
+
+成功时 `data` 为 `{ name, config }`。名称未注册或读取失败时 `config` 为 `null`，客户端回退到内置行为。读取到的值不会变成 `null`：缺失或格式错误的字段会取其关闭状态默认值，例如格式错误的 `model_switch_confirm` 会返回 `{ enable: false, rules: [] }`，而不是报错。
 
 ## 模型与供应商
 
