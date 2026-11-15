@@ -9,15 +9,18 @@ import { currentTheme, type ColorPalette } from '#/tui/theme';
 import { hasDispose } from '#/tui/utils/component-capabilities';
 
 const SAMPLE_FILE = 'src/app.ts';
-const SAMPLE_THINKING = [
-  t('tui.dialogs.transcriptPreview.lineStart'),
-  t('tui.dialogs.transcriptPreview.linePort', { file: SAMPLE_FILE }),
-  t('tui.dialogs.transcriptPreview.lineParameter'),
-  t('tui.dialogs.transcriptPreview.lineTests'),
-].join('\n');
+
+function sampleThinking(): string {
+  return [
+    t('tui.dialogs.transcriptPreview.lineStart'),
+    t('tui.dialogs.transcriptPreview.linePort', { file: SAMPLE_FILE }),
+    t('tui.dialogs.transcriptPreview.lineParameter'),
+    t('tui.dialogs.transcriptPreview.lineTests'),
+  ].join('\n');
+}
 
 function sampleTranscript(): Component[] {
-  const thinking = new ThinkingComponent(SAMPLE_THINKING);
+  const thinking = new ThinkingComponent(sampleThinking());
   thinking.finalize({ known: true, ms: 3_000 });
   const call = (id: string, name: string, args: Record<string, unknown>, output: string): ToolCallComponent =>
     new ToolCallComponent({ id, name, args }, { tool_call_id: id, output, is_error: false });

@@ -172,36 +172,42 @@ export class SettingsSelectorComponent extends ChoicePickerComponent {
 
 type PickableToolCallDensity = Exclude<ToolCallDensity, 'ungrouped'>;
 
-const TOOL_CALL_DENSITY_OPTIONS = [
-  {
-    value: 'compact',
-    label: t('tui.dialogs.toolCallDensitySelector.compact'),
-    description: t('tui.dialogs.toolCallDensitySelector.compactDesc'),
-  },
-  {
-    value: 'balanced',
-    label: t('tui.dialogs.toolCallDensitySelector.balanced'),
-    description: t('tui.dialogs.toolCallDensitySelector.balancedDesc'),
-  },
-  {
-    value: 'detailed',
-    label: t('tui.dialogs.toolCallDensitySelector.detailed'),
-    description: t('tui.dialogs.toolCallDensitySelector.detailedDesc'),
-  },
-] as const satisfies readonly (ChoiceOption & { readonly value: PickableToolCallDensity })[];
+type ToolCallDensityOption = ChoiceOption & { readonly value: PickableToolCallDensity };
 
-const THINKING_OPTIONS = [
-  {
-    value: 'grouped',
-    label: t('tui.dialogs.thinkingDisplaySelector.grouped'),
-    description: t('tui.dialogs.thinkingDisplaySelector.groupedDesc'),
-  },
-  {
-    value: 'ungrouped',
-    label: t('tui.dialogs.thinkingDisplaySelector.ungrouped'),
-    description: t('tui.dialogs.thinkingDisplaySelector.ungroupedDesc'),
-  },
-] as const satisfies readonly (ChoiceOption & { readonly value: ThinkingDisplay })[];
+function getToolCallDensityOptions(): readonly ToolCallDensityOption[] {
+  return [
+    {
+      value: 'compact',
+      label: t('tui.dialogs.toolCallDensitySelector.compact'),
+      description: t('tui.dialogs.toolCallDensitySelector.compactDesc'),
+    },
+    {
+      value: 'balanced',
+      label: t('tui.dialogs.toolCallDensitySelector.balanced'),
+      description: t('tui.dialogs.toolCallDensitySelector.balancedDesc'),
+    },
+    {
+      value: 'detailed',
+      label: t('tui.dialogs.toolCallDensitySelector.detailed'),
+      description: t('tui.dialogs.toolCallDensitySelector.detailedDesc'),
+    },
+  ];
+}
+
+function getThinkingOptions(): readonly (ChoiceOption & { readonly value: ThinkingDisplay })[] {
+  return [
+    {
+      value: 'grouped',
+      label: t('tui.dialogs.thinkingDisplaySelector.grouped'),
+      description: t('tui.dialogs.thinkingDisplaySelector.groupedDesc'),
+    },
+    {
+      value: 'ungrouped',
+      label: t('tui.dialogs.thinkingDisplaySelector.ungrouped'),
+      description: t('tui.dialogs.thinkingDisplaySelector.ungroupedDesc'),
+    },
+  ];
+}
 
 export interface TranscriptSettingSelectorOptions<V> {
   readonly current: TranscriptConfig;
@@ -212,16 +218,17 @@ export interface TranscriptSettingSelectorOptions<V> {
 
 export class ToolCallDensitySelectorComponent extends PreviewChoicePickerComponent {
   constructor(opts: TranscriptSettingSelectorOptions<PickableToolCallDensity>) {
+    const options = getToolCallDensityOptions();
     super({
       title: t('tui.dialogs.toolCallDensitySelector.title'),
-      options: TOOL_CALL_DENSITY_OPTIONS,
+      options,
       currentValue: opts.current.toolCallDensity,
       onSelect: (value) => {
-        const option = TOOL_CALL_DENSITY_OPTIONS.find((candidate) => candidate.value === value);
+        const option = options.find((candidate) => candidate.value === value);
         if (option !== undefined) opts.onSelect(option.value);
       },
       onCancel: opts.onCancel,
-      preview: new TranscriptPreview(new Map(TOOL_CALL_DENSITY_OPTIONS.map(
+      preview: new TranscriptPreview(new Map(options.map(
         (option) => [option.value, { ...opts.current, toolCallDensity: option.value }],
       ))),
       layout: opts.layout,
@@ -231,16 +238,17 @@ export class ToolCallDensitySelectorComponent extends PreviewChoicePickerCompone
 
 export class ThinkingDisplaySelectorComponent extends PreviewChoicePickerComponent {
   constructor(opts: TranscriptSettingSelectorOptions<ThinkingDisplay>) {
+    const options = getThinkingOptions();
     super({
       title: t('tui.dialogs.thinkingDisplaySelector.title'),
-      options: THINKING_OPTIONS,
+      options,
       currentValue: opts.current.thinking,
       onSelect: (value) => {
-        const option = THINKING_OPTIONS.find((candidate) => candidate.value === value);
+        const option = options.find((candidate) => candidate.value === value);
         if (option !== undefined) opts.onSelect(option.value);
       },
       onCancel: opts.onCancel,
-      preview: new TranscriptPreview(new Map(THINKING_OPTIONS.map(
+      preview: new TranscriptPreview(new Map(options.map(
         (option) => [option.value, { ...opts.current, thinking: option.value }],
       ))),
       layout: opts.layout,
@@ -248,18 +256,20 @@ export class ThinkingDisplaySelectorComponent extends PreviewChoicePickerCompone
   }
 }
 
-const COPY_ON_SELECT_OPTIONS: readonly ChoiceOption[] = [
-  {
-    value: 'on',
-    label: t('tui.dialogs.copyOnSelectSelector.on'),
-    description: t('tui.dialogs.copyOnSelectSelector.onDesc'),
-  },
-  {
-    value: 'off',
-    label: t('tui.dialogs.copyOnSelectSelector.off'),
-    description: t('tui.dialogs.copyOnSelectSelector.offDesc'),
-  },
-];
+function getCopyOnSelectOptions(): readonly ChoiceOption[] {
+  return [
+    {
+      value: 'on',
+      label: t('tui.dialogs.copyOnSelectSelector.on'),
+      description: t('tui.dialogs.copyOnSelectSelector.onDesc'),
+    },
+    {
+      value: 'off',
+      label: t('tui.dialogs.copyOnSelectSelector.off'),
+      description: t('tui.dialogs.copyOnSelectSelector.offDesc'),
+    },
+  ];
+}
 
 export interface CopyOnSelectSelectorOptions {
   readonly currentValue: boolean;
@@ -271,7 +281,7 @@ export class CopyOnSelectSelectorComponent extends ChoicePickerComponent {
   constructor(opts: CopyOnSelectSelectorOptions) {
     super({
       title: t('tui.dialogs.copyOnSelectSelector.title'),
-      options: COPY_ON_SELECT_OPTIONS,
+      options: getCopyOnSelectOptions(),
       currentValue: opts.currentValue ? 'on' : 'off',
       onSelect: (value) => {
         if (value === 'on' || value === 'off') opts.onSelect(value === 'on');
