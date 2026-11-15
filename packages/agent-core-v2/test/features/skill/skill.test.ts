@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { createControlledPromise } from '@antfu/utils';
+import { basename } from 'pathe';
 
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { InMemorySkillCatalog } from '#/features/skill/catalog/registry';
 import { summarizeSkill } from '#/features/skill/catalog/types';
 import { IAgentSkillService } from '#/features/skill/skillService';
@@ -12,7 +14,9 @@ import {
   SkillToolInputSchema,
 } from '#/features/skill/tools/skill';
 import { SkillTool } from '#/features/skill/tools/skillTool';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { DEFAULT_TOOL_RESULT_MAX_CHARS } from '#/tool/toolContract';
 import type { LlmRequester } from '#human/llm/requester/requester';
 import { waitForAssertion } from '#test/helpers/waitFor';
 
@@ -175,6 +179,7 @@ describe('SkillTool', () => {
     expect(text).toContain(`Run "Tokenizer Myths" with "${sessionId}"`);
     expect(text).not.toContain('${KIMI_SESSION_ID}');
     expect(text).toContain('dir="/skills/rename-session"');
+    expect(text).not.toContain('Tool output exceeded');
   });
 
   it('returns a tool error when the skill is unknown', async () => {
@@ -208,32 +213,50 @@ describe('SkillTool', () => {
     });
   });
 
-  it('loads inline skills through the model-tool wrapper without exposing the body in output', async () => {
+  it('loads inline skills through the model-tool wrapper and truncates oversized content', async () => {
+    const bulk = `${'x'.repeat(99)}\n`.repeat(Math.ceil(DEFAULT_TOOL_RESULT_MAX_CHARS / 100) + 1);
+    const skillContent = `HEAD_MARKER\n${bulk}TAIL_MARKER`;
+    const renderedSkillContent = `${skillContent}\n\nARGUMENTS: src/app.ts`;
+    skills.register(stubSkill('oversized', { content: skillContent }));
+
     const result = await executeTool(
       makeTool(),
-      toolContext({ skill: 'commit', args: 'src/app.ts' }),
+      toolContext({ skill: 'oversized', args: 'src/app.ts' }),
     );
 
     expect(result).toMatchObject({
-      output: 'Skill "commit" loaded inline. Follow its instructions.',
+      output: 'Skill "oversized" loaded inline. Follow its instructions.',
     });
-    expect(result.output).not.toContain('# Commit');
+    expect(result.output).not.toContain('HEAD_MARKER');
     expect(ctx.context.get()).toHaveLength(0);
     expect(result.delivery?.kind).toBe('steer');
     expect(result.delivery?.message.origin).toMatchObject({
       kind: 'skill_activation',
-      skillName: 'commit',
+      skillName: 'oversized',
       trigger: 'model-tool',
     });
-    const content = result.delivery?.message.content[0];
-    const skillText = content?.type === 'text' ? content.text : '';
-    expect(content).toMatchObject({
-      type: 'text',
-      text: expect.stringContaining(
-        '<skill-loaded name="commit" trigger="model-tool" source="user" dir="/skills/commit" args="src/app.ts">',
-      ),
-    });
-    expect(skillText).toContain('ARGUMENTS: src/app.ts');
+    const reminderPart = result.delivery?.message.content[0];
+    const reminderText = reminderPart?.type === 'text' ? reminderPart.text : '';
+    expect(reminderPart?.type).toBe('text');
+    expect(reminderText).toContain(
+      '<skill-loaded name="oversized" trigger="model-tool" source="user" dir="/skills/oversized" args="src/app.ts">',
+    );
+    expect(reminderText).toContain('Tool output exceeded 50000 characters');
+    expect(reminderText).toContain('tool_call_id: call_skill');
+    expect(reminderText).toContain('HEAD_MARKER');
+    expect(reminderText).toContain('TAIL_MARKER');
+    expect(reminderText).toContain('ARGUMENTS: src/app.ts');
+    expect(reminderText.length).toBeLessThan(DEFAULT_TOOL_RESULT_MAX_CHARS);
+
+    const outputPath = /^output_path: (.+)$/m.exec(reminderText)?.[1];
+    expect(outputPath).toBeDefined();
+    if (outputPath === undefined) throw new Error('expected a spill output path');
+    const storage = ctx.get(IFileSystemStorageService);
+    const scope = ctx.get(IAgentScopeContext).scope('tool-results');
+    const saved = await storage.read(scope, basename(outputPath));
+    expect(saved).toBeDefined();
+    if (saved === undefined) throw new Error('expected saved skill content');
+    expect(new TextDecoder().decode(saved)).toBe(renderedSkillContent);
   });
 
   it('honors initialQueryDepth as an alias for queryDepth', async () => {

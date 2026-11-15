@@ -16,6 +16,7 @@ import { IFlagService } from '#/app/flag/flag';
 import { LifecycleScope } from '#/app/scopes';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
+import { wrapSystemReminder } from '#/features/reminder/systemReminder';
 import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { defineState } from '#/state/state';
@@ -24,6 +25,7 @@ import type { ToolDescription as Tool } from '#human/llm/message';
 
 import {
   collectLoadedDynamicTools,
+  collectPendingSchemaUpdateNames,
   foldAnnouncedToolNames,
   isDynamicToolSchemaMessage,
   isLoadableToolsAnnouncement,
@@ -614,8 +616,10 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
     if (info === undefined) {
       return isMcpToolName(name) && this.toolPolicy.isToolActive(name, 'mcp');
     }
+    if (!this.enabled()) return this.toolPolicy.isToolActive(name, info.source);
     return (
       this.toolPolicy.isToolActive(name, info.source) &&
+      !collectPendingSchemaUpdateNames(this.context.get(), this.toolRegistry.list()).has(name) &&
       (!this.isDynamicallyLoadable(info) || this.loadedToolNames().has(name))
     );
   }
@@ -650,10 +654,38 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
     const inlineNames = new Set(
       tools.filter((tool) => tool.deferred !== true).map((tool) => tool.name),
     );
+    const firstToolDeclarations = new Map<
+      string,
+      { readonly message: ContextMessage; readonly toolIndex: number }
+    >();
+    const latestToolDeclarations = new Map<
+      string,
+      { readonly message: ContextMessage; readonly toolIndex: number }
+    >();
+    for (const message of messages) {
+      if (message.role !== 'system' || message.tools === undefined) continue;
+      for (let toolIndex = 0; toolIndex < message.tools.length; toolIndex += 1) {
+        const tool = message.tools[toolIndex]!;
+        if (!firstToolDeclarations.has(tool.name)) {
+          firstToolDeclarations.set(tool.name, { message, toolIndex });
+        }
+        latestToolDeclarations.set(tool.name, { message, toolIndex });
+      }
+    }
+    const pendingSchemaUpdates = collectPendingSchemaUpdateNames(
+      messages,
+      this.toolRegistry.list(),
+    );
     let shaped: ContextMessage[] | undefined;
     for (let i = 0; i < messages.length; i += 1) {
       const message = messages[i]!;
-      const next = this.shapeActiveMessage(message, inlineNames);
+      const next = this.shapeActiveMessage(
+        message,
+        inlineNames,
+        firstToolDeclarations,
+        latestToolDeclarations,
+        pendingSchemaUpdates,
+      );
       if (next === message) {
         if (shaped !== undefined) shaped.push(message);
         continue;
@@ -667,6 +699,15 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
   private shapeActiveMessage(
     message: ContextMessage,
     inlineNames: ReadonlySet<string>,
+    firstToolDeclarations: ReadonlyMap<
+      string,
+      { readonly message: ContextMessage; readonly toolIndex: number }
+    >,
+    latestToolDeclarations: ReadonlyMap<
+      string,
+      { readonly message: ContextMessage; readonly toolIndex: number }
+    >,
+    pendingSchemaUpdates: ReadonlySet<string>,
   ): ContextMessage | undefined {
     if (message.role !== 'system') return message;
     const tools = message.tools;
@@ -675,8 +716,14 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
     const current = this.currentTools();
     const loaded = collectLoadedDynamicTools(this.context.get(), current);
     let kept: Tool[] | undefined;
+    const schemaUpdates: string[] = [];
     for (let i = 0; i < tools.length; i += 1) {
       const tool = tools[i]!;
+      const firstDeclaration = firstToolDeclarations.get(tool.name);
+      const isFirstDeclaration =
+        firstDeclaration !== undefined &&
+        firstDeclaration.message === message &&
+        firstDeclaration.toolIndex === i;
       const info = current.find((entry) => entry.name === tool.name);
       const active =
         info === undefined
@@ -684,6 +731,7 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
           : this.toolPolicy.isToolActive(info.name, info.source);
       const loadedSchema = loaded.get(tool.name);
       const keep =
+        isFirstDeclaration &&
         !inlineNames.has(tool.name) &&
         (isMcpToolName(tool.name)
           ? this.toolPolicy.isToolActive(tool.name, 'mcp') &&
@@ -696,15 +744,35 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
         if (kept !== undefined) kept.push(tool);
         continue;
       }
+      const latestDeclaration = latestToolDeclarations.get(tool.name);
+      const isLatestDeclaration =
+        latestDeclaration !== undefined &&
+        latestDeclaration.message === message &&
+        latestDeclaration.toolIndex === i;
+      if (
+        !inlineNames.has(tool.name) &&
+        !isFirstDeclaration &&
+        isLatestDeclaration &&
+        pendingSchemaUpdates.has(tool.name)
+      ) {
+        schemaUpdates.push(tool.name);
+      }
       if (kept === undefined) kept = tools.slice(0, i);
     }
     if (kept === undefined) return message;
-    if (kept.length > 0) return { ...message, tools: kept };
+    const content: ContextMessage['content'] = [
+      ...message.content,
+      ...schemaUpdates.map((name) => ({
+        type: 'text' as const,
+        text: wrapSystemReminder(schemaUpdateUnsupportedToolOutput(name)),
+      })),
+    ];
+    if (kept.length > 0) return { ...message, tools: kept, content };
 
     const { tools: _tools, ...rest } = message;
     void _tools;
-    if (rest.content.length === 0 && rest.toolCalls.length === 0) return undefined;
-    return rest;
+    if (content.length === 0 && rest.toolCalls.length === 0) return undefined;
+    return { ...rest, content };
   }
 
   private schemaOf(name: string): Tool | undefined {
@@ -748,6 +816,12 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
   }
 
   private describeUnavailableTool(name: string): string | undefined {
+    if (
+      this.enabled() &&
+      collectPendingSchemaUpdateNames(this.context.get(), this.toolRegistry.list()).has(name)
+    ) {
+      return schemaUpdateUnsupportedToolOutput(name);
+    }
     if (this.isInactiveLoadedTool(name)) return inactiveLoadedToolOutput(name);
     if (!this.shouldIntercept(name)) return undefined;
     return notLoadedToolOutput(name);
@@ -819,6 +893,13 @@ function lastRetrievedAnnouncementText(messages: readonly ContextMessage[]): str
     return message.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
   }
   return undefined;
+}
+
+function schemaUpdateUnsupportedToolOutput(name: string): string {
+  return (
+    `Tool "${name}" has a schema update, but applying schema updates is not supported in this session. ` +
+    'Start a new session to use the updated schema.'
+  );
 }
 
 function notLoadedToolOutput(name: string): string {

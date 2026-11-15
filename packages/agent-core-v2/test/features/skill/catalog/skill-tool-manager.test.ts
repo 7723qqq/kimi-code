@@ -15,6 +15,7 @@ import { type SkillCatalog, type SkillDefinition } from '#/features/skill/catalo
 import type { ToolCall } from '#human/llm/message';
 
 import { recordingTelemetry } from '../../../app/telemetry/stubs';
+import { stubToolResultTruncationService } from '../../../agent/toolResultTruncation/stubs';
 import {
   InMemoryWireRecordPersistence,
   createTestAgent,
@@ -235,9 +236,11 @@ describe('SkillTool nested variants', () => {
     const result = await executeModelSkill(
       sessionCatalog,
       skillService,
+      stubToolResultTruncationService(),
       { skill: 'parent.child' },
       1,
       'session-1',
+      'call_skill',
       '/work/B',
     );
 
