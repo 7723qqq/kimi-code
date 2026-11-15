@@ -24,11 +24,13 @@ export type {
   SessionWarningsResponse,
 } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
 
-export const updateSessionProfileRequestSchema = engineUpdateSessionProfileRequestSchema.extend({
-  agent_config: sessionAgentConfigPartialSchema
-    .extend({ profile: creationOnlyProfileSchema })
-    .optional(),
-});
+export const updateSessionProfileRequestSchema = engineUpdateSessionProfileRequestSchema
+  .extend({
+    agent_config: sessionAgentConfigPartialSchema
+      .extend({ profile: creationOnlyProfileSchema })
+      .optional(),
+  })
+  .strict();
 export type UpdateSessionProfileRequest = z.infer<typeof updateSessionProfileRequestSchema>;
 
 export const createSessionRequestSchema = sessionCreateSchema.strict();
