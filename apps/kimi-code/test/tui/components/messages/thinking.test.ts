@@ -1,12 +1,25 @@
 import { describe, expect, it, mock } from 'bun:test';
 
 import { visibleWidth, type TUI, type TuiMouseEvent } from '@moonshot-ai/pi-tui';
+import chalk from 'chalk';
 
 import { ThinkingComponent } from '#/tui/components/messages/thinking';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
+import { currentTheme, darkColors, lightColors } from '#/tui/theme';
 
 function strip(text: string): string {
   return text.replaceAll(/\u001B\[[0-9;]*m/g, '');
+}
+
+function glyphColors(line: string): string[] {
+  return [...line.matchAll(/\u001B\[38;2;(\d+);(\d+);(\d+)m([^\u001B]*)/g)].flatMap(
+    ([, red, green, blue, text = '']) => {
+      const color = `#${[red, green, blue]
+        .map((channel) => Number(channel).toString(16).padStart(2, '0'))
+        .join('')}`;
+      return Array.from(text, () => color);
+    },
+  );
 }
 
 function fakeUi(): {
@@ -139,8 +152,58 @@ describe('ThinkingComponent', () => {
     expect(ui.requestRender).not.toHaveBeenCalled();
   });
 
-  it('finalizes in place into a collapsed preview', () => {
-    const component = new ThinkingComponent(longThinking, true, 'live');
+  it('waits 600 ms, sweeps toward text, and rests between cycles', () => {
+    const realNow = performance.now;
+    const previousLevel = chalk.level;
+    performance.now = () => 0;
+    chalk.level = 3;
+    try {
+      const ui = fakeUi();
+      const component = new ThinkingComponent('step', true, 'live', ui);
+      const header = (): string => component.render(80)[1] ?? '';
+
+      expect(new Set(glyphColors(header()))).toEqual(new Set([darkColors.textDim.toLowerCase()]));
+
+      ui.runFrame(480);
+      expect(new Set(glyphColors(header()))).toEqual(new Set([darkColors.textDim.toLowerCase()]));
+      ui.runFrame(1_000);
+      const swept = glyphColors(header());
+      expect(swept.some((color) => color !== darkColors.textDim.toLowerCase())).toBe(true);
+      expect(swept[0]).not.toBe(darkColors.textDim.toLowerCase());
+      ui.runFrame(2_400);
+      expect(new Set(glyphColors(header()))).toEqual(new Set([darkColors.textDim.toLowerCase()]));
+      expect(strip(header())).toBe('● Thinking');
+
+      component.finalize({ known: true, ms: 1_000 });
+      expect(ui.pendingFrames()).toBe(0);
+    } finally {
+      performance.now = realNow;
+      chalk.level = previousLevel;
+    }
+  });
+
+  it('runs the light live title on the running gray between the background and text', () => {
+    const realNow = performance.now;
+    const previousLevel = chalk.level;
+    const previousPalette = currentTheme.palette;
+    const previousResolved = currentTheme.isLight ? 'light' : 'dark';
+    performance.now = () => 0;
+    chalk.level = 3;
+    currentTheme.setPalette(lightColors, 'light');
+    currentTheme.setTerminalBackground('#FFFFFF');
+    try {
+      const component = new ThinkingComponent('step', true, 'live', fakeUi());
+      expect(new Set(glyphColors(component.render(80)[1] ?? ''))).toEqual(new Set(['#767676']));
+      component.dispose();
+    } finally {
+      performance.now = realNow;
+      chalk.level = previousLevel;
+      currentTheme.setPalette(previousPalette, previousResolved);
+      currentTheme.setTerminalBackground(undefined);
+    }
+  });
+
+  it('finalizes in place into a collapsed preview', () => {    const component = new ThinkingComponent(longThinking, true, 'live');
 
     component.finalize();
 

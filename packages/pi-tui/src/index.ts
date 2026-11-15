@@ -6,6 +6,7 @@ export {
   ANIMATION_FRAME_INTERVAL_MS,
   type AnimationClock,
   AnimationFrameScheduler,
+  MAX_ANIMATION_FRAME_RATE,
 } from './animation-frame.ts';
 // Autocomplete support
 export {

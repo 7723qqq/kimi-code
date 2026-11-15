@@ -6,7 +6,6 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'bun:test';
 
 import { type AnimationClock, AnimationFrameScheduler } from '../src/animation-frame.ts';
-import type { TUI } from '../src/tui.ts';
 import { TuiMainScreen } from '../src/tui-main-screen.ts';
 import { VirtualTerminal } from './virtual-terminal.ts';
 
@@ -61,7 +60,7 @@ class ManualClock implements AnimationClock {
 	}
 }
 
-function animatedTui(): { clock: ManualClock; tui: TUI } {
+function animatedTui(): { clock: ManualClock; tui: TuiMainScreen } {
 	const clock = new ManualClock();
 	return { clock, tui: new TuiMainScreen(new VirtualTerminal(40, 10), undefined, undefined, clock) };
 }
@@ -167,6 +166,59 @@ describe('TUI animation frames', () => {
 		clock.advance(1);
 		expect(times).toEqual([120, 1200]);
 		tui.stop();
+	});
+
+	it('runs frames at the rate the host sets', () => {
+		const { clock, tui } = animatedTui();
+		const times: number[] = [];
+		const step = (time: number): void => {
+			times.push(time);
+			if (times.length < 3) tui.requestAnimationFrame(step);
+		};
+		tui.requestAnimationFrame(step);
+		tui.setAnimationFrameRate(20);
+
+		clock.advance(49);
+		expect(times).toEqual([]);
+		clock.advance(1);
+		expect(times).toEqual([50]);
+		clock.advance(100);
+		expect(times).toEqual([50, 100, 150]);
+		expect(clock.pendingTimers).toBe(0);
+	});
+
+	it('waits one new interval after the last frame when the rate changes, however often it changes', () => {
+		const { clock, tui } = animatedTui();
+		const times: number[] = [];
+		const step = (time: number): void => {
+			times.push(time);
+			if (times.length < 3) tui.requestAnimationFrame(step);
+		};
+		tui.requestAnimationFrame(step);
+		clock.advance(130);
+		expect(times).toEqual([120]);
+
+		for (const fps of [1, 2, 1, 20]) tui.setAnimationFrameRate(fps);
+		clock.advance(39);
+		expect(times).toEqual([120]);
+		clock.advance(1);
+		expect(times).toEqual([120, 170]);
+		clock.advance(50);
+		expect(times).toEqual([120, 170, 220]);
+		expect(clock.pendingTimers).toBe(0);
+	});
+
+	it('accepts whole frame rates from 1 to 60 and rejects the rest without changing the current one', () => {
+		const { clock, tui } = animatedTui();
+		tui.setAnimationFrameRate(60);
+		tui.setAnimationFrameRate(1);
+		for (const fps of [0, 61, 0.5, 30.5, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+			expect(() => tui.setAnimationFrameRate(fps)).toThrow(RangeError);
+		}
+		const times: number[] = [];
+		tui.requestAnimationFrame((time) => times.push(time));
+		clock.advance(1000);
+		expect(times).toEqual([1000]);
 	});
 
 	it('runs the other callbacks and later frames when a callback throws, then rethrows the first error', () => {

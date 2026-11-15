@@ -169,6 +169,7 @@ describe('runShell', () => {
     setEnv('KIMI_CODE_OAUTH_HOST', 'https://auth.kimi.com');
     setEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '');
     setEnv('KIMI_CODE_TUI_FULL_SCREEN', '');
+    setEnv('KIMI_CODE_TUI_ANIMATION_FPS', '');
     setEnv('TERM', 'xterm-256color');
     setEnv('TERMUX_VERSION', '');
     setEnv('TMUX', '');
@@ -682,6 +683,38 @@ describe('runShell', () => {
         editorCommand: 'vim',
         notifications: { enabled: true, condition: 'always' },
       },
+    });
+  });
+
+  it('passes the KIMI_CODE_TUI_ANIMATION_FPS frame rate to the TUI', async () => {
+    setEnv('KIMI_CODE_TUI_ANIMATION_FPS', '25');
+    stubTuiStartup();
+
+    await runShell(minimalCliOptions, '1.2.3-test');
+
+    const [, , startupInput] = mocks.kimiTuiConstructor.mock.calls[0]!;
+    expect(startupInput).toMatchObject({ animationFrameRate: 25, startupNotice: undefined });
+  });
+
+  it('adds an ignored KIMI_CODE_TUI_ANIMATION_FPS to the startup notice after a tui.toml warning', async () => {
+    setEnv('KIMI_CODE_TUI_ANIMATION_FPS', 'fast');
+    mocks.loadTuiConfig.mockRejectedValue(
+      new mocks.TuiConfigParseError({
+        theme: 'dark',
+        editorCommand: null,
+        notifications: { enabled: true, condition: 'unfocused' },
+      }),
+    );
+    mocks.tuiStart.mockResolvedValue(undefined);
+
+    await runShell(minimalCliOptions, '1.2.3-test');
+
+    const [, , startupInput] = mocks.kimiTuiConstructor.mock.calls[0]!;
+    expect(startupInput).toMatchObject({
+      animationFrameRate: undefined,
+      startupNotice:
+        'Invalid TUI config in ~/.kimi-code/tui.toml; using defaults.\n' +
+        'Ignored KIMI_CODE_TUI_ANIMATION_FPS="fast": expected a whole number from 1 to 60.',
     });
   });
 

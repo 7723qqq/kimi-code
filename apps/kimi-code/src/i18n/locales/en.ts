@@ -2558,6 +2558,8 @@ export default {
       subagentAbortedByUser: 'Aborted by the user',
       // config.ts
       invalidTuiConfig: 'Invalid TUI config in ~/.kimi-code/tui.toml; using defaults.',
+      invalidAnimationFrameRate:
+        'Ignored KIMI_CODE_TUI_ANIMATION_FPS={{value}}: expected a whole number from 1 to {{max}}.',
 
       // tool-renderers/media.ts
       mediaUploaded: 'uploaded',

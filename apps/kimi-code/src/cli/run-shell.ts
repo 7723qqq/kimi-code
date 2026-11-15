@@ -13,7 +13,7 @@ import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE, TUI_HOST_UI_CAPABILITIES } from '
 import { setLocale, t } from '#/i18n';
 import { detectPendingMigration, resolveLegacySourceHome, sameLegacyPath } from '#/migration/index';
 import type { TuiConfig } from '#/tui/config';
-import { loadTuiConfig, resolveTuiMode, TuiConfigParseError } from '#/tui/config';
+import { loadTuiConfig, resolveAnimationFrameRate, resolveTuiMode, TuiConfigParseError } from '#/tui/config';
 import { CHROME_GUTTER } from '#/tui/constant/rendering';
 import { KimiTUI } from '#/tui/index';
 import { currentTheme, getColorPalette } from '#/tui/theme';
@@ -139,12 +139,16 @@ export async function runShell(
   // has already rejected them alongside --session/--continue.
   const agentProfile = await resolveAgentProfileSelection(opts, workDir);
   const tuiModeResolution = resolveTuiMode(tuiConfig.tuiMode);
+  const animationFrameRateResolution = resolveAnimationFrameRate();
   // Degraded native workers (embeddable-asset install failures) are appended to
   // the same dim startup notice as tui.toml parse errors, so a broken install
   // is visible on screen instead of only in the trace file.
   const startupNotice = combineStartupNotice(
-    configWarning,
-    runOptions.startupWarnings?.length ? runOptions.startupWarnings.join('\n') : undefined,
+    combineStartupNotice(
+      configWarning,
+      runOptions.startupWarnings?.length ? runOptions.startupWarnings.join('\n') : undefined,
+    ),
+    animationFrameRateResolution.warning,
   );
   const tui = new KimiTUI(harness, {
     cliOptions: opts,
@@ -152,6 +156,7 @@ export async function runShell(
     additionalDirs: opts.addDirs?.length ? opts.addDirs : undefined,
     tuiConfig,
     resolvedTuiMode: tuiModeResolution.mode,
+    animationFrameRate: animationFrameRateResolution.fps,
     version,
     workDir,
     startupNotice,

@@ -2459,6 +2459,8 @@ export default {
       subagentAbortedByUser: '已被用户中止',
       // config.ts
       invalidTuiConfig: '无效的 TUI 配置（~/.kimi-code/tui.toml），已使用默认值。',
+      invalidAnimationFrameRate:
+        '已忽略 KIMI_CODE_TUI_ANIMATION_FPS={{value}}：应为 1 到 {{max}} 的整数。',
 
       // tool-renderers/media.ts
       mediaUploaded: '已上传',

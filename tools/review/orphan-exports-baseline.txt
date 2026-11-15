@@ -21,6 +21,7 @@ _setTowerFeatureAssembledForTests  packages/agent-core-v2/src/features/tower/tow
 applyContextCompactionRecord  packages/agent-core-v2/src/agent/contextMemory/contextOps.ts
 buildHookSpawnOptions  packages/agent-core-v2/src/features/externalHooks/internal/runHook.ts
 clearHighlightCache  apps/kimi-code/src/tui/components/media/code-highlight.ts
+colorDistance  apps/kimi-code/src/tui/theme/color-mix.ts
 connectPlugins  packages/agent-core-v2/src/human/plugin.ts
 containsUsableMessage  packages/migration-legacy/src/sessions/translator.ts
 createKimiOAuthCredentialProvider  packages/agent-core-v2/src/human/credentials/kimi-oauth.ts

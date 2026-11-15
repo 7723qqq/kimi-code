@@ -5,6 +5,7 @@ import { join } from 'node:path';
 
 import { log, type GoalSnapshot } from '@moonshot-ai/kimi-code-sdk';
 import type { MigrationPlan } from '@moonshot-ai/migration-legacy';
+import { TuiMainScreen } from '@moonshot-ai/pi-tui';
 
 import {
   installMsys2,
@@ -3064,6 +3065,30 @@ function uiContainsFooter(driver: StartupDriver): boolean {
   };
   return visit(driver.state.ui);
 }
+
+describe('animation frame interval wiring', () => {
+  it('applies the startup frame rate to the renderer', async () => {
+    const setFrameRate = spyOn(TuiMainScreen.prototype, 'setAnimationFrameRate');
+    try {
+      await makeDriver(makeHarness(), { ...makeStartupInput(), animationFrameRate: 20 });
+
+      expect(setFrameRate).toHaveBeenCalledWith(20);
+    } finally {
+      setFrameRate.mockRestore();
+    }
+  });
+
+  it('leaves the renderer at its default frame rate without one', async () => {
+    const setFrameRate = spyOn(TuiMainScreen.prototype, 'setAnimationFrameRate');
+    try {
+      await makeDriver(makeHarness(), makeStartupInput());
+
+      expect(setFrameRate).not.toHaveBeenCalled();
+    } finally {
+      setFrameRate.mockRestore();
+    }
+  });
+});
 
 describe('survey telemetry gate wiring', () => {
   function surveyGateTelemetryDisabled(input: KimiTUIStartupInput): boolean {
