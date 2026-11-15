@@ -132,14 +132,21 @@ const COMMAND_LAUNCHER_ENV_KEYS: ReadonlySet<string> = new Set([
   'PATHEXT',
 ]);
 
+const COMMAND_LAUNCHER_ENV_KEYS_WINDOWS: ReadonlySet<string> = new Set(
+  [...COMMAND_LAUNCHER_ENV_KEYS].map((key) => key.toUpperCase()),
+);
+
 export function commandLauncherEnv(
   specEnv?: Record<string, string>,
   baseEnv: Readonly<Record<string, string | undefined>> = process.env,
 ): Record<string, string> {
+  const caseInsensitive = process.platform === 'win32';
+  const allowed = caseInsensitive ? COMMAND_LAUNCHER_ENV_KEYS_WINDOWS : COMMAND_LAUNCHER_ENV_KEYS;
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(baseEnv)) {
     if (value === undefined) continue;
-    if (COMMAND_LAUNCHER_ENV_KEYS.has(key) || key.startsWith('LC_')) {
+    const normalized = caseInsensitive ? key.toUpperCase() : key;
+    if (allowed.has(normalized) || normalized.startsWith('LC_')) {
       env[key] = value;
     }
   }

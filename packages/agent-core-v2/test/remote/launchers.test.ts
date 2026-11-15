@@ -9,6 +9,14 @@ import { resolveProgramPath } from '#/environment/programPath';
 
 import { resolveLauncher } from '#/remote/client/launchers';
 
+function hostEnvKey(name: string): string {
+  return Object.keys(process.env).find((key) => key.toUpperCase() === name) ?? name;
+}
+
+function hostEnv(name: string): string | undefined {
+  return process.env[hostEnvKey(name)];
+}
+
 describe('launcher lowering', () => {
   it('lowers ssh to the fixed argv shape', () => {
     expect(resolveLauncher({ type: 'ssh', host: 'dev-box' })).toEqual({
@@ -159,8 +167,10 @@ describe('command launcher environment', () => {
     try {
       const resolved = resolveLauncher({ type: 'command', program: process.execPath });
       expect(resolved.env?.['REMOTE_EXEC_TEST_LLM_KEY']).toBeUndefined();
-      expect(resolved.env?.['PATH']).toBe(process.env['PATH']);
-      expect(resolved.env?.['HOME']).toBe(process.env['HOME']);
+      const pathKey = hostEnvKey('PATH');
+      expect(resolved.env?.[pathKey]).toBe(hostEnv('PATH'));
+      const homeKey = hostEnvKey('HOME');
+      expect(resolved.env?.[homeKey]).toBe(hostEnv('HOME'));
     } finally {
     }
   });
