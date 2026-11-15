@@ -1120,7 +1120,9 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   ): MachineGateDecision {
     if (turn.controller.signal.aborted || isAbortError(error) || gateSignal.aborted) {
       if (turn.controller.signal.aborted) turn.abortReason = turn.controller.signal.reason;
-      else if (turn.abortReason === undefined) turn.abortReason = error;
+      else if (turn.abortReason === undefined && !gateSignal.aborted && isAbortError(error)) {
+        turn.abortReason = error;
+      }
       return { type: 'fail' };
     }
     turn.failedStep = {
