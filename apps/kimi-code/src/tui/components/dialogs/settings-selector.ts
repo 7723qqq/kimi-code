@@ -16,6 +16,7 @@ const SETTINGS_SELECTION_MEMBERS = [
   'tuiMode',
   'toolCallDensity',
   'thinking',
+  'copyOnSelect',
   'mermaid',
   'editor',
   'language',
@@ -74,6 +75,11 @@ function getSettingsOptions(): readonly SettingsChoiceOption[] {
       value: 'thinking',
       label: t('tui.dialogs.settingsSelector.thinking'),
       description: t('tui.dialogs.settingsSelector.thinkingDesc'),
+    },
+    {
+      value: 'copyOnSelect',
+      label: t('tui.dialogs.settingsSelector.copyOnSelect'),
+      description: t('tui.dialogs.settingsSelector.copyOnSelectDesc'),
     },
     {
       value: 'mermaid',
@@ -152,7 +158,9 @@ export class SettingsSelectorComponent extends ChoicePickerComponent {
       options: getSettingsOptions().filter(
         (option) =>
           opts.fullscreen === true ||
-          (option.value !== 'toolCallDensity' && option.value !== 'thinking'),
+          (option.value !== 'toolCallDensity' &&
+            option.value !== 'thinking' &&
+            option.value !== 'copyOnSelect'),
       ),
       onSelect: (value) => {
         if (isSettingsSelection(value)) opts.onSelect(value);
@@ -236,6 +244,39 @@ export class ThinkingDisplaySelectorComponent extends PreviewChoicePickerCompone
         (option) => [option.value, { ...opts.current, thinking: option.value }],
       ))),
       layout: opts.layout,
+    });
+  }
+}
+
+const COPY_ON_SELECT_OPTIONS: readonly ChoiceOption[] = [
+  {
+    value: 'on',
+    label: t('tui.dialogs.copyOnSelectSelector.on'),
+    description: t('tui.dialogs.copyOnSelectSelector.onDesc'),
+  },
+  {
+    value: 'off',
+    label: t('tui.dialogs.copyOnSelectSelector.off'),
+    description: t('tui.dialogs.copyOnSelectSelector.offDesc'),
+  },
+];
+
+export interface CopyOnSelectSelectorOptions {
+  readonly currentValue: boolean;
+  readonly onSelect: (value: boolean) => void;
+  readonly onCancel: () => void;
+}
+
+export class CopyOnSelectSelectorComponent extends ChoicePickerComponent {
+  constructor(opts: CopyOnSelectSelectorOptions) {
+    super({
+      title: t('tui.dialogs.copyOnSelectSelector.title'),
+      options: COPY_ON_SELECT_OPTIONS,
+      currentValue: opts.currentValue ? 'on' : 'off',
+      onSelect: (value) => {
+        if (value === 'on' || value === 'off') opts.onSelect(value === 'on');
+      },
+      onCancel: opts.onCancel,
     });
   }
 }

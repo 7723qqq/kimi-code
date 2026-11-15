@@ -30,6 +30,7 @@ import { CLICK_GUARD_MS } from './constant/terminal';
 import type { TUIState } from './state';
 import { currentTheme } from './theme';
 import { INITIAL_LIVE_PANE, type KimiTUIOptions } from './types';
+import { formatErrorMessage } from './utils/event-payload';
 import {
   setMarkdownAltScreenActive,
   setMarkdownMermaidMode,
@@ -54,6 +55,8 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
           // route OSC 8 clicks through our own opener.
           openUrl,
           refocusMouseGuardMs: CLICK_GUARD_MS,
+          copyOnSelect:
+            initialAppState.copyOnSelect ?? DEFAULT_TUI_CONFIG.copyOnSelect,
           // Likewise, on Windows the terminal's native right-click paste is
           // intercepted; feed the clipboard to the focused component as a
           // bracketed paste instead (renderer only calls this on win32).
@@ -77,9 +80,10 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
           // /copy uses and only claim success for native delivery.
           copySelection: async (text) => {
             try {
-              return (await copyTextToClipboard(text)) === 'native';
-            } catch {
-              return false;
+              const method = await copyTextToClipboard(text);
+              return method === 'native' ? true : t('tui.statusMessages.copiedViaTerminal');
+            } catch (error) {
+              return formatErrorMessage(error);
             }
           },
         })

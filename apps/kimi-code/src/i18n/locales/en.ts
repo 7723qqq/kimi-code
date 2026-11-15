@@ -654,6 +654,7 @@ export default {
   tui: {
     configFile: {
       transcriptSectionComment: 'Fullscreen transcript display preferences.',
+      copyOnSelectComment: 'fullscreen only: false copies only when you press Ctrl-C',
     },
     chrome: {
       statusSurface: {
@@ -1249,6 +1250,8 @@ export default {
         toolCallDensityDesc: 'Choose how much of each tool call the transcript shows.',
         thinking: 'Thinking folding',
         thinkingDesc: 'Choose whether to fold finished thinking.',
+        copyOnSelect: 'Copy on select',
+        copyOnSelectDesc: 'Choose whether selecting text in fullscreen mode copies it.',
         mermaid: 'Mermaid diagrams',
         mermaidDesc: 'Draw mermaid code blocks as diagrams, or keep them as source.',
         language: 'Language',
@@ -1309,6 +1312,13 @@ export default {
         lineTests: 'Then run the tests to catch any caller that breaks.',
         sampleBash: 'npm test',
         sampleBashOutput: '12 tests passed',
+      },
+      copyOnSelectSelector: {
+        title: 'Copy on select',
+        on: 'On',
+        onDesc: 'Copy text as soon as you select it.',
+        off: 'Off',
+        offDesc: 'Press Ctrl-C to copy selected text.',
       },
       astronSettings: {
         title: 'Astron Settings',
@@ -2552,7 +2562,14 @@ export default {
       nativeWorkerAssetMissing:
         'Native worker "{{worker}}" is missing from this build; its index runs in the degraded fallback.',
       // utils/clipboard/clipboard-text.ts
-      noClipboardCommandAvailable: 'No clipboard command is available.',
+      clipboardUnavailable: 'Clipboard unavailable',
+      clipboardUnavailableTermux:
+        'Clipboard unavailable: install the Termux:API app and `termux-api` package',
+      clipboardUnavailableWayland:
+        'Clipboard unavailable: install `wl-clipboard` (`wl-copy`) or check Wayland access',
+      clipboardUnavailableX11:
+        'Clipboard unavailable: install `xclip` or `xsel`, or check X11 access',
+      copiedViaTerminal: 'Copied via terminal',
       // utils/clipboard/clipboard-image.ts
       videoExceedsMaxSize: 'Video is {{size}} MB; maximum supported size is {{max}} MB.',
       clipboardImageReadFailed: 'Could not read the image from the clipboard: {{error}}',
@@ -3190,6 +3207,11 @@ export default {
       configTranscriptUnchanged: 'Transcript display settings unchanged.',
       configTranscriptUpdated: 'Transcript display settings updated.',
       configTranscriptSaveFailed: 'Failed to save transcript display settings: {{error}}',
+      configCopyOnSelectEnabled: 'Copy on select enabled.',
+      configCopyOnSelectDisabled: 'Copy on select disabled.',
+      configCopyOnSelectAlreadyEnabled: 'Copy on select already enabled.',
+      configCopyOnSelectAlreadyDisabled: 'Copy on select already disabled.',
+      configCopyOnSelectSaveFailed: 'Failed to save copy on select setting: {{error}}',
       configTuiModeEnvOverrideNotice:
         'Saved to tui.toml; unset KIMI_CODE_TUI_FULL_SCREEN for it to take effect.',
       configTuiModeFallbackNotice:

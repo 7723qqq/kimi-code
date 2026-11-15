@@ -187,10 +187,11 @@ export interface TuiAltScreenOptions {
   /** Automatically copy selected text to the clipboard on mouse release (default: true). */
   copyOnSelect?: boolean;
   /**
-   * Copy selected text to the system clipboard. Return `true` on success; the caller flashes
-   * an error otherwise. When omitted, the selection is copied via an OSC 52 write.
+   * Copy selected text to the system clipboard. Return `true` on success, or a message to
+   * flash when the copy did not reach the clipboard. When omitted, the selection is copied
+   * via an OSC 52 write.
    */
-  copySelection?: (text: string) => Promise<boolean>;
+  copySelection?: (text: string) => Promise<boolean | string>;
 }
 
 /** Alternate-screen TUI with a scrollable, application-owned viewport. */
@@ -251,7 +252,7 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
   private readonly openUrl?: (url: string) => void;
   private readonly onRightClickPaste?: () => void;
   private copyOnSelect: boolean;
-  private readonly copySelection?: (text: string) => Promise<boolean>;
+  private readonly copySelection?: (text: string) => Promise<boolean | string>;
 
   constructor(
     terminal: Terminal,
@@ -313,6 +314,12 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
     const text = this.getActiveSelectionText();
     if (!text) return false;
     return this.copyTextToClipboard(text);
+  }
+
+  /** Clear the active text selection without touching the clipboard. */
+  resetTextSelection(): void {
+    this.clearTextSelection();
+    this.lastClick = undefined;
   }
 
   setLayoutRoot(component: Component | undefined): void {
@@ -1639,9 +1646,13 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
     // "Copied!" while leaving the system clipboard untouched (e.g. macOS Terminal.app, tmux
     // without OSC 52 clipboard passthrough), so only report success when it actually copies.
     if (this.copySelection) {
-      const ok = await this.copySelection(text);
-      this.flash(ok ? 'Copied!' : 'Copy failed');
-      return ok;
+      const result = await this.copySelection(text);
+      if (typeof result === 'string') {
+        this.flash(result);
+        return false;
+      }
+      this.flash(result ? 'Copied!' : 'Copy failed');
+      return result;
     }
     this.terminal.write(`\x1b]52;c;${Buffer.from(text).toString('base64')}\x07`);
     this.flash('Copied!');

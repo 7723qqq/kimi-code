@@ -1,70 +1,153 @@
 import { t } from '#/i18n';
+import { resolveCommandPath } from '#/utils/process/resolve-command';
+import { SYSTEM_RENDER_CLOCK, type RenderClock } from '#/utils/render-clock';
 
+import { isWaylandSession, isWSL } from './clipboard-common';
 import { clipboard, type ClipboardModule } from './clipboard-native';
 import { writeClipboardOSC52 } from './clipboard-osc52';
 
 /**
- * Hard upper bound for a one-shot clipboard write helper. The probe path uses
- * 1 s (`DEFAULT_LIST_TIMEOUT_MS`), which is too tight for a write carrying a
- * full payload, but 5 s still bounds it: without a timeout the parent waits for
- * the child's stdout to close, and `wl-copy`/`xclip` daemonize into a process
- * that inherits that pipe — the CLI then hangs with no output at all.
+ * Hard upper bound for a one-shot clipboard write helper. `wl-copy`/`xclip`
+ * daemonize into a process that inherits their stdout, so without a bound the
+ * parent can wait forever; the helper is killed when the bound elapses.
  */
-const CLIPBOARD_WRITE_TIMEOUT_MS = 5000;
+export const CLIPBOARD_COMMAND_TIMEOUT_MS = 5000;
 
-export interface ClipboardWriteOptions {
-  readonly input: string;
-  readonly timeoutMs: number;
+export type ClipboardCopyMethod = 'native' | 'osc52';
+
+export interface ClipboardCommand {
+  readonly command: string;
+  readonly args: readonly string[];
 }
 
-export interface ClipboardWriteResult {
-  readonly error?: Error | undefined;
-  readonly status: number | null;
-  readonly stderr: string;
+export interface ClipboardWritePlan {
+  readonly nativeModule: boolean;
+  readonly commands: readonly ClipboardCommand[];
+  readonly osc52: 'always' | 'fallback' | 'never';
+  readonly unavailableMessage: string;
 }
 
-export type ClipboardWriteRun = (
+interface UnixClipboardBackend {
+  readonly present: (env: NodeJS.ProcessEnv) => boolean;
+  readonly commands: readonly ClipboardCommand[];
+  readonly unavailableMessage: () => string;
+}
+
+const UNIX_CLIPBOARD_BACKENDS: readonly UnixClipboardBackend[] = [
+  {
+    present: (env) => Boolean(env['TERMUX_VERSION']),
+    commands: [{ command: 'termux-clipboard-set', args: [] }],
+    unavailableMessage: () => t('tui.statusMessages.clipboardUnavailableTermux'),
+  },
+  {
+    present: isWaylandSession,
+    commands: [{ command: 'wl-copy', args: [] }],
+    unavailableMessage: () => t('tui.statusMessages.clipboardUnavailableWayland'),
+  },
+  {
+    present: (env) => Boolean(env['DISPLAY']),
+    commands: [
+      { command: 'xclip', args: ['-selection', 'clipboard'] },
+      { command: 'xsel', args: ['--clipboard', '--input'] },
+    ],
+    unavailableMessage: () => t('tui.statusMessages.clipboardUnavailableX11'),
+  },
+];
+
+const REMOTE_SESSION_ENV = ['SSH_CONNECTION', 'SSH_CLIENT', 'MOSH_CONNECTION'];
+
+function isRemoteSession(env: NodeJS.ProcessEnv): boolean {
+  return REMOTE_SESSION_ENV.some((name) => Boolean(env[name]));
+}
+
+export function planClipboardWrite(
+  platform: NodeJS.Platform,
+  env: NodeJS.ProcessEnv,
+): ClipboardWritePlan {
+  const forceOSC52 = isRemoteSession(env) || env['KIMI_CODE_CLIPBOARD_OSC52'] === '1';
+  if (platform === 'darwin' || platform === 'win32') {
+    return {
+      nativeModule: true,
+      commands: [{ command: platform === 'darwin' ? 'pbcopy' : 'clip.exe', args: [] }],
+      osc52: forceOSC52 ? 'always' : 'never',
+      unavailableMessage: t('tui.statusMessages.clipboardUnavailable'),
+    };
+  }
+  const backends = UNIX_CLIPBOARD_BACKENDS.filter((backend) => backend.present(env));
+  // Linux desktop terminals such as GNOME Terminal ignore OSC 52, so it only
+  // backs up a missing tool where no display exists or the terminal (Windows
+  // Terminal under WSL, Termux) is known to honor it.
+  const osc52Fallback =
+    backends.length === 0 || Boolean(env['TERMUX_VERSION']) || (platform === 'linux' && isWSL(env));
+  return {
+    // The native module reports success on Linux without holding the X11
+    // selection, which leaves the clipboard empty; the CLI tools keep it.
+    nativeModule: platform !== 'linux',
+    commands: backends.flatMap((backend) => backend.commands),
+    osc52: forceOSC52 ? 'always' : osc52Fallback ? 'fallback' : 'never',
+    unavailableMessage: backends[0]?.unavailableMessage() ?? t('tui.statusMessages.clipboardUnavailable'),
+  };
+}
+
+export interface ClipboardChild {
+  readonly exited: Promise<number>;
+  readonly stdin:
+    | { write(data: string): unknown; end(): unknown; destroy?(): void }
+    | undefined;
+  kill(signal?: string): void;
+}
+
+export type ClipboardSpawn = (
   command: string,
   args: readonly string[],
-  options: ClipboardWriteOptions,
-) => ClipboardWriteResult;
+  options: { readonly cwd: string; readonly detached: boolean },
+) => ClipboardChild;
+
+const spawnClipboardProcess: ClipboardSpawn = (command, args, options) => {
+  // Writers such as xclip fork a child that keeps owning the selection. Give
+  // it no output pipes to hold open, and on POSIX a session of its own so
+  // closing the terminal does not SIGHUP it and empty the clipboard.
+  const child = Bun.spawn({
+    cmd: [command, ...args],
+    stdin: 'pipe',
+    stdout: 'ignore',
+    stderr: 'ignore',
+    cwd: options.cwd,
+    detached: options.detached,
+    windowsHide: true,
+  });
+  return {
+    exited: child.exited,
+    stdin: child.stdin as ClipboardChild['stdin'],
+    kill: (signal) => {
+      try {
+        child.kill(signal as Parameters<typeof child.kill>[0]);
+      } catch {
+        // already gone
+      }
+    },
+  };
+};
 
 export interface CopyTextDeps {
-  readonly clipboard: ClipboardModule | null;
   readonly platform: NodeJS.Platform;
-  readonly run: ClipboardWriteRun;
+  readonly env: NodeJS.ProcessEnv;
+  readonly clipboard: ClipboardModule | null;
   readonly osc52: (text: string) => boolean;
+  readonly resolveCommand: (command: string) => string | undefined;
+  readonly spawn: ClipboardSpawn;
+  readonly clock: Pick<RenderClock, 'setTimeout' | 'clearTimeout'>;
 }
 
 export function createCopyTextDeps(overrides: Partial<CopyTextDeps> = {}): CopyTextDeps {
   return {
-    clipboard,
     platform: process.platform,
-    run: (command, args, options) => {
-      try {
-        const result = Bun.spawnSync({
-          cmd: [command, ...args],
-          stdin: options.input === undefined ? 'ignore' : Buffer.from(options.input, 'utf8'),
-          stdout: 'ignore',
-          stderr: 'pipe',
-          timeout: options.timeoutMs,
-        });
-        return {
-          error: result.exitedDueToTimeout
-            ? new Error(`${command} timed out after ${String(options.timeoutMs)}ms`)
-            : undefined,
-          status: result.exitCode,
-          stderr: result.stderr === undefined ? '' : new TextDecoder().decode(result.stderr),
-        };
-      } catch (error) {
-        return {
-          error: error instanceof Error ? error : new Error(String(error)),
-          status: null,
-          stderr: '',
-        };
-      }
-    },
+    env: process.env,
+    clipboard,
     osc52: (text) => writeClipboardOSC52(text),
+    resolveCommand: (command) => resolveCommandPath(command),
+    spawn: spawnClipboardProcess,
+    clock: SYSTEM_RENDER_CLOCK,
     ...overrides,
   };
 }
@@ -74,80 +157,75 @@ function runClipboardCommand(
   command: string,
   args: readonly string[],
   input: string,
-): void {
-  const result = deps.run(command, args, {
-    input,
-    timeoutMs: CLIPBOARD_WRITE_TIMEOUT_MS,
-  });
-  if (result.error) throw result.error;
-  if (result.status === 0) return;
+): Promise<boolean> {
+  // A fullscreen selection can be copied before the workspace trust prompt is
+  // answered, so a writer planted in the workspace must never run.
+  const executable = deps.resolveCommand(command);
+  if (executable === undefined) return Promise.resolve(false);
 
-  const detail = result.stderr.trim();
-  throw new Error(
-    detail.length > 0
-      ? `${command} exited with code ${String(result.status)}: ${detail}`
-      : `${command} exited with code ${String(result.status)}`,
-  );
-}
-
-async function copyWithPlatformCommand(deps: CopyTextDeps, text: string): Promise<void> {
-  const commands =
-    deps.platform === 'darwin'
-      ? [{ command: 'pbcopy', args: [] as string[] }]
-      : deps.platform === 'win32'
-        ? [{ command: 'clip.exe', args: [] as string[] }]
-        : [
-            { command: 'wl-copy', args: [] as string[] },
-            { command: 'xclip', args: ['-selection', 'clipboard'] },
-          ];
-
-  let lastError: unknown;
-  for (const candidate of commands) {
+  return new Promise((resolve) => {
+    let child: ClipboardChild;
     try {
-      runClipboardCommand(deps, candidate.command, candidate.args, text);
+      child = deps.spawn(executable, args, {
+        cwd: '/',
+        detached: deps.platform !== 'win32',
+      });
+    } catch {
+      resolve(false);
       return;
-    } catch (error) {
-      lastError = error;
     }
-  }
-
-  if (lastError instanceof Error) throw lastError;
-  throw new Error(t('tui.statusMessages.noClipboardCommandAvailable'));
+    let settled = false;
+    const claim = (): boolean => {
+      if (settled) return false;
+      settled = true;
+      deps.clock.clearTimeout(timer);
+      return true;
+    };
+    const timer = deps.clock.setTimeout(() => {
+      child.stdin?.destroy?.();
+      child.kill('SIGKILL');
+      if (claim()) resolve(false);
+    }, CLIPBOARD_COMMAND_TIMEOUT_MS);
+    child.exited.then(
+      (code) => {
+        if (claim()) resolve(code === 0);
+      },
+      () => {
+        if (claim()) resolve(false);
+      },
+    );
+    // A writer may exit before consuming all of its input.
+    child.stdin?.write(input);
+    child.stdin?.end();
+  });
 }
 
 /** How the text was delivered: a verified local clipboard tool, or an
  *  unverified OSC 52 escape emitted to the terminal as a last resort. */
-export type ClipboardCopyMethod = 'native' | 'osc52';
-
 export async function copyTextToClipboard(
   text: string,
   overrides: Partial<CopyTextDeps> = {},
 ): Promise<ClipboardCopyMethod> {
   const deps = createCopyTextDeps(overrides);
+  const plan = planClipboardWrite(deps.platform, deps.env);
+  // Sent before the system clipboard is tried, so a stuck writer cannot hold it up.
+  const osc52Sent = plan.osc52 === 'always' && deps.osc52(text);
 
-  // OSC 52 travels over stdout to the local terminal emulator, so it reaches
-  // the clipboard even over SSH or in containers with no native clipboard
-  // tool. Emit it up front; every failure path below can fall back on it.
-  const osc52Emitted = deps.osc52(text);
-
-  const clipboardModule = deps.clipboard;
-  if (clipboardModule?.setText !== undefined) {
+  let copied = false;
+  if (plan.nativeModule && deps.clipboard?.setText !== undefined) {
     try {
-      await clipboardModule.setText(text);
-      return 'native';
+      await deps.clipboard.setText(text);
+      copied = true;
     } catch {
-      // Fall back to platform clipboard commands below.
+      // Fall back to the platform clipboard commands below.
     }
   }
-
-  try {
-    await copyWithPlatformCommand(deps, text);
-    return 'native';
-  } catch (error) {
-    // The native clipboard is unreachable (headless server, SSH session,
-    // missing wl-copy/xclip …) but the terminal may still have delivered the
-    // text via OSC 52; without a terminal there is nothing left to try.
-    if (osc52Emitted) return 'osc52';
-    throw error;
+  for (const { command, args } of plan.commands) {
+    if (copied) break;
+    copied = await runClipboardCommand(deps, command, args, text);
   }
+
+  if (copied) return 'native';
+  if (osc52Sent || (plan.osc52 === 'fallback' && deps.osc52(text))) return 'osc52';
+  throw new Error(plan.unavailableMessage);
 }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, parse } from 'node:path';
 
@@ -97,6 +97,26 @@ describe('resolveCommandPath (posix)', () => {
       resolveCommandPath('mytool', cwd, { platform: 'linux', env: { PATH: nested } }),
     ).toBeUndefined();
   });
+
+  it.skipIf(process.platform === 'win32')(
+    'refuses a hit reached through a symlink to the cwd',
+    () => {
+      const cwd = realpathSync(makeTempDir('kimi-resolve-cwd-'));
+      mkdirSync(join(cwd, 'bin'));
+      const tool = join(cwd, 'bin', 'mytool');
+      writeFileSync(tool, '#!/bin/sh\nexit 0\n');
+      chmodSync(tool, 0o755);
+      const link = join(makeTempDir('kimi-resolve-link-'), 'workspace');
+      symlinkSync(cwd, link);
+
+      expect(
+        resolveCommandPath('mytool', cwd, { platform: 'linux', env: { PATH: join(link, 'bin') } }),
+      ).toBeUndefined();
+      expect(
+        resolveCommandPath('mytool', link, { platform: 'linux', env: { PATH: join(link, 'bin') } }),
+      ).toBeUndefined();
+    },
+  );
 
   // A ':'-separated PATH cannot be built from absolute Windows paths (the
   // drive letter is a colon), so the multi-entry case is pinned to a posix host.

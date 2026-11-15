@@ -6,6 +6,7 @@ import {
   type Session,
   type ThinkingEffort,
 } from '@moonshot-ai/kimi-code-sdk';
+import { TuiAltScreen } from '@moonshot-ai/pi-tui';
 
 import type { Locale } from '#/i18n';
 import { getLocale, setLocale, t } from '#/i18n';
@@ -41,6 +42,7 @@ import {
   type PromptOptimizerSettings,
 } from '../components/dialogs/prompt-optimizer-settings';
 import {
+  CopyOnSelectSelectorComponent,
   SettingsSelectorComponent,
   ThinkingDisplaySelectorComponent,
   ToolCallDensitySelectorComponent,
@@ -113,6 +115,8 @@ export function currentTuiConfig(host: Pick<SlashCommandHost, 'state'>): TuiConf
     editorCommand: host.state.appState.editorCommand,
     disablePasteBurst:
       host.state.appState.disablePasteBurst ?? DEFAULT_TUI_CONFIG.disablePasteBurst,
+    copyOnSelect:
+      host.state.appState.copyOnSelect ?? DEFAULT_TUI_CONFIG.copyOnSelect,
     renderLatex: host.state.appState.renderLatex ?? DEFAULT_TUI_CONFIG.renderLatex ?? true,
     cacheExpiryHint: host.state.appState.cacheExpiryHint ?? DEFAULT_TUI_CONFIG.cacheExpiryHint,
     autoSessionTitle: host.state.appState.autoSessionTitle ?? DEFAULT_TUI_CONFIG.autoSessionTitle,
@@ -1312,6 +1316,57 @@ export async function applyMermaidPreferenceChoice(
   );
 }
 
+export function showCopyOnSelectPicker(host: SlashCommandHost): void {
+  host.mountEditorReplacement(
+    new CopyOnSelectSelectorComponent({
+      currentValue: host.state.appState.copyOnSelect !== false,
+      onSelect: (enabled) => {
+        host.restoreEditor();
+        void applyCopyOnSelectChoice(host, enabled);
+      },
+      onCancel: () => {
+        host.restoreEditor();
+      },
+    }),
+  );
+}
+
+export async function applyCopyOnSelectChoice(
+  host: Pick<SlashCommandHost, 'state' | 'setAppState' | 'showStatus'>,
+  enabled: boolean,
+): Promise<void> {
+  if (enabled === (host.state.appState.copyOnSelect !== false)) {
+    host.showStatus(
+      t(
+        enabled
+          ? 'tui.messages.configCopyOnSelectAlreadyEnabled'
+          : 'tui.messages.configCopyOnSelectAlreadyDisabled',
+      ),
+    );
+    return;
+  }
+
+  try {
+    await saveTuiConfig({ ...currentTuiConfig(host), copyOnSelect: enabled });
+  } catch (error) {
+    host.showStatus(
+      t('tui.messages.configCopyOnSelectSaveFailed', { error: formatErrorMessage(error) }),
+      'error',
+    );
+    return;
+  }
+
+  host.setAppState({ copyOnSelect: enabled });
+  if (host.state.ui instanceof TuiAltScreen) host.state.ui.setCopyOnSelect(enabled);
+  host.showStatus(
+    t(
+      enabled
+        ? 'tui.messages.configCopyOnSelectEnabled'
+        : 'tui.messages.configCopyOnSelectDisabled',
+    ),
+  );
+}
+
 export function showToolCallDensityPicker(host: SlashCommandHost): void {
   host.mountEditorReplacement(
     new ToolCallDensitySelectorComponent({
@@ -1494,6 +1549,9 @@ function handleSettingsSelection(host: SlashCommandHost, value: SettingsSelectio
       return;
     case 'thinking':
       showThinkingDisplayPicker(host);
+      return;
+    case 'copyOnSelect':
+      showCopyOnSelectPicker(host);
       return;
     case 'mermaid':
       showMermaidPreferencePicker(host);

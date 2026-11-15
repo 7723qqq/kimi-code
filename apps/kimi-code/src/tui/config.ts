@@ -194,6 +194,7 @@ export type TuiMode = z.infer<typeof TuiModeSchema>;
 export const TuiConfigFileSchema = z.object({
   theme: TuiThemeSchema.optional(),
   tui_mode: z.string().optional(),
+  copy_on_select: z.boolean().optional(),
   render_latex: z.boolean().optional(),
   disable_paste_burst: z.boolean().optional(),
   locale: z.enum(['en', 'zh']).optional(),
@@ -241,6 +242,8 @@ export const TuiConfigFileSchema = z.object({
 export const TuiConfigSchema = z.object({
   theme: TuiThemeSchema,
   tuiMode: TuiModeSchema.optional(),
+  /** Fullscreen selection copy; defaults to true when absent from older fixtures. */
+  copyOnSelect: z.boolean().optional(),
   /** LaTeX math rendering in Markdown; optional only so older hand-built test
    * fixtures still typecheck. */
   renderLatex: z.boolean().optional(),
@@ -281,6 +284,7 @@ export const DEFAULT_UPGRADE_PREFERENCES: UpgradePreferences = {
 
 export const DEFAULT_TUI_CONFIG: TuiConfig = TuiConfigSchema.parse({
   theme: 'auto',
+  copyOnSelect: true,
   renderLatex: true,
   disablePasteBurst: false,
   locale: 'en',
@@ -441,6 +445,7 @@ export function normalizeTuiConfig(
   return TuiConfigSchema.parse({
     theme: config.theme ?? DEFAULT_TUI_CONFIG.theme,
     tuiMode,
+    copyOnSelect: config.copy_on_select ?? DEFAULT_TUI_CONFIG.copyOnSelect,
     renderLatex: config.render_latex ?? DEFAULT_TUI_CONFIG.renderLatex,
     disablePasteBurst: config.disable_paste_burst ?? DEFAULT_TUI_CONFIG.disablePasteBurst,
     locale: config.locale ?? DEFAULT_TUI_CONFIG.locale,
@@ -538,6 +543,7 @@ export function renderTuiConfig(config: TuiConfig): string {
 
 theme = "${escapeTomlBasicString(config.theme)}" # "auto" | "dark" | "light" | custom theme name
 ${tuiModeLine}
+copy_on_select = ${String(config.copyOnSelect !== false)} # ${t('tui.configFile.copyOnSelectComment')}
 render_latex = ${String(config.renderLatex !== false)} # false keeps LaTeX math in assistant messages as raw source
 disable_paste_burst = ${String(config.disablePasteBurst)} # true disables non-bracketed paste-burst fallback
 locale = "${config.locale ?? DEFAULT_TUI_CONFIG.locale}" # "en" | "zh"

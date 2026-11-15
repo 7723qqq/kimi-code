@@ -630,6 +630,7 @@ export default {
   tui: {
     configFile: {
       transcriptSectionComment: '全屏 transcript 的显示偏好。',
+      copyOnSelectComment: '仅全屏模式：false 表示按 Ctrl-C 才复制',
     },
     chrome: {
       statusSurface: {
@@ -1209,6 +1210,8 @@ export default {
         toolCallDensityDesc: '选择转录区为每个工具调用显示多少细节。',
         thinking: '思考折叠',
         thinkingDesc: '选择是否折叠已结束的思考。',
+        copyOnSelect: '选中即复制',
+        copyOnSelectDesc: '选择全屏模式下选中文本时是否立即复制。',
         mermaid: 'Mermaid 图表',
         mermaidDesc: '将 mermaid 代码块绘制为图表，或保留源码。',
         language: '语言',
@@ -1269,6 +1272,13 @@ export default {
         lineTests: '然后运行测试，找出受影响的调用方。',
         sampleBash: 'npm test',
         sampleBashOutput: '12 个测试通过',
+      },
+      copyOnSelectSelector: {
+        title: '选中即复制',
+        on: '开启',
+        onDesc: '选中文本后立即复制。',
+        off: '关闭',
+        offDesc: '按 Ctrl-C 复制选中的文本。',
       },
       astronSettings: {
         title: '讯飞 Coding Plan 设置',
@@ -2451,7 +2461,11 @@ export default {
         '原生 worker "{{worker}}" 安装失败（{{code}}）；其索引已降级为回退实现。',
       nativeWorkerAssetMissing: '此构建中缺少原生 worker "{{worker}}"；其索引已降级为回退实现。',
       // utils/clipboard/clipboard-text.ts
-      noClipboardCommandAvailable: '没有可用的剪贴板命令。',
+      clipboardUnavailable: '剪贴板不可用',
+      clipboardUnavailableTermux: '剪贴板不可用：请安装 Termux:API 应用与 `termux-api` 包',
+      clipboardUnavailableWayland: '剪贴板不可用：请安装 `wl-clipboard`（`wl-copy`）或检查 Wayland 权限',
+      clipboardUnavailableX11: '剪贴板不可用：请安装 `xclip` 或 `xsel`，或检查 X11 权限',
+      copiedViaTerminal: '已通过终端复制',
       // utils/clipboard/clipboard-image.ts
       videoExceedsMaxSize: '视频为 {{size}} MB，超出支持的最大大小 {{max}} MB。',
       clipboardImageReadFailed: '无法从剪切板读取图片：{{error}}',
@@ -3085,6 +3099,11 @@ export default {
       configTranscriptUnchanged: '会话记录显示设置未变化。',
       configTranscriptUpdated: '会话记录显示设置已更新。',
       configTranscriptSaveFailed: '保存会话记录显示设置失败：{{error}}',
+      configCopyOnSelectEnabled: '已开启选中即复制。',
+      configCopyOnSelectDisabled: '已关闭选中即复制。',
+      configCopyOnSelectAlreadyEnabled: '选中即复制已开启。',
+      configCopyOnSelectAlreadyDisabled: '选中即复制已关闭。',
+      configCopyOnSelectSaveFailed: '保存选中即复制设置失败：{{error}}',
       configTuiModeEnvOverrideNotice: '已保存到 tui.toml；需取消设置 KIMI_CODE_TUI_FULL_SCREEN 才能生效。',
       configTuiModeFallbackNotice: '已保存到 tui.toml；此终端会自动回退到常规模式，除非设置 KIMI_CODE_TUI_FULL_SCREEN=1。',
       // tui/commands/resolve.ts

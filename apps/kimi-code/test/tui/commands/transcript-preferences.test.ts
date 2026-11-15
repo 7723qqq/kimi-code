@@ -1,10 +1,14 @@
 import { describe, expect, it, mock } from 'bun:test';
 
+import { TuiAltScreen } from '@moonshot-ai/pi-tui';
+
 import { t } from '#/i18n';
-import { applyTranscriptConfigChoice } from '#/tui/commands/config';
+import { applyCopyOnSelectChoice, applyTranscriptConfigChoice } from '#/tui/commands/config';
 import type { SlashCommandHost } from '#/tui/commands/dispatch';
 import { SettingsSelectorComponent } from '#/tui/components/dialogs/settings-selector';
 import type { TranscriptConfig } from '#/tui/config';
+
+import { VirtualTerminal } from '../../../../../packages/pi-tui/test/virtual-terminal';
 
 const saveTuiConfig = mock();
 const actualConfig = await import('#/tui/config');
@@ -103,7 +107,66 @@ describe('transcript settings entries', () => {
   it('offers the grouping entries only in fullscreen', () => {
     expect(settingsValues(true)).toContain('toolCallDensity');
     expect(settingsValues(true)).toContain('thinking');
+    expect(settingsValues(true)).toContain('copyOnSelect');
     expect(settingsValues(false)).not.toContain('toolCallDensity');
     expect(settingsValues(false)).not.toContain('thinking');
+    expect(settingsValues(false)).not.toContain('copyOnSelect');
+  });
+});
+
+describe('copy on select preference', () => {
+  function makeCopyOnSelectHost(copyOnSelect: boolean | undefined) {
+    const ui = new TuiAltScreen(new VirtualTerminal(40, 10), undefined, undefined, {
+      copyOnSelect,
+    });
+    const host = makeHost({ toolCallDensity: 'compact', thinking: 'grouped' });
+    Object.assign(host.state, { ui });
+    Object.assign(host.state.appState, { copyOnSelect });
+    return { host, ui };
+  }
+
+  it('saves the choice to tui.toml, mirrors appState, and applies it to the live fullscreen renderer', async () => {
+    saveTuiConfig.mockClear();
+    const { host, ui } = makeCopyOnSelectHost(undefined);
+
+    await applyCopyOnSelectChoice(host, false);
+
+    expect(saveTuiConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        copyOnSelect: false,
+        transcript: host.state.appState.transcript,
+      }),
+    );
+    expect(host.state.appState.copyOnSelect).toBe(false);
+    expect(ui.getCopyOnSelect()).toBe(false);
+    expect(host.showStatus).toHaveBeenCalledWith(t('tui.messages.configCopyOnSelectDisabled'));
+  });
+
+  it('reports an unchanged choice without saving', async () => {
+    saveTuiConfig.mockClear();
+    const { host, ui } = makeCopyOnSelectHost(true);
+
+    await applyCopyOnSelectChoice(host, true);
+
+    expect(saveTuiConfig).not.toHaveBeenCalled();
+    expect(ui.getCopyOnSelect()).toBe(true);
+    expect(host.showStatus).toHaveBeenCalledWith(
+      t('tui.messages.configCopyOnSelectAlreadyEnabled'),
+    );
+  });
+
+  it('keeps the live setting when tui.toml cannot be saved', async () => {
+    saveTuiConfig.mockClear();
+    saveTuiConfig.mockRejectedValueOnce(new Error('read-only file system'));
+    const { host, ui } = makeCopyOnSelectHost(true);
+
+    await applyCopyOnSelectChoice(host, false);
+
+    expect(host.state.appState.copyOnSelect).toBe(true);
+    expect(ui.getCopyOnSelect()).toBe(true);
+    expect(host.showStatus).toHaveBeenCalledWith(
+      t('tui.messages.configCopyOnSelectSaveFailed', { error: 'read-only file system' }),
+      'error',
+    );
   });
 });

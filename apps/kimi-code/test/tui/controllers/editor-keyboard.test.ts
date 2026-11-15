@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import { jest, type Mock as BunMock } from 'bun:test';
 
+import { Text, TuiAltScreen, TuiMainScreen } from '@moonshot-ai/pi-tui';
+
 import { DOUBLE_ESC_WINDOW_MS, getCtrlCHint } from '#/tui/constant/kimi-tui';
 import {
   EditorKeyboardController,
@@ -10,6 +12,7 @@ import {
 } from '#/tui/controllers/editor-keyboard';
 import type { QueuedMessage } from '#/tui/types';
 import { ImageAttachmentStore } from '#/tui/utils/image-attachment-store';
+import { VirtualTerminal } from '../../../../../packages/pi-tui/test/virtual-terminal';
 import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
 import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 import { waitForAssertion } from '#test/helpers/waitFor';
@@ -47,7 +50,13 @@ interface Harness {
   };
 }
 
-function createHarness(options: { streamingPhase?: string; isCompacting?: boolean } = {}): Harness {
+function createHarness(
+  options: {
+    streamingPhase?: string;
+    isCompacting?: boolean;
+    ui?: TuiAltScreen | TuiMainScreen;
+  } = {},
+): Harness {
   const editor: Record<string, ((...args: never[]) => unknown) | undefined> = {
     setHistoryFilter: mock() as unknown as (...args: never[]) => unknown,
     setInputMode: mock() as unknown as (...args: never[]) => unknown,
@@ -84,7 +93,7 @@ function createHarness(options: { streamingPhase?: string; isCompacting?: boolea
         editorCommand: null,
       },
       footer: { setTransientHint: footerHint },
-      ui: { requestRender: mock() },
+      ui: options.ui ?? { requestRender: mock() },
     },
     session,
     btwPanelController: { cancelRunning: btwCancelRunning, closeOrCancel: btwCloseOrCancel },
@@ -876,5 +885,147 @@ describe('EditorKeyboardController Ctrl+P prompt optimization', () => {
     expect(host.track).toHaveBeenCalledWith('shortcut_optimize_prompt', {
       flagEnabled: true,
     });
+  });
+});
+
+describe('EditorKeyboardController fullscreen selection copy', () => {
+  async function mountSelectedTranscript(copyOnSelect = false): Promise<{
+    harness: Harness;
+    ui: TuiAltScreen;
+    vt: VirtualTerminal;
+    copySelection: Mock<(text: string) => Promise<boolean | string>>;
+    passedThrough: Mock<(...args: unknown[]) => undefined>;
+  }> {
+    const copySelection = mock<(text: string) => Promise<boolean | string>>(async () => true);
+    const vt = new VirtualTerminal(20, 6);
+    const ui = new TuiAltScreen(vt, undefined, undefined, { copyOnSelect, copySelection });
+    ui.addChild(new Text('hello world', 0, 0));
+    ui.start();
+    await vt.waitForRender();
+    const harness = createHarness({ ui });
+    const passedThrough = mock<(...args: unknown[]) => undefined>(() => undefined);
+    ui.addInputListener(passedThrough);
+    vt.sendInput('\u001B[<0;1;1M');
+    vt.sendInput('\u001B[<32;5;1M');
+    vt.sendInput('\u001B[<0;5;1m');
+    await vt.waitForRender();
+    return { harness, ui, vt, copySelection, passedThrough };
+  }
+
+  it.each([
+    ['Ctrl+C', '\u0003'],
+    ['Ctrl+C under the kitty protocol', '\u001B[99;5u'],
+    ['Ctrl+C with Caps Lock on', '\u001B[67;69u'],
+    ['Ctrl+Shift+C', '\u001B[99;6u'],
+    ['Cmd+C', '\u001B[99;9u'],
+  ])('copies the selection on %s, clears it, and swallows the key', async (_name, key) => {
+    const { ui, vt, copySelection, passedThrough } = await mountSelectedTranscript();
+    expect(copySelection).not.toHaveBeenCalled();
+
+    vt.sendInput(key);
+
+    expect(copySelection).toHaveBeenCalledWith('hello');
+    expect(ui.hasActiveSelection()).toBe(false);
+    expect(passedThrough).not.toHaveBeenCalled();
+
+    vt.sendInput(key);
+    expect(copySelection).toHaveBeenCalledTimes(1);
+    expect(passedThrough).toHaveBeenCalledWith(key);
+    ui.stop();
+  });
+
+  it('copies again a highlight that copy on select already copied', async () => {
+    const { ui, vt, copySelection, passedThrough } = await mountSelectedTranscript(true);
+    expect(copySelection).toHaveBeenCalledTimes(1);
+
+    vt.sendInput('\u0003');
+
+    expect(copySelection).toHaveBeenCalledTimes(2);
+    expect(copySelection).toHaveBeenLastCalledWith('hello');
+    expect(ui.hasActiveSelection()).toBe(false);
+    expect(passedThrough).not.toHaveBeenCalled();
+    ui.stop();
+  });
+
+  it('ignores the key release that follows a copy key', async () => {
+    const { ui, vt, copySelection } = await mountSelectedTranscript();
+
+    vt.sendInput('\u001B[99;9:3u');
+
+    expect(copySelection).not.toHaveBeenCalled();
+    expect(ui.hasActiveSelection()).toBe(true);
+    ui.stop();
+  });
+
+  it('swallows the auto-repeat of a held copy key until it is released', async () => {
+    const { ui, vt, copySelection, passedThrough } = await mountSelectedTranscript();
+
+    vt.sendInput('\u001B[99;5u');
+    vt.sendInput('\u001B[99;5:2u');
+    vt.sendInput('\u001B[99;5:2u');
+
+    expect(copySelection).toHaveBeenCalledTimes(1);
+    expect(passedThrough).not.toHaveBeenCalled();
+
+    vt.sendInput('\u001B[99;5:3u');
+    vt.sendInput('\u001B[99;5u');
+    vt.sendInput('\u001B[99;5:2u');
+
+    expect(passedThrough.mock.calls).toEqual([
+      ['\u001B[99;5:3u'],
+      ['\u001B[99;5u'],
+      ['\u001B[99;5:2u'],
+    ]);
+    ui.stop();
+  });
+
+  it('breaks a pending Ctrl+C exit so the next Ctrl+C does not quit', async () => {
+    const { harness, ui, vt } = await mountSelectedTranscript();
+    const onCtrlC = harness.editor['onCtrlC'] as unknown as () => void;
+
+    onCtrlC();
+    expect(harness.footerHint).toHaveBeenLastCalledWith(getCtrlCHint());
+    vt.sendInput('\u0003');
+    expect(harness.footerHint).toHaveBeenLastCalledWith(null);
+    onCtrlC();
+
+    expect(harness.stop).not.toHaveBeenCalled();
+    ui.stop();
+  });
+
+  it('breaks a pending double-Esc so the next Esc does not open the undo selector', async () => {
+    const { harness, ui, vt } = await mountSelectedTranscript();
+
+    pressEscape(harness.editor);
+    vt.sendInput('\u0003');
+    pressEscape(harness.editor);
+
+    expect(harness.openUndoSelector).not.toHaveBeenCalled();
+    ui.stop();
+  });
+
+  it('leaves Ctrl+C to the app in regular mode', async () => {
+    const vt = new VirtualTerminal(20, 6);
+    const ui = new TuiMainScreen(vt);
+    ui.start();
+    await vt.waitForRender();
+    createHarness({ ui });
+    const passedThrough = mock<(...args: unknown[]) => undefined>(() => undefined);
+    ui.addInputListener(passedThrough);
+
+    vt.sendInput('\u0003');
+
+    expect(passedThrough).toHaveBeenCalledWith('\u0003');
+    ui.stop();
+  });
+
+  it('stops copying once the controller is disposed', async () => {
+    const { harness, ui, vt, copySelection } = await mountSelectedTranscript();
+
+    harness.controller.dispose();
+    vt.sendInput('\u0003');
+
+    expect(copySelection).not.toHaveBeenCalled();
+    ui.stop();
   });
 });

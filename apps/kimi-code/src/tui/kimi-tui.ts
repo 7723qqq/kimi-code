@@ -352,6 +352,7 @@ function createInitialAppState(input: KimiTUIStartupInput): AppState {
     tuiMode: input.tuiConfig.tuiMode,
     version: input.version,
     editorCommand: input.tuiConfig.editorCommand,
+    copyOnSelect: input.tuiConfig.copyOnSelect,
     disablePasteBurst: input.tuiConfig.disablePasteBurst,
     renderLatex: input.tuiConfig.renderLatex,
     cacheExpiryHint: input.tuiConfig.cacheExpiryHint,
