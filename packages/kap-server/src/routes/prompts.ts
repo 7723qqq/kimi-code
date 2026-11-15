@@ -311,6 +311,7 @@ export function registerPromptsRoutes(
             try {
               result = await resolved.skill.promptWithSkills({
                 input: parts,
+                promptId: reservation.id,
                 clientMetadata,
                 skills: req.body.skills,
                 attachments: promptAttachments,

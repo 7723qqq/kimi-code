@@ -66,6 +66,7 @@ import type { SkillDescriptor } from '../protocol/skill';
 import { ensureMainAgent as ensureMainAgentHandle } from '../transport/mainAgent';
 import { parseActionSuffix } from './action-suffix';
 import { sendEnvironmentError } from './environment';
+import { reservePromptId, type PromptIdReservation } from './prompts';
 import {
   sendMappedError as sendSessionMappedError,
   sessionConflictErrors,
@@ -200,6 +201,7 @@ export function registerSkillsRoutes(app: SkillsRouteHost, core: Scope): void {
         [ErrorCode.SKILL_NOT_FOUND]: {},
         [ErrorCode.SKILL_NOT_ACTIVATABLE]: {},
         [ErrorCode.FILE_NOT_FOUND]: {},
+        [ErrorCode.PROMPT_ID_CONFLICT]: {},
         [ErrorCode.ENVIRONMENT_NOT_FOUND]: {},
         [ErrorCode.ENVIRONMENT_UNAVAILABLE]: {},
         ...sessionConflictErrors,
@@ -221,6 +223,14 @@ export function registerSkillsRoutes(app: SkillsRouteHost, core: Scope): void {
       }
       if (parsed.kind === 'bare') {
         reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, `unsupported action: ${tail}`, req.id));
+        return;
+      }
+
+      let reservation: PromptIdReservation | undefined;
+      try {
+        reservation = reservePromptId(session_id, req.body.prompt_id);
+      } catch (error) {
+        sendMappedError(reply, req, error);
         return;
       }
 
@@ -302,11 +312,13 @@ export function registerSkillsRoutes(app: SkillsRouteHost, core: Scope): void {
             name: parsed.id,
             path: req.body.path,
             args: req.body.args,
+            promptId: reservation.id,
             clientMetadata:
               req.body.metadata === undefined ? undefined : [structuredClone(req.body.metadata)],
             content: attachmentParts,
             attachments: promptAttachments,
           });
+          reservation.submit();
           await preparedMedia?.discard();
           preparedMedia = undefined;
           requestLog(req)?.info({ session_id, skill_name: parsed.id }, 'skill activated');
@@ -320,6 +332,8 @@ export function registerSkillsRoutes(app: SkillsRouteHost, core: Scope): void {
         await reloadOnStale(core.accessor, session_id, activateOnce);
       } catch (error) {
         sendMappedError(reply, req, error);
+      } finally {
+        reservation.dispose();
       }
     },
   );
