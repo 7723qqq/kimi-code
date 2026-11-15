@@ -256,8 +256,12 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     if (this.engine !== undefined) {
       throw new BugIndicatingError('Machine engine already attached');
     }
-    const lease = this.runGate.acquire();
+    let lease = this.runGate.tryAcquire();
     try {
+      const restored = bundle.store.getState();
+      const pendingWork =
+        this.pendingSubmissions.length + restored.queue.length + restored.notifications.length;
+      if (lease === undefined && pendingWork > 0) lease = this.runGate.acquire();
       this.engine = attachMachineEngine(ref, bundle, this.engineOptions());
       if (this.dispatcher.restorePhase === 'new') {
         const hook = this.dispatcher.hooks.onDidRestore.register(
@@ -289,7 +293,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       }
       return this.engine;
     } finally {
-      lease.release();
+      lease?.release();
     }
   }
 

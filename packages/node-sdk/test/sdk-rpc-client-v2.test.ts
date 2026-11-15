@@ -55,6 +55,7 @@ import {
   IMcpManagementService,
   IMcpOAuthService,
   ISessionManager,
+  ISessionLockService,
   IWorkspaceInstanceManager,
   IEnvironmentService,
   IWorkspaceService,
@@ -1597,6 +1598,37 @@ key = "${titleOAuthRef.key}"
     }
   });
 
+  it('resumes an occupied session read-only and keeps prompt writes locked', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-resume-occupied-'));
+    const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-work-'));
+    tempDirs.push(homeDir, workDir);
+    const owner = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      await owner.createSession({ id: 'ses_resume_occupied', workDir });
+      await owner.importContext({
+        sessionId: 'ses_resume_occupied',
+        content: 'persisted occupied history',
+        source: "session 'owner'",
+      });
+      await owner.closeSession({ sessionId: 'ses_resume_occupied' });
+      owner.engineAccessor.get(ISessionLockService).hold('ses_resume_occupied');
+
+      const resumed = await harness.resumeSession({ id: 'ses_resume_occupied' });
+      expect(
+        JSON.stringify(resumed.getResumeState()?.agents[MAIN_AGENT_ID]?.replay),
+      ).toContain('persisted occupied history');
+      expect(owner.engineAccessor.get(ISessionLockService).held('ses_resume_occupied')).toBe(true);
+      await expect(resumed.prompt('must not write while occupied')).rejects.toMatchObject({
+        code: ErrorCodes.SESSION_OCCUPIED,
+      });
+    } finally {
+      await harness.close();
+      await owner.close();
+    }
+  });
+
   it('folds the resumed main agent replay from the persisted wire on cold and live resumes', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-resume-fold-'));
     const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-work-'));
@@ -3096,7 +3128,7 @@ describe('foldAgentWireReplay', () => {
           },
           time: 4,
         },
-      ]);
+      ] as unknown as typeof folded.replay);
       expect(folded.warning).toContain('lines 3, 4');
       expect(folded.error).toBeUndefined();
     }
