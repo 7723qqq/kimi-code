@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, mock, spyOn, type Mock } from 'bun:test';
+import { afterAll, beforeEach, describe, expect, it, mock, spyOn, type Mock } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -22,6 +22,7 @@ import { WelcomeComponent } from '#/tui/components/chrome/welcome';
 import { ThinkingComponent } from '#/tui/components/messages/thinking';
 import { KimiTUI, type KimiTUIStartupInput, type TUIState } from '#/tui/kimi-tui';
 import { REPLAY_TURN_LIMIT } from '#/tui/utils/message-replay';
+import { currentTheme, darkColors } from '#/tui/theme';
 import {
   DISABLE_TERMINAL_THEME_REPORTING,
   ENABLE_TERMINAL_THEME_REPORTING,
@@ -60,6 +61,14 @@ const promptLogoutProviderSelectionMock = promptLogoutProviderSelection as Mock<
 const shouldPromptMsys2Mock = shouldPromptMsys2 as Mock<typeof shouldPromptMsys2>;
 const installMsys2Mock = installMsys2 as Mock<typeof installMsys2>;
 const setUserShellPathMock = setUserShellPath as Mock<typeof setUserShellPath>;
+
+afterAll(() => {
+  // mock.module is process-wide and Bun does not undo it between files, so the
+  // last MSYS2 gate case would leave shouldPromptMsys2 resolving true. A later
+  // file that calls KimiTUI.start() would then wait forever for a prompt nobody
+  // can answer; leave a skipped gate behind instead.
+  shouldPromptMsys2Mock.mockResolvedValue(false);
+});
 
 type EditorChild = TUIState['editorContainer']['children'][number];
 
@@ -2011,6 +2020,10 @@ describe('KimiTUI startup', () => {
   });
 
   it('tracks terminal theme reports while auto theme is active', () => {
+    // currentTheme is a process-wide singleton, so a file that switched to the
+    // light palette earlier leaves this test starting from light. Pin the
+    // dark palette the assertions below assume before installing tracking.
+    currentTheme.setPalette(darkColors, 'dark');
     const harness = makeHarness();
     const driver = makeDriver(
       harness,
