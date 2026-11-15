@@ -704,6 +704,9 @@ function summarizeTsTypeExpr(
   const literal = /^'([^']*)'$/.exec(text);
   if (literal?.[1] !== undefined) return tsQuote(literal[1]);
   if (TS_PRIMITIVES.has(text)) return text;
+  if (text.startsWith('(') && matchDelimiter(text, 0, '(', ')') === text.length - 1) {
+    return summarizeTsTypeExpr(text.slice(1, -1), file, budget, charBudget, depth);
+  }
   if (text.endsWith('[]')) {
     const inner = summarizeTsTypeExpr(text.slice(0, -2), file, budget, charBudget, depth + 1);
     if (typeof inner !== 'string') return [inner];
