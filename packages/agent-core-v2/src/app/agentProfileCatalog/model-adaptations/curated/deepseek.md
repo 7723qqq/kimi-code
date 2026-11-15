@@ -78,9 +78,12 @@ and do not emit a repaired copy of arguments that were already accepted.
 
 ## Long context
 
-The serving stack re-reads only a bounded suffix of the context while decoding.
-On a long turn, restate the objective and the hard constraints near the end
-rather than relying on text written at the beginning.
+The harness manages the context window: it compacts older history automatically
+near the limit, and it never discloses a remaining-token budget to you. Do not
+estimate, announce, or act on a presumed context limit. If earlier file contents
+or tool results are no longer visible, re-read them with the available tools
+before editing. Never refuse a file edit or claim the session is out of context
+because earlier turns are not in view; recover what you need instead.
 
 ## Token budget
 

@@ -53,6 +53,9 @@ export const BEHAVIOR_CONTRACT_CLAUSES: readonly BehaviorContractClause[] = [
       'Read the code and the nearest instructions before changing behavior, and check whether a subdirectory carries its own ' +
       '`AGENTS.md` or `DEVELOP.md` with more specific guidance. Treat code as the source of truth when a document is stale, and ' +
       'discover the project conventions from the repository instead of assuming your own defaults. ' +
+      'Before writing a script, pipeline, generator, or build/release flow, search the repository for an existing tool or ' +
+      'documented command that already does it, and use that tool instead of reimplementing its steps; if none exists, say so ' +
+      'before writing your own. ' +
       'When a dedicated tool fits the job, use it before raw shell, and make independent calls in parallel.',
   },
   {

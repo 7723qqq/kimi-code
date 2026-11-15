@@ -17,7 +17,8 @@ describe('deepseek curated adaptation', () => {
     const text = (await loadCuratedAdaptation('deepseek-v4.1-flash')) ?? '';
     expect(text.length).toBeGreaterThan(0);
     expect(text.length).toBeLessThan(MAX_ADAPTATION_BYTES);
-    expect(text).toContain('bounded suffix');
+    expect(text).toContain('The harness manages the context window');
+    expect(text).toContain('Never refuse a file edit or claim the session is out of context');
   });
 
   it('renders nothing for a model outside the family', async () => {

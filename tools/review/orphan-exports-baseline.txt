@@ -19,6 +19,7 @@ _clearFeatureRecipesForTests  packages/agent-core-v2/src/features/featureRegistr
 _clearScopedRegistryForTests  packages/agent-core-v2/src/_base/di/scope.ts
 _setTowerFeatureAssembledForTests  packages/agent-core-v2/src/features/tower/towerFeature.ts
 applyContextCompactionRecord  packages/agent-core-v2/src/agent/contextMemory/contextOps.ts
+behaviorContractClause  packages/agent-core-v2/src/app/agentProfileCatalog/behaviorContract.ts
 buildHookSpawnOptions  packages/agent-core-v2/src/features/externalHooks/internal/runHook.ts
 clearHighlightCache  apps/kimi-code/src/tui/components/media/code-highlight.ts
 colorDistance  apps/kimi-code/src/tui/theme/color-mix.ts

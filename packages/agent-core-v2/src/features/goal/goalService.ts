@@ -158,6 +158,8 @@ const GOAL_CONTINUATION_PROMPT = [
   'threshold is met and you cannot make meaningful progress without user input or an',
   'external-state change, call UpdateGoal with `blocked`; do not keep reporting the blocker while',
   'leaving the goal active. Do not ask the user for input unless a real blocker prevents progress.',
+  'When you end a goal turn with work remaining, do not write a progress report; the runtime',
+  'continues automatically. Report only when the goal is complete, blocked, or needs a user decision.',
 ].join(' ');
 
 const GOAL_STEP_CAP_CONTINUATION_PROMPT = [

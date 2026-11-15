@@ -212,6 +212,7 @@ describe('GoalInjection content', () => {
       await goals.createGoal({ objective: 'work' });
     }))!;
     expect(text).toContain('UpdateGoal');
+    expect(text).toContain('do not write a progress report');
   });
 
   it('references the SetGoalBudget tool', async () => {
@@ -239,6 +240,7 @@ describe('GoalInjection content', () => {
     await injectDynamic(ctx, true);
     const sparse = lastGoalReminder(context)!;
     expect(sparse).toContain('The full audit is in the earlier goal reminder.');
+    expect(sparse).toContain('without a progress report');
 
     await goals.editGoalObjective({ objective: 'new task' });
     await injectDynamic(ctx, false);
