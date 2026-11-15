@@ -5,6 +5,7 @@ import type { ModelRecord } from '#/llm-adapter/model/model';
 import {
   deriveProviderId,
   effectiveModelConfig,
+  resolveEndpointBaseUrl,
   resolveModelAuthMaterial,
   resolveModelForReady,
   resolveModelProtocol,
@@ -135,6 +136,27 @@ describe('resolveModelAuthMaterial', () => {
         },
       }),
     ).toEqual({ apiKey: 'legacy-vertex-key' });
+    expect(
+      authMaterial({
+        model: { model: 'global.moonshotai.kimi-k3' },
+        provider: {
+          type: 'bedrock',
+          env: {
+            AWS_BEARER_TOKEN_BEDROCK: 'bedrock-static-key',
+            AWS_REGION: 'us-west-2',
+          },
+        },
+      }),
+    ).toEqual({ apiKey: 'bedrock-static-key' });
+    expect(
+      authMaterial({
+        model: { model: 'global.moonshotai.kimi-k3' },
+        provider: {
+          type: 'bedrock',
+          env: { AWS_REGION: 'us-west-2', AWS_PROFILE: 'bedrock-test' },
+        },
+      }),
+    ).toEqual({ aws: { region: 'us-west-2', profile: 'bedrock-test' } });
   });
 
   it('returns empty material when nothing is configured', () => {
@@ -175,13 +197,66 @@ describe('effectiveModelConfig', () => {
     const kimiRouted = effectiveModelConfig({ model: 'kimi-k2', protocol: 'anthropic' }, 'kimi');
     expect(kimiRouted.supportEfforts).toBeUndefined();
     expect(kimiRouted.capabilities).toBeUndefined();
+
+    const bedrockRouted = effectiveModelConfig(
+      { model: 'global.anthropic.claude-sonnet-4-5' },
+      'bedrock',
+    );
+    expect(bedrockRouted.supportEfforts).toEqual(['low', 'medium', 'high']);
+    expect(bedrockRouted.capabilities).toContain('thinking');
   });
 });
 
 describe('deriveProviderId', () => {
-  it('keys flat providers by the baseUrl origin', () => {
+  it('keys flat providers by the baseUrl origin and resolves Bedrock routes', () => {
     expect(deriveProviderId('https://api.example.test/v1')).toBe('api.example.test');
     expect(deriveProviderId('not-a-url')).toBe('not-a-url');
+
+    const provider: ProviderConfig = {
+      type: 'bedrock',
+      env: { AWS_REGION: 'us-west-2' },
+    };
+    expect(resolveModelProtocol({ model: 'global.anthropic.claude-sonnet-4-6' }, provider)).toBe(
+      'anthropic',
+    );
+    expect(resolveModelProtocol({ model: 'global.openai.gpt-6-astra' }, provider)).toBe(
+      'openai_responses',
+    );
+    expect(resolveModelProtocol({ model: 'global.moonshotai.kimi-k3' }, provider)).toBe('openai');
+    expect(
+      resolveModelProtocol(
+        { model: 'global.moonshotai.kimi-k3', protocol: 'openai_responses' },
+        provider,
+      ),
+    ).toBe('openai_responses');
+    expect(
+      resolveEndpointBaseUrl({ model: 'global.anthropic.claude-sonnet-4-6' }, provider, 'aws-prod'),
+    ).toBe('https://bedrock-runtime.us-west-2.amazonaws.com/anthropic');
+    const region = process.env['AWS_REGION'];
+    const defaultRegion = process.env['AWS_DEFAULT_REGION'];
+    delete process.env['AWS_REGION'];
+    delete process.env['AWS_DEFAULT_REGION'];
+    try {
+      expect(() =>
+        resolveEndpointBaseUrl(
+          { model: 'global.moonshotai.kimi-k3' },
+          { type: 'bedrock', env: {} },
+          'aws-prod',
+        ),
+      ).toThrowError(/providers\.aws-prod\.env/);
+    } finally {
+      if (region !== undefined) process.env['AWS_REGION'] = region;
+      if (defaultRegion !== undefined) process.env['AWS_DEFAULT_REGION'] = defaultRegion;
+    }
+    expect(
+      resolveEndpointBaseUrl(
+        { model: 'm', protocol: 'openai_responses' },
+        {
+          type: 'openai',
+          env: { OPENAI_BASE_URL: 'https://compatible.example.test/v1' },
+        },
+      ),
+    ).toBe('https://compatible.example.test/v1');
   });
 });
 

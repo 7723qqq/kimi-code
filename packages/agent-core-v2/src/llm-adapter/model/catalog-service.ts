@@ -16,6 +16,7 @@ import {
   createStaticCredentialProvider,
 } from '#human/credentials/credentials';
 import type { CatalogModel, CatalogProviderInfo } from '#human/llm/provider-catalog';
+import { createBedrockTokenProvider } from '#human/llm/provider/bedrock/credentials';
 import type { LlmCredentialProvider } from '#human/llm/requester/requester';
 import type { TokenUsage } from '#human/llm/usage';
 
@@ -294,9 +295,12 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
     provider: CatalogProviderInfo,
   ): Promise<ProviderCredentialState> {
     const declared = declaredProviderCredential(provider, providerId);
+    const hasApiKey = hasConfiguredApiKey(provider, providerId);
+    const hasOAuthToken = await this.hasCachedToken(providerId, provider);
     return {
-      hasApiKey: hasConfiguredApiKey(provider, providerId),
-      hasOAuthToken: await this.hasCachedToken(providerId, provider),
+      hasApiKey,
+      hasOAuthToken,
+      supportsAmbientCredential: provider.type === 'bedrock' && !hasApiKey && !hasOAuthToken,
       hasCredentialConflict: declared.kind === 'conflict',
     };
   }
@@ -494,6 +498,12 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
       return createOAuthCredentialProvider((options) =>
         tokens.getAccessToken(providerKey, oauthRef, { force: options?.force === true }),
       );
+    }
+    if (auth.aws !== undefined) {
+      return createBedrockTokenProvider({
+        region: auth.aws.region,
+        profile: auth.aws.profile,
+      });
     }
     return createStaticCredentialProvider(undefined);
   }

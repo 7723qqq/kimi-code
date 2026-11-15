@@ -10,6 +10,9 @@ import {
 import type { ModelCapability as HumanModelCapability } from '#human/llm/capability';
 import { resolveModelFamily } from '#human/llm/modelFamily';
 import type { ProtocolEndpoint, ProviderConnection } from '#human/llm/protocol/connection';
+import { bedrockAnthropicBase } from '#human/llm/provider/bedrock/anthropic';
+import { bedrockModelCapability } from '#human/llm/provider/bedrock/routing';
+import type { ProtocolBase } from '#human/llm/protocol/base';
 import type { ProtocolTraitFor } from '#human/llm/provider/definition';
 import type { LlmErrorClassifier } from '#human/llm/requester/requester';
 
@@ -51,6 +54,7 @@ export const kimiEndpoint: ProtocolEndpoint = {
 export interface ProviderDefinition<N extends Protocol = Protocol> {
   readonly id: string;
   readonly baseProtocol: N;
+  readonly base?: ProtocolBase<ProtocolTraitFor<N>>;
   readonly trait?: ProtocolTraitFor<N>;
   readonly connection?: ProviderConnection;
   readonly classifyError?: LlmErrorClassifier;
@@ -282,6 +286,33 @@ registerProviderDefinition({
   endpoint: kimiEndpoint,
   hostHeaders: 'full',
   modelSource: 'oauth-catalog',
+});
+
+export const bedrockEndpoint: ProtocolEndpoint = {
+  apiKeyEnv: 'AWS_BEARER_TOKEN_BEDROCK',
+  baseUrlEnv: 'AWS_BEDROCK_BASE_URL',
+};
+
+registerProviderDefinition({
+  id: 'bedrock',
+  baseProtocol: 'openai',
+  endpoint: bedrockEndpoint,
+  capability: bedrockModelCapability,
+});
+
+registerProviderDefinition({
+  id: 'bedrock',
+  baseProtocol: 'openai_responses',
+  endpoint: bedrockEndpoint,
+  capability: bedrockModelCapability,
+});
+
+registerProviderDefinition({
+  id: 'bedrock',
+  baseProtocol: 'anthropic',
+  base: bedrockAnthropicBase,
+  endpoint: bedrockEndpoint,
+  capability: bedrockModelCapability,
 });
 
 export const deepseekEndpoint: ProtocolEndpoint = {

@@ -82,7 +82,8 @@ function routeFor(model: Model, mediaFetch: KimiFilesFetch | undefined): Adapter
   const routeMedia = definition?.modelSource === 'oauth-catalog' ? mediaFor(mediaFetch) : undefined;
   const custom =
     definition !== undefined &&
-    (definition.trait !== undefined ||
+    (definition.base !== undefined ||
+      definition.trait !== undefined ||
       definition.connection !== undefined ||
       definition.classifyError !== undefined)
       ? definition
@@ -91,7 +92,7 @@ function routeFor(model: Model, mediaFetch: KimiFilesFetch | undefined): Adapter
     case 'openai':
       return custom !== undefined
         ? {
-            base: openAIBase,
+            base: custom.base ?? openAIBase,
             trait: custom.trait ?? openAIReasoningTraitFor(model),
             connection: custom.connection,
             classifyError: custom.classifyError,
@@ -107,7 +108,7 @@ function routeFor(model: Model, mediaFetch: KimiFilesFetch | undefined): Adapter
     case 'openai_responses':
       return custom !== undefined
         ? {
-            base: openAIResponsesBase,
+            base: custom.base ?? openAIResponsesBase,
             trait: custom.trait,
             connection: custom.connection,
             classifyError: custom.classifyError,
@@ -120,7 +121,9 @@ function routeFor(model: Model, mediaFetch: KimiFilesFetch | undefined): Adapter
             providerId: 'openai-responses',
           };
     case 'anthropic': {
-      const base = model.providerOptions?.betaApi === true ? anthropicBetaBase : anthropicBase;
+      const base =
+        custom?.base ??
+        (model.providerOptions?.betaApi === true ? anthropicBetaBase : anthropicBase);
       return custom !== undefined
         ? {
             base,

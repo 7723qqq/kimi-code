@@ -94,7 +94,7 @@ export interface ProviderFormModelRow {
    * Per-model wire override. `''` means "not set" — the alias is rebuilt from
    * the provider's type — while `undefined` keeps whatever was stored.
    */
-  protocol?: '' | 'anthropic' | 'openai_responses';
+  protocol?: '' | 'anthropic' | 'openai' | 'openai_responses';
   betaApi?: ProviderFormToggle;
   reasoningKey?: string;
   /** Per-model endpoint, paired with {@link protocol}. */

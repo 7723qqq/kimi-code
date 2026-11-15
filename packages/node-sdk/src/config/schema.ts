@@ -46,6 +46,7 @@ export const ProviderTypeSchema = z.enum([
   'kimi',
   'google-genai',
   'openai_responses',
+  'bedrock',
   'vertexai',
   'astron',
 ]);
@@ -103,7 +104,7 @@ const ModelAliasBaseSchema = z.object({
   capabilities: z.array(z.string()).optional(),
   displayName: z.string().optional(),
   reasoningKey: z.string().optional(),
-  protocol: z.enum(['anthropic', 'openai_responses']).optional(),
+  protocol: z.enum(['anthropic', 'openai', 'openai_responses']).optional(),
   // Explicitly declare adaptive-thinking support, overriding the kosong
   // model-name version inference. Needed for custom-named Anthropic endpoints
   // whose model name does not encode a parseable Claude version.

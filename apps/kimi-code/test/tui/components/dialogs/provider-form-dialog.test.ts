@@ -1080,6 +1080,8 @@ describe('ProviderFormDialogComponent', () => {
     // the row's own protocol leaves the endpoint exactly as typed.
     expect(plain(dialog)).toContain('https://alt.example.com/v1');
     dialog.handleInput(RIGHT);
+    expect(plain(dialog)).toContain('‹ openai ›');
+    dialog.handleInput(RIGHT);
     expect(plain(dialog)).toContain('‹ openai_responses ›');
     dialog.handleInput(RIGHT); // wraps back to "not set"
     expect(plain(dialog)).toContain(`‹ ${t(`${FORM}.protocolNotSet`)} ›`);

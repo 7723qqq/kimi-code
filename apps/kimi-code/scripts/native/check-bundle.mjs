@@ -7,6 +7,7 @@ import { nativeIntermediatesDir, nativeJsBundlePath } from './paths.mjs';
 const builtins = new Set([...builtinModules, ...builtinModules.map((name) => `node:${name}`)]);
 
 const optionalRuntimeRequires = new Set([
+  '@aws-sdk/signature-v4a',
   'ajv-formats/dist/formats',
   'ajv/dist/runtime/validation_error',
   'bufferutil',

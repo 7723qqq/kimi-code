@@ -285,6 +285,29 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     });
   });
 
+  it('creates a Bedrock provider that reports ambient AWS credentials as connected', async () => {
+    await boot();
+    const { status, body } = await postJson<unknown>('/api/v1/providers', {
+      id: 'bedrock',
+      type: 'bedrock',
+      models: [{ model: 'global.moonshotai.kimi-k3', max_context_size: 1000000 }],
+    });
+    expect(status).toBe(201);
+    expect(body.code).toBe(0);
+    expect(body.data).toMatchObject({
+      id: 'bedrock',
+      type: 'bedrock',
+      has_api_key: false,
+      status: 'connected',
+      default_model: 'bedrock/global.moonshotai.kimi-k3',
+    });
+
+    const onDisk = await readConfigToml();
+    expect(onDisk['providers']).toEqual({
+      bedrock: { type: 'bedrock' },
+    });
+  });
+
   it('seeds the global default_model on a fresh setup (the provider default wins)', async () => {
     await boot();
     const { status } = await postJson<unknown>('/api/v1/providers', CREATE_BODY);

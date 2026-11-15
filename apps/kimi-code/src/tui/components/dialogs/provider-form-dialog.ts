@@ -195,7 +195,7 @@ const INPUT_PREFIX = '> ';
 const POSITIVE_INTEGER_PATTERN = /^\d+$/;
 const HTTP_URL_PATTERN = /^https?:\/\//;
 /** The row's protocol override cycle; `''` leaves the provider's own type in charge. */
-const ROW_PROTOCOLS = ['', 'anthropic', 'openai_responses'] as const;
+const ROW_PROTOCOLS = ['', 'anthropic', 'openai', 'openai_responses'] as const;
 
 function hintText(code: ProviderFormError): string {
   switch (code) {
@@ -416,7 +416,7 @@ export class ProviderFormDialogComponent extends Container implements Focusable 
   private rowAdaptiveThinkingDeclared = false;
   private rowBetaApiDeclared = false;
   /** The protocol override being edited; `''` lets the provider's type decide. */
-  private rowProtocol: '' | 'anthropic' | 'openai_responses' = '';
+  private rowProtocol: '' | 'anthropic' | 'openai' | 'openai_responses' = '';
   /** The selected default effort; `''` is the leading "not declared" position. */
   private rowDefaultEffort = '';
   private apiKeyRevealed = false;
