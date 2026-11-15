@@ -1,7 +1,8 @@
-import { describe, expect, it, mock, spyOn } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 
 import { applyTuiModeChoice } from '#/tui/commands/config';
 import * as tuiConfig from '#/tui/config';
+import { restoreEnvs, setEnv } from '#test/helpers/stubs';
 
 const mocks = {
   saveTuiConfig: spyOn(tuiConfig, 'saveTuiConfig').mockImplementation(async () => {}),
@@ -29,6 +30,18 @@ function makeHost(
 }
 
 describe('tui mode preference commands', () => {
+  beforeEach(() => {
+    setEnv('KIMI_CODE_TUI_FULL_SCREEN', '');
+    setEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '');
+    setEnv('TERM', 'xterm-256color');
+    setEnv('TERMUX_VERSION', '');
+    setEnv('TMUX', '');
+  });
+
+  afterEach(() => {
+    restoreEnvs();
+  });
+
   it('saves fullscreen to tui.toml, mirrors appState, and notices the required restart', async () => {
     mocks.saveTuiConfig.mockClear();
     const host = makeHost('regular');
