@@ -782,6 +782,8 @@ Each `agent_config` field is applied immediately to the main agent:
 | `goal_objective` | string | Create a goal with this objective |
 | `goal_control` | string | `pause` / `resume` / `cancel` the current goal |
 
+The schema also accepts a top-level `permission_rules` array, but the update route currently does not apply it.
+
 On success, `data` is the updated [session object](#the-session-object).
 
 - `40401`: session not found

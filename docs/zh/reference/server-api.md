@@ -780,6 +780,8 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 | `goal_objective` | string | 以该文本为内容创建一个目标 |
 | `goal_control` | string | `pause` / `resume` / `cancel` 当前目标 |
 
+schema 还接受顶层 `permission_rules` 数组，但更新路由当前不会应用它。
+
 成功时，`data` 为更新后的 [session 对象](#session-对象)。
 
 - `40401`：会话不存在
