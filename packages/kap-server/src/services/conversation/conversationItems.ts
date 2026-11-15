@@ -272,20 +272,6 @@ export function stepOutcome(interruptReason: string | undefined, finishReason: s
   return 'completed';
 }
 
-export function totalUsage(steps: readonly StepSummary[]): Usage | undefined {
-  let total: Usage | undefined;
-  for (const { usage } of steps) {
-    if (usage === undefined) continue;
-    total = {
-      input_other: (total?.input_other ?? 0) + usage.input_other,
-      output: (total?.output ?? 0) + usage.output,
-      input_cache_read: (total?.input_cache_read ?? 0) + usage.input_cache_read,
-      input_cache_creation: (total?.input_cache_creation ?? 0) + usage.input_cache_creation,
-    };
-  }
-  return total;
-}
-
 export function errorInfoOf(error: unknown, requestId: string | undefined): ErrorInfo | undefined {
   if (typeof error !== 'object' || error === null) return undefined;
   const payload = error as {

@@ -27,7 +27,6 @@ import {
   notificationItem,
   refreshToolCall,
   toolCallItem,
-  totalUsage,
   userMessageItem,
   type ToolInteraction,
 } from './conversationItems';
@@ -149,36 +148,6 @@ export function settleOrphanTurns(state: ConversationState, running: RunningWork
     endTurn(next, settled, state.recordsTurnEnds ? { outcome: 'interrupted', reason: 'aborted' } : COMPLETED, state.clock);
   });
   return next;
-}
-
-export function undoConversationTurns(state: ConversationState, count: number): ConversationState {
-  const anchor = state.anchors.at(-count);
-  if (anchor === undefined) return state;
-  state.anchors.splice(state.anchors.length - count);
-  const anchorIndex = state.turns.findIndex((turn) => turn.turn_id === anchor.turnId);
-  if (anchorIndex === -1) return state;
-  if (anchor.itemCount > 0) {
-    const turn = state.turns[anchorIndex]!;
-    const steps = state.steps[turn.turn_id] ?? [];
-    turn.items.splice(anchor.itemCount);
-    steps.splice(anchor.stepCount);
-    turn.steps = turn.steps.filter((summary) => steps.some((step) => step.ended && step.index === summary.index));
-    turn.usage = totalUsage(turn.steps);
-  }
-  const cutIndex = anchor.itemCount > 0 ? anchorIndex + 1 : anchorIndex;
-  const removed = new Set(state.turns.splice(cutIndex).map((turn) => turn.turn_id));
-  state.nextOrdinal = (state.turns.at(-1)?.ordinal ?? -1) + 1;
-  for (const turnId of removed) delete state.steps[turnId];
-  for (const toolCallId of Object.keys(state.tools)) {
-    if (findToolCall(state, toolCallId) === undefined) delete state.tools[toolCallId];
-  }
-  for (const [interactionId, toolCallId] of Object.entries(state.interactions)) {
-    if (state.tools[toolCallId] === undefined) delete state.interactions[interactionId];
-  }
-  if (state.openTurnId !== undefined && removed.has(state.openTurnId)) state.openTurnId = undefined;
-  state.pendingPrompt = undefined;
-  state.pendingSteers = 0;
-  return state;
 }
 
 export function applyMessage(state: ConversationState, message: ContextMessage | undefined, time: number): void {
