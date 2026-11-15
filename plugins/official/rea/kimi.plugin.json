@@ -1,0 +1,24 @@
+{
+  "name": "rea",
+  "version": "6.9.0-kimi.1",
+  "description": "Reverse engineer native, managed, Electron/JavaScript, packaged, firmware, and browser targets with REA. Runtime support boundaries are documented in PACKAGE_SUPPORT.md.",
+  "homepage": "https://github.com/morluto/rea",
+  "license": "MIT",
+  "skills": "./skills",
+  "skillInstructions": "Kimi exposes REA tools as mcp__plugin-rea_rea__<tool>. This server uses REA_MCP_TOOL_CATALOG_PROFILE=full. Call select_tools with a capability query, then call it again with exact qualified tool names to load their schemas; do not look for mcp__plugin-rea_rea__discover_tools. Do not run rea setup: this managed plugin already owns registration, and setup would create a second mcp.json registration.",
+  "mcpServers": {
+    "rea": {
+      "command": "node",
+      "args": ["./scripts/plugin-mcp-launcher.mjs", "6.9.0"],
+      "cwd": "./",
+      "deferred": true,
+      "startupTimeoutMs": 30000,
+      "toolTimeoutMs": 450000,
+      "env": {
+        "REA_MCP_TOOL_CATALOG_PROFILE": "full",
+        "REA_MCP_INPUT_SCHEMA_PROFILE": "compact",
+        "REA_MCP_OUTPUT_SCHEMA_PROFILE": "compact"
+      }
+    }
+  }
+}

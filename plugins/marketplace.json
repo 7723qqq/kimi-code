@@ -11,6 +11,19 @@
       "source": "./official/kimi-datasource"
     },
     {
+      "id": "rea",
+      "tier": "official",
+      "displayName": "REA",
+      "version": "6.9.0-kimi.1",
+      "description": "Reverse engineer native, managed, Electron/JavaScript, packaged, firmware, and browser targets with REA.",
+      "homepage": "https://github.com/morluto/rea",
+      "keywords": ["reverse-engineering", "binary-analysis", "decompiler", "mcp"],
+      "source": "../../rea-bun-compat/artifacts/kimi-plugin/6.9.0-kimi.1/win32-x64/20261115T133201Z-37dcbd9238e0/package/rea",
+      "sha256sum": "3f56bff0975aa4fe963fc6d1205e5a89fac4185a9e06d6e1d75397d62fe564b1",
+      "clients": ["cli"],
+      "platforms": ["windows"]
+    },
+    {
       "id": "kimi-webbridge",
       "tier": "official",
       "displayName": "Kimi Browser Extension",
