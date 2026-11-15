@@ -363,6 +363,23 @@ describe('session rating evaluation slot', () => {
     expect(harness.mount.evaluate()).toEqual({ appearanceId: 'appearance-1', survey: 'session' });
   });
 
+  it('holds an evaluation while the config feed is still settling', async () => {
+    let settle!: () => void;
+    const settling = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    const harness = manual({ refreshConfig: () => settling });
+    harness.runTurns(1);
+    await harness.flush();
+
+    expect(harness.mount.evaluate()).toBeUndefined();
+    settle();
+    await harness.flush();
+    expect(harness.mount.evaluate()).toEqual({ appearanceId: 'appearance-1', survey: 'session' });
+    expect(harness.mount.evaluate()).toBeUndefined();
+    expect(harness.writes).toEqual([1_700_000_000_000]);
+  });
+
   it('invalidates a vetoed slot on a later non-user turn but allows an early continuation', async () => {
     const harness = manual();
     harness.runTurns(1);

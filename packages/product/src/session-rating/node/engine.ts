@@ -187,9 +187,9 @@ class SessionRatingMountImpl implements SessionRatingMount {
 
   evaluate(): RatingOffer | undefined {
     if (this.ended || !this.evaluationPending || this.turnInProgress) return undefined;
-    this.evaluationPending = false;
     try {
       if (!this.deps.config.readyForEvaluation()) return undefined;
+      this.evaluationPending = false;
       const persisted = this.deps.cooldown.read();
       if (persisted !== undefined) {
         this.globalLastShownAt = Math.max(persisted, this.globalLastShownAt ?? 0);
