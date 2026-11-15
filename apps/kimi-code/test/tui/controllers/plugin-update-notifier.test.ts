@@ -29,6 +29,7 @@ function makePluginSummary(overrides: Partial<PluginSummary> = {}): PluginSummar
     hasErrors: false,
     source: 'zip-url',
     originalSource: 'https://code.kimi.com/kimi-code/plugins/official/kimi-datasource.zip',
+    installedAt: '2026-01-01T00:00:00.000Z',
     ...overrides,
   };
 }

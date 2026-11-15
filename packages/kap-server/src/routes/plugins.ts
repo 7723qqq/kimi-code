@@ -129,8 +129,9 @@ export function registerPluginsRoutes(
           (descriptor) =>
             descriptor.supported &&
             descriptor.id === capabilityId &&
-            (descriptor.pluginId === entry.id || descriptor.pluginId === capabilityId),
-        );        if (capabilityId !== undefined && capability === undefined) continue;
+            descriptor.pluginId === entry.id,
+        );
+        if (capabilityId !== undefined && capability === undefined) continue;
 
         const byIdRecord = byId.get(entry.id);
         const record =

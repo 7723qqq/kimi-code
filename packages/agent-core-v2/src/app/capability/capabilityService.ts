@@ -5,6 +5,7 @@ import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Emitter, type Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IPluginMarketplaceService } from '#/app/plugin/marketplaceService';
 import { IPluginService } from '#/app/plugin/plugin';
 import { IRegionService } from '#/app/region/region';
 import { LifecycleScope } from '#/app/scopes';
@@ -49,6 +50,7 @@ export class CapabilityService extends Disposable implements ICapabilityService 
   constructor(
     @IBootstrapService bootstrap: IBootstrapService,
     @IPluginService plugins: IPluginService,
+    @IPluginMarketplaceService marketplace: IPluginMarketplaceService,
     @IHostProcessService hostProcess: IHostProcessService,
     @ILogService private readonly log: ILogService,
     @IRegionService regions: IRegionService,
@@ -64,6 +66,7 @@ export class CapabilityService extends Disposable implements ICapabilityService 
         kimiHomeDir: bootstrap.homeDir,
         userHomeDir: homedir(),
         plugins,
+        marketplace,
         hostProcess,
         resolveRegion: () => regions.getRegionAsync(),
       };

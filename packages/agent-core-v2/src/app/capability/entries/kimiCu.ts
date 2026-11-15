@@ -8,6 +8,7 @@ import { kimiCdnContentUrl } from '@moonshot-ai/kimi-code-oauth';
 import { errorMessage } from '#/_base/utils/errorMessage';
 import { Error2 } from '#/errors';
 
+import { installResolvedMarketplacePlugin } from '../../plugin/pluginService';
 import { CapabilityErrors } from '../errors';
 import { downloadToFile, runCommand, type CommandResult, type FetchLike } from '../host';
 import type {
@@ -239,7 +240,35 @@ async function installPluginLayer(
   ctx: CapabilityEntryContext,
   config: PluginLayerConfig,
 ): Promise<void> {
-  const summary = await ctx.plugins.installPlugin({ source: config.zipUrl });
+  const defaultCatalog = await ctx.marketplace.isDefaultMarketplace().catch(() => false);
+  const marketplace = defaultCatalog
+    ? await ctx.marketplace.listMarketplace().catch(() => undefined)
+    : undefined;
+  const entry = marketplace?.plugins.find((candidate) => candidate.id === config.id);
+  if (marketplace !== undefined && entry === undefined) {
+    throw new Error(`Marketplace plugin "${config.id}" was not found in the current catalog`);
+  }
+  if (marketplace !== undefined && entry?.version === undefined) {
+    throw new Error(`Marketplace plugin "${config.id}" has no version in the current catalog`);
+  }
+  const summary =
+    marketplace === undefined
+      ? await installResolvedMarketplacePlugin(
+          ctx.plugins,
+          { marketplaceId: config.id },
+          {
+            source: config.zipUrl,
+            catalogId: config.id,
+            origin: 'marketplace',
+            expectedPluginId: config.id,
+            fetchImpl: fetch,
+          },
+        )
+      : await ctx.plugins.installPlugin({
+          marketplaceId: config.id,
+          expectedVersion: entry!.version,
+          expectedSha256: entry!.sha256sum,
+        });
   if (!summary.enabled) {
     await ctx.plugins.setPluginEnabled({ id: config.id, enabled: true });
   }
@@ -411,7 +440,11 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
       permissionsProbeError = errorMessage(error);
     }
     if (permissionsProbeError !== undefined) {
-      steps.push({ id: 'permissions', state: 'failed', detail: permissionsProbeError });
+      steps.push(
+        { id: 'permissions', state: 'failed', detail: permissionsProbeError },
+        { id: 'permissions.accessibility', state: 'failed', detail: permissionsProbeError },
+        { id: 'permissions.screenRecording', state: 'failed', detail: permissionsProbeError },
+      );
     } else {
       const granted =
         permissions !== undefined && permissions.accessibility && permissions.screenRecording;
@@ -422,14 +455,24 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
               ...(permissions.accessibility ? [] : ['accessibility']),
               ...(permissions.screenRecording ? [] : ['screenRecording']),
             ].join(',');
-      steps.push({
-        id: 'permissions',
-        state: granted ? 'ok' : 'missing',
-        detail:
-          granted || missingPermissions === undefined || missingPermissions.length === 0
-            ? undefined
-            : missingPermissions,
-      });
+      steps.push(
+        {
+          id: 'permissions',
+          state: granted ? 'ok' : 'missing',
+          detail:
+            granted || missingPermissions === undefined || missingPermissions.length === 0
+              ? undefined
+              : missingPermissions,
+        },
+        {
+          id: 'permissions.accessibility',
+          state: permissions?.accessibility === true ? 'ok' : 'missing',
+        },
+        {
+          id: 'permissions.screenRecording',
+          state: permissions?.screenRecording === true ? 'ok' : 'missing',
+        },
+      );
     }
 
     return {
@@ -590,7 +633,10 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
       }
     }
 
-    if (stepStates.get('permissions') !== 'ok') {
+    if (
+      stepStates.get('permissions.accessibility') !== 'ok' ||
+      stepStates.get('permissions.screenRecording') !== 'ok'
+    ) {
       report('permissions');
       await runCommand(ctx.hostProcess, appBin, ['request-permissions', '--ax', '--screen'], {
         timeout: PERMISSIONS_TIMEOUT_MS,

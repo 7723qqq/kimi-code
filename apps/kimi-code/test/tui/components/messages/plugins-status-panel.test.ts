@@ -25,6 +25,7 @@ function info(overrides: Partial<PluginInfo> = {}): PluginInfo {
     source: 'local-path',
     root: '/tmp/plugins/demo',
     installedAt: '2026-01-01T00:00:00Z',
+    skills: [],
     mcpServers: [],
     diagnostics: [],
     ...overrides,

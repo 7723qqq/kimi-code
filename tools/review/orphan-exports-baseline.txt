@@ -55,7 +55,6 @@ getRainbowDanceView  apps/kimi-code/src/tui/easter-eggs/dance.ts
 getRootLogger  packages/node-sdk/src/logging/logger.ts
 hasProviderDefinition  packages/agent-core-v2/src/llm-adapter/provider/provider-definition.ts
 hasTerminalThemeReport  apps/kimi-code/src/tui/utils/terminal-theme.ts
-installResolvedMarketplacePlugin  packages/agent-core-v2/src/app/plugin/pluginService.ts
 isAppendOnly  packages/transcript/src/granularity/filterOps.ts
 isConfigStubOrMissing  packages/migration-legacy/src/stub-detect.ts
 isSafeCronId  apps/vis/server/src/lib/cron-store.ts

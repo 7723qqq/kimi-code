@@ -24,7 +24,7 @@
       "platforms": ["windows"]
     },
     {
-      "id": "kimi-webbridge",
+      "id": "kimi-browser-extension",
       "tier": "official",
       "displayName": "Kimi Browser Extension",
       "version": "2.0.11",

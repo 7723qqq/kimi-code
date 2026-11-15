@@ -16,7 +16,6 @@ import { Markdown } from '#/tui/components/markdown/markdown';
 import { openUrl } from '#/utils/open-url';
 import {
   loadPluginMarketplace,
-  withBuiltInEntries,
   withMarketplaceLatestVersions,
   type PluginMarketplace,
   type PluginMarketplaceEntry,
@@ -345,6 +344,34 @@ function capabilityMarketplaceEntry(capability: CapabilityStatus): PluginMarketp
 }
 
 /**
+ * The engine registry owns the built-in rows, so a catalog entry that carries
+ * the same capability must be replaced rather than listed twice. The catalog
+ * uses the canonical plugin id (`kimi-browser-extension`) while the capability
+ * keeps its stable id (`kimi-webbridge`), and the legacy id can still be
+ * present in an older catalog.
+ */
+function withCapabilityEntries(
+  marketplace: PluginMarketplace,
+  capabilities: readonly CapabilityStatus[],
+): PluginMarketplace {
+  const replaced = new Set<string>(['kimi-webbridge']);
+  for (const capability of capabilities) {
+    if (capability.pluginId !== undefined) replaced.add(capability.pluginId);
+  }
+  const builtIns = capabilities.map((capability) => {
+    const entry = capabilityMarketplaceEntry(capability);
+    const catalogEntry = marketplace.plugins.find(
+      (candidate) => candidate.id === capability.pluginId && candidate.version !== undefined,
+    );
+    return catalogEntry === undefined ? entry : { ...entry, version: catalogEntry.version };
+  });
+  return {
+    ...marketplace,
+    plugins: [...marketplace.plugins.filter((entry) => !replaced.has(entry.id)), ...builtIns],
+  };
+}
+
+/**
  * Injection is part of the DEFAULT catalog experience only: any explicit
  * replacement (the slash-command source or a user-set env override) opts out
  * wholesale. The dev marketplace server started by apps/kimi-code/scripts/dev.mjs
@@ -365,9 +392,11 @@ async function loadMarketplaceCatalog(
   source: string | undefined,
   capabilities: readonly CapabilityStatus[],
 ): Promise<void> {
-  const builtInEntries = isDefaultMarketplaceCatalog(source)
-    ? capabilities.map(capabilityMarketplaceEntry)
-    : undefined;
+  const inject =
+    isDefaultMarketplaceCatalog(source) === true
+      ? (catalog: PluginMarketplace): PluginMarketplace =>
+          withCapabilityEntries(catalog, capabilities)
+      : (catalog: PluginMarketplace): PluginMarketplace => catalog;
   let marketplace: PluginMarketplace;
   let catalog: PluginMarketplace;
   try {
@@ -385,8 +414,7 @@ async function loadMarketplaceCatalog(
         await reloadPlugins(host);
       },
     });
-    marketplace =
-      builtInEntries !== undefined ? withBuiltInEntries(catalog, builtInEntries) : catalog;
+    marketplace = inject(catalog);
     panel.setMarketplace(marketplace.plugins, marketplace.source);
     host.state.ui.requestRender();
   } catch (error) {
@@ -404,10 +432,7 @@ async function loadMarketplaceCatalog(
     // onto capability rows, then refresh so update badges appear. Failures
     // degrade to badge-less rows and never clobber the rendered list.
     const enrichedCatalog = await withMarketplaceLatestVersions(catalog);
-    const enriched =
-      builtInEntries !== undefined
-        ? withBuiltInEntries(enrichedCatalog, builtInEntries)
-        : enrichedCatalog;
+    const enriched = inject(enrichedCatalog);
     panel.setMarketplace(enriched.plugins, enriched.source);
   } catch (error) {
     log.warn('marketplace version lookup failed', { error });
@@ -519,7 +544,7 @@ function isCapabilityEntry(entry: PluginMarketplaceEntry): boolean {
  * entry's detector (seconds of probes) just to print one hint line.
  */
 function isCapabilityPluginId(id: string): boolean {
-  return id === 'kimi-cu' || id === 'kimi-cu-win' || id === 'kimi-webbridge';
+  return id === 'kimi-cu' || id === 'kimi-cu-win' || id === 'kimi-browser-extension';
 }
 
 /** Poll a background capability install until it settles (or we run out of budget). */

@@ -67,6 +67,7 @@ const superpowers = {
   hasErrors: false,
   origin: 'custom' as const,
   source: 'local-path' as const,
+  installedAt: '2026-01-01T00:00:00.000Z',
 };
 
 const officialEntries = [
@@ -151,6 +152,7 @@ describe('plugins selector dialogs', () => {
         origin: 'custom',
         source: 'zip-url',
         originalSource: 'https://code.kimi.com/kimi-code/plugins/official/kimi-datasource.zip',
+        installedAt: '2026-01-01T00:00:00.000Z',
       }),
     ).toBe('official');
     expect(
@@ -168,6 +170,7 @@ describe('plugins selector dialogs', () => {
         origin: 'custom',
         source: 'zip-url',
         originalSource: 'https://code.kimi.com/kimi-code/plugins/curated/superpowers.zip',
+        installedAt: '2026-01-01T00:00:00.000Z',
       }),
     ).toBe('curated');
     expect(
@@ -185,6 +188,7 @@ describe('plugins selector dialogs', () => {
         origin: 'custom',
         source: 'zip-url',
         originalSource: 'https://cdn.kimi.com/kimi-computer-use/latest/kimi-cu-plugin.zip',
+        installedAt: '2026-01-01T00:00:00.000Z',
       }),
     ).toBe('official');
     expect(
@@ -202,6 +206,7 @@ describe('plugins selector dialogs', () => {
         origin: 'custom',
         source: 'zip-url',
         originalSource: 'https://code.kimi.com/demo.zip',
+        installedAt: '2026-01-01T00:00:00.000Z',
       }),
     ).toBe('third-party');
     expect(
@@ -219,6 +224,7 @@ describe('plugins selector dialogs', () => {
         origin: 'custom',
         source: 'local-path',
         originalSource: 'https://code.kimi.com/kimi-code/plugins/official/local',
+        installedAt: '2026-01-01T00:00:00.000Z',
       }),
     ).toBe('third-party');
   });
@@ -239,6 +245,7 @@ describe('plugins selector dialogs', () => {
         origin: 'custom',
         source: 'zip-url',
         originalSource,
+        installedAt: '2026-01-01T00:00:00.000Z',
       });
     // code.kimi.ai mirrors the cdnBase rules; cdn.kimi.ai the content-CDN ones.
     expect(labelFor('https://code.kimi.ai/kimi-code/plugins/official/kimi-datasource.zip')).toBe(
@@ -274,6 +281,7 @@ describe('plugins selector dialogs', () => {
       hookCount: 0,
       commandCount: 0,
       hasErrors: false,
+      installedAt: '2026-01-01T00:00:00.000Z',
     };
     // Zip installs from the official CDN path.
     expect(
@@ -1043,6 +1051,7 @@ describe('plugins selector dialogs', () => {
         installedAt: '2026-05-29T00:00:00.000Z',
         root: '/plugins/kimi-datasource',
         manifest: undefined,
+        skills: [],
         mcpServers: [
           {
             name: 'data',

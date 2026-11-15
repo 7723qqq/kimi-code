@@ -252,6 +252,13 @@ describe('plugins command capability surface', () => {
     expect(statuses.some((s) => s.includes('runtime binaries were left untouched'))).toBe(true);
   });
 
+  it('keeps the runtime note for the canonical browser extension plugin id', async () => {
+    const { host, statuses } = fakeHost({});
+    await removePlugin(host, 'kimi-browser-extension');
+    expect(statuses.some((s) => s.includes('Removed kimi-browser-extension'))).toBe(true);
+    expect(statuses.some((s) => s.includes('runtime binaries were left untouched'))).toBe(true);
+  });
+
   it('treats only the default catalog (and the dev server) as injectable', () => {
     expect(isDefaultMarketplaceCatalog(undefined, {})).toBe(true);
     // The dev marketplace server started by apps/kimi-code/scripts/dev.mjs
