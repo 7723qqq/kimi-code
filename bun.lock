@@ -385,7 +385,11 @@
       "dependencies": {
         "@moonshot-ai/agent-core-v2": "workspace:^",
         "@moonshot-ai/kimi-code-oauth": "workspace:^",
+        "semver": "^7.7.4",
         "zod": "catalog:",
+      },
+      "devDependencies": {
+        "@types/semver": "^7.7.0",
       },
     },
     "packages/remote-control": {

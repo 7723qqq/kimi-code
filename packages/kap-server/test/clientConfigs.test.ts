@@ -318,3 +318,26 @@ describe('server-v2 POST /api/v1/client_configs', () => {
     expect(body.data).toEqual({ name: MODEL_SWITCH_CONFIRM_CONFIG_NAME, config: null });
   });
 });
+
+describe('client_upgrade_policy', () => {
+  it('is registered and normalizes the cloud payload', async () => {
+    expect(isRegisteredClientConfig('client_upgrade_policy')).toBe(true);
+    const fetchImpl = jest.fn(async () =>
+      jsonResponse({
+        name: 'client_upgrade_policy',
+        config: { cli_min_version: '0.6.0', desktop_min_version: '1.2.0' },
+      }),
+    );
+
+    await expect(
+      fetchClientConfig(
+        'client_upgrade_policy',
+        'https://example.com/coding/v1',
+        fetchImpl as unknown as typeof fetch,
+      ),
+    ).resolves.toEqual({
+      cliMinVersion: '0.6.0',
+      desktopMinVersion: '1.2.0',
+    });
+  });
+});

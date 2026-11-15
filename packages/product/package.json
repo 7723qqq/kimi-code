@@ -37,9 +37,13 @@
     "test": "bun ../../scripts/run-package-tests.mjs --root=test --test-timeout=15000",
     "clean": "rm -rf dist"
   },
+  "devDependencies": {
+    "@types/semver": "^7.7.0"
+  },
   "dependencies": {
     "@moonshot-ai/agent-core-v2": "workspace:^",
     "@moonshot-ai/kimi-code-oauth": "workspace:^",
+    "semver": "^7.7.4",
     "zod": "catalog:"
   }
 }

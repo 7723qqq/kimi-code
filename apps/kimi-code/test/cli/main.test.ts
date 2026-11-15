@@ -22,6 +22,7 @@ const mocks = (() => {
     getVersion: mock(() => '0.0.1-alpha.2'),
     validateOptions: mock(),
     runUpdatePreflight: mock(),
+    runForcedUpgradePreflight: mock(async () => 'continue'),
     runShell: mock(),
     runPrompt: mock(),
     installCrashHandlers: mock(),
@@ -126,6 +127,10 @@ void mock.module('#/cli/options', () => {
 
 void mock.module('#/cli/update/preflight', () => ({
   runUpdatePreflight: mocks.runUpdatePreflight,
+}));
+
+void mock.module('#/cli/update/forced', () => ({
+  runForcedUpgradePreflight: mocks.runForcedUpgradePreflight,
 }));
 
 void mock.module('#/cli/run-shell', () => ({
@@ -452,6 +457,18 @@ describe('main entry command handling', () => {
     // Node leaves the unset code as `undefined`; Bun's accessor reports 0.
     // Either way `main()` must not arm a failure exit code.
     expect(process.exitCode ?? 0).toBe(0);
+  });
+
+  it('exits with SIGINT status when the forced upgrade prompt is interrupted', async () => {
+    const opts = defaultOpts();
+    mocks.validateOptions.mockReturnValue({ options: opts, uiMode: 'shell' });
+    mocks.runForcedUpgradePreflight.mockResolvedValueOnce('interrupt');
+
+    const exitCode = await runHandleMainCommand(opts);
+
+    expect(exitCode).toBe(130);
+    expect(runUpdatePreflight).not.toHaveBeenCalled();
+    expect(runShell).not.toHaveBeenCalled();
   });
 
   it('exits early when update preflight requests process exit', async () => {

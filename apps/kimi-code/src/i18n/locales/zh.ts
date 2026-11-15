@@ -2340,6 +2340,18 @@ export default {
       updatePromptChannel: '通道',
       updatePromptSwitchTo: '立即切换到 {{channel}}（{{version}}）',
       updatePromptStayOn: '继续留在 {{channel}}',
+      // update/forced-prompt.ts
+      updateForcedTitle: '{{name}} 需要升级',
+      updateForcedSubtitle: '继续使用前必须升级当前版本。',
+      updateForcedMinimum: '最低版本',
+      updateForcedNavHint: '↑↓ 选择 · Enter 确认',
+      updateForcedRetry: '重试更新',
+      updateForcedSkip: '本次运行跳过',
+      updateForcedSkipCountdown: '本次运行跳过（{{seconds}}s）',
+      // update/forced.ts
+      updateForcedTargetUnavailable: '{{channel}} 通道尚未提供 {{minimum}} 或更高版本。',
+      updateForcedCheckFailed: '检查更新失败：{{message}}',
+      updateForcedInstallFailed: '安装 {{package}}@{{version}} 失败：{{message}}',
       // sub/update-download.ts
       updateDownloadNativeOnly: '错误：更新下载仅在原生构建中可用',
       updateDownloadInvalidChannel: '错误：无效的更新通道 {{channel}}',

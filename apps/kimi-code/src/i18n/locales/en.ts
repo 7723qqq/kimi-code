@@ -2435,6 +2435,19 @@ export default {
       updatePromptChannel: 'Channel',
       updatePromptSwitchTo: 'Switch to {{channel}} now ({{version}})',
       updatePromptStayOn: 'Stay on {{channel}}',
+      // update/forced-prompt.ts
+      updateForcedTitle: '{{name}} Upgrade Required',
+      updateForcedSubtitle: 'This version must be upgraded before continuing.',
+      updateForcedMinimum: 'Minimum',
+      updateForcedNavHint: '↑↓ choose · Enter confirm',
+      updateForcedRetry: 'Retry update',
+      updateForcedSkip: 'Skip for this run',
+      updateForcedSkipCountdown: 'Skip for this run ({{seconds}}s)',
+      // update/forced.ts
+      updateForcedTargetUnavailable:
+        'Version {{minimum}} or newer is not available in the {{channel}} channel yet.',
+      updateForcedCheckFailed: 'Failed to check for updates: {{message}}',
+      updateForcedInstallFailed: 'Failed to install {{package}}@{{version}}: {{message}}',
       // sub/update-download.ts
       updateDownloadNativeOnly: 'error: update download is only available in the native build',
       updateDownloadInvalidChannel: 'error: invalid update channel {{channel}}',

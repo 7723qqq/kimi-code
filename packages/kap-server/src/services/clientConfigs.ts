@@ -1,4 +1,8 @@
 import { KIMI_REGION_PROFILES, type KimiRegion } from '@moonshot-ai/kimi-code-oauth';
+import {
+  CLIENT_UPGRADE_POLICY_CONFIG_NAME,
+  clientUpgradePolicySchema,
+} from '@moonshot-ai/kimi-code-product/client-configs/node';
 import { z } from 'zod';
 
 const CLIENT_CONFIGS_PATH = '/client_configs';
@@ -46,6 +50,7 @@ const modelSwitchConfirmConfigSchema = z.unknown().transform((raw): ModelSwitchC
 
 const registry = new Map<string, z.ZodTypeAny>([
   [MODEL_SWITCH_CONFIRM_CONFIG_NAME, modelSwitchConfirmConfigSchema],
+  [CLIENT_UPGRADE_POLICY_CONFIG_NAME, clientUpgradePolicySchema],
 ]);
 
 export function isRegisteredClientConfig(name: string): boolean {
