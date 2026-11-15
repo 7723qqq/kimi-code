@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const LEDGER = join(ROOT, '.upstream', 'ledger.tsv');
@@ -157,15 +157,29 @@ function resolveProbeTarget(target) {
   return absolute;
 }
 
+function packageDirOf(target) {
+  let dir = dirname(target);
+  while (dir.startsWith(ROOT)) {
+    if (existsSync(join(dir, 'package.json'))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return ROOT;
+}
+
 function runTestProbe(probe) {
   const body = probe.slice('test:'.length);
   const separator = body.indexOf('#');
   if (separator === -1) fail(`test probe needs <path>#<name>: ${probe}`);
   const path = body.slice(0, separator).trim();
   const name = body.slice(separator + 1).trim();
-  if (!existsSync(join(ROOT, path))) return { ok: false, detail: `missing file ${path}` };
-  const result = Bun.spawnSync(['bun', 'test', '--isolate', '--test-name-pattern', name, path], {
-    cwd: ROOT,
+  const absolute = resolveProbeTarget(path);
+  if (!existsSync(absolute)) return { ok: false, detail: `missing file ${path}` };
+  const cwd = packageDirOf(absolute);
+  const target = relative(cwd, absolute).split('\\').join('/');
+  const result = Bun.spawnSync(['bun', 'test', '--isolate', '--test-name-pattern', name, target], {
+    cwd,
   });
   const output = `${result.stdout.toString()}${result.stderr.toString()}`;
   if (result.exitCode !== 0) return { ok: false, detail: `test exited ${result.exitCode}` };
