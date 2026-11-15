@@ -33,9 +33,6 @@ export type SessionMetadata = z.infer<typeof sessionMetadataSchema>;
 
 export const sessionAgentConfigSchema = z.object({
   model: z.string(),
-  system_prompt: z.string().optional(),
-  tools: z.array(z.string()).optional(),
-  mcp_servers: z.array(z.string()).optional(),
   thinking: promptThinkingSchema.optional(),
   permission_mode: promptPermissionModeSchema.optional(),
   plan_mode: z.boolean().optional(),
@@ -48,7 +45,7 @@ export const sessionAgentConfigSchema = z.object({
 });
 export type SessionAgentConfig = z.infer<typeof sessionAgentConfigSchema>;
 
-export const sessionAgentConfigPartialSchema = sessionAgentConfigSchema.partial().strict();
+export const sessionAgentConfigPartialSchema = sessionAgentConfigSchema.partial();
 export type SessionAgentConfigPartial = z.infer<typeof sessionAgentConfigPartialSchema>;
 
 export const permissionRuleMatcherSchema = z.object({

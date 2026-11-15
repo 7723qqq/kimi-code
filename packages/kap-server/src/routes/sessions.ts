@@ -1,4 +1,5 @@
 import {
+  CHILD_SESSION_KIND_KEY,
   ErrorCodes,
   IAgentChangeNotifierService,
   IAgentContextMemoryService,
@@ -27,6 +28,7 @@ import {
   ISessionManager,
   IWorkspaceInstanceManager,
   IWorkspaceService,
+  PARENT_SESSION_ID_KEY,
   closeSessionById,
   getLiveSessionById,
   programForSession,
@@ -93,7 +95,7 @@ import {
   sendMappedError as sendSessionMappedError,
   sessionConflictErrors,
 } from './sessionErrors';
-import { applySessionAgentConfig } from './sessionAgentConfig';
+import { agentConfigErrors, applyAgentConfigToSession, applySessionAgentConfig } from './sessionAgentConfig';
 import { updateSessionProfile } from './sessionProfile';
 
 interface SessionRouteHost {
@@ -208,6 +210,7 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
         [ErrorCode.FS_PATH_NOT_FOUND]: {},
         [ErrorCode.ENVIRONMENT_NOT_FOUND]: {},
         [ErrorCode.ENVIRONMENT_UNAVAILABLE]: {},
+        ...agentConfigErrors,
       },
       description: 'Create a new session',
       tags: ['sessions'],
@@ -261,22 +264,38 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
 
       try {
         const touched = await registry.createOrTouch(workDir);
+        const {
+          cwd: _cwd,
+          goal: _goal,
+          [PARENT_SESSION_ID_KEY]: _parentSessionId,
+          [CHILD_SESSION_KIND_KEY]: _childSessionKind,
+          ...custom
+        }: Record<string, unknown> = body.metadata ?? {};
+        const agentConfig = body.agent_config ?? {};
+        const { model, tower_base: _towerBase, ...settings } = agentConfig;
+        const appliesAgentConfig = Boolean(model) || Object.keys(settings).length > 0;
         const handle = await core.accessor.get(ISessionManager).create({
           workspaceId: touched.id,
           workDir,
           environmentId: body.environment_id,
           environmentCwd: body.environment_cwd,
           ensureMainAgent: body.environment_id !== undefined && body.environment_id !== 'local',
+          prepare: async (session) => {
+            if (Object.keys(custom).length > 0) {
+              await session.accessor.get(ISessionMetadata).update({ custom });
+            }
+            if (appliesAgentConfig) await applyAgentConfigToSession(session, agentConfig);
+          },
         });
-        if (typeof body.title === 'string') {
-          await handle.accessor.get(ISessionMetadata).setTitle(body.title);
-        }
-        const meta = await handle.accessor.get(ISessionMetadata).read();
-        const session = toWireSession({ ...meta, workspaceId: touched.id }, touched.root, {
-          busy: false,
-          mainTurnActive: false,
-          pendingInteraction: 'none',
-        });
+        const metadata = handle.accessor.get(ISessionMetadata);
+        if (typeof body.title === 'string') await metadata.setTitle(body.title);
+        const meta = await metadata.read();
+        const sessionId = meta.id;
+        const session = toWireSession(
+          { ...meta, workspaceId: touched.id },
+          touched.root,
+          resolveSessionFacts(core, sessionId),
+        );
         core.accessor
           .get(IEventService)
           .publish(
@@ -536,6 +555,7 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
         [ErrorCode.VALIDATION_FAILED]: { detailsSchema },
         [ErrorCode.SESSION_NOT_FOUND]: {},
         [ErrorCode.TOWER_MODE_INVALID]: {},
+        ...agentConfigErrors,
         ...sessionConflictErrors,
       },
       description: 'Update session profile (title, metadata, agent_config)',
