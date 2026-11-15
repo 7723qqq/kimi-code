@@ -378,6 +378,7 @@ describe('LLMRequester service migration coverage', () => {
           toolCallId: 'call_lookup',
           name: 'Lookup',
           argumentsPart: undefined,
+          block: 0,
         },
         {
           time: expect.any(Number),
@@ -386,6 +387,7 @@ describe('LLMRequester service migration coverage', () => {
           toolCallId: 'call_lookup',
           name: 'Lookup',
           argumentsPart: '{"query"',
+          block: 0,
         },
         {
           time: expect.any(Number),
@@ -394,6 +396,7 @@ describe('LLMRequester service migration coverage', () => {
           toolCallId: 'call_lookup',
           name: 'Lookup',
           argumentsPart: ':"moon"}',
+          block: 0,
         },
       ]);
       expect(protocolEvents(ctx, 'toolCall').at(-1)?.args).toEqual({
