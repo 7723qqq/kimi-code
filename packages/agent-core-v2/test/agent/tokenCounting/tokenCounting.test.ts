@@ -119,7 +119,7 @@ describe('Agent token counting', () => {
   let usage: TestAgentContext['usage'];
 
   beforeEach(async () => {
-    ctx = createTestAgent();
+    ctx = createTestAgent({ initialConfig: { experimental: { tool_select: false } } });
     context = ctx.get(IAgentContextMemoryService);
     tokenCounting = ctx.tokenCounting;
     profile = ctx.get(IAgentProfileService);
