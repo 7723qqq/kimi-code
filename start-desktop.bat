@@ -6,7 +6,7 @@ setlocal
 
 cd /d "%~dp0"
 
-REM The committed dist-web bundle is authoritative; validate it before building.
+REM The committed dist-web bundle mirrors upstream; validate it before building.
 node apps\kimi-code\scripts\check-web-assets.mjs
 if errorlevel 1 (
     echo [ERROR] Web asset check failed. Sync apps\kimi-code\dist-web from code-app.

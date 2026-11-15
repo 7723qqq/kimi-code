@@ -52,7 +52,7 @@
 | --- | --- | --- |
 | `tsc -b` / `tsup` | 各包 `bun run build`（`bun build`） | `bun run build:packages` |
 | `api-extractor` 产出 `.d.ts` | 保留，是发布产物的一部分 | 见包内 `build` 脚本 |
-| `dist-web` web 产物（每次同步哈希名都变） | 本地保留自己的一份，不逐个对齐 | `apps/kimi-code/scripts/check-web-assets.mjs` |
+| `dist-web` web 产物（每次同步哈希名都变） | 对齐上游预构建产物，整目录替换，不叠加 | `apps/kimi-code/scripts/check-web-assets.mjs` |
 | `flake.nix` 的 Node 构建路径 | 保留，Nix 路径仍需要 Node | `bun run check:nix-workspace` |
 
 ## 明确不搬的文件本体
