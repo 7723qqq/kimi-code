@@ -2,6 +2,7 @@ import type { IFlagService } from '#/app/flag/flag';
 import type { SkillDefinition } from '#/features/skill/catalog/types';
 
 import { CHECK_KIMI_CODE_DOCS_SKILL } from './check-kimi-code-docs';
+import { CRAFT_ANYTHING_SKILL } from './craft-anything';
 import { CUSTOM_THEME_SKILL } from './custom-theme';
 import { IMPORT_FROM_CC_CODEX_SKILL } from './import-from-cc-codex';
 import { MCP_CONFIG_SKILL } from './mcp-config';
@@ -17,6 +18,7 @@ export const BUILTIN_SKILLS: readonly SkillDefinition[] = [
   CUSTOM_THEME_SKILL,
   WRITE_GOAL_SKILL,
   CHECK_KIMI_CODE_DOCS_SKILL,
+  CRAFT_ANYTHING_SKILL,
   SUB_SKILL_PARENT,
   SUB_SKILL_REVIEW,
   SUB_SKILL_CONSOLIDATE,
@@ -38,6 +40,7 @@ export function visibleBuiltinSkills(
 
 export {
   CHECK_KIMI_CODE_DOCS_SKILL,
+  CRAFT_ANYTHING_SKILL,
   CUSTOM_THEME_SKILL,
   IMPORT_FROM_CC_CODEX_SKILL,
   MCP_CONFIG_SKILL,

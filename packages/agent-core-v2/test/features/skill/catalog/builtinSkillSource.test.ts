@@ -5,6 +5,7 @@ import { IConfigService } from '#/app/config/config';
 import { IFlagService } from '#/app/flag/flag';
 import {
   BUILTIN_SKILLS,
+  CRAFT_ANYTHING_SKILL,
   IMPORT_FROM_CC_CODEX_SKILL,
   visibleBuiltinSkills,
 } from '#/features/skill/catalog/builtin/builtin';
@@ -116,6 +117,26 @@ describe('BuiltinSkillSource product-skill switch', () => {
 
     const names = (await loading).skills.map((s) => s.name);
     expect(names).toEqual(NEUTRAL_SKILLS);
+  });
+});
+
+describe('craft-anything builtin skill', () => {
+  it('ships the upstream evidence-first investigation workflow', () => {
+    expect(BUILTIN_SKILLS).toContain(CRAFT_ANYTHING_SKILL);
+    expect(CRAFT_ANYTHING_SKILL.source).toBe('builtin');
+    expect(CRAFT_ANYTHING_SKILL.productSpecific).toBeUndefined();
+    expect(CRAFT_ANYTHING_SKILL.metadata).toMatchObject({ metadata: { version: '2' } });
+    for (const tool of [
+      'core_investigation_show',
+      'core_brief_write',
+      'core_plan_update',
+      'core_hypothesis_record',
+      'core_finding_record',
+      'core_handoff_write',
+      'core_target_open',
+    ]) {
+      expect(CRAFT_ANYTHING_SKILL.content).toContain(tool);
+    }
   });
 });
 
