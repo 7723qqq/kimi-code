@@ -69,6 +69,7 @@ function service(
     {
       _serviceBrand: undefined,
       ready: Promise.resolve(),
+      primary: cwd,
       sharedAdditionalDirs,
     } as unknown as IWorkspaceDirs,
     { get: async () => false } as unknown as IWorkspaceTrust,

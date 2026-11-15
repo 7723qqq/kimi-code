@@ -241,7 +241,7 @@ describe('plugin session-start dynamic injection', () => {
 
     await injectDynamic(ctx);
 
-    expect(ctx.context.get()).toEqual([]);
+    expect(pluginSessionStartMessages(ctx)).toEqual([]);
   });
 
   it('resolves sessionStart skills by plugin identity when names collide', async () => {
