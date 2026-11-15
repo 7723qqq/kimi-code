@@ -2,7 +2,7 @@ import type { TaskWaitOutcome, ToolResult } from './executor';
 import { defineTool, type ToolDefinition } from './tool';
 import DESCRIPTION from './wait-for.md?raw';
 
-export const WAIT_FOR_MAX_TIMEOUT_S = 600;
+export const WAIT_FOR_MAX_TIMEOUT_S = 90;
 
 interface WaitForArguments {
   taskId?: string;

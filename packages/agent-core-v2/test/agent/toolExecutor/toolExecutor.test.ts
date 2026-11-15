@@ -18,6 +18,7 @@ import { SessionMediaStoreService } from '#/agent/media/sessionMediaStoreService
 import type { IAgentProfileService } from '#/agent/profile/profile';
 import type { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { makeAgentScopeContext, IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import type { IAgentTaskService } from '#/agent/task/task';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import {
   ToolCallStarted,
@@ -33,6 +34,7 @@ import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/
 import { ToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncationService';
 import { GlobTool } from '#/agent/tools/os/glob/globTool';
 import { ReadInputSchema, type ReadInput } from '#/agent/tools/os/read/read';
+import { WaitForTool } from '#/agent/tools/task/task-wait/taskWaitTool';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
@@ -71,7 +73,9 @@ import type { ToolCall } from '#human/llm/message';
 
 import { registerLogServices, stubLog } from '../../_base/log/stubs';
 import { stubBootstrap } from '../../app/bootstrap/stubs';
+import { stubFlag } from '../../app/flag/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
+import { stubGoal } from '../../features/goal/stubs';
 import { registerStateServices } from '../../state/stubs';
 import { registerTestAgentWireServices } from '../../wire/stubs';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
@@ -358,6 +362,28 @@ describe('AgentToolExecutorService', () => {
       calls: ['call_strict'],
       results: ['call_strict'],
     });
+  });
+
+  it('rejects a WaitFor timeout above 90 seconds before the tool body runs', async () => {
+    const tool = new WaitForTool(
+      { list: () => [] } as unknown as IAgentTaskService,
+      ix.get(ITelemetryService),
+      stubFlag(true),
+      stubGoal(),
+      makeAgentScopeContext({ agentId: 'main', agentScope: '' }),
+    );
+    registry.register(tool);
+    const resolveExecution = spyOn(tool, 'resolveExecution');
+
+    const results = await execute([toolCall('call_wait_over_cap', 'WaitFor', { timeout: 91 })]);
+
+    expect(results).toEqual([
+      expect.objectContaining({
+        output: 'Invalid args for tool "WaitFor": /timeout must be <= 90',
+        isError: true,
+      }),
+    ]);
+    expect(resolveExecution).not.toHaveBeenCalled();
   });
 
   it('lists valid Read parameter names when offset is used instead of line_offset', async () => {
