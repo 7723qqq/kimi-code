@@ -2438,15 +2438,15 @@ key = "${titleOAuthRef.key}"
       project.additional_dirs = [extraDir];
       await writeFile(projectsPath, JSON.stringify(projects), 'utf8');
       const reloadDirs = jest.spyOn(target.program.dirs, 'reload');
-      jest
-        .spyOn(target.program.instructions, 'reload')
-        .mockRejectedValueOnce(new Error('instructions reload failed'));
+      const instructionsReload = jest.spyOn(target.program.instructions, 'reload');
+      instructionsReload.mockRejectedValue(new Error('instructions reload failed'));
 
       const failure = await client
         .reloadSession({ sessionId: 'ses_dirs_reload_failure' })
         .catch((error: unknown) => error);
       expect(failure).toBeInstanceOf(Error);
       expect((failure as Error).message).toBe('instructions reload failed');
+      instructionsReload.mockRestore();
       expect(getLiveSessionById(client.engineAccessor, 'ses_dirs_reload_failure')).toBe(before);
       expect(reloadDirs).toHaveBeenCalledTimes(1);
       const reminders = beforeMain.accessor

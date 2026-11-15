@@ -187,6 +187,48 @@ describe('AgentProfileService.bind', () => {
     );
   });
 
+  it('preserves an explicit binding across a subagent allowlist refresh', async () => {
+    const persistence = new InMemoryWireRecordPersistence();
+    ctx = createTestAgent({ persistence }, hostEnvironmentServices(homeDir));
+    const svc = ctx.get(IAgentProfileService);
+
+    await svc.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: MOCK_MODEL });
+    const data = svc.data();
+    svc.applyBindingSnapshot({
+      modelAlias: data.modelAlias,
+      profileName: data.profileName,
+      thinkingLevel: 'off',
+      systemPrompt: data.systemPrompt,
+      agentsMdPaths: data.agentsMdPaths,
+      activeToolNames: ['Read'],
+      disallowedTools: data.disallowedTools,
+      subagents: data.subagents,
+    });
+    expect(svc.data().thinkingLevel).toBe('off');
+    expect(svc.data().activeToolNames).toEqual(['Read']);
+
+    ctx.get(IAgentProfileRegistry).register({
+      sourceId: 'workspace',
+      priority: 30,
+      contribution: {
+        profiles: [
+          normalizeAgentProfile({
+            name: 'code-reviewer',
+            description: 'Reviews code',
+            tools: ['Read'],
+            systemPrompt: () => 'reviewer',
+          }),
+        ],
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await ctx.get(IWireService).flush();
+
+    expect(svc.data().subagents).toEqual(['coder', 'explore', 'plan', 'code-reviewer']);
+    expect(svc.data().thinkingLevel).toBe('off');
+    expect(svc.data().activeToolNames).toEqual(['Read']);
+  });
+
   it('honors the explicit subagents of a discovered profile bound as main', async () => {
     const { profile: svc } = buildContext();
     ctx.get(IAgentProfileRegistry).register({
