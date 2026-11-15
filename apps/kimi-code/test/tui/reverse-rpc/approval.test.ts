@@ -210,7 +210,7 @@ describe('approval reverse-rpc', () => {
     ];
 
     expect(facts('tc-main')).toMatchObject({ start: 100, argsEnd: 400 });
-    expect(phaseAt(facts('tc-main'), instant(400))).toEqual({ kind: 'queued', since: 400 });
+    expect(phaseAt(facts('tc-main'), instant(400))).toEqual({ kind: 'queued', since: instant(400) });
     expect(facts('tc-unattributed')).toMatchObject({ start: 400, name: 'Bash', argsEnd: 400 });
     expect(facts('tc-child')).toBeUndefined();
     const responses = await Promise.all(approvals);

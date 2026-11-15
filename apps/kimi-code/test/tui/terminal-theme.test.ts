@@ -2,7 +2,9 @@ import { describe, expect, it, mock } from 'bun:test';
 
 import type { TUIState } from '#/tui/kimi-tui';
 import { getBuiltInPalette } from '#/tui/theme';
+import { colorDistance, mixColors } from '#/tui/theme/color-mix';
 import { darkColors, lightColors } from '#/tui/theme/colors';
+import { Theme } from '#/tui/theme/theme';
 import {
   DISABLE_TERMINAL_THEME_REPORTING,
   ENABLE_TERMINAL_THEME_REPORTING,
@@ -158,6 +160,27 @@ describe('terminal theme tracking', () => {
 
     expect(removeInputListener).toHaveBeenCalledTimes(1);
     expect(state.terminal.write).toHaveBeenCalledWith(DISABLE_TERMINAL_THEME_REPORTING);
+  });
+});
+
+describe('transcript group colors', () => {
+  it('mixes existing colors and measures their distance', () => {
+    expect(mixColors('#000000', '#FFFFFF', 0.45)).toBe('#737373');
+    expect(mixColors('#454545', '#FFFFFF', 0.35)).toBe('#868686');
+    expect(mixColors('#454545', '#FFFFFF', 0.65)).toBe('#bebebe');
+    expect(colorDistance('#888888', '#1E1E1E')).toBeCloseTo(183.60, 2);
+  });
+
+  it('uses the detected background and falls back from the palette family', () => {
+    const light = new Theme(lightColors, 'light');
+    expect(light.terminalBackground()).toBe('#FFFFFF');
+    light.setTerminalBackground('#FAFBFC');
+    expect(light.terminalBackground()).toBe('#FAFBFC');
+
+    const dark = new Theme(darkColors, 'dark');
+    expect(dark.terminalBackground()).toBe('#000000');
+    dark.setTerminalBackground('#1E1E1E');
+    expect(dark.terminalBackground()).toBe('#1E1E1E');
   });
 });
 

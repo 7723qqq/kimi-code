@@ -6,11 +6,11 @@ import {
   TRANSCRIPT_TAIL_THOUGHT_HOLD_MS,
 } from '#/tui/constant/rendering';
 
-export type Instant = number;
+export type Instant = number & { readonly __brand: 'Instant' };
 export type ToolCallId = string & { readonly __brand: 'ToolCallId' };
 export type Clock = () => Instant;
 
-function isInstant(ms: number): boolean {
+function isInstant(ms: number): ms is Instant {
   return Number.isFinite(ms);
 }
 

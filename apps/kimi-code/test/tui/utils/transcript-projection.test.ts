@@ -623,17 +623,17 @@ describe('turn timeline', () => {
     const read = timeline.call(callId('read'));
     const bash = timeline.call(callId('bash'));
     expect(read).toEqual({
-      start: 100,
+      start: instant(100),
       name: 'Read',
-      argsEnd: 400,
-      exec: 900,
-      settle: { kind: 'result', at: 1500 },
+      argsEnd: instant(400),
+      exec: instant(900),
+      settle: { kind: 'result', at: instant(1500) },
     });
-    expect(phaseAt(bash, instant(500))).toEqual({ kind: 'writing', since: 400 });
-    expect(phaseAt(bash, instant(800))).toEqual({ kind: 'queued', since: 700 });
-    expect(phaseAt(bash, instant(1200))).toEqual({ kind: 'executing', since: 1000 });
-    expect(phaseAt(read, instant(1400))).toEqual({ kind: 'executing', since: 900 });
-    expect(phaseAt(read, instant(1500))).toEqual({ kind: 'settled', settle: { kind: 'result', at: 1500 } });
+    expect(phaseAt(bash, instant(500))).toEqual({ kind: 'writing', since: instant(400) });
+    expect(phaseAt(bash, instant(800))).toEqual({ kind: 'queued', since: instant(700) });
+    expect(phaseAt(bash, instant(1200))).toEqual({ kind: 'executing', since: instant(1000) });
+    expect(phaseAt(read, instant(1400))).toEqual({ kind: 'executing', since: instant(900) });
+    expect(phaseAt(read, instant(1500))).toEqual({ kind: 'settled', settle: { kind: 'result', at: instant(1500) } });
     expect(phaseAt(timeline.call(callId('replayed')), instant(1500))).toEqual({ kind: 'history' });
   });
 
@@ -653,17 +653,17 @@ describe('turn timeline', () => {
     at(1100).callResult(callId('write'));
 
     expect(timeline.call(callId('read'))).toEqual({
-      start: 100,
+      start: instant(100),
       name: 'Read',
-      argsEnd: 200,
-      exec: 200,
-      settle: { kind: 'result', at: 400 },
+      argsEnd: instant(200),
+      exec: instant(200),
+      settle: { kind: 'result', at: instant(400) },
     });
     expect(timeline.call(callId('write'))).toEqual({
-      start: 800,
+      start: instant(800),
       name: 'Write',
-      argsEnd: 900,
-      settle: { kind: 'abandoned', at: 900 },
+      argsEnd: instant(900),
+      settle: { kind: 'abandoned', at: instant(900) },
     });
   });
 
@@ -691,18 +691,18 @@ describe('turn timeline', () => {
     const { timeline, at } = scriptedTimeline();
     at(0).turnStarted();
     at(300).turnStarted();
-    expect(timeline.turn()).toEqual({ kind: 'live', start: 0 });
+    expect(timeline.turn()).toEqual({ kind: 'live', start: instant(0) });
 
     at(400).thinkingDelta('plan');
     at(1000).turnEnded();
     at(1200).turnEnded();
-    expect(timeline.turn()).toEqual({ kind: 'ended', start: 0, end: 1000, endedAtMs: expect.any(Number), outcome: 'stopped' });
+    expect(timeline.turn()).toEqual({ kind: 'ended', start: instant(0), end: instant(1000), endedAtMs: expect.any(Number), outcome: 'stopped' });
     expect(timeline.latestThinking(instant(1200))).toMatchObject({ start: 400, end: 1000 });
     expect(turnLiveAt(timeline.turn(), instant(999))).toBe(true);
     expect(turnLiveAt(timeline.turn(), instant(1000))).toBe(false);
 
     at(1500).turnStarted();
-    expect(timeline.turn()).toEqual({ kind: 'live', start: 1500 });
+    expect(timeline.turn()).toEqual({ kind: 'live', start: instant(1500) });
     expect(timeline.latestThinking(instant(1500))).toBeUndefined();
 
     at(1600).callDelta(callId('read'), 'Read');
@@ -736,11 +736,11 @@ describe('turn timeline', () => {
     at(4000).turnEnded();
 
     expect([500, 1200, 1700, 2000, 3000, 4500].map((now) => timeline.waitingSince(instant(now)))).toEqual([
-      0,
+      instant(0),
       undefined,
       undefined,
       undefined,
-      2500,
+      instant(2500),
       undefined,
     ]);
   });
@@ -765,16 +765,16 @@ describe('turn timeline', () => {
   });
 
   it('changes the shown thinking text once 150 ms have passed since it last changed', () => {
-    const held = { text: 'He', since: 1000 };
+    const held = { text: 'He', since: instant(1000) };
     const shown = shownThinkingAt(undefined, 'He', instant(1000));
     expect(shown).toEqual(held);
     expect(shownThinkingAt(shown, 'Hello', instant(1149))).toEqual(held);
     expect(shownThinkingAt(shown, 'Hello', instant(990))).toEqual(held);
-    expect(shownThinkingAt(shown, 'Hello', instant(1150))).toEqual({ text: 'Hello', since: 1150 });
+    expect(shownThinkingAt(shown, 'Hello', instant(1150))).toEqual({ text: 'Hello', since: instant(1150) });
 
     const unchanged = shownThinkingAt(shown, 'He', instant(1400));
     expect(unchanged).toEqual(held);
-    expect(shownThinkingAt(unchanged, 'Hello', instant(1401))).toEqual({ text: 'Hello', since: 1401 });
+    expect(shownThinkingAt(unchanged, 'Hello', instant(1401))).toEqual({ text: 'Hello', since: instant(1401) });
   });
 
   it('keeps one slow-call timer across chained calls and restarts it after a break', () => {
@@ -790,14 +790,14 @@ describe('turn timeline', () => {
 
     expect([999, 1000, 2999, 3500, 5999, 6000, 7500].map((now) => slowSince(chained, instant(now)))).toEqual([
       undefined,
-      0,
-      0,
-      0,
-      0,
+      instant(0),
+      instant(0),
+      instant(0),
+      instant(0),
       undefined,
-      6500,
+      instant(6500),
     ]);
-    expect(slowSince(touching, instant(2000))).toBe(0);
+    expect(slowSince(touching, instant(2000))).toBe(instant(0));
     expect(slowAt(chained[0], instant(1000))).toBe(true);
     expect(slowAt(chained[0], instant(3000))).toBe(false);
   });
@@ -844,7 +844,7 @@ describe('turn timeline', () => {
     at(100).thinkingDelta('plan');
     script(at);
 
-    expect(timeline.thoughtHeldUntil(latestThought(timeline, instant(100)))).toBe(deadline);
+    expect(timeline.thoughtHeldUntil(latestThought(timeline, instant(100)))).toBe(instant(deadline));
   });
 
   it('holds no thought that is still being written or that belongs to an earlier turn', () => {
@@ -856,7 +856,7 @@ describe('turn timeline', () => {
 
     at(500).turnEnded();
     at(600).turnStarted();
-    expect(timeline.thoughtHeldUntil(thought)).toBe(500);
+    expect(timeline.thoughtHeldUntil(thought)).toBe(instant(500));
   });
 });
 
