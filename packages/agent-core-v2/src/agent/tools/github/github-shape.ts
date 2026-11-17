@@ -235,11 +235,11 @@ export function projectCheckRun(item: Json): Json {
 }
 
 export function projectTreeEntry(item: Json): Json {
+  const type = text(item['type']);
   return prune({
     path: text(item['path']),
-    type: text(item['type']),
-    size: num(item['size']),
-    sha: text(item['sha']),
+    type,
+    size: type === 'blob' ? num(item['size']) : undefined,
   });
 }
 
@@ -284,6 +284,27 @@ export function shapeArray(body: string, project: (item: Json) => Json, options:
   return projectItems(parsed, project, options);
 }
 
+export function shapeWrappedList(
+  body: string,
+  key: string,
+  project: (item: Json) => Json,
+  input: ShapeInput,
+): string | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return undefined;
+  }
+  const record = asRecord(parsed);
+  const items = record?.[key];
+  if (record === undefined || !Array.isArray(items)) return undefined;
+  return projectItems(items, project, {
+    total: num(record['total_count']),
+    nextPage: input.nextPage === true,
+  });
+}
+
 export function shapeSearch(body: string, project: (item: Json) => Json, input: ShapeInput): string | undefined {
   let parsed: unknown;
   try {
@@ -310,9 +331,15 @@ export function projectTreeListing(body: string): string | undefined {
   const tree = record?.['tree'];
   if (record === undefined || !Array.isArray(tree)) return undefined;
   const truncated = record['truncated'] === true;
-  const header = prune({ entries: tree.length, truncated: truncated ? true : undefined, sha: text(record['sha']) });
+  const limit = 3000;
+  const header = prune({
+    entries: tree.length,
+    shown: Math.min(limit, tree.length),
+    truncated: truncated || tree.length > limit ? true : undefined,
+    sha: text(record['sha']),
+  });
   const lines = [JSON.stringify(header)];
-  for (const entry of tree.slice(0, 20000)) {
+  for (const entry of tree.slice(0, limit)) {
     const item = asRecord(entry);
     if (item !== undefined) lines.push(JSON.stringify(projectTreeEntry(item)));
   }

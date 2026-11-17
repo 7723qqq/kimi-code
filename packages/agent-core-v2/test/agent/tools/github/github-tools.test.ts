@@ -21,8 +21,8 @@ import { getContributedFlags } from '#/app/flag/flagRegistry';
 import type { ExecutableToolContext } from '#/tool/toolContract';
 import { setGlobal, restoreGlobals } from '#test/helpers/stubs';
 
-const EXPECTED_TOOL_COUNT = 34;
-const EXPECTED_READONLY_COUNT = 22;
+const EXPECTED_TOOL_COUNT = 38;
+const EXPECTED_READONLY_COUNT = 26;
 const EXPECTED_MUTATING_COUNT = 12;
 
 function ctx(): ExecutableToolContext {
@@ -481,6 +481,87 @@ describe('GitHub response shaping', () => {
 
     expect(result.output).toContain('"binary":true');
     expect(result.output).toContain('contents not shown');
+  });
+
+  it('lists a repo tree as paths without per-entry shas', async () => {
+    const fetchImpl = mockFetch(
+      jsonResponse({
+        sha: 'tree-sha',
+        truncated: false,
+        tree: [
+          { path: 'src', type: 'tree', sha: 't1' },
+          { path: 'src/index.ts', type: 'blob', size: 120, sha: 'b1' },
+        ],
+      }),
+    );
+
+    const result = await run('GitHubGetRepoTree', { treeSha: 'main' });
+
+    expect(result.output.split('\n')[0]).toBe('{"entries":2,"shown":2,"sha":"tree-sha"}');
+    expect(result.output).toContain('{"path":"src","type":"tree"}');
+    expect(result.output).toContain('{"path":"src/index.ts","type":"blob","size":120}');
+    expect(result.output).not.toContain('b1');
+    const [url] = fetchImpl.mock.calls[0] as [string];
+    expect(url).toBe('https://api.github.com/repos/octo/hello/git/trees/main?recursive=1');
+  });
+
+  it('projects pull request commits', async () => {
+    mockFetch(
+      jsonResponse([
+        {
+          sha: 'abc123',
+          commit: {
+            message: 'fix: handle empty input\n\nBody text',
+            author: { name: 'Octo', date: '2026-01-01T00:00:00Z' },
+          },
+          html_url: 'https://github.com/octo/hello/commit/abc123',
+        },
+      ]),
+    );
+
+    const result = await run('GitHubListPRCommits', { pullNumber: 7 });
+
+    expect(result.output.split('\n')[0]).toBe('{"items":1}');
+    expect(result.output).toContain('"message":"fix: handle empty input"');
+    expect(result.output).toContain('"author":"Octo"');
+  });
+
+  it('projects check runs and workflow jobs from their wrapper objects', async () => {
+    mockFetch(
+      jsonResponse({
+        total_count: 1,
+        check_runs: [
+          {
+            name: 'ci',
+            status: 'completed',
+            conclusion: 'success',
+            started_at: '2026-01-01T00:00:00Z',
+            html_url: 'https://github.com/octo/hello/runs/1',
+          },
+        ],
+      }),
+    );
+    const checks = await run('GitHubGetCheckRuns', { ref: 'main' });
+    expect(checks.output.split('\n')[0]).toBe('{"items":1,"total":1}');
+    expect(checks.output).toContain('"conclusion":"success"');
+
+    mockFetch(
+      jsonResponse({
+        total_count: 1,
+        jobs: [
+          {
+            id: 9,
+            name: 'build',
+            status: 'completed',
+            conclusion: 'failure',
+            started_at: '2026-01-01T00:00:00Z',
+            html_url: 'https://github.com/octo/hello/runs/9',
+          },
+        ],
+      }),
+    );
+    const jobs = await run('GitHubListWorkflowRunJobs', { runId: 42 });
+    expect(jobs.output).toContain('{"id":9,"name":"build","status":"completed","conclusion":"failure"');
   });
 
   it('truncates an oversized diff instead of failing the call', async () => {

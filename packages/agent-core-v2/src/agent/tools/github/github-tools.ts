@@ -23,6 +23,7 @@ import type { GitHubToolSpec, IGitHubTool } from './github';
 import { githubRequest, type GitHubRequestOptions } from './github-request';
 import {
   projectBranch,
+  projectCheckRun,
   projectCodeSearch,
   projectComment,
   projectCommit,
@@ -36,10 +37,13 @@ import {
   projectPullFile,
   projectRelease,
   projectRepoSearch,
+  projectWorkflowJob,
   projectWorkflowRun,
+  projectTreeListing,
   shapeArray,
   shapeObject,
   shapeSearch,
+  shapeWrappedList,
 } from './github-shape';
 
 const owner = z.string().min(1).describe('Repository owner (user or organization login).');
@@ -666,6 +670,70 @@ const GITHUB_SPEC_BASE: GitHubToolSpec<any>[] = [
     subject: repoBase,
   },
   {
+    name: 'GitHubGetRepoTree',
+    description:
+      'List a repository tree recursively (paths, types, sizes, SHAs) without cloning it.',
+    schema: z.object({
+      owner,
+      repo,
+      treeSha: z
+        .string()
+        .min(1)
+        .describe('Tree SHA, branch name, or tag to list. Use GitHubGetRef to resolve a branch.'),
+      recursive: z.boolean().optional().describe('Descend into subdirectories (default true).'),
+    }),
+    method: 'GET',
+    path: (a) => `/repos/${a.owner}/${a.repo}/git/trees/${a.treeSha}`,
+    query: (a) => ({ recursive: a.recursive === false ? undefined : '1' }),
+    shape: ({ body }) => projectTreeListing(body),
+    subject: repoBase,
+  },
+  {
+    name: 'GitHubListPRCommits',
+    description: 'List the commits in a pull request.',
+    schema: z.object({
+      owner,
+      repo,
+      pullNumber: z.number().int().describe('Pull request number.'),
+      perPage,
+      page,
+    }),
+    method: 'GET',
+    path: (a) => `/repos/${a.owner}/${a.repo}/pulls/${String(a.pullNumber)}/commits`,
+    query: (a) => ({ per_page: a.perPage, page: a.page }),
+    subject: repoBase,
+  },
+  {
+    name: 'GitHubGetCheckRuns',
+    description: 'List CI check runs for a commit ref (status and conclusion per check).',
+    schema: z.object({
+      owner,
+      repo,
+      ref: z.string().min(1).describe('Commit SHA, branch, or tag.'),
+      perPage,
+      page,
+    }),
+    method: 'GET',
+    path: (a) => `/repos/${a.owner}/${a.repo}/commits/${a.ref}/check-runs`,
+    query: (a) => ({ per_page: a.perPage, page: a.page }),
+    subject: repoBase,
+  },
+  {
+    name: 'GitHubListWorkflowRunJobs',
+    description: 'List the jobs of a GitHub Actions workflow run.',
+    schema: z.object({
+      owner,
+      repo,
+      runId: z.number().int().describe('Workflow run id.'),
+      perPage,
+      page,
+    }),
+    method: 'GET',
+    path: (a) => `/repos/${a.owner}/${a.repo}/actions/runs/${String(a.runId)}/jobs`,
+    query: (a) => ({ per_page: a.perPage, page: a.page }),
+    subject: repoBase,
+  },
+  {
     name: 'GitHubGetWorkflowRun',
     description: 'Get a single GitHub Actions workflow run.',
     schema: z.object({ owner, repo, runId: z.number().int().describe('Workflow run id.') }),
@@ -725,6 +793,17 @@ const GITHUB_SPEC_EXTRAS: Readonly<Record<string, GitHubSpecExtra>> = {
   GitHubSearchCode: { shape: ({ body, nextPage }) => shapeSearch(body, projectCodeSearch, { body, nextPage }) },
   GitHubSearchRepos: { shape: ({ body, nextPage }) => shapeSearch(body, projectRepoSearch, { body, nextPage }) },
   GitHubSearchIssues: { shape: ({ body, nextPage }) => shapeSearch(body, projectIssueSearch, { body, nextPage }) },
+  GitHubListPRCommits: {
+    shape: ({ body, nextPage }) => shapeArray(body, projectCommit, { nextPage }),
+  },
+  GitHubGetCheckRuns: {
+    shape: ({ body, nextPage }) =>
+      shapeWrappedList(body, 'check_runs', projectCheckRun, { body, nextPage }),
+  },
+  GitHubListWorkflowRunJobs: {
+    shape: ({ body, nextPage }) =>
+      shapeWrappedList(body, 'jobs', projectWorkflowJob, { body, nextPage }),
+  },
   GitHubListWorkflowRuns: {
     shape: ({ body, nextPage }) => shapeArray(body, projectWorkflowRun, { nextPage }),
   },

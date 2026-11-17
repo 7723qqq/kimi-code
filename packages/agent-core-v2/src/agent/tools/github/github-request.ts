@@ -45,11 +45,12 @@ export function resetGitHubResponseCacheForTest(): void {
 }
 
 function cacheKeyFor(token: string, url: string, accept: string): string {
-  let hash = 5381;
+  let hash = 2_166_136_261;
   for (let index = 0; index < token.length; index += 1) {
-    hash = ((hash << 5) + hash + token.charCodeAt(index)) | 0;
+    hash ^= token.codePointAt(index) ?? 0;
+    hash = Math.imul(hash, 16_777_619);
   }
-  return `${String(hash)}\0${accept}\0${url}`;
+  return `${Math.abs(hash).toString(36)}\0${accept}\0${url}`;
 }
 
 function rememberEtag(key: string, response: Response, body: string, nextPage: boolean): void {
@@ -135,7 +136,11 @@ export async function githubRequest(
     GITHUB_REQUEST_TIMEOUT_MS,
   );
   const sleep =
-    deps.sleep ?? ((delayMs: number) => new Promise<void>((resolve) => setTimeout(resolve, delayMs)));
+    deps.sleep ??
+    ((delayMs: number) =>
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, delayMs);
+      }));
   try {
     init.signal = deadline.signal;
     let response: Response;
@@ -144,7 +149,7 @@ export async function githubRequest(
       if (shouldRetry(response)) {
         const delay = retryDelayMs(response);
         if (delay !== undefined) {
-          await response.body?.cancel().catch(() => undefined);
+          await response.body?.cancel().catch(() => {});
           await sleep(delay);
           response = await fetchImpl(url, init);
         }
