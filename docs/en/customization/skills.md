@@ -147,6 +147,22 @@ Please review the PR the user specified: $pr_ref
 
 Save this as `$KIMI_CODE_HOME/skills/review-pr/SKILL.md` (or `~/.kimi-code/skills/review-pr/SKILL.md` when `KIMI_CODE_HOME` is unset), place the checklist at `references/checklist.md` in the same directory, and after starting a new session you can invoke it with `/skill:review-pr #1234`, where `#1234` is expanded into `$pr_ref`.
 
+## Declaring how a skill proves it worked
+
+A skill that only describes a procedure has no way to say what "done" means. A `verify` entry in the frontmatter adds the commands that must pass before the work is reported, and they are appended to the skill when it is loaded:
+
+```yaml
+---
+name: release
+description: Cut a release from the current branch
+verify:
+  - pnpm test --filter release
+  - pnpm lint
+---
+```
+
+The check is the command itself. Re-reading the generated output is not accepted in its place, and a failing command means the task is not finished. `verify` accepts one command or a list of up to five.
+
 ## Keeping skills out of the model listing
 
 Every skill's name and description is injected into the system prompt, so a large collection is paid for on every request. `[skills] hiddenFromModel` in `config.toml` keeps skills out of that listing without editing their files — they stay callable with `/skill:<name>`:
@@ -156,7 +172,16 @@ Every skill's name and description is injected into the system prompt, so a larg
 hiddenFromModel = ["ai", "reverse-engineering", "game-*"]
 ```
 
-Names match case-insensitively; a trailing `*` matches a prefix. For a single skill, `disableModelInvocation: true` in its frontmatter does the same thing.
+Names match case-insensitively and `*` is a wildcard on either side: `genre-*` is a prefix, `*-style` a suffix, `*horror*` a substring. For a single skill, `disableModelInvocation: true` in its frontmatter does the same thing.
+
+`subSkills` collapses a family of skills behind one entry point without taking anything away. Matched skills leave the model listing but stay invocable by name, so a parent skill can list them and the agent pulls the one it needs:
+
+```toml
+[skills]
+subSkills = ["genre-*", "*-style", "blender-*"]
+```
+
+The difference from `hiddenFromModel`: a hidden skill can only be triggered by the user, a sub-skill can still be invoked by the model.
 
 ## Next steps
 

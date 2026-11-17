@@ -4,6 +4,7 @@ import {
   hiddenFromModelPatterns,
   isHiddenFromModel,
   SKILLS_SECTION,
+  subSkillPatterns,
 } from '#/features/skill/catalog/configSection';
 import { Emitter, type Event } from '#/_base/event';
 import { IBuiltinSkillSource } from '#/features/skill/catalog/builtinSkillSource';
@@ -155,15 +156,15 @@ export class WorkspaceSkillCatalogService extends Disposable implements IWorkspa
   private remerge(): void {
     const m = new InMemorySkillCatalog();
     const hidden = hiddenFromModelPatterns(this.config);
+    const bundled = subSkillPatterns(this.config);
+    const apply = <T extends SkillContribution['skills'][number]>(skill: T): T =>
+      bundledOf(visibilityOf(skill, hidden), bundled);
     const ordered = [...this.contributions.values()].toSorted((a, b) => a.priority - b.priority);
     for (const { c } of ordered) {
       for (const skill of c.skills) {
-        m.register(visibilityOf(skill, hidden), { replace: true });
+        m.register(apply(skill), { replace: true });
       }
-      m.registerVariants(
-        (c.variants ?? c.skills).map((skill) => visibilityOf(skill, hidden)),
-        { replace: true },
-      );
+      m.registerVariants((c.variants ?? c.skills).map(apply), { replace: true });
       m.addRoots(c.scannedRoots ?? []);
       m.recordSkipped(c.skipped ?? []);
     }
@@ -178,4 +179,13 @@ function visibilityOf<T extends SkillContribution['skills'][number]>(
   if (hidden.length === 0 || skill.metadata.disableModelInvocation === true) return skill;
   if (!isHiddenFromModel(skill.name, hidden)) return skill;
   return { ...skill, metadata: { ...skill.metadata, disableModelInvocation: true } };
+}
+
+function bundledOf<T extends SkillContribution['skills'][number]>(
+  skill: T,
+  bundled: readonly string[],
+): T {
+  if (bundled.length === 0 || skill.metadata.isSubSkill === true) return skill;
+  if (!isHiddenFromModel(skill.name, bundled)) return skill;
+  return { ...skill, metadata: { ...skill.metadata, isSubSkill: true } };
 }

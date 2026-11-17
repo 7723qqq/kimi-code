@@ -13,6 +13,7 @@ export const SKILLS_SECTION = 'skills';
 export const SkillsConfigSchema = z
   .object({
     hiddenFromModel: z.array(z.string()).optional(),
+    subSkills: z.array(z.string()).optional(),
   })
   .optional();
 export type SkillsConfig = z.infer<typeof SkillsConfigSchema>;
@@ -23,17 +24,19 @@ export function hiddenFromModelPatterns(config: IConfigService): readonly string
   return config.get<SkillsConfig>(SKILLS_SECTION)?.hiddenFromModel ?? [];
 }
 
+export function subSkillPatterns(config: IConfigService): readonly string[] {
+  return config.get<SkillsConfig>(SKILLS_SECTION)?.subSkills ?? [];
+}
+
 export function isHiddenFromModel(name: string, patterns: readonly string[]): boolean {
   const normalized = name.trim().toLowerCase();
   if (normalized.length === 0) return false;
   for (const raw of patterns) {
     const pattern = raw.trim().toLowerCase();
     if (pattern.length === 0) continue;
-    if (pattern.endsWith('*')) {
-      if (normalized.startsWith(pattern.slice(0, -1))) return true;
-      continue;
-    }
-    if (normalized === pattern) return true;
+    if (pattern === '*') return true;
+    const escaped = pattern.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&').replaceAll('\\*', '.*');
+    if (new RegExp(`^${escaped}$`).test(normalized)) return true;
   }
   return false;
 }

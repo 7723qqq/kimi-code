@@ -21,6 +21,7 @@ export interface SkillMetadata {
   readonly disableModelInvocation?: boolean | undefined;
   readonly isSubSkill?: boolean | undefined;
   readonly safe?: boolean | undefined;
+  readonly verify?: readonly string[] | undefined;
   readonly arguments?: readonly unknown[] | string | undefined;
   readonly [key: string]: unknown;
 }

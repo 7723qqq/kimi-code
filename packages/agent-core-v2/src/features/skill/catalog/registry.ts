@@ -100,14 +100,17 @@ export class InMemorySkillCatalog implements SkillCatalog {
       sessionId: context?.sessionId,
       argumentNames,
     });
+    const verification = renderVerification(skill);
     const plugin = skill.plugin;
-    if (plugin === undefined) return content;
+    if (plugin === undefined) return `${content}${verification}`;
     const instructions = plugin.instructions;
-    if (instructions === undefined || instructions.trim().length === 0) return content;
+    if (instructions === undefined || instructions.trim().length === 0) {
+      return `${content}${verification}`;
+    }
     return (
       `<plugin-instructions plugin="${escapeXmlAttr(plugin.id)}">\n` +
       `${instructions}\n` +
-      `</plugin-instructions>\n\n${content}`
+      `</plugin-instructions>\n\n${content}${verification}`
     );
   }
 
@@ -277,6 +280,17 @@ function formatModelSkill(skill: SkillDefinition): readonly string[] {
   }
   if (skill.workspaceDir !== undefined) lines.push(`  Workspace: ${skill.workspaceDir}`);
   return lines;
+}
+
+const VERIFY_GUIDANCE =
+  'Do not report this skill as complete until every command below has passed. ' +
+  'Running the commands is the check; reviewing your own output is not a substitute.';
+
+function renderVerification(skill: SkillDefinition): string {
+  const commands = skill.metadata.verify;
+  if (commands === undefined || commands.length === 0) return '';
+  const lines = commands.map((command) => `- \`${command.replaceAll('`', "'")}\``);
+  return `\n\n## Verification (required)\n\n${VERIFY_GUIDANCE}\n${lines.join('\n')}`;
 }
 
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });

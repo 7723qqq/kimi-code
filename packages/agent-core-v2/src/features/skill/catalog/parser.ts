@@ -48,7 +48,12 @@ const METADATA_ALIASES: Readonly<Record<string, string>> = {
   when_to_use: 'whenToUse',
   'disable-model-invocation': 'disableModelInvocation',
   disable_model_invocation: 'disableModelInvocation',
+  verification: 'verify',
+  'verify-command': 'verify',
 };
+
+const VERIFY_MAX_COMMANDS = 5;
+const VERIFY_MAX_COMMAND_CHARS = 500;
 
 export function parseSkillText(options: ParseSkillTextOptions): SkillDefinition {
   const isDirectorySkill = path.basename(options.skillMdPath) === 'SKILL.md';
@@ -137,7 +142,21 @@ function normalizeMetadata(raw: Record<string, unknown>): SkillMetadata {
   const description = nonEmptyString(out['description']);
   if (description !== undefined) out['description'] = description;
 
+  const verify = normalizeVerify(out['verify']);
+  if (verify === undefined) delete out['verify'];
+  else out['verify'] = verify;
+
   return out as SkillMetadata;
+}
+
+function normalizeVerify(value: unknown): readonly string[] | undefined {
+  const raw = typeof value === 'string' ? [value] : Array.isArray(value) ? value : [];
+  const commands = raw
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim().slice(0, VERIFY_MAX_COMMAND_CHARS))
+    .filter((item) => item.length > 0)
+    .slice(0, VERIFY_MAX_COMMANDS);
+  return commands.length === 0 ? undefined : commands;
 }
 
 function descriptionFromBody(body: string): string {

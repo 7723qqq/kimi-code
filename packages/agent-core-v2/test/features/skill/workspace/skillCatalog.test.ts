@@ -140,11 +140,13 @@ function configStub(): IConfigService & {
   setExtraSkillDirs(dirs: readonly string[]): void;
   setMergeAllAvailableSkills(value: boolean): void;
   setHiddenFromModel(names: readonly string[]): void;
+  setSubSkills(names: readonly string[]): void;
   fireSectionChange(domain: string): void;
 } {
   let extraSkillDirs: readonly string[] = [];
   let mergeAllAvailableSkills = true;
   let hiddenFromModel: readonly string[] = [];
+  let subSkills: readonly string[] = [];
   const sectionChangeListeners: Array<(event: unknown) => void> = [];
   return {
     _serviceBrand: undefined,
@@ -157,7 +159,9 @@ function configStub(): IConfigService & {
     get: (domain: string) => {
       if (domain === EXTRA_SKILL_DIRS_SECTION) return [...extraSkillDirs];
       if (domain === MERGE_ALL_AVAILABLE_SKILLS_SECTION) return mergeAllAvailableSkills;
-      if (domain === SKILLS_SECTION) return { hiddenFromModel: [...hiddenFromModel] };
+      if (domain === SKILLS_SECTION) {
+        return { hiddenFromModel: [...hiddenFromModel], subSkills: [...subSkills] };
+      }
       return undefined;
     },
     inspect: () => ({
@@ -180,6 +184,9 @@ function configStub(): IConfigService & {
     setHiddenFromModel: (names: readonly string[]) => {
       hiddenFromModel = [...names];
     },
+    setSubSkills: (names: readonly string[]) => {
+      subSkills = [...names];
+    },
     fireSectionChange: (domain: string) => {
       for (const listener of sectionChangeListeners) {
         listener({ domain, source: 'set', value: undefined, previousValue: undefined });
@@ -189,6 +196,7 @@ function configStub(): IConfigService & {
     setExtraSkillDirs(dirs: readonly string[]): void;
     setMergeAllAvailableSkills(value: boolean): void;
     setHiddenFromModel(names: readonly string[]): void;
+    setSubSkills(names: readonly string[]): void;
     fireSectionChange(domain: string): void;
   };
 }
@@ -395,6 +403,34 @@ describe('WorkspaceSkillCatalogService', () => {
         expect(listing).toContain('other');
         expect(listing).not.toContain('demo');
         expect(catalog.catalog.getSkill('demo')?.description).toBe('demo skill');
+      } finally {
+        host.dispose();
+      }
+    });
+  });
+
+  it('collapses a bundled skill out of the listing but keeps it invocable', async () => {
+    await withSkillCatalogWorkspace(async ({ workDir }) => {
+      await seedCatalogSkill(workDir, 'genre-rpg', 'rpg genre recipe');
+      await seedCatalogSkill(workDir, 'game-art', 'pick a game art skill');
+      const { host, workspace, config } = makeHost(
+        new FileSkillDiscovery(stubLog()),
+        workspaceContextStub(workDir),
+      );
+      config.setSubSkills(['genre-*']);
+
+      try {
+        const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
+        await catalog.load();
+
+        const listing = catalog.catalog.getModelSkillListing();
+        expect(listing).toContain('game-art');
+        expect(listing).not.toContain('genre-rpg');
+
+        const hidden = catalog.catalog.getSkill('genre-rpg');
+        expect(hidden?.description).toBe('rpg genre recipe');
+        expect(hidden?.metadata.isSubSkill).toBe(true);
+        expect(hidden?.metadata.disableModelInvocation).not.toBe(true);
       } finally {
         host.dispose();
       }
@@ -1690,10 +1726,15 @@ describe('WorkspaceSkillCatalogService', () => {
 });
 
 describe('isHiddenFromModel', () => {
-  it('matches exact names case-insensitively and a trailing wildcard as a prefix', () => {
+  it('matches exact names case-insensitively and wildcards in either position', () => {
     expect(isHiddenFromModel('Demo', ['demo'])).toBe(true);
     expect(isHiddenFromModel('demo-extra', ['demo'])).toBe(false);
     expect(isHiddenFromModel('demo-extra', ['demo*'])).toBe(true);
+    expect(isHiddenFromModel('extra-demo', ['*demo'])).toBe(true);
+    expect(isHiddenFromModel('mid-demo-part', ['*demo*'])).toBe(true);
+    expect(isHiddenFromModel('anime-style', ['*-style'])).toBe(true);
+    expect(isHiddenFromModel('typescript', ['*-style'])).toBe(false);
+    expect(isHiddenFromModel('anything', ['*'])).toBe(true);
     expect(isHiddenFromModel('other', ['demo', 'x*'])).toBe(false);
     expect(isHiddenFromModel('other', ['  ', ''])).toBe(false);
   });

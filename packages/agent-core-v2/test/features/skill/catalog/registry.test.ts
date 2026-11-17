@@ -207,6 +207,33 @@ describe('InMemorySkillCatalog model skill listing', () => {
 });
 
 describe('InMemorySkillCatalog prompt rendering', () => {
+  it('appends a required verification block when the skill declares one', () => {
+    const rendered = new InMemorySkillCatalog().renderSkillPrompt(
+      stubSkill('release', {
+        content: 'Ship it.',
+        metadata: { verify: ['pnpm test --filter release', 'pnpm lint'] },
+      }),
+      '',
+    );
+
+    expect(rendered).toBe(
+      'Ship it.\n\n## Verification (required)\n\n' +
+        'Do not report this skill as complete until every command below has passed. ' +
+        'Running the commands is the check; reviewing your own output is not a substitute.\n' +
+        '- `pnpm test --filter release`\n' +
+        '- `pnpm lint`',
+    );
+  });
+
+  it('leaves the prompt untouched when no verification is declared', () => {
+    const rendered = new InMemorySkillCatalog().renderSkillPrompt(
+      stubSkill('release', { content: 'Ship it.' }),
+      '',
+    );
+    expect(rendered).toBe('Ship it.');
+    expect(rendered).not.toContain('Verification');
+  });
+
   it('expands raw, positional, named, and context placeholders', () => {
     const rendered = new InMemorySkillCatalog().renderSkillPrompt(
       stubSkill('commit', {

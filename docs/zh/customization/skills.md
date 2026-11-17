@@ -147,6 +147,22 @@ arguments:
 
 将文件保存为 `$KIMI_CODE_HOME/skills/review-pr/SKILL.md`，未设置 `KIMI_CODE_HOME` 时为 `~/.kimi-code/skills/review-pr/SKILL.md`。检查清单放在同目录的 `references/checklist.md`。重开会话后即可调用，例如 `/skill:review-pr #1234`，其中的参数会展开到 `$pr_ref`。
 
+## 声明技能如何证明自己做完了
+
+只描述流程的技能没法说明"什么算做完"。frontmatter 里的 `verify` 会给出必须通过的命令，加载技能时一并附加进去：
+
+```yaml
+---
+name: release
+description: 从当前分支发版
+verify:
+  - pnpm test --filter release
+  - pnpm lint
+---
+```
+
+校验就是命令本身。重新读一遍生成的内容不能替代执行命令，命令失败就等于任务没做完。`verify` 接受单条命令，或最多五条命令的列表。
+
 ## 让技能不进入模型列表
 
 每个技能的名称和描述都会写进系统提示，技能多了就会在每次请求里重复付费。`config.toml` 的 `[skills] hiddenFromModel` 可以把技能挡在列表之外，不用改技能文件——它们仍然能用 `/skill:<name>` 调用：
@@ -156,7 +172,16 @@ arguments:
 hiddenFromModel = ["ai", "reverse-engineering", "game-*"]
 ```
 
-名称不区分大小写；结尾的 `*` 表示前缀匹配。单个技能也可以在 frontmatter 里写 `disableModelInvocation: true`，效果相同。
+名称不区分大小写，`*` 可以出现在任一侧：`genre-*` 是前缀，`*-style` 是后缀，`*horror*` 是子串。单个技能也可以在 frontmatter 里写 `disableModelInvocation: true`，效果相同。
+
+`subSkills` 把一族技能收在一个入口后面，但不剥夺任何能力。命中的技能不再出现在模型列表里，但仍然能按名字调用，于是父技能可以列出它们，由模型按需取出：
+
+```toml
+[skills]
+subSkills = ["genre-*", "*-style", "blender-*"]
+```
+
+与 `hiddenFromModel` 的区别：被隐藏的技能只能由用户触发，子技能仍可被模型调用。
 
 ## 下一步
 
