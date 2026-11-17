@@ -5,8 +5,10 @@ import type { FetchLike } from '#/_base/utils/fetchLike';
 import {
   createGitHubFetch,
   GITHUB_PROXY_DEFAULT_DOMAINS,
+  GITHUB_PROXY_DEFAULT_MIRROR_HOSTS,
   hostMatchesPattern,
   isGitHubHost,
+  isMirrorableDownload,
   planGitHubRoute,
   rewriteViaMirror,
   type GitHubProxySettings,
@@ -14,6 +16,7 @@ import {
 
 const DIRECT: GitHubProxySettings = {
   domains: GITHUB_PROXY_DEFAULT_DOMAINS,
+  mirrorHosts: GITHUB_PROXY_DEFAULT_MIRROR_HOSTS,
   fallback: true,
 };
 
@@ -76,6 +79,18 @@ describe('planGitHubRoute', () => {
     expect(planGitHubRoute('https://example.com/a', 'GET', DIRECT).via).toBe('direct');
   });
 
+  it('sends REST API reads to the proxy instead of the mirror', () => {
+    const settings: GitHubProxySettings = {
+      ...DIRECT,
+      mirror: 'https://mirror',
+      proxy: 'http://127.0.0.1:9',
+    };
+    expect(planGitHubRoute('https://api.github.com/repos/a/b/issues', 'GET', settings)).toEqual({
+      url: 'https://api.github.com/repos/a/b/issues',
+      via: 'proxy',
+    });
+  });
+
   it('mirrors readable GitHub downloads and falls back to the proxy for writes', () => {
     const settings: GitHubProxySettings = {
       ...DIRECT,
@@ -87,12 +102,36 @@ describe('planGitHubRoute', () => {
       via: 'mirror',
     });
     expect(planGitHubRoute('https://api.github.com/repos', 'POST', settings).via).toBe('proxy');
+    expect(planGitHubRoute('https://api.github.com/repos', 'GET', settings).via).toBe('proxy');
   });
 
   it('routes through the proxy when no mirror is configured', () => {
     const settings: GitHubProxySettings = { ...DIRECT, proxy: 'http://127.0.0.1:9' };
     const route = planGitHubRoute('https://api.github.com/user', 'GET', settings);
     expect(route).toEqual({ url: 'https://api.github.com/user', via: 'proxy' });
+  });
+});
+
+describe('isMirrorableDownload', () => {
+  it('never mirrors the REST API and only mirrors github.com download paths', () => {
+    expect(isMirrorableDownload(new URL('https://api.github.com/user'), GITHUB_PROXY_DEFAULT_MIRROR_HOSTS)).toBe(false);
+    expect(isMirrorableDownload(new URL('https://api.github.com/repos/a/b'), GITHUB_PROXY_DEFAULT_MIRROR_HOSTS)).toBe(false);
+    expect(isMirrorableDownload(new URL('https://github.com/a/b'), GITHUB_PROXY_DEFAULT_MIRROR_HOSTS)).toBe(false);
+    expect(
+      isMirrorableDownload(
+        new URL('https://github.com/a/b/releases/download/v1/x.zip'),
+        GITHUB_PROXY_DEFAULT_MIRROR_HOSTS,
+      ),
+    ).toBe(true);
+    expect(
+      isMirrorableDownload(new URL('https://raw.githubusercontent.com/a/b/main/c'), GITHUB_PROXY_DEFAULT_MIRROR_HOSTS),
+    ).toBe(true);
+    expect(
+      isMirrorableDownload(new URL('https://objects.githubusercontent.com/x'), GITHUB_PROXY_DEFAULT_MIRROR_HOSTS),
+    ).toBe(true);
+    expect(
+      isMirrorableDownload(new URL('https://codeload.github.com/a/b/tar.gz/main'), GITHUB_PROXY_DEFAULT_MIRROR_HOSTS),
+    ).toBe(true);
   });
 });
 
@@ -113,6 +152,16 @@ describe('createGitHubFetch', () => {
     await fetch('https://raw.githubusercontent.com/a/b/main/c', { method: 'GET' });
 
     expect(calls[0]?.url).toBe('https://mirror/https://raw.githubusercontent.com/a/b/main/c');
+  });
+
+  it('keeps REST API reads off the mirror', async () => {
+    const { fetchImpl, calls } = recordingFetch();
+    const fetch = createGitHubFetch({ ...DIRECT, mirror: 'https://mirror' }, { fetchImpl });
+
+    await fetch('https://api.github.com/repos/a/b/issues', { method: 'GET' });
+
+    expect(calls[0]?.url).toBe('https://api.github.com/repos/a/b/issues');
+    expect(calls[0]?.hasDispatcher).toBe(false);
   });
 
   it('never mirrors a write', async () => {
@@ -175,6 +224,7 @@ describe('proxy routing over a real socket', () => {
       const fetch = createGitHubFetch({
         proxy: `http://127.0.0.1:${String(port)}`,
         domains: ['gh.test'],
+        mirrorHosts: GITHUB_PROXY_DEFAULT_MIRROR_HOSTS,
         fallback: true,
       });
 
@@ -206,6 +256,7 @@ describe('proxy routing over a real socket', () => {
       const fetch = createGitHubFetch({
         proxy: `http://127.0.0.1:${String(proxyPort)}`,
         domains: ['gh.test'],
+        mirrorHosts: GITHUB_PROXY_DEFAULT_MIRROR_HOSTS,
         fallback: true,
       });
 

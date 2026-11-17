@@ -1,3 +1,7 @@
+import {
+  sandboxToolVeto,
+  type SandboxExecutionPolicy,
+} from '#/workspace/sandbox/sandbox';
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 
 import { getAgentToolContributions } from '#/agent/toolRegistry/toolContribution';
@@ -18,7 +22,7 @@ import {
 import type { IConfigService } from '#/app/config/config';
 import { getConfigSectionContributions } from '#/app/config/configSectionContributions';
 import { getContributedFlags } from '#/app/flag/flagRegistry';
-import type { ExecutableToolContext } from '#/tool/toolContract';
+import { ToolAccesses, type ExecutableToolContext } from '#/tool/toolContract';
 import { setGlobal, restoreGlobals } from '#test/helpers/stubs';
 
 const EXPECTED_TOOL_COUNT = 38;
@@ -119,6 +123,23 @@ describe('GitHub tool table', () => {
     }
     expect(makeTool('GitHubGetRepo').sideEffect).toBe('read');
     expect(makeTool('GitHubMergePR').sideEffect).toBe('write');
+  });
+
+  it('lets read-only GitHub tools through a read-only sandbox and vetoes mutations', () => {
+    const policy = { mode: 'read-only' } as SandboxExecutionPolicy;
+    const getter = makeTool('GitHubGetRepo');
+    const merger = makeTool('GitHubMergePR');
+    const lister = makeTool('GitHubListIssues');
+
+    expect(
+      sandboxToolVeto(policy, getter.name, getter.sideEffect, ToolAccesses.none()),
+    ).toBeUndefined();
+    expect(
+      sandboxToolVeto(policy, lister.name, lister.sideEffect, ToolAccesses.none()),
+    ).toBeUndefined();
+    expect(
+      sandboxToolVeto(policy, merger.name, merger.sideEffect, ToolAccesses.none()),
+    ).toBeString();
   });
 
   it('gates activation on an available GitHub token', () => {

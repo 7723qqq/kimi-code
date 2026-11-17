@@ -3,7 +3,10 @@ import { z } from 'zod';
 import type { IConfigService } from '#/app/config/config';
 import { registerConfigSection } from '#/app/config/configSectionContributions';
 
-import { GITHUB_PROXY_DEFAULT_DOMAINS } from './github-proxy';
+import {
+  GITHUB_PROXY_DEFAULT_DOMAINS,
+  GITHUB_PROXY_DEFAULT_MIRROR_HOSTS,
+} from './github-proxy';
 
 export const GITHUB_SECTION = 'github';
 
@@ -54,6 +57,10 @@ export const GitHubProxyConfigSchema = z
       .array(z.string())
       .optional()
       .describe('Host patterns treated as GitHub traffic. `*.example.com` matches subdomains only.'),
+    mirrorHosts: z
+      .array(z.string())
+      .optional()
+      .describe('Host patterns eligible for mirror rewriting. Defaults to GitHub download hosts only.'),
     fallback: z
       .boolean()
       .optional()
@@ -69,14 +76,19 @@ export function resolveGitHubProxyConfig(config: IConfigService): {
   readonly proxy: string | undefined;
   readonly mirror: string | undefined;
   readonly domains: readonly string[];
+  readonly mirrorHosts: readonly string[];
   readonly fallback: boolean;
 } {
   const raw = config.get<GitHubProxyConfig>(GITHUB_PROXY_SECTION);
-  const domains = (raw?.domains ?? []).filter((domain) => domain.trim().length > 0);
+  const cleaned = (values: readonly string[] | undefined): readonly string[] =>
+    (values ?? []).filter((value) => value.trim().length > 0);
+  const domains = cleaned(raw?.domains);
+  const mirrorHosts = cleaned(raw?.mirrorHosts);
   return {
     proxy: nonEmpty(raw?.proxy),
     mirror: nonEmpty(raw?.mirror),
     domains: domains.length > 0 ? domains : GITHUB_PROXY_DEFAULT_DOMAINS,
+    mirrorHosts: mirrorHosts.length > 0 ? mirrorHosts : GITHUB_PROXY_DEFAULT_MIRROR_HOSTS,
     fallback: raw?.fallback !== false,
   };
 }
