@@ -439,3 +439,106 @@ export function startMockUpstream(initial: MockScenario = DEFAULT_SCENARIO): Moc
     },
   };
 }
+
+export interface MockFilesApiRequest {
+  readonly at: number;
+  readonly method: string;
+  readonly path: string;
+  readonly authorization: string | undefined;
+  readonly contentType: string | undefined;
+  readonly bytes: number;
+  readonly purpose: string | undefined;
+  readonly filename: string | undefined;
+  readonly partType: string | undefined;
+}
+
+export interface MockFilesApiResponse {
+  readonly status?: number;
+  readonly body: unknown;
+  readonly headers?: Record<string, string>;
+}
+
+export interface MockFilesApi {
+  readonly baseUrl: string;
+  readonly requests: MockFilesApiRequest[];
+  respond(next: MockFilesApiResponse | readonly MockFilesApiResponse[]): void;
+  close(): Promise<void>;
+}
+
+const DEFAULT_FILE_RESPONSE: MockFilesApiResponse = {
+  body: { id: 'file_mock', status: 'ready', extract_status: 'ready' },
+};
+
+function readMultipartField(body: string, name: string): string | undefined {
+  const match = new RegExp(`name="${name}"\\r?\\n\\r?\\n([^\\r\\n]+)`).exec(body);
+  return match?.[1];
+}
+
+function readMultipartFilename(body: string): string | undefined {
+  return /filename="([^"]+)"/.exec(body)?.[1];
+}
+
+function readMultipartPartType(body: string): string | undefined {
+  const marker = 'Content-Type:';
+  const start = body.indexOf(marker);
+  if (start < 0) return undefined;
+  const rest = body.slice(start + marker.length);
+  let end = 0;
+  while (end < rest.length) {
+    const code = rest.codePointAt(end);
+    if (code === 13 || code === 10) break;
+    end += 1;
+  }
+  const value = rest.slice(0, end).trim();
+  return value.length > 0 ? value : undefined;
+}
+
+export function startMockFilesApi(
+  initial: MockFilesApiResponse | readonly MockFilesApiResponse[] = DEFAULT_FILE_RESPONSE,
+): MockFilesApi {
+  const queue: MockFilesApiResponse[] = Array.isArray(initial) ? [...initial] : [initial as MockFilesApiResponse];
+  const requests: MockFilesApiRequest[] = [];
+  const startedAt = performance.now();
+
+  const server = Bun.serve({
+    port: 0,
+    hostname: '127.0.0.1',
+    idleTimeout: 0,
+    fetch: async (request) => {
+      const raw = new Uint8Array(await request.arrayBuffer());
+      const text = new TextDecoder().decode(raw);
+      requests.push({
+        at: performance.now() - startedAt,
+        method: request.method,
+        path: new URL(request.url).pathname,
+        authorization: request.headers.get('authorization') ?? undefined,
+        contentType: request.headers.get('content-type') ?? undefined,
+        bytes: raw.byteLength,
+        purpose: readMultipartField(text, 'purpose'),
+        filename: readMultipartFilename(text),
+        partType: readMultipartPartType(text),
+      });
+      const next = queue.length > 1 ? queue.shift()! : queue[0]!;
+      return new Response(JSON.stringify(next.body), {
+        status: next.status ?? 200,
+        headers: { 'content-type': 'application/json', ...next.headers },
+      });
+    },
+  });
+
+  const port = server.port;
+  if (port === undefined) throw new Error('mock files api failed to bind a port');
+
+  return {
+    baseUrl: `http://127.0.0.1:${port}/v1`,
+    requests,
+    respond(next) {
+      queue.length = 0;
+      if (Array.isArray(next)) queue.push(...next);
+      else queue.push(next as MockFilesApiResponse);
+    },
+    async close() {
+      await server.stop(true);
+    },
+  };
+}

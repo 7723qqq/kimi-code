@@ -46,6 +46,7 @@ import {
 import type { LlmClientContext, LlmRequester, LlmRequestEvent } from '#/llm/requester/requester';
 import type { TokenUsage } from '#/llm/usage';
 
+import { startMockFilesApi } from '../../../../test/helpers/mockUpstream';
 import { setEnv, restoreEnvs } from '../../../../test/helpers/stubs';
 
 const model: LlmModel = {
@@ -463,6 +464,72 @@ describe('media', () => {
         imageUrl: { url: 'ms://img-ready', id: 'img-ready' },
       });
     });
+  });
+
+  describe('kimi file upload over a real socket', () => {
+    it('sends the bytes as multipart with purpose, filename and auth', async () => {
+      const api = startMockFilesApi();
+      try {
+        const files = new KimiFiles({ apiKey: 'sk-test', baseUrl: api.baseUrl });
+        const image = await files.uploadImage({
+          data: new Uint8Array([1, 2, 3]),
+          mimeType: 'image/png',
+          filename: 'shot.png',
+        });
+        expect(image).toEqual({
+          type: 'image_url',
+          imageUrl: { url: 'ms://file_mock', id: 'file_mock' },
+        });
+        const video = await files.uploadVideo({ data: new Uint8Array([4]), mimeType: 'video/mp4' });
+        expect(video).toMatchObject({ type: 'video_url', videoUrl: { id: 'file_mock' } });
+        expect(
+          api.requests.map((request) => ({
+            method: request.method,
+            path: request.path,
+            purpose: request.purpose,
+            filename: request.filename,
+            type: request.partType,
+            auth: request.authorization,
+          })),
+        ).toEqual([
+          {
+            method: 'POST',
+            path: '/v1/files',
+            purpose: 'image',
+            filename: 'shot.png',
+            type: 'image/png',
+            auth: 'Bearer sk-test',
+          },
+          {
+            method: 'POST',
+            path: '/v1/files',
+            purpose: 'video',
+            filename: 'upload.mp4',
+            type: 'video/mp4',
+            auth: 'Bearer sk-test',
+          },
+        ]);
+        expect(api.requests.every((request) => request.bytes > 0)).toBe(true);
+      } finally {
+        await api.close();
+      }
+    }, 10_000);
+
+    it('retries a 5xx up to the client default and then surfaces the failure', async () => {
+      const api = startMockFilesApi({
+        status: 500,
+        body: { error: { message: 'upstream down' } },
+      });
+      try {
+        const files = new KimiFiles({ apiKey: 'sk-test', baseUrl: api.baseUrl });
+        await expect(
+          files.uploadImage({ data: new Uint8Array([1]), mimeType: 'image/png' }),
+        ).rejects.toThrow(/500/);
+        expect(api.requests).toHaveLength(3);
+      } finally {
+        await api.close();
+      }
+    }, 10_000);
   });
 
   it('restores the stripped /v1 for anthropic-routed kimi models', () => {
