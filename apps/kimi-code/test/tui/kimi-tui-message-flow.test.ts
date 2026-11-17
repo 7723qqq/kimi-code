@@ -9731,6 +9731,95 @@ capabilities = ["image_in", "video_in"]
     expect(clock.activeTimers).toBe(0);
   });
 
+  it('renders an answer that arrives faster than one flush exactly once', async () => {
+    const clock = createFakeClock(1_000);
+    const { driver } = await makeDriver();
+    useStreamingClock(driver, clock);
+
+    for (const delta of ['ins', 'tant', ' answer']) {
+      driver.sessionEventHandler.handleEvent(
+        {
+          type: 'assistant.delta',
+          agentId: 'main',
+          sessionId: 'ses-1',
+          turnId: 1,
+          delta,
+        } as Event,
+        mock(),
+      );
+    }
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'turn.ended',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        turnId: 1,
+        reason: 'completed',
+      } as Event,
+      mock(),
+    );
+
+    const transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).toContain('instant answer');
+    expect(transcript.split('instant answer')).toHaveLength(2);
+    expect(driver.streamingUI.getStreamingBlockComponent()).toBeUndefined();
+    expect(clock.activeTimers).toBe(0);
+
+    await advanceClockAsync(clock, 0);
+
+    expect(stripSgr(renderTranscript(driver)).split('instant answer')).toHaveLength(2);
+  });
+
+  it('keeps a tool card intact when its result beats the preview flush', async () => {
+    const clock = createFakeClock(1_000);
+    const { driver } = await makeDriver();
+    useStreamingClock(driver, clock);
+    driver.streamingUI.setTurnId('1');
+    driver.streamingUI.setStep(1);
+
+    for (const event of [
+      {
+        type: 'tool.call.delta',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        turnId: 1,
+        toolCallId: 'call_fast',
+        name: 'Read',
+        argumentsPart: '{"file_path":"a.ts"}',
+      },
+      {
+        type: 'tool.call.started',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        turnId: 1,
+        toolCallId: 'call_fast',
+        name: 'Read',
+        args: { file_path: 'a.ts' },
+      },
+      {
+        type: 'tool.result',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        turnId: 1,
+        toolCallId: 'call_fast',
+        output: 'file body',
+        isError: undefined,
+      },
+    ]) {
+      driver.sessionEventHandler.handleEvent(event as Event, mock());
+    }
+
+    const before = stripSgr(renderTranscript(driver));
+    expect(before).toContain('Used Read (a.ts)');
+
+    await advanceClockAsync(clock, 60);
+
+    const after = stripSgr(renderTranscript(driver));
+    expect(after).toContain('Used Read (a.ts)');
+    expect(after.split('Used Read (a.ts)')).toHaveLength(2);
+    expect(after).not.toContain('Using Read');
+  });
+
   it('coalesces streaming tool-call argument preview updates', async () => {
     const clock = createFakeClock(1_000);
     const { driver } = await makeDriver();
