@@ -287,8 +287,12 @@ describe('githubRequest', () => {
     const fetchImpl = mock().mockRejectedValue(new DOMException('aborted', 'AbortError'));
     controller.abort();
 
-    await expect(
-      githubRequest('GET', '/user', { token: TOKEN }, { fetchImpl, signal: controller.signal }),
-    ).rejects.toThrow();
+    let threw = false;
+    try {
+      await githubRequest('GET', '/user', { token: TOKEN }, { fetchImpl, signal: controller.signal });
+    } catch {
+      threw = true;
+    }
+    expect(threw).toBe(true);
   });
 });

@@ -129,6 +129,7 @@ timeout = 5
 | [`experimental`](#experimental) | `table` | — | 实验功能 flag 的持久化覆盖 |
 | [`services`](#services) | `table` | — | 内置外部服务配置 |
 | [`github`](#github) | `table` | — | 内置 GitHub 工具 |
+| [`github_proxy`](#github_proxy) | `table` | — | 只对 GitHub 流量生效的代理与镜像加速 |
 | [`permission`](#permission) | `table` | — | 初始权限规则 |
 | [`environments`](#environments) | `table` | — | 远程环境声明 |
 | [`hooks`](../customization/hooks.md) | `array<table>` | — | 生命周期 hook |
@@ -711,6 +712,26 @@ base_url = "https://github.example.com/api/v3" # 可选 —— GitHub 企业版�
 token 是在工具激活时读取的，不是只在启动时读一次：在这里补上 `token`（或导出 `GITHUB_TOKEN`）之后，正在运行的那一轮的下一步就能用上这些工具，不需要重启。反过来撤掉 token，不会从已经激活这些工具的 Agent 手里收回它们——要彻底收回，请新开一个会话。
 
 工具清单和审批规则见[内置工具](../reference/tools.md#github)。
+
+## `github_proxy`
+
+只对 GitHub 流量提速，不干扰其余网络。两个独立的开关，作用域都限定在 GitHub 域名：
+
+```toml
+[github_proxy]
+proxy = "http://127.0.0.1:7890"        # HTTP(S) 或 SOCKS 代理，只作用于 GitHub 域名
+mirror = "https://gh.example.com"      # 把 GitHub 下载改写到镜像
+domains = ["github.com", "*.github.com", "githubusercontent.com", "*.githubusercontent.com"]
+fallback = true                        # 加速链路失败时回退直连原始 URL
+```
+
+`mirror` 只作用于 `GET`/`HEAD`，遵循 gh-proxy 约定——`https://mirror/<原始URL>`——于是 raw 下载变成 `https://mirror/https://raw.githubusercontent.com/...`。写操作永不改写；若同时配置了 `proxy`，写操作走代理。
+
+`proxy` 接受 `http://`、`https://` 与 `socks4://`/`socks5://`。只对 `domains` 里列出的域名生效（`*.example.com` 只匹配子域，不匹配主域），其余流量一律直连，慢代理拖不慢其它请求。
+
+`fallback` 默认为 `true`：代理或镜像在网络层失败时，用原始 URL 无加速重试一次。`404` 这类 HTTP 错误会原样返回，不重试。
+
+覆盖的是 kimi-code 自己发出的请求——GitHub 工具以及它抓取的 GitHub URL。如果还要加速 shell 工具里的 `git clone`/`git push`，请让 git 也指向同一个代理：`git config --global http.https://github.com.proxy http://127.0.0.1:7890`。
 
 ## `permission`
 

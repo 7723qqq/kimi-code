@@ -18,9 +18,15 @@ import {
   type ToolSideEffect,
 } from '#/tool/toolContract';
 
-import { hasGitHubToken, resolveGitHubBaseUrl, resolveGitHubToken } from './configSection';
+import {
+  hasGitHubToken,
+  resolveGitHubBaseUrl,
+  resolveGitHubProxyConfig,
+  resolveGitHubToken,
+} from './configSection';
 import type { GitHubToolSpec, IGitHubTool } from './github';
 import { githubRequest, type GitHubRequestOptions } from './github-request';
+import { createGitHubFetch, type GitHubProxySettings } from './github-proxy';
 import {
   projectBranch,
   projectCheckRun,
@@ -95,6 +101,23 @@ export abstract class GitHubToolBase implements IGitHubTool {
     };
   }
 
+  private routedCache: { key: string; impl: ReturnType<typeof createGitHubFetch> } | undefined;
+
+  private routedFetch(): ReturnType<typeof createGitHubFetch> {
+    const settings: GitHubProxySettings = resolveGitHubProxyConfig(this.deps.config);
+    const key = [
+      settings.proxy ?? '',
+      settings.mirror ?? '',
+      String(settings.fallback),
+      settings.domains.join(','),
+    ].join('|');
+    const cached = this.routedCache;
+    if (cached !== undefined && cached.key === key) return cached.impl;
+    const impl = createGitHubFetch(settings);
+    this.routedCache = { key, impl };
+    return impl;
+  }
+
   private async execute(
     spec: GitHubToolSpec,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -115,7 +138,7 @@ export abstract class GitHubToolBase implements IGitHubTool {
     };
 
     const res = await githubRequest(spec.method, spec.path(args), options, {
-      fetchImpl: this.deps.fetchImpl,
+      fetchImpl: this.deps.fetchImpl ?? this.routedFetch(),
       signal: ctx.signal,
     });
     if (!res.ok) {

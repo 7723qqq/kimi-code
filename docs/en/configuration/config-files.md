@@ -129,6 +129,7 @@ Fields in the config file fall into two categories: **top-level scalars** that d
 | [`experimental`](#experimental) | `table` | — | Persistent overrides for experimental-feature flags |
 | [`services`](#services) | `table` | — | Built-in external service configuration |
 | [`github`](#github) | `table` | — | Built-in GitHub tools |
+| [`github_proxy`](#github_proxy) | `table` | — | Proxy and mirror acceleration scoped to GitHub traffic |
 | [`permission`](#permission) | `table` | — | Initial permission rules |
 | [`environments`](#environments) | `table` | — | Remote environment declarations |
 | [`hooks`](../customization/hooks.md) | `array<table>` | — | Lifecycle hooks |
@@ -711,6 +712,27 @@ A value written here always wins over the environment: `GITHUB_TOKEN`, `GH_TOKEN
 The token is read when the tools activate, not only at startup: adding `token` here (or exporting `GITHUB_TOKEN`) makes the tools available from the next step of a running turn, with no restart. Removing it does not take tools away from an agent that already activated them — start a new session for that.
 
 For the tool list itself and which entries need approval, see [Built-in Tools](../reference/tools.md#github).
+
+## `github_proxy`
+
+Route GitHub traffic faster without touching the rest of the network. Two independent levers, both scoped to GitHub hosts only:
+
+```toml
+[github_proxy]
+proxy = "http://127.0.0.1:7890"        # HTTP(S) or SOCKS proxy, applied only to GitHub hosts
+mirror = "https://gh.example.com"      # rewrite GitHub downloads through a mirror
+domains = ["github.com", "*.github.com", "githubusercontent.com", "*.githubusercontent.com"]
+fallback = true                        # retry the original URL directly when the route fails
+```
+
+`mirror` applies to `GET`/`HEAD` only and follows the gh-proxy convention — `https://mirror/<original-url>` — so a raw download becomes `https://mirror/https://raw.githubusercontent.com/...`. Writes are never mirrored; with a `proxy` set they go through the proxy instead.
+
+`proxy` accepts `http://`, `https://` and `socks4://`/`socks5://` URLs. It is used only for hosts listed in `domains` (`*.example.com` matches subdomains, not the apex). Everything else connects directly, so a slow proxy cannot degrade unrelated traffic.
+
+`fallback` defaults to `true`: if the proxy or mirror fails at the network level, the request is retried against the original URL with no acceleration. HTTP errors such as `404` are returned as-is and are not retried.
+
+This covers requests kimi-code makes itself — the GitHub tools and any GitHub URL it fetches. To accelerate `git clone`/`git push` in a shell tool as well, point git at the same proxy with `git config --global http.https://github.com.proxy http://127.0.0.1:7890`.
+
 
 ## `permission`
 
