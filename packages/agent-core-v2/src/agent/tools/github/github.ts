@@ -16,6 +16,12 @@ export interface GitHubToolSpec<Input extends z.ZodTypeAny = z.ZodTypeAny> {
   readonly body?: (args: z.infer<Input>) => unknown;
   readonly accept?: string;
   readonly mutating?: boolean;
+  readonly maxBytes?: number;
+  readonly shape?: (
+    response: { readonly body: string; readonly nextPage?: boolean },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    args: any,
+  ) => string | undefined;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly subject: (args: z.infer<Input>) => string;
 }

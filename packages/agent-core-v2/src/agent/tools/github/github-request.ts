@@ -17,6 +17,7 @@ export interface GitHubRequestOptions {
   readonly accept?: string;
   readonly token?: string;
   readonly baseUrl?: string;
+  readonly maxBytes?: number;
 }
 
 export interface GitHubRequestDeps {
@@ -30,6 +31,9 @@ export interface GitHubRequestResult {
   readonly body: string;
   readonly error?: string;
   readonly rateRemaining?: number;
+  readonly nextPage?: boolean;
+  readonly etag?: string;
+  readonly truncatedBytes?: number;
 }
 
 export async function githubRequest(
@@ -81,16 +85,13 @@ export async function githubRequest(
       throw error;
     }
     const rateRemaining = parseRateLimitRemaining(response.headers.get('x-ratelimit-remaining'));
-    const bodyText = await readResponseBody(response, GITHUB_MAX_RESPONSE_BODY_BYTES);
-    if (bodyText === undefined) {
-      return {
-        status: response.status,
-        ok: false,
-        body: '',
-        error: `GitHub API response exceeds the ${String(GITHUB_MAX_RESPONSE_BODY_BYTES)} byte limit`,
-        rateRemaining,
-      };
-    }
+    const nextPage = parseNextPage(response.headers.get('link'));
+    const rawBody = await readResponseBody(
+      response,
+      Math.min(options.maxBytes ?? GITHUB_MAX_RESPONSE_BODY_BYTES, GITHUB_MAX_RESPONSE_BODY_BYTES),
+    );
+    const bodyText = rawBody.text;
+    const truncatedBytes = rawBody.truncatedBytes;
     if (!response.ok) {
       return {
         status: response.status,
@@ -98,9 +99,18 @@ export async function githubRequest(
         body: bodyText,
         error: `GitHub API error ${String(response.status)}`,
         rateRemaining,
+        ...(nextPage ? { nextPage } : {}),
+        ...(truncatedBytes > 0 ? { truncatedBytes } : {}),
       };
     }
-    return { status: response.status, ok: true, body: bodyText, rateRemaining };
+    return {
+      status: response.status,
+      ok: true,
+      body: bodyText,
+      rateRemaining,
+      ...(nextPage ? { nextPage } : {}),
+      ...(truncatedBytes > 0 ? { truncatedBytes } : {}),
+    };
   } catch (error) {
     if (deps.signal !== undefined && deps.signal.aborted) throw error;
     return {
@@ -144,22 +154,37 @@ function parseRateLimitRemaining(raw: string | null): number | undefined {
   return Number.isInteger(parsed) ? parsed : undefined;
 }
 
-async function readResponseBody(response: Response, maxBytes: number): Promise<string | undefined> {
-  const contentLength = response.headers.get('content-length');
-  if (contentLength !== null && Number(contentLength) > maxBytes) return undefined;
-  if (response.body === null) return '';
+async function readResponseBody(
+  response: Response,
+  maxBytes: number,
+): Promise<{ readonly text: string; readonly truncatedBytes: number }> {
+  if (response.body === null) return { text: '', truncatedBytes: 0 };
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let received = 0;
+  let truncatedBytes = 0;
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
-    received += value.byteLength;
-    if (received > maxBytes) {
+    const remaining = maxBytes - received;
+    if (value.byteLength > remaining) {
+      if (remaining > 0) {
+        chunks.push(value.subarray(0, remaining));
+        received += remaining;
+      }
+      truncatedBytes += value.byteLength - Math.max(0, remaining);
       await reader.cancel();
-      return undefined;
+      continue;
     }
+    received += value.byteLength;
     chunks.push(value);
   }
-  return Buffer.concat(chunks).toString('utf8');
+  const text = Buffer.concat(chunks).toString('utf8');
+  if (truncatedBytes === 0) return { text, truncatedBytes: 0 };
+  const marker = `\n[...truncated ${String(truncatedBytes)}+ bytes]`;
+  return { text: `${text}${marker}`, truncatedBytes };
+}
+
+function parseNextPage(link: string | null): boolean {
+  return link !== null && /rel="next"/.test(link);
 }

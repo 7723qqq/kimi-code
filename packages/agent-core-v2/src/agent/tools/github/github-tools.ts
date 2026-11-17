@@ -21,6 +21,26 @@ import {
 import { hasGitHubToken, resolveGitHubBaseUrl, resolveGitHubToken } from './configSection';
 import type { GitHubToolSpec, IGitHubTool } from './github';
 import { githubRequest, type GitHubRequestOptions } from './github-request';
+import {
+  projectBranch,
+  projectCodeSearch,
+  projectComment,
+  projectCommit,
+  projectCommitDetail,
+  projectFileContents,
+  projectIssue,
+  projectIssueDetail,
+  projectIssueSearch,
+  projectPull,
+  projectPullDetail,
+  projectPullFile,
+  projectRelease,
+  projectRepoSearch,
+  projectWorkflowRun,
+  shapeArray,
+  shapeObject,
+  shapeSearch,
+} from './github-shape';
 
 const owner = z.string().min(1).describe('Repository owner (user or organization login).');
 const repo = z.string().min(1).describe('Repository name.');
@@ -87,6 +107,7 @@ export abstract class GitHubToolBase implements IGitHubTool {
       ...(spec.accept !== undefined ? { accept: spec.accept } : {}),
       ...(token !== undefined ? { token } : {}),
       ...(baseUrl !== undefined ? { baseUrl } : {}),
+      ...(spec.maxBytes !== undefined ? { maxBytes: spec.maxBytes } : {}),
     };
 
     const res = await githubRequest(spec.method, spec.path(args), options, {
@@ -103,13 +124,17 @@ export abstract class GitHubToolBase implements IGitHubTool {
       };
     }
     const builder = new ToolOutputAccumulator();
-    const rate =
-      typeof res.rateRemaining === 'number'
-        ? `\n\n(GitHub rate limit remaining: ${String(res.rateRemaining)})`
-        : '';
-    builder.write((res.body || '(empty response)') + rate);
+    const shaped = spec.shape?.({ body: res.body, nextPage: res.nextPage }, args) ?? res.body;
+    const rate = rateNotice(res.rateRemaining);
+    builder.write((shaped || '(empty response)') + rate);
     return builder.ok();
   }
+}
+
+function rateNotice(remaining: number | undefined): string {
+  if (typeof remaining !== 'number') return '';
+  const warning = remaining < 100 ? ' — the GitHub API budget is nearly exhausted' : '';
+  return `\n\n(GitHub rate limit remaining: ${String(remaining)}${warning})`;
 }
 
 export function makeGitHubToolCtor<Input extends z.ZodTypeAny>(
@@ -129,7 +154,7 @@ export function makeGitHubToolCtor<Input extends z.ZodTypeAny>(
 const repoBase = (a: { owner: string; repo: string }): string => `${a.owner}/${a.repo}`;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const GITHUB_SPECS: GitHubToolSpec<any>[] = [
+const GITHUB_SPEC_BASE: GitHubToolSpec<any>[] = [
   {
     name: 'GitHubGetRepo',
     description: 'Get metadata for a repository (description, default branch, stars, visibility).',
@@ -187,6 +212,13 @@ export const GITHUB_SPECS: GitHubToolSpec<any>[] = [
         .string()
         .optional()
         .describe('Branch, tag, or commit SHA (defaults to the default branch).'),
+      maxChars: z
+        .number()
+        .int()
+        .min(1)
+        .max(40_000)
+        .optional()
+        .describe('Maximum characters of decoded text to return (default 40000).'),
     }),
     method: 'GET',
     path: (a) => `/repos/${a.owner}/${a.repo}/contents/${a.path}`,
@@ -669,6 +701,48 @@ export const GITHUB_SPECS: GitHubToolSpec<any>[] = [
     subject: () => 'me',
   },
 ];
+
+type GitHubSpecExtra = Pick<GitHubToolSpec, 'shape' | 'maxBytes'>;
+
+const GITHUB_SPEC_EXTRAS: Readonly<Record<string, GitHubSpecExtra>> = {
+  GitHubListBranches: { shape: ({ body }) => shapeArray(body, projectBranch) },
+  GitHubListCommits: { shape: ({ body }) => shapeArray(body, projectCommit) },
+  GitHubGetCommit: { shape: ({ body }) => shapeObject(body, projectCommitDetail) },
+  GitHubListIssues: { shape: ({ body, nextPage }) => shapeArray(body, projectIssue, { nextPage }) },
+  GitHubGetIssue: { shape: ({ body }) => shapeObject(body, projectIssueDetail) },
+  GitHubListIssueComments: {
+    shape: ({ body, nextPage }) => shapeArray(body, projectComment, { nextPage }),
+  },
+  GitHubListPRs: { shape: ({ body, nextPage }) => shapeArray(body, projectPull, { nextPage }) },
+  GitHubGetPR: { shape: ({ body }) => shapeObject(body, projectPullDetail) },
+  GitHubGetPRDiff: { maxBytes: 200_000 },
+  GitHubGetPRFiles: {
+    shape: ({ body, nextPage }) => shapeArray(body, projectPullFile, { nextPage }),
+  },
+  GitHubListPRReviewComments: {
+    shape: ({ body, nextPage }) => shapeArray(body, projectComment, { nextPage }),
+  },
+  GitHubSearchCode: { shape: ({ body, nextPage }) => shapeSearch(body, projectCodeSearch, { body, nextPage }) },
+  GitHubSearchRepos: { shape: ({ body, nextPage }) => shapeSearch(body, projectRepoSearch, { body, nextPage }) },
+  GitHubSearchIssues: { shape: ({ body, nextPage }) => shapeSearch(body, projectIssueSearch, { body, nextPage }) },
+  GitHubListWorkflowRuns: {
+    shape: ({ body, nextPage }) => shapeArray(body, projectWorkflowRun, { nextPage }),
+  },
+  GitHubGetWorkflowRun: { shape: ({ body }) => shapeObject(body, projectWorkflowRun) },
+  GitHubListReleases: {
+    shape: ({ body, nextPage }) => shapeArray(body, projectRelease, { nextPage }),
+  },
+  GitHubGetLatestRelease: { shape: ({ body }) => shapeObject(body, projectRelease) },
+  GitHubGetFileContents: {
+    shape: ({ body }, args) => projectFileContents(body, Number(args.maxChars ?? 40_000)),
+  },
+};
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const GITHUB_SPECS: GitHubToolSpec<any>[] = GITHUB_SPEC_BASE.map((spec) => {
+  const extra = GITHUB_SPEC_EXTRAS[spec.name];
+  return extra === undefined ? spec : { ...spec, ...extra };
+});
 
 export const GITHUB_READONLY_TOOL_NAMES: readonly string[] = GITHUB_SPECS.filter(
   (spec) => spec.mutating !== true,

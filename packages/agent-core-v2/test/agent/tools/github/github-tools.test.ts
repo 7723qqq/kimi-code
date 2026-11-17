@@ -389,6 +389,111 @@ describe('GitHub tool execution', () => {
   });
 });
 
+describe('GitHub response shaping', () => {
+  function issuePayload(count: number): Record<string, unknown>[] {
+    return Array.from({ length: count }, (_, index) => ({
+      url: `https://api.github.com/repos/octo/hello/issues/${String(index + 1)}`,
+      repository_url: 'https://api.github.com/repos/octo/hello',
+      labels_url: 'https://api.github.com/repos/octo/hello/issues/1/labels{/name}',
+      node_id: 'MDU6SXNzdWUx',
+      number: index + 1,
+      title: `Issue ${String(index + 1)}`,
+      user: { login: 'octo', id: 1, avatar_url: 'https://example.test/a.png' },
+      labels: [{ id: 1, name: 'bug', color: 'f00' }],
+      state: 'open',
+      locked: false,
+      assignees: [],
+      milestone: null,
+      comments: 2,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-02T00:00:00Z',
+      body: 'x'.repeat(2000),
+      reactions: { total_count: 1, '+1': 1 },
+      active_lock_reason: null,
+    }));
+  }
+
+  async function run(
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<{ output: string; isError: boolean | undefined }> {
+    const tool = makeTool(name, { token: 'ghp_t' });
+    const execution = tool.resolveExecution({ owner: 'octo', repo: 'hello', ...args });
+    if (execution.isError === true) throw new Error(`unexpected args error for ${name}`);
+    const result = await execution.execute(ctx());
+    const output = typeof result.output === 'string' ? result.output : JSON.stringify(result.output);
+    return { output, isError: result.isError };
+  }
+
+  it('projects an issue list into one compact line per issue', async () => {
+    const payload = issuePayload(30);
+    mockFetch(
+      jsonResponse(payload, 200, {
+        link: '<https://api.github.com/repos/octo/hello/issues?page=2>; rel="next"',
+      }),
+    );
+
+    const result = await run('GitHubListIssues', {});
+    const lines = result.output.split('\n');
+
+    expect(result.isError).not.toBe(true);
+    expect(lines[0]).toBe('{"items":30,"has_more":true}');
+    expect(lines[1]).toContain('"number":1');
+    expect(lines[1]).toContain('"labels":["bug"]');
+    expect(JSON.stringify(payload).length / result.output.length).toBeGreaterThan(10);
+    expect(result.output).not.toContain('node_id');
+    expect(result.output).not.toContain('"body"');
+  });
+
+  it('decodes a base64 file into readable text', async () => {
+    const text = '# Hello\n\nThis is the readme.\n';
+    mockFetch(
+      jsonResponse({
+        type: 'file',
+        encoding: 'base64',
+        path: 'README.md',
+        sha: 'abc123',
+        size: text.length,
+        content: Buffer.from(text, 'utf8').toString('base64'),
+      }),
+    );
+
+    const result = await run('GitHubGetFileContents', { path: 'README.md' });
+
+    expect(result.output).toContain('"path":"README.md"');
+    expect(result.output).toContain('# Hello\n\nThis is the readme.');
+    expect(result.output).not.toContain('eyJIZWxsbyI');
+  });
+
+  it('refuses to decode a binary file and reports its size', async () => {
+    mockFetch(
+      jsonResponse({
+        type: 'file',
+        encoding: 'base64',
+        path: 'logo.png',
+        sha: 'def456',
+        size: 3,
+        content: Buffer.from(new Uint8Array([0, 1, 2])).toString('base64'),
+      }),
+    );
+
+    const result = await run('GitHubGetFileContents', { path: 'logo.png' });
+
+    expect(result.output).toContain('"binary":true');
+    expect(result.output).toContain('contents not shown');
+  });
+
+  it('truncates an oversized diff instead of failing the call', async () => {
+    mockFetch(new Response('a'.repeat(300_000), { status: 200 }));
+
+    const result = await run('GitHubGetPRDiff', { pullNumber: 7 });
+
+    expect(result.isError).not.toBe(true);
+    expect(result.output).toContain('[...truncated');
+    expect(result.output.length).toBeLessThan(250_000);
+  });
+});
+
 describe('GitHub env overlay', () => {
   function applyOverlay(
     effective: Record<string, unknown>,
