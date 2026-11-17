@@ -58,4 +58,12 @@ describe('rankToolsByQuery', () => {
   it('honors the result limit', () => {
     expect(rankToolsByQuery(TOOLS, 'tool database file web', 2)).toHaveLength(2);
   });
+
+  it('reads a pasted log without tokenizing all of it', () => {
+    const query = `analytics database ${'noise '.repeat(40_000)}`;
+    const startedAt = performance.now();
+    const hits = rankToolsByQuery(TOOLS, query, 2);
+    expect(hits[0]?.name).toBe('mcp__db__query');
+    expect(performance.now() - startedAt).toBeLessThan(500);
+  });
 });

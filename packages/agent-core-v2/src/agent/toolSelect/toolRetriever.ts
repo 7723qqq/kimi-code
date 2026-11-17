@@ -10,6 +10,7 @@ export interface ToolSearchHit {
 const K1 = 1.2;
 const B = 0.75;
 const MAX_QUERY_TOKENS = 256;
+const MAX_QUERY_CHARS = 4_096;
 const MAX_DOCUMENT_TOKENS = 512;
 const MAX_PARAMETER_NAMES = 32;
 const MIN_SCORE_RATIO = 0.15;
@@ -57,7 +58,7 @@ export function rankToolsByQuery(
   if (query.trim().length === 0) {
     return entries.slice(0, safeLimit).map((entry) => toHit(entry, 0));
   }
-  const queryTokens = tokenize(query)
+  const queryTokens = tokenize(query.slice(0, MAX_QUERY_CHARS))
     .filter((term) => !STOPWORDS.has(term))
     .slice(0, MAX_QUERY_TOKENS);
   if (queryTokens.length === 0) {
