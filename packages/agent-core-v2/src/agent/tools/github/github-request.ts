@@ -23,6 +23,68 @@ export interface GitHubRequestOptions {
 export interface GitHubRequestDeps {
   readonly fetchImpl?: FetchLike;
   readonly signal?: AbortSignal;
+  readonly sleep?: (delayMs: number) => Promise<void>;
+}
+
+const GITHUB_RETRY_STATUSES = new Set([429, 502, 503, 504]);
+const GITHUB_MAX_RETRY_DELAY_MS = 30_000;
+const GITHUB_DEFAULT_RETRY_DELAY_MS = 1_000;
+const GITHUB_ETAG_CACHE_ENTRIES = 64;
+const GITHUB_ETAG_MAX_BODY_BYTES = 200_000;
+
+interface CachedResponse {
+  readonly etag: string;
+  readonly body: string;
+  readonly nextPage: boolean;
+}
+
+const etagCache = new Map<string, CachedResponse>();
+
+export function resetGitHubResponseCacheForTest(): void {
+  etagCache.clear();
+}
+
+function cacheKeyFor(token: string, url: string, accept: string): string {
+  let hash = 5381;
+  for (let index = 0; index < token.length; index += 1) {
+    hash = ((hash << 5) + hash + token.charCodeAt(index)) | 0;
+  }
+  return `${String(hash)}\0${accept}\0${url}`;
+}
+
+function rememberEtag(key: string, response: Response, body: string, nextPage: boolean): void {
+  const etag = response.headers.get('etag');
+  if (etag === null || body.length > GITHUB_ETAG_MAX_BODY_BYTES) return;
+  etagCache.delete(key);
+  etagCache.set(key, { etag, body, nextPage });
+  while (etagCache.size > GITHUB_ETAG_CACHE_ENTRIES) {
+    const oldest = etagCache.keys().next().value;
+    if (oldest === undefined) break;
+    etagCache.delete(oldest);
+  }
+}
+
+function retryDelayMs(response: Response): number | undefined {
+  const retryAfter = response.headers.get('retry-after');
+  if (retryAfter !== null) {
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      const delay = Math.round(seconds * 1000);
+      return delay > GITHUB_MAX_RETRY_DELAY_MS ? undefined : delay;
+    }
+    const at = Date.parse(retryAfter);
+    if (!Number.isNaN(at)) {
+      const delay = at - Date.now();
+      if (delay <= 0) return 0;
+      return delay > GITHUB_MAX_RETRY_DELAY_MS ? undefined : delay;
+    }
+  }
+  return GITHUB_DEFAULT_RETRY_DELAY_MS;
+}
+
+function shouldRetry(response: Response): boolean {
+  if (GITHUB_RETRY_STATUSES.has(response.status)) return true;
+  return response.status === 403 && response.headers.get('retry-after') !== null;
 }
 
 export interface GitHubRequestResult {
@@ -64,15 +126,29 @@ export async function githubRequest(
     init.body = JSON.stringify(options.body);
   }
 
+  const cacheKey = method === 'GET' ? cacheKeyFor(token, url, headers['Accept'] ?? '') : undefined;
+  const cached = cacheKey === undefined ? undefined : etagCache.get(cacheKey);
+  if (cached !== undefined) headers['If-None-Match'] = cached.etag;
+
   const deadline = createDeadlineAbortSignal(
     deps.signal ?? new AbortController().signal,
     GITHUB_REQUEST_TIMEOUT_MS,
   );
+  const sleep =
+    deps.sleep ?? ((delayMs: number) => new Promise<void>((resolve) => setTimeout(resolve, delayMs)));
   try {
     init.signal = deadline.signal;
     let response: Response;
     try {
       response = await fetchImpl(url, init);
+      if (shouldRetry(response)) {
+        const delay = retryDelayMs(response);
+        if (delay !== undefined) {
+          await response.body?.cancel().catch(() => undefined);
+          await sleep(delay);
+          response = await fetchImpl(url, init);
+        }
+      }
     } catch (error) {
       if (deadline.timedOut()) {
         return {
@@ -85,6 +161,17 @@ export async function githubRequest(
       throw error;
     }
     const rateRemaining = parseRateLimitRemaining(response.headers.get('x-ratelimit-remaining'));
+    if (response.status === 304 && cacheKey !== undefined && cached !== undefined) {
+      etagCache.delete(cacheKey);
+      etagCache.set(cacheKey, cached);
+      return {
+        status: 200,
+        ok: true,
+        body: cached.body,
+        rateRemaining,
+        ...(cached.nextPage ? { nextPage: true } : {}),
+      };
+    }
     const nextPage = parseNextPage(response.headers.get('link'));
     const rawBody = await readResponseBody(
       response,
@@ -103,6 +190,7 @@ export async function githubRequest(
         ...(truncatedBytes > 0 ? { truncatedBytes } : {}),
       };
     }
+    if (cacheKey !== undefined) rememberEtag(cacheKey, response, bodyText, nextPage);
     return {
       status: response.status,
       ok: true,
@@ -186,5 +274,5 @@ async function readResponseBody(
 }
 
 function parseNextPage(link: string | null): boolean {
-  return link !== null && /rel="next"/.test(link);
+  return link !== null && link.includes('rel="next"');
 }

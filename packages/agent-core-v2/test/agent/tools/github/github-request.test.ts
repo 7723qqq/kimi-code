@@ -1,9 +1,10 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import {
   GITHUB_DEFAULT_BASE_URL,
   GITHUB_NO_TOKEN_ERROR,
   githubRequest,
+  resetGitHubResponseCacheForTest,
 } from '#/agent/tools/github/github-request';
 import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 
@@ -16,8 +17,13 @@ function jsonResponse(body: unknown, status = 200, headers: Record<string, strin
   });
 }
 
+beforeEach(() => {
+  resetGitHubResponseCacheForTest();
+});
+
 afterEach(() => {
   restoreEnvs();
+  resetGitHubResponseCacheForTest();
 });
 
 describe('githubRequest', () => {
@@ -164,6 +170,116 @@ describe('githubRequest', () => {
     const res = await githubRequest('GET', '/user', { token: TOKEN }, { fetchImpl });
 
     expect(res).toEqual({ status: 0, ok: false, body: '', error: 'network error: ECONNREFUSED' });
+  });
+
+  it('retries a 503 once and honors retry-after', async () => {
+    const fetchImpl = mock()
+      .mockResolvedValueOnce(jsonResponse({ message: 'unavailable' }, 503, { 'retry-after': '0' }))
+      .mockResolvedValueOnce(jsonResponse({ id: 1 }));
+    const sleeps: number[] = [];
+
+    const res = await githubRequest(
+      'GET',
+      '/user',
+      { token: TOKEN },
+      {
+        fetchImpl,
+        sleep: (delayMs) => {
+          sleeps.push(delayMs);
+          return Promise.resolve();
+        },
+      },
+    );
+
+    expect(res).toEqual({ status: 200, ok: true, body: '{"id":1}', rateRemaining: undefined });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(sleeps).toEqual([0]);
+  });
+
+  it('does not retry when retry-after exceeds the cap', async () => {
+    const fetchImpl = mock().mockResolvedValue(
+      jsonResponse({ message: 'slow down' }, 429, { 'retry-after': '60' }),
+    );
+    const sleeps: number[] = [];
+
+    const res = await githubRequest(
+      'GET',
+      '/user',
+      { token: TOKEN },
+      {
+        fetchImpl,
+        sleep: (delayMs) => {
+          sleeps.push(delayMs);
+          return Promise.resolve();
+        },
+      },
+    );
+
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(429);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(sleeps).toEqual([]);
+  });
+
+  it('retries a 429 without retry-after after one second', async () => {
+    const fetchImpl = mock()
+      .mockResolvedValueOnce(jsonResponse({ message: 'rate limited' }, 429))
+      .mockResolvedValueOnce(jsonResponse({ id: 2 }));
+    const sleeps: number[] = [];
+
+    const res = await githubRequest(
+      'GET',
+      '/user',
+      { token: TOKEN },
+      {
+        fetchImpl,
+        sleep: (delayMs) => {
+          sleeps.push(delayMs);
+          return Promise.resolve();
+        },
+      },
+    );
+
+    expect(res.ok).toBe(true);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(sleeps).toEqual([1000]);
+  });
+
+  it('does not retry a client error', async () => {
+    const fetchImpl = mock().mockResolvedValue(jsonResponse({ message: 'Not Found' }, 404));
+
+    const res = await githubRequest('GET', '/repos/o/r', { token: TOKEN }, { fetchImpl });
+
+    expect(res.status).toBe(404);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('revalidates a cached GET with its etag and reuses the body on 304', async () => {
+    const fetchImpl = mock()
+      .mockResolvedValueOnce(jsonResponse({ id: 1 }, 200, { etag: 'W/"abc"' }))
+      .mockImplementationOnce((_url: string, init: RequestInit) => {
+        expect((init.headers as Record<string, string>)['If-None-Match']).toBe('W/"abc"');
+        return Promise.resolve(new Response(null, { status: 304 }));
+      });
+
+    const first = await githubRequest('GET', '/repos/o/r', { token: TOKEN }, { fetchImpl });
+    const second = await githubRequest('GET', '/repos/o/r', { token: TOKEN }, { fetchImpl });
+
+    expect(first.body).toBe('{"id":1}');
+    expect(second).toEqual(first);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('never sends a conditional header for a mutation', async () => {
+    const fetchImpl = mock().mockResolvedValue(jsonResponse({ id: 1 }, 200, { etag: 'W/"abc"' }));
+
+    await githubRequest('POST', '/repos/o/r/issues', { token: TOKEN, body: {} }, { fetchImpl });
+    await githubRequest('POST', '/repos/o/r/issues', { token: TOKEN, body: {} }, { fetchImpl });
+
+    for (const call of fetchImpl.mock.calls) {
+      expect((call[1] as RequestInit).headers).not.toHaveProperty('If-None-Match');
+    }
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
   it('re-throws when the caller signal is aborted', async () => {
