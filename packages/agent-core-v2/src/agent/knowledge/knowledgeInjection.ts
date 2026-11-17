@@ -7,7 +7,7 @@ import { IAgentKnowledgeService, type KnowledgeSearchResult } from './knowledge'
 const MAX_INJECTION_TOKENS = 800;
 const MAX_ENTRIES = 5;
 
-const PATH_EXTENSIONS = ['ts', 'js', 'rs', 'vue', 'tsx', 'jsx', 'json', 'md'];
+const PATH_EXTENSIONS = ['tsx', 'ts', 'js', 'jsx', 'json', 'rs', 'vue', 'md'];
 
 function isWordChar(code: number | undefined): boolean {
   if (code === undefined) return false;
@@ -23,16 +23,26 @@ function isPathChar(code: number | undefined): boolean {
   return isWordChar(code) || code === 46 || code === 47 || code === 92 || code === 45;
 }
 
+function extensionAt(text: string, dot: number, runEnd: number): number | undefined {
+  for (const extension of PATH_EXTENSIONS) {
+    const after = dot + 1 + extension.length;
+    if (after > runEnd) continue;
+    if (!text.startsWith(extension, dot + 1)) continue;
+    if (after === runEnd || !isWordChar(text.codePointAt(after))) return after;
+  }
+  return undefined;
+}
+
 function matchPathToken(text: string, start: number, runEnd: number): string | undefined {
   let end = runEnd;
   while (end > start && !isWordChar(text.codePointAt(end - 1))) end -= 1;
-  for (const extension of PATH_EXTENSIONS) {
-    const dot = end - extension.length - 1;
-    if (dot > start && text.codePointAt(dot) === 46 && text.startsWith(extension, dot + 1)) {
-      return text.slice(start, end);
-    }
+  let matchEnd: number | undefined;
+  for (let index = start + 1; index < end; index += 1) {
+    if (text.codePointAt(index) !== 46) continue;
+    const after = extensionAt(text, index, end);
+    if (after !== undefined) matchEnd = after;
   }
-  return undefined;
+  return matchEnd === undefined ? undefined : text.slice(start, matchEnd);
 }
 
 function findPathToken(text: string): string | undefined {
