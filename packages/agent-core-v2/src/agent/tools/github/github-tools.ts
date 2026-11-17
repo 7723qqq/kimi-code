@@ -13,7 +13,9 @@ import {
   ToolSideEffects,
   type ExecutableToolContext,
   type ExecutableToolResult,
+  type RepoMutation,
   type ToolExecution,
+  type ToolSideEffect,
 } from '#/tool/toolContract';
 
 import { hasGitHubToken, resolveGitHubBaseUrl, resolveGitHubToken } from './configSection';
@@ -33,7 +35,8 @@ export interface GitHubToolDeps {
 export abstract class GitHubToolBase implements IGitHubTool {
   declare readonly _serviceBrand: undefined;
   readonly name: string;
-  readonly sideEffect = ToolSideEffects.write;
+  readonly sideEffect: ToolSideEffect;
+  readonly repoMutation: RepoMutation;
   readonly description: string;
   readonly parameters: Record<string, unknown>;
 
@@ -44,6 +47,9 @@ export abstract class GitHubToolBase implements IGitHubTool {
     this.name = spec.name;
     this.description = spec.description;
     this.parameters = toInputJsonSchema(spec.schema);
+    const mutating = spec.mutating === true;
+    this.sideEffect = mutating ? ToolSideEffects.write : ToolSideEffects.read;
+    this.repoMutation = mutating ? RepoMutations.possible : RepoMutations.none;
   }
 
   resolveExecution(rawArgs: unknown): ToolExecution {
@@ -88,7 +94,8 @@ export abstract class GitHubToolBase implements IGitHubTool {
       signal: ctx.signal,
     });
     if (!res.ok) {
-      const detail = res.body ? `\n${res.body.slice(0, 4000)}` : '';
+      const detailLimit = res.status >= 500 ? 2000 : 400;
+      const detail = res.body ? `\n${res.body.slice(0, detailLimit)}` : '';
       const status = res.status > 0 ? ` (status ${String(res.status)})` : '';
       return {
         isError: true,
@@ -109,8 +116,6 @@ export function makeGitHubToolCtor<Input extends z.ZodTypeAny>(
   spec: GitHubToolSpec<Input>,
 ): new (config: IConfigService) => GitHubToolBase {
   class GitHubAgentTool extends GitHubToolBase {
-    readonly repoMutation = RepoMutations.none;
-
     constructor(@IConfigService config: IConfigService) {
       super(spec, {
         config,

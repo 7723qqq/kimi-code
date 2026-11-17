@@ -103,6 +103,24 @@ describe('GitHub tool table', () => {
     );
   });
 
+  it('derives the sandbox side effect and repo mutation from the mutating flag', () => {
+    for (const spec of GITHUB_SPECS) {
+      const tool = makeTool(spec.name);
+      const mutating = spec.mutating === true;
+      expect({
+        name: spec.name,
+        sideEffect: tool.sideEffect,
+        repoMutation: tool.repoMutation,
+      }).toEqual({
+        name: spec.name,
+        sideEffect: mutating ? 'write' : 'read',
+        repoMutation: mutating ? 'possible' : 'none',
+      });
+    }
+    expect(makeTool('GitHubGetRepo').sideEffect).toBe('read');
+    expect(makeTool('GitHubMergePR').sideEffect).toBe('write');
+  });
+
   it('gates activation on an available GitHub token', () => {
     const records = getAgentToolContributions().filter((record) =>
       record.options.name.startsWith('GitHub'),
