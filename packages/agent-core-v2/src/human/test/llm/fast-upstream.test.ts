@@ -3,8 +3,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
 import { UNKNOWN_CAPABILITY } from '#/llm/capability';
 import { createUserMessage } from '#/llm/message';
 import type { LlmModel } from '#/llm/model';
+import { createAnthropicRequester } from '#/llm/requester/bases/anthropic/requester';
+import { createGoogleGenAIRequester } from '#/llm/requester/bases/google-genai/requester';
+import { createOpenAIResponsesRequester } from '#/llm/requester/bases/openai-responses/requester';
 import { createOpenAIRequester } from '#/llm/requester/bases/openai/requester';
-import type { LlmRequestEvent } from '#/llm/requester/requester';
+import type { LlmRequestEvent, LlmRequester } from '#/llm/requester/requester';
 
 import { startMockUpstream, type MockUpstream } from '../../../../test/helpers/mockUpstream';
 
@@ -142,3 +145,77 @@ describe('an upstream that answers immediately', () => {
     expect(upstream.requests).toHaveLength(1);
   });
 });
+
+const PROTOCOLS: readonly {
+  readonly name: string;
+  readonly pathSuffix: string;
+  readonly create: () => LlmRequester;
+}[] = [
+  { name: 'openai', pathSuffix: '/chat/completions', create: () => createOpenAIRequester() },
+  { name: 'openai-responses', pathSuffix: '/responses', create: () => createOpenAIResponsesRequester() },
+  { name: 'anthropic', pathSuffix: '/messages', create: () => createAnthropicRequester() },
+  { name: 'google-genai', pathSuffix: ':streamGenerateContent', create: () => createGoogleGenAIRequester() },
+];
+
+interface ProtocolCase {
+  readonly name: string;
+  readonly pathSuffix: string;
+  readonly create: () => LlmRequester;
+}
+
+function describeProtocol(protocol: ProtocolCase): void {
+  describe(`${protocol.name} upstream`, () => {
+    async function generateProtocol(): Promise<LlmRequestEvent[]> {
+      upstream.requests.length = 0;
+      const events: LlmRequestEvent[] = [];
+      await protocol.create().generate(
+        { model: { ...model, provider: protocol.name } },
+        { messages: [createUserMessage('hi')] },
+        { signal: new AbortController().signal, onEvent: (event) => events.push(event) },
+      );
+      return events;
+    }
+
+    it('receives streamed text in order from one request', async () => {
+      upstream.scenario({ kind: 'text', chunks: ['Hel', 'lo'] });
+      const events = await generateProtocol();
+      const text = partsOf(events)
+        .map((event) => (event.type === 'llm.streaming.part' && event.part.type === 'text' ? event.part.text : ''))
+        .join('');
+      expect(text).toBe('Hello');
+      const sentAt = events.findIndex((event) => event.type === 'llm.sent');
+      const firstPartAt = events.findIndex((event) => event.type === 'llm.streaming.part');
+      expect(sentAt).toBe(0);
+      expect(firstPartAt).toBeGreaterThan(sentAt);
+      expect(events.at(-1)).toMatchObject({ type: 'llm.done' });
+      expect(upstream.requests).toHaveLength(1);
+      expect(upstream.requests[0]?.path.endsWith(protocol.pathSuffix)).toBe(true);
+    });
+
+    it('turns a streamed tool call into a Read call', async () => {
+      upstream.scenario({ kind: 'toolCall', name: 'Read', args: '{"path":"a.ts"}' });
+      const events = await generateProtocol();
+      const calls = partsOf(events).filter(
+        (event) => event.type === 'llm.streaming.part' && event.part.type === 'function',
+      );
+      expect(calls.length).toBeGreaterThan(0);
+      const call = calls[0];
+      if (call?.type !== 'llm.streaming.part' || call.part.type !== 'function') {
+        throw new Error('expected a function part');
+      }
+      expect(call.part.name).toBe('Read');
+      expect(events.some((event) => event.type === 'llm.streaming.finish')).toBe(true);
+      expect(upstream.requests).toHaveLength(1);
+    });
+
+    it('reports a 500 as a single failure', async () => {
+      upstream.scenario({ kind: 'status', status: 500 });
+      const events = await generateProtocol();
+      expect(events.filter((event) => event.type === 'llm.failed.remote')).toHaveLength(1);
+      expect(events.some((event) => event.type === 'llm.done')).toBe(false);
+      expect(upstream.requests).toHaveLength(1);
+    });
+  });
+}
+
+for (const protocol of PROTOCOLS) describeProtocol(protocol);
