@@ -16,6 +16,12 @@ import { createMessageAccumulator, type ImageURLPart, type VideoURLPart } from '
 import type { LlmModel } from '#human/llm/model';
 import type { ProtocolName } from '#human/llm/protocol/base';
 import {
+  LLM_BODY_TIMEOUT_ENV,
+  LLM_HEADERS_TIMEOUT_ENV,
+  resolveLlmBodyTimeoutMs,
+  resolveLlmHeadersTimeoutMs,
+} from '#human/llm/requester/limits';
+import {
   type ExtraParams,
   type LlmRequestConfig,
   type LlmRequestContent,
@@ -26,6 +32,7 @@ import type { TokenUsage } from '#human/llm/usage';
 import { mergeUsagePatch } from '#human/llm/usage';
 
 import {
+  APITimeoutError,
   ChatProviderError,
   errorFromLlmMessage,
   ImageUploadUnsupportedError,
@@ -91,6 +98,73 @@ function decodeBlockingProbe(): DecodeBlockingProbe | undefined {
       const { active, idle } = performance.eventLoopUtilization(begun);
       return active > 0 || idle > 0 ? active : undefined;
     },
+  };
+}
+
+interface StallTimeout {
+  readonly signal: (signal: AbortSignal | undefined) => AbortSignal;
+  onSent(): void;
+  onChunk(): void;
+  stop(): void;
+  reason(): string | undefined;
+}
+
+function readStallBudgets(): { readonly headersMs?: number; readonly bodyMs?: number } {
+  try {
+    return { headersMs: resolveLlmHeadersTimeoutMs(), bodyMs: resolveLlmBodyTimeoutMs() };
+  } catch {
+    return {};
+  }
+}
+
+function createStallTimeout(onStall: (error: APITimeoutError) => void): StallTimeout {
+  const { headersMs, bodyMs } = readStallBudgets();
+  const enabled = headersMs !== undefined || bodyMs !== undefined;
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let stalled: string | undefined;
+
+  const clear = (): void => {
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    timer = undefined;
+  };
+
+  const arm = (budgetMs: number | undefined, reason: () => string): void => {
+    clear();
+    if (budgetMs === undefined || budgetMs <= 0 || stalled !== undefined) return;
+    timer = setTimeout(() => {
+      timer = undefined;
+      stalled = reason();
+      const error = new APITimeoutError(stalled);
+      onStall(error);
+      controller.abort(error);
+    }, budgetMs);
+    timer.unref?.();
+  };
+
+  return {
+    signal: (signal) => {
+      if (!enabled) return signal ?? controller.signal;
+      return signal === undefined
+        ? controller.signal
+        : AbortSignal.any([signal, controller.signal]);
+    },
+    onSent: () => {
+      arm(
+        headersMs,
+        () =>
+          `The LLM endpoint sent no response headers within ${headersMs} ms (${LLM_HEADERS_TIMEOUT_ENV}).`,
+      );
+    },
+    onChunk: () => {
+      arm(
+        bodyMs,
+        () => `The LLM stream sent no chunk within ${bodyMs} ms (${LLM_BODY_TIMEOUT_ENV}).`,
+      );
+    },
+    stop: clear,
+    reason: () => stalled,
   };
 }
 
@@ -213,85 +287,102 @@ export class ModelRequesterImpl implements ModelRequester {
     };
 
     const credential = await this.model.credentialProvider?.resolve();
-    await requester.generate(
-      { ...config, model: applyCredential(resolved.model, credential) },
-      content,
-      {
-        signal: signal ?? new AbortController().signal,
-        onEvent: (event: LlmRequestEvent) => {
-          switch (event.type) {
-            case 'llm.sent': {
-              const now = Date.now();
-              if (requestSentAt !== undefined) {
-                requestStartedAt = now;
+    const stall = createStallTimeout((error) => {
+      queue.fail(error);
+    });
+    try {
+      await requester.generate(
+        { ...config, model: applyCredential(resolved.model, credential) },
+        content,
+        {
+          signal: stall.signal(signal),
+          onEvent: (event: LlmRequestEvent) => {
+            switch (event.type) {
+              case 'llm.sent': {
+                stall.onSent();
+                const now = Date.now();
+                if (requestSentAt !== undefined) {
+                  requestStartedAt = now;
+                  accumulator = createMessageAccumulator();
+                  usage = undefined;
+                  finish = undefined;
+                  messageId = undefined;
+                }
+                requestSentAt = now;
+                return;
+              }
+              case 'llm.streaming.headers': {
+                stall.onChunk();
+                traceId = traceIdFromHeadersRecord(event.headers);
+                params?.onTraceId?.(traceId);
+                return;
+              }
+              case 'llm.streaming.part': {
+                stall.onChunk();
+                const arrivedAt = Date.now();
+                if (firstChunkAt === undefined) {
+                  firstChunkAt = arrivedAt;
+                  decodeBlocking?.begin();
+                } else {
+                  serverDecodeMs += arrivedAt - lastResumeAt;
+                }
+
+                if (carriesOutputTokens(event.part)) {
+                  const outputPartAt = epochOffset + performance.now();
+                  if (firstTokenAt === undefined) firstTokenAt = outputPartAt;
+                  lastTokenAt = outputPartAt;
+                }
+                accumulator.push(event.part);
+                queue.push({ type: 'part', part: event.part });
+                lastResumeAt = Date.now();
+                clientConsumeMs += lastResumeAt - arrivedAt;
+                return;
+              }
+              case 'llm.streaming.usage': {
+                usage = mergeUsagePatch(usage, event.usage);
+                return;
+              }
+              case 'llm.streaming.finish': {
+                finish = event.finish;
+                return;
+              }
+              case 'llm.streaming.message_id': {
+                messageId = event.messageId;
+                return;
+              }
+              case 'llm.failed.syntax':
+              case 'llm.failed.remote': {
+                failed = event.error;
+                return;
+              }
+              case 'llm.request.retrying': {
                 accumulator = createMessageAccumulator();
                 usage = undefined;
                 finish = undefined;
                 messageId = undefined;
+                return;
               }
-              requestSentAt = now;
-              return;
-            }
-            case 'llm.streaming.headers': {
-              traceId = traceIdFromHeadersRecord(event.headers);
-              params?.onTraceId?.(traceId);
-              return;
-            }
-            case 'llm.streaming.part': {
-              const arrivedAt = Date.now();
-              if (firstChunkAt === undefined) {
-                firstChunkAt = arrivedAt;
-                decodeBlocking?.begin();
-              } else {
-                serverDecodeMs += arrivedAt - lastResumeAt;
+              case 'llm.done': {
+                streamEndedAt = Date.now();
+                if (firstChunkAt !== undefined) {
+                  serverDecodeMs += streamEndedAt - lastResumeAt;
+                }
+                return;
               }
-
-              if (carriesOutputTokens(event.part)) {
-                const outputPartAt = epochOffset + performance.now();
-                if (firstTokenAt === undefined) firstTokenAt = outputPartAt;
-                lastTokenAt = outputPartAt;
-              }
-              accumulator.push(event.part);
-              queue.push({ type: 'part', part: event.part });
-              lastResumeAt = Date.now();
-              clientConsumeMs += lastResumeAt - arrivedAt;
-              return;
             }
-            case 'llm.streaming.usage': {
-              usage = mergeUsagePatch(usage, event.usage);
-              return;
-            }
-            case 'llm.streaming.finish': {
-              finish = event.finish;
-              return;
-            }
-            case 'llm.streaming.message_id': {
-              messageId = event.messageId;
-              return;
-            }
-            case 'llm.failed.syntax':
-            case 'llm.failed.remote': {
-              failed = event.error;
-              return;
-            }
-            case 'llm.request.retrying': {
-              accumulator = createMessageAccumulator();
-              usage = undefined;
-              finish = undefined;
-              messageId = undefined;
-              return;
-            }
-            case 'llm.done': {
-              streamEndedAt = Date.now();
-              if (firstChunkAt !== undefined) {
-                serverDecodeMs += streamEndedAt - lastResumeAt;
-              }
-              return;
-            }
-          }
+          },
         },
-      },
-    );
+      );
+    } catch (error) {
+      const stallReason = stall.reason();
+      if (stallReason !== undefined) throw new APITimeoutError(stallReason);
+      throw error;
+    } finally {
+      stall.stop();
+    }
+
+    const stallReason = stall.reason();
+    if (stallReason !== undefined) throw new APITimeoutError(stallReason);
 
     if (failed !== undefined) {
       params?.onAttemptFailure?.({

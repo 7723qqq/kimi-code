@@ -240,8 +240,8 @@ kimi
 | `KIMI_MODEL_TOP_P` | 每次请求的核采样 `top_p`，仅对 `kimi` 供应商生效（全局生效） | 数字，如 `0.95` |
 | `KIMI_MODEL_THINKING_EFFORT` | 在线上强制使用指定的思考强度（`thinking.forced_effort`），绕过模型声明的 `support_efforts`；仅 `kimi` 供应商生效 | 思考强度值，如 `max` |
 | `KIMI_MODEL_THINKING_KEEP` | 保留思考透传；`kimi` 以 `thinking.keep` 发送，`anthropic` 以 `clear_thinking_20251015` 编辑发送；覆盖 `[thinking] keep` | API 接受的值，如 `all`；传入关值（`false`/`0`/`no`/`off`/`none`/`null`）可禁用 |
-| `KIMI_CODE_LLM_HEADERS_TIMEOUT_MS` | `openai` / `openai-responses` / `anthropic` 协议的 LLM 请求等待响应头（首字节）的最长时间（毫秒），替代 HTTP 客户端默认的 300 秒响应头超时——长时间非流式 thinking 可调大；未设置保持默认；SDK 自身的总请求超时（默认 10 分钟）仍对单次尝试生效；`google-genai` 不支持（其 SDK 没有 dispatcher 配置项）；SOCKS 代理下不生效（请求仍走代理） | 正整数，不超过 2147483647；非法值会使请求失败 |
-| `KIMI_CODE_LLM_BODY_TIMEOUT_MS` | `openai` / `openai-responses` / `anthropic` 协议的 LLM 请求在两个 body 分片之间等待的最长时间（毫秒），替代 HTTP 客户端默认的 300 秒 body 超时——慢速流式端点在分片间停顿时可调大（或设为 `0` 表示不限制）；未设置保持默认；SDK 自身的总请求超时（默认 10 分钟）仍对单次尝试生效；`google-genai` 不支持（其 SDK 没有 dispatcher 配置项）；SOCKS 代理下不生效（请求仍走代理） | 0 到 2147483647 的整数；非法值会使请求失败 |
+| `KIMI_CODE_LLM_HEADERS_TIMEOUT_MS` | 任意协议的 LLM 请求等待响应头（首字节）的最长时间（毫秒）。由请求层强制执行，因此在任何运行时都能约束「流根本没有开始」的情况——包括 `fetch` 会忽略 HTTP dispatcher 的 Bun；在 Node 上还会同时设置 undici 的响应头超时。长时间非流式 thinking 可调大；未设置时不启用看门狗，保持运行时默认值 | 正整数，不超过 2147483647；非法值会使请求失败 |
+| `KIMI_CODE_LLM_BODY_TIMEOUT_MS` | 任意协议的 LLM 请求在两个流式分片之间允许等待的最长时间（毫秒）。由请求层强制执行，因此在任何运行时（含 HTTP dispatcher 不生效的 Bun）都能让停滞的流失败；在 Node 上还会同时设置 undici 的 body 超时。`0` 表示不启用看门狗；未设置时不启用看门狗，保持运行时默认值 | 0 到 2147483647 的整数；非法值会使请求失败 |
 | `KIMI_CODE_NO_AUTO_UPDATE` | 完全禁用更新预检：不检查、不后台安装、不提示。同时兼容旧名 `KIMI_CLI_NO_AUTO_UPDATE` | 真值：`1`/`true`/`yes`/`on` |
 | `KIMI_CODE_CLIPBOARD_OSC52` | 复制时同时交给终端（OSC 52），远程连接下复制不生效时可以试试。tmux 中还需设置 `set -g set-clipboard on` | `1` 表示启用 |
 | `KIMI_CODE_TUI_ANIMATION_FPS` | 终端界面中进行中标题扫光的帧率 | `1` 到 `60` 的整数；非法值被忽略，并在启动时提示 |
@@ -275,6 +275,8 @@ kimi
 | `KIMI_LOG_GLOBAL_FILES` | 全局日志文件保留份数 | `5` |
 | `KIMI_LOG_SESSION_MAX_BYTES` | 会话级日志文件单个最大字节数 | `5242880`（5 MB） |
 | `KIMI_LOG_SESSION_FILES` | 会话级日志文件保留份数 | `3` |
+
+交互式 TUI 运行时，意外的后台诊断输出不会直接插入当前界面，启用日志后会写入诊断日志。后台警告和错误会更新同一条提示；如果日志无法写入，提示会说明诊断日志不可用。
 
 ## 系统环境变量
 

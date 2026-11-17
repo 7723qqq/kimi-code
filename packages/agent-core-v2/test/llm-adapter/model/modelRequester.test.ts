@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { isError2 } from '#/_base/errors/errors';
 import {
   APIEmptyResponseError,
+  APITimeoutError,
   ChatProviderError,
   PROVIDER_API_ERROR_CODE,
   PROVIDER_AUTH_ERROR_CODE,
@@ -460,6 +461,102 @@ describe('ModelRequesterImpl request execution', () => {
     if (timing.clientBlockedMs === undefined) return;
     expect(timing.clientBlockedMs).toBeGreaterThanOrEqual(100);
   });
+});
+
+describe('stall watchdog', () => {
+  const HEADERS_ENV = 'KIMI_CODE_LLM_HEADERS_TIMEOUT_MS';
+  const BODY_ENV = 'KIMI_CODE_LLM_BODY_TIMEOUT_MS';
+  const saved: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    saved[HEADERS_ENV] = process.env[HEADERS_ENV];
+    saved[BODY_ENV] = process.env[BODY_ENV];
+    delete process.env[HEADERS_ENV];
+    delete process.env[BODY_ENV];
+  });
+
+  afterEach(() => {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  const stallingRequester = (before: (emit: (event: LlmRequestEvent) => void) => void) => {
+    const requester = new FakeLlmRequester();
+    requester.handler = (_index, emit) => {
+      before(emit);
+      return new Promise<void>(() => {});
+    };
+    return requester;
+  };
+
+  const failureOf = async (impl: ModelRequesterImpl): Promise<unknown> =>
+    collect(impl.request(INPUT)).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+
+  it('fails a stream that stops sending chunks and aborts the request', async () => {
+    process.env[BODY_ENV] = '120';
+    const requester = stallingRequester((emit) => {
+      emit({ type: 'llm.sent' });
+      emit({ type: 'llm.streaming.headers', headers: {} });
+      emit({ type: 'llm.streaming.part', part: { type: 'text', text: 'x' } });
+    });
+    const impl = new ModelRequesterImpl(
+      modelWith(createStaticCredentialProvider()),
+      gatewayReturning(requester),
+    );
+
+    const failure = await failureOf(impl);
+
+    expect(failure).toBeInstanceOf(APITimeoutError);
+    expect((failure as APITimeoutError).message).toContain(BODY_ENV);
+    expect((failure as APITimeoutError).retryable).toBe(true);
+    expect(requester.calls[0]?.control.signal.aborted).toBe(true);
+  }, 5_000);
+
+  it('fails a request that never produces response headers', async () => {
+    process.env[HEADERS_ENV] = '120';
+    const requester = stallingRequester((emit) => {
+      emit({ type: 'llm.sent' });
+    });
+    const impl = new ModelRequesterImpl(
+      modelWith(createStaticCredentialProvider()),
+      gatewayReturning(requester),
+    );
+
+    const failure = await failureOf(impl);
+
+    expect(failure).toBeInstanceOf(APITimeoutError);
+    expect((failure as APITimeoutError).message).toContain(HEADERS_ENV);
+  }, 5_000);
+
+  it('leaves a slow but alive stream alone when no budget is configured', async () => {
+    const requester = new FakeLlmRequester();
+    requester.handler = async (_index, emit) => {
+      emit({ type: 'llm.sent' });
+      emit({ type: 'llm.streaming.headers', headers: {} });
+      emit({ type: 'llm.streaming.part', part: { type: 'text', text: 'a' } });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      emit({ type: 'llm.streaming.part', part: { type: 'text', text: 'b' } });
+      emit({
+        type: 'llm.streaming.finish',
+        finish: { finishReason: 'completed', rawFinishReason: 'stop' },
+      });
+      emit({ type: 'llm.done' });
+    };
+    const impl = new ModelRequesterImpl(
+      modelWith(createStaticCredentialProvider()),
+      gatewayReturning(requester),
+    );
+
+    const events = await collect(impl.request(INPUT));
+
+    expect(events.filter((event) => event.type === 'part')).toHaveLength(2);
+    expect(events.some((event) => event.type === 'finish')).toBe(true);
+  }, 5_000);
 });
 
 describe('effectiveMaxCompletionTokens', () => {
