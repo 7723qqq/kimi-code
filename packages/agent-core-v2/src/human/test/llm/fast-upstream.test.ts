@@ -6,80 +6,36 @@ import type { LlmModel } from '#/llm/model';
 import { createOpenAIRequester } from '#/llm/requester/bases/openai/requester';
 import type { LlmRequestEvent } from '#/llm/requester/requester';
 
+import { startMockUpstream, type MockUpstream } from '../../../../test/helpers/mockUpstream';
+
 const FIRST_PART_BUDGET_MS = 1_000;
 const BURST_BUDGET_MS = 5_000;
 const BURST_PARTS = 500;
+const SLOW_PARTS = 6;
+const SLOW_GAP_MS = 5;
 
-function chunk(index: number, text: string): string {
-  return `data: ${JSON.stringify({
-    id: 'chatcmpl-fast',
-    object: 'chat.completion.chunk',
-    created: 0,
-    model: 'fast-model',
-    choices: [
-      {
-        index: 0,
-        delta: index === 0 ? { role: 'assistant', content: text } : { content: text },
-        finish_reason: null,
-      },
-    ],
-  })}\n\n`;
-}
-
-function sseBody(parts: number): string {
-  const lines: string[] = [];
-  for (let index = 0; index < parts; index += 1) lines.push(chunk(index, 'x'));
-  lines.push(
-    `data: ${JSON.stringify({
-      id: 'chatcmpl-fast',
-      object: 'chat.completion.chunk',
-      created: 0,
-      model: 'fast-model',
-      choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
-      usage: { prompt_tokens: 5, completion_tokens: parts, total_tokens: 5 + parts },
-    })}\n\n`,
-  );
-  lines.push('data: [DONE]\n\n');
-  return lines.join('');
-}
-
-let server: ReturnType<typeof Bun.serve> | undefined;
+let upstream: MockUpstream;
 let model: LlmModel;
-let requests: string[] = [];
-let partsPerResponse = 1;
-let failureStatus: number | undefined;
 
 beforeAll(() => {
-  server = Bun.serve({
-    port: 0,
-    hostname: '127.0.0.1',
-    fetch: (request) => {
-      requests.push(new URL(request.url).pathname);
-      if (failureStatus !== undefined) {
-        return new Response('upstream failed', { status: failureStatus });
-      }
-      return new Response(sseBody(partsPerResponse), {
-        headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' },
-      });
-    },
-  });
+  upstream = startMockUpstream();
   model = {
-    provider: 'fast',
-    model: 'fast-model',
+    provider: 'mock',
+    model: 'mock-model',
     capability: UNKNOWN_CAPABILITY,
-    baseUrl: `http://127.0.0.1:${server.port}/v1`,
-    apiKey: 'sk-fast',
+    baseUrl: upstream.baseUrl,
+    apiKey: 'sk-mock',
   };
 });
 
-afterAll(() => {
-  server?.stop(true);
+afterAll(async () => {
+  await upstream.close();
 });
 
 beforeEach(() => {
-  requests = [];
-  partsPerResponse = 1;
-  failureStatus = undefined;
+  upstream.scenario({ kind: 'text', chunks: ['ok'] });
+  upstream.requests.length = 0;
+  upstream.releaseStall();
 });
 
 async function generate(): Promise<{ events: LlmRequestEvent[]; elapsedMs: number }> {
@@ -93,32 +49,96 @@ async function generate(): Promise<{ events: LlmRequestEvent[]; elapsedMs: numbe
   return { events, elapsedMs: performance.now() - startedAt };
 }
 
+function partsOf(events: readonly LlmRequestEvent[]): LlmRequestEvent[] {
+  return events.filter((event) => event.type === 'llm.streaming.part');
+}
+
 describe('an upstream that answers immediately', () => {
   it('streams the first part within one second of a single request', async () => {
     const { events, elapsedMs } = await generate();
-    const parts = events.filter((event) => event.type === 'llm.streaming.part');
+    const parts = partsOf(events);
     expect(parts).toHaveLength(1);
     expect(events.at(-1)).toMatchObject({ type: 'llm.done' });
-    expect(requests).toHaveLength(1);
+    expect(upstream.requests).toHaveLength(1);
     expect(elapsedMs).toBeLessThan(FIRST_PART_BUDGET_MS);
   });
 
+  it('asks for streaming and carries the tool catalog in the request body', async () => {
+    await generate();
+    const request = upstream.requests[0];
+    expect(request?.stream).toBe(true);
+    expect(request?.path).toBe('/v1/chat/completions');
+    expect(request?.model).toBe('mock-model');
+    expect(request?.headers['content-type']).toContain('application/json');
+  }, 10_000);
+
   it('delivers every part of a burst without dropping or duplicating one', async () => {
-    partsPerResponse = BURST_PARTS;
+    upstream.scenario({
+      kind: 'text',
+      chunks: Array.from({ length: BURST_PARTS }, (_, index) => `p${index}`),
+    });
     const { events, elapsedMs } = await generate();
-    const parts = events.filter((event) => event.type === 'llm.streaming.part');
-    expect(parts).toHaveLength(BURST_PARTS);
+    expect(partsOf(events)).toHaveLength(BURST_PARTS);
     expect(events.at(-1)).toMatchObject({ type: 'llm.done' });
-    expect(requests).toHaveLength(1);
+    expect(upstream.requests).toHaveLength(1);
     expect(elapsedMs).toBeLessThan(BURST_BUDGET_MS);
   });
 
+  it('receives parts as they arrive instead of after the stream closes', async () => {
+    upstream.scenario({
+      kind: 'text',
+      chunks: Array.from({ length: SLOW_PARTS }, () => 'x'),
+      gapMs: SLOW_GAP_MS,
+    });
+    const arrivals: number[] = [];
+    const startedAt = performance.now();
+    await createOpenAIRequester().generate(
+      { model },
+      { messages: [createUserMessage('hi')] },
+      {
+        signal: new AbortController().signal,
+        onEvent: (event) => {
+          if (event.type === 'llm.streaming.part') arrivals.push(performance.now() - startedAt);
+        },
+      },
+    );
+    expect(arrivals).toHaveLength(SLOW_PARTS);
+    const first = arrivals[0] ?? Number.POSITIVE_INFINITY;
+    const last = arrivals.at(-1) ?? 0;
+    expect(first).toBeLessThan(SLOW_GAP_MS * 4);
+    expect(last - first).toBeGreaterThanOrEqual(SLOW_GAP_MS * (SLOW_PARTS - 2));
+  });
+
+  it('parses a tool-call stream into a tool call named by the upstream', async () => {
+    upstream.scenario({ kind: 'toolCall', name: 'Read', args: '{"path":"a.ts"}' });
+    const { events } = await generate();
+    const toolParts = partsOf(events).filter(
+      (event) => event.type === 'llm.streaming.part' && event.part.type === 'tool_call_part',
+    );
+    expect(toolParts.length).toBeGreaterThan(0);
+    const finish = events.find((event) => event.type === 'llm.streaming.finish');
+    expect(finish).toMatchObject({
+      type: 'llm.streaming.finish',
+      finish: { finishReason: 'tool_calls' },
+    });
+    expect(upstream.requests).toHaveLength(1);
+  });
+
   it('surfaces a 500 as one failed request instead of retrying inside the requester', async () => {
-    failureStatus = 500;
+    upstream.scenario({ kind: 'status', status: 500 });
     const { events, elapsedMs } = await generate();
     expect(events.filter((event) => event.type === 'llm.failed.remote')).toHaveLength(1);
     expect(events.some((event) => event.type === 'llm.done')).toBe(false);
-    expect(requests).toHaveLength(1);
+    expect(upstream.requests).toHaveLength(1);
     expect(elapsedMs).toBeLessThan(FIRST_PART_BUDGET_MS);
+  });
+
+  it('reports a truncated stream as a failure rather than a finished answer', async () => {
+    upstream.scenario({ kind: 'truncate', chunks: ['half an ans'] });
+    const { events } = await generate();
+    expect(partsOf(events)).toHaveLength(1);
+    expect(events.filter((event) => event.type === 'llm.failed.remote')).toHaveLength(1);
+    expect(events.some((event) => event.type === 'llm.streaming.finish')).toBe(false);
+    expect(upstream.requests).toHaveLength(1);
   });
 });
