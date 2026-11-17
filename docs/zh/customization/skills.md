@@ -147,6 +147,17 @@ arguments:
 
 将文件保存为 `$KIMI_CODE_HOME/skills/review-pr/SKILL.md`，未设置 `KIMI_CODE_HOME` 时为 `~/.kimi-code/skills/review-pr/SKILL.md`。检查清单放在同目录的 `references/checklist.md`。重开会话后即可调用，例如 `/skill:review-pr #1234`，其中的参数会展开到 `$pr_ref`。
 
+## 让技能不进入模型列表
+
+每个技能的名称和描述都会写进系统提示，技能多了就会在每次请求里重复付费。`config.toml` 的 `[skills] hiddenFromModel` 可以把技能挡在列表之外，不用改技能文件——它们仍然能用 `/skill:<name>` 调用：
+
+```toml
+[skills]
+hiddenFromModel = ["ai", "reverse-engineering", "game-*"]
+```
+
+名称不区分大小写；结尾的 `*` 表示前缀匹配。单个技能也可以在 frontmatter 里写 `disableModelInvocation: true`，效果相同。
+
 ## 下一步
 
 - [Plugins](./plugins.md) — 把 Skills 打包成可安装单元，与团队共享

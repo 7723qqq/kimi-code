@@ -28,7 +28,9 @@ import {
 } from '#/features/skill/catalog/builtinSkillSource';
 import {
   EXTRA_SKILL_DIRS_SECTION,
+  isHiddenFromModel,
   MERGE_ALL_AVAILABLE_SKILLS_SECTION,
+  SKILLS_SECTION,
 } from '#/features/skill/catalog/configSection';
 import { FileSkillDiscovery } from '#/features/skill/catalog/fileSkillDiscovery';
 import { InMemorySkillDiscovery } from '#/features/skill/catalog/inMemorySkillDiscovery';
@@ -137,10 +139,12 @@ if (!DIRECTORY_LINKS) {
 function configStub(): IConfigService & {
   setExtraSkillDirs(dirs: readonly string[]): void;
   setMergeAllAvailableSkills(value: boolean): void;
+  setHiddenFromModel(names: readonly string[]): void;
   fireSectionChange(domain: string): void;
 } {
   let extraSkillDirs: readonly string[] = [];
   let mergeAllAvailableSkills = true;
+  let hiddenFromModel: readonly string[] = [];
   const sectionChangeListeners: Array<(event: unknown) => void> = [];
   return {
     _serviceBrand: undefined,
@@ -153,6 +157,7 @@ function configStub(): IConfigService & {
     get: (domain: string) => {
       if (domain === EXTRA_SKILL_DIRS_SECTION) return [...extraSkillDirs];
       if (domain === MERGE_ALL_AVAILABLE_SKILLS_SECTION) return mergeAllAvailableSkills;
+      if (domain === SKILLS_SECTION) return { hiddenFromModel: [...hiddenFromModel] };
       return undefined;
     },
     inspect: () => ({
@@ -172,6 +177,9 @@ function configStub(): IConfigService & {
     setMergeAllAvailableSkills: (value: boolean) => {
       mergeAllAvailableSkills = value;
     },
+    setHiddenFromModel: (names: readonly string[]) => {
+      hiddenFromModel = [...names];
+    },
     fireSectionChange: (domain: string) => {
       for (const listener of sectionChangeListeners) {
         listener({ domain, source: 'set', value: undefined, previousValue: undefined });
@@ -180,6 +188,7 @@ function configStub(): IConfigService & {
   } as unknown as IConfigService & {
     setExtraSkillDirs(dirs: readonly string[]): void;
     setMergeAllAvailableSkills(value: boolean): void;
+    setHiddenFromModel(names: readonly string[]): void;
     fireSectionChange(domain: string): void;
   };
 }
@@ -367,6 +376,53 @@ describe('WorkspaceSkillCatalogService', () => {
       'utf8',
     );
   }
+
+  it('keeps a hidden skill out of the model listing while it stays resolvable', async () => {
+    await withSkillCatalogWorkspace(async ({ workDir }) => {
+      await seedCatalogSkill(workDir, 'demo', 'demo skill');
+      await seedCatalogSkill(workDir, 'other', 'other skill');
+      const { host, workspace, config } = makeHost(
+        new FileSkillDiscovery(stubLog()),
+        workspaceContextStub(workDir),
+      );
+      config.setHiddenFromModel(['demo']);
+
+      try {
+        const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
+        await catalog.load();
+
+        const listing = catalog.catalog.getModelSkillListing();
+        expect(listing).toContain('other');
+        expect(listing).not.toContain('demo');
+        expect(catalog.catalog.getSkill('demo')?.description).toBe('demo skill');
+      } finally {
+        host.dispose();
+      }
+    });
+  });
+
+  it('hides a skill as soon as the skills config changes', async () => {
+    await withSkillCatalogWorkspace(async ({ workDir }) => {
+      await seedCatalogSkill(workDir, 'demo', 'demo skill');
+      const { host, workspace, config } = makeHost(
+        new FileSkillDiscovery(stubLog()),
+        workspaceContextStub(workDir),
+      );
+
+      try {
+        const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
+        await catalog.load();
+        expect(catalog.catalog.getModelSkillListing()).toContain('demo');
+
+        config.setHiddenFromModel(['demo*']);
+        config.fireSectionChange(SKILLS_SECTION);
+
+        expect(catalog.catalog.getModelSkillListing()).not.toContain('demo');
+      } finally {
+        host.dispose();
+      }
+    });
+  });
 
   it('discovers all workspace directories with primary and earlier dirs winning collisions', async () => {
     const base = await mkdtemp(join(tmpdir(), 'skill-catalog-multi-root-'));
@@ -1630,5 +1686,15 @@ describe('WorkspaceSkillCatalogService', () => {
 
     host.dispose();
     expect(handles.every((handle) => handle.disposed)).toBe(true);
+  });
+});
+
+describe('isHiddenFromModel', () => {
+  it('matches exact names case-insensitively and a trailing wildcard as a prefix', () => {
+    expect(isHiddenFromModel('Demo', ['demo'])).toBe(true);
+    expect(isHiddenFromModel('demo-extra', ['demo'])).toBe(false);
+    expect(isHiddenFromModel('demo-extra', ['demo*'])).toBe(true);
+    expect(isHiddenFromModel('other', ['demo', 'x*'])).toBe(false);
+    expect(isHiddenFromModel('other', ['  ', ''])).toBe(false);
   });
 });

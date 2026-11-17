@@ -9,6 +9,35 @@ import {
 } from '#/app/config/config';
 import { registerConfigSection } from '#/app/config/configSectionContributions';
 
+export const SKILLS_SECTION = 'skills';
+export const SkillsConfigSchema = z
+  .object({
+    hiddenFromModel: z.array(z.string()).optional(),
+  })
+  .optional();
+export type SkillsConfig = z.infer<typeof SkillsConfigSchema>;
+
+registerConfigSection(SKILLS_SECTION, SkillsConfigSchema, { defaultValue: {} });
+
+export function hiddenFromModelPatterns(config: IConfigService): readonly string[] {
+  return config.get<SkillsConfig>(SKILLS_SECTION)?.hiddenFromModel ?? [];
+}
+
+export function isHiddenFromModel(name: string, patterns: readonly string[]): boolean {
+  const normalized = name.trim().toLowerCase();
+  if (normalized.length === 0) return false;
+  for (const raw of patterns) {
+    const pattern = raw.trim().toLowerCase();
+    if (pattern.length === 0) continue;
+    if (pattern.endsWith('*')) {
+      if (normalized.startsWith(pattern.slice(0, -1))) return true;
+      continue;
+    }
+    if (normalized === pattern) return true;
+  }
+  return false;
+}
+
 export const EXTRA_SKILL_DIRS_SECTION = 'extraSkillDirs';
 export const ExtraSkillDirsConfigSchema = z.array(z.string()).optional();
 export type ExtraSkillDirsConfig = z.infer<typeof ExtraSkillDirsConfigSchema>;

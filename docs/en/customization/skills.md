@@ -147,6 +147,17 @@ Please review the PR the user specified: $pr_ref
 
 Save this as `$KIMI_CODE_HOME/skills/review-pr/SKILL.md` (or `~/.kimi-code/skills/review-pr/SKILL.md` when `KIMI_CODE_HOME` is unset), place the checklist at `references/checklist.md` in the same directory, and after starting a new session you can invoke it with `/skill:review-pr #1234`, where `#1234` is expanded into `$pr_ref`.
 
+## Keeping skills out of the model listing
+
+Every skill's name and description is injected into the system prompt, so a large collection is paid for on every request. `[skills] hiddenFromModel` in `config.toml` keeps skills out of that listing without editing their files — they stay callable with `/skill:<name>`:
+
+```toml
+[skills]
+hiddenFromModel = ["ai", "reverse-engineering", "game-*"]
+```
+
+Names match case-insensitively; a trailing `*` matches a prefix. For a single skill, `disableModelInvocation: true` in its frontmatter does the same thing.
+
 ## Next steps
 
 - [Plugins](./plugins.md) — Package Skills into installable units to share with your team

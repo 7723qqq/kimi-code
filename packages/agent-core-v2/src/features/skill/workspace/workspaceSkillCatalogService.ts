@@ -1,4 +1,10 @@
 import { Disposable } from '#/_base/di/lifecycle';
+import { IConfigService } from '#/app/config/config';
+import {
+  hiddenFromModelPatterns,
+  isHiddenFromModel,
+  SKILLS_SECTION,
+} from '#/features/skill/catalog/configSection';
 import { Emitter, type Event } from '#/_base/event';
 import { IBuiltinSkillSource } from '#/features/skill/catalog/builtinSkillSource';
 import { InMemorySkillCatalog } from '#/features/skill/catalog/registry';
@@ -40,6 +46,7 @@ export class WorkspaceSkillCatalogService extends Disposable implements IWorkspa
     @IWorkspaceRootSkillSource workspace: IWorkspaceRootSkillSource,
     @IPluginSkillSource plugin: IPluginSkillSource,
     @IWorkspaceStateService private readonly states: IWorkspaceStateService,
+    @IConfigService private readonly config: IConfigService,
   ) {
     super();
     this.states.contributeState(workspaceSkillCatalogContributionsKey);
@@ -55,6 +62,13 @@ export class WorkspaceSkillCatalogService extends Disposable implements IWorkspa
           }),
         );
     }
+    this._register(
+      this.config.onDidSectionChange((event) => {
+        if (event.domain !== SKILLS_SECTION) return;
+        this.remerge();
+        this.onDidChangeEmitter.fire('catalog');
+      }),
+    );
     this.ready = this.loadAll();
     void this.ready.catch(() => undefined);
   }
@@ -140,13 +154,28 @@ export class WorkspaceSkillCatalogService extends Disposable implements IWorkspa
 
   private remerge(): void {
     const m = new InMemorySkillCatalog();
+    const hidden = hiddenFromModelPatterns(this.config);
     const ordered = [...this.contributions.values()].toSorted((a, b) => a.priority - b.priority);
     for (const { c } of ordered) {
-      for (const skill of c.skills) m.register(skill, { replace: true });
-      m.registerVariants(c.variants ?? c.skills, { replace: true });
+      for (const skill of c.skills) {
+        m.register(visibilityOf(skill, hidden), { replace: true });
+      }
+      m.registerVariants(
+        (c.variants ?? c.skills).map((skill) => visibilityOf(skill, hidden)),
+        { replace: true },
+      );
       m.addRoots(c.scannedRoots ?? []);
       m.recordSkipped(c.skipped ?? []);
     }
     this.merged = m;
   }
+}
+
+function visibilityOf<T extends SkillContribution['skills'][number]>(
+  skill: T,
+  hidden: readonly string[],
+): T {
+  if (hidden.length === 0 || skill.metadata.disableModelInvocation === true) return skill;
+  if (!isHiddenFromModel(skill.name, hidden)) return skill;
+  return { ...skill, metadata: { ...skill.metadata, disableModelInvocation: true } };
 }
