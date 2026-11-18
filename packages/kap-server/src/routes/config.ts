@@ -65,7 +65,10 @@ export function registerConfigRoutes(app: ConfigRouteHost, core: Scope): void {
       try {
         const config = core.accessor.get(IConfigService);
         await config.ready;
-        const camelPatch = convertKeysSnakeToCamel(req.body) as Record<string, unknown>;
+        const { raw, ...fields } = req.body;
+        const patchInput = { ...raw, ...fields };
+        const validated = patchConfigRequestSchema.omit({ raw: true }).parse(patchInput);
+        const camelPatch = convertKeysSnakeToCamel(validated) as Record<string, unknown>;
         if (camelPatch['yolo'] === true) {
           camelPatch['defaultPermissionMode'] = 'yolo';
         }

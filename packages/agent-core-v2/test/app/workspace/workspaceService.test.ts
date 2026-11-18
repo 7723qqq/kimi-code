@@ -3,6 +3,8 @@ import { promises as fsp } from 'node:fs';
 import os from 'node:os';
 import { join } from 'node:path';
 
+import { normalize } from 'pathe';
+
 import {
   ScopeActivation,
   _clearScopedRegistryForTests,
@@ -15,6 +17,8 @@ import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IEventService } from '#/app/event/event';
 import { Event2 } from '#/app/event/event2';
 import { LifecycleScope } from '#/app/scopes';
+import { IProjectLocalConfigService } from '#/app/projectLocalConfig/projectLocalConfig';
+import { FileProjectLocalConfigService } from '#/persistence/backends/node-fs/projectLocalConfigService';
 import { FileWorkspacePersistence } from '#/app/workspace/fileWorkspacePersistence';
 import { IWorkspaceService } from '#/app/workspace/workspace';
 import {
@@ -98,6 +102,7 @@ describe('WorkspaceService (file-backed)', () => {
       stubPair(ILogService, noopLog),
       stubPair(IBootstrapService, stubBootstrap(homeDir)),
       stubPair(IHostFileSystem, hostFs),
+      stubPair(IProjectLocalConfigService, new FileProjectLocalConfigService(stubBootstrap(homeDir), hostFs)),
       stubPair(IEventService, {
         publish: (event: Event2<any>) => {
           published.push({
@@ -802,7 +807,7 @@ describe('WorkspaceService (file-backed)', () => {
       expect(first.id.startsWith('wm_')).toBe(true);
       expect(first.kind).toBe('managed');
       expect(first.name).toBe('Primary');
-      expect(first.additionalDirs).toEqual([extra]);
+      expect(first.additionalDirs).toEqual([normalize(extra)]);
 
       const retry = await registry.create({ root: homeDir, idempotencyKey: 'key-1' });
       expect(retry.id).toBe(first.id);
@@ -817,14 +822,15 @@ describe('WorkspaceService (file-backed)', () => {
     }
   });
 
-  it('create rejects a missing additional dir and drops one that duplicates the root', async () => {
+  it('create rejects a missing additional dir and one that duplicates the root', async () => {
     const registry = build();
     await expect(
       registry.create({ root: homeDir, additionalDirs: [join(homeDir, 'missing-dir')] }),
-    ).rejects.toMatchObject({ code: 'fs.path_not_found' });
+    ).rejects.toMatchObject({ code: ErrorCodes.CONFIG_INVALID });
 
-    const same = await registry.create({ root: homeDir, additionalDirs: [homeDir] });
-    expect(same.additionalDirs).toEqual([]);
+    await expect(
+      registry.create({ root: homeDir, additionalDirs: [homeDir] }),
+    ).rejects.toMatchObject({ code: ErrorCodes.CONFIG_INVALID });
   });
 
   it('shares a parsed catalog across repeated reads until the file changes', async () => {
@@ -899,11 +905,11 @@ describe('WorkspaceService (file-backed)', () => {
       expect(touched?.lastOpenedAt).toBeGreaterThanOrEqual(created.lastOpenedAt);
 
       const promoted = await registry.setPrimary(created.id, extra);
-      expect(promoted?.root).toBe(extra);
+      expect(promoted?.root).toBe(normalize(extra));
       expect(promoted?.additionalDirs).toEqual([homeDir]);
 
       await expect(registry.setPrimary(created.id, join(extra, 'nope'))).rejects.toMatchObject({
-        code: 'fs.path_not_found',
+        code: ErrorCodes.CONFIG_INVALID,
       });
     } finally {
       await fsp.rm(extra, { recursive: true, force: true });

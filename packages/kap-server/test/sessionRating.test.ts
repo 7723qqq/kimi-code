@@ -59,6 +59,8 @@ function serverEnv(extra: Record<string, string>): Record<string, string | undef
 }
 
 class RatingClient {
+  private readonly turnNumbers = new Map<string, number>();
+
   constructor(private readonly server: RunningServer) {}
 
   async request<T = unknown>(path: string, body?: unknown): Promise<Envelope<T>> {
@@ -86,16 +88,17 @@ class RatingClient {
   async finishUserTurn(
     sessionId: string,
     during?: (bus: IEventBus) => void,
-    turnId = 1,
+    turnId = (this.turnNumbers.get(sessionId) ?? 0) + 1,
   ): Promise<void> {
+    this.turnNumbers.set(sessionId, turnId);
     const agent = await this.mainAgent(sessionId);
-    expect(
-      (await this.request(`/api/v1/sessions/${sessionId}/agents/main/turns`)).code,
-    ).toBe(0);
+    expect((await this.request(`/api/v1/sessions/${sessionId}/agents/main/turns`)).code).toBe(0);
     const bus = agent.accessor.get(IEventBus);
     const dispatcher = agent.accessor.get(IEventDispatcher);
     const origin = { kind: 'user' } as const;
-    await dispatcher.dispatch(new TurnPrompt({ agentId: MAIN_AGENT_ID, input: [], origin }));
+    await dispatcher.dispatch(
+      new TurnPrompt({ agentId: MAIN_AGENT_ID, turnId, input: [], origin }),
+    );
     await dispatcher.dispatch(
       new ContextAppendMessage({
         agentId: MAIN_AGENT_ID,

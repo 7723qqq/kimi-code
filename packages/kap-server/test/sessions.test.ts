@@ -24,6 +24,9 @@ import {
   IAgentLifecycleService,
   IAgentProfileService,
   IEnvironmentService,
+  IHostFileSystem,
+  IAtomicDocumentStore,
+  IAgentLoopService,
   IEventBus,
   IEventDispatcher,
   IEventService,
@@ -47,6 +50,7 @@ import {
   sessionDirOf,
   TurnEnded,
   TurnPrompt,
+  TaskStarted,
   type ContextMessage,
   type ScopeSeed,
 } from '@moonshot-ai/agent-core-v2';
@@ -55,19 +59,19 @@ import { SessionMetaUpdated } from '@moonshot-ai/agent-core-v2';
 import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
 import { renderToolResultForModel } from '@moonshot-ai/agent-core-v2/agent/contextMemory/toolResultRender';
 import { EnvironmentSetBinding } from '@moonshot-ai/agent-core-v2/agent/environmentBinding/environmentBindingOps';
-import { FakeEnvironment } from '@moonshot-ai/agent-core-v2/environment/fakeEnvironment';
 import { TurnStarted } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
 import { TurnSteer } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
 import { mcpResultToExecutableOutput } from '@moonshot-ai/agent-core-v2/agent/mcp/output';
 import { sessionWarningsResponseSchema } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
+import { FakeEnvironment } from '@moonshot-ai/agent-core-v2/environment/fakeEnvironment';
 import type { AgentTranscriptSnapshot } from '@moonshot-ai/transcript';
 
 import type { ConversationTurnsPage } from '../src/protocol/conversation';
-import { type RunningServer, startServer } from '../src/start';
-import { authHeaders } from './helpers/auth';
 import { ConversationFeed } from '../src/services/conversation/conversationFeed';
+import { type RunningServer, startServer } from '../src/start';
 import { ensureMainAgent } from '../src/transport/mainAgent';
 import { readAgentState, readUsageState } from '../src/transport/ws/v1/agentState';
+import { authHeaders } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { restoreEnvs } from './helpers/stubs';
 import { waitForAssertion, waitUntil } from './helpers/waitFor';
@@ -526,6 +530,20 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(body.code).toBe(40409);
   });
 
+  it('preserves a selected managed workspace identity when creating a session', async () => {
+    const workspace = await server!.core.accessor
+      .get(IWorkspaceService)
+      .create({ root: home as string, name: 'Managed project' });
+    const created = await postJson<SessionWire>('/api/v1/sessions', { workspace_id: workspace.id });
+    expect(created.body.code).toBe(0);
+    expect(created.body.data.workspace_id).toBe(workspace.id);
+    await closeSessionById(server!.core.accessor, created.body.data.id);
+    expect(
+      (await getJson<SessionWire>(`/api/v1/sessions/${created.body.data.id}`)).body.data
+        .workspace_id,
+    ).toBe(workspace.id);
+  });
+
   it('creates a second session via workspace_id resolved from a prior cwd create', async () => {
     const cwd = home as string;
     const first = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
@@ -644,7 +662,9 @@ describe('server-v2 /api/v1/sessions', () => {
     });
     spyOn(models, 'getDefaultModel').mockImplementation(() => (loaded ? 'stub' : undefined));
 
-    const pending = postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd: home as string } });
+    const pending = postJson<SessionWire>('/api/v1/sessions', {
+      metadata: { cwd: home as string },
+    });
     await new Promise((resolve) => setTimeout(resolve, 50));
     loaded = true;
     release();
@@ -688,9 +708,12 @@ describe('server-v2 /api/v1/sessions', () => {
       metadata: { cwd: home as string },
     });
 
-    const updated = await postJson<SessionWire>(`/api/v1/sessions/${created.body.data.id}/profile`, {
-      agent_config: { profile: 'route-reviewer' },
-    });
+    const updated = await postJson<SessionWire>(
+      `/api/v1/sessions/${created.body.data.id}/profile`,
+      {
+        agent_config: { profile: 'route-reviewer' },
+      },
+    );
 
     expect(updated.body.code).toBe(40001);
     expect(JSON.stringify(updated.body)).toContain('agent_config.profile');
@@ -758,9 +781,12 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(created.body.data.agent_config).toEqual({ model: '' });
     expect(liveMainAgent(created.body.data.id)).toBeUndefined();
 
-    const thinking = await postJson<SessionWire>(`/api/v1/sessions/${created.body.data.id}/profile`, {
-      agent_config: { thinking: 'high' },
-    });
+    const thinking = await postJson<SessionWire>(
+      `/api/v1/sessions/${created.body.data.id}/profile`,
+      {
+        agent_config: { thinking: 'high' },
+      },
+    );
     expect(thinking.body.code).toBe(40113);
   });
 
@@ -875,13 +901,18 @@ describe('server-v2 /api/v1/sessions', () => {
   });
 
   it('still accepts profile updates that carry the never-applied profile fields', async () => {
-    const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd: home as string } });
-
-    const updated = await postJson<SessionWire>(`/api/v1/sessions/${created.body.data.id}/profile`, {
-      title: 'renamed',
-      agent_config: { system_prompt: 'be brief', tools: ['Read'], mcp_servers: ['docs'] },
-      permission_rules: [],
+    const created = await postJson<SessionWire>('/api/v1/sessions', {
+      metadata: { cwd: home as string },
     });
+
+    const updated = await postJson<SessionWire>(
+      `/api/v1/sessions/${created.body.data.id}/profile`,
+      {
+        title: 'renamed',
+        agent_config: { system_prompt: 'be brief', tools: ['Read'], mcp_servers: ['docs'] },
+        permission_rules: [],
+      },
+    );
 
     expect(updated.body.code).toBe(0);
     expect(updated.body.data.title).toBe('renamed');
@@ -1146,6 +1177,157 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(children.body.data.items.some((s) => s.id === created.body.data.id)).toBe(false);
   });
 
+  it('moves a session in place to another cwd while retaining history and cold-resume bindings', async () => {
+    const destination = join(home as string, 'moved-project');
+    await mkdir(destination, { recursive: true });
+    await writeFile(join(destination, 'destination.txt'), 'new workspace');
+    const created = await postJson<SessionWire>('/api/v1/sessions', {
+      metadata: { cwd: home as string, source: 'original' },
+      title: 'Keep title',
+    });
+    const id = created.body.data.id;
+    await ensureMainAgent(getLiveSessionById(server!.core.accessor, id)!);
+    const originalAgent = getLiveSessionById(server!.core.accessor, id)!
+      .accessor.get(IAgentLifecycleService)
+      .handleOf('main')!;
+    originalAgent.accessor.get(IAgentEnvironmentBindingService).bind('local', home as string);
+    await originalAgent.accessor
+      .get(IEventDispatcher)
+      .dispatch(
+        new ContextAppendMessage({
+          agentId: 'main',
+          message: {
+            role: 'user',
+            content: [{ type: 'text', text: 'Keep migration history' }],
+            toolCalls: [],
+          },
+        }),
+      );
+    const moved = await postJson<SessionWire>(`/api/v1/sessions/${id}/profile`, {
+      metadata: { cwd: destination, marker: 'moved' },
+    });
+    expect(moved.body.code).toBe(0);
+    expect(moved.body.data.id).toBe(id);
+    expect(moved.body.data.metadata).toMatchObject({
+      cwd: destination,
+      source: 'original',
+      marker: 'moved',
+    });
+    expect(moved.body.data.workspace_id).not.toBe(created.body.data.workspace_id!);
+    expect(moved.body.data.title).toBe('Keep title');
+    await closeSessionById(server!.core.accessor, id);
+    const resumed = await getJson<SessionWire>(`/api/v1/sessions/${id}`);
+    expect(resumed.body.data.metadata.cwd).toBe(destination);
+    const read = await postJson<{ content: string }>(`/api/v1/sessions/${id}/fs:read`, {
+      path: 'destination.txt',
+    });
+    expect(read.body.code).toBe(0);
+    expect(read.body.data.content).toBe('new workspace');
+    const agent = getLiveSessionById(server!.core.accessor, id)!
+      .accessor.get(IAgentLifecycleService)
+      .handleOf('main')!;
+    expect(agent.accessor.get(IAgentEnvironmentBindingService).current.cwd).toBe(destination);
+    expect(JSON.stringify(agent.accessor.get(IAgentContextMemoryService).get())).toContain(
+      'Keep migration history',
+    );
+  });
+
+  it('rolls a failed directory migration back without losing its source session', async () => {
+    const destination = join(home as string, 'rollback-project');
+    await mkdir(destination, { recursive: true });
+    const created = await postJson<SessionWire>('/api/v1/sessions', {
+      metadata: { cwd: home as string },
+    });
+    const fs = server!.core.accessor.get(IHostFileSystem);
+    const rename = fs.rename!.bind(fs);
+    let calls = 0;
+    const failure = spyOn(fs, 'rename').mockImplementation(async (from, to) => {
+      calls += 1;
+      if (calls === 1) throw new Error('injected move failure');
+      await rename(from, to);
+    });
+    try {
+      const result = await postJson<SessionWire>(
+        `/api/v1/sessions/${created.body.data.id}/profile`,
+        { metadata: { cwd: destination } },
+      );
+      expect(result.body.code).not.toBe(0);
+      const restored = await getJson<SessionWire>(`/api/v1/sessions/${created.body.data.id}`);
+      expect(restored.body.data.workspace_id).toBe(created.body.data.workspace_id!);
+      expect(restored.body.data.metadata.cwd).toBe(home as string);
+    } finally {
+      failure.mockRestore();
+    }
+  });
+
+  it('rolls back a persistence failure after the session directory was moved', async () => {
+    const destination = join(home as string, 'rollback-after-rename');
+    await mkdir(destination, { recursive: true });
+    const created = await postJson<SessionWire>('/api/v1/sessions', {
+      metadata: { cwd: home as string },
+    });
+    const docs = server!.core.accessor.get(IAtomicDocumentStore);
+    const set = docs.set.bind(docs);
+    let injected = false;
+    const failure = spyOn(docs, 'set').mockImplementation(async (scope, key, value) => {
+      if (
+        !injected &&
+        key === 'state.json' &&
+        typeof value === 'object' &&
+        value !== null &&
+        'cwd' in value &&
+        value.cwd === destination
+      ) {
+        injected = true;
+        throw new Error('injected persistence failure');
+      }
+      await set(scope, key, value);
+    });
+    try {
+      const result = await postJson<SessionWire>(
+        `/api/v1/sessions/${created.body.data.id}/profile`,
+        { metadata: { cwd: destination } },
+      );
+      expect(injected).toBe(true);
+      expect(result.body.code).not.toBe(0);
+      await closeSessionById(server!.core.accessor, created.body.data.id);
+      expect(
+        (await getJson<SessionWire>(`/api/v1/sessions/${created.body.data.id}`)).body.data
+          .workspace_id,
+      ).toBe(created.body.data.workspace_id!);
+    } finally {
+      failure.mockRestore();
+    }
+  });
+
+  it('refuses migration when a prompt cannot be quiesced and preserves its original cwd', async () => {
+    const destination = join(home as string, 'busy-migration');
+    await mkdir(destination, { recursive: true });
+    const created = await postJson<SessionWire>('/api/v1/sessions', {
+      metadata: { cwd: home as string },
+    });
+    const session = getLiveSessionById(server!.core.accessor, created.body.data.id)!;
+    await ensureMainAgent(session);
+    const loop = session.accessor
+      .get(IAgentLifecycleService)
+      .handleOf('main')!
+      .accessor.get(IAgentLoopService);
+    const pause = loop.tryAcquireQuiescence()!;
+    try {
+      const result = await postJson<SessionWire>(
+        `/api/v1/sessions/${created.body.data.id}/profile`,
+        { metadata: { cwd: destination } },
+      );
+      expect(result.body.code).toBe(40901);
+      expect(
+        (await getJson<SessionWire>(`/api/v1/sessions/${created.body.data.id}`)).body.data.metadata
+          .cwd,
+      ).toBe(home as string);
+    } finally {
+      pause.dispose();
+    }
+  });
+
   it('drops the reserved metadata keys when updating the session profile', async () => {
     const cwd = home as string;
     const parent = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
@@ -1155,7 +1337,7 @@ describe('server-v2 /api/v1/sessions', () => {
 
     const updated = await postJson<SessionWire>(`/api/v1/sessions/${id}/profile`, {
       metadata: {
-        cwd: '/elsewhere',
+        cwd,
         goal: 'not a goal',
         parent_session_id: parentId,
         child_session_kind: 'child',
@@ -1191,18 +1373,21 @@ describe('server-v2 /api/v1/sessions', () => {
     });
   }
 
-  it('replaces the custom metadata even when the profile metadata names only reserved keys', async () => {
+  it('preserves custom metadata when a profile patch names only its current cwd', async () => {
     const cwd = home as string;
     const created = await postJson<SessionWire>('/api/v1/sessions', {
       metadata: { cwd, source: 'composer' },
     });
 
-    const updated = await postJson<SessionWire>(`/api/v1/sessions/${created.body.data.id}/profile`, {
-      metadata: { cwd: '/elsewhere' },
-    });
+    const updated = await postJson<SessionWire>(
+      `/api/v1/sessions/${created.body.data.id}/profile`,
+      {
+        metadata: { cwd },
+      },
+    );
 
     expect(updated.body.code).toBe(0);
-    expect(updated.body.data.metadata).toEqual({ cwd });
+    expect(updated.body.data.metadata).toEqual({ cwd, source: 'composer' });
   });
 
   it('reports an unknown creation model as a validation error and creates nothing', async () => {
@@ -1242,7 +1427,10 @@ describe('server-v2 /api/v1/sessions', () => {
       });
 
       expect(created.body.code).toBe(0);
-      const session = getLiveSessionById((server as RunningServer).core.accessor, created.body.data.id)!;
+      const session = getLiveSessionById(
+        (server as RunningServer).core.accessor,
+        created.body.data.id,
+      )!;
       expect(session.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)).toBeUndefined();
     },
   );
@@ -1293,6 +1481,29 @@ describe('server-v2 /api/v1/sessions', () => {
     });
     expect(off.body.code).toBe(0);
     expect(readAgentState(await mainAgentOf(id), false).tower_mode).toBe(false);
+  });
+
+  it('projects legacy limited goal states as blocked for the official client', async () => {
+    const created = await postJson<SessionWire>('/api/v1/sessions', {
+      metadata: { cwd: home as string },
+      agent_config: { goal_objective: 'compatibility' },
+    });
+    const agent = getLiveSessionById(server!.core.accessor, created.body.data.id)!
+      .accessor.get(IAgentLifecycleService)
+      .handleOf('main')!;
+    const service = agent.accessor.get(IAgentGoalService);
+    const current = service.getGoal();
+    const limited = spyOn(service, 'getGoal').mockReturnValue({
+      ...current,
+      goal: { ...current.goal!, status: 'budget_limited' },
+    });
+    try {
+      const goal = await getJson<GoalWire>(`/api/v1/sessions/${created.body.data.id}/goal`);
+      expect(goal.body.data.status).toBe('blocked');
+      expect(goal.body.data.goalId).toBe(current.goal!.goalId);
+    } finally {
+      limited.mockRestore();
+    }
   });
 
   it('returns the current goal via GET /goal', async () => {
@@ -1779,7 +1990,6 @@ describe('server-v2 /api/v1/sessions', () => {
     }
   });
 
-
   it.each(['closing', 'cleanup'] as const)(
     'waits for %s before recreating an explicit session id',
     async (phase) => {
@@ -1840,7 +2050,7 @@ describe('server-v2 /api/v1/sessions', () => {
     await closeSessionById((server as RunningServer).core.accessor, id);
 
     const res = await postJson<null>(`/api/v1/sessions/${id}:undo`, { turn_id: 't_missing' });
-    expect(res.body.code).toBe(40421);
+    expect(res.body.code).toBe(40422);
   });
 
   it('returns 40901 when :undo reports a busy session', async () => {
@@ -1873,9 +2083,9 @@ describe('server-v2 /api/v1/sessions', () => {
         },
       }),
     );
-    await agent.accessor.get(IEventDispatcher).dispatch(
-      new TurnEnded({ agentId: MAIN_AGENT_ID, turnId: 0, reason: 'completed' }),
-    );
+    await agent.accessor
+      .get(IEventDispatcher)
+      .dispatch(new TurnEnded({ agentId: MAIN_AGENT_ID, turnId: 0, reason: 'completed' }));
     const page = await getJson<ConversationTurnsPage>(
       `/api/v1/sessions/${created.body.data.id}/agents/main/turns`,
     );
@@ -2220,26 +2430,105 @@ describe('server-v2 /api/v1/sessions', () => {
         },
       }),
     );
-    await dispatcher.dispatch(new TurnEnded({ agentId: MAIN_AGENT_ID, turnId: 0, reason: 'completed' }));
+    await dispatcher.dispatch(
+      new TurnEnded({ agentId: MAIN_AGENT_ID, turnId: 0, reason: 'completed' }),
+    );
     await agent.accessor.get(IWireService).flush();
     const path = `/api/v1/sessions/${id}/agents/main/turns`;
     const before = await getJson<ConversationTurnsPage>(path);
     expect(before.body.code).toBe(0);
     const [turn] = before.body.data.turns;
     expect(before.body.data.turns).toHaveLength(1);
-    expect(turn!.items.filter((item) => item.type === 'user_message').map((item) => item.placement)).toEqual([
-      'opener',
-      'steer',
-      'steer',
-    ]);
+    expect(
+      turn!.items.filter((item) => item.type === 'user_message').map((item) => item.placement),
+    ).toEqual(['opener', 'steer', 'steer']);
 
     expect((await postJson<null>(`/api/v1/sessions/${id}:undo`, {})).body.code).toBe(40001);
-    expect((await postJson<null>(`/api/v1/sessions/${id}:undo`, { turn_id: 't_missing' })).body.code).toBe(40421);
+    expect(
+      (await postJson<null>(`/api/v1/sessions/${id}:undo`, { turn_id: 't_missing' })).body.code,
+    ).toBe(40422);
     const undone = await postJson<{ removed_turn_ids: string[] }>(`/api/v1/sessions/${id}:undo`, {
       turn_id: turn!.turn_id,
     });
     expect(undone.body).toMatchObject({ code: 0, data: { removed_turn_ids: [turn!.turn_id] } });
     expect((await getJson<ConversationTurnsPage>(path)).body.data.turns).toEqual([]);
+  });
+
+  it('serves tool task links after closing and restoring the session', async () => {
+    const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd: home } });
+    const id = created.body.data.id;
+    const session = getLiveSessionById((server as RunningServer).core.accessor, id)!;
+    await session.accessor.get(IAgentLifecycleService).create({ agentId: MAIN_AGENT_ID });
+    const agent = session.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)!;
+    const dispatcher = agent.accessor.get(IEventDispatcher);
+    await dispatcher.dispatch(
+      new TurnPrompt({
+        agentId: MAIN_AGENT_ID,
+        input: [{ type: 'text', text: 'run' }],
+        origin: { kind: 'user' },
+        turnId: 0,
+      }),
+    );
+    for (const message of [
+      {
+        role: 'user',
+        id: 'task-prompt',
+        origin: { kind: 'user' },
+        content: [{ type: 'text', text: 'run' }],
+        toolCalls: [],
+      },
+      {
+        role: 'assistant',
+        content: [],
+        toolCalls: [{ type: 'function', id: 'task-call', name: 'Bash', arguments: '{}' }],
+      },
+    ] satisfies ContextMessage[]) {
+      await dispatcher.dispatch(new ContextAppendMessage({ agentId: MAIN_AGENT_ID, message }));
+    }
+    await dispatcher.dispatch(
+      new TaskStarted({
+        agentId: MAIN_AGENT_ID,
+        info: {
+          kind: 'process',
+          taskId: 'bash-linked',
+          parentToolCallId: 'task-call',
+          description: 'done',
+          command: 'bun test',
+          pid: 0,
+          exitCode: 0,
+          status: 'completed',
+          startedAt: 1,
+          endedAt: 2,
+        },
+      }),
+    );
+    await dispatcher.dispatch(
+      new ContextAppendMessage({
+        agentId: MAIN_AGENT_ID,
+        message: {
+          role: 'tool',
+          content: [{ type: 'text', text: 'done' }],
+          toolCalls: [],
+          toolCallId: 'task-call',
+        },
+      }),
+    );
+    await dispatcher.dispatch(
+      new TurnEnded({ agentId: MAIN_AGENT_ID, turnId: 0, reason: 'completed' }),
+    );
+    await agent.accessor.get(IWireService).flush();
+    const path = `/api/v1/sessions/${id}/agents/main/turns`;
+    const live = await getJson<ConversationTurnsPage>(path);
+    expect(live.body.code).toBe(0);
+    expect(live.body.data.turns.flatMap((turn) => turn.items)).toContainEqual(
+      expect.objectContaining({ item_id: 'task-call', task_id: 'bash-linked' }),
+    );
+    await closeSessionById((server as RunningServer).core.accessor, id);
+    const restored = await getJson<ConversationTurnsPage>(path);
+    expect(restored.body.code).toBe(0);
+    expect(restored.body.data.turns.flatMap((turn) => turn.items)).toContainEqual(
+      expect.objectContaining({ item_id: 'task-call', task_id: 'bash-linked' }),
+    );
   });
 
   it('undoes a turn only once when two requests race for it', async () => {
@@ -2299,7 +2588,7 @@ describe('server-v2 /api/v1/sessions', () => {
       }),
     ]);
 
-    expect(results.map((result) => result.body.code).toSorted()).toEqual([0, 40421]);
+    expect(results.map((result) => result.body.code).toSorted()).toEqual([0, 40422]);
     expect(
       (await getJson<ConversationTurnsPage>(path)).body.data.turns.map((turn) => turn.turn_id),
     ).toEqual(turnIds.slice(0, 2));
@@ -2733,7 +3022,9 @@ describe('server-v2 /api/v1/sessions', () => {
 
     const resumed = await resumeSessionById((server as RunningServer).core.accessor, sessionId);
     const resumedMain = resumed!.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)!;
-    const execution = await resumedMain.accessor.get(IReadTool).resolveExecution({ path: filePath });
+    const execution = await resumedMain.accessor
+      .get(IReadTool)
+      .resolveExecution({ path: filePath });
     expect(execution.isError, JSON.stringify(execution)).not.toBe(true);
     if (execution.isError) return;
     const read = await execution.execute({
@@ -2758,7 +3049,10 @@ describe('server-v2 /api/v1/sessions', () => {
       debugEndpoints: true,
     });
     base = `http://127.0.0.1:${server.port}`;
-    const resumedAgain = await resumeSessionById((server as RunningServer).core.accessor, sessionId);
+    const resumedAgain = await resumeSessionById(
+      (server as RunningServer).core.accessor,
+      sessionId,
+    );
     const binding = resumedAgain!.accessor
       .get(IAgentLifecycleService)
       .handleOf(MAIN_AGENT_ID)!
@@ -3142,7 +3436,7 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(got.body.data.metadata.cwd).toBe(cwd);
   });
 
-  it('replaces custom metadata on a second profile update (v1 semantics)', async () => {
+  it('merges custom metadata on a second profile update', async () => {
     const cwd = home as string;
     const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
     const id = created.body.data.id;
@@ -3152,7 +3446,7 @@ describe('server-v2 /api/v1/sessions', () => {
       metadata: { baz: 1 },
     });
     expect(second.body.code).toBe(0);
-    expect(second.body.data.metadata['foo']).toBeUndefined();
+    expect(second.body.data.metadata['foo']).toBe('bar');
     expect(second.body.data.metadata['baz']).toBe(1);
     expect(second.body.data.metadata.cwd).toBe(cwd);
   });

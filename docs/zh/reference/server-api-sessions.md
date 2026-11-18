@@ -121,7 +121,7 @@
 | --- | --- | --- | --- |
 | `session_id` | path | string | **必填。** 会话 id |
 | `title` | body | string | 新标题（至少 1 个字符）；会成为自定义标题 |
-| `metadata` | body | object | 非空时整体替换会话的自定义元数据。保留键 `cwd`、`goal`、`parent_session_id`、`child_session_kind` 会被忽略，会话已存的这些键保持不变 |
+| `metadata` | body | object | 合并自定义元数据。不同的 `cwd` 会将空闲本地会话迁移至该目录，保留 ID 与历史；存在排队或运行中的工作、待处理交互或定时任务时返回 `40901`。保留键 `goal`、`parent_session_id`、`child_session_kind` 不可覆盖 |
 | `agent_config` | body | object | main agent 的部分配置；字段如下，均为可选 |
 
 每个 `agent_config` 字段都会立即应用到 main agent：
@@ -193,17 +193,18 @@ schema 还接受顶层 `permission_rules` 数组，但更新路由当前不会�
 
 ### `POST /api/v1/sessions/{session_id}:undo`
 
-将 main agent 的对话回退 `count` 个轮次，并同步修正派生的会话状态（包括会话的 `last_prompt`）。
+将对话回退到指定轮次之前，并同步修正派生的会话状态。
 
 | 参数 | 位置 | 类型 | 说明 |
 | --- | --- | --- | --- |
-| `count` | body | integer | 要撤销的轮次数；正整数。默认 `1` |
-| `page_size` | body | integer | 返回的历史窗口大小，1–100。默认 `50` |
+| `turn_id` | body | string | 必填，从该 Agent 的对话轮次中取得的 ID |
+| `agent_id` | body | string | 要撤销的 Agent；默认 main agent |
 
-成功时，`data` 为 `{ messages }`：剩余上下文消息按最新在前的 `{ items, has_more }` 分页。
+成功时，`data` 为 `{ removed_turn_ids }`，包含被移除的轮次 ID。不再使用旧的 `count` 和 `page_size` 请求字段。
 
+- `40422`：轮次不存在；替代此前冲突的 `40421`，后者继续表示 Agent 不存在
 - `40901`：有轮次正在进行或压缩正在运行——等其结束后重试
-- `40911`：无法撤销那么多轮次（遇到压缩边界或检查点丢失）；`data` 携带 `{ reason, requestedCount, undoableCount }`
+- `40911`：指定轮次不可撤销，例如没有用户输入锚点
 
 ### `POST /api/v1/sessions/{session_id}:abort`
 
@@ -505,7 +506,7 @@ schema 还接受顶层 `permission_rules` 数组，但更新路由当前不会�
 | --- | --- | --- | --- |
 | `session_id` | path | string | **必填。** 会话 id |
 
-成功时，`data` 为 `{ active, queued }`：`active` 是运行中的提示词（空闲时为 `null`），`queued` 按顺序列出等待中的提示词。提示词为 `{ prompt_id, user_message_id, status, content, created_at }`，其中 `status` 为 `running` / `queued` / `blocked` 之一，`content` 采用 `POST /api/v1/sessions/{session_id}/prompts` 接受的内容块格式。
+成功时，`data` 为 `{ active, queued }`：`active` 是运行中的提示词（空闲时为 `null`），`queued` 按顺序列出等待中的提示词。提示词为 `{ prompt_id, user_message_id, status, content, created_at }`，其中 `status` 为 `running` / `queued` / `blocked` / `failed` 之一，`content` 采用 `POST /api/v1/sessions/{session_id}/prompts` 接受的内容块格式。
 
 - `40401`：会话不存在
 
@@ -518,14 +519,14 @@ schema 还接受顶层 `permission_rules` 数组，但更新路由当前不会�
 | `session_id` | path | string | **必填。** 会话 id |
 | `content` | body | array | **必填。** 非空的内容块数组；变体见下 |
 | `agent_id` | body | string | 目标 Agent。默认为 main agent |
-| `prompt_id` | body | string | 客户端选定的提示词 id，用于幂等提交；已被进行中提示词占用的 id 返回 `40927`，已完成的返回 `40903`。不能与 `skills` 同用 |
+| `prompt_id` | body | string | 客户端选定的提示词 id，可与 `skills` 同用。并发的相同请求共用一次提交，成功响应最多回放 10 分钟（每个服务器最多保留 1024 项）。同 ID 的不同正文或提交路由返回 `40927`；响应回放不跨服务器重启持久化 |
 | `skills` | body | array | 打包的 Skill 激活，至少 1 个 `{ name, path?, args? }` 条目；每个 Skill 必须存在且可由用户激活。`path` 用于选择会话目录中的同名变体 |
 | `model` | body | string | 要切换到的模型别名 |
 | `thinking` | body | string | Thinking 强度等级 |
 | `permission_mode` | body | string | `manual` / `yolo` / `auto` |
 | `disabled_tools` | body | array | 要为会话禁用的工具名 |
 
-schema 还接受 `metadata`、`plan_mode`、`swarm_mode`、`goal_objective` 和 `goal_control`，但提交路由当前不会应用它们。每个 `content` 内容块是按 `type` 区分的对象：
+`metadata` 随提示词保留。`swarm_mode` 应用于目标 Agent；`plan_mode`、`goal_objective` 和 `goal_control` 在入队前应用，且仅支持 main agent。每个 `content` 内容块是按 `type` 区分的对象：
 
 | 内容块 | 字段 | 说明 |
 | --- | --- | --- |
@@ -537,7 +538,7 @@ schema 还接受共享消息格式中的 `tool_use`、`tool_result` 和 `thinkin
 
 成功时，`data` 为被接受的提示词 `{ prompt_id, user_message_id, status, content, created_at }`。
 
-- `40001`：校验失败——例如 `prompt_id` 与 `skills` 同用、未知的 `model`、模型不支持的 `thinking` 强度，或带了 `profile` 字段（Agent 档案只能在创建会话时指定）
+- `40001`：校验失败——例如未知的 `model`、模型不支持的 `thinking` 强度，或带了 `profile` 字段（Agent 档案只能在创建会话时指定）
 - `40110`：尚未配置供应商——请先完成登录
 - `40111`：解析出的供应商没有凭据（`details.provider_id`）
 - `40112`：供应商的凭据被拒绝（`details.provider_id`）
@@ -545,9 +546,8 @@ schema 还接受共享消息格式中的 `tool_use`、`tool_result` 和 `thinkin
 - `40401`：会话不存在
 - `40407`：引用的 `file_id` 不存在（或与内容块的媒体 kind 不匹配）
 - `40415`：某个 `skills` 条目指向未知的 Skill
-- `40903`：`prompt_id` 属于已完成的提示词；`data` 携带 `{ aborted: false }`
 - `40912`：Skill 存在但无法由用户激活
-- `40927`：`prompt_id` 已被进行中的提示词占用
+- `40927`：`prompt_id` 属于不同请求，或其可回放响应已被淘汰
 
 ### `POST /api/v1/sessions/{session_id}/steer`
 

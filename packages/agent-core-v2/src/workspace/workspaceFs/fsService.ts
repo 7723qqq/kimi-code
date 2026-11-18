@@ -1,3 +1,5 @@
+import { EnvironmentError } from '#/environment/environmentRegistry';
+
 import {
   type FsBatchError,
   type FsDiffRequest,
@@ -34,7 +36,6 @@ import {
   type FsSuggestResponse,
   type FsSuggestStreamEvent,
 } from './fs';
-import { EnvironmentError } from '#/environment/environmentRegistry';
 
 const FsWireErrorCode = {
   VALIDATION_FAILED: 40001,
@@ -60,20 +61,29 @@ import {
   guessLanguageId,
   guessMime,
 } from '#/_base/utils/fileMeta';
-import { ErrorCodes, Error2, unwrapErrorCause } from '#/errors';
+import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment/environment';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IHostFileSystem, type HostDirEntry, type HostFileStat } from '#/os/interface/hostFileSystem';
-import { isHostFsNotDirectory, isHostFsNotFound } from '#/os/interface/hostFsErrors';
 import { type EnvironmentPath } from '#/environment/environment';
 import { POSIX_ENVIRONMENT_PATH } from '#/environment/environmentDefaults';
-import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment/environment';
+import { ErrorCodes, Error2, unwrapErrorCause } from '#/errors';
+import {
+  IHostFileSystem,
+  type HostDirEntry,
+  type HostFileStat,
+} from '#/os/interface/hostFileSystem';
+import { isHostFsNotDirectory, isHostFsNotFound } from '#/os/interface/hostFsErrors';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
 import { IWorkspaceGitService } from '#/workspace/workspaceGit/workspaceGit';
 
 import { type FsDownloadResolved, type FsPathResolved, IWorkspaceFsService } from './fs';
+import {
+  ensureFdPath,
+  suggestWithFd,
+  suggestWithFdEvents,
+  type FdResolution,
+} from './internal/fdSuggest';
 import { readStream, runCommand } from './internal/fsProcess';
-import { ensureFdPath, suggestWithFd, suggestWithFdEvents, type FdResolution } from './internal/fdSuggest';
 import {
   compileGrepPattern,
   computeFuzzyScore,
@@ -144,10 +154,13 @@ const MACOS_NOISE = new Set(['.DS_Store', '.AppleDouble', '.LSOverride']);
 export class WorkspaceFsService implements IWorkspaceFsService {
   declare readonly _serviceBrand: undefined;
 
-  private readonly gitignoreCache = new Map<string, {
-    readonly matcher: Ignore;
-    readonly walkRules: readonly string[];
-  }>();
+  private readonly gitignoreCache = new Map<
+    string,
+    {
+      readonly matcher: Ignore;
+      readonly walkRules: readonly string[];
+    }
+  >();
   private rgResolution: RgResolution | null | undefined = undefined;
   private fdResolution: FdResolution | null | undefined = undefined;
   private realRootsCache:
@@ -158,7 +171,10 @@ export class WorkspaceFsService implements IWorkspaceFsService {
 
   constructor(
     @IWorkspaceContext workspace: Pick<IWorkspaceContext, 'workspaceId' | 'cwd'>,
-    @IWorkspaceDirs private readonly workspaceDirs: Pick<IWorkspaceDirs, 'additionalDirs' | 'primary'>,
+    @IWorkspaceDirs private readonly workspaceDirs: Pick<
+      IWorkspaceDirs,
+      'additionalDirs' | 'primary'
+    >,
     @IHostFileSystem private readonly hostFs: IHostFileSystem,
     @IEnvironmentService private readonly resolver: EnvironmentResolver,
     @ITelemetryService private readonly telemetry: ITelemetryService,
@@ -259,8 +275,10 @@ export class WorkspaceFsService implements IWorkspaceFsService {
       try {
         names = (await this.hostFs.readdir(absOf(entry.relPath))).map((e) => e.name);
       } catch (error) {
-        if (entry.relPath === (rel === '.' ? '' : rel) ||
-          (error instanceof Error2 && error.code === ErrorCodes.OS_FS_DIRECTORY_TOO_LARGE)) {
+        if (
+          entry.relPath === (rel === '.' ? '' : rel) ||
+          (error instanceof Error2 && error.code === ErrorCodes.OS_FS_DIRECTORY_TOO_LARGE)
+        ) {
           throw mapFsError(error, req.path);
         }
         continue;
@@ -315,7 +333,8 @@ export class WorkspaceFsService implements IWorkspaceFsService {
             probeBudget,
             absOf,
           ))
-        ) continue;
+        )
+          continue;
         visible.push({
           name: candidate.name,
           relPath: candidate.childRel,
@@ -381,6 +400,24 @@ export class WorkspaceFsService implements IWorkspaceFsService {
       }
     }
 
+    if (req.include_git_status) {
+      const status = await this.git.statusAt(base, { scopeToCwd: true, includePullRequest: false });
+      const entries = [...items, ...Object.values(childrenByPath).flat()];
+      for (const entry of entries) {
+        entry.git_status = status.entries[entry.path];
+        if (entry.git_status === undefined && (entry.kind === 'directory' || entry.is_directory)) {
+          const prefix = `${entry.path}/`;
+          const descendants = Object.entries(status.entries).filter(([path]) =>
+            path.startsWith(prefix),
+          );
+          if (descendants.length > 0) {
+            entry.git_status = descendants.some(([, value]) => value !== 'untracked')
+              ? 'modified'
+              : 'untracked';
+          }
+        }
+      }
+    }
     const response: FsListResponse = { items, truncated };
     if (Object.keys(childrenByPath).length > 0) {
       response.children_by_path = childrenByPath;
@@ -454,7 +491,8 @@ export class WorkspaceFsService implements IWorkspaceFsService {
         const st = stats[index];
         const isDirectory =
           st?.isSymbolicLink === true
-            ? (await this.symlinkDirectoryTarget(childRel, allowExternalSymlinks, absOf)).isDirectory
+            ? (await this.symlinkDirectoryTarget(childRel, allowExternalSymlinks, absOf))
+                .isDirectory
             : st?.isDirectory === true;
         if (isDirectory && globCanMatchBelow(childRel, globs)) {
           if (await walk(childRel, depth + 1)) return true;
@@ -466,7 +504,7 @@ export class WorkspaceFsService implements IWorkspaceFsService {
   }
 
   async read(req: FsReadRequest): Promise<FsReadResponse> {
-    const abs = await this.resolveWithin(req.path, req.allow_external_symlinks === true);
+    const abs = await this.resolveReadablePath(req.path, req.allow_external_symlinks === true);
     const rel = this.toRel(abs);
 
     let st: HostFileStat;
@@ -657,7 +695,7 @@ export class WorkspaceFsService implements IWorkspaceFsService {
   }
 
   async resolvePath(relPath: string): Promise<FsPathResolved> {
-    const abs = await this.resolveWithin(relPath);
+    const abs = await this.resolveReadablePath(relPath);
     const rel = this.toRel(abs);
     let st: HostFileStat;
     try {
@@ -672,7 +710,7 @@ export class WorkspaceFsService implements IWorkspaceFsService {
     relPath: string,
     allowExternalSymlinks = false,
   ): Promise<FsDownloadResolved> {
-    const abs = await this.resolveWithin(relPath, allowExternalSymlinks);
+    const abs = await this.resolveReadablePath(relPath, allowExternalSymlinks);
     const rel = this.toRel(abs);
     let st: HostFileStat;
     try {
@@ -757,10 +795,13 @@ export class WorkspaceFsService implements IWorkspaceFsService {
       }
     };
     await runPass(false);
-    const ordinaryDirect = new Set(direct.filter((target) =>
-      seenPaths.has(suggestPathKey(target.root, target.relPath, true))
-    ));
-    const exactMatches = candidates.reduce((count, candidate) => count + Number(candidate.tier === 3), 0);
+    const ordinaryDirect = new Set(
+      direct.filter((target) => seenPaths.has(suggestPathKey(target.root, target.relPath, true))),
+    );
+    const exactMatches = candidates.reduce(
+      (count, candidate) => count + Number(candidate.tier === 3),
+      0,
+    );
     if (!req.follow_gitignore && exactMatches <= effectiveCap) {
       await runPass(true);
     }
@@ -813,7 +854,10 @@ export class WorkspaceFsService implements IWorkspaceFsService {
     const cap = req.limit;
     const deadline = Date.now() + SUGGEST_TIMEOUT_MS;
     const controller = new AbortController();
-    const signal = externalSignal === undefined ? controller.signal : AbortSignal.any([controller.signal, externalSignal]);
+    const signal =
+      externalSignal === undefined
+        ? controller.signal
+        : AbortSignal.any([controller.signal, externalSignal]);
     const timer = setTimeout(() => controller.abort(), SUGGEST_TIMEOUT_MS);
     timer.unref?.();
     try {
@@ -876,9 +920,15 @@ export class WorkspaceFsService implements IWorkspaceFsService {
     }
   }
 
-  async *suggestStream(req: FsSuggestRequest, externalSignal?: AbortSignal): AsyncGenerator<FsSuggestStreamEvent> {
+  async *suggestStream(
+    req: FsSuggestRequest,
+    externalSignal?: AbortSignal,
+  ): AsyncGenerator<FsSuggestStreamEvent> {
     const controller = new AbortController();
-    const signal = externalSignal === undefined ? controller.signal : AbortSignal.any([controller.signal, externalSignal]);
+    const signal =
+      externalSignal === undefined
+        ? controller.signal
+        : AbortSignal.any([controller.signal, externalSignal]);
     const timer = setTimeout(() => controller.abort(), SUGGEST_TIMEOUT_MS);
     timer.unref?.();
     try {
@@ -941,12 +991,16 @@ export class WorkspaceFsService implements IWorkspaceFsService {
     const segments = input.split('/').filter((segment) => segment.length > 0);
     if (
       segments.length === 0 ||
-      segments.some((segment) => segment === '.' || segment === '..' || VCS_METADATA_DIRS.has(segment.toLowerCase()))
+      segments.some(
+        (segment) =>
+          segment === '.' || segment === '..' || VCS_METADATA_DIRS.has(segment.toLowerCase()),
+      )
     ) {
       return [];
     }
     const targets: SuggestDirectTarget[] = [];
-    const expired = (): boolean => budget !== undefined && (budget.signal.aborted || Date.now() >= budget.deadline);
+    const expired = (): boolean =>
+      budget !== undefined && (budget.signal.aborted || Date.now() >= budget.deadline);
     for (const root of roots) {
       if (expired()) break;
       const relPath = segments.join('/');
@@ -957,14 +1011,14 @@ export class WorkspaceFsService implements IWorkspaceFsService {
         if (expired()) break;
         const realPath = await this.realpathExistingPrefix(candidate);
         if (expired()) break;
-        if (!roots.some((configured) => isInsideOrEqual(this.path, realPath, configured.real))) continue;
+        if (!roots.some((configured) => isInsideOrEqual(this.path, realPath, configured.real)))
+          continue;
         targets.push({
           root,
           relPath,
           kind: stat.isSymbolicLink === true ? 'symlink' : stat.isDirectory ? 'directory' : 'file',
         });
-      } catch {
-      }
+      } catch {}
     }
     return targets;
   }
@@ -1023,20 +1077,21 @@ export class WorkspaceFsService implements IWorkspaceFsService {
         const name = entry.name;
         if (!req.show_hidden && isHidden(name)) continue;
         if (VCS_METADATA_DIRS.has(name)) continue;
-        const ignored = matcher !== undefined && (matcher.ignores(name) || matcher.ignores(`${name}/`));
+        const ignored =
+          matcher !== undefined && (matcher.ignores(name) || matcher.ignores(`${name}/`));
         if (req.follow_gitignore && ignored) continue;
         if (req.exclude_globs !== undefined && matchesAnyGlob(name, req.exclude_globs)) continue;
         if (req.include_globs !== undefined && !matchesAnyGlob(name, req.include_globs)) continue;
-        const kind: TopEntry['kind'] = entry.isSymbolicLink === true
-          ? 'symlink'
-          : entry.isDirectory
-            ? 'directory'
-            : 'file';
-        const isDirectory = entry.isDirectory || (
-          followSymlinkDirectories &&
-          entry.isSymbolicLink === true &&
-          await this.hostFs.stat(this.path.join(root.dir, name)).then((stat) => stat.isDirectory).catch(() => false)
-        );
+        const kind: TopEntry['kind'] =
+          entry.isSymbolicLink === true ? 'symlink' : entry.isDirectory ? 'directory' : 'file';
+        const isDirectory =
+          entry.isDirectory ||
+          (followSymlinkDirectories &&
+            entry.isSymbolicLink === true &&
+            (await this.hostFs
+              .stat(this.path.join(root.dir, name))
+              .then((stat) => stat.isDirectory)
+              .catch(() => false)));
         visible.push({ name, kind, isDirectory, ignored });
       }
       visible.sort((a, b) => {
@@ -1074,10 +1129,7 @@ export class WorkspaceFsService implements IWorkspaceFsService {
     signal: AbortSignal,
     onLine: (line: string, kill: () => void) => void,
   ): Promise<{ exitCode: number; killed: boolean }> {
-    const lease = this.resolver.acquire(
-      { environmentId: this.environmentId },
-      ['process'],
-    );
+    const lease = this.resolver.acquire({ environmentId: this.environmentId }, ['process']);
     const proc = await lease.environment.process!.spawn(rgBinary, args, { cwd: this.workDir });
     let killed = false;
     const kill = (): void => {
@@ -1211,10 +1263,7 @@ export class WorkspaceFsService implements IWorkspaceFsService {
         for (const root of roots) args.push(root.dir);
       }
 
-      const lease = this.resolver.acquire(
-        { environmentId: this.environmentId },
-        ['process'],
-      );
+      const lease = this.resolver.acquire({ environmentId: this.environmentId }, ['process']);
       const proc = await lease.environment.process!.spawn(rgBinary, args, { cwd: this.workDir });
       let killed = false;
       const kill = (): void => {
@@ -1322,7 +1371,12 @@ export class WorkspaceFsService implements IWorkspaceFsService {
       }
     };
     await runPass(false);
-    if (!query.followGitignore && (matched <= cap || top.worst?.tier !== 3) && !signal.aborted && Date.now() < deadline) {
+    if (
+      !query.followGitignore &&
+      (matched <= cap || top.worst?.tier !== 3) &&
+      !signal.aborted &&
+      Date.now() < deadline
+    ) {
       await runPass(true);
     }
     for (const target of direct) {
@@ -1368,9 +1422,7 @@ export class WorkspaceFsService implements IWorkspaceFsService {
     if (req.paths !== undefined && req.paths.length > 0) {
       filter = new Set();
       for (const p of req.paths) {
-        const inputPath =
-          req.root !== undefined && !this.path.isAbsolute(p) ? this.path.join(cwd, p) : p;
-        const abs = await this.resolveWithin(inputPath);
+        const abs = await this.resolveGitPath(p, cwd, req.root !== undefined);
         const rel = this.path.relative(cwd, abs).split(this.path.separator).join('/');
         if (
           req.root !== undefined &&
@@ -1430,11 +1482,7 @@ export class WorkspaceFsService implements IWorkspaceFsService {
 
   async diff(req: FsDiffRequest): Promise<FsDiffResponse> {
     const cwd = await this.resolveGitRoot(req.root);
-    const inputPath =
-      req.root !== undefined && !this.path.isAbsolute(req.path)
-        ? this.path.join(cwd, req.path)
-        : req.path;
-    const abs = await this.resolveWithin(inputPath);
+    const abs = await this.resolveGitPath(req.path, cwd, req.root !== undefined);
     const rel = this.path.relative(cwd, abs).split(this.path.separator).join('/');
     if (
       req.root !== undefined &&
@@ -1445,6 +1493,20 @@ export class WorkspaceFsService implements IWorkspaceFsService {
       });
     }
     return this.git.diffAt(cwd, rel, abs);
+  }
+
+  private async resolveGitPath(path: string, root: string, explicitRoot: boolean): Promise<string> {
+    if (!explicitRoot) return this.resolveWithin(path);
+    if (this.path.isAbsolute(path) || path.split(/[/\\]+/).includes('..')) {
+      throw new Error2(ErrorCodes.FS_PATH_ESCAPES, `path "${path}" escapes git root`);
+    }
+    return this.resolveRegisteredRoot(this.path.join(root, path));
+  }
+
+  private async resolveReadablePath(path: string, allowExternalSymlinks = false): Promise<string> {
+    return this.path.isAbsolute(path)
+      ? this.resolveRegisteredRoot(path)
+      : this.resolveWithin(path, allowExternalSymlinks);
   }
 
   private async resolveGitRoot(root?: string): Promise<string> {
@@ -1463,7 +1525,7 @@ export class WorkspaceFsService implements IWorkspaceFsService {
 
   private async resolveRegisteredRoot(root: string): Promise<string> {
     const abs = this.path.resolve(root);
-    if (!this.isWithinWorkspace(abs)) {
+    if (root.split(/[/\\]+/).includes('..') || !this.isWithinWorkspace(abs)) {
       throw new Error2(ErrorCodes.FS_PATH_ESCAPES, `path "${root}" escapes workspace`, {
         details: { path: root, reason: 'resolved_outside' },
       });
@@ -1538,30 +1600,44 @@ export class WorkspaceFsService implements IWorkspaceFsService {
     const roots = await this.suggestRoots();
     const deadline = startedAt + GREP_TIMEOUT_MS;
     for (const root of roots) {
-      const ignoreRules = req.follow_gitignore ? await this.walkIgnoreFor(root.dir) : WALK_DEFAULT_IGNORE;
-      truncated = await this.walk(root.dir, ignoreRules, async (rel, _name, kind) => {
-        if (kind !== 'file') return;
-        if (req.include_globs && !matchesAnyGlob(rel, req.include_globs)) return;
-        if (req.exclude_globs && matchesAnyGlob(rel, req.exclude_globs)) return;
-        const pathKey = `${root.real}/${rel}`;
-        if (seenPaths.has(pathKey)) return;
-        seenPaths.add(pathKey);
-        filePaths.push({
-          path: this.suggestDisplayPath(root, rel),
-          absolute: this.path.join(root.dir, rel),
-        });
-      }, { deadlineMs: deadline }) || truncated;
+      const ignoreRules = req.follow_gitignore
+        ? await this.walkIgnoreFor(root.dir)
+        : WALK_DEFAULT_IGNORE;
+      truncated =
+        (await this.walk(
+          root.dir,
+          ignoreRules,
+          async (rel, _name, kind) => {
+            if (kind !== 'file') return;
+            if (req.include_globs && !matchesAnyGlob(rel, req.include_globs)) return;
+            if (req.exclude_globs && matchesAnyGlob(rel, req.exclude_globs)) return;
+            const pathKey = `${root.real}/${rel}`;
+            if (seenPaths.has(pathKey)) return;
+            seenPaths.add(pathKey);
+            filePaths.push({
+              path: this.suggestDisplayPath(root, rel),
+              absolute: this.path.join(root.dir, rel),
+            });
+          },
+          { deadlineMs: deadline },
+        )) || truncated;
       if (signal.aborted || Date.now() >= deadline) break;
     }
 
     if (signal.aborted || Date.now() >= deadline) {
-      throw new Error2(ErrorCodes.FS_GREP_TIMEOUT, `grep timed out after ${Date.now() - startedAt}ms`);
+      throw new Error2(
+        ErrorCodes.FS_GREP_TIMEOUT,
+        `grep timed out after ${Date.now() - startedAt}ms`,
+      );
     }
 
     for (const file of filePaths) {
       if (signal.aborted || Date.now() >= deadline) {
         if (totalMatches === 0 && filesScanned === 0) {
-          throw new Error2(ErrorCodes.FS_GREP_TIMEOUT, `grep timed out after ${Date.now() - startedAt}ms`);
+          throw new Error2(
+            ErrorCodes.FS_GREP_TIMEOUT,
+            `grep timed out after ${Date.now() - startedAt}ms`,
+          );
         }
         truncated = true;
         break;
@@ -1627,7 +1703,8 @@ export class WorkspaceFsService implements IWorkspaceFsService {
       );
       return truncated;
     } catch (error) {
-      if (error instanceof Error2 && error.code === ErrorCodes.OS_FS_DIRECTORY_TOO_LARGE) throw mapFsError(error, baseAbs);
+      if (error instanceof Error2 && error.code === ErrorCodes.OS_FS_DIRECTORY_TOO_LARGE)
+        throw mapFsError(error, baseAbs);
       throw error;
     }
   }
@@ -1662,9 +1739,13 @@ export class WorkspaceFsService implements IWorkspaceFsService {
     if (this.fdResolution !== undefined) return this.fdResolution;
     const lease = this.resolver.acquire({ environmentId: this.environmentId }, ['process']);
     try {
-      this.fdResolution = await ensureFdPath({
-        exec: (args) => runCommand(lease.environment.process!, args, { cwd: this.workDir, signal }),
-      }, { environment: lease.environment, signal });
+      this.fdResolution = await ensureFdPath(
+        {
+          exec: (args) =>
+            runCommand(lease.environment.process!, args, { cwd: this.workDir, signal }),
+        },
+        { environment: lease.environment, signal },
+      );
     } catch (error) {
       if (signal.aborted) throw error;
       this.fdResolution = null;

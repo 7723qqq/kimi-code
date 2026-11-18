@@ -244,10 +244,10 @@ describe('PluginManager', () => {
       const manager = new PluginManager({ kimiHomeDir: home });
       const sha256 = createHash('sha256').update(zip).digest('hex');
 
-      const capabilities = await manager.inspect(
-        `http://127.0.0.1:${address.port}/plugin.zip`,
-        { expectedSha256: sha256, expectedPluginId: 'inspect-demo' },
-      );
+      const capabilities = await manager.inspect(`http://127.0.0.1:${address.port}/plugin.zip`, {
+        expectedSha256: sha256,
+        expectedPluginId: 'inspect-demo',
+      });
 
       expect(capabilities.mcpServers.map((entry) => entry.name)).toEqual(['demo']);
       expect(manager.get('inspect-demo')).toBeUndefined();
@@ -260,6 +260,96 @@ describe('PluginManager', () => {
       }
       await rm(sourceRoot, { recursive: true, force: true });
     }
+  });
+
+  it('inspects current local skills and localized MCP metadata without installing or running it', async () => {
+    await mkdir(join(root, 'skills', 'review'), { recursive: true });
+    await mkdir(join(root, 'locales'), { recursive: true });
+    await writeFile(
+      join(root, 'skills', 'review', 'SKILL.md'),
+      '---\nname: review\ndescription: Review changes\n---\n\nReview the changes.',
+      'utf8',
+    );
+    await writeFile(
+      join(root, 'kimi.plugin.json'),
+      JSON.stringify({
+        name: 'demo',
+        skills: ['./skills'],
+        interface: { locales: './locales/' },
+        hooks: [{ event: 'Stop', command: 'preview-must-not-run' }],
+        mcpServers: { demo: { command: 'preview-must-not-run', args: [] } },
+      }),
+      'utf8',
+    );
+    const localeFile = join(root, 'locales', 'zh-CN.json');
+    await writeFile(
+      localeFile,
+      JSON.stringify({
+        skillOverrides: { review: { displayName: '评审', description: '评审改动' } },
+        mcpOverrides: { demo: { displayName: '本地工具' } },
+      }),
+      'utf8',
+    );
+    const network = mock(async () => {
+      throw new Error('Local inspection must not use the network');
+    });
+    setGlobal('fetch', network);
+    const manager = new PluginManager({ kimiHomeDir: home });
+    const installedBefore = await readFile(join(home, 'plugins', 'installed.json'), 'utf8');
+
+    const first = await manager.inspect(root, { expectedPluginId: 'demo', locale: 'zh' });
+    expect(first.skills).toEqual([
+      { name: 'review', displayName: '评审', description: '评审改动' },
+    ]);
+    expect(first.mcpServers).toEqual([
+      expect.objectContaining({ name: 'demo', displayName: '本地工具' }),
+    ]);
+
+    await writeFile(
+      localeFile,
+      JSON.stringify({ mcpOverrides: { demo: { displayName: '更新后的工具' } } }),
+      'utf8',
+    );
+    const second = await manager.inspect(root, { expectedPluginId: 'demo', locale: 'zh' });
+    expect(second.mcpServers[0]?.displayName).toBe('更新后的工具');
+    expect(manager.list()).toEqual([]);
+    expect(manager.enabledMcpServers()).toEqual({});
+    expect(manager.enabledHooks()).toEqual([]);
+    expect(await readFile(join(home, 'plugins', 'installed.json'), 'utf8')).toBe(installedBefore);
+    expect(network).not.toHaveBeenCalled();
+  });
+
+  it('keeps verified preview archives reusable for installation and separate by plugin identity', async () => {
+    const zip = await createZipFromDir(root);
+    const digest = createHash('sha256').update(zip).digest('hex');
+    const source = 'https://plugins.example.test/demo.zip';
+    const fetchMock = mock(async (input: Parameters<FetchLike>[0]) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (url === source) return new Response(zip);
+      throw new Error(`Unexpected inspection request: ${url}`);
+    });
+    setGlobal('fetch', fetchMock);
+    const manager = new PluginManager({ kimiHomeDir: home });
+    await manager.inspect(source, { expectedSha256: digest, expectedPluginId: 'demo' });
+
+    const mismatch = await manager
+      .inspect(source, { expectedSha256: digest, expectedPluginId: 'another-plugin' })
+      .then(
+        () => undefined,
+        (failure: unknown) => failure,
+      );
+    expect(mismatch).toMatchObject({
+      code: 'plugin.load_failed',
+      details: { expectedPluginId: 'another-plugin', actualPluginId: 'demo' },
+    });
+
+    const installed = await manager.install(source, {
+      expectedSha256: digest,
+      expectedPluginId: 'demo',
+    });
+    expect(installed.id).toBe('demo');
+    expect(manager.get('demo')?.state).toBe('ok');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('installs a github plugin through codeload', async () => {

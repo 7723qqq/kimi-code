@@ -403,9 +403,13 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
         }
         provider.apiKey = credential.apiKey;
         provider.apiKeyEnv = credential.apiKeyEnv;
-        provider.baseUrl = req.body.base_url;
-        provider.defaultModel =
-          req.body.default_model !== undefined ? `${newId}/${req.body.default_model}` : undefined;
+        if (req.body.base_url !== undefined) provider.baseUrl = req.body.base_url || undefined;
+        if (req.body.default_model !== undefined) {
+          provider.defaultModel =
+            req.body.default_model === null ? undefined : `${newId}/${req.body.default_model}`;
+        } else if (newId !== provider_id && provider.defaultModel?.startsWith(`${provider_id}/`)) {
+          provider.defaultModel = `${newId}/${provider.defaultModel.slice(provider_id.length + 1)}`;
+        }
         const nextProviders = Object.fromEntries(
           Object.entries(providers).map(([key, value]) => [
             key === provider_id ? newId : key,

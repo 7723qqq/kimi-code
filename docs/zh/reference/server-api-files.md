@@ -14,7 +14,7 @@
 | `GET /api/v1/sessions/{session_id}/fs/{path}:download` | 下载会话文件（二进制，见下文） |
 | `GET /api/v1/fs:browse` | 列出本机目录（文件夹选择器用） |
 | `GET /api/v1/fs:home` | 用户主目录与最近工作区 |
-| `GET /api/v1/fs:content` | 读取本机任意文件原始字节（仅受 token 保护，谨慎暴露端口） |
+| `GET /api/v1/fs:content` | 读取本机文件内容，检测到的 UTF-16 文本转为 UTF-8（需 token） |
 | `POST /api/v1/fs:mkdir` | 按绝对路径创建目录 |
 
 ### `POST /api/v1/sessions/{session_id}/fs:list`
@@ -393,7 +393,7 @@
 
 ### `GET /api/v1/fs:content`
 
-以流式返回本机文件系统上任意文件的原始字节——仅受 API token 保护，暴露端口时务必谨慎。支持 Range 请求与 ETag 缓存；见 [二进制与流式端点](#二进制与流式端点)。
+返回本机任意文件，受 API token 保护。检测到的 UTF-16 文本在预览和下载时统一转换为 UTF-8；二进制文件保留原始字节。Range 偏移与 Content-Length 对应返回的表示形式，ETag 也区分表示形式。TOML 使用文本 MIME 类型以支持浏览器预览。暴露端口时务必谨慎；见 [二进制与流式端点](#二进制与流式端点)。
 
 | 参数 | 位置 | 类型 | 说明 |
 | --- | --- | --- | --- |
@@ -427,7 +427,7 @@
 | --- | --- | --- | --- |
 | `GET /api/v1/files/{file_id}` | 下载已上传文件 | 支持 | 不支持（会发送 `etag` 头，但不处理 `If-None-Match`） |
 | `GET /api/v1/sessions/{session_id}/fs/{path}:download` | 下载会话工作区文件 | 支持 | 支持 |
-| `GET /api/v1/fs:content` | 读取本机任意文件（仅受 token 保护，谨慎暴露端口） | 支持 | 支持 |
+| `GET /api/v1/fs:content` | 读取本机文件内容，检测到的 UTF-16 文本转为 UTF-8（需 token） | 支持 | 支持 |
 | `POST /api/v1/sessions/{session_id}/export` | 导出会话与诊断信息（zip 流） | 不支持 | 不支持 |
 
 错误语义也不相同：`GET /api/v1/files/{file_id}`、`GET /api/v1/fs:content` 与会话 `:download` 对失败返回真实 4xx / 500 状态码，响应体仍是标准 [响应信封](#响应信封)。会话导出仍以 HTTP 200 返回错误信封。普通 JSON RPC 端点继续保持几乎总是 200 的约定，客户端仍需检查信封中的 `code`。

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 
+import { Error2, ErrorCodes } from '@moonshot-ai/agent-core-v2';
 import type { WebSocket } from 'ws';
 
 import type { IConnectionRegistry } from '../src/transport/ws/connectionRegistry';
@@ -294,6 +295,69 @@ describe('WsConnectionV1 transcript subscriptions (subscribe)', () => {
     conn.close();
   });
 
+  it('keeps another session live while a new subscription fails', async () => {
+    const socket = new FakeSocket();
+    const { broadcaster } = makeCapturingBroadcaster();
+    const conn = makeConn(socket, { broadcaster });
+    socket.emit('message', controlFrame('subscribe', { session_id: 'a', agent_ids: ['main'] }));
+    await waitForAssertion(() => expect(conn.subscriptions.has('a')).toBe(true));
+    broadcaster.subscribe = async (_sid, target) => {
+      target.send(
+        {
+          type: 'item.delta',
+          session_id: 'a',
+          agent_id: 'main',
+          event_created_at: new Date(0).toISOString(),
+          turn_id: 't1',
+          item_id: 'i1',
+          field: 'text',
+          delta: 'kept',
+        },
+        'immediate',
+      );
+      return false;
+    };
+    socket.emit(
+      'message',
+      controlFrame('subscribe', { session_id: 'missing', agent_ids: ['main'] }),
+    );
+    await waitForAssertion(() =>
+      expect(socket.frames()).toContainEqual(
+        expect.objectContaining({ type: 'item.delta', session_id: 'a', delta: 'kept' }),
+      ),
+    );
+    conn.close();
+  });
+
+  it('acks official flat subscriptions before any eagerly delivered seed frames', async () => {
+    const socket = new FakeSocket();
+    const { broadcaster } = makeCapturingBroadcaster();
+    broadcaster.subscribeAgents = async (sessionId, target) => {
+      target.send(
+        {
+          type: 'turns',
+          session_id: sessionId,
+          agent_id: 'main',
+          event_created_at: new Date(0).toISOString(),
+          turns: [],
+          has_more: false,
+        },
+        'immediate',
+      );
+      await Promise.resolve();
+      return true;
+    };
+    const conn = makeConn(socket, { broadcaster });
+    socket.emit('message', controlFrame('subscribe', { session_id: 's1', agent_ids: ['main'] }));
+    await waitForAssertion(() =>
+      expect(socket.frames().map((frame) => (frame as { type: string }).type)).toEqual([
+        'response',
+        'turns',
+      ]),
+    );
+    conn.close();
+  });
+
   it('forwards subscribe grades and transcript_since to the broadcaster and stores them per session', async () => {
     const socket = new FakeSocket();
     const { broadcaster, calls } = makeCapturingBroadcaster();
@@ -380,6 +444,25 @@ describe('WsConnectionV1 transcript subscriptions (subscribe)', () => {
     expect(acks.at(-1)?.code).toBe(50001);
     expect(acks.at(-1)?.request_id).toBe('req-1');
     expect(errors.length).toBeGreaterThan(0);
+  });
+
+  it('marks wire upgrades terminal for the unmodified official socket client without reusing 40930', async () => {
+    const socket = new FakeSocket();
+    const broadcaster = Object.assign(makeBroadcaster(), {
+      subscribe: async () => {
+        throw new Error2(ErrorCodes.WIRE_VERSION_TOO_LOW, 'Upgrade required');
+      },
+    });
+    makeConn(socket, { broadcaster });
+    socket.emit(
+      'message',
+      controlFrame('subscribe', { session_id: 's1', transcript: { main: 'block' } }),
+    );
+    await waitForAssertion(() =>
+      expect(socket.frames()).toContainEqual(
+        expect.objectContaining({ type: 'response', code: 40001, msg: 'Upgrade required' }),
+      ),
+    );
   });
 
   it('acks an invalid subscribe payload with an error and does not attach', async () => {
@@ -488,10 +571,7 @@ describe('WsConnectionV1 transcript subscriptions (subscribe)', () => {
     const { broadcaster, unsubscribed } = makeCapturingBroadcaster();
     const conn = makeConn(socket, { broadcaster });
 
-    socket.emit(
-      'message',
-      controlFrame('subscribe', { session_id: 's1', agent_ids: ['main'] }),
-    );
+    socket.emit('message', controlFrame('subscribe', { session_id: 's1', agent_ids: ['main'] }));
     await waitForAssertion(() => expect(conn.subscriptions.has('s1')).toBe(true));
     socket.emit('message', controlFrame('unsubscribe', { session_id: 's1' }));
     await waitForAssertion(() => expect(unsubscribed).toEqual(['s1']));
@@ -510,19 +590,13 @@ describe('WsConnectionV1 transcript subscriptions (subscribe)', () => {
       controlFrame('subscribe', { session_id: 's1', agent_ids: ['main', 'sub'] }),
     );
     await waitForAssertion(() => expect(conn.subscriptions.has('s1')).toBe(true));
-    socket.emit(
-      'message',
-      controlFrame('unsubscribe', { session_id: 's1', agent_ids: ['main'] }),
-    );
+    socket.emit('message', controlFrame('unsubscribe', { session_id: 's1', agent_ids: ['main'] }));
     await waitForAssertion(() =>
       expect(conn.subscriptions.get('s1')?.conversationAgents).toEqual(['sub']),
     );
     expect(unsubscribed).toEqual([]);
 
-    socket.emit(
-      'message',
-      controlFrame('unsubscribe', { session_id: 's1', agent_ids: ['sub'] }),
-    );
+    socket.emit('message', controlFrame('unsubscribe', { session_id: 's1', agent_ids: ['sub'] }));
     await waitForAssertion(() => expect(unsubscribed).toEqual(['s1']));
     expect(conn.subscriptions.has('s1')).toBe(false);
     conn.close();

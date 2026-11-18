@@ -121,7 +121,7 @@ Updates the session's profile: title, custom metadata, and the main agent's conf
 | --- | --- | --- | --- |
 | `session_id` | path | string | **Required.** Session id |
 | `title` | body | string | New title (at least 1 character); becomes a custom title |
-| `metadata` | body | object | When non-empty, replaces the session's custom metadata as a whole. The reserved keys `cwd`, `goal`, `parent_session_id`, and `child_session_kind` are ignored, and the values the session already stores for them are kept |
+| `metadata` | body | object | Merges custom metadata. A different `cwd` moves an idle local session to that directory while preserving its ID and history; queued/running work, pending interactions, or scheduled tasks reject the move with `40901`. The reserved keys `goal`, `parent_session_id`, and `child_session_kind` cannot be overwritten |
 | `agent_config` | body | object | Partial main-agent config; fields below, all optional |
 
 Each `agent_config` field is applied immediately to the main agent:
@@ -193,17 +193,18 @@ On success, `data` is an empty object.
 
 ### `POST /api/v1/sessions/{session_id}:undo`
 
-Rewinds the main agent's conversation by `count` turns and reconciles the derived session state (including the session's `last_prompt`).
+Rewinds the conversation to before the specified turn and reconciles the derived session state.
 
 | Parameter | In | Type | Description |
 | --- | --- | --- | --- |
-| `count` | body | integer | Number of turns to undo; positive integer. Default `1` |
-| `page_size` | body | integer | Size of the returned history window, 1–100. Default `50` |
+| `turn_id` | body | string | Required ID from the agent's conversation turns |
+| `agent_id` | body | string | Agent to undo; defaults to the main agent |
 
-On success, `data` is `{ messages }`: a `{ items, has_more }` page of the remaining context messages, newest first.
+On success, `data` is `{ removed_turn_ids }`, containing the removed turn IDs. The old `count` and `page_size` request fields are no longer used.
 
+- `40422`: the turn was not found; this replaces the conflicting `40421` value, which remains reserved for an agent not found
 - `40901`: a turn is active or a compaction is running — wait for it to finish, then retry
-- `40911`: that many turns cannot be undone (a compaction boundary or lost checkpoints); `data` carries `{ reason, requestedCount, undoableCount }`
+- `40911`: the selected turn cannot be undone, for example because it has no user-input anchor
 
 ### `POST /api/v1/sessions/{session_id}:abort`
 
@@ -505,7 +506,7 @@ Reads the main agent's prompt queue snapshot.
 | --- | --- | --- | --- |
 | `session_id` | path | string | **Required.** Session id |
 
-On success, `data` is `{ active, queued }`: `active` is the running prompt (`null` when idle) and `queued` lists the pending prompts in order. A prompt is `{ prompt_id, user_message_id, status, content, created_at }` with `status` one of `running` / `queued` / `blocked` and `content` in the content-part format accepted by `POST /api/v1/sessions/{session_id}/prompts`.
+On success, `data` is `{ active, queued }`: `active` is the running prompt (`null` when idle) and `queued` lists the pending prompts in order. A prompt is `{ prompt_id, user_message_id, status, content, created_at }` with `status` one of `running` / `queued` / `blocked` / `failed` and `content` in the content-part format accepted by `POST /api/v1/sessions/{session_id}/prompts`.
 
 - `40401`: session not found
 
@@ -518,14 +519,14 @@ Submits a user prompt to the session. Media references are validated first, then
 | `session_id` | path | string | **Required.** Session id |
 | `content` | body | array | **Required.** Non-empty array of content parts; variants below |
 | `agent_id` | body | string | Target agent. Default the main agent |
-| `prompt_id` | body | string | Client-chosen prompt id for idempotent submission; an id already reserved by an in-flight prompt fails `40927`, one that has already completed fails `40903`. Cannot be combined with `skills` |
+| `prompt_id` | body | string | Client-chosen prompt id; may be combined with `skills`. Identical concurrent requests share one submission, and successful responses are replayed for up to 10 minutes (bounded to 1024 requests per server). A different body or delivery route using that ID fails `40927`; replay is not durable across a server restart |
 | `skills` | body | array | Bundled skill activations, at least 1 entry of `{ name, path?, args? }`; every skill must exist and be user-activatable. `path` selects a same-name variant from the session catalog |
 | `model` | body | string | Model alias to switch the agent to |
 | `thinking` | body | string | Thinking-mode effort level |
 | `permission_mode` | body | string | `manual` / `yolo` / `auto` |
 | `disabled_tools` | body | array | Tool names to disable for the session |
 
-The schema also accepts `metadata`, `plan_mode`, `swarm_mode`, `goal_objective`, and `goal_control`, but the submit route currently does not apply them. Each `content` part is an object discriminated by `type`:
+`metadata` is preserved with the prompt. `swarm_mode` is applied to the target agent; `plan_mode`, `goal_objective`, and `goal_control` are applied before enqueueing and require the main agent. Each `content` part is an object discriminated by `type`:
 
 | Part | Fields | Description |
 | --- | --- | --- |
@@ -537,7 +538,7 @@ The schema also accepts the `tool_use`, `tool_result`, and `thinking` parts of t
 
 On success, `data` is the accepted prompt `{ prompt_id, user_message_id, status, content, created_at }`.
 
-- `40001`: validation failure — for example `prompt_id` combined with `skills`, an unknown `model`, a `thinking` level the model does not support, or a `profile` field, since the agent profile is chosen only when the session is created
+- `40001`: validation failure — for example an unknown `model`, a `thinking` level the model does not support, or a `profile` field, since the agent profile is chosen only when the session is created
 - `40110`: no provider configured yet — finish login first
 - `40111`: the resolved provider has no credential (`details.provider_id`)
 - `40112`: the provider's credential was rejected (`details.provider_id`)
@@ -545,9 +546,8 @@ On success, `data` is the accepted prompt `{ prompt_id, user_message_id, status,
 - `40401`: session not found
 - `40407`: a referenced `file_id` does not exist (or does not match the part's media kind)
 - `40415`: a `skills` entry names an unknown skill
-- `40903`: `prompt_id` belongs to an already-completed prompt; `data` carries `{ aborted: false }`
 - `40912`: the skill exists but cannot be activated by the user
-- `40927`: `prompt_id` is already reserved by an in-flight prompt
+- `40927`: `prompt_id` belongs to a different request, or its replay response is no longer retained
 
 ### `POST /api/v1/sessions/{session_id}/steer`
 

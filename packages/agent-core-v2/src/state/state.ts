@@ -268,7 +268,14 @@ export function expandedRuntimeFolds(
   owner: string,
   undoable: boolean,
   folds: ReadonlyMap<Event2Class<any, any>, StateFold<any, any>>,
+  onUndo?: (state: any, count: number) => any,
+  mutableReplay = false,
 ): ReadonlyMap<Event2Class<any, any>, StateFold<any, any>> {
+  if (mutableReplay && undoable && onUndo === undefined) {
+    throw new BugIndicatingError(
+      `Agent runtime '${owner}' requires custom onUndo for mutable replay`,
+    );
+  }
   if (!undoable) return folds;
   if (undoableProtocol === undefined) {
     throw new BugIndicatingError(
@@ -285,10 +292,7 @@ export function expandedRuntimeFolds(
   const expanded = new Map(folds);
   const domainAppend = expanded.get(protocol.events.appendMessage);
   expanded.set(protocol.events.appendMessage, (state, event, ctx) => {
-    if (protocol.isUndoAnchor(event.message)) {
-      ctx.checkpoint();
-      return;
-    }
+    if (onUndo === undefined && protocol.isUndoAnchor(event.message)) ctx.checkpoint();
     return domainAppend?.(state, event, ctx);
   });
   for (const cls of [protocol.events.applyCompaction, protocol.events.clear]) {
@@ -298,8 +302,10 @@ export function expandedRuntimeFolds(
       return domain?.(state, event, ctx);
     });
   }
-  expanded.set(protocol.events.undo, (_state, event, ctx) => {
-    if (protocol.isValidUndoCount(event.count)) ctx.undoToCheckpoint(event.count);
+  expanded.set(protocol.events.undo, (state, event, ctx) => {
+    if (!protocol.isValidUndoCount(event.count)) return;
+    if (onUndo !== undefined) return onUndo(state, event.count);
+    ctx.undoToCheckpoint(event.count);
   });
   return expanded;
 }

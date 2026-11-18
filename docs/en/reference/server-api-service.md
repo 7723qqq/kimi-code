@@ -255,7 +255,7 @@ Domains are written one at a time, in body order, so a multi-domain patch is not
 
 Every config change — a successful update through this endpoint, an external edit of `config.toml`, or a server-side write such as an OAuth login refresh — is broadcast as the global `event.config.changed` event. Changes inside a short window are merged into one event carrying the affected domain names in `changedFields` (camelCase config domains, for example `defaultModel`) and the full current config projection in `config` (same shape as the `GET /api/v1/config` response).
 
-The body is a partial config object — any subset of the response domains above except `raw`, all optional:
+The body is a partial config object. An optional `raw` object may carry the same writable snake_case domains; it is validated and merged into those domains, not stored as a wrapper. Explicit top-level fields win over `raw` fields. All fields below are optional:
 
 | Parameter | In | Type | Description |
 | --- | --- | --- | --- |
@@ -299,7 +299,7 @@ The body is a partial config object — any subset of the response domains above
 | `auto_session_title` | body | boolean | Whether clients may automatically generate session titles |
 | `disable_feedback_survey` | body | boolean | Whether the session rating prompt is turned off |
 
-Every key above is enumerated: an unknown top-level key is rejected with `40001` rather than silently dropped, so a misspelled domain is reported instead of reporting success. Every domain `GET /api/v1/config` returns can be written back through this endpoint except `raw`.
+Every key above is enumerated: an unknown top-level key is rejected with `40001` rather than silently dropped, so a misspelled domain is reported instead of reporting success. The `raw` wrapper follows the same domain validation; it does not allow unknown keys.
 
 On success, `data` is the full updated config in the same shape as `GET /api/v1/config`.
 
@@ -410,7 +410,7 @@ On success, `data` is the provider item plus `api_key` when a key is stored.
 
 ### `PUT /api/v1/providers/{provider_id}`
 
-Replaces a provider in one save: `type`, `base_url`, and the model list are rewritten, and the provider's aliases are rebuilt from `models` — aliases no longer listed disappear from `config.toml`, while other providers' aliases are untouched. `api_key` is tri-state: omitted keeps the stored key, `""` clears it, any other value replaces it. Beyond the `new_id` rename migration, the global default pointers are never modified.
+Updates a provider in one save: `type` and the model list are rewritten; omitted `base_url` and `default_model` are preserved, while explicit `null` clears them, and the provider's aliases are rebuilt from `models` — aliases no longer listed disappear from `config.toml`, while other providers' aliases are untouched. `api_key` is tri-state: omitted keeps the stored key, `""` clears it, any other value replaces it. Beyond the `new_id` rename migration, the global default pointers are never modified.
 
 | Parameter | In | Type | Description |
 | --- | --- | --- | --- |

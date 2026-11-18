@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, spyOn } from 'bun:test';
 
 import { isRealUserInput, type ContextMessage } from '@moonshot-ai/agent-core-v2';
 
@@ -382,5 +382,40 @@ describe('conversation fold identity and undo', () => {
       state.turns.map((turn) => turn.turn_id),
     );
     expect(state.anchors.every((anchor) => anchor.itemCount === 0)).toBe(true);
+  });
+});
+
+describe('conversation fold tool lookup', () => {
+  it('updates tool results and duplicate calls without scanning the item array', () => {
+    const state = fold([
+      user('p1', 'run tools'),
+      {
+        role: 'assistant', content: [],
+        toolCalls: Array.from({ length: 1000 }, (_,i) => ({ type: 'function' as const, id: `c${i}`, name: 'Read', arguments: '{}' })),
+      },
+    ]);
+    const items = state.turns[0]!.items;
+    const find = spyOn(items, 'find');
+    const findIndex = spyOn(items, 'findIndex');
+    try {
+      applyMessage(state, { role: 'tool', toolCallId: 'c999', content: [{ type: 'text', text: 'done' }], toolCalls: [] }, 4000);
+      applyMessage(state, { role: 'assistant', content: [], toolCalls: [{ type: 'function', id: 'c998', name: 'Read', arguments: '{"path":"a"}' }] }, 5000);
+      expect(find).not.toHaveBeenCalled();
+      expect(findIndex).not.toHaveBeenCalled();
+      expect(items).toHaveLength(1001);
+      expect(items[999]).toMatchObject({ item_id: 'c998', input: { path: 'a' } });
+      expect(items[1000]).toMatchObject({ item_id: 'c999', output: 'done', outcome: 'completed' });
+    } finally {
+      find.mockRestore();
+      findIndex.mockRestore();
+    }
+  });
+
+  it('keeps duplicate tool ids scoped to their latest turn', () => {
+    const call: ContextMessage = { role: 'assistant', content: [], toolCalls: [{ type: 'function', id: 'c1', name: 'Read', arguments: '{}' }] };
+    const state = fold([user('p1', 'first'), call, user('p2', 'second'), call]);
+    applyMessage(state, { role: 'tool', toolCallId: 'c1', content: [{ type: 'text', text: 'second result' }], toolCalls: [] }, 5000);
+    expect(state.turns[0]!.items[1]).not.toHaveProperty('output');
+    expect(state.turns[1]!.items[1]).toMatchObject({ output: 'second result', outcome: 'completed' });
   });
 });

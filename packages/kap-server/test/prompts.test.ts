@@ -1,16 +1,30 @@
-import { IEnvironmentService, knowledgeClose } from '@moonshot-ai/agent-core-v2';
-import { environmentBindingKey } from '@moonshot-ai/agent-core-v2/agent/environmentBinding/environmentBindingOps';
-import { chmod, mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  open,
+  readFile,
+  readdir,
+  realpath,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, sep } from 'node:path';
 import { deflateSync } from 'node:zlib';
 
+import { IEnvironmentService, knowledgeClose } from '@moonshot-ai/agent-core-v2';
 import {
   agentContextOf,
   IAgentTitlePromptSource,
   IAgentContextMemoryService,
   IAgentLifecycleService,
+  IAgentGoalService,
   IAgentPermissionModeService,
+  IAgentPlanService,
   IAgentProfileService,
   IAgentLoopService,
   IAgentStateService,
@@ -31,8 +45,8 @@ import {
 } from '@moonshot-ai/agent-core-v2';
 import { HostFileSystem } from '@moonshot-ai/agent-core-v2';
 import { HostProcessService } from '@moonshot-ai/agent-core-v2';
+import { environmentBindingKey } from '@moonshot-ai/agent-core-v2/agent/environmentBinding/environmentBindingOps';
 import { FakeEnvironment } from '@moonshot-ai/agent-core-v2/environment/fakeEnvironment';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 
 import { projectPromptSnapshot, watchPromptSettlements } from '../src/routes/prompts';
 import { type RunningServer, startServer } from '../src/start';
@@ -484,6 +498,106 @@ describe('server-v2 /api/v1 prompts', () => {
     expect(completed).toContainEqual(expect.objectContaining({ reason: 'failed' }));
   });
 
+  it.each(['prompts', 'steer'])(
+    'accepts official skill envelopes with client ids on %s',
+    async (route) => {
+      const id = await createSession(home as string);
+      await createMainAgent(id);
+      const body = {
+        content: [{ type: 'text', text: 'Review the settings' }],
+        prompt_id: `skill-${route}`,
+        skills: [{ name: 'update-config' }],
+      };
+      const result = await call<PromptItemWire>('POST', `/api/v1/sessions/${id}/${route}`, body);
+      expect(result.body.code).toBe(0);
+      expect(result.body.data.prompt_id).toBe(`skill-${route}`);
+    },
+  );
+
+  it('replays identical accepted prompt retries without enqueueing twice', async () => {
+    const id = await createSession(home as string);
+    await createMainAgent(id);
+    const loop = getLiveSessionById(server!.core.accessor, id)!
+      .accessor.get(IAgentLifecycleService)
+      .handleOf('main')!
+      .accessor.get(IAgentLoopService);
+    const submit = spyOn(loop, 'submit');
+    try {
+      const body = {
+        prompt_id: 'retry-identical',
+        content: [{ type: 'text', text: 'only once' }],
+        metadata: { display_text: 'only once' },
+      };
+      const [first, duplicate] = await Promise.all([
+        call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, body),
+        call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, body),
+      ]);
+      expect(first.body.code).toBe(0);
+      expect(duplicate.body.code).toBe(0);
+      expect(duplicate.body.data).toEqual(first.body.data);
+      expect(submit).toHaveBeenCalledTimes(1);
+      await closeSessionById(server!.core.accessor, id);
+      const replay = await call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, body);
+      expect(replay.body.code).toBe(0);
+      expect(replay.body.data).toEqual(first.body.data);
+      expect(getLiveSessionById(server!.core.accessor, id)).toBeUndefined();
+      expect(submit).toHaveBeenCalledTimes(1);
+      const deliveryConflict = await call<null>('POST', `/api/v1/sessions/${id}/steer`, body);
+      expect(deliveryConflict.body.code).toBe(40927);
+    } finally {
+      submit.mockRestore();
+    }
+  });
+
+  it('releases a failed request id so a corrected skill submission can retry', async () => {
+    const id = await createSession(home as string);
+    await createMainAgent(id);
+    const rejected = await call('POST', `/api/v1/sessions/${id}/prompts`, {
+      prompt_id: 'failed-retry',
+      content: [{ type: 'text', text: 'review' }],
+      skills: [{ name: 'does-not-exist' }],
+    });
+    expect(rejected.body.code).toBe(40415);
+    const accepted = await call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, {
+      prompt_id: 'failed-retry',
+      content: [{ type: 'text', text: 'review' }],
+      skills: [{ name: 'update-config' }],
+    });
+    expect(accepted.body.code).toBe(0);
+    expect(accepted.body.data.prompt_id).toBe('failed-retry');
+  });
+
+  it('keeps failed launch status in the official prompt response', () => {
+    expect(
+      projectPromptSnapshot({
+        id: 'failed-id',
+        userMessageId: 'failed-id',
+        createdAt: new Date(0).toISOString(),
+        state: 'failed',
+        message: { role: 'user', content: [{ type: 'text', text: 'fail' }], toolCalls: [] },
+      }).status,
+    ).toBe('failed');
+  });
+
+  it('applies prompt plan and goal overrides before enqueueing', async () => {
+    const id = await createSession(home as string);
+    await createMainAgent(id);
+    const agent = getLiveSessionById(server!.core.accessor, id)!
+      .accessor.get(IAgentLifecycleService)
+      .handleOf('main')!;
+    const result = await call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, {
+      content: [{ type: 'text', text: 'plan' }],
+      plan_mode: true,
+      goal_objective: 'Verify the protocol',
+      prompt_id: 'mode-overrides',
+    });
+    expect(result.body.code).toBe(0);
+    expect(await agent.accessor.get(IAgentPlanService).status()).not.toBeNull();
+    expect(agent.accessor.get(IAgentGoalService).getGoal().goal?.objective).toBe(
+      'Verify the protocol',
+    );
+  });
+
   it('submits a bundled skill prompt through the skills field', async () => {
     const id = await createSession(home as string);
     await createMainAgent(id);
@@ -797,6 +911,7 @@ describe('server-v2 /api/v1 prompts', () => {
       prompt_id: 'submission-1',
     });
     expect(afterResume.body.code).toBe(40927);
+    expect((await call('GET', `/api/v1/sessions/${id}/prompts`)).body.code).toBe(0);
     const resumed = getLiveSessionById(server!.core.accessor, id);
     expect((await resumed!.accessor.get(ISessionMetadata).read()).lastPrompt).toBe('first prompt');
   });
@@ -850,7 +965,7 @@ describe('server-v2 /api/v1 prompts', () => {
     expect(session!.accessor.get(IAgentLifecycleService).handleOf('main')).toBeUndefined();
   });
 
-  it('rejects a bundled prompt_id combination before any override or agent materialization', async () => {
+  it('rejects an unknown skill with prompt_id before any override or agent materialization', async () => {
     await writeConfigToml(home as string, PROMPT_TOML_NO_DEFAULT);
     await server!.core.accessor.get(IConfigService).reload();
     const id = await createSession(home as string);
@@ -859,9 +974,9 @@ describe('server-v2 /api/v1 prompts', () => {
       content: [{ type: 'text', text: 'Review this change.' }],
       permission_mode: 'yolo',
       prompt_id: 'submission-1',
-      skills: [{ name: 'update-config' }],
+      skills: [{ name: 'does-not-exist' }],
     });
-    expect(submitted.body.code).toBe(40001);
+    expect(submitted.body.code).toBe(40415);
 
     const session = getLiveSessionById(server!.core.accessor, id);
     expect(session!.accessor.get(IAgentLifecycleService).handleOf('main')).toBeUndefined();
@@ -1750,10 +1865,12 @@ describe('server-v2 /api/v1 prompts', () => {
         { environmentId: 'fake-remote', generation: 'fake-generation' },
         { capabilities: ['fs'], pathClass: HOST_PATH_CLASS },
       );
-      server!.core.accessor.get(IEnvironmentService).register(Object.assign(fake, {
-        fs: new HostFileSystem(),
-        host: { ...fake.host, tempDir: join(remoteRoot, 'remote-tmp') },
-      }));
+      server!.core.accessor.get(IEnvironmentService).register(
+        Object.assign(fake, {
+          fs: new HostFileSystem(),
+          host: { ...fake.host, tempDir: join(remoteRoot, 'remote-tmp') },
+        }),
+      );
 
       const uploadBytes = Buffer.from('upload unaffected');
       const uploaded = await uploadFile(uploadBytes, 'text/plain', 'up.txt');
@@ -1771,14 +1888,20 @@ describe('server-v2 /api/v1 prompts', () => {
       expect(upload.body.code).toBe(0);
       const content = upload.body.data.content as Array<{ type: string; text?: string }>;
       const attachedPath = attachedPathFrom(content[0]?.text ?? '');
-      expect(dirname(attachedPath)).toBe(join(remoteRoot, 'remote-tmp', 'kimi-code', 'attachments'));
+      expect(dirname(attachedPath)).toBe(
+        join(remoteRoot, 'remote-tmp', 'kimi-code', 'attachments'),
+      );
       expect(await readFile(attachedPath)).toEqual(uploadBytes);
     } finally {
       await rm(remoteRoot, { recursive: true, force: true });
     }
   });
 
-  async function createRemoteBoundSession(): Promise<{ id: string; remoteTempDir: string; dispose(): Promise<void> }> {
+  async function createRemoteBoundSession(): Promise<{
+    id: string;
+    remoteTempDir: string;
+    dispose(): Promise<void>;
+  }> {
     const remoteRoot = await realpath(await mkdtemp(join(tmpdir(), 'kimi-prompt-remote-')));
     const remoteTempDir = join(remoteRoot, 'remote-tmp');
     const provider = await server!.core.accessor.get(IEnvironmentService).addProvider({
@@ -1819,7 +1942,10 @@ describe('server-v2 /api/v1 prompts', () => {
 
   async function expectNoLocalAttachments(sessionId: string): Promise<void> {
     const session = getLiveSessionById(server!.core.accessor, sessionId);
-    const localAttachmentsDir = join(session!.accessor.get(ISessionContext).sessionDir, 'attachments');
+    const localAttachmentsDir = join(
+      session!.accessor.get(ISessionContext).sessionDir,
+      'attachments',
+    );
     await expect(readdir(localAttachmentsDir)).rejects.toMatchObject({ code: 'ENOENT' });
   }
 
@@ -1835,7 +1961,13 @@ describe('server-v2 /api/v1 prompts', () => {
       const submitted = await call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, {
         content: [
           { type: 'text', text: 'summarize this' },
-          { type: 'file', file_id: uploaded.id, name: 'report.pdf', media_type: 'application/pdf', size: pdfBytes.length },
+          {
+            type: 'file',
+            file_id: uploaded.id,
+            name: 'report.pdf',
+            media_type: 'application/pdf',
+            size: pdfBytes.length,
+          },
         ],
       });
       expect(submitted.body.code).toBe(0);
@@ -1864,14 +1996,16 @@ describe('server-v2 /api/v1 prompts', () => {
         { environmentId: 'broken-remote', generation: 'broken-generation' },
         { capabilities: ['fs'] },
       );
-      server!.core.accessor.get(IEnvironmentService).register(Object.assign(fake, {
-        fs: Object.assign(new HostFileSystem(), {
-          mkdir: async () => {
-            throw new Error('remote fs unavailable');
-          },
+      server!.core.accessor.get(IEnvironmentService).register(
+        Object.assign(fake, {
+          fs: Object.assign(new HostFileSystem(), {
+            mkdir: async () => {
+              throw new Error('remote fs unavailable');
+            },
+          }),
+          host: { ...fake.host, tempDir: join(remoteRoot, 'remote-tmp') },
         }),
-        host: { ...fake.host, tempDir: join(remoteRoot, 'remote-tmp') },
-      }));
+      );
       await createMainAgent(id);
       const main = session!.accessor.get(IAgentLifecycleService).handleOf('main')!;
       main.accessor.get(IAgentStateService).set(environmentBindingKey, {
@@ -1882,13 +2016,21 @@ describe('server-v2 /api/v1 prompts', () => {
       const uploaded = await uploadFile(bytes, 'application/pdf', 'report.pdf');
       const submitted = await call<null>('POST', `/api/v1/sessions/${id}/prompts`, {
         content: [
-          { type: 'file', file_id: uploaded.id, name: 'report.pdf', media_type: 'application/pdf', size: bytes.length },
+          {
+            type: 'file',
+            file_id: uploaded.id,
+            name: 'report.pdf',
+            media_type: 'application/pdf',
+            size: bytes.length,
+          },
         ],
       });
       expect(submitted.body.code).not.toBe(0);
 
       await expectNoLocalAttachments(id);
-      await expect(readdir(join(remoteRoot, 'remote-tmp'))).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(readdir(join(remoteRoot, 'remote-tmp'))).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
     } finally {
       await rm(remoteRoot, { recursive: true, force: true });
     }

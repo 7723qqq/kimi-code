@@ -79,6 +79,10 @@ function makeSessionManager(
         realpath: async (path: string) => path,
       } as unknown as IHostFileSystem),
     overrides.locks ?? new InMemorySessionLockService(),
+    undefined as never,
+    undefined as never,
+    undefined as never,
+    undefined as never,
   );
 }
 

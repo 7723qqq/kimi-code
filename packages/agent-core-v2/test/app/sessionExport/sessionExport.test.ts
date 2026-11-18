@@ -950,6 +950,7 @@ function registerSessionExportServices(
     ): Promise<T> => work({ archive: async () => {}, restore: async () => undefined }),
     list: () => (options.lifecycleHandle === undefined ? [] : [options.lifecycleHandle]),
     close: async () => {},
+    move: async () => { throw new Error('move should not be called by session export'); },
     closeIfIdle: async () => false,
     archive: async () => {},
     restore: async () => options.lifecycleHandle,

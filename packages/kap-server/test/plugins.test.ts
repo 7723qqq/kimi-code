@@ -210,9 +210,10 @@ describe('server-v2 /api/v1 plugins', () => {
 
     const preview = await call<null>('POST', '/api/v1/plugins/preview', {
       marketplaceId: 'demo-plugin',
+      expectedVersion: 'stale-version',
     });
-    expect(preview.body.code).toBe(40001);
-    expect(preview.body.msg).toContain('SHA-256');
+    expect(preview.body.code).toBe(40934);
+    expect(preview.body.msg).toContain('version');
 
     const list = await call<{ plugins: { id: string; enabled: boolean }[] }>(
       'GET',
@@ -505,7 +506,13 @@ describe('server-v2 /api/v1 plugins', () => {
     custom = true;
 
     const { body } = await call<{
-      entries: { id: string; classification: string; tier: string; displayName: string; source: string }[];
+      entries: {
+        id: string;
+        classification: string;
+        tier: string;
+        displayName: string;
+        source: string;
+      }[];
     }>('GET', '/api/v1/plugins/marketplace');
     expect(body.code).toBe(0);
     expect(body.data.entries).toEqual([
@@ -525,5 +532,4 @@ describe('server-v2 /api/v1 plugins', () => {
       },
     ]);
   });
-
 });

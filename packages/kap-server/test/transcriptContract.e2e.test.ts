@@ -169,6 +169,18 @@ async function rest<T>(
   return envelope.data;
 }
 
+async function undoLatestTurn(server: RunningServer, base: string, sid: string): Promise<void> {
+  const page = await rest<{ turns: { turn_id: string }[] }>(
+    server,
+    base,
+    `/api/v1/sessions/${sid}/agents/main/turns`,
+  );
+  await rest(server, base, `/api/v1/sessions/${sid}:undo`, {
+    method: 'POST',
+    body: { turn_id: page.turns.at(-1)!.turn_id },
+  });
+}
+
 interface TxSnapshot {
   items: any[];
   tasks: any[];
@@ -520,10 +532,7 @@ describeWithTimeout(
         expect(JSON.stringify(before.items)).toContain('answer after steer');
         expect(before.items.filter((item) => item.kind === 'turn')).toHaveLength(1);
         expect(before.prompts.some((prompt) => prompt.promptId === steer.prompt_id)).toBe(true);
-        await rest(server!, base, `/api/v1/sessions/${sid}:undo`, {
-          method: 'POST',
-          body: { count: 1 },
-        });
+        await undoLatestTurn(server!, base, sid);
         const after = await getTranscript(server!, base, sid);
         expect(after.items.filter((item) => item.kind === 'turn')).toEqual([]);
         expect(JSON.stringify(after.items)).not.toContain('original request');
@@ -554,10 +563,7 @@ describeWithTimeout(
         expect(
           reopened.items.filter((item) => item.kind === 'turn').map((turn) => turn.prompt),
         ).toEqual(['steered request']);
-        await rest(server!, base, `/api/v1/sessions/${sid}:undo`, {
-          method: 'POST',
-          body: { count: 1 },
-        });
+        await undoLatestTurn(server!, base, sid);
         const empty = await getTranscript(server!, base, sid);
         expect(empty.items.filter((item) => item.kind === 'turn')).toEqual([]);
         expect(empty.prompts).toEqual([]);

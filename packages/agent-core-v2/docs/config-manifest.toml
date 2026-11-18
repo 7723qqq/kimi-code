@@ -8,7 +8,7 @@
 # commented "# field: type" lines describe the remaining schema fields.
 # Values resolve as: default -> config.toml -> env overlay -> memory.
 
-# Index (39 sections · 3 overlay(s))
+# Index (41 sections · 3 overlay(s))
 #   background               src/agent/task/configSection.ts
 #   builtinProductSkills     src/features/skill/catalog/configSection.ts
 #   cron                     src/features/cron/configSection.ts
@@ -20,6 +20,7 @@
 #   extraAgentDirs           src/workspace/workspaceAgentProfileLoader/configSection.ts
 #   extraSkillDirs           src/features/skill/catalog/configSection.ts
 #   github                   src/agent/tools/github/configSection.ts
+#   github_proxy             src/agent/tools/github/configSection.ts
 #   hooks                    src/features/externalHooks/configSection.ts
 #   identity                 src/app/agentIdentity/configSection.ts
 #   image                    src/agent/media/configSection.ts
@@ -39,6 +40,7 @@
 #   sandbox                  src/workspace/sandbox/sandbox.ts
 #   secondaryModel           src/session/subagent/configSection.ts
 #   services                 src/app/auth/configSection.ts
+#   skills                   src/features/skill/catalog/configSection.ts
 #   subagent                 src/session/subagent/configSection.ts
 #   subagentBackend          src/session/subagent/backend/configSection.ts
 #   swarm                    src/features/swarm/configSection.ts
@@ -191,6 +193,19 @@ extra_skill_dirs = []
 [github]
 # token: string
 # base_url: string
+
+# ##########################################################################
+# github_proxy
+#   owner: src/agent/tools/github/configSection.ts
+#   scope: core
+# ##########################################################################
+
+[github_proxy]
+# proxy: string
+# mirror: string
+# domains: string[]
+# mirror_hosts: string[]
+# fallback: boolean
 
 # ##########################################################################
 # hooks
@@ -516,6 +531,16 @@ mode = "off"
     # key: string
     # oauth_host: string
   # custom_headers: record<string, string>
+
+# ##########################################################################
+# skills
+#   owner: src/features/skill/catalog/configSection.ts
+#   scope: core
+# ##########################################################################
+
+[skills]
+# hidden_from_model: string[]
+# sub_skills: string[]
 
 # ##########################################################################
 # subagent

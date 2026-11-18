@@ -1,10 +1,7 @@
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 
-import {
-  KIMI_REGION_PROFILES,
-  OAuthUnauthorizedError,
-} from '@moonshot-ai/kimi-code-oauth';
+import { KIMI_REGION_PROFILES, OAuthUnauthorizedError } from '@moonshot-ai/kimi-code-oauth';
 import { gt, valid } from 'semver';
 
 import type { FetchLike } from '#/_base/utils/fetchLike';
@@ -30,6 +27,7 @@ export type PluginMarketplaceTier = (typeof PLUGIN_MARKETPLACE_TIERS)[number];
 export type PluginMarketplacePlatform = 'darwin' | 'win32' | 'linux' | 'cloud';
 
 export interface PluginMarketplaceLocalizedText {
+  readonly displayName?: string;
   readonly cliDescription?: string;
   readonly longDescription?: string;
   readonly shortDescription?: string;
@@ -116,8 +114,7 @@ export function marketplaceEntryInstallableOnHost(
 ): boolean {
   if (!marketplaceEntrySupportsClient(entry, client)) return false;
   return (
-    entry.platforms === undefined ||
-    entry.platforms.some((candidate) => candidate === platform)
+    entry.platforms === undefined || entry.platforms.some((candidate) => candidate === platform)
   );
 }
 
@@ -370,10 +367,7 @@ function parseClients(value: unknown): readonly PluginClient[] | undefined {
   ];
 }
 
-function parseDistribution(
-  value: unknown,
-  id: string,
-): PluginMarketplaceDistribution | undefined {
+function parseDistribution(value: unknown, id: string): PluginMarketplaceDistribution | undefined {
   if (value === undefined) return undefined;
   if (!isRecord(value)) {
     throw new TypeError(`Plugin marketplace entry ${id} must define "distribution".`);
@@ -438,6 +432,7 @@ function parseLocale(value: unknown, id: string): PluginMarketplaceLocale | unde
       );
     }
     locale[key] = {
+      displayName: stringField(entry, 'displayName'),
       cliDescription: stringField(entry, 'cliDescription'),
       longDescription: stringField(entry, 'longDescription'),
       shortDescription: stringField(entry, 'shortDescription'),

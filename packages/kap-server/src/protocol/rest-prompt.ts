@@ -41,7 +41,7 @@ export const promptSubmissionSchema = z
   .strict();
 export type PromptSubmission = z.infer<typeof promptSubmissionSchema>;
 
-export const promptStatusSchema = z.enum(['running', 'queued', 'blocked']);
+export const promptStatusSchema = z.enum(['running', 'queued', 'blocked', 'failed']);
 export type PromptStatus = z.infer<typeof promptStatusSchema>;
 
 export const promptItemSchema = z.object({

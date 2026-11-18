@@ -93,6 +93,8 @@ export class WsConnectionV1 implements BroadcastTarget {
   private controlQueue: Promise<void> = Promise.resolve();
 
   private outbound: unknown[] = [];
+  private subscriptionSeed: { frame: BroadcastFrame; delivery: BroadcastDelivery }[] | undefined;
+  private seedSessionId: string | undefined;
   private flushTimer?: TimerHandle;
   private backpressureRetryTimer?: TimerHandle;
   private backpressureSince?: number;
@@ -142,6 +144,15 @@ export class WsConnectionV1 implements BroadcastTarget {
   }
 
   send(frame: BroadcastFrame, delivery: BroadcastDelivery = 'subscription'): void {
+    if (this.closed) return;
+    if (
+      this.subscriptionSeed !== undefined &&
+      'session_id' in frame &&
+      frame.session_id === this.seedSessionId
+    ) {
+      this.subscriptionSeed.push({ frame, delivery });
+      return;
+    }
     if (delivery === 'immediate') this.sendImmediateFrame(frame);
     else this.sendSubscribedFrame(frame);
   }
@@ -173,12 +184,14 @@ export class WsConnectionV1 implements BroadcastTarget {
   }
 
   private enqueueControl(frameId: string | undefined, task: () => Promise<void>): void {
-    this.controlQueue = this.controlQueue.then(task).catch((error: unknown) => {
-      this.logger?.error?.({ err: error, frameId }, 'ws control frame failed');
-      if (frameId !== undefined && frameId.length > 0) {
-        this.sendImmediateFrame(buildResponse(frameId, 1, 'internal error'));
-      }
-    });
+    this.controlQueue = this.controlQueue
+      .then(() => (this.closed ? undefined : task()))
+      .catch((error: unknown) => {
+        this.logger?.error?.({ err: error, frameId }, 'ws control frame failed');
+        if (frameId !== undefined && frameId.length > 0) {
+          this.sendImmediateFrame(buildResponse(frameId, 1, 'internal error'));
+        }
+      });
   }
 
   private onHeartbeat(): void {
@@ -223,6 +236,9 @@ export class WsConnectionV1 implements BroadcastTarget {
     const agentIds =
       requestedAgentIds ??
       (transcript === undefined && transcriptSince === undefined ? [MAIN_AGENT_ID] : undefined);
+    const alreadySubscribed = this.subscriptions.has(sid);
+    this.subscriptionSeed = [];
+    this.seedSessionId = sid;
     try {
       if (agentIds !== undefined) {
         const accepted: string[] = [];
@@ -238,7 +254,14 @@ export class WsConnectionV1 implements BroadcastTarget {
           this.respond(requestId, ErrorCode.SESSION_NOT_FOUND, 'session not found');
           return;
         }
+        if (this.closed) return;
         const ok = await this.broadcaster.subscribeAgents(sid, this, agentIds);
+        if (this.closed) {
+          this.broadcaster.unsubscribeAgents(sid, this, agentIds);
+          this.broadcaster.unsubscribe(sid, this);
+          this.subscriptions.delete(sid);
+          return;
+        }
         if (!ok) {
           this.broadcaster.unsubscribe(sid, this);
           this.subscriptions.delete(sid);
@@ -252,6 +275,7 @@ export class WsConnectionV1 implements BroadcastTarget {
           conversationAgents: [...agentIds],
         });
         this.respond(requestId, ErrorCode.SUCCESS);
+        this.releaseSubscriptionSeed();
         this.sendPendingInteractions(accepted);
         return;
       }
@@ -270,12 +294,29 @@ export class WsConnectionV1 implements BroadcastTarget {
         return;
       }
       this.respond(requestId, ErrorCode.SUCCESS);
+      this.releaseSubscriptionSeed();
       this.sendPendingInteractions(accepted);
     } catch (error) {
       this.logger?.error?.({ err: error, frameId: requestId }, 'ws control frame failed');
       const failure = mapError(error, requestId);
-      this.respond(requestId, failure.code, failure.msg);
+      this.respond(
+        requestId,
+        failure.code === ErrorCode.WIRE_VERSION_TOO_LOW
+          ? ErrorCode.VALIDATION_FAILED
+          : failure.code,
+        failure.msg,
+      );
+    } finally {
+      if (alreadySubscribed) this.releaseSubscriptionSeed();
+      else this.subscriptionSeed = undefined;
+      this.seedSessionId = undefined;
     }
+  }
+
+  private releaseSubscriptionSeed(): void {
+    const pending = this.subscriptionSeed ?? [];
+    this.subscriptionSeed = undefined;
+    for (const { frame, delivery } of pending) this.send(frame, delivery);
   }
 
   private async onUnsubscribe(requestId: string, frame: InboundFrame): Promise<void> {

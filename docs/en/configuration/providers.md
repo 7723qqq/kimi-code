@@ -228,7 +228,7 @@ max_context_size = 200000
 
 For connecting to the OpenAI Chat Completions protocol, as well as any third-party service compatible with that protocol (override `base_url` as needed).
 
-Third-party reasoning models (DeepSeek, Qwen, One API, etc.) work out of the box: the CLI automatically handles the `reasoning_content` field and `reasoning_effort` injection. If your gateway returns reasoning content under a non-standard field name, set `reasoning_key` on the model alias to override.
+Third-party reasoning models (DeepSeek, Qwen, One API, etc.) work out of the box: the CLI automatically handles native reasoning fields and `reasoning_effort` injection. If a compatible gateway returns reasoning in a non-standard field, set `reasoning_key` on the model alias to override. If a provider places reasoning in ordinary text using `<think>` or `<thinking>` tags, the CLI separates that block from the answer and applies the transcript's thinking display settings; literal tags inside JSON or code blocks remain text.
 
 - Default `base_url`: `https://api.openai.com/v1`
 - Credential key names: `OPENAI_API_KEY`, `OPENAI_BASE_URL`

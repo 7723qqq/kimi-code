@@ -49,6 +49,7 @@ import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
 import { detailsSchema, sessionIdParamSchema } from '../protocol/common';
 import { ErrorCode } from '../protocol/error-codes';
+import { projectGoalStatus } from '../protocol/goal';
 import { pageResponseSchema } from '../protocol/pagination';
 import { booleanQueryParam } from '../protocol/query-params';
 import {
@@ -80,22 +81,19 @@ import {
   type SessionPendingInteraction,
 } from '../protocol/session';
 import { workspaceIdSchema } from '../protocol/workspace';
-import { readLegacyStatus } from '../services/legacyStatus/legacyStatus';
 import type { ConversationService } from '../services/conversation/conversationService';
+import { readLegacyStatus } from '../services/legacyStatus/legacyStatus';
 import { loadWorkspaceVisibility } from '../services/workspaceVisibility';
 import { ensureMainAgent, MAIN_AGENT_ID } from '../transport/mainAgent';
 import { type ActionTable, dispatchAction } from './action-dispatch';
 import { sendEnvironmentError } from './environment';
-import {
-  sendMappedError as sendSessionMappedError,
-  sessionConflictErrors,
-} from './sessionErrors';
 import {
   agentConfigErrors,
   applyAgentConfigToSession,
   applySessionAgentConfig,
   creationMainAgentBinding,
 } from './sessionAgentConfig';
+import { sendMappedError as sendSessionMappedError, sessionConflictErrors } from './sessionErrors';
 import { customSessionMetadata, updateSessionProfile } from './sessionProfile';
 
 interface SessionRouteHost {
@@ -269,16 +267,20 @@ export function registerSessionsRoutes(
       }
 
       try {
-        const touched = await registry.createOrTouch(workDir);
+        const touched =
+          workspaceId === undefined
+            ? await registry.createOrTouch(workDir)
+            : await registry.touch(workspaceId);
+        if (touched === undefined) {
+          throw new Error2(
+            ErrorCodes.WORKSPACE_NOT_FOUND,
+            `workspace ${workspaceId} does not exist`,
+          );
+        }
         const custom = customSessionMetadata(body.metadata);
         const agentConfig = body.agent_config ?? {};
         const mainAgentBinding = await creationMainAgentBinding(core, agentConfig);
-        const {
-          profile: _profile,
-          model: _model,
-          thinking: _thinking,
-          ...settings
-        } = agentConfig;
+        const { profile: _profile, model: _model, thinking: _thinking, ...settings } = agentConfig;
         const appliesSettings = Object.keys(settings).some((key) => key !== 'tower_base');
         const handle = await core.accessor.get(ISessionManager).create({
           workspaceId: touched.id,
@@ -493,10 +495,7 @@ export function registerSessionsRoutes(
         return;
       }
       reply.send(
-        okEnvelope(
-          toWireSession(summary, cwd, resolveSessionFacts(core, session_id)),
-          req.id,
-        ),
+        okEnvelope(toWireSession(summary, cwd, resolveSessionFacts(core, session_id)), req.id),
       );
     },
   );
@@ -859,7 +858,12 @@ export function registerSessionsRoutes(
       try {
         const { session_id } = req.params;
         const goal = await core.accessor.get(ISessionLegacyService).goal(session_id);
-        reply.send(okEnvelope(goal, req.id));
+        reply.send(
+          okEnvelope(
+            goal === null ? null : { ...goal, status: projectGoalStatus(goal.status) },
+            req.id,
+          ),
+        );
       } catch (error) {
         sendMappedError(reply, req, error);
       }
@@ -900,7 +904,12 @@ export function registerSessionsRoutes(
         const goal = await agent.accessor
           .get(IAgentGoalService)
           .editGoalObjective({ objective: req.body.objective });
-        reply.send(okEnvelope(goal, req.id));
+        reply.send(
+          okEnvelope(
+            goal === null ? null : { ...goal, status: projectGoalStatus(goal.status) },
+            req.id,
+          ),
+        );
       } catch (error) {
         sendMappedError(reply, req, error);
       }

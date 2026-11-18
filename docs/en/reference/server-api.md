@@ -36,6 +36,8 @@ All `/api/*` paths (including `/openapi.json` and `/asyncapi.json`) require the 
 
 How to carry it: REST uses the `Authorization: Bearer <token>` header; the WebSocket upgrade accepts the same header or the subprotocol `kimi-code.bearer.<token>`. Token generation and rotation are covered in [Using Kimi Code in the browser: Getting started](../guides/web.md#getting-started).
 
+An authenticated same-origin browser GET also receives a short-lived HttpOnly, SameSite=Strict download cookie. It is accepted only for same-origin GET requests to uploaded files, session media and session file downloads, bound to the original host and port, and expires after five minutes. It never authorizes ordinary REST, host-file access or WebSocket upgrades; credential revocation is rechecked on every download.
+
 Failed authentication returns HTTP 401 with envelope code `40101`. On non-loopback binds, a source that fails authentication 10 times within 60 seconds is banned for 60 seconds, during which every request gets HTTP 429 (code `42901`).
 
 ### Response envelope
@@ -76,7 +78,7 @@ Error codes are grouped by band:
 | `0` | Success | |
 | `400xx` | Bad request | `40001` validation failed (`details` lists each field), `40003` provider is OAuth-managed |
 | `401xx` | Auth and readiness | `40101` unauthorized, `40110` no provider configured, `40113` model not resolved |
-| `404xx` | Not found | `40401` session, `40408` MCP server, `40409` file path, `40421` agent |
+| `404xx` | Not found | `40401` session, `40408` MCP server, `40409` file path, `40421` agent, `40422` turn |
 | `409xx` | State conflict | `40901` session busy, `40902` interaction already ended, `40922` page conditions mismatch `page_token`, `40931` session occupied by another client, `40932` session updated by another client, `40935` Tower mode cannot be entered |
 | `410xx` | Expired | `41001` approval timed out, `41002` question timed out, `41003` temporary file expired |
 | `413xx` | Size or boundary exceeded | `41302` file read over 10 MB, `41304` path escapes the session directory |

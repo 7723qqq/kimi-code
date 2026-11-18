@@ -1,8 +1,8 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { randomUUID } from 'node:crypto';
 
 import {
   ensureMainAgent,
@@ -12,11 +12,10 @@ import {
   type QuestionRequest,
   type QuestionResult,
 } from '@moonshot-ai/agent-core-v2';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 interface Envelope<T> {
   code: number;
@@ -129,6 +128,18 @@ describe('server-v2 /api/v1/sessions/{sid}/interactions (question)', () => {
     };
   }
 
+  it('preserves an official question response note', async () => {
+    const sid = await createSession();
+    const result = requestQuestion(sid, makeRequest('q-note'));
+    const response = await postJson<RespondWire>(`/api/v1/sessions/${sid}/interactions/q-note`, {
+      kind: 'question',
+      answers: { q_0: { kind: 'single', option_id: 'opt_0_0' } },
+      note: 'Additional context',
+    });
+    expect(response.body.code).toBe(0);
+    expect(await result).toEqual({ answers: { 'Pick one': 'Yes' }, note: 'Additional context' });
+  });
+
   it('resolves a pending question', async () => {
     const sid = await createSession();
     enqueueQuestion(sid, makeRequest('q-2'));
@@ -182,9 +193,7 @@ describe('server-v2 /api/v1/sessions/{sid}/interactions (question)', () => {
 
   it('translates ids to text across single / other / multi_with_other kinds', async () => {
     const sid = await createSession();
-    const single: Promise<QuestionResult> = requestQuestion(sid, 
-      makeTwoQuestionRequest('q-t1'),
-    );
+    const single: Promise<QuestionResult> = requestQuestion(sid, makeTwoQuestionRequest('q-t1'));
     await postJson<RespondWire>(`/api/v1/sessions/${sid}/interactions/q-t1`, {
       kind: 'question',
       answers: {
@@ -200,9 +209,7 @@ describe('server-v2 /api/v1/sessions/{sid}/interactions (question)', () => {
       answers: { 'Which animal?': 'Dog', 'Which colors?': 'Red, Green, Custom' },
     });
 
-    const other: Promise<QuestionResult> = requestQuestion(sid, 
-      makeTwoQuestionRequest('q-t2'),
-    );
+    const other: Promise<QuestionResult> = requestQuestion(sid, makeTwoQuestionRequest('q-t2'));
     await postJson<RespondWire>(`/api/v1/sessions/${sid}/interactions/q-t2`, {
       kind: 'question',
       answers: {
@@ -217,7 +224,8 @@ describe('server-v2 /api/v1/sessions/{sid}/interactions (question)', () => {
 
   it('keeps unknown and cross-question option ids verbatim (stale client)', async () => {
     const sid = await createSession();
-    const resultPromise: Promise<QuestionResult> = requestQuestion(sid, 
+    const resultPromise: Promise<QuestionResult> = requestQuestion(
+      sid,
       makeTwoQuestionRequest('q-t3'),
     );
 
@@ -241,7 +249,8 @@ describe('server-v2 /api/v1/sessions/{sid}/interactions (question)', () => {
 
   it('produces an empty answers record when all questions are skipped (not a dismissal)', async () => {
     const sid = await createSession();
-    const resultPromise: Promise<QuestionResult> = requestQuestion(sid, 
+    const resultPromise: Promise<QuestionResult> = requestQuestion(
+      sid,
       makeTwoQuestionRequest('q-t4'),
     );
 
@@ -362,7 +371,7 @@ describe('server-v2 /api/v1/sessions/{sid}/interactions (question)', () => {
     expect(pendingQuestions(sid).map((i) => i.id)).toEqual(['q-6']);
   });
 
-  it('rejects the retired question note field', async () => {
+  it('accepts a note on an official dismissal without leaving the interaction pending', async () => {
     const sid = await createSession();
     enqueueQuestion(sid, makeRequest('q-note'));
     const url = `/api/v1/sessions/${sid}/interactions/q-note`;
@@ -373,8 +382,8 @@ describe('server-v2 /api/v1/sessions/{sid}/interactions (question)', () => {
       note: 'legacy',
     });
 
-    expect(result.body.code).toBe(40001);
-    expect(pendingQuestions(sid).map((item) => item.id)).toEqual(['q-note']);
+    expect(result.body.code).toBe(0);
+    expect(pendingQuestions(sid)).toEqual([]);
   });
 
   it('returns 40902 on a duplicate resolve of a colon-id question', async () => {

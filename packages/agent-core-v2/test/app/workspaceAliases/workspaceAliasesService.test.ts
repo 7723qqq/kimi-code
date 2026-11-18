@@ -15,6 +15,8 @@ import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IEventService } from '#/app/event/event';
 import { LifecycleScope } from '#/app/scopes';
+import { IProjectLocalConfigService } from '#/app/projectLocalConfig/projectLocalConfig';
+import { FileProjectLocalConfigService } from '#/persistence/backends/node-fs/projectLocalConfigService';
 import { FileWorkspacePersistence } from '#/app/workspace/fileWorkspacePersistence';
 import { IWorkspaceService, type Workspace } from '#/app/workspace/workspace';
 import {
@@ -111,6 +113,7 @@ describe('WorkspaceAliasesService (file-backed)', () => {
       stubPair(ILogService, noopLog),
       ...(persistence !== undefined ? [stubPair(IWorkspacePersistence, persistence)] : []),
       stubPair(IHostFileSystem, hostFs),
+      stubPair(IProjectLocalConfigService, new FileProjectLocalConfigService(stubBootstrap(homeDir), hostFs)),
       stubPair(IEventService, {
         publish: () => {},
         subscribe: () => ({ dispose: () => {} }),

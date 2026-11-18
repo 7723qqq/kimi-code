@@ -1,20 +1,32 @@
+import { dirname } from 'node:path';
 
-import { IEnvironmentService } from '#/app/environment/environment';
 import { DisposableStore } from '#/_base/di/lifecycle';
-import { IEnvironmentDeclarationService } from '#/app/environmentDeclaration/environmentDeclaration';
-import { normalizeRemoteCwd } from '#/environment/environmentDefaults';
-import { LOCAL_ENVIRONMENT_ID } from '#/environment/environment';
-import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { Emitter, type Event, type IWaitUntil } from '#/_base/event';
 import { ScopeActivation, registerScopedService, type ISessionScopeHandle } from '#/_base/di/scope';
+import { Emitter, type Event, type IWaitUntil } from '#/_base/event';
+import { IAgentEnvironmentBindingService } from '#/agent/environmentBinding/environmentBinding';
+import { EnvironmentSetBinding } from '#/agent/environmentBinding/environmentBindingOps';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IEnvironmentService } from '#/app/environment/environment';
+import { IEnvironmentDeclarationService } from '#/app/environmentDeclaration/environmentDeclaration';
 import { LifecycleScope } from '#/app/scopes';
-import { Error2, ErrorCodes, isError2, SessionErrors, unwrapErrorCause } from '#/errors';
+import { ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
 import { ISessionIndex, type SessionSummary } from '#/app/sessionIndex/sessionIndex';
+import { LOCAL_ENVIRONMENT_ID } from '#/environment/environment';
+import { normalizeRemoteCwd } from '#/environment/environmentDefaults';
+import { Error2, ErrorCodes, isError2, SessionErrors, unwrapErrorCause } from '#/errors';
 import { IAgentCronService } from '#/features/cron/cronService';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { ISessionLockService, type SessionLockLease } from '#/persistence/interface/sessionLock';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionActivityView } from '#/session/sessionActivity/sessionActivity';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import type { SessionMeta } from '#/session/sessionMetadata/sessionMetadata';
+import { encodeSessionMeta } from '#/session/sessionMetadata/sessionMetadataService';
+import { IEventDispatcher } from '#/state/eventDispatcher';
 import {
   type CreateChildSessionOptions,
   type ForkSessionOptions,
@@ -80,10 +92,15 @@ export class SessionManager implements ISessionManager {
   constructor(
     @IWorkspaceInstanceManager private readonly workspaces: IWorkspaceInstanceManager,
     @ISessionIndex private readonly index: ISessionIndex,
-    @IEnvironmentDeclarationService private readonly environmentDeclarations: IEnvironmentDeclarationService,
+    @IEnvironmentDeclarationService
+    private readonly environmentDeclarations: IEnvironmentDeclarationService,
     @IEnvironmentService private readonly environments: IEnvironmentService,
     @IHostFileSystem private readonly hostFs: IHostFileSystem,
     @ISessionLockService private readonly sessionLocks: ISessionLockService,
+    @IBootstrapService private readonly bootstrap: IBootstrapService,
+    @IAtomicDocumentStore private readonly docs: IAtomicDocumentStore,
+    @IFileSystemStorageService private readonly storage: IFileSystemStorageService,
+    @ISessionIndexMirror private readonly mirror: ISessionIndexMirror,
   ) {}
 
   async resolveCreationEnvironment(options: CreateManagedSessionOptions) {
@@ -99,9 +116,14 @@ export class SessionManager implements ISessionManager {
   async create(options: CreateManagedSessionOptions): Promise<ISessionScopeHandle> {
     const opened = await this.openCreation(options);
     try {
-      const effective = opened.environmentId === undefined && opened.environmentCwd === undefined
-        ? options
-        : { ...options, environmentId: opened.environmentId, environmentCwd: opened.environmentCwd };
+      const effective =
+        opened.environmentId === undefined && opened.environmentCwd === undefined
+          ? options
+          : {
+              ...options,
+              environmentId: opened.environmentId,
+              environmentCwd: opened.environmentCwd,
+            };
       const create = async () => {
         const entry = await this.controllerForWorkspace({
           workspaceId: opened.workspaceId,
@@ -118,9 +140,10 @@ export class SessionManager implements ISessionManager {
 
   private async openCreation(options: CreateManagedSessionOptions) {
     await this.environments.ready;
-    const declarations = options.environmentId === LOCAL_ENVIRONMENT_ID
-      ? undefined
-      : await this.environmentDeclarations.declarations();
+    const declarations =
+      options.environmentId === LOCAL_ENVIRONMENT_ID
+        ? undefined
+        : await this.environmentDeclarations.declarations();
     const environmentId = options.environmentId ?? declarations?.defaultId;
     const remote = environmentId !== undefined && environmentId !== LOCAL_ENVIRONMENT_ID;
     if (options.workDir !== undefined && !remote) await this.assertUsableWorkDir(options.workDir);
@@ -182,11 +205,13 @@ export class SessionManager implements ISessionManager {
     if (!stat.isDirectory) {
       try {
         stat = await this.hostFs.stat(await this.hostFs.realpath(workDir));
-      } catch {
-      }
+      } catch {}
     }
     if (!stat.isDirectory) {
-      throw new Error2(ErrorCodes.FS_PATH_NOT_FOUND, `workspace root ${workDir} is not a directory`);
+      throw new Error2(
+        ErrorCodes.FS_PATH_NOT_FOUND,
+        `workspace root ${workDir} is not a directory`,
+      );
     }
   }
 
@@ -290,6 +315,142 @@ export class SessionManager implements ISessionManager {
       await this.runControllerOperation(this.retainController(entry), (controller) =>
         controller.close(sessionId),
       );
+    });
+  }
+
+  move(
+    sessionId: string,
+    destination: { readonly workspaceId: string; readonly root: string },
+  ): Promise<ISessionScopeHandle> {
+    return this.serializeLifecycle(sessionId, async () => {
+      await this.assertUsableWorkDir(destination.root);
+      const source = await this.controllerForSession(sessionId);
+      if (source === undefined)
+        throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${sessionId} does not exist`);
+      return this.runControllerOperation(source, async (controller) => {
+        const handle = await controller.resume(sessionId);
+        if (handle === undefined)
+          throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${sessionId} does not exist`);
+        const context = handle.accessor.get(ISessionContext);
+        if (context.workspaceId === destination.workspaceId && context.cwd === destination.root)
+          return handle;
+        if (await this.retained(handle))
+          throw new Error2(
+            ErrorCodes.SESSION_BUSY,
+            'Cannot move a session with active work or scheduled tasks',
+          );
+        const quiescence = new DisposableStore();
+        try {
+          const lifecycle = handle.accessor.get(IAgentLifecycleService);
+          for (const entry of lifecycle.list()) {
+            const pause = lifecycle
+              .handleOf(entry.agentId)
+              ?.accessor.get(IAgentLoopService)
+              .tryAcquireQuiescence();
+            if (pause === undefined)
+              throw new Error2(
+                ErrorCodes.SESSION_BUSY,
+                'Cannot move a session with queued or running prompts',
+              );
+            quiescence.add(pause);
+          }
+          const metadata = await handle.accessor.get(ISessionMetadata).read();
+          if (
+            metadata.environmentId !== undefined &&
+            metadata.environmentId !== LOCAL_ENVIRONMENT_ID
+          ) {
+            throw new Error2(
+              ErrorCodes.REQUEST_INVALID,
+              'Change the remote environment binding instead of moving its host cwd',
+            );
+          }
+          if (this.hostFs.rename === undefined)
+            throw new Error2(
+              ErrorCodes.REQUEST_INVALID,
+              'Session storage does not support atomic directory moves',
+            );
+          const target = await this.controllerForWorkspace(destination);
+          return await this.runControllerOperation(target, async (targetController) => {
+            const targetScope = `${this.bootstrap.scope('sessions')}/${destination.workspaceId}/${sessionId}`;
+            const targetPath = this.storage.pathFor(targetScope, '');
+            if (targetPath === undefined)
+              throw new Error2(
+                ErrorCodes.REQUEST_INVALID,
+                'Session storage does not expose directory paths',
+              );
+            const exists = await this.hostFs.stat(targetPath).then(
+              () => true,
+              (error: unknown) => {
+                const code = (unwrapErrorCause(error) as NodeJS.ErrnoException | undefined)?.code;
+                if (code === 'ENOENT' || code === 'ENOTDIR') return false;
+                throw error;
+              },
+            );
+            if (exists)
+              throw new Error2(
+                ErrorCodes.REQUEST_INVALID,
+                'Destination session storage already exists',
+              );
+            const lease = this.sessionLocks.lease(sessionId);
+            let moved = false;
+            try {
+              await controller.close(sessionId);
+              await this.hostFs.mkdir(dirname(targetPath), { recursive: true });
+              await this.hostFs.rename!(context.sessionDir, targetPath);
+              moved = true;
+              const updated = {
+                ...metadata,
+                cwd: destination.root,
+                environmentCwd: undefined,
+                updatedAt: Date.now(),
+              };
+              await this.docs.set(targetScope, 'state.json', encodeSessionMeta(updated));
+              this.mirror.record({ ...updated, workspaceId: destination.workspaceId });
+              await this.mirror.drain();
+              const result = await targetController.resume(sessionId);
+              if (result === undefined) throw new Error('Moved session could not be restored');
+              const agents = result.accessor.get(IAgentLifecycleService);
+              for (const agentId of Object.keys(metadata.agents ?? { main: {} })) {
+                await agents.create({ agentId });
+                const agent = agents.handleOf(agentId)!;
+                if (
+                  agent.accessor.get(IAgentEnvironmentBindingService).current.environmentId ===
+                  LOCAL_ENVIRONMENT_ID
+                ) {
+                  await agent.accessor
+                    .get(IEventDispatcher)
+                    .dispatch(
+                      new EnvironmentSetBinding({
+                        agentId,
+                        environmentId: LOCAL_ENVIRONMENT_ID,
+                        cwd: destination.root,
+                      }),
+                    );
+                }
+              }
+              return result;
+            } catch (error) {
+              if (moved) {
+                await targetController.close(sessionId);
+                await this.hostFs.rename!(targetPath, context.sessionDir);
+                await this.docs.set(context.metaScope, 'state.json', encodeSessionMeta(metadata));
+                this.mirror.record({
+                  ...metadata,
+                  workspaceId: context.workspaceId,
+                  cwd: context.cwd,
+                });
+                await this.mirror.drain();
+              }
+              await controller.resume(sessionId);
+              throw error;
+            } finally {
+              lease.release();
+            }
+          });
+        } finally {
+          quiescence.dispose();
+        }
+      });
     });
   }
 

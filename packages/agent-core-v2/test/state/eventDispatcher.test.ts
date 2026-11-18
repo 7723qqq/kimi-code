@@ -15,6 +15,7 @@ import { ILogService } from '#/_base/log/log';
 import { AgentSpaceImpl } from '#/agent/agentContext/agentSpace';
 import '#/agent/contextMemory/conversationTime';
 import { IAgentBlobService } from '#/agent/blob/agentBlobService';
+import { ContextAppendMessage, ContextUndo } from '#/agent/contextMemory/contextEvents';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
@@ -845,6 +846,349 @@ describe('EventDispatcherService', () => {
 
     releaseRead();
     await rerun;
+  });
+
+  it.each([1000, 4000, 8000])(
+    'replays %d records in one mutable participant window',
+    async (count) => {
+      for (let index = 0; index < count; index++)
+        journal.push(new ItemAdd({ item: String(index) }).serialize());
+      let state: CheckpointedState = { items: [] };
+      const before = state;
+      let staging: CheckpointedState | undefined;
+      let commits = 0;
+      let transitions = 0;
+      dispatcher.attach({
+        id: 'runtime.test.mutable-scaling',
+        events: [ItemAdd],
+        undoable: false,
+        mutableReplay: true,
+        transition: (draft: CheckpointedState, event) => {
+          if (!(event instanceof ItemAdd)) return;
+          if (staging === undefined) staging = draft;
+          else if (draft !== staging) throw new Error('participant state copied per record');
+          if (state !== before) throw new Error('participant published during replay');
+          draft.items.push(event.item);
+          transitions++;
+        },
+        getState: () => state,
+        commit: (next) => {
+          state = next;
+          commits++;
+        },
+      });
+      await dispatcher.restore();
+      expect(transitions).toBe(count);
+      expect(commits).toBe(1);
+      expect(before.items).toEqual([]);
+      expect(state.items).toHaveLength(count);
+      expect(state.items.at(-1)).toBe(String(count - 1));
+      expect(Object.isFrozen(state.items)).toBe(true);
+    },
+  );
+
+  it('stages mutable participant replay and publishes once before folding live changes', async () => {
+    journal.push(new ItemAdd({ item: 'a' }).serialize(), new ItemAdd({ item: 'b' }).serialize());
+    let state: CheckpointedState = { items: [] };
+    const initial = state;
+    const commits: boolean[] = [];
+    const replayed: boolean[] = [];
+    let started = 0;
+    dispatcher.attach({
+      id: 'runtime.test.mutable',
+      events: [ItemAdd],
+      undoable: false,
+      mutableReplay: true,
+      transition: (draft: CheckpointedState, event) => {
+        expect(state).toBe(initial);
+        if (event instanceof ItemAdd) draft.items.push(event.item);
+      },
+      getState: () => state,
+      commit: (next, silent) => {
+        state = next;
+        commits.push(silent);
+      },
+      onWillReplay: () => {
+        started++;
+      },
+      onDidReplay: (_next, result) => {
+        replayed.push(result.ok);
+      },
+    });
+    await dispatcher.restore();
+    expect(initial.items).toEqual([]);
+    expect(state.items).toEqual(['a', 'b']);
+    expect(commits).toEqual([false]);
+    expect(started).toBe(1);
+    expect(replayed).toEqual([true]);
+    expect(Object.isFrozen(state.items)).toBe(true);
+  });
+
+  it('does not publish mutable participant changes when replay fails', async () => {
+    journal.push(new ItemAdd({ item: 'a' }).serialize(), new ItemAdd({ item: 'bad' }).serialize());
+    let state: CheckpointedState = { items: ['previous'] };
+    const previous = state;
+    let failed = false;
+    dispatcher.attach({
+      id: 'runtime.test.mutable-failure',
+      events: [ItemAdd],
+      undoable: false,
+      mutableReplay: true,
+      transition: (draft: CheckpointedState, event) => {
+        if (!(event instanceof ItemAdd)) return;
+        draft.items.push(event.item);
+        if (event.item === 'bad') throw new Error('participant replay failed');
+      },
+      getState: () => state,
+      commit: (next) => {
+        state = next;
+      },
+      onDidReplay: (_next, result) => {
+        failed = !result.ok;
+      },
+    });
+    let failure: unknown;
+    try {
+      await dispatcher.restore();
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(Error);
+    expect(state).toBe(previous);
+    expect(state.items).toEqual(['previous']);
+    expect(failed).toBe(true);
+  });
+
+  it('folds anchor messages and delegates custom participant undo', async () => {
+    const host = disposables.add(new TestInstantiationService());
+    host.set(IEventBus, new SyncDescriptor(EventBusService));
+    host.set(IAgentBlobService, noopBlob);
+    host.set(IWireService, stubWireJournal([]));
+    host.set(
+      IAgentScopeContext,
+      makeAgentScopeContext({ agentId: 'main', agentScope: 'agents/main' }),
+    );
+    host.set(IAgentStateService, new AgentStateService());
+    host.set(IEventDispatcher, new SyncDescriptor(EventDispatcherService));
+    const dispatcher = host.get(IEventDispatcher);
+    let state: CheckpointedState = { items: [] };
+    dispatcher.attach({
+      id: 'runtime.test.custom-undo',
+      events: [ContextAppendMessage],
+      undoable: true,
+      mutableReplay: true,
+      transition: (draft: CheckpointedState, event) => {
+        if (event instanceof ContextAppendMessage) draft.items.push(event.message.id!);
+      },
+      onUndo: (draft, count) => {
+        draft.items.splice(Math.max(0, draft.items.length - count));
+      },
+      getState: () => state,
+      commit: (next) => {
+        state = next;
+      },
+    });
+    await dispatcher.restore();
+    await dispatcher.dispatch(
+      new ContextAppendMessage({
+        agentId: 'main',
+        message: {
+          id: 'p1',
+          role: 'user',
+          origin: { kind: 'user' },
+          content: [{ type: 'text', text: 'hi' }],
+          toolCalls: [],
+        },
+      }),
+    );
+    expect(state.items).toEqual(['p1']);
+    await dispatcher.dispatch(new ContextUndo({ agentId: 'main', count: 1 }));
+    expect(state.items).toEqual([]);
+  });
+
+  it('does not publish mutable participants before blob rehydration succeeds', async () => {
+    const key = defineState('state.test.rehydrate-failure', () => 0)
+      .replayable({
+        schema: z.number(),
+        blobs: {
+          dehydrate: (record) => record,
+          rehydrate: () => {
+            throw new Error('rehydration failed');
+          },
+        },
+      })
+      .on(ItemAdd, (state) => state + 1);
+    agentState.contributeState(key);
+    journal.push(new ItemAdd({ item: 'a' }).serialize());
+    let state: CheckpointedState = { items: [] };
+    const before = state;
+    dispatcher.attach({
+      id: 'rehydration',
+      events: [ItemAdd],
+      undoable: false,
+      mutableReplay: true,
+      transition: (draft: CheckpointedState, event) => {
+        if (event instanceof ItemAdd) draft.items.push(event.item);
+      },
+      getState: () => state,
+      commit: (next) => {
+        state = next;
+      },
+    });
+    const result = await Promise.allSettled([dispatcher.restore()]);
+    expect(result[0]?.status).toBe('rejected');
+    expect(state).toBe(before);
+    expect(state.items).toEqual([]);
+  });
+
+  it('queues live events until mutable participant rehydration succeeds', async () => {
+    let reject!: (error: Error) => void;
+    let entered!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const gate = new Promise<number>((_resolve, fail) => {
+      reject = fail;
+    });
+    const key = defineState('state.test.rehydrate-live', () => 0)
+      .replayable({
+        schema: z.number(),
+        blobs: {
+          dehydrate: (record) => record,
+          rehydrate: () => {
+            entered();
+            return gate;
+          },
+        },
+      })
+      .on(ItemAdd, (state) => state + 1);
+    agentState.contributeState(key);
+    journal.push(new ItemAdd({ item: 'history' }).serialize());
+    let state: CheckpointedState = { items: [] };
+    const before = state;
+    dispatcher.attach({
+      id: 'gated-rehydrate',
+      events: [ItemAdd],
+      undoable: false,
+      mutableReplay: true,
+      transition: (draft: CheckpointedState, event) => {
+        if (event instanceof ItemAdd) draft.items.push(event.item);
+      },
+      getState: () => state,
+      commit: (next) => {
+        state = next;
+      },
+    });
+    const restoring = dispatcher.restore();
+    await waiting;
+    const live = dispatcher.dispatch(new ItemAdd({ item: 'live' }));
+    expect(state).toBe(before);
+    const results = Promise.allSettled([restoring, live]);
+    reject(new Error('rehydration failed'));
+    expect((await results).map((result) => result.status)).toEqual(['rejected', 'rejected']);
+    expect(state).toBe(before);
+  });
+
+  it('rejects unsafe mutable replay checkpoint contracts', async () => {
+    expect(() =>
+      dispatcher.attach({
+        id: 'unsafe',
+        events: [],
+        undoable: true,
+        mutableReplay: true,
+        transition: () => {},
+        getState: () => ({}),
+        commit: () => {},
+      }),
+    ).toThrow(/requires custom onUndo/);
+    journal.push(new ItemAdd({ item: 'a' }).serialize());
+    dispatcher.attach({
+      id: 'checkpoint',
+      events: [ItemAdd],
+      undoable: false,
+      mutableReplay: true,
+      transition: (_draft, _event, ctx) => {
+        ctx.checkpoint();
+      },
+      getState: () => ({}),
+      commit: () => {},
+    });
+    let error: unknown;
+    try {
+      await dispatcher.restore();
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(BugIndicatingError);
+  });
+
+  it('rejects an in-flight late replay after disposal without publishing or attaching it', async () => {
+    await dispatcher.restore();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    ix.get(IWireService).readJournal = async function* () {
+      await gate;
+      yield new ItemAdd({ item: 'late' }).serialize();
+    };
+    let state: CheckpointedState = { items: [] };
+    const before = state;
+    const outcomes: boolean[] = [];
+    const attached = dispatcher.attachLate({
+      id: 'late-disposed',
+      events: [ItemAdd],
+      undoable: false,
+      mutableReplay: true,
+      transition: (draft: CheckpointedState, event) => {
+        if (event instanceof ItemAdd) draft.items.push(event.item);
+      },
+      getState: () => state,
+      commit: (next) => {
+        state = next;
+      },
+      onDidReplay: (_state, { ok }) => {
+        outcomes.push(ok);
+      },
+    });
+    (dispatcher as EventDispatcherService).dispose();
+    release();
+    const result = await Promise.allSettled([attached]);
+    expect(result[0]?.status).toBe('rejected');
+    expect(state).toBe(before);
+    expect(outcomes).toEqual([false]);
+  });
+
+  it('recovers a mutable replay from failure without retaining staged values', async () => {
+    let state: CheckpointedState = { items: [] };
+    let fail = false;
+    dispatcher.attach({
+      id: 'recovery',
+      events: [ItemAdd],
+      undoable: false,
+      mutableReplay: true,
+      transition: (draft: CheckpointedState, event) => {
+        if (event instanceof ItemAdd) draft.items.push(event.item);
+        if (fail) throw new Error('replay failure');
+      },
+      getState: () => state,
+      commit: (next) => {
+        state = next;
+      },
+    });
+    await dispatcher.restore();
+    await dispatcher.dispatch(new ItemAdd({ item: 'a' }));
+    const before = state;
+    fail = true;
+    const failed = await Promise.allSettled([dispatcher.restore()]);
+    expect(failed[0]?.status).toBe('rejected');
+    expect(state).toBe(before);
+    fail = false;
+    await dispatcher.restore();
+    expect(state.items).toEqual(['a']);
+    await dispatcher.dispatch(new ItemAdd({ item: 'b' }));
+    expect(before.items).toEqual(['a']);
+    expect(state.items).toEqual(['a', 'b']);
   });
 
   it('does not own AgentSpace teardown', () => {

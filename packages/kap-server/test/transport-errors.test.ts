@@ -11,12 +11,10 @@ describe('ErrorCode', () => {
     const values = Object.values(ErrorCode);
     expect(new Set(values).size).toBe(values.length);
   });
-});
 
-describe('ErrorCode', () => {
-  it('has unique numeric values', () => {
-    const values = Object.values(ErrorCode);
-    expect(new Set(values).size).toBe(values.length);
+  it('distinguishes a missing turn from a missing agent on the wire', () => {
+    expect(mapError(new Error2(ErrorCodes.TURN_NOT_FOUND, 'missing'), 'r1').code).toBe(40422);
+    expect(mapError(new Error2(ErrorCodes.AGENT_NOT_FOUND, 'missing'), 'r2').code).toBe(40421);
   });
 });
 

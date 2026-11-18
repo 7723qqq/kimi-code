@@ -17,6 +17,7 @@ import {
   IAgentLifecycleService,
   IAgentConversationUndoParticipantRegistry,
   IAgentLoopService,
+  IAgentFullCompactionService,
   IAgentGoalService,
   IAgentPermissionModeService,
   IAgentProfileService,
@@ -24,6 +25,7 @@ import {
   IAgentTodoService,
   IEventBus,
   IEventService,
+  ITelemetryService,
   IModelCatalog,
   IModelService,
   ISessionActivityView,
@@ -45,11 +47,16 @@ import {
   EventBusService,
 } from '@moonshot-ai/agent-core-v2/app/event/eventBusService';
 
+import type { ConversationTurnsPage } from '../src/protocol/conversation';
 import {
   interactionEventMessageSchema,
   type InteractionEventMessage,
 } from '../src/protocol/interaction';
 import { sessionEventMessageSchema } from '../src/protocol/ws-control';
+import type {
+  ConversationFeed,
+  ConversationEvent,
+} from '../src/services/conversation/conversationFeed';
 import { ConversationService } from '../src/services/conversation/conversationService';
 import { TranscriptService } from '../src/services/transcript/transcriptService';
 import type { AgentEvent } from '../src/transport/ws/v1/events';
@@ -630,6 +637,85 @@ describe('SessionEventBroadcaster', () => {
     };
   }
 
+  it('buffers live conversation events during paging and discards an unsubscribed generation', async () => {
+    await bc.close();
+    sessions.set('s1', new FakeLifecycle());
+    const listeners = new Set<(event: ConversationEvent) => void>();
+    const releases: ((page: ConversationTurnsPage) => void)[] = [];
+    const feed = {
+      subscribe: (listener: (event: ConversationEvent) => void) => {
+        listeners.add(listener);
+        return { dispose: () => listeners.delete(listener) };
+      },
+      page: () =>
+        new Promise<ConversationTurnsPage>((resolve) => {
+          releases.push(resolve);
+        }),
+    } as unknown as ConversationFeed;
+    bc = new SessionEventBroadcaster({
+      core: makeCore(sessions, eventBus),
+      conversations: {
+        feed: async () => feed,
+        onDidCreateFeed: () => ({ dispose: () => {} }),
+      } as unknown as ConversationService,
+    });
+    const view = collectingTarget();
+    await bc.subscribe('s1', view.target);
+    await bc.subscribeAgents('s1', view.target, ['main']);
+    await waitForAssertion(() => expect(releases).toHaveLength(1));
+    const notice: ConversationEvent = { type: 'notice', level: 'info', title: 'during page' };
+    for (const listener of listeners) listener(notice);
+    expect(view.envelopes.filter((frame) => frame.type === 'notice')).toEqual([]);
+    releases[0]!({ turns: [], has_more: false });
+    await waitForAssertion(() =>
+      expect(
+        view.envelopes
+          .map((frame) => frame.type)
+          .filter((type) => type === 'turns' || type === 'notice'),
+      ).toEqual(['turns', 'notice']),
+    );
+    bc.unsubscribeAgents('s1', view.target);
+    expect(listeners.size).toBe(0);
+    await bc.subscribeAgents('s1', view.target, ['main']);
+    await waitForAssertion(() => expect(releases).toHaveLength(2));
+    bc.unsubscribeAgents('s1', view.target);
+    view.envelopes.length = 0;
+    releases[1]!({ turns: [], has_more: false });
+    await settle();
+    expect(view.envelopes).toEqual([]);
+    expect(listeners.size).toBe(0);
+  });
+
+  it('reports failed initial conversation paging and releases its listener', async () => {
+    await bc.close();
+    sessions.set('s1', new FakeLifecycle());
+    let disposed = false;
+    const feed = {
+      subscribe: () => ({
+        dispose: () => {
+          disposed = true;
+        },
+      }),
+      page: async () => {
+        throw new Error('page failed');
+      },
+    } as unknown as ConversationFeed;
+    bc = new SessionEventBroadcaster({
+      core: makeCore(sessions, eventBus),
+      conversations: {
+        feed: async () => feed,
+        onDidCreateFeed: () => ({ dispose: () => {} }),
+      } as unknown as ConversationService,
+    });
+    const view = collectingTarget();
+    await bc.subscribe('s1', view.target);
+    await bc.subscribeAgents('s1', view.target, ['main']);
+    await waitForAssertion(() =>
+      expect(view.envelopes).toContainEqual(expect.objectContaining({ type: 'turns.failed' })),
+    );
+    expect(disposed).toBe(true);
+  });
+
   it('sends the agent, usage and todo state of each subscribed agent on subscribe', async () => {
     const lc = new FakeLifecycle();
     const main = lc.addAgent('main');
@@ -673,6 +759,117 @@ describe('SessionEventBroadcaster', () => {
       }),
     ]);
     expect(stateFramesOf(offView)).toEqual([]);
+  });
+
+  it('propagates resume failures instead of reporting a missing subscription', async () => {
+    const base = makeCore(sessions, eventBus);
+    const failure = new Error('persistent restore failed');
+    const core = {
+      accessor: {
+        get: (token: unknown) =>
+          token === ISessionManager
+            ? {
+                ...base.accessor.get(ISessionManager),
+                resume: async () => {
+                  throw failure;
+                },
+              }
+            : token === ITelemetryService
+              ? { withContext: () => ({ track2: () => {} }) }
+              : base.accessor.get(token as never),
+      },
+    } as unknown as Scope;
+    const broadcaster = new SessionEventBroadcaster({
+      core,
+      conversations: new ConversationService(core),
+    });
+    try {
+      const result = await broadcaster
+        .subscribe('broken', collectingTarget().target)
+        .catch((error: unknown) => error);
+      expect(result).toBe(failure);
+    } finally {
+      await broadcaster.close();
+    }
+  });
+
+  it('keeps the goal identity and complete budget in pushed snapshots', async () => {
+    const lc = new FakeLifecycle();
+    const main = lc.addAgent('main');
+    const state = withAgentState(main);
+    const goal = {
+      goalId: 'g-budget',
+      objective: 'finish',
+      status: 'active',
+      completionCriterion: 'verified',
+      turnsUsed: 2,
+      tokensUsed: 100,
+      inputTokensUsed: 70,
+      outputTokensUsed: 30,
+      wallClockMs: 500,
+      createdAt: 0,
+      updatedAt: 1,
+      budget: {
+        tokenBudget: 1000,
+        remainingTokens: 900,
+        turnBudget: 10,
+        remainingTurns: 8,
+        wallClockBudgetMs: 10000,
+        remainingWallClockMs: 9500,
+        tokenBudgetReached: false,
+        turnBudgetReached: false,
+        wallClockBudgetReached: false,
+        overBudget: false,
+        inputTokensUsed: 70,
+        outputTokensUsed: 30,
+      },
+    };
+    state.setGoal(goal);
+    sessions.set('s1', lc);
+    const view = collectingTarget();
+    await bc.subscribe('s1', view.target, undefined, { main: 'turn' });
+    expect(stateFramesOf(view).find((frame) => frame.type === 'goal')?.['goal']).toMatchObject({
+      goal_id: 'g-budget',
+      budget: goal.budget,
+    });
+    state.setGoal({ ...goal, status: 'budget_limited', terminalReason: 'token budget' });
+    await settle();
+    expect(stateFramesOf(view).findLast((frame) => frame.type === 'goal')?.['goal']).toMatchObject({
+      goal_id: 'g-budget',
+      status: 'blocked',
+      terminal_reason: 'token budget',
+    });
+  });
+
+  it('broadcasts the official compacting field at each compaction transition', async () => {
+    const lc = new FakeLifecycle();
+    const main = lc.addAgent('main');
+    withAgentState(main);
+    let compacting: object | null = null;
+    main.set(IAgentFullCompactionService, {
+      get compacting() {
+        return compacting;
+      },
+    });
+    sessions.set('s1', lc);
+    const view = collectingTarget();
+    await bc.subscribe('s1', view.target, undefined, { main: 'turn' });
+    expect(stateFramesOf(view).find((frame) => frame.type === 'agent')).toMatchObject({
+      compacting: false,
+    });
+    for (const type of [
+      'compaction.started',
+      'compaction.completed',
+      'compaction.started',
+      'compaction.cancelled',
+    ]) {
+      compacting = type === 'compaction.started' ? {} : null;
+      main.bus.emit(agentEvent(type));
+      await settle();
+      expect(stateFramesOf(view).findLast((frame) => frame.type === 'agent')).toMatchObject({
+        compacting: compacting !== null,
+      });
+    }
   });
 
   it('pins the usage frame context limit rules', async () => {
@@ -1373,7 +1570,7 @@ describe('SessionEventBroadcaster', () => {
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.config.changed',
         session_id: '__global__',
-        payload: { changedFields: ['defaultModel'], config },
+        payload: { changedFields: ['defaultModel'], changed_fields: ['defaultModel'], config },
       });
       expect(globalView.deliveries).toEqual(['immediate']);
     });

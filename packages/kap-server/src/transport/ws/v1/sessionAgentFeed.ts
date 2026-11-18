@@ -28,7 +28,15 @@ import {
 
 export const USAGE_FRAME_INTERVAL_MS = 250;
 
-const STATE_EVENT_TYPES = ['turn.started', 'turn.ended', 'agent.status.updated', 'goal.updated'] as const;
+const STATE_EVENT_TYPES = [
+  'turn.started',
+  'turn.ended',
+  'agent.status.updated',
+  'goal.updated',
+  'compaction.started',
+  'compaction.completed',
+  'compaction.cancelled',
+] as const;
 
 export type AgentFeedSend = (agentId: string, message: AgentFeedMessage) => void;
 
@@ -201,7 +209,8 @@ class AgentWatch implements IDisposable {
       this.usageTimer = undefined;
       const pending = this.pendingUsage;
       this.pendingUsage = undefined;
-      if (pending !== undefined && !this.disposed) this.send(this.agentId, this.usageMessage(pending));
+      if (pending !== undefined && !this.disposed)
+        this.send(this.agentId, this.usageMessage(pending));
     }, this.usageIntervalMs);
     this.usageTimer.unref?.();
   }

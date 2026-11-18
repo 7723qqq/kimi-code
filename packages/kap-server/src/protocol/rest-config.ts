@@ -104,6 +104,7 @@ export const patchConfigRequestSchema = z
     disable_feedback_survey: z.boolean().optional(),
     workspace: z.unknown().optional(),
     default_workspace: z.unknown().optional(),
+    raw: z.record(z.string(), z.unknown()).optional(),
   })
   .strict();
 export type PatchConfigRequest = z.infer<typeof patchConfigRequestSchema>;

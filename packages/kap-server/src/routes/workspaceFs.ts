@@ -13,7 +13,7 @@ import {
   type HostFileStat,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
-import { classifyTextSample } from '@moonshot-ai/agent-core-v2/_base/text/encoding';
+import { classifyTextSample, decodeUtfText } from '@moonshot-ai/agent-core-v2/_base/text/encoding';
 import {
   buildEtag,
   FS_BINARY_SAMPLE_BYTES,
@@ -33,8 +33,8 @@ import { sendRawError } from '../lib/rawError';
 import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
 import { ErrorCode } from '../protocol/error-codes';
-import { createEnvironmentReadStream, type EnvironmentReadStreamSource } from './fs';
 import { sendEnvironmentError } from './environment';
+import { createEnvironmentReadStream, type EnvironmentReadStreamSource } from './fs';
 
 interface FsContentReply {
   type(mime: string): FsContentReply;
@@ -279,35 +279,39 @@ async function handleFsContent(
     if (!st.isFile) {
       sendRawError(
         reply,
-        errEnvelope(
-          ErrorCode.VALIDATION_FAILED,
-          `path is not a regular file: ${path}`,
-          requestId,
-        ),
+        errEnvelope(ErrorCode.VALIDATION_FAILED, `path is not a regular file: ${path}`, requestId),
       );
       return;
     }
 
     let isBinary = false;
+    let utf8: Buffer | undefined;
     try {
       const sampleSize = Math.min(FS_BINARY_SAMPLE_BYTES, st.size);
-      const sample =
-        sampleSize === 0 ? new Uint8Array() : await hostFs.readBytes(abs, sampleSize);
+      const sample = sampleSize === 0 ? new Uint8Array() : await hostFs.readBytes(abs, sampleSize);
       const classification = classifyTextSample(sample);
-      isBinary = classification.isBinary || classification.encoding !== 'utf-8';
+      isBinary = classification.isBinary;
+      if (!isBinary && classification.encoding !== 'utf-8') {
+        utf8 = Buffer.from(
+          decodeUtfText(await hostFs.readBytes(abs), classification.encoding),
+          'utf-8',
+        );
+      }
     } catch (error) {
       sendOsFsError(reply, requestId, error, path, true);
       return;
     }
 
-    const etag = buildEtag(st);
+    const size = utf8?.length ?? st.size;
+    const etag = `${buildEtag(st)}${utf8 === undefined ? '' : '-utf8'}`;
     const ifNoneMatch = pickHeader(req.headers, 'if-none-match');
     if (ifNoneMatch !== undefined && ifNoneMatch === etag) {
       reply.code(304).header('etag', etag).send('');
       return;
     }
 
-    const mime = guessMime(abs, isBinary);
+    const detectedMime = guessMime(abs, isBinary);
+    const mime = detectedMime === 'application/toml' ? 'text/plain' : detectedMime;
     const base = abs.split(/[\\/]/).at(-1) ?? abs;
     reply.header('etag', etag);
     reply.header('last-modified', new Date(st.mtimeMs ?? 0).toUTCString());
@@ -319,11 +323,21 @@ async function handleFsContent(
       log?.warn({ path, err: error }, 'fs content stream error');
       try {
         stream.destroy();
-      } catch {
-      }
+      } catch {}
     };
 
-    const range = parseRangeHeader(pickHeader(req.headers, 'range'), st.size);
+    const range = parseRangeHeader(pickHeader(req.headers, 'range'), size);
+    if (utf8 !== undefined) {
+      if (range !== null) {
+        reply
+          .code(206)
+          .header('content-length', String(range.length))
+          .header('content-range', `bytes ${range.start}-${range.end}/${size}`);
+        return reply.send(utf8.subarray(range.start, range.end + 1)) as void;
+      }
+      reply.code(200).header('content-length', String(size));
+      return reply.send(utf8) as void;
+    }
     if (range !== null) {
       reply
         .code(206)
@@ -347,14 +361,14 @@ async function handleFsContent(
 
 const fsMkdirBodySchema = z
   .object({
-  path: z.string().min(1),
-  environment_id: z.string().min(1).optional(),
+    path: z.string().min(1),
+    environment_id: z.string().min(1).optional(),
   })
   .strict();
 
 const fsMkdirResponseSchema = z
   .object({
-  path: z.string(),
+    path: z.string(),
   })
   .strict();
 

@@ -10,6 +10,12 @@ export const goalStatusSchema = z.enum([
 ]);
 export type GoalStatus = z.infer<typeof goalStatusSchema>;
 
+export function projectGoalStatus(
+  status: GoalStatus,
+): 'active' | 'paused' | 'blocked' | 'complete' {
+  return status === 'budget_limited' || status === 'usage_limited' ? 'blocked' : status;
+}
+
 export const goalBudgetReportSchema = z.object({
   tokenBudget: z.number().nullable(),
   turnBudget: z.number().nullable(),

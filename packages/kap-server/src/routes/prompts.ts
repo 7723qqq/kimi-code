@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 
 import {
@@ -73,7 +74,7 @@ import type { TranscriptService } from '../services/transcript/transcriptService
 import { ensureMainAgent, MAIN_AGENT_ID } from '../transport/mainAgent';
 import { type ActionTable, resolveActionTarget, runAction } from './action-dispatch';
 import { sendEnvironmentError } from './environment';
-import { applyThinking } from './sessionAgentConfig';
+import { applyThinking, applyAgentConfigToSession } from './sessionAgentConfig';
 import { sendMappedError as sendSessionMappedError, sessionConflictErrors } from './sessionErrors';
 
 interface PromptRouteHost {
@@ -154,6 +155,10 @@ export function registerPromptsRoutes(
   core: Scope,
   transcriptService: TranscriptService,
 ): void {
+  const attempts = new Map<
+    string,
+    { fingerprint: string; response: Promise<unknown>; settledAt?: number }
+  >();
   const listRoute = defineRoute(
     {
       method: 'GET',
@@ -188,8 +193,67 @@ export function registerPromptsRoutes(
   >['handler'];
   const submit =
     (directSteer: boolean): PromptSubmissionHandler =>
-    async (req, reply) => {
+    async (req, actualReply) => {
       const { session_id } = req.params;
+      const key =
+        req.body.prompt_id === undefined ? undefined : `${session_id}\0${req.body.prompt_id}`;
+      const fingerprint = createHash('sha256')
+        .update(
+          JSON.stringify({ route: directSteer, body: req.body }, (_key, value: unknown) =>
+            value !== null && typeof value === 'object' && !Array.isArray(value)
+              ? Object.fromEntries(Object.entries(value).toSorted(([a], [b]) => a.localeCompare(b)))
+              : value,
+          ),
+        )
+        .digest('hex');
+      for (const [id, attempt] of attempts)
+        if (attempt.settledAt !== undefined && Date.now() - attempt.settledAt > 10 * 60 * 1000)
+          attempts.delete(id);
+      const previous = key === undefined ? undefined : attempts.get(key);
+      if (previous !== undefined) {
+        if (previous.fingerprint !== fingerprint) {
+          actualReply.send(
+            errEnvelope(
+              ErrorCode.PROMPT_ID_CONFLICT,
+              'prompt_id is already used by a different request',
+              req.id,
+            ),
+          );
+          return;
+        }
+        const cached = (await previous.response) as { code: number; data: unknown; msg: string };
+        actualReply.send({ ...cached, request_id: req.id });
+        return;
+      }
+      let settle: ((payload: unknown) => void) | undefined;
+      if (key !== undefined) {
+        if (attempts.size >= 1024) {
+          const oldest = [...attempts].find(([, entry]) => entry.settledAt !== undefined)?.[0];
+          if (oldest !== undefined) attempts.delete(oldest);
+          else {
+            actualReply.send(
+              errEnvelope(ErrorCode.SESSION_BUSY, 'too many pending prompt submissions', req.id),
+            );
+            return;
+          }
+        }
+        const response = new Promise<unknown>((resolve) => {
+          settle = resolve;
+        });
+        attempts.set(key, { fingerprint, response });
+      }
+      const reply = {
+        send: (payload: unknown): unknown => {
+          const result = payload as { code: number };
+          const attempt = key === undefined ? undefined : attempts.get(key);
+          if (attempt !== undefined) {
+            if (result.code === 0) attempt.settledAt = Date.now();
+            else attempts.delete(key!);
+          }
+          settle?.(payload);
+          return actualReply.send(payload);
+        },
+      };
       const submitOnce = async (): Promise<void> => {
         let preparedMedia: PromptMediaPreparation | undefined;
         let reservation: PromptIdReservation | undefined;
@@ -209,12 +273,6 @@ export function registerPromptsRoutes(
           await assertPromptFileRefs(req.body.content, core.accessor.get(IFileService));
           await assertPromptPathRefs(req.body.content);
           if (req.body.skills !== undefined) {
-            if (req.body.prompt_id !== undefined) {
-              throw new Error2(
-                ErrorCodes.REQUEST_INVALID,
-                'prompt_id cannot be combined with a bundled skill submission',
-              );
-            }
             await assertActivatableSkills(
               session.accessor.get(ISessionSkillCatalog),
               req.body.skills,
@@ -231,7 +289,10 @@ export function registerPromptsRoutes(
           reservation = reservePromptId(session_id, req.body.prompt_id);
 
           const telemetry = core.accessor.get(ITelemetryService).withContext({ session_id });
-          const environmentMedia = environmentMediaTargets(resolved.binding.current, resolved.environment);
+          const environmentMedia = environmentMediaTargets(
+            resolved.binding.current,
+            resolved.environment,
+          );
           try {
             preparedMedia = await resolvePromptMediaFiles(
               resolvedSessionMedia,
@@ -240,26 +301,39 @@ export function registerPromptsRoutes(
               {
                 telemetry,
                 providerType: resolved.profile.getModelProviderType(req.body.model),
-                resolveOriginalsTarget: environmentMedia.resolveOriginalsTarget ?? (async () => {
-                  try {
-                    const session = await resumeSessionById(core.accessor, session_id);
-                    return session === undefined
-                      ? undefined
-                      : { dir: sessionMediaOriginalsDir(session.accessor.get(ISessionContext).sessionDir) };
-                  } catch {
-                    return undefined;
-                  }
-                }),
-                resolveAttachmentsTarget: environmentMedia.resolveAttachmentsTarget ?? (async () => {
-                  try {
-                    const session = await resumeSessionById(core.accessor, session_id);
-                    return session === undefined
-                      ? undefined
-                      : { dir: join(session.accessor.get(ISessionContext).sessionDir, 'attachments') };
-                  } catch {
-                    return undefined;
-                  }
-                }),
+                resolveOriginalsTarget:
+                  environmentMedia.resolveOriginalsTarget ??
+                  (async () => {
+                    try {
+                      const session = await resumeSessionById(core.accessor, session_id);
+                      return session === undefined
+                        ? undefined
+                        : {
+                            dir: sessionMediaOriginalsDir(
+                              session.accessor.get(ISessionContext).sessionDir,
+                            ),
+                          };
+                    } catch {
+                      return undefined;
+                    }
+                  }),
+                resolveAttachmentsTarget:
+                  environmentMedia.resolveAttachmentsTarget ??
+                  (async () => {
+                    try {
+                      const session = await resumeSessionById(core.accessor, session_id);
+                      return session === undefined
+                        ? undefined
+                        : {
+                            dir: join(
+                              session.accessor.get(ISessionContext).sessionDir,
+                              'attachments',
+                            ),
+                          };
+                    } catch {
+                      return undefined;
+                    }
+                  }),
               },
             );
           } finally {
@@ -269,6 +343,23 @@ export function registerPromptsRoutes(
           const promptAttachments =
             preparedMedia.attachments.length > 0 ? preparedMedia.attachments : undefined;
 
+          if (
+            req.body.plan_mode !== undefined ||
+            req.body.goal_objective !== undefined ||
+            req.body.goal_control !== undefined
+          ) {
+            if (req.body.agent_id !== undefined && req.body.agent_id !== MAIN_AGENT_ID) {
+              throw new Error2(
+                ErrorCodes.REQUEST_INVALID,
+                'plan and goal prompt overrides require the main agent',
+              );
+            }
+            await applyAgentConfigToSession(session, {
+              plan_mode: req.body.plan_mode,
+              goal_objective: req.body.goal_objective,
+              goal_control: req.body.goal_control,
+            });
+          }
           if (req.body.model !== undefined) await resolved.profile.setModel(req.body.model);
           if (req.body.thinking !== undefined) {
             applyThinking(resolved.profile, req.body.thinking);
@@ -321,6 +412,7 @@ export function registerPromptsRoutes(
               settlement.dispose();
               throw error;
             }
+            reservation.submit();
             enqueued = true;
             settlement.settle(result.prompt_id, () => preparedMedia?.discard());
             reply.send(
@@ -592,8 +684,8 @@ export function projectPromptSnapshot(prompt: {
   const status =
     prompt.state === 'running' || prompt.state === 'steered'
       ? 'running'
-      : prompt.state === 'blocked'
-        ? 'blocked'
+      : prompt.state === 'blocked' || prompt.state === 'failed'
+        ? prompt.state
         : 'queued';
   const origin = prompt.message.origin;
   const bundled = origin?.kind === 'user' ? (origin.skillActivations ?? []) : [];

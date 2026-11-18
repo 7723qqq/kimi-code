@@ -153,6 +153,7 @@ export interface WorkspaceStateSnapshot {
           readonly disableModelInvocation?: boolean;
           readonly isSubSkill?: boolean;
           readonly safe?: boolean;
+          readonly verify?: readonly string[];
           readonly arguments?: string | readonly unknown[];
           [key: string]: unknown;
         };
@@ -182,6 +183,7 @@ export interface WorkspaceStateSnapshot {
           readonly disableModelInvocation?: boolean;
           readonly isSubSkill?: boolean;
           readonly safe?: boolean;
+          readonly verify?: readonly string[];
           readonly arguments?: string | readonly unknown[];
           [key: string]: unknown;
         };
@@ -221,6 +223,7 @@ export interface WorkspaceStateSnapshot {
         readonly disableModelInvocation?: boolean;
         readonly isSubSkill?: boolean;
         readonly safe?: boolean;
+        readonly verify?: readonly string[];
         readonly arguments?: string | readonly unknown[];
         [key: string]: unknown;
       };
@@ -250,6 +253,7 @@ export interface WorkspaceStateSnapshot {
         readonly disableModelInvocation?: boolean;
         readonly isSubSkill?: boolean;
         readonly safe?: boolean;
+        readonly verify?: readonly string[];
         readonly arguments?: string | readonly unknown[];
         [key: string]: unknown;
       };
@@ -281,6 +285,7 @@ export interface WorkspaceStateSnapshot {
         readonly disableModelInvocation?: boolean;
         readonly isSubSkill?: boolean;
         readonly safe?: boolean;
+        readonly verify?: readonly string[];
         readonly arguments?: string | readonly unknown[];
         [key: string]: unknown;
       };
@@ -318,6 +323,7 @@ export interface WorkspaceStateSnapshot {
         readonly disableModelInvocation?: boolean;
         readonly isSubSkill?: boolean;
         readonly safe?: boolean;
+        readonly verify?: readonly string[];
         readonly arguments?: string | readonly unknown[];
         [key: string]: unknown;
       };
@@ -347,6 +353,7 @@ export interface WorkspaceStateSnapshot {
         readonly disableModelInvocation?: boolean;
         readonly isSubSkill?: boolean;
         readonly safe?: boolean;
+        readonly verify?: readonly string[];
         readonly arguments?: string | readonly unknown[];
         [key: string]: unknown;
       };
@@ -376,6 +383,7 @@ export interface WorkspaceStateSnapshot {
         readonly disableModelInvocation?: boolean;
         readonly isSubSkill?: boolean;
         readonly safe?: boolean;
+        readonly verify?: readonly string[];
         readonly arguments?: string | readonly unknown[];
         [key: string]: unknown;
       };
@@ -407,6 +415,7 @@ export interface WorkspaceStateSnapshot {
         readonly disableModelInvocation?: boolean;
         readonly isSubSkill?: boolean;
         readonly safe?: boolean;
+        readonly verify?: readonly string[];
         readonly arguments?: string | readonly unknown[];
         [key: string]: unknown;
       };
@@ -436,6 +445,7 @@ export interface WorkspaceStateSnapshot {
         readonly disableModelInvocation?: boolean;
         readonly isSubSkill?: boolean;
         readonly safe?: boolean;
+        readonly verify?: readonly string[];
         readonly arguments?: string | readonly unknown[];
         [key: string]: unknown;
       };
@@ -465,6 +475,7 @@ export interface WorkspaceStateSnapshot {
         readonly disableModelInvocation?: boolean;
         readonly isSubSkill?: boolean;
         readonly safe?: boolean;
+        readonly verify?: readonly string[];
         readonly arguments?: string | readonly unknown[];
         [key: string]: unknown;
       };
@@ -525,6 +536,7 @@ export interface SessionStateSnapshot {
           readonly disableModelInvocation?: boolean;
           readonly isSubSkill?: boolean;
           readonly safe?: boolean;
+          readonly verify?: readonly string[];
           readonly arguments?: string | readonly unknown[];
           [key: string]: unknown;
         };
@@ -554,6 +566,7 @@ export interface SessionStateSnapshot {
           readonly disableModelInvocation?: boolean;
           readonly isSubSkill?: boolean;
           readonly safe?: boolean;
+          readonly verify?: readonly string[];
           readonly arguments?: string | readonly unknown[];
           [key: string]: unknown;
         };
@@ -593,6 +606,7 @@ export interface SessionStateSnapshot {
         readonly disableModelInvocation?: boolean;
         readonly isSubSkill?: boolean;
         readonly safe?: boolean;
+        readonly verify?: readonly string[];
         readonly arguments?: string | readonly unknown[];
         [key: string]: unknown;
       };
@@ -622,6 +636,7 @@ export interface SessionStateSnapshot {
         readonly disableModelInvocation?: boolean;
         readonly isSubSkill?: boolean;
         readonly safe?: boolean;
+        readonly verify?: readonly string[];
         readonly arguments?: string | readonly unknown[];
         [key: string]: unknown;
       };
@@ -653,6 +668,7 @@ export interface SessionStateSnapshot {
         readonly disableModelInvocation?: boolean;
         readonly isSubSkill?: boolean;
         readonly safe?: boolean;
+        readonly verify?: readonly string[];
         readonly arguments?: string | readonly unknown[];
         [key: string]: unknown;
       };
@@ -690,6 +706,7 @@ export interface SessionStateSnapshot {
         readonly disableModelInvocation?: boolean;
         readonly isSubSkill?: boolean;
         readonly safe?: boolean;
+        readonly verify?: readonly string[];
         readonly arguments?: string | readonly unknown[];
         [key: string]: unknown;
       };
@@ -719,6 +736,7 @@ export interface SessionStateSnapshot {
         readonly disableModelInvocation?: boolean;
         readonly isSubSkill?: boolean;
         readonly safe?: boolean;
+        readonly verify?: readonly string[];
         readonly arguments?: string | readonly unknown[];
         [key: string]: unknown;
       };
@@ -748,6 +766,7 @@ export interface SessionStateSnapshot {
         readonly disableModelInvocation?: boolean;
         readonly isSubSkill?: boolean;
         readonly safe?: boolean;
+        readonly verify?: readonly string[];
         readonly arguments?: string | readonly unknown[];
         [key: string]: unknown;
       };
@@ -779,6 +798,7 @@ export interface SessionStateSnapshot {
         readonly disableModelInvocation?: boolean;
         readonly isSubSkill?: boolean;
         readonly safe?: boolean;
+        readonly verify?: readonly string[];
         readonly arguments?: string | readonly unknown[];
         [key: string]: unknown;
       };
@@ -808,6 +828,7 @@ export interface SessionStateSnapshot {
         readonly disableModelInvocation?: boolean;
         readonly isSubSkill?: boolean;
         readonly safe?: boolean;
+        readonly verify?: readonly string[];
         readonly arguments?: string | readonly unknown[];
         [key: string]: unknown;
       };
@@ -837,6 +858,7 @@ export interface SessionStateSnapshot {
         readonly disableModelInvocation?: boolean;
         readonly isSubSkill?: boolean;
         readonly safe?: boolean;
+        readonly verify?: readonly string[];
         readonly arguments?: string | readonly unknown[];
         [key: string]: unknown;
       };

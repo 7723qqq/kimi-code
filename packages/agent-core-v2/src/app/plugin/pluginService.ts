@@ -18,11 +18,7 @@ import type { McpServerConfig } from '#/mcpCore/config-schema';
 
 import { PluginAvailabilityStore, pluginAvailabilitySourceKey } from './availability';
 import { PluginManager } from './manager';
-import {
-  pluginClientForIdentity,
-  type PluginClient,
-  type PluginMarketplace,
-} from './marketplace';
+import { pluginClientForIdentity, type PluginClient, type PluginMarketplace } from './marketplace';
 import { PluginMarketplaceService } from './marketplaceService';
 import type { MarketplacePluginInstall } from './marketplaceService';
 import {
@@ -351,13 +347,6 @@ export class PluginService extends Service implements IPluginService {
         input.expectedVersion,
         input.expectedSha256,
       );
-      if (resolved.sha256sum === undefined) {
-        throw new Error2(
-          ErrorCodes.VALIDATION_FAILED,
-          `Marketplace plugin "${input.marketplaceId}" preview requires a SHA-256 digest`,
-          { details: { marketplaceId: input.marketplaceId } },
-        );
-      }
       return this.manager.inspect(resolved.source, {
         expectedSha256: resolved.sha256sum,
         expectedPluginId: resolved.expectedPluginId,
@@ -407,11 +396,13 @@ export class PluginService extends Service implements IPluginService {
 
   mcpServerEntries(): Promise<readonly PluginMcpServerEntry[]> {
     return this.runManagementRead(async () => {
-      const entries = this.manager.mcpServerEntries().map((entry) =>
-        this.mcpSuspensions.has(entry.pluginId)
-          ? { ...entry, config: { ...entry.config, enabled: false } }
-          : entry,
-      );
+      const entries = this.manager
+        .mcpServerEntries()
+        .map((entry) =>
+          this.mcpSuspensions.has(entry.pluginId)
+            ? { ...entry, config: { ...entry.config, enabled: false } }
+            : entry,
+        );
       if (!entries.some((entry) => entry.config.transport === 'stdio')) {
         return entries;
       }

@@ -120,6 +120,16 @@ describe('server-v2 /api/v1/config', () => {
     expect(after.yolo).toBe(false);
   });
 
+  it('merges official raw config fields into their domains without persisting a raw wrapper', async () => {
+    await boot();
+    const cfg = await patchConfig({
+      raw: { auto_session_title: false, experimental: { example_flag: true } },
+    });
+    expect(cfg.auto_session_title).toBe(false);
+    expect(cfg.experimental?.['example_flag']).toBe(true);
+    expect(cfg.raw).toBeUndefined();
+  });
+
   it('rejects an unknown key instead of dropping it and reporting success', async () => {
     await boot();
     for (const typo of ['plna_mode', 'default_plna_mode', 'unknown_top_level']) {

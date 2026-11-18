@@ -1,298 +1,487 @@
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import {
-  IAgentContextMemoryService,
-  IAgentConversationUndoService,
+  AssistantDelta,
+  ThinkingDelta,
+  ToolCallDelta,
+  ToolProgress,
+  ContextAppendMessage,
+  ContextAppendLoopEvent,
+  ContextApplyCompaction,
+  ContextUndo,
+  TurnStepRetrying,
+  IAgentLifecycleService,
   IAgentLoopService,
-  IEventBus,
   IEventDispatcher,
-  ILogService,
+  IModelCatalog,
+  IWireService,
+  TaskStarted,
   TurnEnded,
   TurnPrompt,
   TurnStepInterrupted,
+  getLiveSessionById,
+  type AgentTaskInfo,
   type ContextMessage,
-  type IAgentScopeHandle,
 } from '@moonshot-ai/agent-core-v2';
+import type { LoopRecordedEvent } from '@moonshot-ai/agent-core-v2/agent/contextMemory/loopEventFold';
 import type { Event2 } from '@moonshot-ai/agent-core-v2/app/event/event2';
-import { describe, expect, it } from 'bun:test';
 
-import { ConversationFeed, type ConversationEvent } from '../../src/services/conversation/conversationFeed';
+import {
+  ConversationFeed,
+  type ConversationEvent,
+} from '../../src/services/conversation/conversationFeed';
+import { ConversationService } from '../../src/services/conversation/conversationService';
+import { startServer, type RunningServer } from '../../src/start';
+import { authHeaders } from '../helpers/auth';
+import { fakeModelCatalog } from '../helpers/fakeModelCatalog';
+import { TEST_HOST_IDENTITY } from '../helpers/hostIdentity';
 
-class FakeBus {
-  declare readonly _serviceBrand: undefined;
-  private readonly listeners = new Set<(event: Event2) => void>();
-
-  emit(event: Event2): void {
-    for (const listener of [...this.listeners]) listener(event);
-  }
-
-  subscribe(
-    arg: ((event: Event2) => void) | (new (...args: never[]) => Event2),
-    handler?: (event: Event2) => void,
-  ): { dispose(): void } {
-    const listener = handler === undefined
-      ? (arg as (event: Event2) => void)
-      : (event: Event2): void => {
-          if (event instanceof (arg as new (...args: never[]) => Event2)) handler(event);
-        };
-    this.listeners.add(listener);
-    return { dispose: () => this.listeners.delete(listener) };
-  }
-
-  publish(): void {}
-
-  subscribeAgent(): { dispose(): void } {
-    return { dispose: () => {} };
-  }
-}
-
-interface Harness {
-  bus: FakeBus;
-  feed: ConversationFeed;
-  events: ConversationEvent[];
-  setMessages(messages: readonly ContextMessage[]): void;
-  setRunning(activeTurnId: number | undefined): void;
-  undoCalls(): number;
-  releaseUndo(): void;
-  setUndoBehavior(behavior: (() => void) | undefined): void;
-}
-
-async function harness(messages: readonly ContextMessage[]): Promise<Harness> {
-  const bus = new FakeBus();
-  let current = [...messages];
-  let loop: { state: 'idle' | 'running'; activeTurnId?: number } = { state: 'idle' };
-  let undoCount = 0;
-  let undoBehavior: (() => void) | undefined;
-  let releaseUndo!: () => void;
-  const undoReleased = new Promise<void>((resolve) => {
-    releaseUndo = resolve;
+const feedSpy = spyOn(ConversationService.prototype, 'feed');
+let server: RunningServer;
+let home: string;
+beforeAll(async () => {
+  home = await mkdtemp(join(tmpdir(), 'kimi-conversation-feed-'));
+  server = await startServer({
+    hostIdentity: TEST_HOST_IDENTITY,
+    host: '127.0.0.1',
+    port: 0,
+    homeDir: home,
+    logLevel: 'silent',
+    seeds: [[IModelCatalog, fakeModelCatalog()]],
   });
-  const undoService = {
-    _serviceBrand: undefined,
-    undo: async (): Promise<void> => {
-      undoCount += 1;
-      await undoReleased;
-      undoBehavior?.();
-    },
-  };
-  const services = new Map<unknown, unknown>([
-    [IEventBus, bus],
-    [IAgentContextMemoryService, { get: () => current }],
-    [IAgentLoopService, { snapshot: () => loop }],
-    [IEventDispatcher, { whenRestored: () => Promise.resolve() }],
-    [IAgentConversationUndoService, undoService],
-    [ILogService, { warn: () => {} }],
-  ]);
-  const handle = {
-    id: 'main',
-    accessor: {
-      get: (token: unknown) => {
-        const service = services.get(token);
-        if (service === undefined) throw new Error('unexpected service');
-        return service;
-      },
-    },
-  } as unknown as IAgentScopeHandle;
-  const feed = new ConversationFeed(handle);
+});
+afterAll(async () => {
+  feedSpy.mockRestore();
+  await server?.close();
+  if (home !== undefined) await rm(home, { recursive: true, force: true });
+});
+
+async function harness() {
+  const response = await fetch(`http://127.0.0.1:${server.port}/api/v1/sessions`, {
+    method: 'POST',
+    headers: authHeaders(server, { 'content-type': 'application/json' }),
+    body: JSON.stringify({ metadata: { cwd: home } }),
+  });
+  const body = (await response.json()) as { code: number; data: { id: string } };
+  expect(body.code).toBe(0);
+  const session = getLiveSessionById(server.core.accessor, body.data.id)!;
+  const lifecycle = session.accessor.get(IAgentLifecycleService);
+  await lifecycle.create({ agentId: 'main' });
+  const handle = lifecycle.handleOf('main')!;
+  const dispatcher = handle.accessor.get(IEventDispatcher);
+  const page = await fetch(
+    `http://127.0.0.1:${server.port}/api/v1/sessions/${body.data.id}/agents/main/turns`,
+    { headers: authHeaders(server) },
+  );
+  expect(page.status).toBe(200);
+  const feed = await feedSpy.mock.results.at(-1)!.value;
+  if (!(feed instanceof ConversationFeed))
+    throw new Error('route did not resolve a conversation feed');
   await feed.ready;
   const events: ConversationEvent[] = [];
   feed.subscribe((event) => events.push(event));
+  const dispatch = async (event: Event2) => {
+    await dispatcher.dispatch(event);
+  };
+  const message = (value: ContextMessage) =>
+    dispatch(new ContextAppendMessage({ agentId: 'main', message: value }));
+  const loop = (event: LoopRecordedEvent) =>
+    dispatch(new ContextAppendLoopEvent({ agentId: 'main', event }));
+  const prompt = async (turnId = 1) => {
+    await dispatch(
+      new TurnPrompt({
+        agentId: 'main',
+        turnId,
+        promptId: `p${turnId}`,
+        origin: { kind: 'user' },
+        input: [{ type: 'text', text: 'run' }],
+      }),
+    );
+    await message({
+      role: 'user',
+      id: `p${turnId}`,
+      origin: { kind: 'user' },
+      content: [{ type: 'text', text: 'run' }],
+      toolCalls: [],
+    });
+  };
+  const step = (uuid = 's1', step = 1, turnId = '1') =>
+    loop({ type: 'step.begin', uuid, step, turnId });
+  const call = (toolCallId = 'c1', name = 'Bash') =>
+    loop({ type: 'tool.call', stepUuid: 's1', turnId: '1', step: 1, toolCallId, name, args: {} });
+  const result = (toolCallId: string, output: string, isError = false) =>
+    loop({ type: 'tool.result', toolCallId, result: { output, isError } });
+  const end = (reason: 'completed' | 'cancelled' | 'failed' = 'completed', turnId = 1) =>
+    dispatch(new TurnEnded({ agentId: 'main', turnId, reason }));
   return {
-    bus,
     feed,
     events,
-    setMessages: (next) => {
-      current = [...next];
-    },
-    setRunning: (activeTurnId) => {
-      loop = activeTurnId === undefined ? { state: 'idle' } : { state: 'running', activeTurnId };
-    },
-    undoCalls: () => undoCount,
-    releaseUndo,
-    setUndoBehavior: (behavior) => {
-      undoBehavior = behavior;
-    },
+    handle,
+    dispatcher,
+    dispatch,
+    message,
+    loop,
+    prompt,
+    step,
+    call,
+    result,
+    end,
   };
 }
 
-const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
-
-const userMessage = (id: string, text: string): ContextMessage => ({
-  role: 'user',
-  content: [{ type: 'text', text }],
-  toolCalls: [],
-  id,
-  origin: { kind: 'user' },
-});
-
-const assistantWithCalls = (calls: readonly { id: string; name: string }[]): ContextMessage => ({
-  role: 'assistant',
-  content: [{ type: 'text', text: 'run them' }],
-  toolCalls: calls.map((call) => ({ type: 'function', id: call.id, name: call.name, arguments: '{}' })),
-});
-
-const toolResult = (toolCallId: string, text: string, isError?: boolean): ContextMessage => ({
-  role: 'tool',
-  content: [{ type: 'text', text }],
-  toolCalls: [],
-  toolCallId,
-  isError,
-});
-
-function toolCallOf(feed: ConversationFeed, toolCallId: string) {
-  const item = feed.turns().flatMap((turn) => turn.items).find((candidate) => candidate.item_id === toolCallId);
-  if (item?.type !== 'tool_call') throw new Error(`no tool call ${toolCallId}`);
+function toolCallOf(feed: ConversationFeed, id: string) {
+  const item = feed
+    .turns()
+    .flatMap((turn) => turn.items)
+    .find((item) => item.item_id === id);
+  if (item?.type !== 'tool_call') throw new Error(`no tool call ${id}`);
   return item;
 }
 
-describe('conversation feed interruption', () => {
-  it('marks the tool calls a stop cuts short as interrupted on the live path', async () => {
-    const opener = userMessage('u1', 'run them');
-    const assistant = assistantWithCalls([
-      { id: 'Read_0', name: 'Read' },
-      { id: 'Read_1', name: 'Read' },
-      { id: 'Bash_2', name: 'Bash' },
-    ]);
-    const read = toolResult('Read_0', 'file body');
-    const failed = toolResult('Read_1', 'file not found', true);
-    const test = await harness([opener, assistant, read, failed]);
+function processTask(taskId: string, parentToolCallId: string): AgentTaskInfo {
+  return {
+    kind: 'process',
+    taskId,
+    parentToolCallId,
+    description: 'run',
+    command: 'bun test',
+    pid: 123,
+    exitCode: null,
+    status: 'running',
+    startedAt: 0,
+    endedAt: null,
+  };
+}
 
-    test.setRunning(1);
-    test.bus.emit(new TurnPrompt({ agentId: 'main', input: [], origin: { kind: 'user' }, promptId: 'u1', turnId: 1 }));
-    await tick();
-
-    expect(test.feed.turns()).toHaveLength(1);
-    expect(test.feed.turns()[0]).toMatchObject({ status: 'running', turn_number: 1 });
-    expect(toolCallOf(test.feed, 'Read_0')).toMatchObject({ outcome: 'completed', output: 'file body' });
-    expect(toolCallOf(test.feed, 'Read_1')).toMatchObject({ outcome: 'failed', error: 'file not found' });
-    expect(toolCallOf(test.feed, 'Bash_2')).toMatchObject({ status: 'running' });
-
-    test.setMessages([opener, assistant, read, failed, toolResult('Bash_2', 'Interrupted by user', true)]);
-    test.bus.emit(new TurnStepInterrupted({ agentId: 'main', turnId: 1, step: 1, stepId: 's1', reason: 'aborted' }));
-    test.setRunning(undefined);
-    test.bus.emit(new TurnEnded({ agentId: 'main', turnId: 1, reason: 'cancelled' }));
-    await tick();
-
-    const [turn] = test.feed.turns();
-    expect(turn).toMatchObject({ status: 'ended', outcome: 'interrupted' });
-    expect(toolCallOf(test.feed, 'Read_0')).toMatchObject({ outcome: 'completed', output: 'file body' });
-    expect(toolCallOf(test.feed, 'Read_1')).toMatchObject({ outcome: 'failed', error: 'file not found' });
-    const stopped = toolCallOf(test.feed, 'Bash_2');
-    expect(stopped).toMatchObject({ status: 'ended', outcome: 'interrupted', error: 'Interrupted by user' });
-    expect(stopped).not.toHaveProperty('output', expect.anything());
-
-    const ended = test.events.findLast((event) => event.type === 'item.ended' && event.item.item_id === 'Bash_2');
-    expect(ended).toMatchObject({ item: { type: 'tool_call', outcome: 'interrupted' } });
-    test.feed.dispose();
+describe('recorded conversation feed', () => {
+  it('streams text, reasoning and tool input before durable completion without duplicate items', async () => {
+    const t = await harness();
+    try {
+      await t.prompt();
+      await t.step();
+      await t.dispatch(new ThinkingDelta({ agentId: 'main', turnId: 1, block: 0, delta: 'plan' }));
+      await t.dispatch(
+        new AssistantDelta({ agentId: 'main', turnId: 1, block: 1, delta: 'hello' }),
+      );
+      await t.dispatch(
+        new AssistantDelta({ agentId: 'main', turnId: 1, block: 1, delta: ' world' }),
+      );
+      await t.dispatch(
+        new ToolCallDelta({
+          agentId: 'main',
+          turnId: 1,
+          toolCallId: 'c1',
+          name: 'Bash',
+          argumentsPart: '{',
+        }),
+      );
+      await t.dispatch(
+        new ToolCallDelta({ agentId: 'main', turnId: 1, toolCallId: 'c1', argumentsPart: '}' }),
+      );
+      const live = (await t.feed.page(undefined, 10)).turns[0]!;
+      expect(live.items).toContainEqual(
+        expect.objectContaining({
+          item_id: 's1:1',
+          text: 'hello world',
+          status: 'running',
+          step_index: 1,
+        }),
+      );
+      expect(t.events).toContainEqual(
+        expect.objectContaining({ type: 'item.delta', item_id: 's1:1', delta: ' world' }),
+      );
+      expect(live.items).toContainEqual(
+        expect.objectContaining({ item_id: 'c1', input_text: '{}', stage: 'input' }),
+      );
+      await t.loop({
+        type: 'content.part',
+        stepUuid: 's1',
+        turnId: '1',
+        step: 1,
+        block: 0,
+        part: { type: 'think', think: 'plan' },
+        startedAt: 4000,
+        durationMs: 2500,
+      });
+      await t.loop({
+        type: 'content.part',
+        stepUuid: 's1',
+        turnId: '1',
+        step: 1,
+        block: 1,
+        part: { type: 'text', text: 'hello world' },
+      });
+      await t.call();
+      await t.dispatch(
+        new ToolProgress({
+          agentId: 'main',
+          turnId: 1,
+          toolCallId: 'c1',
+          update: { kind: 'stdout', text: 'partial' },
+        }),
+      );
+      expect((await t.feed.page(undefined, 10)).turns[0]!.items).toContainEqual(
+        expect.objectContaining({ item_id: 'c1', output: 'partial' }),
+      );
+      await t.result('c1', 'final');
+      await t.loop({ type: 'step.end', uuid: 's1', turnId: '1', step: 1, finishReason: 'stop' });
+      await t.end();
+      const turn = (await t.feed.page(undefined, 10)).turns[0]!;
+      expect(turn.items.map((item) => item.item_id)).toEqual(['p1', 's1:0', 's1:1', 'c1']);
+      expect(turn.items[1]).toMatchObject({
+        duration_ms: 2500,
+        started_at: new Date(4000).toISOString(),
+      });
+      expect(turn.steps).toHaveLength(1);
+      expect(toolCallOf(t.feed, 'c1')).toMatchObject({ output: 'final', status: 'ended' });
+      await t.handle.accessor.get(IWireService).flush();
+      const before = t.feed.turns();
+      t.feed.dispose();
+      const cold = new ConversationFeed(t.handle);
+      try {
+        await cold.ready;
+        expect(cold.turns()).toEqual(before);
+      } finally {
+        cold.dispose();
+      }
+    } finally {
+      t.feed.dispose();
+    }
   });
 
-  it('keeps a tool error failed when the step failed instead of being stopped', async () => {
-    const opener = userMessage('u1', 'run it');
-    const assistant = assistantWithCalls([{ id: 'Bash_0', name: 'Bash' }]);
-    const test = await harness([opener, assistant]);
-
-    test.setRunning(1);
-    test.bus.emit(new TurnPrompt({ agentId: 'main', input: [], origin: { kind: 'user' }, promptId: 'u1', turnId: 1 }));
-    await tick();
-
-    test.setMessages([opener, assistant, toolResult('Bash_0', 'Tool "Bash" was aborted', true)]);
-    test.bus.emit(new TurnStepInterrupted({ agentId: 'main', turnId: 1, step: 1, stepId: 's1', reason: 'error' }));
-    test.setRunning(undefined);
-    test.bus.emit(new TurnEnded({ agentId: 'main', turnId: 1, reason: 'failed' }));
-    await tick();
-
-    expect(toolCallOf(test.feed, 'Bash_0')).toMatchObject({ outcome: 'failed', error: 'Tool "Bash" was aborted' });
-    test.feed.dispose();
+  it('preserves completed and failed tools while marking only stopped work interrupted', async () => {
+    const t = await harness();
+    try {
+      await t.prompt();
+      await t.step();
+      await t.call('read0', 'Read');
+      await t.call('read1', 'Read');
+      await t.call();
+      await t.result('read0', 'file body');
+      await t.result('read1', 'file not found', true);
+      await t.dispatch(
+        new TurnStepInterrupted({
+          agentId: 'main',
+          turnId: 1,
+          step: 1,
+          stepId: 's1',
+          reason: 'aborted',
+        }),
+      );
+      await t.result('c1', 'Interrupted by user', true);
+      await t.end('cancelled');
+      expect(toolCallOf(t.feed, 'read0')).toMatchObject({
+        outcome: 'completed',
+        output: 'file body',
+      });
+      expect(toolCallOf(t.feed, 'read1')).toMatchObject({
+        outcome: 'failed',
+        error: 'file not found',
+      });
+      expect(toolCallOf(t.feed, 'c1')).toMatchObject({
+        outcome: 'interrupted',
+        error: 'Interrupted by user',
+      });
+      expect(t.events).toContainEqual(
+        expect.objectContaining({
+          type: 'item.ended',
+          item: expect.objectContaining({ item_id: 'c1', outcome: 'interrupted' }),
+        }),
+      );
+    } finally {
+      t.feed.dispose();
+    }
   });
 
-  it('fills the recorded reasoning duration on a rebuilt turn', async () => {
-    const opener = userMessage('u1', 'think');
-    const assistant: ContextMessage = {
-      role: 'assistant',
-      content: [{ type: 'think', think: 'plan' }, { type: 'text', text: 'answer' }],
-      toolCalls: [],
-      contentTimings: [{ startedAt: 4_000, durationMs: 2_500 }],
-    };
-    const test = await harness([opener, assistant]);
-
-    test.setRunning(1);
-    test.bus.emit(new TurnPrompt({ agentId: 'main', input: [], origin: { kind: 'user' }, promptId: 'u1', turnId: 1 }));
-    await tick();
-
-    const items = test.feed.turns()[0]?.items ?? [];
-    const reasoning = items.find((item) => item.type === 'reasoning');
-    expect(reasoning).toMatchObject({ text: 'plan', duration_ms: 2_500, started_at: new Date(4_000).toISOString() });
-    const message = items.find((item) => item.type === 'assistant_message');
-    expect(message).not.toHaveProperty('duration_ms', expect.anything());
-    test.feed.dispose();
+  it('does not mistake an error interruption for a user stop', async () => {
+    const t = await harness();
+    try {
+      await t.prompt();
+      await t.step();
+      await t.call();
+      await t.dispatch(
+        new TurnStepInterrupted({
+          agentId: 'main',
+          turnId: 1,
+          step: 1,
+          stepId: 's1',
+          reason: 'error',
+        }),
+      );
+      await t.result('c1', 'Tool aborted', true);
+      await t.end('failed');
+      expect(toolCallOf(t.feed, 'c1')).toMatchObject({ outcome: 'failed', error: 'Tool aborted' });
+    } finally {
+      t.feed.dispose();
+    }
   });
-});
 
-describe('conversation feed item removal', () => {
-  it('announces an item that disappears from a rebuilt turn', async () => {
-    const opener = userMessage('u1', 'one');
-    const assistant: ContextMessage = {
-      role: 'assistant',
-      content: [
-        { type: 'text', text: 'first' },
-        { type: 'text', text: 'second' },
-      ],
-      toolCalls: [],
-    };
-    const test = await harness([opener, assistant]);
-    test.setRunning(1);
-    test.bus.emit(new TurnPrompt({ agentId: 'main', input: [], origin: { kind: 'user' }, promptId: 'u1', turnId: 1 }));
-    await tick();
-
-    const assistantItems = (test.feed.turns()[0]?.items ?? []).filter(
-      (item) => item.type === 'assistant_message',
-    );
-    expect(assistantItems).toHaveLength(2);
-    test.events.length = 0;
-
-    test.setMessages([
-      opener,
-      { role: 'assistant', content: [{ type: 'text', text: 'first' }], toolCalls: [] },
-    ]);
-    test.bus.emit(new TurnEnded({ agentId: 'main', turnId: 1, reason: 'completed' }));
-    await tick();
-
-    const removed = test.events.filter((event) => event.type === 'item.removed');
-    expect(removed.map((event) => event.item_id)).toEqual([assistantItems[1]!.item_id]);
-    test.feed.dispose();
+  it('removes failed-attempt items on retry and keeps tool indexes correct', async () => {
+    const t = await harness();
+    try {
+      await t.prompt();
+      await t.step();
+      await t.loop({
+        type: 'content.part',
+        stepUuid: 's1',
+        turnId: '1',
+        step: 1,
+        block: 0,
+        part: { type: 'text', text: 'discard' },
+      });
+      await t.call();
+      await t.loop({ type: 'step.end', uuid: 's1', finishReason: 'error' });
+      await t.dispatch(
+        new TurnStepRetrying({
+          agentId: 'main',
+          turnId: 1,
+          step: 1,
+          stepId: 's1',
+          failedAttempt: 1,
+          nextAttempt: 2,
+          maxAttempts: 3,
+          delayMs: 0,
+          errorName: 'Error',
+          errorMessage: 'retry',
+        }),
+      );
+      expect(t.feed.turns()[0]!.items.some((item) => item.item_id === 's1:0')).toBe(false);
+      await t.step('s2', 2);
+      await t.result('c1', 'done');
+      expect(t.events).toContainEqual(
+        expect.objectContaining({ type: 'item.removed', item_id: 's1:0' }),
+      );
+      expect(toolCallOf(t.feed, 'c1')).toMatchObject({ output: 'done' });
+    } finally {
+      t.feed.dispose();
+    }
   });
-});
 
-describe('conversation feed undo', () => {
-  it('undoes a turn only once when two requests race for it', async () => {
-    const messages: ContextMessage[] = [
-      userMessage('u1', 'one'),
-      { role: 'assistant', content: [{ type: 'text', text: 'a1' }], toolCalls: [] },
-      userMessage('u2', 'two'),
-      { role: 'assistant', content: [{ type: 'text', text: 'a2' }], toolCalls: [] },
-      userMessage('u3', 'three'),
-      { role: 'assistant', content: [{ type: 'text', text: 'a3' }], toolCalls: [] },
-    ];
-    const test = await harness(messages);
-    const turns = test.feed.turns();
-    expect(turns).toHaveLength(3);
-    const target = turns[2]!.turn_id;
+  it('preserves history and recorded metadata across compaction and late replay', async () => {
+    const t = await harness();
+    try {
+      await t.prompt();
+      await t.step();
+      await t.call();
+      await t.result('c1', 'done');
+      await t.end();
+      const before = t.feed.turns()[0];
+      await t.dispatch(
+        new ContextApplyCompaction({
+          agentId: 'main',
+          summary: 'summary',
+          compactedCount: 2,
+          tokensBefore: 1000,
+          tokensAfter: 100,
+        }),
+      );
+      expect(t.feed.turns()[0]).toEqual(before);
+      expect(t.feed.turns().at(-1)?.items.at(-1)).toMatchObject({
+        kind: 'compaction',
+        summary: 'summary',
+      });
+      await t.handle.accessor.get(IWireService).flush();
+      t.feed.dispose();
+      const cold = new ConversationFeed(t.handle);
+      try {
+        await cold.ready;
+        expect(cold.turns()).toEqual(t.feed.turns());
+      } finally {
+        cold.dispose();
+      }
+    } finally {
+      t.feed.dispose();
+    }
+  });
 
-    const first = test.feed.undo(target);
-    await tick();
-    const second = test.feed.undo(target);
-    expect(test.undoCalls()).toBe(1);
+  it('serializes racing undo requests through the actual undo service', async () => {
+    const t = await harness();
+    try {
+      for (let id = 1; id <= 3; id++) {
+        await t.prompt(id);
+        await t.end('completed', id);
+      }
+      const ids = t.feed.turns().map((turn) => turn.turn_id);
+      const results = await Promise.allSettled([t.feed.undo(ids[2]!), t.feed.undo(ids[2]!)]);
+      expect(results.map((result) => result.status)).toEqual(['fulfilled', 'rejected']);
+      expect((results[1] as PromiseRejectedResult).reason).toMatchObject({
+        code: 'turn.not_found',
+      });
+      expect(t.feed.turns().map((turn) => turn.turn_id)).toEqual(ids.slice(0, 2));
+    } finally {
+      t.feed.dispose();
+    }
+  });
 
-    test.setUndoBehavior(() => {
-      test.setMessages(messages.slice(0, 4));
-      test.bus.emit(new TurnEnded({ agentId: 'main', turnId: 3, reason: 'completed' }));
-    });
-    test.releaseUndo();
-    const results = await Promise.allSettled([first, second]);
-    await tick();
+  it('publishes immutable task links, restores every task kind and ignores duplicate links', async () => {
+    const t = await harness();
+    try {
+      await t.prompt();
+      await t.step();
+      await t.call();
+      await t.call('c2', 'Agent');
+      await t.call('c3', 'AskUserQuestion');
+      await t.call('c4', 'Read');
+      const before = toolCallOf(t.feed, 'c1');
+      const base = { description: 'ask', status: 'completed', startedAt: 0, endedAt: 1 };
+      for (const info of [
+        processTask('bash-1', 'c1'),
+        { ...base, kind: 'agent', taskId: 'agent-1', parentToolCallId: 'c2' },
+        { ...base, kind: 'question', taskId: 'question-1', toolCallId: 'c3', questionCount: 1 },
+        processTask('missing', 'absent'),
+      ]) {
+        await t.dispatch(new TaskStarted({ agentId: 'main', info: info as AgentTaskInfo }));
+      }
+      expect(before.task_id).toBeUndefined();
+      expect(t.events).toContainEqual(
+        expect.objectContaining({
+          type: 'item.updated',
+          item_id: 'c1',
+          set: { task_id: 'bash-1' },
+        }),
+      );
+      t.events.length = 0;
+      await t.dispatch(new TaskStarted({ agentId: 'main', info: processTask('bash-1', 'c1') }));
+      expect(t.events).toEqual([]);
+      await t.result('c1', 'no id in output');
+      await t.end();
+      expect(toolCallOf(t.feed, 'c4').task_id).toBeUndefined();
+      await t.handle.accessor.get(IWireService).flush();
+      t.feed.dispose();
+      const cold = new ConversationFeed(t.handle);
+      try {
+        await cold.ready;
+        expect(cold.turns()).toEqual(t.feed.turns());
+        expect(toolCallOf(cold, 'c1').task_id).toBe('bash-1');
+        expect(toolCallOf(cold, 'c2').task_id).toBe('agent-1');
+        expect(toolCallOf(cold, 'c3').task_id).toBe('question-1');
+      } finally {
+        cold.dispose();
+      }
+    } finally {
+      t.feed.dispose();
+    }
+  });
 
-    expect(test.undoCalls()).toBe(1);
-    expect(results[0]!.status).toBe('fulfilled');
-    expect(results[1]!.status).toBe('rejected');
-    expect((results[1] as PromiseRejectedResult).reason).toMatchObject({ code: 'turn.not_found' });
-    test.feed.dispose();
+  it('does not recreate tools after undo or publish events after disposal', async () => {
+    const t = await harness();
+    try {
+      await t.prompt();
+      await t.step();
+      await t.call();
+      await t.dispatch(new ContextUndo({ agentId: 'main', count: 1 }));
+      t.events.length = 0;
+      await t.dispatch(new TaskStarted({ agentId: 'main', info: processTask('bash-2', 'c1') }));
+      expect(t.feed.turns()).toEqual([]);
+      expect(t.events).toEqual([]);
+      t.feed.dispose();
+      await t.dispatch(new TaskStarted({ agentId: 'main', info: processTask('bash-3', 'c1') }));
+      expect(t.events).toEqual([]);
+    } finally {
+      t.feed.dispose();
+    }
   });
 });

@@ -49,7 +49,7 @@ export interface PluginManagerOptions {
 }
 
 export interface PluginInspectionOptions {
-  readonly expectedSha256: string;
+  readonly expectedSha256?: string;
   readonly expectedPluginId: string;
   readonly locale?: string;
   readonly fetchImpl?: typeof fetch;
@@ -557,14 +557,28 @@ export class PluginManager {
 
   async inspect(source: string, options: PluginInspectionOptions): Promise<PluginCapabilities> {
     const resolved = resolveInstallSource(source);
-    if (resolved.kind !== 'zip-url') {
-      throw new Error2(
-        ErrorCodes.VALIDATION_FAILED,
-        'Marketplace plugin inspection requires an HTTP(S) ZIP source',
-        { details: { source } },
+    if (resolved.kind === 'local-path') {
+      if (options.expectedSha256 !== undefined) {
+        throw new Error2(
+          ErrorCodes.VALIDATION_FAILED,
+          'A local plugin cannot satisfy an archive digest assertion',
+        );
+      }
+      return pluginCapabilities(
+        await this.inspectDirectory(resolved.path, options),
+        options.locale,
       );
     }
-    const cacheKey = `${options.expectedSha256.toLowerCase()}:${options.expectedPluginId}`;
+    let archiveUrl: string;
+    if (resolved.kind === 'github') {
+      const version = await resolveGithubSource(resolved);
+      const sha = await resolveGithubCommitSha(resolved.owner, resolved.repo, version.ref.value);
+      archiveUrl = `https://codeload.github.com/${resolved.owner}/${resolved.repo}/zip/${sha}`;
+    } else archiveUrl = resolved.path;
+    if (resolved.kind === 'zip-url' && options.expectedSha256 === undefined) {
+      return pluginCapabilities(await this.inspectArchive(archiveUrl, options), options.locale);
+    }
+    const cacheKey = `${options.expectedSha256?.toLowerCase() ?? archiveUrl}:${options.expectedPluginId}`;
     const cached = this.inspections.get(cacheKey);
     if (cached !== undefined) {
       this.inspections.delete(cacheKey);
@@ -573,7 +587,7 @@ export class PluginManager {
     }
     const pending = this.inspectionLoads.get(cacheKey);
     if (pending !== undefined) return pluginCapabilities(await pending, options.locale);
-    const load = this.inspectArchive(resolved.path, options);
+    const load = this.inspectArchive(archiveUrl, options);
     this.inspectionLoads.set(cacheKey, load);
     try {
       const record = await load;
@@ -600,56 +614,59 @@ export class PluginManager {
     const zipTmpDir = await mkdtemp(path.join(tmpdir(), 'kimi-plugin-inspect-'));
     try {
       const sourceRoot = await extractZip(buffer, zipTmpDir);
-      const parsed = await parseManifest(sourceRoot);
-      if (parsed.manifest === undefined) {
-        const message =
-          parsed.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ??
-          'no manifest';
-        throw new Error2(
-          ErrorCodes.PLUGIN_LOAD_FAILED,
-          `Cannot inspect plugin from ${source}: ${message}`,
-          { details: { source } },
-        );
-      }
-      if (normalizePluginId(parsed.manifest.name) !== normalizePluginId(options.expectedPluginId)) {
-        throw new Error2(
-          ErrorCodes.PLUGIN_LOAD_FAILED,
-          `Plugin manifest ID mismatch: expected "${options.expectedPluginId}", got "${parsed.manifest.name}"`,
-          {
-            details: {
-              expectedPluginId: options.expectedPluginId,
-              actualPluginId: parsed.manifest.name,
-            },
-          },
-        );
-      }
-      const record = await recordFrom({
-        id: normalizePluginId(parsed.manifest.name),
-        root: sourceRoot,
-        enabled: true,
-        installedAt: new Date(0).toISOString(),
-        source: 'zip-url',
-        origin: 'marketplace',
-        parsed,
-        discoverSkills: this.discoverSkills,
-      });
-      if (record.state === 'error') {
-        throw new Error2(
-          ErrorCodes.PLUGIN_LOAD_FAILED,
-          `Plugin "${record.id}" has an invalid manifest`,
-          { details: { pluginId: record.id, diagnostics: record.diagnostics } },
-        );
-      }
-      return {
-        id: record.id,
-        capabilities: record.capabilities,
-        manifest: record.manifest,
-        interfaceLocales: record.interfaceLocales,
-        skills: record.skills,
-      };
+      return await this.inspectDirectory(sourceRoot, options);
     } finally {
       await rm(zipTmpDir, { recursive: true, force: true });
     }
+  }
+
+  private async inspectDirectory(
+    sourceRoot: string,
+    options: PluginInspectionOptions,
+  ): Promise<PluginInspection> {
+    const parsed = await parseManifest(sourceRoot);
+    if (parsed.manifest === undefined) {
+      const message =
+        parsed.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ??
+        'no manifest';
+      throw new Error2(ErrorCodes.PLUGIN_LOAD_FAILED, `Cannot inspect plugin: ${message}`);
+    }
+    if (normalizePluginId(parsed.manifest.name) !== normalizePluginId(options.expectedPluginId)) {
+      throw new Error2(
+        ErrorCodes.PLUGIN_LOAD_FAILED,
+        `Plugin manifest ID mismatch: expected "${options.expectedPluginId}", got "${parsed.manifest.name}"`,
+        {
+          details: {
+            expectedPluginId: options.expectedPluginId,
+            actualPluginId: parsed.manifest.name,
+          },
+        },
+      );
+    }
+    const record = await recordFrom({
+      id: normalizePluginId(parsed.manifest.name),
+      root: sourceRoot,
+      enabled: true,
+      installedAt: new Date(0).toISOString(),
+      source: 'local-path',
+      origin: 'marketplace',
+      parsed,
+      discoverSkills: this.discoverSkills,
+    });
+    if (record.state === 'error') {
+      throw new Error2(
+        ErrorCodes.PLUGIN_LOAD_FAILED,
+        `Plugin "${record.id}" has an invalid manifest`,
+        { details: { pluginId: record.id, diagnostics: record.diagnostics } },
+      );
+    }
+    return {
+      id: record.id,
+      capabilities: record.capabilities,
+      manifest: record.manifest,
+      interfaceLocales: record.interfaceLocales,
+      skills: record.skills,
+    };
   }
 
   private async persist(records: ReadonlyMap<string, PluginRecord>): Promise<void> {
@@ -689,8 +706,7 @@ export class PluginManager {
       github: entry.github,
       source: entry.source,
       parsed,
-      requiredSkill:
-        requiredSkill?.pluginId === entry.id ? requiredSkill.name : undefined,
+      requiredSkill: requiredSkill?.pluginId === entry.id ? requiredSkill.name : undefined,
       discoverSkills: this.discoverSkills,
     });
   }
@@ -1008,10 +1024,7 @@ function pluginCapabilities(record: PluginInspection, locale?: string): PluginCa
   };
 }
 
-function pluginSkillsInfo(
-  record: PluginInspection,
-  locale?: string,
-): readonly PluginSkillInfo[] {
+function pluginSkillsInfo(record: PluginInspection, locale?: string): readonly PluginSkillInfo[] {
   const localized = pluginInterfaceForLocale(record, locale);
   return (record.skills ?? []).map((skill) => {
     const override = localized?.skillOverrides?.[skill.overrideKey];

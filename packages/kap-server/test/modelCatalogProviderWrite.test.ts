@@ -973,7 +973,7 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     expect(body.data).toBeNull();
   });
 
-  it('clears omitted provider fields (base_url/default_model) from config.toml for real', async () => {
+  it('G02 preserves omitted provider base_url and default_model while replacing model rows', async () => {
     const FULL_TOML = [
       '[providers.openai]',
       'type = "openai"',
@@ -1002,6 +1002,8 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
       openai: {
         type: 'openai',
         api_key: 'sk-openai',
+        base_url: 'https://api.openai.example/v1',
+        default_model: 'openai/gpt-4.1',
         custom_headers: { 'X-Org': 'acme' },
       },
     });
@@ -1014,8 +1016,21 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     });
 
     const single = await getJson<Record<string, unknown>>('/api/v1/providers/openai');
-    expect(single.body.data).not.toHaveProperty('base_url');
-    expect(single.body.data).not.toHaveProperty('default_model');
+    expect(single.body.data).toHaveProperty('base_url', 'https://api.openai.example/v1');
+    expect(single.body.data).toHaveProperty('default_model', 'openai/gpt-4.1');
+  });
+
+  it('allows explicitly clearing provider base_url and default_model with null', async () => {
+    await boot(KEEP_DEFAULT_TOML);
+    const cleared = await putJson<unknown>('/api/v1/providers/openai', {
+      ...REPLACE_BODY,
+      base_url: null,
+      default_model: null,
+    });
+    expect(cleared.body.code).toBe(0);
+    const provider = (await getJson<Record<string, unknown>>('/api/v1/providers/openai')).body.data;
+    expect(provider['base_url']).toBeUndefined();
+    expect(provider['default_model']).toBeUndefined();
   });
 
   it('does not reveal an empty-string api_key on the single GET', async () => {

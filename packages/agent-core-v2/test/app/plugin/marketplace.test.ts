@@ -12,13 +12,17 @@ const location: MarketplaceLocation = { raw: '/market', kind: 'local', resolved:
 
 const parse = (entry: Record<string, unknown>) =>
   parsePluginMarketplace(
-    JSON.stringify({ plugins: [{ id: 'sample', source: 'https://example.com/sample.zip', ...entry }] }),
+    JSON.stringify({
+      plugins: [{ id: 'sample', source: 'https://example.com/sample.zip', ...entry }],
+    }),
     location,
   ).plugins[0]!;
 
 describe('parsePluginMarketplace classifications', () => {
   it('derives tier and classification from a distribution category', () => {
-    expect(parse({ distribution: { category: 'official', defaultInstall: true, weight: 3 } })).toMatchObject({
+    expect(
+      parse({ distribution: { category: 'official', defaultInstall: true, weight: 3 } }),
+    ).toMatchObject({
       classification: 'official',
       tier: 'official',
       distribution: { category: 'official', defaultInstall: true, weight: 3 },
@@ -30,24 +34,26 @@ describe('parsePluginMarketplace classifications', () => {
   });
 
   it('derives the classification from a lone tier', () => {
-    expect(parse({ tier: 'official' })).toMatchObject({ tier: 'official', classification: 'official' });
-    expect(parse({ tier: 'curated' })).toMatchObject({ tier: 'curated', classification: 'third_party' });
+    expect(parse({ tier: 'official' })).toMatchObject({
+      tier: 'official',
+      classification: 'official',
+    });
+    expect(parse({ tier: 'curated' })).toMatchObject({
+      tier: 'curated',
+      classification: 'third_party',
+    });
   });
 
   it('rejects a distribution without a known category', () => {
-    expect(() => parse({ distribution: { region: 'cn' } })).toThrow(
-      'distribution.category',
-    );
+    expect(() => parse({ distribution: { region: 'cn' } })).toThrow('distribution.category');
   });
 });
 
 describe('parsePluginMarketplace platforms', () => {
   it('normalizes platform aliases and deduplicates them', () => {
-    expect(parse({ platforms: ['macos', 'darwin', 'win32', 'windows', 'linux'] }).platforms).toEqual([
-      'darwin',
-      'win32',
-      'linux',
-    ]);
+    expect(
+      parse({ platforms: ['macos', 'darwin', 'win32', 'windows', 'linux'] }).platforms,
+    ).toEqual(['darwin', 'win32', 'linux']);
   });
 
   it('rejects an empty or unknown platform list', () => {
@@ -119,14 +125,68 @@ describe('parsePluginMarketplace locale', () => {
       parse({
         locale: {
           defaultLocale: 'en',
-          en: { cliDescription: 'Adds a sample', shortDescription: 'Sample', longDescription: 'A sample plugin' },
+          en: {
+            cliDescription: 'Adds a sample',
+            shortDescription: 'Sample',
+            longDescription: 'A sample plugin',
+          },
           zh: '示例插件',
         },
       }).locale,
     ).toEqual({
       defaultLocale: 'en',
-      en: { cliDescription: 'Adds a sample', shortDescription: 'Sample', longDescription: 'A sample plugin' },
+      en: {
+        cliDescription: 'Adds a sample',
+        shortDescription: 'Sample',
+        longDescription: 'A sample plugin',
+      },
       zh: '示例插件',
+    });
+  });
+
+  it('preserves localized display names beside the descriptions sent to clients', () => {
+    const entry = parse({
+      displayName: 'Sample',
+      locale: {
+        defaultLocale: 'en-US',
+        'en-US': {
+          displayName: ' Sample Tools ',
+          cliDescription: 'Adds tools',
+          shortDescription: 'Tools',
+          longDescription: 'A collection of tools',
+        },
+        'zh-CN': { displayName: ' 示例工具 ', shortDescription: '工具' },
+      },
+    });
+
+    expect(entry.displayName).toBe('Sample');
+    expect(JSON.parse(JSON.stringify(entry.locale))).toEqual({
+      defaultLocale: 'en-US',
+      'en-US': {
+        displayName: 'Sample Tools',
+        cliDescription: 'Adds tools',
+        shortDescription: 'Tools',
+        longDescription: 'A collection of tools',
+      },
+      'zh-CN': { displayName: '示例工具', shortDescription: '工具' },
+    });
+  });
+
+  it('omits blank or non-text localized names without dropping descriptions', () => {
+    expect(
+      JSON.parse(
+        JSON.stringify(
+          parse({
+            locale: {
+              en: { displayName: '  ', shortDescription: 'English description' },
+              zh: { displayName: 42, shortDescription: '中文描述' },
+            },
+          }).locale,
+        ),
+      ),
+    ).toEqual({
+      en: { shortDescription: 'English description' },
+      zh: { shortDescription: '中文描述' },
     });
   });
 

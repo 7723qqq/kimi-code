@@ -44,10 +44,10 @@ export const createProviderModelSchema = z.object({
 export type CreateProviderModel = z.infer<typeof createProviderModelSchema>;
 
 function refineProviderForm(
-  value: { base_url?: string | undefined; models: Array<{ model: string }> },
+  value: { base_url?: string | null; models: Array<{ model: string }> },
   ctx: z.RefinementCtx,
 ): void {
-  if (value.base_url !== undefined && value.base_url.includes('${')) {
+  if (value.base_url !== null && value.base_url !== undefined && value.base_url.includes('${')) {
     ctx.addIssue({
       code: 'custom',
       message: 'base_url must not contain an environment variable placeholder',
@@ -110,8 +110,8 @@ export const replaceProviderRequestSchema = z
     type: providerWireTypeSchema,
     api_key: z.string().optional(),
     api_key_env: z.string().optional(),
-    base_url: z.string().trim().optional(),
-    default_model: z.string().min(1).optional(),
+    base_url: z.string().trim().nullable().optional(),
+    default_model: z.string().min(1).nullable().optional(),
     models: z.array(createProviderModelSchema).min(1),
   })
   .superRefine((value, ctx) => {

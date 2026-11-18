@@ -1,4 +1,5 @@
 import {
+  IAgentFullCompactionService,
   IAgentGoalService,
   IAgentPermissionModeService,
   IAgentProfileService,
@@ -11,12 +12,8 @@ import {
   type ServiceIdentifier,
 } from '@moonshot-ai/agent-core-v2';
 
-import type {
-  AgentState,
-  GoalState,
-  TodoItemState,
-  UsageState,
-} from '../../../protocol/ws-agent';
+import { projectGoalStatus } from '../../../protocol/goal';
+import type { AgentState, GoalState, TodoItemState, UsageState } from '../../../protocol/ws-agent';
 import { readLegacyStatus } from '../../../services/legacyStatus/legacyStatus';
 
 export function readAgentState(handle: IAgentScopeHandle, running: boolean): AgentState {
@@ -24,6 +21,7 @@ export function readAgentState(handle: IAgentScopeHandle, running: boolean): Age
   const model = profile?.getModel() ?? '';
   return {
     status: running ? 'running' : 'idle',
+    compacting: Boolean(optionalService(handle, IAgentFullCompactionService)?.compacting),
     model: text(model),
     thinking: model === '' ? undefined : text(profile?.getEffectiveThinkingLevel()),
     permission_mode: optionalService(handle, IAgentPermissionModeService)?.mode,
@@ -47,8 +45,11 @@ export function readGoalState(handle: IAgentScopeHandle): GoalState | undefined 
   const goal = optionalService(handle, IAgentGoalService)?.getGoal().goal ?? undefined;
   if (goal === undefined) return undefined;
   return {
+    goal_id: goal.goalId,
     objective: goal.objective,
-    status: goal.status,
+    status: projectGoalStatus(goal.status),
+    budget: goal.budget,
+    terminal_reason: goal.terminalReason,
     completion_criterion: text(goal.completionCriterion),
     turns_used: goal.turnsUsed,
     tokens_used: goal.tokensUsed,

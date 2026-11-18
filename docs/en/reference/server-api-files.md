@@ -14,7 +14,7 @@ In-session file operations go through `POST /api/v1/sessions/{session_id}/fs:{ac
 | `GET /api/v1/sessions/{session_id}/fs/{path}:download` | Download a session file (binary, see below) |
 | `GET /api/v1/fs:browse` | List host directories (folder picker) |
 | `GET /api/v1/fs:home` | The user's home directory and recent workspaces |
-| `GET /api/v1/fs:content` | Raw bytes of any host file (gated only by the token — be careful when exposing the port) |
+| `GET /api/v1/fs:content` | Host file content, normalizing detected UTF-16 text to UTF-8 (token required) |
 | `POST /api/v1/fs:mkdir` | Create a directory by absolute path |
 
 ### `POST /api/v1/sessions/{session_id}/fs:list`
@@ -393,7 +393,7 @@ On success, `data` is `{ home, recent_roots }` where `home` is the user's home d
 
 ### `GET /api/v1/fs:content`
 
-Streams the raw bytes of any file on the host filesystem — gated only by the API token, so be careful when exposing the port. Range requests and ETag caching are supported; see [Binary and streaming endpoints](#binary-and-streaming-endpoints).
+Returns any host file, gated by the API token. Detected UTF-16 text is normalized to UTF-8 for both preview and download; binary files retain their original bytes. Range offsets and Content-Length refer to the returned representation, with a representation-specific ETag. TOML uses a text MIME type for browser previews. Be careful when exposing the port; see [Binary and streaming endpoints](#binary-and-streaming-endpoints).
 
 | Parameter | In | Type | Description |
 | --- | --- | --- | --- |
@@ -427,7 +427,7 @@ The following endpoints stream binary bodies instead of a JSON payload. Their HT
 | --- | --- | --- | --- |
 | `GET /api/v1/files/{file_id}` | Download an uploaded file | Yes | No (sends an `etag` header but ignores `If-None-Match`) |
 | `GET /api/v1/sessions/{session_id}/fs/{path}:download` | Download a session workspace file | Yes | Yes |
-| `GET /api/v1/fs:content` | Raw bytes of any host file (gated only by the token — be careful when exposing the port) | Yes | Yes |
+| `GET /api/v1/fs:content` | Host file content, normalizing detected UTF-16 text to UTF-8 (token required) | Yes | Yes |
 | `POST /api/v1/sessions/{session_id}/export` | Export the session with diagnostics (zip stream) | No | No |
 
 Error semantics differ as well: `GET /api/v1/files/{file_id}`, `GET /api/v1/fs:content`, and session `:download` answer failures with real 4xx / 500 statuses and the same [response envelope](#response-envelope). Session export reports errors with an HTTP 200 envelope. Ordinary JSON RPC endpoints keep the almost-always-200 convention, so clients must check the envelope `code` on those endpoints.

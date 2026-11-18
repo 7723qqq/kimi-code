@@ -1,6 +1,7 @@
+import { isoDateTimeSchema } from '@moonshot-ai/agent-core-v2/_base/utils/isoDateTime';
 import { z } from 'zod';
 
-import { isoDateTimeSchema } from '@moonshot-ai/agent-core-v2/_base/utils/isoDateTime';
+import { goalBudgetReportSchema } from './goal';
 
 const agentFrameFields = {
   session_id: z.string().min(1),
@@ -10,6 +11,7 @@ const agentFrameFields = {
 
 export const agentStateSchema = z.object({
   status: z.enum(['idle', 'running']),
+  compacting: z.boolean(),
   model: z.string().optional(),
   thinking: z.string().optional(),
   permission_mode: z.enum(['manual', 'yolo', 'auto']).optional(),
@@ -38,15 +40,11 @@ export const usageEventMessageSchema = usageStateSchema.extend({
 export type UsageEventMessage = z.infer<typeof usageEventMessageSchema>;
 
 export const goalStateSchema = z.object({
+  goal_id: z.string().optional(),
+  budget: goalBudgetReportSchema.optional(),
+  terminal_reason: z.string().optional(),
   objective: z.string(),
-  status: z.enum([
-    'active',
-    'paused',
-    'blocked',
-    'complete',
-    'budget_limited',
-    'usage_limited',
-  ]),
+  status: z.enum(['active', 'paused', 'blocked', 'complete', 'budget_limited', 'usage_limited']),
   completion_criterion: z.string().optional(),
   turns_used: z.number().int().nonnegative(),
   tokens_used: z.number().int().nonnegative(),

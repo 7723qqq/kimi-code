@@ -247,7 +247,7 @@ export class SessionEventBroadcaster {
         { sessionId, err: error instanceof Error ? error.message : String(error) },
         'session subscribe resume failed',
       );
-      return false;
+      throw error;
     }
     if (session !== undefined) {
       try {
@@ -348,7 +348,7 @@ export class SessionEventBroadcaster {
           { sessionId, err: error instanceof Error ? error.message : String(error) },
           'session subscribe conversation reattach failed',
         );
-        return false;
+        throw error;
       }
       state = this.sessions.get(sessionId);
       if (state === undefined) return false;
@@ -442,7 +442,30 @@ export class SessionEventBroadcaster {
       }),
     };
     subscription.conversation = attachment;
-    void this.sendPage(state, target, agentId, attachment);
+    void this.sendPage(state, target, agentId, attachment).catch((error: unknown) => {
+      if (state.conversations.get(target)?.get(agentId)?.conversation !== attachment) return;
+      releaseConversation(subscription);
+      this.opts.logger?.warn(
+        { sessionId: state.sessionId, agentId, err: error },
+        'conversation initial page failed',
+      );
+      const failure = mapError(error, '');
+      try {
+        target.send({
+          type: 'turns.failed',
+          session_id: state.sessionId,
+          agent_id: agentId,
+          event_created_at: new Date().toISOString(),
+          code: failure.code,
+          msg: failure.msg,
+        });
+      } catch (sendError) {
+        this.opts.logger?.warn(
+          { sessionId: state.sessionId, agentId, err: sendError },
+          'conversation failure delivery failed',
+        );
+      }
+    });
   }
 
   private onFeedCreated({ sessionId, agentId }: ConversationFeedCreated): void {
@@ -998,6 +1021,7 @@ export class SessionEventBroadcaster {
       void this.dispatchGlobal({
         type: 'event.config.changed',
         changedFields: payload.changedFields,
+        changed_fields: payload.changedFields,
         config: payload.config,
         agentId: 'main',
         sessionId: GLOBAL_SESSION_ID,

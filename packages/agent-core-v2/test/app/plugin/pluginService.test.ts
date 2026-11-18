@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { KIMI_CODE_PROVIDER_NAME } from '@moonshot-ai/kimi-code-oauth';
+import { KIMI_CODE_PROVIDER_NAME, KimiOAuthToolkit } from '@moonshot-ai/kimi-code-oauth';
 
 import {
   ScopeActivation,
@@ -21,9 +21,12 @@ import { ILogService } from '#/_base/log/log';
 import type { FetchLike } from '#/_base/utils/fetchLike';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { pluginAvailabilitySourceKey } from '#/app/plugin/availability';
+import {
+  PluginMarketplaceService,
+  type MarketplacePluginInstall,
+} from '#/app/plugin/marketplaceService';
 import { IPluginService } from '#/app/plugin/plugin';
 import { installResolvedMarketplacePlugin, PluginService } from '#/app/plugin/pluginService';
-import type { MarketplacePluginInstall } from '#/app/plugin/marketplaceService';
 import * as pluginStore from '#/app/plugin/store';
 import type { InstalledFile, InstalledRecord } from '#/app/plugin/store';
 import type { PluginMutationSummary, ReloadSummary } from '#/app/plugin/types';
@@ -82,6 +85,15 @@ async function writeInstalledFile(homeDir: string, contents: string): Promise<vo
 
 async function writeValidInstalledFile(homeDir: string): Promise<void> {
   await writeInstalledFile(homeDir, JSON.stringify({ version: 1, plugins: [] }));
+}
+
+async function writeMarketplaceCatalog(
+  homeDir: string,
+  plugins: readonly Record<string, unknown>[],
+): Promise<string> {
+  const file = path.join(homeDir, 'marketplace.json');
+  await writeFile(file, JSON.stringify({ plugins }), 'utf8');
+  return file;
 }
 
 function installedFile(id: string, root: string, enabled = true): InstalledFile {
@@ -315,6 +327,305 @@ describe('PluginService (plugin boundary)', () => {
     }
   });
 
+  it('previews a listed local plugin without a digest or changing installed state', async () => {
+    const home = await makeHome();
+    await writeValidInstalledFile(home);
+    const sourceRoot = await makePluginDir('local-preview', {
+      version: '1.0.0',
+      mcpServers: { local: { command: 'preview-must-not-run', args: [] } },
+    });
+    createdDirs.push(sourceRoot);
+    const catalog = await writeMarketplaceCatalog(home, [
+      { id: 'local-preview', source: sourceRoot, version: '1.0.0' },
+    ]);
+    const network = mock(async () => {
+      throw new Error('Local preview must not use the network');
+    });
+    setGlobal('fetch', network);
+    const env = { KIMI_CODE_PLUGIN_MARKETPLACE_URL: catalog };
+    const host = makeHost(home, stubProviderService(), env);
+    const marketplace = new PluginMarketplaceService(
+      stubBootstrap(home, env),
+      stubProviderService(),
+      host.app.accessor.get(IRegionService),
+    );
+    const installedBefore = await readFile(path.join(home, 'plugins', 'installed.json'), 'utf8');
+    try {
+      const entry = (await marketplace.listMarketplace()).plugins[0]!;
+      const svc = host.app.accessor.get(IPluginService);
+      const preview = await svc.previewPlugin({
+        marketplaceId: entry.id,
+        expectedVersion: entry.version,
+        expectedSha256: entry.sha256sum,
+      });
+
+      expect(preview.mcpServers).toEqual([
+        expect.objectContaining({
+          name: 'local',
+          runtimeName: 'plugin-local-preview:local',
+          command: 'preview-must-not-run',
+        }),
+      ]);
+      expect(await svc.listPlugins()).toEqual([]);
+      expect(await svc.enabledMcpServers()).toEqual({});
+      expect(await readFile(path.join(home, 'plugins', 'installed.json'), 'utf8')).toBe(
+        installedBefore,
+      );
+      expect(await readdir(path.join(home, 'plugins'))).not.toContain('managed');
+      expect(network).not.toHaveBeenCalled();
+    } finally {
+      host.dispose();
+    }
+  });
+
+  it('previews a custom ZIP entry without a catalog digest through the archive cache', async () => {
+    const home = await makeHome();
+    await writeValidInstalledFile(home);
+    const sourceRoot = await makePluginDir('custom-zip-preview', {
+      version: '1.0.0',
+      mcpServers: { zipped: { command: 'preview-must-not-run', args: [] } },
+    });
+    createdDirs.push(sourceRoot);
+    const buffer = await createZipFromDir(sourceRoot);
+    const digest = createHash('sha256').update(buffer).digest('hex');
+    const source = 'https://plugins.example.test/custom-zip-preview.zip';
+    const catalog = await writeMarketplaceCatalog(home, [
+      { id: 'custom-zip-preview', source, version: '1.0.0' },
+    ]);
+    const fetchMock = mock(async (input: Parameters<FetchLike>[0]) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (url === source) return new Response(buffer);
+      throw new Error(`Unexpected preview request: ${url}`);
+    });
+    setGlobal('fetch', fetchMock);
+    const host = makeHost(home, stubProviderService(), {
+      KIMI_CODE_PLUGIN_MARKETPLACE_URL: catalog,
+    });
+    try {
+      const svc = host.app.accessor.get(IPluginService);
+      const preview = await svc.previewPlugin({
+        marketplaceId: 'custom-zip-preview',
+        expectedVersion: '1.0.0',
+      });
+
+      expect(preview.mcpServers.map((server) => server.name)).toEqual(['zipped']);
+      expect(await svc.listPlugins()).toEqual([]);
+      expect(
+        await readFile(path.join(home, 'plugins', 'cache', 'archives', `${digest}.zip`)),
+      ).toEqual(Buffer.from(buffer));
+    } finally {
+      host.dispose();
+    }
+  });
+
+  it('previews a listed GitHub ref using a commit-pinned archive and the shared digest cache', async () => {
+    const home = await makeHome();
+    await writeValidInstalledFile(home);
+    const sourceRoot = await makePluginDir('github-preview', {
+      version: '1.0.0',
+      mcpServers: { repository: { command: 'preview-must-not-run', args: [] } },
+    });
+    createdDirs.push(sourceRoot);
+    const buffer = await createZipFromDir(sourceRoot);
+    const digest = createHash('sha256').update(buffer).digest('hex');
+    const sha = '1111111111111111111111111111111111111111';
+    const source = 'https://github.com/example/github-preview/tree/main';
+    const pinnedSource = `https://codeload.github.com/example/github-preview/zip/${sha}`;
+    const catalog = await writeMarketplaceCatalog(home, [
+      { id: 'github-preview', source, version: '1.0.0' },
+    ]);
+    const artifactRequests: string[] = [];
+    setGlobal(
+      'fetch',
+      mock(async (input: Parameters<FetchLike>[0]) => {
+        const url =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        if (url === 'https://github.com/example/github-preview/commits/main.atom') {
+          return new Response(`<entry><id>tag:github.com,2008:Grit::Commit/${sha}</id></entry>`);
+        }
+        if (url === pinnedSource) {
+          artifactRequests.push(url);
+          return new Response(buffer);
+        }
+        throw new Error(`Unexpected GitHub preview request: ${url}`);
+      }),
+    );
+    const host = makeHost(home, stubProviderService(), {
+      KIMI_CODE_PLUGIN_MARKETPLACE_URL: catalog,
+    });
+    try {
+      const svc = host.app.accessor.get(IPluginService);
+      const input = { marketplaceId: 'github-preview', expectedVersion: '1.0.0' };
+      const first = await svc.previewPlugin(input);
+      const second = await svc.previewPlugin(input);
+
+      expect(first.mcpServers.map((server) => server.name)).toEqual(['repository']);
+      expect(second).toEqual(first);
+      expect(artifactRequests).toEqual([pinnedSource]);
+      expect(
+        await readFile(path.join(home, 'plugins', 'cache', 'archives', `${digest}.zip`)),
+      ).toEqual(Buffer.from(buffer));
+      expect(await svc.listPlugins()).toEqual([]);
+      expect(await persistedPluginIds(home)).toEqual([]);
+      expect(await readdir(path.join(home, 'plugins'))).not.toContain('managed');
+    } finally {
+      host.dispose();
+    }
+  });
+
+  it('keeps the manifest identity assertion for digest-less local previews', async () => {
+    const home = await makeHome();
+    await writeValidInstalledFile(home);
+    const sourceRoot = await makePluginDir('different-plugin', {});
+    createdDirs.push(sourceRoot);
+    const catalog = await writeMarketplaceCatalog(home, [
+      { id: 'expected-plugin', source: sourceRoot },
+    ]);
+    const host = makeHost(home, stubProviderService(), {
+      KIMI_CODE_PLUGIN_MARKETPLACE_URL: catalog,
+    });
+    try {
+      const error = await host.app.accessor
+        .get(IPluginService)
+        .previewPlugin({ marketplaceId: 'expected-plugin' })
+        .then(
+          () => undefined,
+          (failure: unknown) => failure,
+        );
+
+      expect(error).toMatchObject({
+        code: 'plugin.load_failed',
+        details: { expectedPluginId: 'expected-plugin', actualPluginId: 'different-plugin' },
+      });
+      expect(await persistedPluginIds(home)).toEqual([]);
+    } finally {
+      host.dispose();
+    }
+  });
+
+  it('keeps version and displayed digest assertions before custom preview acquisition', async () => {
+    const home = await makeHome();
+    await writeValidInstalledFile(home);
+    const sourceRoot = await makePluginDir('asserted-preview', { version: '2.0.0' });
+    createdDirs.push(sourceRoot);
+    const catalog = await writeMarketplaceCatalog(home, [
+      { id: 'asserted-preview', source: sourceRoot, version: '2.0.0' },
+    ]);
+    const network = mock(async () => {
+      throw new Error('Catalog assertion failures must not acquire an artifact');
+    });
+    setGlobal('fetch', network);
+    const host = makeHost(home, stubProviderService(), {
+      KIMI_CODE_PLUGIN_MARKETPLACE_URL: catalog,
+    });
+    try {
+      const svc = host.app.accessor.get(IPluginService);
+      for (const assertion of [{ expectedVersion: '1.0.0' }, { expectedSha256: 'a'.repeat(64) }]) {
+        const error = await svc
+          .previewPlugin({ marketplaceId: 'asserted-preview', ...assertion })
+          .then(
+            () => undefined,
+            (failure: unknown) => failure,
+          );
+        expect(error).toMatchObject({ code: 'plugin.catalog_changed' });
+      }
+      expect(network).not.toHaveBeenCalled();
+    } finally {
+      host.dispose();
+    }
+  });
+
+  it('continues rejecting downloaded bytes that differ from a displayed catalog digest', async () => {
+    const home = await makeHome();
+    await writeValidInstalledFile(home);
+    const sourceRoot = await makePluginDir('digest-preview', {
+      mcpServers: { invalid: { command: 'preview-must-not-run', args: [] } },
+    });
+    createdDirs.push(sourceRoot);
+    const buffer = await createZipFromDir(sourceRoot);
+    const actualDigest = createHash('sha256').update(buffer).digest('hex');
+    const expectedDigest = 'a'.repeat(64);
+    const source = 'https://plugins.example.test/digest-preview.zip';
+    const catalog = await writeMarketplaceCatalog(home, [
+      { id: 'digest-preview', source, sha256sum: expectedDigest },
+    ]);
+    setGlobal(
+      'fetch',
+      mock(async (input: Parameters<FetchLike>[0]) => {
+        const url =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        if (url === source) return new Response(buffer);
+        throw new Error(`Unexpected digest preview request: ${url}`);
+      }),
+    );
+    const host = makeHost(home, stubProviderService(), {
+      KIMI_CODE_PLUGIN_MARKETPLACE_URL: catalog,
+    });
+    try {
+      const svc = host.app.accessor.get(IPluginService);
+      const error = await svc
+        .previewPlugin({ marketplaceId: 'digest-preview', expectedSha256: expectedDigest })
+        .then(
+          () => undefined,
+          (failure: unknown) => failure,
+        );
+
+      expect(error).toMatchObject({
+        code: 'plugin.load_failed',
+        details: { expectedSha256: expectedDigest, actualSha256: actualDigest },
+      });
+      expect(await svc.listPlugins()).toEqual([]);
+    } finally {
+      host.dispose();
+    }
+  });
+
+  it('does not admit digest-less or non-ZIP entries from a managed remote catalog', async () => {
+    const home = await makeHome();
+    await writeValidInstalledFile(home);
+    const sourceRoot = await makePluginDir('managed-preview', {});
+    createdDirs.push(sourceRoot);
+    spyOn(KimiOAuthToolkit.prototype, 'tokenProvider').mockReturnValue({
+      getAccessToken: async () => 'test-only-marketplace-token',
+    });
+    let entry: Record<string, unknown> = {};
+    setGlobal(
+      'fetch',
+      mock(async () =>
+        Response.json({
+          plugins: [
+            {
+              id: 'managed-preview',
+              version: '1.0.0',
+              distribution: { category: 'official' },
+              platforms: ['linux'],
+              ...entry,
+            },
+          ],
+        }),
+      ),
+    );
+    const host = makeHost(home);
+    try {
+      const svc = host.app.accessor.get(IPluginService);
+      for (const source of [
+        'https://plugins.example.test/managed-preview.zip',
+        sourceRoot,
+        'https://github.com/example/managed-preview/tree/main',
+      ]) {
+        entry = { source };
+        const error = await svc.previewPlugin({ marketplaceId: 'managed-preview' }).then(
+          () => undefined,
+          (failure: unknown) => failure,
+        );
+        expect(error).toMatchObject({ code: 'validation.failed' });
+      }
+      expect(await svc.listPlugins()).toEqual([]);
+    } finally {
+      host.dispose();
+    }
+  });
+
   it('hides an installed plugin the cached catalog marks for another client', async () => {
     const home = await makeHome();
     const desktopOnly = await makePluginDir('desktop-only', {});
@@ -325,8 +636,16 @@ describe('PluginService (plugin boundary)', () => {
       JSON.stringify({
         version: 1,
         plugins: [
-          { ...installedFile('desktop-only', desktopOnly).plugins[0], origin: 'marketplace', catalogId: 'desktop-only' },
-          { ...installedFile('everywhere', everywhere).plugins[0], origin: 'marketplace', catalogId: 'everywhere' },
+          {
+            ...installedFile('desktop-only', desktopOnly).plugins[0],
+            origin: 'marketplace',
+            catalogId: 'desktop-only',
+          },
+          {
+            ...installedFile('everywhere', everywhere).plugins[0],
+            origin: 'marketplace',
+            catalogId: 'everywhere',
+          },
         ],
       }),
     );
@@ -367,8 +686,12 @@ describe('PluginService (plugin boundary)', () => {
   it('suspends only the target plugin MCP servers across reloads and restores them on failure', async () => {
     const home = await makeHome();
     await writeValidInstalledFile(home);
-    const root = await makePluginDir('cu-test', { mcpServers: { win: { command: 'example.exe', args: [] } } });
-    const other = await makePluginDir('other-test', { mcpServers: { win: { command: 'other.exe', args: [] } } });
+    const root = await makePluginDir('cu-test', {
+      mcpServers: { win: { command: 'example.exe', args: [] } },
+    });
+    const other = await makePluginDir('other-test', {
+      mcpServers: { win: { command: 'other.exe', args: [] } },
+    });
     createdDirs.push(root, other);
     const host = makeHost(home);
     try {
@@ -378,20 +701,31 @@ describe('PluginService (plugin boundary)', () => {
       const before = await svc.enabledMcpServers();
       const snapshots: string[][] = [];
       const listener = svc.onDidReload((event) => {
-        event.waitUntil(svc.enabledMcpServers().then((servers) => { snapshots.push(Object.keys(servers)); }));
+        event.waitUntil(
+          svc.enabledMcpServers().then((servers) => {
+            snapshots.push(Object.keys(servers));
+          }),
+        );
       });
-      await expect(svc.withMcpServersSuspended('cu-test', async () => {
-        expect(Object.keys(await svc.enabledMcpServers())).toEqual(['plugin-other-test:win']);
-        expect((await svc.mcpServerEntries()).find((entry) => entry.pluginId === 'cu-test')?.config.enabled).toBe(false);
-        await svc.reloadPlugins();
-        expect(Object.keys(await svc.enabledMcpServers())).toEqual(['plugin-other-test:win']);
-        throw new Error('install failed');
-      })).rejects.toThrow('install failed');
+      await expect(
+        svc.withMcpServersSuspended('cu-test', async () => {
+          expect(Object.keys(await svc.enabledMcpServers())).toEqual(['plugin-other-test:win']);
+          expect(
+            (await svc.mcpServerEntries()).find((entry) => entry.pluginId === 'cu-test')?.config
+              .enabled,
+          ).toBe(false);
+          await svc.reloadPlugins();
+          expect(Object.keys(await svc.enabledMcpServers())).toEqual(['plugin-other-test:win']);
+          throw new Error('install failed');
+        }),
+      ).rejects.toThrow('install failed');
       expect(await svc.enabledMcpServers()).toEqual(before);
       expect(snapshots[0]).toEqual(['plugin-other-test:win']);
       expect(snapshots.at(-1)).toEqual(Object.keys(before));
       listener.dispose();
-    } finally { host.dispose(); }
+    } finally {
+      host.dispose();
+    }
   });
 
   it('degrades consumption-plane reads to empty when installed.json is corrupt', async () => {

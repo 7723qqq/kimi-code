@@ -1,6 +1,5 @@
-import { z } from 'zod';
-
 import { isoDateTimeSchema } from '@moonshot-ai/agent-core-v2/_base/utils/isoDateTime';
+import { z } from 'zod';
 
 import { approvalDecisionSchema, approvalResponseSchema, approvalScopeSchema } from './approval';
 import { questionAnswerMethodSchema, questionAnswerSchema, questionItemSchema } from './question';
@@ -77,6 +76,7 @@ export const interactionRespondRequestSchema = z.discriminatedUnion('kind', [
       answers: z.record(z.string().min(1), questionAnswerSchema).optional(),
       dismissed: z.literal(true).optional(),
       method: questionAnswerMethodSchema.optional(),
+      note: z.string().optional(),
     })
     .strict()
     .refine((body) => (body.dismissed === true) !== (body.answers !== undefined), {

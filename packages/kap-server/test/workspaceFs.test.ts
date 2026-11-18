@@ -1,11 +1,15 @@
-import { IEnvironmentService } from '@moonshot-ai/agent-core-v2';
+import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, parse } from 'node:path';
 
-import { IModelCatalog, IWorkspaceInstanceManager, IWorkspaceService } from '@moonshot-ai/agent-core-v2';
+import { IEnvironmentService } from '@moonshot-ai/agent-core-v2';
+import {
+  IModelCatalog,
+  IWorkspaceInstanceManager,
+  IWorkspaceService,
+} from '@moonshot-ai/agent-core-v2';
 import { FakeEnvironment } from '@moonshot-ai/agent-core-v2/environment/fakeEnvironment';
-import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it } from 'bun:test';
 
 import { type RunningServer, startServer } from '../src/start';
 import { authHeaders } from './helpers/auth';
@@ -344,6 +348,30 @@ describe('server-v2 /api/v1 fs:content', () => {
     expect(typeof res.headers.get('etag')).toBe('string');
     expect(typeof res.headers.get('last-modified')).toBe('string');
     expect(await res.text()).toBe('# hi\n');
+  });
+
+  it('serves TOML with a text MIME recognized by the official preview', async () => {
+    const file = join(dir as string, 'config.toml');
+    await writeFile(file, 'model = "example"\n');
+    const res = await getContent(file);
+    expect(res.headers.get('content-type')).toContain('text/');
+    expect(await res.text()).toBe('model = "example"\n');
+  });
+
+  it('normalizes UTF-16 text to UTF-8 for both preview and download with byte ranges', async () => {
+    const file = join(dir as string, 'utf16.txt');
+    await writeFile(
+      file,
+      Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('中文 text', 'utf16le')]),
+    );
+    const res = await getContent(file);
+    expect(res.headers.get('content-type')).toContain('text/plain');
+    expect(res.headers.get('content-length')).toBe('11');
+    expect(await res.text()).toBe('中文 text');
+    const ranged = await getContent(file, { range: 'bytes=0-5' });
+    expect(ranged.status).toBe(206);
+    expect(ranged.headers.get('content-range')).toBe('bytes 0-5/11');
+    expect(await ranged.text()).toBe('中文');
   });
 
   it('serves an unknown-extension text file as text/plain', async () => {
