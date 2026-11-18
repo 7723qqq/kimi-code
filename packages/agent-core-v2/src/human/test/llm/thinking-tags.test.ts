@@ -133,7 +133,7 @@ const fixtures: readonly [string, ContentPart[]][] = [
 describe('thinking tag parsing', () => {
   it.each(fixtures)('parses %s independently of stream boundaries', (source, expected) => {
     expect(parse([source])).toEqual(expected);
-    expect(parse([...source])).toEqual(expected);
+    expect(parse(Array.from(source))).toEqual(expected);
     for (let split = 1; split < source.length; split++) {
       expect(parse([source.slice(0, split), source.slice(split)])).toEqual(expected);
     }
