@@ -99,6 +99,12 @@ export const pluginManifestSchema = z.object({
   systemPrompt: z.string().optional(),
 });
 
+export const pluginSkillInfoSchema = z.object({
+  name: z.string(),
+  displayName: z.string().optional(),
+  description: z.string().optional(),
+});
+
 export const pluginMcpServerInfoSchema = z.object({
   name: z.string(),
   runtimeName: z.string(),
@@ -140,15 +146,16 @@ export const pluginSummarySchema = z.object({
   marketplaceSource: z.string().optional(),
   originalSource: z.string().optional(),
   github: pluginGithubMetadataSchema.optional(),
+  installedAt: z.string(),
 });
 
 export const pluginInfoSchema = pluginSummarySchema.extend({
   root: z.string(),
-  installedAt: z.string(),
   updatedAt: z.string().optional(),
   manifestKind: pluginManifestKindSchema.optional(),
   manifestPath: z.string().optional(),
   manifest: pluginManifestSchema.optional(),
+  skills: z.array(pluginSkillInfoSchema),
   mcpServers: z.array(pluginMcpServerInfoSchema),
   shadowedManifestPath: z.string().optional(),
   diagnostics: z.array(pluginDiagnosticSchema),
@@ -180,9 +187,18 @@ export const pluginCommandDefSchema = z.object({
   path: z.string(),
 });
 
-export const installPluginInputSchema = z.object({
-  source: z.string(),
-});
+export const installPluginInputSchema = z.union([
+  z.object({
+    source: z.string(),
+  }),
+  z.object({
+    marketplaceId: z.string(),
+    expectedVersion: z.string().optional(),
+    expectedSha256: z.string().optional(),
+    marketplaceSource: z.string().optional(),
+    migrateFrom: z.string().optional(),
+  }),
+]);
 
 export const setPluginEnabledInputSchema = z.object({
   id: z.string(),
