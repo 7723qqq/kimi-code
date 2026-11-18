@@ -1,4 +1,4 @@
-import type { ContentPart } from '#human/llm/message';
+import type { ContentPart } from '../llm/message';
 
 export function extractText(content: readonly ContentPart[]): string {
   let text = '';

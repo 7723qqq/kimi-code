@@ -1,4 +1,4 @@
-import { onUnexpectedError } from '#/_base/errors/unexpectedError';
+import type { ILogger } from '#/_base/log/log';
 import type { WireLineRange } from '#/wire/record';
 import type { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { IAgentTodoService } from '#/features/todo/todoService';
@@ -20,6 +20,7 @@ export interface CompactionApplyDeps {
   readonly todo: IAgentTodoService;
   readonly task: IAgentTaskService;
   readonly associativeMemory: IAssociativeMemoryService;
+  readonly log: ILogger;
   readonly wire: IWireService;
   readonly states: IAgentStateService;
   readonly estimateText: (text: string) => number;
@@ -74,7 +75,7 @@ export async function applyCompactionRound(
   try {
     await deps.associativeMemory.writeNote(summary, 'project', 'external');
   } catch (error) {
-    onUnexpectedError(error);
+    deps.log.warn('compaction.associativeMemory.writeFailed', { error });
   }
   return {
     summary,
@@ -102,7 +103,7 @@ async function captureWireLines(deps: CompactionApplyDeps): Promise<WireLineRang
   try {
     await deps.wire.flush();
   } catch (error) {
-    onUnexpectedError(error);
+    deps.log.warn('compaction.wire.flushFailed', { error });
     return undefined;
   }
   const end = deps.wire.lineCount();

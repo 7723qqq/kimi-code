@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, jest } from 'bun:test';
+import { afterEach, describe, expect, it, jest, spyOn } from 'bun:test';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 
@@ -8,6 +8,8 @@ import {
   buildCompactionContinuationText,
   COMPACTION_SUMMARY_PREFIX,
 } from '#/agent/contextMemory/compactionHandoff';
+import { ILogService } from '#/_base/log/log';
+import { IAssociativeMemoryService } from '#/features/associativeMemory/service';
 import { renderCompactionInstruction } from '#/agent/fullCompaction/compactionInstruction';
 import { SNIPPED_TOOL_RESULT_MARKER } from '#/agent/fullCompaction/compactionUtils';
 import { DefaultCompactionStrategy } from '#/agent/fullCompaction/strategy';
@@ -337,6 +339,78 @@ describe('FullCompaction', () => {
       }),
     });
     await ctx.expectResumeMatches();
+  });
+
+  it('finishes compaction and logs a failed optional memory write without console output', async () => {
+    const ctx = testAgent();
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    ctx.appendExchange(1, 'old user', 'old assistant', 20);
+    ctx.appendExchange(2, 'recent user', 'recent assistant', 40);
+    const error = Object.assign(new Error('memory database is held by another process'), {
+      code: 'ELOCKED',
+    });
+    const write = spyOn(ctx.get(IAssociativeMemoryService), 'writeNote').mockRejectedValue(error);
+    const warning = spyOn(ctx.get(ILogService), 'warn');
+    const output = spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const completed = ctx.once('compaction.completed');
+      ctx.mockNextResponse({ type: 'text', text: 'Summary retained despite memory contention.' });
+      await ctx.rpc.beginCompaction({});
+      await completed;
+      expect(ctx.compactHistory()).toContainEqual({
+        role: 'user',
+        text: expect.stringContaining('Summary retained despite memory contention.'),
+      });
+      expect(write).toHaveBeenCalledWith(
+        'Summary retained despite memory contention.',
+        'project',
+        'external',
+      );
+      expect(warning).toHaveBeenCalledWith('compaction.associativeMemory.writeFailed', { error });
+      expect(output).not.toHaveBeenCalled();
+      expect(ctx.get(IAgentFullCompactionService).compacting).toBeNull();
+      await ctx.expectResumeMatches();
+    } finally {
+      write.mockRestore();
+      warning.mockRestore();
+      output.mockRestore();
+    }
+  });
+
+  it('finishes compaction without a recovery pointer when the wire flush fails', async () => {
+    const ctx = testAgent();
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    ctx.appendExchange(1, 'old user', 'old assistant', 20);
+    ctx.appendExchange(2, 'recent user', 'recent assistant', 40);
+    const error = Object.assign(new Error('journal flush failed'), { code: 'EIO' });
+    const flush = spyOn(ctx.get(IWireService), 'flush').mockRejectedValueOnce(error);
+    const warning = spyOn(ctx.get(ILogService), 'warn');
+    const output = spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const completed = ctx.once('compaction.completed');
+      ctx.mockNextResponse({ type: 'text', text: 'Summary retained despite journal failure.' });
+      await ctx.rpc.beginCompaction({});
+      await completed;
+      expect(ctx.compactHistory()).toContainEqual({
+        role: 'user',
+        text: expect.stringContaining('Summary retained despite journal failure.'),
+      });
+      expect(ctx.context.get().some((message) =>
+        message.content.some((part) => part.type === 'text' && part.text.includes('Context Recovery')),
+      )).toBe(false);
+      expect(warning).toHaveBeenCalledWith('compaction.wire.flushFailed', { error });
+      expect(output).not.toHaveBeenCalled();
+    } finally {
+      flush.mockRestore();
+      warning.mockRestore();
+      output.mockRestore();
+    }
   });
 
   it('snips large tool results before sending the compaction request', async () => {

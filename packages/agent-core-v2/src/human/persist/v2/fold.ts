@@ -8,8 +8,8 @@ import {
   COMPACT_USER_MESSAGE_HEAD_TOKENS,
   COMPACT_USER_MESSAGE_MAX_TOKENS,
   selectCompactionUserMessages,
-} from '#/agent/contextMemory/compactionHandoff';
-import { extractText } from '#/agent/contextMemory/compactionText';
+} from '../../agent/compactionSelection';
+import { extractText } from '../../agent/compactionText';
 
 import { V2WireError, type V2WireRecord } from './wire';
 

@@ -89,6 +89,13 @@ Two of its files had been byte-identical copies of those v2 assets
 each to a single copy. If you find yourself adding a compaction module back under `human/`,
 you are almost certainly looking for the v2 domain instead.
 
+The pure selection and text helpers shared by live compaction and legacy replay live in
+`human/agent/compactionSelection.ts` and `compactionText.ts`, alongside the hook-part vocabulary.
+They have no DI or prompt-asset dependencies. V2 consumes them through
+`llm-adapter/contract/compaction.ts`; the handoff, hook-part and reminder domain entry points
+re-export the same functions. The unused domain `compactionText.ts` entry was removed.
+Compaction orchestration and summary prompt assets remain in the v2 domain.
+
 ## Tests
 
 `human/test/` is discovered by `bun test` (`src/human/test/**/*.test.ts`) even though

@@ -2,6 +2,7 @@ import type { IDisposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { Emitter, type Event } from '#/_base/event';
+import { ILogService } from '#/_base/log/log';
 import { isAbortError } from '#/_base/utils/abort';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { isRealUserInput } from '#/agent/contextMemory/compactionHandoff';
@@ -136,6 +137,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     @IWireService private readonly wire: IWireService,
     @ISessionRunGate private readonly runGate: ISessionRunGate,
     @IAssociativeMemoryService private readonly associativeMemory: IAssociativeMemoryService,
+    @ILogService private readonly log: ILogService,
   ) {
     super();
     this.states.contributeState(fullCompactionKey);
@@ -612,6 +614,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
       todo: this.todo,
       task: this.task,
       associativeMemory: this.associativeMemory,
+      log: this.log,
       wire: this.wire,
       states: this.states,
       estimateText: (text: string) => this.tokenCounting.estimateText(text),

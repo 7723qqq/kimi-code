@@ -39,6 +39,9 @@ export type LoopRecordedEvent =
       readonly llmServerDecodeMs?: number;
       readonly llmClientConsumeMs?: number;
       readonly llmClientBlockedMs?: number;
+      readonly llmFirstTokenOffsetMs?: number;
+      readonly llmLastTokenOffsetMs?: number;
+      readonly llmWindowOnFrameClock?: boolean;
       readonly messageId?: string;
       readonly providerFinishReason?: FinishReason;
       readonly rawFinishReason?: string;

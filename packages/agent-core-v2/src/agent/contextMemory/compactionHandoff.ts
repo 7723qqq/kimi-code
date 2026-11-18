@@ -1,20 +1,32 @@
 import { wrapSystemReminder } from '#/features/reminder/systemReminder';
 import {
+  buildCompactionContinuationText,
+  buildCompactionElisionText,
+  COMPACT_USER_MESSAGE_HEAD_TOKENS,
+  COMPACT_USER_MESSAGE_MAX_TOKENS,
+  selectCompactionUserMessages,
+  truncateUserMessage,
+} from '#/llm-adapter/contract/compaction';
+import {
   estimateTokens,
   estimateTokensForMessage,
   estimateTokensForMessages,
 } from '#/llm-adapter/contract/tokens';
-import { isSkillActivationPart } from '#human/agent/origin';
-import type { ContentPart, ToolCall } from '#human/llm/message';
+
+export {
+  buildCompactionContinuationText,
+  buildCompactionElisionText,
+  COMPACT_USER_MESSAGE_HEAD_TOKENS,
+  COMPACT_USER_MESSAGE_MAX_TOKENS,
+  selectCompactionUserMessages,
+  replaceMessageText,
+  type CompactionUserSelection,
+} from '#/llm-adapter/contract/compaction';
 
 import summaryPrefixTemplate from './compaction-summary-prefix.md?raw';
-import { extractText, truncateTextToTokens, truncateTextToTokensFromEnd } from './compactionText';
-import { isUserPromptSubmitHookPart } from './hookParts';
 import type { ContextMessage, PromptOrigin } from './types';
 
 export const COMPACTION_SUMMARY_PREFIX = summaryPrefixTemplate.trimEnd();
-export const COMPACT_USER_MESSAGE_MAX_TOKENS = 20_000;
-export const COMPACT_USER_MESSAGE_HEAD_TOKENS = 2_000;
 export const COMPACTION_ELISION_VARIANT = 'compaction_elision';
 export const COMPACTION_CONTINUATION_VARIANT = 'compaction_continuation';
 
@@ -31,13 +43,6 @@ export const defaultTokenEstimate: TokenEstimate = {
   message: estimateTokensForMessage,
   messages: estimateTokensForMessages,
 };
-
-export interface CompactionUserSelection<T> {
-  readonly head: T[];
-  readonly tail: T[];
-  readonly elided: boolean;
-  readonly omittedTokens: number;
-}
 
 export interface ContextCompactionShapeInput {
   readonly summary: string;
@@ -173,12 +178,6 @@ export function createCompactionElisionMessage(omittedTokens: number): ContextMe
   };
 }
 
-export function buildCompactionElisionText(omittedTokens: number): string {
-  return wrapSystemReminder(
-    `Some of this conversation's user messages were omitted here during compaction: the messages above this note are the oldest user input, the messages below are the most recent, and roughly ${String(omittedTokens)} tokens in between were dropped. The omitted content is covered by the compaction summary at the end of the conversation.`,
-  );
-}
-
 export function createCompactionContinuationMessage(): ContextMessage {
   return {
     role: 'user',
@@ -186,12 +185,6 @@ export function createCompactionContinuationMessage(): ContextMessage {
     toolCalls: [],
     origin: { kind: 'injection', variant: COMPACTION_CONTINUATION_VARIANT },
   };
-}
-
-export function buildCompactionContinuationText(): string {
-  return wrapSystemReminder(
-    'Context compaction is complete — continue the work that was in progress when it began.',
-  );
 }
 
 export function collectCompactableUserMessages<T extends MessageLike>(messages: readonly T[]): T[] {
@@ -258,94 +251,6 @@ export function selectRecentUserMessages<T extends MessageLike>(
   return selected;
 }
 
-export function selectCompactionUserMessages<
-  T extends { role: string; content: ContentPart[]; toolCalls?: readonly ToolCall[] },
->(
-  messages: readonly T[],
-  maxTokens: number = COMPACT_USER_MESSAGE_MAX_TOKENS,
-  headTokens: number = COMPACT_USER_MESSAGE_HEAD_TOKENS,
-  estimateMessage: (message: T) => number = estimateTokensForMessage,
-): CompactionUserSelection<T> {
-  let totalTokens = 0;
-  for (const message of messages) {
-    totalTokens += estimateMessage(message);
-  }
-  if (totalTokens <= maxTokens) {
-    return { head: [], tail: [...messages], elided: false, omittedTokens: 0 };
-  }
-
-  const headBudget = Math.min(Math.max(headTokens, 0), maxTokens);
-  const tailBudget = maxTokens - headBudget;
-  const tail: T[] = [];
-  let tailRemaining = tailBudget;
-  let headEndExclusive = messages.length;
-  let tailBoundaryDroppedPrefix: T | null = null;
-  for (let i = messages.length - 1; i >= 0 && tailRemaining > 0; i--) {
-    const message = messages[i]!;
-    const tokens = estimateMessage(message);
-    if (tokens <= tailRemaining) {
-      tail.push(message);
-      tailRemaining -= tokens;
-      headEndExclusive = i;
-      continue;
-    }
-    const fullText = extractText(message.content);
-    const keptSuffix = truncateTextToTokensFromEnd(fullText, tailRemaining);
-    tail.push(replaceMessageText(message, keptSuffix));
-    headEndExclusive = i;
-    const droppedPrefix = fullText.slice(0, fullText.length - keptSuffix.length);
-    if (droppedPrefix.length > 0) {
-      tailBoundaryDroppedPrefix = replaceMessageText(message, droppedPrefix);
-    }
-    break;
-  }
-  tail.reverse();
-
-  const headCandidates = messages.slice(0, headEndExclusive);
-  if (tailBoundaryDroppedPrefix !== null) {
-    headCandidates.push(tailBoundaryDroppedPrefix);
-  }
-  const head: T[] = [];
-  let headRemaining = headBudget;
-  for (const message of headCandidates) {
-    if (headRemaining <= 0) break;
-    const tokens = estimateMessage(message);
-    if (tokens <= headRemaining) {
-      head.push(message);
-      headRemaining -= tokens;
-      continue;
-    }
-    head.push(truncateUserMessage(message, headRemaining));
-    break;
-  }
-
-  let keptTokens = 0;
-  for (const message of head) keptTokens += estimateMessage(message);
-  for (const message of tail) keptTokens += estimateMessage(message);
-  return { head, tail, elided: true, omittedTokens: Math.max(0, totalTokens - keptTokens) };
-}
-
 function usesLegacyTailShape(input: ContextCompactionShapeInput): boolean {
   return input.legacyTail === true;
-}
-
-export function replaceMessageText<
-  T extends { content: ContentPart[]; toolCalls?: readonly ToolCall[] },
->(message: T, text: string): T {
-  return {
-    ...message,
-    content: [
-      ...message.content.filter(
-        (part) => isUserPromptSubmitHookPart(part) || isSkillActivationPart(part),
-      ),
-      { type: 'text', text },
-    ],
-    toolCalls: [],
-  } as unknown as T;
-}
-
-function truncateUserMessage<
-  T extends { role: string; content: ContentPart[]; toolCalls?: readonly ToolCall[] },
->(message: T, maxTokens: number): T {
-  return replaceMessageText(message, truncateTextToTokens(extractText(message.content), maxTokens));
 }
