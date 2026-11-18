@@ -25,6 +25,7 @@ import {
 } from '#human/credentials/credentials';
 import { type ProviderMediaContribution } from '#human/llm/media/upload';
 import { type LlmModel } from '#human/llm/model';
+import { createOpenAIRequester } from '#human/llm/requester/bases/openai/requester';
 import {
   type LlmRequestConfig,
   type LlmRequestContent,
@@ -32,6 +33,8 @@ import {
   type LlmRequestEvent,
   type LlmRequester,
 } from '#human/llm/requester/requester';
+
+import { startMockUpstream } from '../../helpers/mockUpstream';
 
 class FakeLlmRequester implements LlmRequester {
   readonly calls: Array<{
@@ -123,6 +126,36 @@ async function collect(stream: AsyncIterable<ModelRequestEvent>): Promise<ModelR
 const INPUT = { systemPrompt: 'sys', tools: [], messages: [] };
 
 describe('ModelRequesterImpl request execution', () => {
+  it('separates tagged upstream reasoning from the finished answer', async () => {
+    const reasoning =
+      'Verifying focused source behaviorChecking patch onlyRebuilding one endpoint****Narrowing next scope';
+    const upstream = startMockUpstream({
+      kind: 'text',
+      chunks: ['<thi', 'nking>', reasoning, '</thinking>', 'Answer'],
+    });
+    try {
+      const impl = new ModelRequesterImpl(modelWith(createStaticCredentialProvider('sk-mock')), {
+        resolve: () => ({
+          requester: createOpenAIRequester(),
+          protocol: 'openai',
+          model: { ...BASE_LLM_MODEL, baseUrl: upstream.baseUrl },
+        }),
+      });
+      const events = await collect(impl.request(INPUT));
+      expect(events.filter((event) => event.type === 'part').map((event) => event.part)).toEqual([
+        { type: 'think', think: reasoning },
+        { type: 'text', text: 'Answer' },
+      ]);
+      const finish = events.find((event) => event.type === 'finish');
+      expect(finish?.type === 'finish' ? finish.message.content : undefined).toEqual([
+        { type: 'think', think: reasoning },
+        { type: 'text', text: 'Answer' },
+      ]);
+    } finally {
+      await upstream.close();
+    }
+  });
+
   it('maps ModelRequestParams onto LlmRequestConfig, content and control', async () => {
     const requester = new FakeLlmRequester();
     requester.handler = (_i, emit) => textStream(emit);
@@ -496,6 +529,37 @@ describe('stall watchdog', () => {
       () => undefined,
       (error: unknown) => error,
     );
+
+  it('keeps a slow stream alive while tag fragments are buffered', async () => {
+    process.env[BODY_ENV] = '150';
+    const upstream = startMockUpstream({
+      kind: 'text',
+      chunks: [...'<thinking>'.split(''), 'plan', ...'</thinking>'.split(''), 'answer'],
+      gapMs: 25,
+    });
+    try {
+      const requester = createOpenAIRequester();
+      const impl = new ModelRequesterImpl(modelWith(createStaticCredentialProvider('sk-mock')), {
+        resolve: () => ({
+          requester,
+          protocol: 'openai',
+          model: { ...BASE_LLM_MODEL, baseUrl: upstream.baseUrl },
+        }),
+      });
+      const events = await collect(impl.request(INPUT));
+      const finish = events.find((event) => event.type === 'finish');
+      expect(finish?.type === 'finish' ? finish.message.content : undefined).toEqual([
+        { type: 'think', think: 'plan' },
+        { type: 'text', text: 'answer' },
+      ]);
+      expect(events.filter((event) => event.type === 'part').map((event) => event.part)).toEqual([
+        { type: 'think', think: 'plan' },
+        { type: 'text', text: 'answer' },
+      ]);
+    } finally {
+      await upstream.close();
+    }
+  });
 
   it('fails a stream that stops sending chunks and aborts the request', async () => {
     process.env[BODY_ENV] = '120';
