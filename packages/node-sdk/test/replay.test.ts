@@ -1,9 +1,8 @@
-import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { log } from '#/logging/logger';
 import { limitAgentReplayByTurns, type AgentReplayRecord } from '#/replay';
 import { foldAgentWireReplay } from '#/v2/resume-replay';
 import { v2MetaToSessionMeta } from '#/v2/session-mapper';
@@ -192,7 +191,7 @@ describe('limitAgentReplayByTurns', () => {
 });
 
 describe('foldAgentWireReplay corruption handling', () => {
-  it('keeps the records before a corrupted non-tail line and warns once', async () => {
+  it('keeps valid records around a corrupted non-tail line and warns once', async () => {
     const dir = await makeTempDir();
     const wirePath = join(dir, 'wire.jsonl');
     await writeFile(
@@ -204,17 +203,16 @@ describe('foldAgentWireReplay corruption handling', () => {
       ].join('\n') + '\n',
       'utf-8',
     );
-    const warn = spyOn(log, 'warn').mockImplementation(() => {});
-
     const folded = await foldAgentWireReplay(wirePath);
 
-    expect(folded.replay).toEqual([{ type: 'permission_updated', mode: 'auto', time: 2 }]);
+    expect(folded.replay).toEqual([
+      { type: 'permission_updated', mode: 'auto', time: 2 },
+      { type: 'permission_updated', mode: 'yolo', time: 9 },
+    ]);
     expect(folded.toolStore).toEqual({});
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn).toHaveBeenCalledWith('wire replay stopped at a corrupted line', {
-      wirePath,
-      line: 2,
-    });
+    expect(folded.warning).toBe(
+      'Skipped 1 corrupt record while replaying session history (line 2).',
+    );
   });
 
   it('tolerates a truncated tail line without warning', async () => {
@@ -227,15 +225,13 @@ describe('foldAgentWireReplay corruption handling', () => {
         '{"type":"permission.set_mode","mode":"yo',
       'utf-8',
     );
-    const warn = spyOn(log, 'warn').mockImplementation(() => {});
-
     const folded = await foldAgentWireReplay(wirePath);
 
     expect(folded.replay).toEqual([{ type: 'permission_updated', mode: 'auto', time: 2 }]);
-    expect(warn).not.toHaveBeenCalled();
+    expect(folded.warning).toBeUndefined();
   });
 
-  it('returns an empty fold when the first line is the corrupted one', async () => {
+  it('skips a corrupted first line and keeps the remaining valid record', async () => {
     const dir = await makeTempDir();
     const wirePath = join(dir, 'wire-head.jsonl');
     await writeFile(
@@ -243,14 +239,12 @@ describe('foldAgentWireReplay corruption handling', () => {
       ['{not json', '{"type":"permission.set_mode","mode":"auto","time":2}'].join('\n') + '\n',
       'utf-8',
     );
-    const warn = spyOn(log, 'warn').mockImplementation(() => {});
-
     await expect(foldAgentWireReplay(wirePath)).resolves.toEqual({
-      replay: [],
+      replay: [{ type: 'permission_updated', mode: 'auto', time: 2 }],
       toolStore: {},
-      userTurnCount: 0,
+      userTurnCount: undefined,
+      warning: 'Skipped 1 corrupt record while replaying session history (line 1).',
     });
-    expect(warn).toHaveBeenCalledTimes(1);
   });
 });
 
