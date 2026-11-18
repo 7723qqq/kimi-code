@@ -1,0 +1,656 @@
+{
+  "artifact": "index-Y30h7qWu.js",
+  "reference": "f082f04a09",
+  "scope": "Selected observations, not a full REA evidence bundle or exhaustive external-service certification",
+  "scenarios": [
+    {
+      "evidence_id": "ev_0464cdbb2b0d1074515eb0eaee4322bbf10e7379d2c96a58f58ac4aede0faddd",
+      "browser": {
+        "cleanup": "terminated-owned-process",
+        "mode": "launch",
+        "process_ownership": "provider-owned",
+        "product": "Chromium",
+        "version": "157.0.4341.60"
+      },
+      "steps": [
+        {
+          "step_id": "scenario_start",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "token",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "connect",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "trust-fixture",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "skip",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "prompt",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "submit",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "observe-partial",
+          "status": "completed",
+          "error": null
+        }
+      ],
+      "last_accessibility": "- document:\n  - complementary:\n    - img \"Kimi Code\"\n    - text: Kimi Code\n    - button \"Collapse sidebar\"\n    - button \"New Session Ctrl Shift O\"\n    - button \"Search Ctrl K\"\n    - text: Projects\n    - button \"Collapse all projects\"\n    - button \"New Project\"\n    - button \"List options\"\n    - text: web-protocol-alignment\n    - button \"Options\"\n    - button \"New session in this project\"\n    - text: hold stream verification\n    - status \"Loading\"\n    - text: Protocol fixture\n    - button \"Options\"\n    - button \"New session in this project\"\n    - text: No conversations yet\n    - button \"Not signed in\"\n    - button \"Settings\"\n  - separator \"Resize sidebar width\"\n  - text: web-protocol-alignment / hold stream verification\n  - button \"Options\"\n  - button \"Hide session info\" [pressed]\n  - list:\n    - listitem:\n      - text: hold stream verification\n      - button \"Copy\"\n      - text: 20:26\n    - listitem:\n      - list:\n        - listitem:\n          - paragraph: \"STREAM-BEGIN:\"\n  - status: Working…\n  - combobox \"Message input\":\n    - paragraph\n  - status\n  - button \"Add\"\n  - button \"Always Ask\"\n  - img \"Used 7 / 97.7k tokens (1%)\"\n  - button \"stub\"\n  - button \"Interrupt\"\n  - button \"Send ↵\" [disabled]\n  - complementary \"Session info\":\n    - button \"web-protocol-alignment\" [expanded]\n    - text: main\n    - button \"No changes\"\n    - text: Available to open\n    - button \"Files\"\n    - button \"Side Chat\"\n  - button \"Open right panel\"\n  - status",
+      "events": [],
+      "dropped": 0
+    },
+    {
+      "evidence_id": "ev_9488dc3d1cb11daa9e0e420f713ec767bead68b277aca173da000bbc3d89a095",
+      "browser": {
+        "cleanup": "terminated-owned-process",
+        "mode": "launch",
+        "process_ownership": "provider-owned",
+        "product": "Chromium",
+        "version": "157.0.4341.60"
+      },
+      "steps": [
+        {
+          "step_id": "scenario_start",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "token",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "connect",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "skip",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "restored",
+          "status": "completed",
+          "error": null
+        }
+      ],
+      "last_accessibility": "- document:\n  - complementary:\n    - img \"Kimi Code\"\n    - text: Kimi Code\n    - button \"Collapse sidebar\"\n    - button \"New Session Ctrl Shift O\"\n    - button \"Search Ctrl K\"\n    - text: Projects\n    - button \"Collapse all projects\"\n    - button \"New Project\"\n    - button \"List options\"\n    - text: web-protocol-alignment\n    - button \"Options\"\n    - button \"New session in this project\"\n    - text: hold stream verification 10m Protocol fixture\n    - button \"Options\"\n    - button \"New session in this project\"\n    - text: No conversations yet\n    - button \"Not signed in\"\n    - button \"Settings\"\n  - separator \"Resize sidebar width\"\n  - text: web-protocol-alignment / hold stream verification\n  - button \"Options\"\n  - button \"Hide session info\" [pressed]\n  - list:\n    - listitem:\n      - text: hold stream verification\n      - button \"Copy\"\n      - button \"Undo message\"\n      - text: 20:26\n    - listitem:\n      - list:\n        - listitem:\n          - paragraph: \"STREAM-BEGIN: official bundle verified\"\n      - button \"Copy\"\n      - button \"Fork from here\"\n      - text: 20:26\n  - status\n  - combobox \"Message input\":\n    - paragraph\n  - status\n  - button \"Add\"\n  - button \"Always Ask\"\n  - img \"Used 92 / 97.7k tokens (1%)\"\n  - button \"stub\"\n  - button \"Send ↵\" [disabled]\n  - complementary \"Session info\":\n    - button \"web-protocol-alignment\" [expanded]\n    - status: Loading\n    - text: Available to open\n    - button \"Files\"\n    - button \"Side Chat\"\n  - button \"Open right panel\"\n  - status",
+      "screenshot_sha256": "0f00502ff8226fc9c2c82f01ac5dc5814f618b5655871dbe081bed43131beaa2",
+      "events": [],
+      "dropped": 0
+    },
+    {
+      "evidence_id": "ev_57eb36aa354a7f42ca71fa7121b157b0f1270bcc3c814d2cc36e47a2857a3a68",
+      "browser": {
+        "cleanup": "terminated-owned-process",
+        "mode": "launch",
+        "process_ownership": "provider-owned",
+        "product": "Chromium",
+        "version": "157.0.4341.60"
+      },
+      "steps": [
+        {
+          "step_id": "scenario_start",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "token",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "connect",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "skip",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "fork",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "fork-result",
+          "status": "completed",
+          "error": null
+        }
+      ],
+      "last_accessibility": "- document:\n  - complementary:\n    - img \"Kimi Code\"\n    - text: Kimi Code\n    - button \"Collapse sidebar\"\n    - button \"New Session Ctrl Shift O\"\n    - button \"Search Ctrl K\"\n    - text: Projects\n    - button \"Collapse all projects\"\n    - button \"New Project\"\n    - button \"List options\"\n    - text: web-protocol-alignment\n    - button \"Options\"\n    - button \"New session in this project\"\n    - text: \"hold stream verification 10m Fork: hold stream verification 10m Protocol fixture\"\n    - button \"Options\"\n    - button \"New session in this project\"\n    - text: No conversations yet\n    - button \"Not signed in\"\n    - button \"Settings\"\n  - separator \"Resize sidebar width\"\n  - text: \"web-protocol-alignment / Fork: hold stream verification\"\n  - button \"Options\"\n  - button \"Hide session info\" [pressed]\n  - list:\n    - listitem:\n      - text: hold stream verification\n      - button \"Copy\"\n      - button \"Undo message\"\n      - text: 20:26\n    - listitem:\n      - list:\n        - listitem:\n          - paragraph: \"STREAM-BEGIN: official bundle verified\"\n      - button \"Copy\"\n      - button \"Fork from here\"\n      - text: 20:26\n  - status\n  - combobox \"Message input\":\n    - paragraph\n  - status\n  - button \"Add\"\n  - button \"Always Ask\"\n  - img \"Used 92 / 97.7k tokens (1%)\"\n  - button \"stub\"\n  - button \"Send ↵\" [disabled]\n  - complementary \"Session info\":\n    - button \"web-protocol-alignment\" [expanded]\n    - text: main\n    - button \"No changes\"\n    - text: Available to open\n    - button \"Files\"\n    - button \"Side Chat\"\n  - button \"Open right panel\"\n  - status",
+      "screenshot_sha256": "44c735d4d3af89f670353b8ddf4b9ee686dd207358ba403ff51f37c4be284bdb",
+      "events": [],
+      "dropped": 0
+    },
+    {
+      "evidence_id": "ev_ac5157e52c09a8084b60eb8a67e6632c782720d4f06c37a86987aa2196b1a6ba",
+      "browser": {
+        "cleanup": "terminated-owned-process",
+        "mode": "launch",
+        "process_ownership": "provider-owned",
+        "product": "Chromium",
+        "version": "157.0.4341.60"
+      },
+      "steps": [
+        {
+          "step_id": "scenario_start",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "token",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "connect",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "skip",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "undo",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "confirm",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "undo-result",
+          "status": "completed",
+          "error": null
+        }
+      ],
+      "last_accessibility": "- document:\n  - complementary:\n    - img \"Kimi Code\"\n    - text: Kimi Code\n    - button \"Collapse sidebar\"\n    - button \"New Session Ctrl Shift O\"\n    - button \"Search Ctrl K\"\n    - text: Projects\n    - button \"Collapse all projects\"\n    - button \"New Project\"\n    - button \"List options\"\n    - text: web-protocol-alignment\n    - button \"Options\"\n    - button \"New session in this project\"\n    - text: \"hold stream verification 11m Fork: hold stream verification 11m Protocol fixture\"\n    - button \"Options\"\n    - button \"New session in this project\"\n    - text: No conversations yet\n    - button \"Not signed in\"\n    - button \"Settings\"\n  - separator \"Resize sidebar width\"\n  - img \"Kimi Code\"\n  - button \"web-protocol-alignment\"\n  - combobox \"Message input\":\n    - paragraph: hold stream verification\n  - status\n  - button \"Add\"\n  - button \"Always Ask\"\n  - button \"stub\"\n  - button \"Send ↵\"\n  - status: Undone — the message is back in the composer\n  - button \"Open right panel\"\n  - status",
+      "screenshot_sha256": "7be848b9649ae74a5eb8bd9651686985714fad464c99027f96366af32c3a5f3a",
+      "events": [],
+      "dropped": 0
+    },
+    {
+      "evidence_id": "ev_ee90fbf577d913d90cce6bedc9602626c69b2437ea1ca0b0ef2d4e1502621c1c",
+      "browser": {
+        "cleanup": "terminated-owned-process",
+        "mode": "launch",
+        "process_ownership": "provider-owned",
+        "product": "Chromium",
+        "version": "157.0.4341.60"
+      },
+      "steps": [
+        {
+          "step_id": "scenario_start",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "token",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "connect",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "skip",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "tool-prompt",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "send",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "observe",
+          "status": "completed",
+          "error": null
+        }
+      ],
+      "last_accessibility": "- document:\n  - complementary:\n    - img \"Kimi Code\"\n    - text: Kimi Code\n    - button \"Collapse sidebar\"\n    - button \"New Session Ctrl Shift O\"\n    - button \"Search Ctrl K\"\n    - text: Projects\n    - button \"Collapse all projects\"\n    - button \"New Project\"\n    - button \"List options\"\n    - text: web-protocol-alignment\n    - button \"Options\"\n    - button \"New session in this project\"\n    - text: \"Fork: hold stream verification Approve hold stream verification 21m Protocol fixture\"\n    - button \"Options\"\n    - button \"New session in this project\"\n    - text: No conversations yet\n    - button \"Not signed in\"\n    - button \"Settings\"\n  - separator \"Resize sidebar width\"\n  - text: \"web-protocol-alignment / Fork: hold stream verification\"\n  - button \"Options\"\n  - button \"Hide session info\" [pressed]\n  - list:\n    - listitem:\n      - text: tool verification\n      - button \"Copy\"\n      - text: 20:47\n    - listitem:\n      - list:\n        - listitem:\n          - text: Run echo protocol-fixture\n          - button \"Expand details\"\n          - status \"running\"\n          - text: Bash D:\\kimi\\kimi-code\\.tmp\\web-protocol-alignment\n          - button \"Enable word wrap\"\n          - button \"Copy\"\n          - text: Output Waiting for output…\n  - status: Working…\n  - text: Run command?\n  - button \"Minimize\"\n  - text: \"$ echo protocol-fixture Working directory: D:\\\\kimi\\\\kimi-code\\\\.tmp\\\\web-protocol-alignment\"\n  - button \"Approve for session\"\n  - button \"Feedback\"\n  - button \"Reject\"\n  - button \"Approve\"\n  - complementary \"Session info\":\n    - button \"web-protocol-alignment\" [expanded]\n    - text: main\n    - button \"No changes\"\n    - text: Available to open\n    - button \"Files\"\n    - button \"Side Chat\"\n  - button \"Open right panel\"\n  - status",
+      "screenshot_sha256": "f3d3fe1722da8839167220202919b11829b5ef68671687ab174d45fef00fecc4",
+      "events": [],
+      "dropped": 0
+    },
+    {
+      "evidence_id": "ev_95549f944c0d706a19d8eb831292731555f2bbc3751b28b21bee870573dcde45",
+      "browser": {
+        "cleanup": "terminated-owned-process",
+        "mode": "launch",
+        "process_ownership": "provider-owned",
+        "product": "Chromium",
+        "version": "157.0.4341.60"
+      },
+      "steps": [
+        {
+          "step_id": "scenario_start",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "token",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "connect",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "skip",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "approve",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "tool-result",
+          "status": "completed",
+          "error": null
+        }
+      ],
+      "last_accessibility": "- document:\n  - complementary:\n    - img \"Kimi Code\"\n    - text: Kimi Code\n    - button \"Collapse sidebar\"\n    - button \"New Session Ctrl Shift O\"\n    - button \"Search Ctrl K\"\n    - text: Projects\n    - button \"Collapse all projects\"\n    - button \"New Project\"\n    - button \"List options\"\n    - text: web-protocol-alignment\n    - button \"Options\"\n    - button \"New session in this project\"\n    - text: \"Fork: hold stream verification just now hold stream verification 21m Protocol fixture\"\n    - button \"Options\"\n    - button \"New session in this project\"\n    - text: No conversations yet\n    - button \"Not signed in\"\n    - button \"Settings\"\n  - separator \"Resize sidebar width\"\n  - text: \"web-protocol-alignment / Fork: hold stream verification\"\n  - button \"Options\"\n  - button \"Hide session info\" [pressed]\n  - list:\n    - listitem:\n      - text: tool verification\n      - button \"Copy\"\n      - button \"Undo message\"\n      - text: 20:47\n    - listitem:\n      - list:\n        - listitem:\n          - text: Run echo protocol-fixture\n          - button \"Expand details\"\n          - text: Bash\n          - button \"Enable word wrap\"\n          - button \"Copy\"\n          - text: Output\n          - button \"Enable word wrap\"\n          - button \"Copy\"\n          - text: protocol-fixture\n        - listitem:\n          - paragraph: \"STREAM-BEGIN: official bundle verified\"\n      - button \"Copy\"\n      - button \"Fork from here\"\n      - text: 20:47\n  - status\n  - combobox \"Message input\":\n    - paragraph\n  - status\n  - button \"Add\"\n  - button \"Always Ask\"\n  - img \"Used 105 / 97.7k tokens (1%)\"\n  - button \"stub\"\n  - button \"Send ↵\" [disabled]\n  - complementary \"Session info\":\n    - button \"web-protocol-alignment\" [expanded]\n    - text: main\n    - button \"No changes\"\n    - text: Available to open\n    - button \"Files\"\n    - button \"Side Chat\"\n  - button \"Open right panel\"\n  - status",
+      "screenshot_sha256": "6b5785f751da089ca077a3f8c49c1ecd37ac677526511fce44e63baa7ef91ded",
+      "events": [],
+      "dropped": 0
+    },
+    {
+      "evidence_id": "ev_85b23f322a22709b3e11a35ff822f3209f160a3719a1775c806bd1a53b632f02",
+      "browser": {
+        "cleanup": "terminated-owned-process",
+        "mode": "launch",
+        "process_ownership": "provider-owned",
+        "product": "Chromium",
+        "version": "157.0.4341.60"
+      },
+      "steps": [
+        {
+          "step_id": "scenario_start",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "token",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "connect",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "skip",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "compacted-history",
+          "status": "completed",
+          "error": null
+        }
+      ],
+      "last_accessibility": "- document:\n  - complementary:\n    - img \"Kimi Code\"\n    - text: Kimi Code\n    - button \"Collapse sidebar\"\n    - button \"New Session Ctrl Shift O\"\n    - button \"Search Ctrl K\"\n    - text: Projects\n    - button \"Collapse all projects\"\n    - button \"New Project\"\n    - button \"List options\"\n    - text: web-protocol-alignment\n    - button \"Options\"\n    - button \"New session in this project\"\n    - text: \"Fork: hold stream verification 1m hold stream verification 22m Protocol fixture\"\n    - button \"Options\"\n    - button \"New session in this project\"\n    - text: No conversations yet\n    - button \"Not signed in\"\n    - button \"Settings\"\n  - separator \"Resize sidebar width\"\n  - text: \"web-protocol-alignment / Fork: hold stream verification\"\n  - button \"Options\"\n  - button \"Hide session info\" [pressed]\n  - list:\n    - listitem:\n      - text: tool verification\n      - button \"Copy\"\n      - text: 20:47\n    - listitem:\n      - list:\n        - listitem:\n          - text: Run echo protocol-fixture\n          - button \"Expand details\"\n          - text: Bash\n          - button \"Enable word wrap\"\n          - button \"Copy\"\n          - text: Output\n          - button \"Enable word wrap\"\n          - button \"Copy\"\n          - text: protocol-fixture\n        - listitem:\n          - paragraph: \"STREAM-BEGIN: official bundle verified\"\n      - button \"Copy\"\n      - button \"Fork from here\"\n      - text: 20:47\n    - listitem:\n      - separator:\n        - button \"Context compacted (21.5k → 22.1k tokens) View summary\"\n  - status\n  - combobox \"Message input\":\n    - paragraph\n  - status\n  - button \"Add\"\n  - button \"Always Ask\"\n  - img \"Used 22.1k / 97.7k tokens (23%)\"\n  - button \"stub\"\n  - button \"Send ↵\" [disabled]\n  - complementary \"Session info\":\n    - button \"web-protocol-alignment\" [expanded]\n    - status: Loading\n    - text: Available to open\n    - button \"Files\"\n    - button \"Side Chat\"\n  - button \"Open right panel\"\n  - status",
+      "screenshot_sha256": "6d696fb47ec6f0632556e18d4389885754341bcb10cc9e23d86b4863ca877cde",
+      "events": [],
+      "dropped": 0
+    },
+    {
+      "evidence_id": "ev_06460bddd290d387e03880f6e54fae88767c207accad644648de2822f490fef1",
+      "browser": {
+        "cleanup": "terminated-owned-process",
+        "mode": "launch",
+        "process_ownership": "provider-owned",
+        "product": "Chromium",
+        "version": "157.0.4341.60"
+      },
+      "steps": [
+        {
+          "step_id": "scenario_start",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "token",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "connect",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "skip",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "prompt",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "send",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "stream",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "interrupt",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "stopped",
+          "status": "completed",
+          "error": null
+        }
+      ],
+      "last_accessibility": "- document:\n  - complementary:\n    - img \"Kimi Code\"\n    - text: Kimi Code\n    - button \"Collapse sidebar\"\n    - button \"New Session Ctrl Shift O\"\n    - button \"Search Ctrl K\"\n    - text: Projects\n    - button \"Collapse all projects\"\n    - button \"New Project\"\n    - button \"List options\"\n    - text: web-protocol-alignment\n    - button \"Options\"\n    - button \"New session in this project\"\n    - text: \"hold stream verification just now Fork: hold stream verification 7m Protocol fixture\"\n    - button \"Options\"\n    - button \"New session in this project\"\n    - text: No conversations yet\n    - button \"Not signed in\"\n    - button \"Settings\"\n  - separator \"Resize sidebar width\"\n  - text: web-protocol-alignment / hold stream verification\n  - button \"Options\"\n  - button \"Hide session info\" [pressed]\n  - list:\n    - listitem:\n      - text: hold stream verification\n      - button \"Copy\"\n      - button \"Undo message\"\n      - text: 20:26\n    - listitem:\n      - list:\n        - listitem:\n          - paragraph: \"STREAM-BEGIN: official bundle verified\"\n      - button \"Copy\"\n      - button \"Fork from here\"\n      - text: 20:26\n    - listitem:\n      - text: hold cancellation verification\n      - button \"Copy\"\n      - button \"Undo message\"\n      - text: 20:54\n    - listitem:\n      - list:\n        - listitem:\n          - paragraph: \"STREAM-BEGIN:\"\n      - button \"Copy\"\n      - button \"Fork from here\"\n      - text: 20:54\n      - separator:\n        - status: Manually stopped\n  - status\n  - combobox \"Message input\":\n    - paragraph\n  - status\n  - button \"Add\"\n  - button \"Always Ask\"\n  - img \"Used 159 / 97.7k tokens (1%)\"\n  - button \"stub\"\n  - button \"Send ↵\" [disabled]\n  - complementary \"Session info\":\n    - button \"web-protocol-alignment\" [expanded]\n    - status: Loading\n    - text: Available to open\n    - button \"Files\"\n    - button \"Side Chat\"\n  - button \"Open right panel\"\n  - status",
+      "screenshot_sha256": "c842d1fee4e9556385e9fd5ac83be3f959d652ce45d1115e5257cff2a96990f9",
+      "events": [],
+      "dropped": 0
+    },
+    {
+      "evidence_id": "ev_3dcf0856809580e219aad64eed003cc9bd90326a4f602fb63765645365bcdac6",
+      "browser": {
+        "cleanup": "terminated-owned-process",
+        "mode": "launch",
+        "process_ownership": "provider-owned",
+        "product": "Chromium",
+        "version": "157.0.4341.60"
+      },
+      "steps": [
+        {
+          "step_id": "scenario_start",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "token",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "connect",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "skip",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "settle",
+          "status": "completed",
+          "error": null
+        }
+      ],
+      "last_accessibility": "- document:\n  - complementary:\n    - img \"Kimi Code\"\n    - text: Kimi Code\n    - button \"Collapse sidebar\"\n    - button \"New Session Ctrl Shift O\"\n    - button \"Search Ctrl K\"\n    - text: Projects\n    - button \"Collapse all projects\"\n    - button \"New Project\"\n    - button \"List options\"\n    - text: web-protocol-alignment\n    - button \"Options\"\n    - button \"New session in this project\"\n    - text: \"hold stream verification 2m Fork: hold stream verification 9m Protocol fixture\"\n    - button \"Options\"\n    - button \"New session in this project\"\n    - text: No conversations yet\n    - button \"Not signed in\"\n    - button \"Settings\"\n  - separator \"Resize sidebar width\"\n  - text: \"web-protocol-alignment / Fork: hold stream verification\"\n  - button \"Options\"\n  - button \"Hide session info\" [pressed]\n  - list:\n    - listitem:\n      - text: tool verification\n      - button \"Copy\"\n      - text: 20:47\n    - listitem:\n      - list:\n        - listitem:\n          - text: Run echo protocol-fixture\n          - button \"Expand details\"\n          - text: Bash\n          - button \"Enable word wrap\"\n          - button \"Copy\"\n          - text: Output\n          - button \"Enable word wrap\"\n          - button \"Copy\"\n          - text: protocol-fixture\n        - listitem:\n          - paragraph: \"STREAM-BEGIN: official bundle verified\"\n      - button \"Copy\"\n      - button \"Fork from here\"\n      - text: 20:47\n    - listitem:\n      - separator:\n        - button \"Context compacted (21.5k → 22.1k tokens) View summary\"\n  - status\n  - combobox \"Message input\":\n    - paragraph\n  - status\n  - button \"Add\"\n  - button \"Always Ask\"\n  - img \"Used 22.1k / 97.7k tokens (23%)\"\n  - button \"stub\"\n  - button \"Send ↵\" [disabled]\n  - complementary \"Session info\":\n    - button \"web-protocol-alignment\" [expanded]\n    - status: Loading\n    - text: Available to open\n    - button \"Files\"\n    - button \"Side Chat\"\n  - button \"Open right panel\"\n  - status",
+      "events": [
+        {
+          "kind": "console",
+          "sequence": 49,
+          "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+        },
+        {
+          "kind": "console",
+          "sequence": 51,
+          "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+        },
+        {
+          "kind": "websocket-frame-sent",
+          "sequence": 206,
+          "payload_text": "{\"type\":\"subscribe\",\"request_id\":\"c_1\",\"session_id\":\"session_46cbc2be-e414-402b-9ece-13983e62384b\",\"agent_ids\":[\"main\"]}"
+        },
+        {
+          "kind": "websocket-frame-received",
+          "sequence": 215,
+          "payload_text": "{\"type\":\"response\",\"request_id\":\"c_1\",\"code\":0}"
+        },
+        {
+          "kind": "websocket-frame-received",
+          "sequence": 221,
+          "payload_text": "{\"type\":\"task.list\",\"session_id\":\"session_46cbc2be-e414-402b-9ece-13983e62384b\",\"agent_id\":\"main\",\"tasks\":[]}"
+        },
+        {
+          "kind": "websocket-frame-received",
+          "sequence": 222,
+          "payload_text": "{\"type\":\"agent\",\"session_id\":\"session_46cbc2be-e414-402b-9ece-13983e62384b\",\"agent_id\":\"main\",\"event_created_at\":\"2026-11-16T20:56:31.731Z\",\"status\":\"idle\",\"compacting\":false,\"model\":\"stub\",\"thinking\":\"off\",\"permission_mode\":\"manual\",\"plan_mode\":false,\"swarm_mode\":false,\"tower_mode\":false}"
+        },
+        {
+          "kind": "websocket-frame-received",
+          "sequence": 223,
+          "payload_text": "{\"type\":\"usage\",\"session_id\":\"session_46cbc2be-e414-402b-9ece-13983e62384b\",\"agent_id\":\"main\",\"event_created_at\":\"2026-11-16T20:56:31.731Z\",\"context_tokens\":22600,\"max_context_tokens\":100000}"
+        },
+        {
+          "kind": "websocket-frame-received",
+          "sequence": 224,
+          "payload_text": "{\"type\":\"goal\",\"session_id\":\"session_46cbc2be-e414-402b-9ece-13983e62384b\",\"agent_id\":\"main\",\"event_created_at\":\"2026-11-16T20:56:31.731Z\"}"
+        },
+        {
+          "kind": "websocket-frame-received",
+          "sequence": 225,
+          "payload_text": "{\"type\":\"todo\",\"session_id\":\"session_46cbc2be-e414-402b-9ece-13983e62384b\",\"agent_id\":\"main\",\"event_created_at\":\"2026-11-16T20:56:31.731Z\",\"items\":[]}"
+        },
+        {
+          "kind": "websocket-frame-received",
+          "sequence": 226,
+          "payload_text": "{\"type\":\"turns\",\"session_id\":\"session_46cbc2be-e414-402b-9ece-13983e62384b\",\"agent_id\":\"main\",\"event_created_at\":\"2026-11-16T20:56:31.732Z\",\"turns\":[{\"turn_id\":\"t_639007f9ad5f\",\"ordinal\":0,\"kind\":\"agent\",\"status\":\"ended\",\"turn_number\":1,\"started_at\":\"2026-11-16T20:47:21.473Z\",\"steps\":[{\"index\":1,\"outcome\":\"completed\",\"started_at\":\"2026-11-16T20:47:21.489Z\",\"ended_at\":\"2026-11-16T20:47:37.113Z\",\"finish_reason\":\"tool_use\",\"usage\":{\"input_other\":0,\"output\":0,\"input_cache_read\":0,\"input_cache_creation\":0}},{\"index\":2,\"outcome\":\"completed\",\"started_at\":\"2026-11-16T20:47:37.118Z\",\"ended_at\":\"2026-11-16T20:47:37.131Z\",\"finish_reason\":\"end_turn\",\"usage\":{\"input_other\":0,\"output\":0,\"input_cache_read\":0,\"input_cache_creation\":0}}],\"items\":[{\"type\":\"user_message\",\"item_id\":\"msg_1e98f2f5f096c0aee796d7103d79915c\",\"status\":\"ended\",\"outcome\":\"completed\",\"created_at\":\"2026-11-16T20:47:21.473Z\",\"prompt_ids\":[\"msg_1e98f2f5f096c0aee796d7103d79915c\"],\"placement\":\"opener\",\"origin\":{\"kind\":\"user\"},\"text\":\"tool verification\",\"attachments\":[],\"skills\":[],\"metadata\":{\"kimi_code_composer\":{\"version\":1,\"doc\":{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"tool verification\"}]}]},\"attachments\":[],\"attachmentOrder\":[]},\"display_text\":\"tool verification\"}},{\"type\":\"tool_call\",\"item_id\":\"fixture-call\",\"step_index\":1,\"status\":\"ended\",\"created_at\":\"2026-11-16T20:47:21.570Z\",\"name\":\"Bash\",\"input\":{\"command\":\"echo protocol-fixture\"},\"display\":{\"kind\":\"command\",\"command\":\"echo protocol-fixture\",\"cwd\":\"D:\\\\kimi\\\\kimi-code\\\\.tmp\\\\web-protocol-alignment\",\"language\":\"bash\"},\"started_at\":\"2026-11-16T20:47:21.570Z\",\"interaction_id\":\"approval_24854386-9533-4a8a-b4e4-b127bd547cc3\",\"outcome\":\"completed\",\"output\":\"protocol-fixture\\n\",\"ended_at\":\"2026-11-16T20:47:37.110Z\"},{\"type\":\"assistant_message\",\"item_id\":\"57e036c8-6fae-46c7-ad11-0586e480c595:0\",\"step_index\":2,\"status\":\"ended\",\"outcome\":\"completed\",\"created_at\":\"2026-11-16T20:47:37.126Z\",\"text\":\"STREAM-BEGIN: official bundle verified\"}],\"usage\":{\"input_other\":0,\"output\":0,\"input_cache_read\":0,\"input_cache_creation\":0},\"outcome\":\"completed\",\"ended_at\":\"2026-11-16T20:47:37.133Z\",\"duration_ms\":15661},{\"turn_id\":\"t_aa7ac1360aea\",\"ordinal\":1,\"kind\":\"system\",\"status\":\"ended\",\"started_at\":\"2026-11-16T20:48:21.774Z\",\"steps\":[],\"items\":[{\"type\":\"system\",\"kind\":\"compaction\",\"item_id\":\"t_aa7ac1360aea#0\",\"status\":\"ended\",\"outcome\":\"completed\",\"created_at\":\"2026-11-16T20:48:21.774Z\",\"trigger\":\"manual\",\"instruction\":\"Keep the tool result\",\"summary\":\"STREAM-BEGIN: official bundle verified\",\"tokens_before\":22066,\"tokens_after\":22600,\"compacted_count\":5}],\"outcome\":\"completed\",\"ended_at\":\"2026-11-16T20:48:21.774Z\",\"duration_ms\":0}],\"has_more\":false}"
+        }
+      ],
+      "dropped": 0
+    },
+    {
+      "evidence_id": "ev_aa837a79a978aaaf500bf30a54d33c2e1d74d58e6d1a007b26ffb994c1165481",
+      "browser": {
+        "cleanup": "terminated-owned-process",
+        "mode": "launch",
+        "process_ownership": "provider-owned",
+        "product": "Chromium",
+        "version": "157.0.4341.60"
+      },
+      "steps": [
+        {
+          "step_id": "scenario_start",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "token",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "connect",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "skip",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "approve-write",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "written",
+          "status": "completed",
+          "error": null
+        }
+      ],
+      "last_accessibility": "- document:\n  - complementary:\n    - img \"Kimi Code\"\n    - text: Kimi Code\n    - button \"Collapse sidebar\"\n    - button \"New Session Ctrl Shift O\"\n    - button \"Search Ctrl K\"\n    - text: Projects\n    - button \"Collapse all projects\"\n    - button \"New Project\"\n    - button \"List options\"\n    - text: web-protocol-alignment\n    - button \"Options\"\n    - button \"New session in this project\"\n    - text: \"hold stream verification just now Fork: hold stream verification 18m Protocol fixture\"\n    - button \"Options\"\n    - button \"New session in this project\"\n    - text: No conversations yet\n    - button \"Not signed in\"\n    - button \"Settings\"\n  - separator \"Resize sidebar width\"\n  - text: web-protocol-alignment / hold stream verification\n  - button \"Options\"\n  - button \"Hide session info\" [pressed]\n  - list:\n    - listitem:\n      - text: hold stream verification\n      - button \"Copy\"\n      - button \"Undo message\"\n      - text: 20:26\n    - listitem:\n      - list:\n        - listitem:\n          - paragraph: \"STREAM-BEGIN: official bundle verified\"\n      - button \"Copy\"\n      - button \"Fork from here\"\n      - text: 20:26\n    - listitem:\n      - text: hold cancellation verification\n      - button \"Copy\"\n      - button \"Undo message\"\n      - text: 20:54\n    - listitem:\n      - list:\n        - listitem:\n          - paragraph: \"STREAM-BEGIN:\"\n      - button \"Copy\"\n      - button \"Fork from here\"\n      - text: 20:54\n    - listitem:\n      - text: file history verification\n      - button \"Copy\"\n      - button \"Undo message\"\n      - text: 21:05\n    - listitem:\n      - list:\n        - listitem:\n          - text: Write\n          - button \"history-proof.txt\"\n          - button \"Expand details\"\n          - text: created D:\\kimi\\kimi-code\\.tmp\\web-protocol-alignment/\n          - button \"history-proof.txt\"\n          - button \"Copy\"\n          - text: Wrote 28 bytes to D:\\kimi\\kimi-code\\.tmp\\web-protocol-alignment\\history-proof.txt\n        - listitem:\n          - paragraph: \"STREAM-BEGIN: official bundle verified\"\n      - text: 1 file changed +1\n      - list:\n        - listitem:\n          - button \"history-proof.txt\"\n          - text: \"+1\"\n      - button \"Copy\"\n      - button \"Fork from here\"\n      - text: 21:05\n  - status\n  - combobox \"Message input\":\n    - paragraph\n  - status\n  - button \"Add\"\n  - button \"Always Ask\"\n  - img \"Used 243 / 97.7k tokens (1%)\"\n  - button \"stub\"\n  - button \"Send ↵\" [disabled]\n  - complementary \"Session info\":\n    - button \"web-protocol-alignment\" [expanded]\n    - text: main\n    - button \"No changes\"\n    - text: Available to open\n    - button \"Files\"\n    - button \"Side Chat\"\n  - button \"Open right panel\"\n  - status",
+      "screenshot_sha256": "ef37dd527d488268fe84b45356d7d89875d34dc9fc8447fab0916534a62b27a7",
+      "events": [
+        {
+          "kind": "console",
+          "sequence": 53,
+          "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+          "url": "http://127.0.0.1:55787/api/v1/auth"
+        },
+        {
+          "kind": "console",
+          "sequence": 55,
+          "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+          "url": "http://127.0.0.1:55787/api/v1/oauth/region"
+        },
+        {
+          "kind": "request",
+          "sequence": 366,
+          "method": "GET",
+          "url": "http://127.0.0.1:55787/api/v1/sessions/session_7117d505-289c-48de-a55b-99176f807515/file-history/changes?turn_number=1"
+        },
+        {
+          "kind": "request",
+          "sequence": 391,
+          "method": "GET",
+          "url": "http://127.0.0.1:55787/api/v1/sessions/session_7117d505-289c-48de-a55b-99176f807515/file-history/changes?turn_number=2"
+        },
+        {
+          "kind": "request",
+          "sequence": 402,
+          "method": "GET",
+          "url": "http://127.0.0.1:55787/api/v1/sessions/session_7117d505-289c-48de-a55b-99176f807515/file-history/changes?turn_number=0"
+        }
+      ],
+      "dropped": 0
+    },
+    {
+      "evidence_id": "ev_265949d9fcfdc6cc4e52c6249ba18d4a89a81d5c183e68d18bdb97059c505d35",
+      "browser": {
+        "cleanup": "terminated-owned-process",
+        "mode": "launch",
+        "process_ownership": "provider-owned",
+        "product": "Chromium",
+        "version": "157.0.4341.60"
+      },
+      "steps": [
+        {
+          "step_id": "scenario_start",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "token",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "connect",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "skip",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "open-turn-diff",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "step_id": "diff",
+          "status": "completed",
+          "error": null
+        }
+      ],
+      "last_accessibility": "- document:\n  - complementary:\n    - img \"Kimi Code\"\n    - text: Kimi Code\n    - button \"Collapse sidebar\"\n    - button \"New Session Ctrl Shift O\"\n    - button \"Search Ctrl K\"\n    - text: Projects\n    - button \"Collapse all projects\"\n    - button \"New Project\"\n    - button \"List options\"\n    - text: web-protocol-alignment\n    - button \"Options\"\n    - button \"New session in this project\"\n    - text: \"hold stream verification just now Fork: hold stream verification 19m Protocol fixture\"\n    - button \"Options\"\n    - button \"New session in this project\"\n    - text: No conversations yet\n    - button \"Not signed in\"\n    - button \"Settings\"\n  - separator \"Resize sidebar width\"\n  - text: hold stream verification\n  - button \"Options\"\n  - button \"Show session info\"\n  - list:\n    - listitem:\n      - text: hold stream verification\n      - button \"Copy\"\n      - button \"Undo message\"\n      - text: 20:26\n    - listitem:\n      - list:\n        - listitem:\n          - paragraph: \"STREAM-BEGIN: official bundle verified\"\n      - button \"Copy\"\n      - button \"Fork from here\"\n      - text: 20:26\n    - listitem:\n      - text: hold cancellation verification\n      - button \"Copy\"\n      - button \"Undo message\"\n      - text: 20:54\n    - listitem:\n      - list:\n        - listitem:\n          - paragraph: \"STREAM-BEGIN:\"\n      - button \"Copy\"\n      - button \"Fork from here\"\n      - text: 20:54\n    - listitem:\n      - text: file history verification\n      - button \"Copy\"\n      - button \"Undo message\"\n      - text: 21:05\n    - listitem:\n      - list:\n        - listitem:\n          - text: Write\n          - button \"history-proof.txt\"\n          - button \"Expand details\"\n          - text: created D:\\kimi\\kimi-code\\.tmp\\web-protocol-alignment/\n          - button \"history-proof.txt\"\n          - button \"Copy\"\n          - text: Wrote 28 bytes to D:\\kimi\\kimi-code\\.tmp\\web-protocol-alignment\\history-proof.txt\n        - listitem:\n          - paragraph: \"STREAM-BEGIN: official bundle verified\"\n      - text: 1 file changed +1\n      - list:\n        - listitem:\n          - button \"history-proof.txt\"\n          - text: \"+1\"\n      - button \"Copy\"\n      - button \"Fork from here\"\n      - text: 21:05\n  - status\n  - combobox \"Message input\":\n    - paragraph\n  - status\n  - button \"Add\"\n  - button \"Always Ask\"\n  - img \"Used 243 / 97.7k tokens (1%)\"\n  - button \"stub\"\n  - button \"Send ↵\" [disabled]\n  - button \"Close right panel\" [expanded]\n  - complementary \"Detail panel\":\n    - separator \"Resize preview panel width\"\n    - tablist:\n      - tab \"Turn Diff\" [selected]\n      - button \"Close tab\"\n    - button \"New tab\"\n    - button \"Expand panel\"\n    - text: D:\\kimi\\kimi-code\\.tmp\\web-protocol-alignment\\history-proof.txt\n    - button \"Enable word wrap\"\n    - button \"Open file\"\n    - text: + file history protocol proof\n  - status",
+      "screenshot_sha256": "d1f870a4cebe20e6ea68b14d64d2150c2a8dbca9f521f9025e2b72ec8b621a36",
+      "events": [
+        {
+          "kind": "console",
+          "sequence": 53,
+          "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+          "url": "http://127.0.0.1:55787/api/v1/auth"
+        },
+        {
+          "kind": "console",
+          "sequence": 55,
+          "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+          "url": "http://127.0.0.1:55787/api/v1/oauth/region"
+        },
+        {
+          "kind": "request",
+          "sequence": 302,
+          "method": "GET",
+          "url": "http://127.0.0.1:55787/api/v1/sessions/session_7117d505-289c-48de-a55b-99176f807515/file-history/changes?turn_number=2"
+        },
+        {
+          "kind": "request",
+          "sequence": 310,
+          "method": "GET",
+          "url": "http://127.0.0.1:55787/api/v1/sessions/session_7117d505-289c-48de-a55b-99176f807515/file-history/content?turn_number=2&path=history-proof.txt&phase=start"
+        },
+        {
+          "kind": "request",
+          "sequence": 312,
+          "method": "GET",
+          "url": "http://127.0.0.1:55787/api/v1/sessions/session_7117d505-289c-48de-a55b-99176f807515/file-history/content?turn_number=2&path=history-proof.txt&phase=end"
+        },
+        {
+          "kind": "request",
+          "sequence": 329,
+          "method": "GET",
+          "url": "http://127.0.0.1:55787/api/v1/sessions/session_7117d505-289c-48de-a55b-99176f807515/file-history/changes?turn_number=1"
+        },
+        {
+          "kind": "request",
+          "sequence": 334,
+          "method": "GET",
+          "url": "http://127.0.0.1:55787/api/v1/sessions/session_7117d505-289c-48de-a55b-99176f807515/file-history/changes?turn_number=0"
+        }
+      ],
+      "dropped": 0
+    }
+  ]
+}
