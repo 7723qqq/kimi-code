@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
@@ -32,7 +32,7 @@ function isBrowserDownload(req: FastifyRequest): boolean {
 }
 
 function downloadCookieName(host: string): string {
-  return `kimi_download_${createHash('sha256').update(host).digest('hex').slice(0, 12)}`;
+  return `kimi_download_${new Bun.CryptoHasher('sha256').update(host).digest('hex').slice(0, 12)}`;
 }
 
 function cookieValue(req: FastifyRequest, name: string): string | undefined {
@@ -41,7 +41,7 @@ function cookieValue(req: FastifyRequest, name: string): string | undefined {
 }
 
 function grantKey(value: string): string {
-  return createHash('sha256').update(value).digest('hex');
+  return new Bun.CryptoHasher('sha256').update(value).digest('hex');
 }
 
 export interface AuthHookOptions {

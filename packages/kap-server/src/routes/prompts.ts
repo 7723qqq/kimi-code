@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 
 import {
@@ -197,7 +196,7 @@ export function registerPromptsRoutes(
       const { session_id } = req.params;
       const key =
         req.body.prompt_id === undefined ? undefined : `${session_id}\0${req.body.prompt_id}`;
-      const fingerprint = createHash('sha256')
+      const fingerprint = new Bun.CryptoHasher('sha256')
         .update(
           JSON.stringify({ route: directSteer, body: req.body }, (_key, value: unknown) =>
             value !== null && typeof value === 'object' && !Array.isArray(value)
