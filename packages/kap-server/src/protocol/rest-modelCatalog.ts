@@ -118,6 +118,7 @@ export const replaceProviderRequestSchema = z
     refineProviderForm(value, ctx);
     if (
       value.default_model !== undefined &&
+      value.default_model !== null &&
       !value.models.some((entry) => entry.model === value.default_model)
     ) {
       ctx.addIssue({
