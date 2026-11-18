@@ -1,0 +1,150 @@
+{
+  "generatedAt": "2026-11-16T14:23:26.721Z",
+  "preset": "engineering-starter",
+  "source": "D:\\kimi\\kimi-code\\.tmp\\workbuddy-all-experts",
+  "output": "D:/kimi/kimi-code/.agents/agents/workbuddy",
+  "counts": {
+    "total": 13,
+    "singles": 8,
+    "teamLeads": 1,
+    "teamMembers": 4
+  },
+  "agents": [
+    {
+      "name": "wb-senior-developer",
+      "type": "single",
+      "sourceId": "SeniorDeveloper",
+      "promptFile": "senior-developer.md",
+      "description": "10年以上全栈经验，精通多种语言和框架，以严谨的工程纪律交付可运行的高质量代码（可写代码）",
+      "tools": 24,
+      "canWrite": true,
+      "subagents": 0
+    },
+    {
+      "name": "wb-code-review-expert",
+      "type": "single",
+      "sourceId": "CodeReviewExpert",
+      "promptFile": "code-review-expert.md",
+      "description": "以鹰眼标准检查每行代码，在缺陷到达生产环境之前将其拦截（只读审查）",
+      "tools": 7,
+      "canWrite": false,
+      "subagents": 0
+    },
+    {
+      "name": "wb-software-architect",
+      "type": "single",
+      "sourceId": "SoftwareArchitect",
+      "promptFile": "software-architect.md",
+      "description": "站在全局高度设计可扩展高可用的软件架构，为技术团队指明方向（只读分析）",
+      "tools": 7,
+      "canWrite": false,
+      "subagents": 0
+    },
+    {
+      "name": "wb-backend-architect",
+      "type": "single",
+      "sourceId": "BackendArchitect",
+      "promptFile": "backend-architect.md",
+      "description": "深耕分布式系统和高并发架构，擅长将复杂业务转化为优雅技术方案（只读分析）",
+      "tools": 7,
+      "canWrite": false,
+      "subagents": 0
+    },
+    {
+      "name": "wb-frontend-developer",
+      "type": "single",
+      "sourceId": "FrontendDeveloper",
+      "promptFile": "frontend-developer.md",
+      "description": "精通现代Web技术和主流框架，以像素级精度构建响应式高性能Web应用（可写代码）",
+      "tools": 24,
+      "canWrite": true,
+      "subagents": 0
+    },
+    {
+      "name": "wb-ai-engineer",
+      "type": "single",
+      "sourceId": "AiEngineer",
+      "promptFile": "ai-engineer.md",
+      "description": "精通ML模型开发部署优化的全栈AI工程师，将AI从论文带到生产环境（可写代码）",
+      "tools": 24,
+      "canWrite": true,
+      "subagents": 0
+    },
+    {
+      "name": "wb-deep-research-expert",
+      "type": "single",
+      "sourceId": "DeepResearchExpert",
+      "promptFile": "deep-research-expert.md",
+      "description": "综合性深度研究专家，支持多源信息检索、事实验证、知识发现和结构化报告生成，含微信公众号文章搜索能力（写报告）",
+      "tools": 10,
+      "canWrite": true,
+      "subagents": 0
+    },
+    {
+      "name": "wb-product-management-expert",
+      "type": "single",
+      "sourceId": "ProductManagementExpert",
+      "promptFile": "product-management-expert.md",
+      "description": "产品管理工具集：功能规格编写、路线图规划、利益相关者沟通、用户研究综合、竞品分析和指标追踪（写文档）",
+      "tools": 10,
+      "canWrite": true,
+      "subagents": 0
+    },
+    {
+      "name": "wb-software-company-lead",
+      "type": "team-lead",
+      "sourceId": "SoftwareCompany",
+      "promptFile": "software-team-lead.md",
+      "description": "高效软件研发团队，产品经理定需求、架构师设计+拆任务、工程师批量实现代码、QA验证质量，小需求支持快速模式（编排，不直接改代码）",
+      "tools": 10,
+      "canWrite": false,
+      "subagents": 4
+    },
+    {
+      "name": "wb-software-company-product-manager",
+      "type": "team-member",
+      "sourceId": "SoftwareCompany",
+      "promptFile": "software-product-manager.md",
+      "description": "产品经理 — 软件开发团队 成员（写文档）",
+      "tools": 10,
+      "canWrite": true,
+      "subagents": 0
+    },
+    {
+      "name": "wb-software-company-architect",
+      "type": "team-member",
+      "sourceId": "SoftwareCompany",
+      "promptFile": "software-architect.md",
+      "description": "架构师 — 软件开发团队 成员（只读分析）",
+      "tools": 7,
+      "canWrite": false,
+      "subagents": 0
+    },
+    {
+      "name": "wb-software-company-engineer",
+      "type": "team-member",
+      "sourceId": "SoftwareCompany",
+      "promptFile": "software-engineer.md",
+      "description": "工程师 — 软件开发团队 成员（可写代码）",
+      "tools": 24,
+      "canWrite": true,
+      "subagents": 0
+    },
+    {
+      "name": "wb-software-company-qa-engineer",
+      "type": "team-member",
+      "sourceId": "SoftwareCompany",
+      "promptFile": "software-qa-engineer.md",
+      "description": "QA工程师 — 软件开发团队 成员（可写代码）",
+      "tools": 24,
+      "canWrite": true,
+      "subagents": 0
+    }
+  ],
+  "validation": {
+    "ok": true,
+    "errors": [],
+    "toolReferences": {},
+    "templateVariables": {}
+  }
+}
