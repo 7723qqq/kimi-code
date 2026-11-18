@@ -1,13 +1,24 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, spyOn } from 'bun:test';
 
-import { ScrollView, TuiAltScreen, TuiMainScreen, VStack } from '@moonshot-ai/pi-tui';
+import {
+  ProcessTerminal,
+  ScrollView,
+  Text,
+  TuiAltScreen,
+  TuiMainScreen,
+  VStack,
+} from '@moonshot-ai/pi-tui';
 
+import { t } from '#/i18n';
 import { GutterContainer } from '#/tui/components/chrome/gutter-container';
 import { StickyUserMessageComponent } from '#/tui/components/messages/sticky-user-message';
 import { TranscriptView } from '#/tui/components/messages/transcript-view';
 import { createTUIState, type KimiTUIOptions } from '#/tui/kimi-tui';
 import type { AppState } from '#/tui/types';
+import { DiagnosticTerminal } from '#/tui/utils/diagnostic-terminal';
 import { createEmptySessionStats } from '#/tui/utils/session-stats';
+
+import { VirtualTerminal } from '../../../../packages/pi-tui/test/virtual-terminal';
 
 function fakeInitialAppState(): AppState {
   return {
@@ -53,6 +64,101 @@ function fakeInitialAppState(): AppState {
 }
 
 describe('createTUIState', () => {
+  it('assembles a guarded terminal and keeps repeated diagnostics in one visible notice', () => {
+    const state = createTUIState({
+      initialAppState: fakeInitialAppState(),
+      startup: { continueLast: false, yolo: false, auto: false, plan: false },
+    });
+    expect(state.terminal).toBeInstanceOf(DiagnosticTerminal);
+    const render = spyOn(state.ui, 'requestRender').mockImplementation(() => {});
+    try {
+      const terminal = state.terminal as DiagnosticTerminal;
+      terminal.onDiagnostic?.(t('tui.statusMessages.diagnosticsCaptured'));
+      terminal.onDiagnostic?.(t('tui.statusMessages.diagnosticLogUnavailable'));
+      expect(state.transcriptContainer.children).toHaveLength(1);
+      const text = state.transcriptContainer.render(120).join('\n');
+      expect(text).toContain('diagnostic log could not be written');
+      expect(text).not.toContain('See the diagnostic log');
+      expect(render).toHaveBeenCalled();
+      state.transcriptContainer.clear();
+      terminal.onDiagnostic?.(t('tui.statusMessages.diagnosticsCaptured'));
+      expect(state.transcriptContainer.children).toHaveLength(1);
+      expect(state.transcriptContainer.render(120).join('\n')).toContain('See the diagnostic log');
+    } finally {
+      render.mockRestore();
+      state.footer.dispose();
+    }
+  });
+
+  it.each(['regular', 'fullscreen'] as const)(
+    'renders background diagnostics through the %s UI while preserving editable input',
+    async (mode) => {
+      const state = createTUIState({
+        initialAppState: { ...fakeInitialAppState(), tuiMode: mode },
+        startup: { continueLast: false, yolo: false, auto: false, plan: false },
+      });
+      const screen = new VirtualTerminal(120, 30);
+      Object.defineProperty(state.terminal, 'columns', { get: () => 120 });
+      Object.defineProperty(state.terminal, 'rows', { get: () => 30 });
+      const start = spyOn(ProcessTerminal.prototype, 'start').mockImplementation(
+        (input, resize) => {
+          screen.start(input, resize);
+        },
+      );
+      const stop = spyOn(ProcessTerminal.prototype, 'stop').mockImplementation(() => screen.stop());
+      const stdout = spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+        screen.write(String(chunk));
+        return true;
+      });
+      const stderr = spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+        screen.write(String(chunk));
+        return true;
+      });
+      state.transcriptContainer.addChild(new Text('Compaction complete', 0, 0));
+      state.editor.setText('draft preserved');
+      state.editorContainer.addChild(state.editor);
+      if (mode === 'regular') {
+        state.ui.addChild(state.transcriptContainer);
+        state.ui.addChild(state.editorContainer);
+      }
+      state.ui.setFocus(state.editor);
+      try {
+        state.ui.start();
+        state.ui.renderNow();
+        await screen.flush();
+        console.error(
+          '[unexpected]',
+          Object.assign(new Error('memory lock failure'), { code: 'ELOCKED' }),
+        );
+        process.stderr.write('background diagnostic that must not reach the screen\n');
+        await new Promise<void>((resolve) => queueMicrotask(resolve));
+        state.ui.renderNow();
+        await screen.flush();
+        let text = screen.getViewport().join('\n');
+        expect(text).toContain('Compaction complete');
+        expect(text).toContain('draft preserved');
+        expect(text).toContain('background warning or error');
+        expect(text).not.toContain('ELOCKED');
+        expect(text).not.toContain('memory lock failure');
+        expect(text).not.toContain('must not reach the screen');
+        expect(state.transcriptContainer.children).toHaveLength(2);
+        screen.sendInput('x');
+        state.ui.renderNow();
+        await screen.flush();
+        text = screen.getViewport().join('\n');
+        expect(state.editor.getText()).toBe('draft preservedx');
+        expect(text).toContain('draft preservedx');
+      } finally {
+        state.ui.stop();
+        state.footer.dispose();
+        stderr.mockRestore();
+        stdout.mockRestore();
+        stop.mockRestore();
+        start.mockRestore();
+      }
+    },
+  );
+
   it('initializes all fields with sensible defaults', () => {
     const opts: KimiTUIOptions = {
       initialAppState: fakeInitialAppState(),

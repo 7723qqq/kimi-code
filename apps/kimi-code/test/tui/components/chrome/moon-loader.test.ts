@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, mock, type Mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock, onTestFinished, spyOn, type Mock } from 'bun:test';
 
 import type { TUI } from '@moonshot-ai/pi-tui';
 
@@ -9,6 +9,11 @@ import { MOON_LOADER_FRAME_MS } from '#/tui/constant/rendering';
 // a test never starts is inert. Every loader a test does start must be stopped
 // again, or its animation outlives the test.
 const loaders: MoonLoader[] = [];
+
+beforeEach(() => {
+  const clock = spyOn(performance, 'now').mockReturnValue(0);
+  onTestFinished(() => clock.mockRestore());
+});
 
 interface FrameDriver {
   readonly loader: MoonLoader;

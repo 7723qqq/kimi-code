@@ -1,10 +1,4 @@
-import {
-  ProcessTerminal,
-  TuiAltScreen,
-  TuiMainScreen,
-  VStack,
-  type Component,
-} from '@moonshot-ai/pi-tui';
+import { TuiAltScreen, TuiMainScreen, VStack, type Component } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
 import { TranscriptContainer } from '#/tui/components/messages/transcript-container';
@@ -24,12 +18,14 @@ import { ApprovalRegion } from './components/chrome/status-surface/regions/appro
 import { StatsRegion } from './components/chrome/status-surface/regions/stats-region';
 import { UpdatesRegion } from './components/chrome/status-surface/regions/updates-region';
 import { CustomEditor } from './components/editor/custom-editor';
+import { StatusMessageComponent } from './components/messages/status-message';
 import { DEFAULT_MARKDOWN_CONFIG, DEFAULT_TUI_CONFIG } from './config';
 import { CHROME_GUTTER } from './constant/rendering';
 import { CLICK_GUARD_MS } from './constant/terminal';
 import type { TUIState } from './state';
 import { currentTheme } from './theme';
 import { INITIAL_LIVE_PANE, type KimiTUIOptions } from './types';
+import { DiagnosticTerminal } from './utils/diagnostic-terminal';
 import { formatErrorMessage } from './utils/event-payload';
 import {
   setMarkdownAltScreenActive,
@@ -45,7 +41,7 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
   const initialAppState = options.initialAppState;
   const theme = currentTheme;
 
-  const terminal = new ProcessTerminal();
+  const terminal = new DiagnosticTerminal();
   setMarkdownRenderLatex(initialAppState.renderLatex ?? DEFAULT_TUI_CONFIG.renderLatex ?? true);
   setMarkdownMermaidMode(initialAppState.markdown?.mermaid ?? DEFAULT_MARKDOWN_CONFIG.mermaid);
   const ui =
@@ -55,8 +51,7 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
           // route OSC 8 clicks through our own opener.
           openUrl,
           refocusMouseGuardMs: CLICK_GUARD_MS,
-          copyOnSelect:
-            initialAppState.copyOnSelect ?? DEFAULT_TUI_CONFIG.copyOnSelect,
+          copyOnSelect: initialAppState.copyOnSelect ?? DEFAULT_TUI_CONFIG.copyOnSelect,
           // Likewise, on Windows the terminal's native right-click paste is
           // intercepted; feed the clipboard to the focused component as a
           // bracketed paste instead (renderer only calls this on win32).
@@ -88,7 +83,8 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
           },
         })
       : new TuiMainScreen(terminal);
-  if (options.animationFrameRate !== undefined) ui.setAnimationFrameRate(options.animationFrameRate);
+  if (options.animationFrameRate !== undefined)
+    ui.setAnimationFrameRate(options.animationFrameRate);
 
   setMarkdownAltScreenActive(ui instanceof TuiAltScreen);
   setMarkdownRenderRequester(() => {
@@ -96,6 +92,18 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
   });
 
   const transcriptContainer = new TranscriptContainer(CHROME_GUTTER, CHROME_GUTTER, ui);
+  let diagnosticNotice: StatusMessageComponent | undefined;
+  terminal.onDiagnostic = (message) => {
+    if (diagnosticNotice === undefined) {
+      diagnosticNotice = new StatusMessageComponent(message, 'warning');
+    } else {
+      diagnosticNotice.updateContent(message);
+    }
+    if (!transcriptContainer.children.includes(diagnosticNotice)) {
+      transcriptContainer.addChild(diagnosticNotice);
+    }
+    ui.requestRender();
+  };
   const activityContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const backgroundTasksMiniContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const notifyPanelContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);

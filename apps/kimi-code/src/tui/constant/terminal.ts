@@ -2,6 +2,15 @@ import { BEL, ESC, ST } from '#/constant/terminal';
 
 export { BEL, ESC, ST } from '#/constant/terminal';
 
+export const DIAGNOSTIC_CONSOLE_LEVELS = {
+  debug: 'debug',
+  log: 'info',
+  info: 'info',
+  warn: 'warn',
+  error: 'error',
+  trace: 'error',
+} as const;
+
 // Terminal theme reporting uses private CSI sequences: enable reporting,
 // query once, then parse dark/light reports from the input stream.
 export const QUERY_TERMINAL_THEME = `${ESC}[?996n`;

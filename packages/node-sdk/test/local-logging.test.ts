@@ -5,7 +5,12 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 
 import { createKimiHarness, flushDiagnosticLogs, log } from '#/index';
-import { __resetRootLoggerForTest, getRootLogger, RotatingFileSink } from '#/logging/index';
+import {
+  __resetRootLoggerForTest,
+  getRootLogger,
+  onDiagnosticLogFailure,
+  RotatingFileSink,
+} from '#/logging/index';
 
 import { TEST_IDENTITY } from './test-identity';
 
@@ -313,6 +318,56 @@ describe('RotatingFileSink — partial drain recovery', () => {
     const dropped = stderrChunks.find((chunk) => chunk.includes('dropped'));
     expect(dropped).toBeDefined();
     expect(dropped).toContain('2');
+  });
+
+  it('routes sink failures to a host without stderr output or recursive logging', async () => {
+    const homeDir = await makeTempDir('kimi-log-sink-');
+    const sink = makeSink(join(homeDir, 'logs', 'kimi-code.log'));
+    const failures: string[] = [];
+    const unsubscribe = onDiagnosticLogFailure((line) => failures.push(line));
+    const stderrChunks: string[] = [];
+    const writeSpy = spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      stderrChunks.push(String(chunk));
+      return true;
+    });
+    sinkFault.failOn = SINK_FAULT_MARKER;
+    try {
+      sink.enqueue(`failed-${SINK_FAULT_MARKER}\n`);
+      expect(await sink.flush()).toBe(false);
+      await sink.close();
+      expect(stderrChunks).toEqual([]);
+      expect(failures.some((line) => line.includes('EIO'))).toBe(true);
+      expect(failures.some((line) => line.includes('dropped 1'))).toBe(true);
+    } finally {
+      unsubscribe();
+      writeSpy.mockRestore();
+      sinkFault.failOn = undefined;
+    }
+  });
+
+  it('falls back to stderr when a host failure listener throws', async () => {
+    const homeDir = await makeTempDir('kimi-log-sink-');
+    const sink = makeSink(join(homeDir, 'logs', 'kimi-code.log'));
+    const unsubscribe = onDiagnosticLogFailure(() => {
+      throw new Error('host callback failed');
+    });
+    const stderrChunks: string[] = [];
+    const writeSpy = spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      stderrChunks.push(String(chunk));
+      return true;
+    });
+    sinkFault.failOn = SINK_FAULT_MARKER;
+    try {
+      sink.enqueue(`failed-${SINK_FAULT_MARKER}\n`);
+      expect(await sink.flush()).toBe(false);
+      await sink.close();
+      expect(stderrChunks.some((line) => line.includes('EIO'))).toBe(true);
+      expect(stderrChunks.some((line) => line.includes('dropped 1'))).toBe(true);
+    } finally {
+      unsubscribe();
+      writeSpy.mockRestore();
+      sinkFault.failOn = undefined;
+    }
   });
 
   it('rate-limits automatic retries of a permanently failing sink, but never an explicit flush', async () => {

@@ -340,7 +340,8 @@ export default {
     // capability.install_in_progress
     capabilityInstallInProgress: '该能力正在安装中',
     // capability.not_found
-    capabilityProcessControlFailed: '无法停止正在运行的 Kimi Computer Use 进程，安装已取消。请手动关闭后重试。',
+    capabilityProcessControlFailed:
+      '无法停止正在运行的 Kimi Computer Use 进程，安装已取消。请手动关闭后重试。',
     capabilityProcessesRunning: 'Kimi Computer Use 仍在运行。安装前请确认停止其进程。',
     capabilityNotFound: '未找到该能力',
     // capability.unsupported
@@ -824,7 +825,8 @@ export default {
         panelFailed: '/plugins 失败：{{error}}',
         mcpLoadFailed: '插件 MCP server 加载失败：{{error}}',
         mcpPanelFailed: '/plugins mcp 失败：{{error}}',
-        installProcessesStillRunning: '{{label}} 安装未完成。仍有进程在运行；请从 /plugins 再次安装。',
+        installProcessesStillRunning:
+          '{{label}} 安装未完成。仍有进程在运行；请从 /plugins 再次安装。',
         installFailedLabel: '安装 {{label}} 失败：{{error}}',
         installStillRunning: '{{label}} 的安装仍在后台进行。',
         installFailedWithError: '{{label}} 安装失败：{{error}}',
@@ -1800,6 +1802,9 @@ export default {
       },
     },
     statusMessages: {
+      diagnosticsCaptured: '后台出现警告或错误；若已启用日志，可在诊断日志中查看详情。',
+      terminalCleanupFailed: '终端启动清理失败。',
+      diagnosticLogUnavailable: '后台出现警告或错误，且诊断日志写入失败。',
       sessionReloadedAfterExternalUpdate: '会话「{{sessionId}}」已被另一个客户端更新，已重新加载。',
       planModeNotReviewableInPrint:
         '会话「{{sessionId}}」处于计划模式，打印模式无法审核计划；请用 `kimi -r {{sessionId}}` 审核。',
@@ -2315,8 +2320,7 @@ export default {
       updateManualNewerAvailable: '{{package}} 有新版本可用（{{current}} -> {{target}}）。',
       updateManualDetectedSource: '检测到的安装来源：{{source}}',
       updateManualRunCommand: '如需手动更新，请运行：{{command}}',
-      updateManualSwitchRequested:
-        '已请求切换 Kimi Code 发布通道（{{current}} -> {{version}}）。',
+      updateManualSwitchRequested: '已请求切换 Kimi Code 发布通道（{{current}} -> {{version}}）。',
       updateManualSwitchChannel: '发布通道：{{from}} -> {{to}}',
       updateManualThirdPartyNote:
         '注意：第三方来源可能滞后于官方发布。\n如需获取最新版本，请使用官方安装方式：{{url}}',
@@ -2496,7 +2500,8 @@ export default {
       // utils/clipboard/clipboard-text.ts
       clipboardUnavailable: '剪贴板不可用',
       clipboardUnavailableTermux: '剪贴板不可用：请安装 Termux:API 应用与 `termux-api` 包',
-      clipboardUnavailableWayland: '剪贴板不可用：请安装 `wl-clipboard`（`wl-copy`）或检查 Wayland 权限',
+      clipboardUnavailableWayland:
+        '剪贴板不可用：请安装 `wl-clipboard`（`wl-copy`）或检查 Wayland 权限',
       clipboardUnavailableX11: '剪贴板不可用：请安装 `xclip` 或 `xsel`，或检查 X11 权限',
       copiedViaTerminal: '已通过终端复制',
       // utils/clipboard/clipboard-image.ts
@@ -3140,8 +3145,10 @@ export default {
       configFollowUpBehaviorAlready: '后续消息行为已经是 {{value}}。',
       configFollowUpBehaviorSet: '后续消息行为已设为 {{value}}。',
       configFollowUpBehaviorSaveFailed: '保存后续消息行为失败：{{error}}',
-      configTuiModeEnvOverrideNotice: '已保存到 tui.toml；需取消设置 KIMI_CODE_TUI_FULL_SCREEN 才能生效。',
-      configTuiModeFallbackNotice: '已保存到 tui.toml；此终端会自动回退到常规模式，除非设置 KIMI_CODE_TUI_FULL_SCREEN=1。',
+      configTuiModeEnvOverrideNotice:
+        '已保存到 tui.toml；需取消设置 KIMI_CODE_TUI_FULL_SCREEN 才能生效。',
+      configTuiModeFallbackNotice:
+        '已保存到 tui.toml；此终端会自动回退到常规模式，除非设置 KIMI_CODE_TUI_FULL_SCREEN=1。',
       // tui/commands/resolve.ts
       resolveCannotWhileStreaming: '流式传输时无法使用 /{{name}}——请先按 Esc 或 Ctrl-C。',
       resolveCannotWhileCompacting: '压缩时无法使用 /{{name}}——请等待压缩完成。',
@@ -3246,8 +3253,7 @@ export default {
         '反馈已发送；代码库归档在 {{limit}} 个文件处被截断——仅包含达到上限前扫描到的文件。',
       feedbackCodebaseTruncatedTotalSize:
         '反馈已发送；代码库归档在 {{limit}} 字节源码处被截断——仅包含达到上限前扫描到的文件。',
-      feedbackRemoteCodebaseUnsupported:
-        '远端会话不支持代码库附件——扫描器只读取本机文件系统。',
+      feedbackRemoteCodebaseUnsupported: '远端会话不支持代码库附件——扫描器只读取本机文件系统。',
       feedbackSession: '会话：{{sessionId}}',
       feedbackId: '反馈 ID：{{id}}',
       feedbackPersistHint:

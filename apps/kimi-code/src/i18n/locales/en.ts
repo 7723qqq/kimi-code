@@ -354,7 +354,7 @@ export default {
     // capability.not_found
     capabilityNotFound: 'Capability not found',
     capabilityProcessControlFailed:
-      "Failed to stop the running Kimi Computer Use processes, so the install was cancelled. Close them manually and try again.",
+      'Failed to stop the running Kimi Computer Use processes, so the install was cancelled. Close them manually and try again.',
     capabilityProcessesRunning:
       'Kimi Computer Use is still running. Confirm stopping its processes before installing.',
     // capability.unsupported
@@ -1302,7 +1302,8 @@ export default {
         compact: 'Compact',
         compactDesc: 'Fold tool calls into one summary. Subagents and questions stay as cards.',
         balanced: 'Balanced',
-        balancedDesc: 'Fold read-only calls. Edits and commands get one line each that you can open.',
+        balancedDesc:
+          'Fold read-only calls. Edits and commands get one line each that you can open.',
         detailed: 'Detailed',
         detailedDesc: 'Fold read-only calls. Edits and commands stay as full cards.',
       },
@@ -1858,6 +1859,11 @@ export default {
       },
     },
     statusMessages: {
+      diagnosticsCaptured:
+        'A background warning or error occurred. See the diagnostic log for details if logging is enabled.',
+      terminalCleanupFailed: 'Terminal startup cleanup failed.',
+      diagnosticLogUnavailable:
+        'A background warning or error occurred, and the diagnostic log could not be written.',
       failedToSyncMcp: 'Failed to sync MCP server status: {{message}}',
       turnStoppedFiltered: 'Turn stopped: provider safety policy blocked the response.',
       turnStoppedBlocked: 'Turn stopped: prompt hook blocked the request.',
@@ -2610,7 +2616,8 @@ export default {
       // utils/process/fd-detect.ts
       fdDownloadEmptyResponse: 'Failed to download fd: empty response body',
       // main.ts
-      bunRuntimeRequired: '@moonshot-ai/kimi-code requires Bun >= 1.4.4. Install Bun: https://bun.sh',
+      bunRuntimeRequired:
+        '@moonshot-ai/kimi-code requires Bun >= 1.4.4. Install Bun: https://bun.sh',
     },
     messages: {
       turnTimeline: {

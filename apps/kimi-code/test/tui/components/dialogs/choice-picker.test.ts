@@ -465,9 +465,9 @@ describe('SettingsSelectorComponent experimental entries', () => {
     });
     picker.focused = true;
 
-    for (let i = 0; i < 13; i++) {
+    for (let i = 0; i < 14; i++) {
       picker.handleInput('\r');
-      if (i < 12) picker.handleInput('\u001B[B');
+      if (i < 13) picker.handleInput('\u001B[B');
     }
     expect(selected).toEqual([
       'model',
@@ -477,6 +477,7 @@ describe('SettingsSelectorComponent experimental entries', () => {
       'mermaid',
       'language',
       'editor',
+      'followUpBehavior',
       'survey',
       'experiments',
       'upgrade',
@@ -491,7 +492,7 @@ describe('SettingsSelectorComponent experimental entries', () => {
     const picker = new SettingsSelectorComponent({ onSelect: mock(), onCancel: mock() });
     picker.focused = true;
 
-    for (let i = 0; i < 13; i++) picker.handleInput('\u001B[B');
+    for (let i = 0; i < 14; i++) picker.handleInput('\u001B[B');
     const out = picker.render(120).map(strip);
     expect(out).toContain('  ❯ Prompt optimizer');
     expect(out).toContain('    Thinking effort and time budget for the Ctrl+P rewrite.');
@@ -508,7 +509,7 @@ describe('SettingsSelectorComponent experimental entries', () => {
 
     expect(picker.render(120).map(strip).join('\n')).not.toContain('Prompt optimizer');
 
-    for (let i = 0; i < 11; i++) picker.handleInput('\u001B[B');
+    for (let i = 0; i < 12; i++) picker.handleInput('\u001B[B');
     picker.handleInput('\r');
     expect(selected).toEqual(['github_token']);
   });

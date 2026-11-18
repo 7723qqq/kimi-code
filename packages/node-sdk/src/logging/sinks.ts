@@ -4,6 +4,15 @@ import { dirname } from 'node:path';
 
 import { syncDir } from '#/utils/fs';
 
+const failureListeners = new Set<(line: string) => void>();
+
+export function onDiagnosticLogFailure(listener: (line: string) => void): () => void {
+  failureListeners.add(listener);
+  return () => {
+    failureListeners.delete(listener);
+  };
+}
+
 export const PENDING_MAX = 1000;
 const STDERR_NOTICE_INTERVAL_MS = 30_000;
 const RETRY_BACKOFF_MIN_MS = 1_000;
@@ -291,6 +300,16 @@ export class RotatingFileSink implements Sink {
   }
 
   private writeStderr(line: string): void {
+    let handled = false;
+    for (const listener of failureListeners) {
+      try {
+        listener(line);
+        handled = true;
+      } catch {
+        continue;
+      }
+    }
+    if (handled) return;
     try {
       process.stderr.write(line);
     } catch {}

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock, onTestFinished, spyOn } from 'bun:test';
 
 import type { Component, TuiMouseDispatchResult, TuiMouseEvent } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
@@ -320,9 +320,14 @@ describe('TranscriptContainer interaction', () => {
 });
 
 describe('TranscriptRowComponent row details', () => {
+  let now = 0;
+  beforeEach(() => {
+    now = 0;
+    const clock = spyOn(performance, 'now').mockImplementation(() => now);
+    onTestFinished(() => clock.mockRestore());
+  });
   function authenticating(toolCallDensity: 'compact' | 'balanced') {
     const { container } = makeContainer(options({ toolCallDensity }));
-    let now = 0;
     const timeline = new TurnTimeline(() => instant(now));
     container.setTimeline(timeline);
     timeline.turnStarted();
