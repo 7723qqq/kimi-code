@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 
 import { UNKNOWN_CAPABILITY } from '#/llm/capability';
-import { createUserMessage } from '#/llm/message';
+import { createMessageAccumulator, createUserMessage } from '#/llm/message';
 import type { LlmModel } from '#/llm/model';
 import { createAnthropicRequester } from '#/llm/requester/bases/anthropic/requester';
 import { createGoogleGenAIRequester } from '#/llm/requester/bases/google-genai/requester';
@@ -168,11 +168,13 @@ function describeProtocol(protocol: ProtocolCase): void {
     async function generateProtocol(): Promise<LlmRequestEvent[]> {
       upstream.requests.length = 0;
       const events: LlmRequestEvent[] = [];
-      await protocol.create().generate(
-        { model: { ...model, provider: protocol.name } },
-        { messages: [createUserMessage('hi')] },
-        { signal: new AbortController().signal, onEvent: (event) => events.push(event) },
-      );
+      await protocol
+        .create()
+        .generate(
+          { model: { ...model, provider: protocol.name } },
+          { messages: [createUserMessage('hi')] },
+          { signal: new AbortController().signal, onEvent: (event) => events.push(event) },
+        );
       return events;
     }
 
@@ -180,7 +182,9 @@ function describeProtocol(protocol: ProtocolCase): void {
       upstream.scenario({ kind: 'text', chunks: ['Hel', 'lo'] });
       const events = await generateProtocol();
       const text = partsOf(events)
-        .map((event) => (event.type === 'llm.streaming.part' && event.part.type === 'text' ? event.part.text : ''))
+        .map((event) =>
+          event.type === 'llm.streaming.part' && event.part.type === 'text' ? event.part.text : '',
+        )
         .join('');
       expect(text).toBe('Hello');
       const sentAt = events.findIndex((event) => event.type === 'llm.sent');
@@ -190,6 +194,47 @@ function describeProtocol(protocol: ProtocolCase): void {
       expect(events.at(-1)).toMatchObject({ type: 'llm.done' });
       expect(upstream.requests).toHaveLength(1);
       expect(upstream.requests[0]?.path.endsWith(protocol.pathSuffix)).toBe(true);
+    });
+
+    it.each(['think', 'thinking'])(
+      'separates split %s tags from streamed answer text',
+      async (tag) => {
+        upstream.scenario({
+          kind: 'text',
+          chunks: [
+            '<',
+            tag.slice(0, 3),
+            `${tag.slice(3)}>`,
+            'Verifying focused source behavior',
+            'Checking patch only',
+            '</',
+            tag,
+            '>',
+            'Answer',
+          ],
+        });
+        const events = await generateProtocol();
+        const accumulator = createMessageAccumulator();
+        for (const event of events) {
+          if (event.type === 'llm.streaming.part') accumulator.push(event.part);
+        }
+        expect(accumulator.finish().content).toEqual([
+          { type: 'think', think: 'Verifying focused source behaviorChecking patch only' },
+          { type: 'text', text: 'Answer' },
+        ]);
+        expect(events.at(-1)).toMatchObject({ type: 'llm.done' });
+      },
+    );
+
+    it('flushes an unfinished tag prefix before the request completes', async () => {
+      upstream.scenario({ kind: 'text', chunks: ['Answer <thi'] });
+      const events = await generateProtocol();
+      const text = partsOf(events)
+        .map((event) =>
+          event.type === 'llm.streaming.part' && event.part.type === 'text' ? event.part.text : '',
+        )
+        .join('');
+      expect(text).toBe('Answer <thi');
     });
 
     it('turns a streamed tool call into a Read call', async () => {

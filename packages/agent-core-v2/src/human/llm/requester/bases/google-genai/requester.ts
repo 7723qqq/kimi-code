@@ -1,8 +1,8 @@
 import { GoogleGenAI as GenAIClient, type GenerateContentParameters } from '@google/genai';
 import { assign, shake } from 'radashi';
 
-import type { LlmModel } from '#/llm/model';
 import type { LlmRemoteErrorMessage } from '#/llm/errors';
+import type { LlmModel } from '#/llm/model';
 import type { ProtocolBase, ProtocolRequesterOptions, TraitContext } from '#/llm/protocol/base';
 import { resolveModelConnection } from '#/llm/protocol/connection';
 import { resolveMaxCompletionCap, type FormatRequestInput } from '#/llm/protocol/format';
@@ -17,6 +17,7 @@ import {
   type LlmRequesterOptions,
   type LlmRequestEvent,
 } from '#/llm/requester/requester';
+import { createThinkingTagEventHandler } from '#/llm/requester/thinking-tags';
 import { toLlmSyntaxErrorMessage } from '#/llm/syntax-errors';
 
 import { getGoogleGenAIModelCapability } from './capability';
@@ -223,7 +224,8 @@ export function createGoogleGenAIRequester(options?: GoogleGenAIRequesterOptions
       const model = resolveModelConnection(config.model, connection);
       const { tools = [] } = config;
       const { messages } = content;
-      const { signal, onEvent } = control;
+      const { signal } = control;
+      const onEvent = createThinkingTagEventHandler(control, config.responseFormat);
       const ctx: TraitContext = { model };
       let request: GoogleGenAIRequestParams;
       try {

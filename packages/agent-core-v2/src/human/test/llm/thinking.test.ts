@@ -749,6 +749,34 @@ describe('openai requester thinking', () => {
     expect(explicitParts).toEqual([{ type: 'text', text: 'ok' }]);
   });
 
+  it('decodes a custom reasoning key alongside the standard fields', async () => {
+    const client = stubOpenAIClient(
+      chatCompletionChunks([
+        { analysis_text: 'custom reasoning' },
+        { reasoning_content: 'standard reasoning', content: 'answer' },
+      ]),
+    );
+    const parts: unknown[] = [];
+    await createOpenAIRequester({
+      trait: { reasoningKey: 'analysis_text' },
+      clientFactory: client.clientFactory,
+    }).generate(
+      { model },
+      { messages },
+      {
+        signal: new AbortController().signal,
+        onEvent: (event) => {
+          if (event.type === 'llm.streaming.part') parts.push(event.part);
+        },
+      },
+    );
+    expect(parts).toEqual([
+      { type: 'think', think: 'custom reasoning', reasoningKey: 'analysis_text' },
+      { type: 'think', think: 'standard reasoning', reasoningKey: 'reasoning_content' },
+      { type: 'text', text: 'answer' },
+    ]);
+  });
+
   it('parses reasoning from stream deltas', async () => {
     const collect = async (chunks: Record<string, unknown>[]) => {
       const client = stubOpenAIClient(chunks);

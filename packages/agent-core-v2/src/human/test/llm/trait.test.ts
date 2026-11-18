@@ -1903,6 +1903,36 @@ describe('anthropic thinking kwargs', () => {
 });
 
 describe('openai responses base', () => {
+  it('decodes reasoning text deltas as thinking before the answer', async () => {
+    const client = stubResponsesClient([
+      {
+        type: 'response.reasoning_text.delta',
+        content_index: 0,
+        item_id: 'r_1',
+        output_index: 0,
+        sequence_number: 1,
+        delta: 'checking the patch',
+      },
+      { type: 'response.output_text.delta', delta: 'done' },
+      { type: 'response.completed', response: { id: 'resp_1', status: 'completed' } },
+    ]);
+    const parts: StreamedMessagePart[] = [];
+    await createOpenAIResponsesRequester({ clientFactory: client.clientFactory }).generate(
+      { model },
+      { messages },
+      {
+        signal: new AbortController().signal,
+        onEvent: (event) => {
+          if (event.type === 'llm.streaming.part') parts.push(event.part);
+        },
+      },
+    );
+    expect(parts).toEqual([
+      { type: 'think', think: 'checking the patch' },
+      { type: 'text', text: 'done' },
+    ]);
+  });
+
   it('builds the responses request shape and parses the stream', async () => {
     const client = stubResponsesClient([
       { type: 'response.created', response: { id: 'resp_1', status: 'in_progress' } },

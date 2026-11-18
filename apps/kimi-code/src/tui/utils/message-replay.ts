@@ -11,6 +11,7 @@ import type {
 } from '@moonshot-ai/kimi-code-sdk';
 import {
   limitAgentReplayByTurns,
+  normalizeThinkingTags,
   SKILL_ACTIVATION_PART_SOURCE,
   USER_PROMPT_SUBMIT_HOOK_SOURCE,
 } from '@moonshot-ai/kimi-code-sdk';
@@ -29,14 +30,16 @@ import { nextTranscriptId } from './transcript-id';
 
 export const REPLAY_TURN_LIMIT = 10;
 
+type ReplayAssistantBlock = {
+  readonly kind: 'assistant' | 'thinking';
+  readonly fragments: string[];
+};
+
 export interface ReplayRenderContext {
   turnIndex: number;
   stepIndex: number;
   currentTurnId: string | undefined;
-  assistant: {
-    thinking: string[];
-    text: string[];
-  };
+  assistant: ReplayAssistantBlock[];
   toolCalls: Map<string, ToolCallBlockData>;
   completedToolCallIds: Set<string>;
   skillActivationIds: Set<string>;
@@ -146,7 +149,7 @@ export function createReplayRenderContext(): ReplayRenderContext {
     turnIndex: 0,
     stepIndex: 0,
     currentTurnId: undefined,
-    assistant: { thinking: [], text: [] },
+    assistant: [],
     toolCalls: new Map(),
     completedToolCallIds: new Set(),
     skillActivationIds: new Set(),
@@ -187,21 +190,14 @@ export function collectReplayMessageContent(
   target: ReplayRenderContext['assistant'],
   content: readonly ContentPart[],
 ): void {
-  for (const part of content) {
-    switch (part.type) {
-      case 'think':
-        if (part.hidden !== true) {
-          target.thinking.push(part.think);
-        }
-        break;
-      case 'text':
-        target.text.push(part.text);
-        break;
-      case 'audio_url':
-      case 'image_url':
-      case 'video_url':
-        break;
-    }
+  for (const part of normalizeThinkingTags(content)) {
+    if (part.type !== 'text' && (part.type !== 'think' || part.hidden === true)) continue;
+    const kind = part.type === 'text' ? 'assistant' : 'thinking';
+    const fragment = part.type === 'text' ? part.text : part.think;
+    if (fragment.length === 0) continue;
+    const current = target.at(-1);
+    if (current?.kind === kind) current.fragments.push(fragment);
+    else target.push({ kind, fragments: [fragment] });
   }
 }
 

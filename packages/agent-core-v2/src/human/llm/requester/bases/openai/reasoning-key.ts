@@ -10,11 +10,18 @@ export type ReasoningKey = (typeof KNOWN_REASONING_KEYS)[number];
 
 export const DEFAULT_REASONING_KEY: ReasoningKey = KNOWN_REASONING_KEYS[0];
 
-export function extractReasoningStrings(source: unknown): { key: string; value: string }[] {
+export function extractReasoningStrings(
+  source: unknown,
+  explicitKey?: string,
+): { key: string; value: string }[] {
   if (typeof source !== 'object' || source === null) return [];
   const record = source as Record<string, unknown>;
+  const keys: readonly string[] =
+    explicitKey === undefined || KNOWN_REASONING_KEYS.some((key) => key === explicitKey)
+      ? KNOWN_REASONING_KEYS
+      : [explicitKey, ...KNOWN_REASONING_KEYS];
   const found: { key: string; value: string }[] = [];
-  for (const key of KNOWN_REASONING_KEYS) {
+  for (const key of keys) {
     const value = record[key];
     if (typeof value === 'string') found.push({ key, value });
   }

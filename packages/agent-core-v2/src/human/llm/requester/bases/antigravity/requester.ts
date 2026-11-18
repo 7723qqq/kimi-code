@@ -6,6 +6,7 @@ import {
   type LlmRequestControl,
   type LlmRequester,
 } from '#/llm/requester/requester';
+import { createThinkingTagEventHandler } from '#/llm/requester/thinking-tags';
 import { thinkingMetadataOf } from '#/llm/thinking';
 import type { Message } from '#human/llm/message';
 
@@ -52,7 +53,7 @@ export function createAntigravityRequester(): LlmRequester {
       content: LlmRequestContent,
       control: LlmRequestControl,
     ): Promise<void> {
-      const { onEvent } = control;
+      const onEvent = createThinkingTagEventHandler(control, config.responseFormat);
       onEvent?.({ type: 'llm.sent' });
       const messages = [...content.messages];
       const resumeFrom =

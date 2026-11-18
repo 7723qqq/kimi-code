@@ -317,6 +317,47 @@ function backgroundTask(
 }
 
 describe('KimiTUI resume message replay', () => {
+  it('restores tagged legacy thinking as separate transcript blocks in order', async () => {
+    const driver = await replayIntoDriver([
+      message('user', [{ type: 'text', text: 'Check the patch' }]),
+      message('assistant', [
+        { type: 'text', text: 'Before<thi' },
+        { type: 'text', text: 'nking>Inspecting the patch</thinking>After' },
+      ]),
+    ]);
+
+    expect(
+      driver.state.transcriptEntries
+        .filter(({ kind }) => kind === 'thinking' || kind === 'assistant')
+        .map(({ kind, content }) => ({ kind, content })),
+    ).toEqual([
+      { kind: 'assistant', content: 'Before' },
+      { kind: 'thinking', content: 'Inspecting the patch' },
+      { kind: 'assistant', content: 'After' },
+    ]);
+    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
+    expect(transcript).not.toContain('<thinking>');
+    expect(transcript).toContain('After');
+  });
+
+  it('preserves literal thinking tags inside stored JSON output', async () => {
+    const output = '{"value":"<think>literal</think>"}';
+    const driver = await replayIntoDriver([
+      message('user', [{ type: 'text', text: 'Return JSON' }]),
+      message('assistant', [
+        { type: 'text', text: output.slice(0, 12) },
+        { type: 'text', text: output.slice(12) },
+      ]),
+    ]);
+
+    expect(driver.state.transcriptEntries.filter(({ kind }) => kind === 'thinking')).toHaveLength(
+      0,
+    );
+    expect(driver.state.transcriptEntries.find(({ kind }) => kind === 'assistant')?.content).toBe(
+      output,
+    );
+  });
+
   it('does not render legacy goal completion context reminders as transcript messages', async () => {
     const driver = await replayIntoDriver([
       message(

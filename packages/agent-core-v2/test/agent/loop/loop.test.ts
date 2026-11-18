@@ -2420,6 +2420,11 @@ describe('step timing split propagation', () => {
         llmServerDecodeMs: 150,
         llmClientConsumeMs: 50,
         llmClientBlockedMs: 20,
+        // The decode-window endpoints: without these on the wire the footer's
+        // token-speed sampler sees no measurable step and never renders.
+        llmFirstTokenOffsetMs: 50,
+        llmLastTokenOffsetMs: 250,
+        llmWindowOnFrameClock: true,
       });
     } finally {
       await ctx.dispose();
@@ -2584,6 +2589,9 @@ function createTimingRequester(): IAgentLLMRequesterService {
     serverDecodeMs: 150,
     clientConsumeMs: 50,
     clientBlockedMs: 20,
+    llmFirstTokenOffsetMs: 50,
+    llmLastTokenOffsetMs: 250,
+    llmWindowOnFrameClock: true,
   };
 
   const requester: IAgentLLMRequesterService = {

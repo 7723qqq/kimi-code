@@ -167,6 +167,7 @@ export {
   createUserMessage,
   isToolDeclarationOnlyMessage,
   mergeInPlace,
+  normalizeThinkingTags,
   type Message,
 } from '#/llm-adapter/contract/message';
 export {
@@ -750,6 +751,10 @@ export * from '#/agent/contextMemory/contextMemory';
 export * from '#/agent/contextMemory/contextMemoryService';
 export {
   ContextAppendMessage,
+  ContextAppendLoopEvent,
+  ContextApplyCompaction,
+  ContextClear,
+  ContextUndo,
   ContextSpliced,
 } from '#/agent/contextMemory/contextEvents';
 export * from '#/agent/contextMemory/contextOps';
@@ -812,12 +817,13 @@ export {
   ThinkingDelta,
   ToolCallDelta,
   TurnStarted,
+  TurnStepStarted,
   TurnStepInterrupted,
   TurnStepRetrying,
   TurnStepStreamReset,
   turnPromptText,
 } from '#/agent/loop/turnEvents';
-export { TurnPrompt, TurnEnded, TurnSteer } from '#/agent/loop/turnOps';
+export { TurnPrompt, TurnEnded, TurnSteer, TurnCancel } from '#/agent/loop/turnOps';
 export * from '#/agent/loop/promptChannel';
 export * from '#/agent/interruptionReminder/interruptionReminder';
 export * from '#/agent/interruptionReminder/interruptionReminderService';

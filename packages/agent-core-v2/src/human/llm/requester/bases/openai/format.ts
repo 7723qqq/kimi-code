@@ -302,7 +302,7 @@ export function createOpenAIFormat(log?: LlmLogger): OpenAIProtocolFormat {
         }
         const reasoningDetails =
           options?.reasoningKey === undefined ? extractReasoningDetails(delta) : undefined;
-        for (const reasoning of extractReasoningStrings(delta)) {
+        for (const reasoning of extractReasoningStrings(delta, options?.reasoningKey)) {
           if (reasoning.key === 'reasoning_content') {
             seenReasoningContent = true;
           }

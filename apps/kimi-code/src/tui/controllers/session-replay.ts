@@ -544,20 +544,21 @@ export class SessionReplayRenderer {
 
   private flushAssistant(context: ReplayRenderContext): void {
     const { streamingUI } = this.host;
-    const thinking = context.assistant.thinking.join('');
-    const text = context.assistant.text.join('');
-    context.assistant = { thinking: [], text: [] };
+    const blocks = context.assistant;
+    context.assistant = [];
     this.applyStepContext(context);
 
-    if (thinking.length > 0) {
-      streamingUI.onThinkingUpdate(thinking);
-      streamingUI.onThinkingEnd();
-    }
-    if (text.length > 0) {
-      streamingUI.onStreamingTextStart();
-      streamingUI.onStreamingTextUpdate(text);
-      streamingUI.onStreamingTextEnd();
-      streamingUI.clearAssistantDraft();
+    for (const block of blocks) {
+      const text = block.fragments.join('');
+      if (block.kind === 'thinking') {
+        streamingUI.onThinkingUpdate(text);
+        streamingUI.onThinkingEnd();
+      } else {
+        streamingUI.onStreamingTextStart();
+        streamingUI.onStreamingTextUpdate(text);
+        streamingUI.onStreamingTextEnd();
+        streamingUI.clearAssistantDraft();
+      }
     }
   }
 

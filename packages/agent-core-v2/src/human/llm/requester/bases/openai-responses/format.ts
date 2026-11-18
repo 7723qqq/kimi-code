@@ -604,6 +604,7 @@ export function createOpenAIResponsesFormat(): ProtocolFormat {
             sink.onDelta({ type: 'think', think: '' });
             return;
           case 'response.reasoning_summary_text.delta':
+          case 'response.reasoning_text.delta':
             sink.onDelta({ type: 'think', think: requireStringField(event, 'delta', type) });
             return;
           case 'response.completed':

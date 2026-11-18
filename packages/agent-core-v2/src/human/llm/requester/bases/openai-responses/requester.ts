@@ -18,6 +18,7 @@ import {
   type LlmRequestEvent,
   type ToolCallIdPolicy,
 } from '#/llm/requester/requester';
+import { createThinkingTagEventHandler } from '#/llm/requester/thinking-tags';
 import { getLlmDispatcher } from '#/llm/requester/timeout';
 import { toLlmSyntaxErrorMessage } from '#/llm/syntax-errors';
 import { encodeReasoningEffortFallback } from '#/llm/thinking';
@@ -199,7 +200,8 @@ export function createOpenAIResponsesRequester(
       const model = resolveModelConnection(config.model, connection);
       const { tools = [] } = config;
       const { messages } = content;
-      const { signal, onEvent } = control;
+      const { signal } = control;
+      const onEvent = createThinkingTagEventHandler(control, config.responseFormat);
       const ctx: TraitContext = { model };
       let request: OpenAIResponsesRequestParams;
       try {

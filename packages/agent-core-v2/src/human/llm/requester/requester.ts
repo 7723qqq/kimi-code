@@ -77,6 +77,7 @@ export interface LlmRequestContent {
 export interface LlmRequestControl {
   readonly signal: AbortSignal;
   readonly onEvent?: (event: LlmRequestEvent) => void;
+  readonly onBufferedPart?: () => void;
 }
 
 export interface LlmRequester {

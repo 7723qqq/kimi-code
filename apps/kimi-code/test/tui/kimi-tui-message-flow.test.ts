@@ -104,6 +104,7 @@ import { readE2EFlags } from '#test/helpers/e2e-flags';
 import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
 import { setGlobal } from '#test/helpers/stubs';
 import { waitForAssertion } from '#test/helpers/waitFor';
+import { startMockUpstream } from '../../../../packages/agent-core-v2/test/helpers/mockUpstream';
 
 void mock.module('#/tui/commands/prompts', () => ({
   ...promptsModule,
@@ -14022,6 +14023,125 @@ capabilities = ["image_in", "video_in"]
     driver.streamingUI.flushNow();
     expect(readStreamingPhase(driver)).toBe('thinking');
     expect(driver.streamingUI.hasActiveThinkingComponent()).toBe(true);
+  });
+
+  it('folds tagged reasoning from a real upstream and reveals it on expansion', async () => {
+    const reasoning =
+      'Verifying focused source behaviorChecking patch onlyRebuilding one endpoint****Narrowing next scope';
+    const upstream = startMockUpstream({
+      kind: 'text',
+      chunks: ['<thi', 'nking>', reasoning, '</thi', 'nking>', 'Answer'],
+    });
+    const homeDir = await makeTempHome();
+    process.env['KIMI_CODE_HOME'] = homeDir;
+    const workDir = await mkdtemp(join(tmpdir(), 'kimi-code-tui-thinking-'));
+    tempDirs.push(workDir);
+    let harness: ReturnType<typeof createKimiHarness> | undefined;
+    let driver: MessageDriver | undefined;
+    try {
+      await writeFile(
+        join(homeDir, 'config.toml'),
+        `
+telemetry = false
+default_model = "stub"
+
+[providers.stub]
+type = "openai"
+base_url = "${upstream.baseUrl}"
+api_key = "test-key"
+
+[models.stub]
+provider = "stub"
+model = "stub"
+max_context_size = 262144
+`,
+      );
+      harness = createKimiHarness({
+        homeDir,
+        identity: {
+          productName: 'kimi-code-cli',
+          version: '0.0.0-test',
+          platform: 'kimi_code_cli',
+        },
+      });
+      const startupInput = { ...makeStartupInput(), workDir };
+      startupInput.cliOptions.model = 'stub';
+      startupInput.tuiConfig.autoSessionTitle = false;
+      driver = new KimiTUI(harness, startupInput) as unknown as MessageDriver;
+      driver.state.footer.setGitBinding(() => null);
+      spyOn(driver.state.ui, 'requestRender').mockImplementation(() => {});
+      spyOn(driver.state.terminal, 'setProgress').mockImplementation(() => {});
+      driver.persistInputHistory = mock(async () => {});
+      await driver.init();
+      const session = await harness.createSession({ workDir });
+      await driver.setSession(session);
+      await driver.syncRuntimeState(session);
+      driver.sessionEventHandler.startSubscription();
+      driver.handleUserInput('Check the patch');
+      await waitForAssertion(
+        () => {
+          expect(
+            driver!.state.transcriptEntries.some(
+              (entry) => entry.kind === 'assistant' && entry.content === 'Answer',
+            ),
+          ).toBe(true);
+          expect(driver!.state.appState.streamingPhase).toBe('idle');
+        },
+        { timeout: 5_000 },
+      );
+
+      expect(upstream.requests).toHaveLength(1);
+      expect(
+        driver.state.transcriptEntries
+          .filter((entry) => entry.kind === 'thinking')
+          .map((entry) => entry.content),
+      ).toEqual([reasoning]);
+      const container = driver.state.transcriptContainer;
+      container.setPresentationOptions({
+        fullscreen: true,
+        toolCallDensity: 'compact',
+        thinking: 'grouped',
+      });
+      const collapsed = stripSgr(container.render(140).join('\n'));
+      expect(collapsed).toContain('Answer');
+      expect(collapsed).not.toContain(reasoning);
+      expect(collapsed).not.toContain('<thinking>');
+      container.toggleToolOutputExpansion();
+      expect(stripSgr(container.render(140).join('\n'))).toContain(reasoning);
+      container.toggleToolOutputExpansion();
+      expect(stripSgr(container.render(140).join('\n'))).not.toContain(reasoning);
+    } finally {
+      driver?.state.activitySpinner?.instance.stop();
+      driver?.state.footer.dispose();
+      await driver?.closeSession('test');
+      await harness?.close();
+      await upstream.close();
+    }
+  });
+
+  it('keeps streamed answer text on either side of a thinking block in order', async () => {
+    const { driver } = await makeDriver();
+    const events = [
+      { type: 'assistant.delta', delta: 'Before' },
+      { type: 'thinking.delta', delta: 'Checking the patch' },
+      { type: 'assistant.delta', delta: 'After' },
+    ] as const;
+    for (const event of events) {
+      driver.sessionEventHandler.handleEvent(
+        { ...event, agentId: 'main', sessionId: 'ses-1', turnId: 1 } as Event,
+        mock(),
+      );
+    }
+    driver.streamingUI.finalizeLiveTextBuffers();
+
+    const entries = driver.state.transcriptEntries.filter(
+      ({ kind }) => kind === 'assistant' || kind === 'thinking',
+    );
+    expect(entries.map(({ kind, content }) => ({ kind, content }))).toEqual([
+      { kind: 'assistant', content: 'Before' },
+      { kind: 'thinking', content: 'Checking the patch' },
+      { kind: 'assistant', content: 'After' },
+    ]);
   });
 
   it('finalizes an orphaned thinking component on turn end', async () => {

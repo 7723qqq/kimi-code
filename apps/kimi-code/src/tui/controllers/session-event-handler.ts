@@ -751,6 +751,7 @@ export class SessionEventHandler {
     // text), leaving a blank, spinner-less gap until the first real text/tool
     // token arrives. Keep the moon up until actual thinking text shows up.
     if (event.delta.trim().length === 0 && !streamingUI.hasThinkingDraft()) return;
+    if (streamingUI.hasStreamingBlock()) streamingUI.finalizeAssistantStream();
     streamingUI.timeline.thinkingDelta(event.delta);
     streamingUI.appendThinkingDelta(event.delta);
     this.host.patchLivePane({ mode: 'idle' });

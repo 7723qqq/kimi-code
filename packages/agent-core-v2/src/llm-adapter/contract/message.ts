@@ -22,6 +22,8 @@ export type {
 
 export type Tool = ToolDescription;
 
+export { normalizeThinkingTags } from '#human/llm/thinking-tags';
+
 export {
   extractText,
   getTextContent,

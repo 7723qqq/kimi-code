@@ -296,6 +296,7 @@ export class ModelRequesterImpl implements ModelRequester {
         content,
         {
           signal: stall.signal(signal),
+          onBufferedPart: () => stall.onChunk(),
           onEvent: (event: LlmRequestEvent) => {
             switch (event.type) {
               case 'llm.sent': {
