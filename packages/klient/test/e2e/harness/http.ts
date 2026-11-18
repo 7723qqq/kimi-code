@@ -38,6 +38,7 @@ import type {
   UndoSessionRequest,
   UndoSessionResponse,
 } from '@moonshot-ai/kap-server/protocol/rest-session';
+import type { ConversationTurnsPage } from '@moonshot-ai/kap-server/protocol/conversation';
 import type {
   Session,
   SessionChildCreate,
@@ -243,14 +244,22 @@ export class HttpClient {
       body,
     );
   }
-  undoSession(
-    sid: string,
-    body: UndoSessionRequest = { count: 1 },
-  ): Promise<UndoSessionResponse> {
+  undoSession(sid: string, body: UndoSessionRequest): Promise<UndoSessionResponse> {
     return this.request(
       'POST',
       `/sessions/${encodeURIComponent(sid)}:undo`,
       body,
+    );
+  }
+  listTurns(
+    sid: string,
+    agentId: string,
+    query?: { before_ordinal?: number; page_size?: number },
+  ): Promise<ConversationTurnsPage> {
+    return this.request(
+      'GET',
+      `/sessions/${encodeURIComponent(sid)}/agents/${encodeURIComponent(agentId)}/turns${qs(query)}`,
+      undefined,
     );
   }
   archiveSession(sid: string): Promise<{ archived: true }> {

@@ -48,6 +48,7 @@ import type {
   UndoSessionRequest,
   UndoSessionResponse,
 } from '@moonshot-ai/kap-server/protocol/rest-session';
+import type { ConversationTurnsPage } from '@moonshot-ai/kap-server/protocol/conversation';
 import type {
   Session,
   SessionChildCreate,
@@ -198,8 +199,15 @@ export class DaemonClient {
   compactSession(sid: string, body: CompactSessionRequest = {}): Promise<CompactSessionResponse> {
     return this.http.compactSession(sid, body);
   }
-  undoSession(sid: string, body: UndoSessionRequest = { count: 1 }): Promise<UndoSessionResponse> {
+  undoSession(sid: string, body: UndoSessionRequest): Promise<UndoSessionResponse> {
     return this.http.undoSession(sid, body);
+  }
+  listTurns(
+    sid: string,
+    agentId: string,
+    query?: { before_ordinal?: number; page_size?: number },
+  ): Promise<ConversationTurnsPage> {
+    return this.http.listTurns(sid, agentId, query);
   }
   archiveSession(sid: string): Promise<{ archived: true }> {
     return this.http.archiveSession(sid);

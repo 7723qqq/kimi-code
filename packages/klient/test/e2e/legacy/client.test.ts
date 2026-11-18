@@ -275,7 +275,7 @@ describeLive('DaemonClient (live server required)', () => {
   );
 
   it(
-    'undoSession removes the latest prompt and returns refreshed messages',
+    'undoSession removes the named turn and keeps the earlier history',
     async () => {
       const log = createCaseLogger('client: undo action');
       const client = new DaemonClient({ baseUrl: BASE_URL });
@@ -313,13 +313,19 @@ describeLive('DaemonClient (live server required)', () => {
       log('messages before undo', beforeUndo);
       expect(textFromMessages(beforeUndo.items)).toContain('UNDO-ME');
 
-      const result = await client.undoSession(session.id, { count: 1, page_size: 100 });
-      log('undo response', result);
+      const turns = await client.listTurns(session.id, 'main');
+      log('turns before undo', turns);
+      const undoable = turns.turns.filter((turn) => turn.kind === 'agent').at(-1);
+      expect(undoable, 'the session should record the turn it just finished').toBeDefined();
 
-      const afterText = textFromMessages(result.messages.items);
+      const result = await client.undoSession(session.id, { turn_id: undoable!.turn_id });
+      log('undo response', result);
+      expect(result.removed_turn_ids).toEqual([undoable!.turn_id]);
+
+      const afterUndo = await client.listMessages(session.id, { page_size: 100 });
+      const afterText = textFromMessages(afterUndo.items);
       expect(afterText).toContain('KEEP');
       expect(afterText).not.toContain('UNDO-ME');
-      expect(result.messages.has_more).toBe(false);
     },
     PROMPT_TIMEOUT_MS * 2 + 30_000,
   );
@@ -395,17 +401,19 @@ describe('DaemonClient session action helpers', () => {
     });
   });
 
-  it('undoSession posts the action-suffix route and unwraps messages', async () => {
+  it('undoSession posts the action-suffix route and unwraps removed turn ids', async () => {
     const log = createCaseLogger('client helper: undoSession');
     const calls: FetchCall[] = [];
-    const message = testMessage({ id: 'msg_kept', session_id: 'sess_source' });
-    const undoResponse = { messages: { items: [message], has_more: false } };
+    const undoResponse = { removed_turn_ids: ['turn_2'] };
     const client = new DaemonClient({
       baseUrl: 'http://server.example.test',
       fetchImpl: recordingFetch(okEnvelope(undoResponse), calls),
     });
 
-    const result = await client.undoSession('sess_source', { count: 2, page_size: 25 });
+    const result = await client.undoSession('sess_source', {
+      turn_id: 'turn_2',
+      agent_id: 'main',
+    });
 
     log('fetch calls', calls);
     log('unwrapped result', result);
@@ -414,8 +422,8 @@ describe('DaemonClient session action helpers', () => {
     expect(calls[0]?.url).toBe('http://server.example.test/api/v1/sessions/sess_source:undo');
     expect(calls[0]?.init.method).toBe('POST');
     expect(parseRecordedJsonBody(calls[0])).toEqual({
-      count: 2,
-      page_size: 25,
+      turn_id: 'turn_2',
+      agent_id: 'main',
     });
   });
 
