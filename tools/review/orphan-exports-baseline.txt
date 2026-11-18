@@ -115,3 +115,4 @@ retentionRate  packages/agent-core-v2/src/features/associativeMemory/eval.ts
 applyRecallRules  packages/agent-core-v2/src/features/associativeMemory/code.ts
 resetRendered  packages/agent-core-v2/src/agent/injection/renderedLines.ts
 splitNote  packages/agent-core-v2/src/features/associativeMemory/encode.ts
+resetGitHubResponseCacheForTest  packages/agent-core-v2/src/agent/tools/github/github-request.ts
