@@ -158,10 +158,12 @@ export type CompactSessionRequest = z.infer<typeof compactSessionRequestSchema>;
 export const compactSessionResponseSchema = z.object({});
 export type CompactSessionResponse = z.infer<typeof compactSessionResponseSchema>;
 
-export const undoSessionRequestSchema = z.object({
-  turn_id: z.string().min(1),
-  agent_id: z.string().min(1).optional(),
-});
+export const undoSessionRequestSchema = z
+  .object({
+    turn_id: z.string().min(1),
+    agent_id: z.string().min(1).optional(),
+  })
+  .strict();
 export type UndoSessionRequest = z.infer<typeof undoSessionRequestSchema>;
 
 export const undoSessionResponseSchema = z.object({

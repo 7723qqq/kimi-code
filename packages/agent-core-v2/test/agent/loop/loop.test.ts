@@ -2420,8 +2420,6 @@ describe('step timing split propagation', () => {
         llmServerDecodeMs: 150,
         llmClientConsumeMs: 50,
         llmClientBlockedMs: 20,
-        // The decode-window endpoints: without these on the wire the footer's
-        // token-speed sampler sees no measurable step and never renders.
         llmFirstTokenOffsetMs: 50,
         llmLastTokenOffsetMs: 250,
         llmWindowOnFrameClock: true,
