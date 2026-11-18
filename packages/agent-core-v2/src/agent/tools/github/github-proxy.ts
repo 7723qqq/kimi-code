@@ -112,7 +112,10 @@ export interface GitHubFetchDeps {
 type UndiciInit = NonNullable<Parameters<typeof undiciFetch>[1]>;
 
 function undiciFetchLike(input: string | URL | Request, init?: RequestInit): Promise<Response> {
-  return undiciFetch(input, init as UndiciInit) as unknown as Promise<Response>;
+  return undiciFetch(
+    input as Parameters<typeof undiciFetch>[0],
+    init as UndiciInit,
+  ) as unknown as Promise<Response>;
 }
 
 export function createGitHubFetch(
